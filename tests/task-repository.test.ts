@@ -227,6 +227,35 @@ describe("task repository", () => {
     expect(database.prepare("SELECT count(*) AS n FROM work_review_verdicts").get()).toEqual({ n: 1 });
   });
 
+  it("shows a task back on a node it passed none of that node's old stamps", async () => {
+    const { taskId } = await create("one");
+    const there = env({ downstream: (node) => (node === build ? [qa] : [build]), stampDefaultOf: () => ({ required: 1 }) });
+    const at = (node: typeof build, op: TaskCommand, actor: ResourceActor = operator) =>
+      submit({ ...command(op, taskId, { actor }), target: { kind: "task", nodeId: node, itemId: taskId } }, there);
+    applied(await at(build, { kind: "stamp-policy", required: 1 }));
+    applied(await at(build, { kind: "assign", seat: ada }));
+    applied(await at(build, { kind: "start" }, adaActor));
+    applied(await at(build, { kind: "finish" }, adaActor));
+    expect(applied(await at(build, { kind: "stamp", verdict: "approve" })).task).toMatchObject({ node: qa, epoch: 1 });
+    applied(await at(qa, { kind: "assign", seat: ada }));
+    applied(await at(qa, { kind: "start" }, adaActor));
+    applied(await at(qa, { kind: "finish" }, adaActor));
+    const back = applied(await at(qa, { kind: "stamp", verdict: "approve" })).task;
+    expect(back).toMatchObject({ node: build, epoch: 2, state: "backlog", stamps: [] });
+    expect(Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId))).current.stamps).toEqual([]);
+  });
+
+  it("fails the write when a stamp row breaks a CHECK, rather than drop the stamp", async () => {
+    const { taskId } = await create("one");
+    applied(await submit(command({ kind: "stamp-policy", required: 1 }, taskId)));
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    applied(await submit(command({ kind: "start" }, taskId, { actor: adaActor })));
+    applied(await submit(command({ kind: "finish" }, taskId, { actor: adaActor })));
+    database.exec("DELETE FROM installation");
+    await expect(submit(command({ kind: "stamp", verdict: "approve" }, taskId))).rejects.toThrow(/NOT NULL|CHECK/);
+    expect(Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId))).current.state).toBe("in-review");
+  });
+
   it("lists by state, archived left out by default", async () => {
     const { taskId } = await create("one");
     applied(await submit(command({ kind: "cancel" }, taskId)));

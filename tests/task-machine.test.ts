@@ -406,7 +406,7 @@ describe("flows: finishing sends the task on", () => {
   it("arrives on the one downstream node in backlog, unassigned, with that node's stamp default", () => {
     const context = env({ downstream: () => [qa], stampDefaultOf: (node) => ({ required: node === qa ? 2 : 0 }) });
     const ruled = ok(one(record({ state: "working", assignee: ada, reviewers: [asSeat(bo)] }), seat(ada), { kind: "finish" }, context));
-    expect(ruled.task).toMatchObject({ state: "backlog", node: qa, stampPolicy: { required: 2 }, reviewers: [], stamps: [] });
+    expect(ruled.task).toMatchObject({ state: "backlog", node: qa, epoch: 1, stampPolicy: { required: 2 }, reviewers: [], stamps: [] });
     expect(ruled.task).not.toHaveProperty("assignee");
     expect(ruled.effects).toEqual([{
       kind: "sent-on",
@@ -436,6 +436,31 @@ describe("flows: finishing sends the task on", () => {
     const ruled = ok(one(inReview, seat(bo), { kind: "stamp", verdict: "approve" }, context));
     expect(ruled.task).toMatchObject({ state: "backlog", node: ship });
     expect(ruled.effects.map((effect) => effect.kind)).toEqual(["sent-on"]);
+  });
+});
+
+describe("a return trip", () => {
+  it("arrives back on a node it passed at a later epoch, with none of its old approvals current", () => {
+    const there = env({ downstream: (node) => (node === build ? [qa] : [build]), stampDefaultOf: () => ({ required: 1 }) });
+    const approved = ok(one(
+      record({ state: "working", assignee: ada, reviewers: [asSeat(bo)], stampPolicy: { required: 1 } }),
+      seat(ada),
+      { kind: "finish" },
+      there,
+    )).task;
+    const atQa = ok(one(approved, seat(bo), { kind: "stamp", verdict: "approve" }, there)).task;
+    expect(atQa).toMatchObject({ node: qa, epoch: 1 });
+    const back = run(atQa, [
+      [operator, { kind: "assign", seat: cy }],
+      [seat(cy), { kind: "start" }],
+      [seat(cy), { kind: "finish" }],
+      [operator, { kind: "stamp", verdict: "approve" }],
+    ], there);
+    expect(back).toMatchObject({ node: build, epoch: 2, state: "backlog" });
+    // Even with the first pass's stamp put back, it is not current here.
+    expect(currentApprovals({ ...back, reviewers: [asSeat(bo)], stamps: approved.stamps.concat(
+      { reviewer: asSeat(bo), verdict: "approve", epoch: 0, at: 1 },
+    ) })).toBe(0);
   });
 });
 

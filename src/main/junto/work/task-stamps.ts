@@ -8,7 +8,8 @@
  *
  * The verdict id derives from (canvas, task, epoch, reviewer, at), so the
  * ruler and every replica folding its ruling write the same row, and writing
- * it twice is a no-op.
+ * it twice is a no-op. Only the id's conflict is: a row that breaks a CHECK
+ * fails the write, so a ruled stamp is never dropped.
  *
  * A stamp without a subject hash stores its verdict id in `subject_hash`
  * (the column is required); reading it back, that hash is no hash.
@@ -54,7 +55,7 @@ export const writeTaskStamps = (
     : admitted(Effect.forEach(task.stamps, (stamp) => {
       const verdictId = stampVerdictId(canvas, task.id, stamp);
       return sql`
-        INSERT OR IGNORE INTO work_review_verdicts (
+        INSERT INTO work_review_verdicts (
           verdict_id, kind, reviewer_kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
           subject_kind, subject_task_installation, subject_task_canvas, subject_task_node, subject_task_item,
           subject_epoch, subject_sha, subject_checkout, subject_hash, epoch, findings_json, refs_json, posted_at_ms
@@ -64,7 +65,8 @@ export const writeTaskStamps = (
           'task', (SELECT installation_id FROM installation WHERE singleton = 1), ${canvas}, ${task.node}, ${task.id},
           ${stamp.epoch}, NULL, NULL, ${stamp.subjectHash ?? verdictId}, ${stamp.epoch},
           ${JSON.stringify(stamp.text === undefined ? [] : [stamp.text])}, '[]', ${stamp.at}
-        )`;
+        )
+        ON CONFLICT (verdict_id) DO NOTHING`;
     }, { discard: true }));
 
 const StampRow = Schema.Struct({
@@ -102,30 +104,31 @@ export const stampOfRow = (row: StampRow): Stamp | undefined => {
 };
 
 /**
- * The stamps of the given tasks, each at the node it sits on now, oldest
- * first. A row that does not decode is reported by task id in `unreadable`.
+ * The stamps of the given tasks on their current layer, oldest first: at the
+ * node each sits on now, from the epoch it arrived there with (`since`). A row that does not decode is reported by task id in `unreadable`.
  */
 export const readTaskStamps = (
   sql: SqlClient.SqlClient,
   canvas: string,
-  heads: ReadonlyArray<{ readonly taskId: string; readonly node: string }>,
+  heads: ReadonlyArray<{ readonly taskId: string; readonly node: string; readonly since: number }>,
 ) =>
   Effect.gen(function* () {
     const stamps = new Map<string, Stamp[]>();
     const unreadable = new Set<string>();
     if (heads.length === 0) return { stamps, unreadable };
-    const nodeOf = new Map(heads.map((head) => [head.taskId, head.node]));
+    const headOf = new Map(heads.map((head) => [head.taskId, head]));
     const rows = yield* decodeStampRows(
       yield* sql`
         SELECT verdict_id, kind, reviewer_kind, reviewer_node_id, subject_task_item, subject_task_node, subject_hash,
           epoch, findings_json, posted_at_ms
         FROM work_review_verdicts
         WHERE subject_kind = 'task' AND subject_task_canvas = ${canvas} AND reviewer_seat_id IS NULL
-          AND ${sql.in("subject_task_item", [...nodeOf.keys()])}
+          AND ${sql.in("subject_task_item", [...headOf.keys()])}
         ORDER BY posted_at_ms, verdict_id`,
     );
     for (const row of rows) {
-      if (nodeOf.get(row.subject_task_item) !== row.subject_task_node) continue;
+      const head = headOf.get(row.subject_task_item);
+      if (head === undefined || head.node !== row.subject_task_node || row.epoch < head.since) continue;
       const stamp = stampOfRow(row);
       if (stamp === undefined) {
         unreadable.add(row.subject_task_item);

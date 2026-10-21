@@ -294,13 +294,29 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
             ORDER BY task_id, ordinal`,
         })(undefined);
 
+    /** The epoch each task arrived on its node with: one past its last closed layer's. */
+    const arrivals = (canvas: string, ids: ReadonlyArray<string>) =>
+      ids.length === 0
+        ? Effect.succeed(new Map<string, number>())
+        : Effect.map(
+          sql<{ readonly task_id: string; readonly epoch: number | null }>`
+            SELECT task_id, max(json_extract(layer_json, '$.epoch')) AS epoch FROM task_layers
+            WHERE canvas_name = ${canvas} AND ${sql.in("task_id", ids)}
+            GROUP BY task_id`,
+          (rows) => new Map(rows.map((row) => [row.task_id, row.epoch === null ? 0 : row.epoch + 1])),
+        );
+
     /** Head rows with their stamps as task records; undefined where a row does not decode. */
     const recordsOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>
-      Effect.map(
-        readTaskStamps(sql, canvas, rows.map((row) => ({ taskId: row.task_id, node: row.node_id }))),
-        ({ stamps, unreadable }) =>
-          rows.map((row) => taskOfRow(row, unreadable.has(row.task_id) ? undefined : (stamps.get(row.task_id) ?? []))),
-      );
+      Effect.gen(function* () {
+        const since = yield* arrivals(canvas, rows.map((row) => row.task_id));
+        const { stamps, unreadable } = yield* readTaskStamps(
+          sql,
+          canvas,
+          rows.map((row) => ({ taskId: row.task_id, node: row.node_id, since: since.get(row.task_id) ?? 0 })),
+        );
+        return rows.map((row) => taskOfRow(row, unreadable.has(row.task_id) ? undefined : (stamps.get(row.task_id) ?? [])));
+      });
 
     /** Views of decodable head rows, each with its closed layers. */
     const viewsOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>

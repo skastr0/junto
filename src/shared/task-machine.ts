@@ -199,12 +199,23 @@ const layerRules = <T extends TaskCore>(ctx: TaskContext) => {
   const rule = (task: T, effects: ReadonlyArray<TaskEffect> = []): LayerRuling<T> => ({ ok: true, task, effects });
   const illegal = (task: T, command: TaskCommand): LayerRuling<T> =>
     refuse({ kind: "illegal-transition", from: task.state, command: command.kind });
-  /** Close the layer: done here, or arrive in backlog, unassigned, on the next node. */
+  /**
+   * Close the layer: done here, or arrive in backlog, unassigned, on the next
+   * node at the next epoch, so no approval from an earlier pass counts there.
+   */
   const complete = (task: T): LayerRuling<T> => {
     const closed: T = { ...without(task, "next"), state: "done" };
     if (task.next === undefined) return rule(closed);
     return rule(
-      { ...without(closed, "assignee"), state: "backlog", node: task.next, stampPolicy: ctx.stampDefaultOf(task.next), reviewers: [], stamps: [] },
+      {
+        ...without(closed, "assignee"),
+        state: "backlog",
+        node: task.next,
+        epoch: task.epoch + 1,
+        stampPolicy: ctx.stampDefaultOf(task.next),
+        reviewers: [],
+        stamps: [],
+      },
       [{ kind: "sent-on", from: task.node, to: task.next, layer: layerOf(closed) }],
     );
   };
