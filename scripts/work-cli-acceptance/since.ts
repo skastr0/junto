@@ -13,21 +13,23 @@ export const sinceArea: AcceptanceArea = {
   owner: "pty-mail",
   run: async ({ cli, log }) => {
     const peer = { nodeId: "peer", agentKey: "local:peer" };
-    const since = await cli(["since"], peer);
-    log("since", since.stdout || since.stderr);
-    const view = envelopeOf(since)?.data;
-    const owed: ReadonlyArray<string> = view?.owed_replies?.lines ?? [];
+    // The bare verb is its own case: the sections below read --all, so one
+    // defect in the bare form does not hide what since says.
+    const bare = await cli(["since"], peer);
+    log("since", bare.stdout || bare.stderr);
     const all = await cli(["since", "--all"], peer);
     log("since --all", all.stdout || all.stderr);
-    // A seat nothing was written to owes nothing.
-    const quiet = await cli(["since"]);
+    const view = envelopeOf(all)?.data;
+    const owed: ReadonlyArray<string> = view?.owed_replies?.lines ?? [];
+    // The seeded agent was written nothing: it owes nothing.
+    const quiet = await cli(["since", "--all"]);
     log("since quiet", quiet.stdout || quiet.stderr);
     const quietView = envelopeOf(quiet)?.data;
     return [
-      check("unread counted", since.code === 0 && typeof view?.unread === "number" && view.unread >= 1, since),
-      check("mention owed a reply", owed.some((line) => line.includes("please look")), since),
-      check("--all", all.code === 0 && typeof envelopeOf(all)?.data?.as_of === "string", all),
-      check("nothing owed", quiet.code === 0 && quietView?.owed_replies === undefined, quiet),
+      check("bare since runs", bare.code === 0 && typeof envelopeOf(bare)?.data?.as_of === "string", bare),
+      check("unread counted", all.code === 0 && typeof view?.unread === "number" && view.unread >= 1, all),
+      check("mention owed a reply", owed.some((line) => line.includes("please look")), all),
+      check("nothing owed", quiet.code === 0 && typeof quietView?.as_of === "string" && quietView.owed_replies === undefined, quiet),
     ];
   },
 };

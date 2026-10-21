@@ -1,9 +1,11 @@
 /**
- * The control plane as 0.9 left it: doctor, onboard, capabilities, a legacy
- * claim and a partial batch, a raised and withdrawn hand, and a scope error.
+ * The control plane every seat starts from: doctor, onboard, capabilities, a
+ * raised and withdrawn hand, and an unknown task node. The 0.9 task claim
+ * and batch update are gone (the deleted area checks them).
  * Owner: pty-mail, from the original work-cli-acceptance.ts checks.
  */
 import { bodyOf, casesFor, type AcceptanceArea } from "./area";
+import { envelopeOf } from "./envelope";
 
 const { check } = casesFor("core");
 
@@ -17,20 +19,6 @@ export const coreArea: AcceptanceArea = {
     log("onboard", onboard.stdout || onboard.stderr);
     const caps = await cli(["capabilities"]);
     log("capabilities", caps.stdout || caps.stderr);
-
-    const claim = await cli(["task", "claim", JSON.stringify({ target: nodes.tasks, task: "t1" })]);
-    log("task claim", claim.stdout || claim.stderr);
-    const batch = await cli([
-      "task",
-      "update",
-      JSON.stringify([
-        { target: nodes.tasks, task: "t1", state: "completed", note: "done" },
-        { target: nodes.tasks, task: "missing", state: "completed" },
-      ]),
-      "--concurrency",
-      "2",
-    ]);
-    log(`task update batch exit=${batch.code}`, batch.stdout || batch.stderr);
 
     // Raising a hand needs no edge: blocked, then read it back, then withdraw.
     const raised = await cli(["blocked", "Approve the acceptance artifact to ship?", "--detail", "Acceptance run is otherwise green."]);
@@ -47,18 +35,15 @@ export const coreArea: AcceptanceArea = {
       signalClearedOk = cleared.code === 0 && bodyOf(cleared)?.data?.signals?.[0]?.state === "withdrawn";
     }
 
-    const scope = await cli(["task", "list", JSON.stringify({ target: "no-such-node" })]);
-    log("scope error", scope.stdout || scope.stderr);
+    const unknownNode = await cli(["task", "list", "--node", "no-such-node"]);
+    log("unknown task node", unknownNode.stdout || unknownNode.stderr);
 
-    const claimBody = bodyOf(claim);
-    const batchBody = bodyOf(batch);
     return [
       check("doctor", doctor.stdout.includes("protocol_version"), doctor),
-      check("claim", claimBody?.ok === true && claimBody.data?.outcome === "succeeded", claim),
-      check("batch partial", batchBody?.ok === true && batchBody.data?.outcome === "partial_failure" && batch.code === 1, batch),
+      check("task list on a node in reach", (await cli(["task", "list", "--node", nodes.tasks])).code === 0),
       check("signal", signalOk, raised),
       check("signal clear", signalClearedOk),
-      check("scope", (scope.stderr || scope.stdout).includes("ScopeError"), scope),
+      check("unknown task node", envelopeOf(unknownNode)?.error?.type === "UnknownTarget", unknownNode),
     ];
   },
 };

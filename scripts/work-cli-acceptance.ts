@@ -13,7 +13,7 @@ import { ModelService } from "../src/main/junto/model/service";
  *
  * The daemon uses node:sqlite, so run it under Node, not Bun:
  *
- *   bun run cli:build
+ *   JUNTO_FEATURE_PROFILE=all-on bun run cli:build
  *   bun build scripts/work-cli-acceptance.ts --target=node --format=cjs --packages=external --outfile=node_modules/.cache/work-cli-acceptance.cjs
  *   JUNTO_TASKS=1 JUNTO_ARTIFACTS=1 node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
  */
@@ -326,6 +326,10 @@ const seed = () => Schema.decodeUnknownSync(Command)({
     { kind: "artifacts", id: ARTS, x: 640, y: 40, width: 160, height: 80, z: 3 },
     { kind: "region", id: "region", x: 0, y: 0, width: 900, height: 200, z: 4,
       label: "Acceptance", hold: false, instruction: "accept the work plane" },
+    // A region beside it, on no line with it: a seat here reaches nothing in
+    // Acceptance. A node in no region is at the root and reaches everything.
+    { kind: "region", id: "elsewhere", x: 1200, y: 0, width: 600, height: 200, z: 5,
+      label: "Elsewhere", hold: false, instruction: "out of reach of the acceptance work" },
   ],
   // The seat reaches Tasks and Artifacts through the region, with no wire (01).
   wires: [],
@@ -392,7 +396,7 @@ const log = (label: string, body: string) => {
 
 export const runWorkCliAcceptance = async () => {
   if (!existsSync(CLI)) {
-    throw new Error("missing dist/junto — run bun run cli:build");
+    throw new Error("missing dist/junto — run JUNTO_FEATURE_PROFILE=all-on bun run cli:build");
   }
   // The core reads its flags when it loads, so they come from the run's env.
   if (!TASKS_ENABLED || !ARTIFACTS_ENABLED) {
@@ -427,6 +431,7 @@ export const runWorkCliAcceptance = async () => {
       MachineRepositoryLive,
       SettingsLive,
       contentLive,
+      recorded,
       OpRepositoryLive,
       makeAutomationRepositoryLive(),
       Layer.provide(TaskRepositoryLive, recorded),
@@ -438,14 +443,15 @@ export const runWorkCliAcceptance = async () => {
     ),
   );
   // This machine edits the acceptance canvas and links no peer: every write is ruled here.
+  // The ruler reads the model, so it goes over the canvases (core-product.ts).
+  const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositoriesLive);
   const ruledLive = Layer.provideMerge(
     Layer.mergeAll(makeResourceSubmitLayer(() => false), ResourceRulerLive),
-    repositoriesLive,
+    canvasesLive,
   );
-  const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), ruledLive);
   const workLive = Layer.provideMerge(
     WorkLive,
-    canvasesLive,
+    ruledLive,
   );
   const runtime = ManagedRuntime.make((
     Layer.mergeAll(workLive, PausePlaneAllPlaying) as never),
@@ -559,7 +565,7 @@ export const runWorkCliAcceptance = async () => {
     };
     const context: AcceptanceContext = {
       canvas: CANVAS,
-      nodes: { agent: AGENT, tasks: TASKS, requests: REQS, artifacts: ARTS, region: "region" },
+      nodes: { agent: AGENT, tasks: TASKS, requests: REQS, artifacts: ARTS, region: "region", elsewhere: "elsewhere" },
       cli: cliAs,
       addSeat,
       runtime: runtime as never,

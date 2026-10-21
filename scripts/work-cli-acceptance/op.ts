@@ -26,10 +26,10 @@ export const opArea: AcceptanceArea = {
 
     const applied = await cli(["op", "show", String(made?.opId)]);
     log("op show applied", applied.stdout || applied.stderr);
-    const appliedView = envelopeOf(applied)?.data;
+    const appliedView = envelopeOf(applied)?.data?.op;
     const refused = await cli(["op", "show", String(refusedOp)], worker);
     log("op show refused", refused.stdout || refused.stderr);
-    const refusedView = envelopeOf(refused)?.data;
+    const refusedView = envelopeOf(refused)?.data?.op;
     const unknown = await cli(["op", "show", UNKNOWN_OP]);
     log("op show unknown", unknown.stdout || unknown.stderr);
     const listed = await cli(["op", "list", "--state", "refused"], worker);
@@ -37,13 +37,13 @@ export const opArea: AcceptanceArea = {
     const ops: ReadonlyArray<{ readonly opId?: string; readonly state?: string }> = envelopeOf(listed)?.data?.ops ?? [];
 
     return [
-      check("show applied", appliedView?.state === "applied" && appliedView?.opId === made?.opId, applied),
+      check("show applied", appliedView?.state === "applied" && appliedView?.opId === made?.opId && appliedView?.made?.taskId === made?.taskId, applied),
       check("refusal carries its opId", start.code !== 0 && typeof refusedOp === "string", start),
       check("show refused", refusedView?.state === "refused" && refusedView?.root === refusedOp && typeof refusedView?.error?.type === "string", refused),
       check("show unknown", envelopeOf(unknown)?.error?.type === "UnknownTarget", unknown),
       check("list refused", ops.some((op) => op.opId === refusedOp && op.state === "refused"), listed),
       // Another seat's write is not this seat's to read.
-      check("show is this seat's own", envelopeOf(await cli(["op", "show", String(made?.opId)], worker))?.data?.state !== "applied"),
+      check("show is this seat's own", envelopeOf(await cli(["op", "show", String(made?.opId)], worker))?.error?.type === "UnknownTarget"),
     ];
   },
 };
