@@ -42,6 +42,9 @@ export const CANVAS_DELETIONS_REMOVED_FEATURE_TABLES = [
   // Region Pulse (07).
   "kernel_armed_regions",
   "kernel_debug_pulses",
+  // The scheduler kinds' claim slots and firings: automations keep their own (07).
+  "scheduler_interval_firings",
+  "scheduler_interval_state",
 ] as const;
 
 export const CANVAS_DELETIONS_REMOVED_TABLES = [
