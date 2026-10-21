@@ -10,12 +10,14 @@ import {
 } from "../../src/shared/physics";
 import type { Node } from "../../src/shared/model";
 import { canvasToCapabilityView } from "../../src/shared/physics/view";
-import { productNodeKindEnabled } from "../../src/shared/features";
+import { productNodeKindEnabled, productPortEnabled } from "../../src/shared/features";
 import { OTHER_MACHINE, THIS_MACHINE } from "../support/machines";
 import { artifacts, canvasOf, note, page, region, seat, taskBoard, terminal, wire } from "../support/model-nodes";
 
 /** The canvas is edited on the machine the tests run on, unless a case says otherwise. */
 const VIEW = { editingMachine: THIS_MACHINE };
+// Page automation is refused, edge or not, where the build gates it off (ship).
+const automateOn = productPortEnabled("browser.automate");
 
 const SIZE = { width: 120, height: 48 };
 const agent = (id: string, x = 0, y = 0, host = THIS_MACHINE) =>
@@ -71,7 +73,7 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Result.isSuccess(result)).toBe(true);
+    expect(Result.isSuccess(result)).toBe(automateOn);
     if (Result.isSuccess(result)) {
       expect(result.success.port).toBe("browser.automate");
       expect(result.success.caller).toBe("agent");
@@ -90,7 +92,7 @@ describe("physics admitPure", () => {
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Result.isSuccess(result)).toBe(true);
+    expect(Result.isSuccess(result)).toBe(automateOn);
   });
 
   it("denies browser.automate to geography — a raw shell is not an actor", () => {
@@ -362,7 +364,7 @@ describe("physics across machines", () => {
       [agent("agent-a", 0, 0, OTHER_MACHINE), pageAt("page-a", 200, 0)],
       [wire("e1", "agent-a", "page-a", "navigates")],
     );
-    expect(Result.isSuccess(admits(doc, "agent-a", "page-a", "browser.automate", OTHER_MACHINE))).toBe(true);
+    expect(Result.isSuccess(admits(doc, "agent-a", "page-a", "browser.automate", OTHER_MACHINE))).toBe(automateOn);
   });
 
   it("same machine: two wired seats keep every port of the actor inbox", () => {
