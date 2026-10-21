@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 13 through version 25, built only from
+ * The frozen state schemas, version 13 through version 26, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments; version 13 is version 14 with the mail
@@ -143,4 +143,10 @@ export const STATE_SCHEMA_V13_SQL = `${STATE_SCHEMA_V14_SQL}\n${MAIL_HOME_TRIGGE
 export const STATE_SCHEMA_V25_SQL = stepped(
   STATE_SCHEMA_V24_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 25)!.migrate,
+);
+
+// Version 26 added versioned artifacts and resource rulings (25 -> 26).
+export const STATE_SCHEMA_V26_SQL = stepped(
+  STATE_SCHEMA_V25_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 26)!.migrate,
 );

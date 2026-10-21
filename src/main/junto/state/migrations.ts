@@ -25,6 +25,8 @@ import { migrateSeatSessionData } from "./migrate-seat-session-data";
 import { migrateSeatRows } from "./migrate-seat-rows";
 import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
+import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../work/resource-rulings-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -249,7 +251,17 @@ export const STATE_SCHEMA_V25_IDENTITY = {
     "abad16a0ab2aa95be9c7c233e61c5ba609c449b3a4415c080ab0d432f03a8a4e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 25;
+/**
+ * Version 26 adds versioned artifacts and the shared rulings on resource
+ * commands (0.10, plans 02 and 05). Expand only: `work_artifacts` and its
+ * publish path are left for their own deletion.
+ */
+export const STATE_SCHEMA_V26_IDENTITY = {
+  actualSchemaSha256:
+    "440ace1f1a5f36092904e5604066fec7b01fa31f39816f820e766a6c0bf2d57e",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 26;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -257,7 +269,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 25;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V25_IDENTITY;
+  STATE_SCHEMA_V26_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -399,6 +411,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     replacesTables: ["seats", "terminals"],
     retiresColumns: { seats: ["on_remove"], terminals: ["on_remove"] },
     migrate: (database) => migrateRetireOnRemove(database),
+  },
+  {
+    fromVersion: 25,
+    toVersion: 26,
+    name: "add versioned artifacts and resource rulings",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V25_IDENTITY,
+    migrate: (database) => {
+      database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
+      database.exec(ARTIFACTS_STATE_SCHEMA_SQL);
+    },
   },
 ];
 

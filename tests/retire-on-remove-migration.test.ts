@@ -13,7 +13,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { nodeFromRow } from "../src/main/junto/model/rows";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V24_IDENTITY,
@@ -21,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V24_SQL } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V24_SQL, STATE_SCHEMA_V25_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -63,7 +61,12 @@ const versionTwentyFourPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 24).map(named),
 };
 
-const headPlan = { ...STATE_SCHEMA_MIGRATION_PLAN, migrations: STATE_SCHEMA_MIGRATIONS.map(named) };
+const versionTwentyFivePlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 25,
+  currentSchemaSql: STATE_SCHEMA_V25_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 25).map(named),
+};
 
 const geometry = (id: string) => ({
   id, x: 0, y: 0, width: 10, height: 10, z_index: 1, color: null, created_at: "t", updated_at: "t",
@@ -92,10 +95,9 @@ const seed = (database: DatabaseSync, canvas: string): void => {
 };
 
 describe("state migration 24 -> 25 (retire on_remove from seats and terminals)", () => {
-  it("freezes the witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V24_SQL)).toEqual(STATE_SCHEMA_V24_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V25_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V25_SQL)).toEqual(STATE_SCHEMA_V25_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -107,7 +109,7 @@ describe("state migration 24 -> 25 (retire on_remove from seats and terminals)",
         seed(database, firstCanvas(database));
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
 
-        const result = migrateStateSchema(database, headPlan);
+        const result = migrateStateSchema(database, versionTwentyFivePlan);
         expect(result).toMatchObject({ previousVersion: 24, schemaVersion: 25 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V25_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
