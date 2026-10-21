@@ -335,9 +335,16 @@ export function NodeShell({
   overlay,
   onHoverEnter,
   onHoverLeave,
+  look = "card",
 
   children,
 }: {
+  /**
+   * `spine`: the Spines language (docs/node-card-language.md). The shell
+   * paints nothing; the body's SpineCard draws chip, tag and spine, and its
+   * own far disc. `card`: the boxed card, kept until every kind moves.
+   */
+  readonly look?: "card" | "spine";
   readonly canvas: string;
   readonly id: string;
   readonly selected: boolean;
@@ -453,7 +460,8 @@ export function NodeShell({
   // Pulse wash for derived seat stoppage.
   return (
     <div
-      className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
+      className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${look === "spine" ? "" : bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
+      data-look={look === "spine" ? "spine" : undefined}
       onMouseEnter={onHoverEnter}
       onMouseLeave={onHoverLeave}
       data-node-kind={kind === undefined ? undefined : kindWord(kind)}
@@ -465,11 +473,15 @@ export function NodeShell({
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}
-      style={{
-        border: `1px solid ${bare ? border : selected ? withAlpha(shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
-        background,
-        boxShadow: shadow,
-      }}
+      style={
+        look === "spine"
+          ? undefined
+          : {
+              border: `1px solid ${bare ? border : selected ? withAlpha(shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
+              background,
+              boxShadow: shadow,
+            }
+      }
     >
       {preamble ? <PreambleBubble nodeId={id} bubble={preamble} selected={selected} /> : null}
       {resizable ? (
@@ -514,9 +526,13 @@ export function NodeShell({
       )}
       {/* No status chips on the card: the ring and the line under the name
           say blocked and needs input, once. */}
-      <div className="junto-node__body min-h-0 flex-1 overflow-hidden">
-        <div className="h-full min-h-0 overflow-hidden">{children}</div>
-      </div>
+      {look === "spine" ? (
+        <div className="junto-node__body min-h-0 flex-1">{children}</div>
+      ) : (
+        <div className="junto-node__body min-h-0 flex-1 overflow-hidden">
+          <div className="h-full min-h-0 overflow-hidden">{children}</div>
+        </div>
+      )}
       {overlay}
     </div>
   );

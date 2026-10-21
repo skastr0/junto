@@ -74,9 +74,11 @@ describe("React Flow nodes from the model", () => {
   it("names each node as the model names it", () => {
     const { canvas, nodes: placed } = model(nodes);
     const names = new Map(flowNodesFromModel(canvas, placed, new Set()).map((node) => [node.id, node.ariaLabel]));
-    for (const node of placed) expect(names.get(node.id)).toBe(titleOf(node));
+    for (const node of placed) expect(names.get(node.id)?.startsWith(titleOf(node))).toBe(true);
+    // A seat and a region by their name alone; every other node says its kind, and blocked when it is.
     expect(names.get("lead")).toBe("lead");
     expect(names.get("outer")).toBe("canvas");
+    expect(names.get("note")).toBe(`${titleOf(placed.find((node) => node.id === "note")!)}, note`);
   });
 
   it("carries the canvas, id and kind, and no node", () => {

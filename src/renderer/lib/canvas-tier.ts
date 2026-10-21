@@ -122,9 +122,22 @@ const writeScale = (host: HTMLElement, name: string, value: number): void => {
   if (host.style.getPropertyValue(name) !== text) host.style.setProperty(name, text);
 };
 
-/** Write the far seat scale and the overview floor on `host` (the ReactFlow root) when they change. */
+/** Custom property on the ReactFlow root: the inverse zoom, for sizes held in screen pixels (spine discs, focus rings). */
+export const NODE_SCALE_VAR = "--node-s";
+
+/** The largest node scale: the inverse of the camera's minimum zoom (0.15). */
+const NODE_SCALE_MAX = 6.7;
+
+/** The inverse zoom, rounded up to a tenth like the seat scales, between 1 and NODE_SCALE_MAX. */
+export const nodeScale = (zoom: number): number => {
+  if (!Number.isFinite(zoom) || zoom <= 0) return 1;
+  return Math.min(NODE_SCALE_MAX, Math.max(1, Math.ceil((1 / zoom) * 10) / 10));
+};
+
+/** Write the far seat scale, the overview floor and the node scale on `host` (the ReactFlow root) when they change. */
 export const publishFarSeatScale = (host: HTMLElement | null, zoom: number): void => {
   if (host === null) return;
+  writeScale(host, NODE_SCALE_VAR, nodeScale(zoom));
   writeScale(host, FAR_SEAT_SCALE_VAR, farSeatScale(zoom));
   writeScale(host, SEAT_FLOOR_SCALE_VAR, seatFloorScale(zoom));
 };

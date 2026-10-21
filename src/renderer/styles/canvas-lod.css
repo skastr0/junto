@@ -61,12 +61,12 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
    changes) unless that would meet a neighbour: convert.ts caps each ring at
    the room around it (--ring-cap, seat-ring-room.ts). Scaling paints, it
    never moves a wire: the node keeps its box. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]) {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]):not([data-look="spine"]) {
   background: transparent !important;
   border-color: transparent !important;
 }
 /* The enlarged ring and the name tag reach past the card's box. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]) :is(.junto-node__body, .junto-node__body > *, .factory-agent-card) {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]):not([data-look="spine"]) :is(.junto-node__body, .junto-node__body > *, .factory-agent-card) {
   overflow: visible;
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat {
@@ -177,15 +177,15 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 /* Notes and cards: a faint block where the card sits, marked with its kind's
    glyph so a note, a task list and a link read apart. Nothing inside it is
    drawn. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])):not([data-look="spine"]) {
   --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6h16v12H4z M8 10h8'/%3E%3C/svg%3E");
   background: color-mix(in oklab, var(--color-ink) 5%, transparent) !important;
   border-color: transparent !important;
 }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) > * {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])):not([data-look="spine"]) > * {
   visibility: hidden;
 }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]))::before {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])):not([data-look="spine"])::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -204,12 +204,12 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="requests"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 13l3-8h10l3 8v6H4z M4 13h5l1 2h4l1-2h5'/%3E%3C/svg%3E"); }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="link"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1'/%3E%3C/svg%3E"); }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="file"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h8l4 4v14H6z M14 3v4h4'/%3E%3C/svg%3E"); }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"]:not([data-bare]) {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"]:not([data-bare]):not([data-look="spine"]) {
   background: color-mix(in oklab, var(--color-ink) 4%, transparent) !important;
 }
 
 /* A selected card still reads from far away. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])):not([data-look="spine"]) {
   outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
   outline-offset: 2px;
 }

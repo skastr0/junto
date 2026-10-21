@@ -61,6 +61,7 @@ import { findOpenPosition, syncPositions } from "../lib/geometry";
 import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
+import { spokenNodeName } from "../lib/flow-nodes";
 import { seatTasks$ } from "../lib/seat-tasks";
 import { endReachPreview, startReachPreview, updateReachPreview } from "../lib/reach-preview";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
@@ -131,8 +132,8 @@ const flowNodeClass = (node: FlowNode, impactClass: string | undefined): string 
  * is where a reader hears it.
  */
 const flowNodeLabel = (node: FlowNode, selected: boolean): string => {
-  const title = titleAt(node.data.canvas, node.id);
-  return selected ? `${title}, selected` : title;
+  const spoken = spokenNodeName(titleAt(node.data.canvas, node.id), node.data.kind, node.data.blocked);
+  return selected ? `${spoken}, selected` : spoken;
 };
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };

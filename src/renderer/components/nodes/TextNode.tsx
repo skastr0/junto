@@ -59,6 +59,12 @@ import { keyIs } from "../../lib/key-match";
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
+/**
+ * Kinds drawn in the Spines language (docs/node-card-language.md): the shell
+ * paints nothing and the body is a SpineCard. A kind joins when its body moves.
+ */
+const SPINE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([]);
+
 /** A body follows its own model row, so a card does not subscribe to it. */
 function WithNode<K extends NodeKind>({
   canvas, id, kind, children,
@@ -250,6 +256,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
       showHandles={!isLabel && kind !== "git"}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
+      look={kind !== undefined && SPINE_KINDS.has(kind) ? "spine" : "card"}
       overlay={collaborationOverlay}
       onHoverEnter={seatNode ? () => openSeatCollaboration(id) : undefined}
       onHoverLeave={seatNode ? closeOnLeave : undefined}

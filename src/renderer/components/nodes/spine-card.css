@@ -1,0 +1,336 @@
+/* Spines (docs/node-card-language.md): a head chip, a status tag, and a thin
+   spine the node's rows hang from. No container, no fill behind the rows, no
+   blur shadow: the ground shows through, and words take a ground halo so a
+   wire behind them never reads through. Sizes in screen pixels divide by
+   --node-s, the inverse zoom written once per zoom step (canvas-tier.ts). */
+
+/* The shell under a spine node paints nothing: no fill, border, shadow,
+   lift, halo or occupancy outline. Status is the chip's tag and pip. */
+.junto-node[data-look="spine"] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.junto-node[data-look="spine"]::after {
+  display: none;
+}
+
+.react-flow__node:hover .junto-node[data-look="spine"] {
+  transform: none;
+}
+
+.spine-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  --spine-halo: 0 0 5px var(--color-ground), 0 0 5px var(--color-ground);
+}
+
+.spine-head {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Head chip */
+
+.spine-chip {
+  position: relative;
+  display: inline-flex;
+  height: 28px;
+  min-width: 0;
+  max-width: 100%;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px 0 9px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-pill);
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+}
+
+.spine-chip[data-dashed="true"] {
+  border-style: dashed;
+  background: transparent;
+}
+
+.react-flow__node:hover .spine-chip {
+  border-color: var(--color-stroke-hi);
+}
+
+.react-flow__node.selected .spine-chip {
+  border-color: var(--color-main);
+  box-shadow: 0 0 0 1px var(--color-main);
+}
+
+.react-flow__node:focus-visible {
+  outline: none;
+}
+
+.react-flow__node:focus-visible .spine-chip {
+  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline-offset: calc(3px * var(--node-s, 1));
+}
+
+.spine-chip__glyph {
+  display: inline-flex;
+  flex: none;
+}
+
+.spine-chip__glyph > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.spine-chip[data-hue="green"] .spine-chip__glyph > svg { stroke: var(--color-green); }
+.spine-chip[data-hue="violet"] .spine-chip__glyph > svg { stroke: var(--color-violet); }
+.spine-chip[data-hue="amber"] .spine-chip__glyph > svg { stroke: var(--color-amber); }
+.spine-chip[data-hue="indigo"] .spine-chip__glyph > svg { stroke: var(--color-indigo); }
+.spine-chip[data-hue="orange"] .spine-chip__glyph > svg { stroke: var(--color-orange); }
+.spine-chip[data-hue="cyan"] .spine-chip__glyph > svg { stroke: var(--color-cyan); }
+.spine-chip[data-hue="steel"] .spine-chip__glyph > svg { stroke: var(--color-steel); }
+.spine-chip[data-hue="dim"] .spine-chip__glyph > svg { stroke: var(--color-dim); }
+
+.spine-chip__name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  line-height: var(--leading-compact);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spine-chip__count {
+  flex: none;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.spine-chip__trailing {
+  display: inline-flex;
+  flex: none;
+  margin-right: -6px;
+}
+
+/* The status pip shows only on the far disc. */
+.spine-pip {
+  display: none;
+}
+
+/* Status tag and shapes */
+
+.spine-tag {
+  display: inline-flex;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 7px;
+  border: 1.5px solid currentcolor;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: var(--tracking-soft);
+  line-height: var(--leading-compact);
+  text-shadow: var(--spine-halo);
+  text-transform: uppercase;
+}
+
+.spine-tag[data-tone="crimson"] { border-color: var(--color-crimson); color: var(--color-crimson-fg); }
+.spine-tag[data-tone="amber"] { border-color: var(--color-amber); color: var(--color-amber-fg); }
+.spine-tag[data-tone="cyan"] { border-color: var(--color-cyan); color: var(--color-cyan-fg); }
+.spine-tag[data-tone="faint"] { border-color: var(--color-faint); color: var(--color-dim); }
+
+.spine-shape {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: currentcolor;
+}
+
+.spine-tag[data-tone="crimson"] .spine-shape { background: var(--color-crimson); }
+.spine-tag[data-tone="amber"] .spine-shape { background: var(--color-amber); }
+.spine-tag[data-tone="cyan"] .spine-shape { border-color: var(--color-cyan); }
+.spine-tag[data-tone="faint"] .spine-shape { border-color: var(--color-faint); }
+
+.spine-shape[data-shape="triangle"] {
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.spine-shape[data-shape="dot"] {
+  border-radius: var(--radius-pill);
+}
+
+.spine-shape[data-shape="arc"],
+.spine-shape[data-shape="ring"] {
+  border: 1.5px solid;
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.spine-shape[data-shape="arc"] {
+  border-right-color: transparent !important;
+}
+
+/* Leaf line */
+
+.spine-leaf {
+  max-width: 100%;
+  margin: 5px 0 0 15px;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+  text-overflow: ellipsis;
+  text-shadow: var(--spine-halo);
+  white-space: nowrap;
+}
+
+/* Spine and rows */
+
+.spine {
+  display: flex;
+  max-width: calc(100% - 15px);
+  flex-direction: column;
+  gap: 7px;
+  margin: 6px 0 0 15px;
+  padding: 3px 0 2px;
+  border-left: 1.5px solid var(--color-stroke-hi);
+  list-style: none;
+}
+
+.spine-card[data-tone="crimson"] .spine { border-left: 2px solid var(--color-crimson); }
+.spine-card[data-tone="amber"] .spine { border-left: 2px solid var(--color-amber); }
+
+.spine__meta,
+.spine__row,
+.spine__more {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding-left: 16px;
+  font-family: var(--font-mono);
+  line-height: var(--leading-compact);
+  text-shadow: var(--spine-halo);
+  white-space: nowrap;
+}
+
+.spine__meta::before,
+.spine__row::before,
+.spine__more::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 11px;
+  border-top: 1.5px solid var(--color-stroke-hi);
+  content: "";
+}
+
+.spine__meta,
+.spine__more {
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
+.spine__row {
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+}
+
+.spine__mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-dim);
+}
+
+.spine__mark > svg {
+  width: 12px;
+  height: 12px;
+}
+
+.spine__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Far and overview: the chip becomes a held disc with its glyph and status
+   pip; everything else hides by visibility. The disc never joins the seat
+   ring-room solve and no card gathers into a seat cluster. */
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-tag,
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine,
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-leaf {
+  visibility: hidden;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip {
+  width: max(28px, calc(26px * var(--node-s, 1)));
+  height: max(28px, calc(26px * var(--node-s, 1)));
+  justify-content: center;
+  padding: 0;
+  border: calc(1.5px * var(--node-s, 1)) solid color-mix(in oklab, var(--color-ink) 55%, transparent);
+  box-shadow: none;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) :is(.spine-chip__name, .spine-chip__count, .spine-chip__trailing) {
+  display: none;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip__glyph > svg {
+  width: calc(14px * var(--node-s, 1));
+  height: calc(14px * var(--node-s, 1));
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip .spine-chip__glyph > svg {
+  stroke: color-mix(in oklab, var(--color-ink) 78%, transparent) !important;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="crimson"] .spine-chip {
+  border: calc(2px * var(--node-s, 1)) solid var(--color-crimson);
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="amber"] .spine-chip {
+  border: calc(2px * var(--node-s, 1)) solid var(--color-amber);
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__node.selected .spine-chip {
+  outline: calc(2px * var(--node-s, 1)) solid var(--color-main);
+  outline-offset: calc(2px * var(--node-s, 1));
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-pip {
+  position: absolute;
+  top: calc(-3px * var(--node-s, 1));
+  right: calc(-3px * var(--node-s, 1));
+  display: block;
+  width: calc(11px * var(--node-s, 1));
+  height: calc(11px * var(--node-s, 1));
+  outline: calc(1.5px * var(--node-s, 1)) solid var(--color-ground);
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-pip[data-shape="triangle"] {
+  width: calc(15px * var(--node-s, 1));
+  height: calc(13px * var(--node-s, 1));
+  outline: none;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="crimson"] .spine-pip { background: var(--color-crimson); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="amber"] .spine-pip { background: var(--color-amber); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="cyan"] .spine-pip { border-color: var(--color-cyan); border-width: calc(2px * var(--node-s, 1)); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="faint"] .spine-pip { border-color: var(--color-faint); border-width: calc(2px * var(--node-s, 1)); }

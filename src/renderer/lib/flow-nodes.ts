@@ -32,6 +32,8 @@ export type ModelNodeData = {
   readonly ringCap?: number;
   /** Agent seats only: the innermost region holding the seat, "" for none. */
   readonly seatRegion?: string;
+  /** Other cards: the innermost region holding the card, when one does (region-urgency.ts). */
+  readonly homeRegion?: string;
   /** Regions only: the region directly holding this one, when nested. */
   readonly parentRegion?: string;
 };
@@ -40,6 +42,35 @@ export type ModelFlowNode = FlowNodeOf<ModelNodeData>;
 
 /** Reuses a flow node while everything it was built from is unchanged. */
 export type ModelFlowCache = Map<string, { readonly key: string; readonly flow: ModelFlowNode }>;
+
+/**
+ * What a screen reader says a node is, after its name (docs/node-card-language.md,
+ * `<name>, <kind>, <status>`). A seat and a region are named by their name
+ * alone, as before.
+ */
+const SPOKEN_KIND: { readonly [K in NodeKind]: string | undefined } = {
+  agent: undefined,
+  region: undefined,
+  peer: "peer seat",
+  terminal: "terminal",
+  page: "page",
+  task: "tasks",
+  artifacts: "artifacts",
+  automations: "automations",
+  note: "note",
+  label: "label",
+  file: "file",
+  link: "link",
+  git: "git",
+  stub: "stub",
+};
+
+/** A node's spoken name: its name, its kind, and blocked when it is. */
+export const spokenNodeName = (name: string, kind: NodeKind, blocked: boolean): string => {
+  const noun = SPOKEN_KIND[kind];
+  if (noun === undefined) return name;
+  return blocked ? `${name}, ${noun}, blocked` : `${name}, ${noun}`;
+};
 
 /** Which React Flow component draws a kind (components/nodes/index.ts). */
 const flowType = (kind: NodeKind): "group" | "file" | "link" | "text" =>
@@ -153,6 +184,7 @@ export const flowNodesFromModel = (
     const nameSlot = facts?.nameSlot;
     const ringCap = ringCaps.get(node.id);
     const seatRegion = node.kind === "agent" ? (parentOf.get(node.id) ?? "") : undefined;
+    const homeRegion = node.kind === "agent" || region ? undefined : parentOf.get(node.id);
     const parentRegion = region ? parentOf.get(node.id) : undefined;
     const isBlocked = blocked.has(node.id);
     const size = renderedNodeSize(node.kind, node);
@@ -161,7 +193,7 @@ export const flowNodesFromModel = (
     // (colour, a seat's harness, a note's text) never remints it.
     const key = [
       node.kind, node.x, node.y, size.width, size.height, isBlocked ? 1 : 0,
-      regionDepth ?? "", ringCap ?? "", seatRegion ?? "\u0000", parentRegion ?? "", name,
+      regionDepth ?? "", ringCap ?? "", seatRegion ?? "\u0000", parentRegion ?? "", homeRegion ?? "", name,
     ].join("\u0001");
     const cached = cache?.get(node.id);
     if (cached !== undefined && cached.key === key && sameNameSlot(cached.flow.data.nameSlot, nameSlot)) {
@@ -180,6 +212,7 @@ export const flowNodesFromModel = (
         ...(nameSlot ? { nameSlot } : {}),
         ...(ringCap !== undefined ? { ringCap } : {}),
         ...(seatRegion !== undefined ? { seatRegion } : {}),
+        ...(homeRegion !== undefined ? { homeRegion } : {}),
         ...(parentRegion !== undefined ? { parentRegion } : {}),
       },
       // A ringed seat carries its ring's room to CSS (canvas-lod.css). A
@@ -193,7 +226,7 @@ export const flowNodesFromModel = (
       zIndex: region ? REGION_Z_BASE + (regionDepth ?? 0) : CARD_Z,
       // Regions, bare labels and git cards never grow connectors.
       connectable: !region && node.kind !== "label" && node.kind !== "git",
-      ariaLabel: name,
+      ariaLabel: spokenNodeName(name, node.kind, isBlocked),
       focusable: true,
       selectable: !region,
       draggable: !region,
