@@ -22,6 +22,7 @@ import { productNodeKindEnabled, productPortEnabled, TASKS_ENABLED } from "./fea
 import type { Port } from "./physics/schema";
 import { RESOURCE_KINDS, SEAT_KINDS, type ResourceKind } from "./region-reach";
 import { SINCE_SECTIONS, type Since, type SinceRef, type SinceSectionKey } from "./seat-since";
+import { formatTaskNumber } from "./task-model";
 
 /** A connected node and the ports the seat holds on it. */
 export type ConnectedTarget = {
@@ -336,6 +337,8 @@ const sinceRefWords = (ref: SinceRef): string => {
       return `[mail ${ref.messageId}]`;
     case "signal":
       return `[signal ${ref.signalId}]`;
+    case "task":
+      return `[task ${ref.number === undefined ? ref.taskId : formatTaskNumber(ref.number)}]`;
     default:
       return ref satisfies never;
   }
@@ -347,6 +350,8 @@ const SINCE_KEYS = {
   awaitingReplies: "awaiting_replies",
   openSignals: "open_signals",
   answersSince: "answers_since",
+  yourTasks: "your_tasks",
+  reviewsOwed: "reviews_owed",
 } as const satisfies Readonly<Record<SinceSectionKey, string>>;
 
 /** One printed section: a sentence and an id per line, and how to list the rest. */
@@ -364,7 +369,8 @@ export type SinceView = {
 
 /**
  * Print a since projection: the time it is as of, the unread count, and each
- * section that has anything, as `"<sentence> [mail <id>]"` lines. A section
+ * section that has anything, as `"<sentence> [mail <id>]"` lines (`[signal <id>]`,
+ * `[task #<number>]`). A section
  * with nothing in it is left out.
  */
 export const renderSince = (since: Since): SinceView => {

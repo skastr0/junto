@@ -28,6 +28,17 @@ import {
   type SinceSectionKey,
 } from "../src/shared/seat-since";
 import { makeAgentMessage, makeUserMessage } from "../src/shared/task";
+import {
+  seatNodeId,
+  taskNodeId,
+  taskNumber,
+  type ClosedTaskLayer,
+  type Stamp,
+  type TaskCore,
+  type TaskId,
+  type TaskNumber,
+  type TaskView,
+} from "../src/shared/task-model";
 import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 import type { Message } from "../src/shared/work-model";
 
@@ -127,6 +138,7 @@ const inputOf = (
   mailboxes: Object.entries(mailboxes).map(([nodeId, messages]): HeldMailbox => ({ nodeId, messages })),
   nameOf: (nodeId) => NAMES[nodeId],
   signals: [],
+  tasks: [],
   now: minute(1000),
   ...over,
 });
@@ -298,6 +310,121 @@ describe("signals", () => {
   });
 });
 
+let taskCount = 0;
+/** A task on the build node, its current layer as given. */
+const task = (
+  current: Partial<TaskCore> & Pick<TaskCore, "state">,
+  over: Partial<Omit<TaskView, "current">> = {},
+): TaskView => {
+  taskCount += 1;
+  return {
+    taskId: ulid(minute(taskCount)) as TaskId,
+    number: taskNumber(taskCount)!,
+    title: `task ${taskCount}`,
+    current: { node: BUILD, epoch: 1, stampPolicy: { required: 1 }, reviewers: [], stamps: [], ...current },
+    layers: [],
+    dependsOn: [],
+    createdAt: minute(taskCount),
+    updatedAt: minute(taskCount),
+    stateSince: minute(taskCount),
+    ...over,
+  };
+};
+const BUILD = taskNodeId(asNodeId("node-build"));
+const SHIP = taskNodeId(asNodeId("node-ship"));
+NAMES[SHIP] = "ship";
+const MINE = seatNodeId(ME);
+const LEAD_SEAT = seatNodeId(asNodeId(LEAD));
+const taskRef = (row: TaskView): SinceRef => ({ kind: "task", taskId: row.taskId, number: row.number! });
+const meReviewing = { reviewers: [{ kind: "seat", seat: MINE }] } as const;
+const stampBy = (seat: typeof MINE, epoch: number, verdict: Stamp["verdict"] = "approve"): Stamp =>
+  ({ reviewer: { kind: "seat", seat }, verdict, epoch, at: minute(300) });
+
+describe("your tasks", () => {
+  it("shows the open task the seat holds, with its number, title and state, however old", () => {
+    const mine = task({ state: "working", assignee: MINE }, { title: "Land the\ncontract", stateSince: minute(1) });
+    const theirs = task({ state: "working", assignee: LEAD_SEAT });
+    const out = since(inputOf({}, { tasks: [mine, theirs], previousStartedAt: minute(100) }));
+    expect(out.yourTasks.lines).toEqual([
+      { text: `Your task #${mine.number} "Land the contract" is in progress`, ref: taskRef(mine) },
+    ]);
+    expect(out.yourTasks.command).toBe("junto task list --assignee me");
+  });
+
+  it("says when the open task's state changed since the previous session started", () => {
+    const moved = task({ state: "input-required", assignee: MINE }, { stateSince: minute(100) });
+    const out = since(inputOf({}, { tasks: [moved], previousStartedAt: minute(100) }));
+    expect(out.yourTasks.lines.map((line) => line.text)).toEqual([
+      `Your task #${moved.number} "${moved.title}" is now waiting for input, changed since your last session`,
+    ]);
+  });
+
+  it("lists a task it finished or that was canceled since the previous session, and leaves older ones and archived ones out", () => {
+    const done = task({ state: "done", assignee: MINE }, { stateSince: minute(150) });
+    const canceled = task({ state: "canceled", assignee: MINE }, { stateSince: minute(120) });
+    const old = task({ state: "done", assignee: MINE }, { stateSince: minute(50) });
+    const archived = task({ state: "archived", assignee: MINE }, { stateSince: minute(160) });
+    const open = task({ state: "in-review", assignee: MINE }, { stateSince: minute(10) });
+    const out = since(inputOf({}, { tasks: [canceled, old, done, archived, open], previousStartedAt: minute(100) }));
+    expect(out.yourTasks.lines).toEqual([
+      { text: `Your task #${open.number} "${open.title}" is in review`, ref: taskRef(open) },
+      { text: `Your task #${done.number} "${done.title}" is now done, changed since your last session`, ref: taskRef(done) },
+      { text: `Your task #${canceled.number} "${canceled.title}" is now canceled, changed since your last session`, ref: taskRef(canceled) },
+    ]);
+  });
+
+  it("lists a task sent on from the seat's layer since the previous session, by the node it went to", () => {
+    const layer = (closedAt: number, assignee = MINE): ClosedTaskLayer =>
+      ({ state: "done", node: BUILD, assignee, epoch: 1, stampPolicy: { required: 0 }, reviewers: [], stamps: [], closedAt });
+    const sent = task({ state: "backlog", node: SHIP }, { layers: [layer(minute(130))] });
+    const sentBefore = task({ state: "backlog", node: SHIP }, { layers: [layer(minute(30))] });
+    const someoneElses = task({ state: "backlog", node: SHIP }, { layers: [layer(minute(130), LEAD_SEAT)] });
+    const out = since(inputOf({}, { tasks: [sent, sentBefore, someoneElses], previousStartedAt: minute(100) }));
+    expect(out.yourTasks.lines).toEqual([
+      { text: `Your task #${sent.number} "${sent.title}" was sent on to ship since your last session, and is in the backlog there`, ref: taskRef(sent) },
+    ]);
+  });
+
+  it("lists every task it held on a first session, since no session has seen them", () => {
+    const done = task({ state: "done", assignee: MINE }, { stateSince: 1 });
+    const open = task({ state: "assigned", assignee: MINE }, { stateSince: 1 });
+    const out = since(inputOf({}, { tasks: [done, open] }));
+    expect(out.yourTasks.lines.map((line) => line.text)).toEqual([
+      `Your task #${open.number} "${open.title}" is assigned`,
+      `Your task #${done.number} "${done.title}" is now done, changed since your last session`,
+    ]);
+  });
+});
+
+describe("reviews owed", () => {
+  it("lists a task in review that names the seat a reviewer and has no stamp from it, longest waiting first", () => {
+    const newer = task({ state: "in-review", assignee: LEAD_SEAT, ...meReviewing }, { stateSince: minute(200) });
+    const older = task({ state: "in-review", assignee: LEAD_SEAT, ...meReviewing }, { stateSince: minute(20) });
+    const out = since(inputOf({}, { tasks: [newer, older] }));
+    expect(out.reviewsOwed.lines).toEqual([
+      { text: `lead's task #${older.number} "${older.title}" is in review and waits on your stamp`, ref: taskRef(older) },
+      { text: `lead's task #${newer.number} "${newer.title}" is in review and waits on your stamp`, ref: taskRef(newer) },
+    ]);
+    expect(out.reviewsOwed.command).toBe("junto since --all");
+  });
+
+  it("is settled by a stamp at the current epoch, either verdict, and owed again at a new epoch", () => {
+    const approved = task({ state: "in-review", assignee: LEAD_SEAT, ...meReviewing, epoch: 2, stamps: [stampBy(MINE, 2)] });
+    const changes = task({ state: "in-review", assignee: LEAD_SEAT, ...meReviewing, epoch: 2, stamps: [stampBy(MINE, 2, "changes")] });
+    const stale = task({ state: "in-review", assignee: LEAD_SEAT, ...meReviewing, epoch: 3, stamps: [stampBy(MINE, 2)] });
+    const out = since(inputOf({}, { tasks: [approved, changes, stale] }));
+    expect(out.reviewsOwed.lines.map((line) => line.ref)).toEqual([taskRef(stale)]);
+  });
+
+  it("owes nothing on a task not in review, not naming the seat, or its own", () => {
+    const working = task({ state: "working", assignee: LEAD_SEAT, ...meReviewing });
+    const others = task({ state: "in-review", assignee: LEAD_SEAT, reviewers: [{ kind: "operator" }] });
+    const own = task({ state: "in-review", assignee: MINE, ...meReviewing });
+    const out = since(inputOf({}, { tasks: [working, others, own] }));
+    expect(out.reviewsOwed.lines).toEqual([]);
+  });
+});
+
 describe("unread", () => {
   it("counts the seat's own unread rows exactly as msg list --unread does", () => {
     const unread = seatMail(minute(1), LEAD, "a");
@@ -322,6 +449,10 @@ describe("caps", () => {
     const all = since(inputOf({ [ME]: mail }), Number.POSITIVE_INFINITY);
     expect(all.owedReplies.lines).toHaveLength(11);
     expect(all.owedReplies.more).toBe(0);
+    const reviews = Array.from({ length: 10 }, () => task({ state: "in-review", assignee: LEAD_SEAT, ...meReviewing }));
+    const capped = since(inputOf({}, { tasks: reviews }), 8);
+    expect(capped.reviewsOwed.lines).toHaveLength(8);
+    expect(capped.reviewsOwed.more).toBe(2);
   });
 
   it("is as of the time it is given and empty for a quiet seat", () => {
@@ -332,6 +463,8 @@ describe("caps", () => {
       awaitingReplies: { lines: [], more: 0, command: SINCE_COMMANDS.awaitingReplies },
       openSignals: { lines: [], more: 0, command: SINCE_COMMANDS.openSignals },
       answersSince: { lines: [], more: 0, command: SINCE_COMMANDS.answersSince },
+      yourTasks: { lines: [], more: 0, command: SINCE_COMMANDS.yourTasks },
+      reviewsOwed: { lines: [], more: 0, command: SINCE_COMMANDS.reviewsOwed },
       unread: 0,
     });
   });
@@ -346,9 +479,12 @@ describe("types", () => {
   });
 
   it("tags every ref by kind, so a follow-up is chosen by type", () => {
-    expectTypeOf<SinceRef["kind"]>().toEqualTypeOf<"mail" | "signal">();
+    expectTypeOf<SinceRef["kind"]>().toEqualTypeOf<"mail" | "signal" | "task">();
     expectTypeOf<Extract<SinceRef, { kind: "mail" }>>().toEqualTypeOf<{ readonly kind: "mail"; readonly messageId: string }>();
     expectTypeOf<Extract<SinceRef, { kind: "signal" }>>().toEqualTypeOf<{ readonly kind: "signal"; readonly signalId: string }>();
+    expectTypeOf<Extract<SinceRef, { kind: "task" }>>().toEqualTypeOf<
+      { readonly kind: "task"; readonly taskId: TaskId; readonly number?: TaskNumber }
+    >();
     // @ts-expect-error a bare id is not a ref
     const bare: SinceLine["ref"] = "01M5ESKVNCR1EYXNTQ9QEASQPD";
     void bare;
@@ -356,7 +492,9 @@ describe("types", () => {
   });
 
   it("has one section per key and one command per section", () => {
-    expectTypeOf<SinceSectionKey>().toEqualTypeOf<"owedReplies" | "awaitingReplies" | "openSignals" | "answersSince">();
+    expectTypeOf<SinceSectionKey>().toEqualTypeOf<
+      "owedReplies" | "awaitingReplies" | "openSignals" | "answersSince" | "yourTasks" | "reviewsOwed"
+    >();
     expectTypeOf<Since[SinceSectionKey]>().toEqualTypeOf<SinceSection>();
     expectTypeOf<keyof Since>().toEqualTypeOf<SinceSectionKey | "asOf" | "unread">();
     expect(Object.keys(SINCE_COMMANDS).sort()).toEqual([...SINCE_SECTIONS].sort());

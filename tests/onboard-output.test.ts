@@ -11,6 +11,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
@@ -38,6 +39,11 @@ import { ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboard
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { AgentSignalRepository } from "../src/main/junto/signals/repository";
 import { SINCE_UNAVAILABLE } from "../src/main/junto/work/seat-since-read";
+import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { TaskRepositoryLive, projectTaskFact } from "../src/main/junto/work/task-repository";
+import type { TaskRecord } from "../src/shared/task-machine";
+import { asNodeId } from "../src/shared/model/base";
+import { seatNodeId, taskNodeId, taskNumber, type TaskId } from "../src/shared/task-model";
 
 const CANVAS = "onboard";
 const PEERS = ["peer-a", "peer-b", "peer-c"] as const;
@@ -57,7 +63,8 @@ const makeRuntime = (root: string) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
+  const tasksLive = Layer.provide(TaskRepositoryLive, RulingRecorderLive);
+  const canvasesLive = Layer.provideMerge(Layer.mergeAll(ModelStoresLive, tasksLive), repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, canvasesLive);
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
 };
@@ -152,6 +159,27 @@ const call = (body: unknown): Promise<any> =>
     });
     socket.on("error", reject);
   });
+
+/** A task on the reachable board, folded into the store as a ruling would. */
+const seedTask = (number: number, over: Partial<TaskRecord> & Pick<TaskRecord, "state" | "title">) =>
+  runtime.runPromise(
+    Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      projectTaskFact(sql, CANVAS, {
+        kind: "task",
+        task: {
+          id: `01M5F0000000000000000000${String(number).padStart(2, "0")}` as TaskId,
+          number: taskNumber(number)!,
+          node: taskNodeId(asNodeId("board-in")),
+          epoch: 1,
+          stampPolicy: { required: 1 },
+          reviewers: [],
+          stamps: [],
+          dependsOn: [],
+          ...over,
+        },
+        effects: [],
+      }, Date.now())),
+  );
 
 const token = () => seatCredential;
 const onboard = async () => {
@@ -281,6 +309,23 @@ describe("junto onboard output", () => {
     const refused = await call({ token: token(), op: "since", args: { every: true } });
     expect(refused.ok).toBe(false);
     expect(refused.error.type).toBe("InputError");
+  });
+
+  it.runIf(TASKS_ENABLED)("carries the seat's task and the reviews it owes, read from the task store", async () => {
+    await write(PEERS, withResources);
+    await seedTask(1, { title: "Land the contract", state: "working", assignee: seatNodeId(asNodeId("agent")) });
+    await seedTask(2, {
+      title: "Read the since",
+      state: "in-review",
+      assignee: seatNodeId(asNodeId("peer-a")),
+      reviewers: [{ kind: "seat", seat: seatNodeId(asNodeId("agent")) }],
+    });
+    await seedTask(3, { title: "Someone else's", state: "working", assignee: seatNodeId(asNodeId("peer-b")) });
+    const { since } = await onboard();
+    expect(since.your_tasks).toEqual({ lines: ['Your task #1 "Land the contract" is in progress [task #1]'] });
+    expect(since.reviews_owed).toEqual({ lines: ['peer-a\'s task #2 "Read the since" is in review and waits on your stamp [task #2]'] });
+    const all = await call({ token: token(), op: "since", args: { all: true } });
+    expect({ ...all.data, as_of: since.as_of }).toEqual(since);
   });
 
   it("carries the operator's soul and standing instructions, read live", async () => {

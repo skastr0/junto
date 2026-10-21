@@ -237,6 +237,12 @@ describe("onboard co-members, tools and since", () => {
         command: "junto signal list",
       },
       answersSince: empty,
+      yourTasks: {
+        lines: [{ text: 'Your task #42 "Land the contract" is in progress', ref: { kind: "task", taskId: "01M5EVA0000000000000000000" as never, number: 42 as never } }],
+        more: 0,
+        command: "junto task list --assignee me",
+      },
+      reviewsOwed: empty,
     });
     expect(view).toEqual({
       as_of: "2026-10-21T09:00:00.000Z",
@@ -247,6 +253,7 @@ describe("onboard co-members, tools and since", () => {
         list: "junto since --all",
       },
       open_signals: { lines: ['Open blocked: "need the key" [signal 01M5EV95374HEKE681KWKGA9ES]'] },
+      your_tasks: { lines: ['Your task #42 "Land the contract" is in progress [task #42]'] },
     });
   });
 });

@@ -102,7 +102,7 @@ const signals: ReadonlyArray<AgentSignal> = [
 
 const sinceOver = (mailboxes: ReadonlyArray<HeldMailbox>, seat: string): Since =>
   seatSince(
-    { seat: asNodeId(seat), mailboxes, nameOf: (id) => id, signals: signals.filter((s) => s.nodeId === seat), now: minute(100) },
+    { seat: asNodeId(seat), mailboxes, nameOf: (id) => id, signals: signals.filter((s) => s.nodeId === seat), tasks: [], now: minute(100) },
     { perSection: SINCE_PER_SECTION },
   );
 

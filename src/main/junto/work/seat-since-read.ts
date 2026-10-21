@@ -1,17 +1,20 @@
 /**
  * Since your last session, read for onboard and `junto since`: the seat's own
  * mailbox and the mail it sent into other seats' (sent mail lives in each
- * recipient's), this seat's signals, and the previous session's start,
- * projected by the pure `seatSince`. Nothing here writes, and nothing is
- * stored.
+ * recipient's), this seat's signals, the canvas's open and lately changed
+ * tasks, and the previous session's start, projected by the pure
+ * `seatSince`. Nothing here writes, and nothing is stored.
  */
 import { Cause, Clock, Effect, Option } from "effect";
+import { TASKS_ENABLED } from "@shared/features";
 import type { HeldMailbox } from "@shared/mail-threads";
 import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { SINCE_PER_SECTION, seatSince, type Since } from "@shared/seat-since";
+import { OPEN_TASK_STATES, taskNodeId, type TaskView } from "@shared/task-model";
 import type { Message } from "@shared/work-model";
 import { AgentSignalRepository } from "../signals/repository";
+import { TaskRepository } from "./task-repository";
 import { WorkService } from "./service";
 
 /**
@@ -41,6 +44,35 @@ export const seatMailboxes = (
   ];
 };
 
+/** Every open task of a canvas: a seat holds at most one, so this is bounded by the seats. */
+const OPEN_TASK_LIMIT = 10_000;
+/**
+ * The most lately changed tasks read for changes since the previous session,
+ * newest change first: a change older than the newest this many is not
+ * listed.
+ */
+export const SINCE_RECENT_TASKS = 200;
+
+/**
+ * The tasks `seatSince` reads, each once: every open task on the canvas (the
+ * seat's own, and those in review it may owe a stamp on) and the lately
+ * changed ones (a task it finished, or sent on from its layer). Two indexed
+ * reads of the task heads; none on a tasks-off build or where no task store
+ * is built.
+ */
+export const readSinceTasks = (board: Canvas, canvasName: string) =>
+  Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(TaskRepository);
+    if (!TASKS_ENABLED || Option.isNone(store)) return [];
+    const nodeIds = [...board.nodes.values()].filter((node) => node.kind === "task").map((node) => taskNodeId(node.id));
+    if (nodeIds.length === 0) return [];
+    const open = yield* store.value.list(canvasName, { nodeIds, states: OPEN_TASK_STATES, limit: OPEN_TASK_LIMIT });
+    const recent = yield* store.value.list(canvasName, { nodeIds, limit: SINCE_RECENT_TASKS });
+    const tasks = new Map<string, TaskView>();
+    for (const task of [...open.tasks, ...recent.tasks]) tasks.set(task.taskId, task);
+    return [...tasks.values()];
+  });
+
 export const readSeatSince = (
   board: Canvas,
   canvasName: string,
@@ -58,7 +90,11 @@ export const readSeatSince = (
       yield* work.readMailbox(canvasName, nodeId),
       yield* work.readMailSentBy(canvasName, nodeId),
     );
-    const names = new Map(seats.map((seat) => [seat.id as string, titleOf(seat)]));
+    const names = new Map(
+      [...board.nodes.values()]
+        .filter((node) => node.kind === "agent" || node.kind === "task")
+        .map((node) => [node.id as string, titleOf(node)]),
+    );
     const store = yield* Effect.serviceOption(AgentSignalRepository);
     // Open signals from the listing, which always holds every open one;
     // answers by answer time, since the listing's closed history is capped.
@@ -68,6 +104,7 @@ export const readSeatSince = (
           ...(yield* store.value.listSeat({ canvasName, nodeId })).filter((signal) => signal.state === "open"),
           ...(yield* store.value.listSeatAnswered({ canvasName, nodeId }, previousStartedAt)),
         ];
+    const tasks = yield* readSinceTasks(board, canvasName);
     const now = yield* Clock.currentTimeMillis;
     const since: Since = seatSince(
       {
@@ -75,6 +112,7 @@ export const readSeatSince = (
         mailboxes,
         nameOf: (id) => names.get(id),
         signals,
+        tasks,
         now,
         ...(previousStartedAt === undefined ? {} : { previousStartedAt }),
       },
