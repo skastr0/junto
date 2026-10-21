@@ -153,7 +153,6 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       await page.waitForTimeout(1_000);
       await shot(page, name);
     };
-    await section("chip-page", () => chipOpens(2, "5-opened-page"));
     await section("chip-seat", () => chipOpens(1, "6-opened-seat"));
     await section("chip-task", () => chipOpens(0, "7-opened-task"));
 
@@ -174,7 +173,7 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       await shot(page, "9-threads-with-task-thread");
       const rows = page.getByTestId("seat-threads-row");
       console.log("ROWS:", JSON.stringify(await rows.allInnerTexts()));
-      const taskRow = rows.filter({ hasText: "ping" });
+      const taskRow = rows.filter({ hasText: "#1 Ship the wire spec" }).filter({ hasNotText: "look at" });
       await expect(taskRow).toHaveCount(1, { timeout: 20_000 });
       await taskRow.click();
       const subject = page.getByTestId("seat-threads-subject");
@@ -203,10 +202,13 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       await page.keyboard.press("Meta+I");
     });
 
+    // The page chip last: it leaves the page's surface open for the box comment.
+    await section("chip-page", () => chipOpens(2, "5-opened-page"));
+
     // Gap 1, a box comment on a page.
     await section("page-box-comment", async () => {
-      await card("docs").dblclick();
       const area = page.locator('[data-testid="browser-comment-area"]');
+      // The page chip opened the page's surface; it stays up, and covers the canvas.
       await expect(area).toBeVisible({ timeout: 30_000 });
       await expect.poll(
         () => junto.app.evaluate(({ webContents }) =>
