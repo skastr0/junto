@@ -14,7 +14,7 @@ it("counts a whole sink while excluding unrelated work contents and old-kind row
     CREATE TABLE task_boards(canvas_name TEXT,id TEXT);
     CREATE TABLE request_boards(canvas_name TEXT,id TEXT);
     CREATE TABLE artifact_boards(canvas_name TEXT,id TEXT);
-    CREATE TABLE work_tasks(canvas_name TEXT,node_id TEXT,state TEXT);
+    CREATE TABLE task_heads(canvas_name TEXT,node_id TEXT,state TEXT);
     CREATE TABLE work_requests(canvas_name TEXT,node_id TEXT,state TEXT);
     CREATE TABLE work_artifacts(canvas_name TEXT,node_id TEXT);
     INSERT INTO task_boards VALUES ('factory','tasks'),('factory','empty');
@@ -23,15 +23,15 @@ it("counts a whole sink while excluding unrelated work contents and old-kind row
     INSERT INTO work_requests VALUES ('factory','asks','completed');
     INSERT INTO work_artifacts VALUES ('factory','artifacts'),('factory','tasks');
   `);
-  const insert = database.prepare("INSERT INTO work_tasks VALUES ('factory','tasks',?)");
-  for (let index = 0; index < 1000; index++) insert.run("completed");
-  insert.run("input-required"); insert.run("auth-required"); insert.run("archived");
+  const insert = database.prepare("INSERT INTO task_heads VALUES ('factory','tasks',?)");
+  for (let index = 0; index < 1000; index++) insert.run("done");
+  insert.run("input-required"); insert.run("in-review"); insert.run("archived");
   try {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const sql = yield* makeSqliteClient(database, undefined, (query) => queries.push(query));
       const glances = yield* readWorkGlances(sql, { canvasName: "factory" });
       expect(() => Schema.decodeUnknownSync(Schema.Array(WorkSinkGlance))(glances)).not.toThrow();
-      expect(glances.find((glance) => glance.nodeId === "tasks")).toEqual({ nodeId: "tasks", count: 1002, needsHuman: true, allTerminal: false, inputRequired: 1, authRequired: 1 });
+      expect(glances.find((glance) => glance.nodeId === "tasks")).toEqual({ nodeId: "tasks", count: 1002, needsHuman: true, allTerminal: false, inputRequired: 1, authRequired: 0 });
       expect(glances.find((glance) => glance.nodeId === "empty")).toMatchObject({ count: 0, allTerminal: true, needsHuman: false });
       expect(glances.find((glance) => glance.nodeId === "asks")).toMatchObject({ count: 1, allTerminal: true });
       expect(glances.find((glance) => glance.nodeId === "artifacts")).toMatchObject({ count: 1, allTerminal: false });

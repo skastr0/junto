@@ -10,10 +10,14 @@ const CountRow = Schema.Struct({
   auth_required: Schema.Int,
   nonterminal: Schema.Int,
 });
+// Each lane's states that wait on a human, and the states that end it.
+// Tasks are the 0.10 heads (`task_heads`), one per task on the node it sits on now.
 const lanes = [
-  { table: "work_tasks", nodes: "task_boards", state: true, visible: "AND work.state != 'archived'" },
-  { table: "work_requests", nodes: "request_boards", state: true, visible: "" },
-  { table: "work_artifacts", nodes: "artifact_boards", state: false, visible: "" },
+  { table: "task_heads", nodes: "task_boards", visible: "AND work.state != 'archived'",
+    states: { input: "'input-required'", auth: undefined, terminal: "'done','canceled','archived'" } },
+  { table: "work_requests", nodes: "request_boards", visible: "",
+    states: { input: "'input-required'", auth: "'auth-required'", terminal: "'completed','canceled','failed','rejected','archived'" } },
+  { table: "work_artifacts", nodes: "artifact_boards", visible: "", states: undefined },
 ] as const;
 
 /** SQL counts complete lanes; no message bodies, history or artifacts are read. */
@@ -27,9 +31,9 @@ export const readWorkGlances = Effect.fn("work.glance")(function* (
     Result: CountRow,
     execute: (bindings) => reader.unsafe(lanes.map((lane) => `
       SELECT node.id AS node_id, COUNT(work.node_id) AS count,
-        ${lane.state ? "COALESCE(SUM(work.state = 'input-required'),0)" : "0"} AS input_required,
-        ${lane.state ? "COALESCE(SUM(work.state = 'auth-required'),0)" : "0"} AS auth_required,
-        ${lane.state ? "COALESCE(SUM(work.state NOT IN ('completed','canceled','failed','rejected','archived')),0)" : "COUNT(work.node_id)"} AS nonterminal
+        ${lane.states ? `COALESCE(SUM(work.state IN (${lane.states.input})),0)` : "0"} AS input_required,
+        ${lane.states?.auth ? `COALESCE(SUM(work.state IN (${lane.states.auth})),0)` : "0"} AS auth_required,
+        ${lane.states ? `COALESCE(SUM(work.state NOT IN (${lane.states.terminal})),0)` : "COUNT(work.node_id)"} AS nonterminal
       FROM ${lane.nodes} AS node
       LEFT JOIN ${lane.table} AS work ON work.canvas_name = node.canvas_name AND work.node_id = node.id ${lane.visible}
       WHERE node.canvas_name = ? ${query.nodeId === undefined ? "" : "AND node.id = ?"}
