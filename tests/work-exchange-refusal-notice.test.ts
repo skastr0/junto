@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -24,7 +24,7 @@ import type { CanvasPlacement, RowsFrame } from "../src/shared/work-exchange";
 import { ItemId, OpId } from "../src/shared/work-ids";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { seat } from "./support/model-nodes";
+import { seat, taskBoard } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook");
@@ -46,20 +46,21 @@ const placement: CanvasPlacement = {
   canvasId: "canvas-factory",
   editor: EDITOR,
   holds: (machine) => machine === EDITOR || machine === MINI || machine === OTHER,
-  seatOf: (nodeId) => (nodeId === "peer" || nodeId === "lead" ? { seatId, machine: MINI } : undefined),
+  // By ruling time "lead" and "solo", task nodes when their commands were queued, hold seats.
+  seatOf: (nodeId) => (["peer", "lead", "solo"].includes(nodeId) ? { seatId, machine: MINI } : undefined),
 };
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<WorkRepository | SqlClient.SqlClient, unknown>;
 
-const queue = (opId: OpId, after: ReadonlyArray<OpId>, nodeId = "board-1") =>
+const queue = (opId: OpId, after: ReadonlyArray<OpId>, nodeId = "board-1", by = actor) =>
   Effect.gen(function* () {
     const repository = yield* WorkRepository;
     yield* repository.queueCommand({
       command: {
         opId,
         canvasName: "factory",
-        actor,
+        actor: by,
         target: { kind: "task", nodeId, itemId: TASK },
         basis: null,
         after,
@@ -95,8 +96,8 @@ const take = (sent: RowsFrame) =>
     return yield* (yield* WorkRepository).applyExchangeRows({ peer: EDITOR, frame: sent, placement, receivedAt: at });
   }));
 
-const mailbox = () => runtime.runPromise(Effect.gen(function* () {
-  return yield* (yield* WorkRepository).mailbox("factory", "peer");
+const mailbox = (nodeId = "peer") => runtime.runPromise(Effect.gen(function* () {
+  return yield* (yield* WorkRepository).mailbox("factory", nodeId);
 }));
 
 const noticeId = (opId: OpId) => subjectNoticeId({ installationId: MINI, sourceId: opId, kind: "refusal", recipient: "peer" as never });
@@ -111,7 +112,8 @@ beforeAll(async () => {
         Effect.gen(function* () {
           yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${MINI}, ${at})`;
           yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${MINI}, ${at})`;
-          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("peer", { y: 0 })] }]]) });
+          const nodes = [seat("peer", { y: 0 }), taskBoard("board-1", { y: 200 }), taskBoard("lead", { y: 400 }), taskBoard("solo", { y: 600 })];
+          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes }]]) });
         }),
       );
       yield* queue(ROOT, []);
@@ -119,7 +121,7 @@ beforeAll(async () => {
       yield* queue(GRANDCHILD, [CHILD]);
       yield* queue(ALONE, []);
       yield* queue(AT_SEAT, [], "lead");
-      yield* queue(AT_SELF, [], "peer");
+      yield* queue(AT_SELF, [], "solo", { ...actor, nodeId: "solo" });
     }),
   );
 });
@@ -165,11 +167,20 @@ describe("a refusal of this machine's own command", () => {
     expect((await mailbox()).length).toBe(before);
   });
 
-  it("writes none for a command aimed at a seat's node or the actor's own, and keeps taking rows", async () => {
+  it("writes none for a command whose target is a seat's node by ruling time, or the actor's own, and keeps taking rows", async () => {
     // Its notice would be a row the editing machine refuses, closing the link: main never writes one.
     const before = (await mailbox()).length;
-    const taken = await take(frame([refusal("5", AT_SEAT), refusal("6", AT_SELF)], "6"));
+    const taken = await take(frame([
+      refusal("5", AT_SEAT),
+      refusal("6", AT_SELF, { actor: { ...actor, nodeId: "solo" } }),
+    ], "6"));
     expect(taken.taken).toBe(2);
     expect((await mailbox()).length).toBe(before);
+    expect(await mailbox("solo")).toEqual([]);
+  });
+
+  it("is never queued aimed at a seat's node: queueCommand refuses it and writes nothing", async () => {
+    const aimed = await runtime.runPromiseExit(queue(op("4W6"), [], "peer"));
+    expect(Exit.isFailure(aimed) && Cause.pretty(aimed.cause).includes("CommandTargetUnknown")).toBe(true);
   });
 });
