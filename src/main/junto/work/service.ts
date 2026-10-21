@@ -1,5 +1,6 @@
 import { ModelNotFound, ModelRecords } from "../model/records";
 import type { KernelWork } from "@shared/work-kernel";
+import { workRowTooLargeIn } from "@shared/exchange-bounds";
 export type { KernelWork } from "@shared/work-kernel";
 import { asCanvasName, asNodeId, taskBoardTitle, type Canvas, type Node, type SheetGrid } from "@shared/model";
 // WorkService — one repository-native orchestration seam for the SQLite work
@@ -216,6 +217,20 @@ const defaultIds = (): WorkIds => ({
 
 const toWorkServiceError = (error: unknown): WorkServiceError => {
   if (error instanceof WorkServiceError) return error;
+  const tooLarge = workRowTooLargeIn(error);
+  if (tooLarge !== undefined) {
+    return new WorkServiceError({
+      code: "invalid",
+      message: tooLarge.message,
+      details: {
+        reason: "row_too_large",
+        expected: tooLarge.limit,
+        received: tooLarge.bytes,
+        retryable: false,
+        next_step: "send the long text as an attached file, which travels as a content ref",
+      },
+    });
+  }
   if (error instanceof WorkError) {
     return new WorkServiceError({
       code: error.code,

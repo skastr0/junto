@@ -15,6 +15,7 @@ import {
   type CanvasPlacement,
   type RowsFrame,
 } from "@shared/work-exchange";
+import { assertWorkRowBound } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
@@ -4948,6 +4949,9 @@ const commitLocalFact = Effect.fn("work.commitLocalFact")(function* <A>(
     input.body,
     input.originAt,
   );
+  // One row is at most 64 KiB, so a page of rows always fits a link frame.
+  const tooLarge = assertWorkRowBound(fact);
+  if (tooLarge !== undefined) return yield* Effect.fail(tooLarge);
   yield* (yield* WorkJournal).appendWorkRecord(fact, input.receivedAt);
   yield* materializeFact(writer, fact, input.receivedAt);
   return {
