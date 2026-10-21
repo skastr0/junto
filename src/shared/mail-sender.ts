@@ -1,69 +1,60 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
-import type { NodeId } from "./model/base";
-import { OPERATOR_SEAT_ID, operatorActorRef, type ActorRef } from "./work-reference";
+import { mailAuthorOf, type MailAuthorKind } from "./mail-author";
 
 /**
- * Who a mail is from, closed: a seat, the operator, or a node. A node (a task
- * refusing a command, an automation) writes notices and takes no reply
- * (plan 0.10, 02 and 07).
+ * Who a stored mail is from, as delivery names it, and whether it takes a
+ * reply. The authors are `mail-author.ts`'s closed union; a row is written
+ * under its author's actor (`noticeActorRef`, `automationActorRef`, the
+ * operator's or a seat's), and admission stamps `fromSeat` and
+ * `senderNodeId` from that actor, never from the caller. So the author is
+ * read back from those two stamps and the mailbox the row sits in, and no
+ * other metadata can make a seat's mail read as a node's or the other way
+ * round.
  *
- * Every mailbox row is written under an actor seat id (`work_messages.actor_seat_id`)
- * and admission stamps `fromSeat` and `senderNodeId` from it, never from the
- * caller. A node has no seat, so it writes under {@link NODE_SENDER_SEAT_ID},
- * a stable non-executable identity like the operator's: no credential derives
- * it, so it can never act or claim work. The kind is read back from the
- * stamped `fromSeat` alone, so a client's metadata cannot make a seat's mail
- * read as a node's or the other way round.
+ * A seat and the operator take replies. An automation and a resource's
+ * notice are written from a node with no one to answer, and a malformed row
+ * names no one: none of them take a reply, and their header can carry no
+ * reply target, by type.
  *
  * Pure: no I/O.
  */
 
-export type MailFrom =
-  | { readonly kind: "seat"; readonly actor: ActorRef }
-  | { readonly kind: "operator"; readonly canvasName: string }
-  | { readonly kind: "node"; readonly canvasName: string; readonly nodeId: NodeId; readonly name: string };
+const isActorSeatId = Schema.is(ActorSeatId);
 
-export type MailFromKind = MailFrom["kind"];
+/**
+ * The kind of a stored row's author in `mailbox`, from its admitted stamps.
+ * A row from before seat ids, whose `fromSeat` names a node, was a seat's.
+ */
+export const storedMailAuthorKindOf = (
+  message: { readonly metadata?: Readonly<Record<string, unknown>> | undefined },
+  mailbox: string,
+): MailAuthorKind => {
+  const fromSeat = message.metadata?.fromSeat;
+  const nodeId = message.metadata?.senderNodeId;
+  if (!isActorSeatId(fromSeat)) return typeof fromSeat === "string" ? "seat" : "malformed";
+  return mailAuthorOf({ seatId: fromSeat, nodeId: typeof nodeId === "string" ? nodeId : "" }, mailbox).kind;
+};
 
-/** The actor seat id every node-sent row is written under. Never a principal. */
-export const NODE_SENDER_SEAT_ID = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"d".repeat(64)}`);
-
-/** The actor a row from `from` is written under: admission stamps the sender from it. */
-export const mailWriterOf = (from: MailFrom): ActorRef => {
-  switch (from.kind) {
+/** Whether mail by an author of this kind takes a reply. */
+export const authorTakesReply = (kind: MailAuthorKind): boolean => {
+  switch (kind) {
     case "seat":
-      return from.actor;
     case "operator":
-      return operatorActorRef(from.canvasName);
-    case "node":
-      return { seatId: NODE_SENDER_SEAT_ID, canvasName: from.canvasName, nodeId: from.nodeId };
+      return true;
+    case "automation":
+    case "notice":
+    case "malformed":
+      return false;
   }
 };
 
-/**
- * The name a node-sent row carries for its header: admission keeps
- * `senderName` as written, and stamps `fromSeat` and `senderNodeId` itself.
- */
-export const nodeSenderMetadata = (from: Extract<MailFrom, { kind: "node" }>): { readonly senderName: string } => ({
-  senderName: from.name,
-});
-
-/** Whose a stored row is, read from its admitted `fromSeat`. */
-export const mailFromKindOf = (message: {
-  readonly metadata?: Readonly<Record<string, unknown>> | undefined;
-}): MailFromKind => {
-  const fromSeat = message.metadata?.fromSeat;
-  if (fromSeat === NODE_SENDER_SEAT_ID) return "node";
-  if (fromSeat === OPERATOR_SEAT_ID) return "operator";
-  return "seat";
-};
+type Answerable = Extract<MailAuthorKind, "seat" | "operator">;
 
 /**
  * The sender as a mail header names it, and where `junto msg reply` sends an
- * answer. A node takes no reply: its header has no target, by type.
+ * answer. Only a seat or the operator has one.
  */
 export type MailHeaderSender =
-  | { readonly kind: "seat"; readonly label: string; readonly replyTarget?: string }
-  | { readonly kind: "operator"; readonly label: string; readonly replyTarget?: string }
-  | { readonly kind: "node"; readonly label: string; readonly replyTarget?: never };
+  | { readonly kind: Answerable; readonly label: string; readonly replyTarget?: string }
+  | { readonly kind: Exclude<MailAuthorKind, Answerable>; readonly label: string; readonly replyTarget?: never };
