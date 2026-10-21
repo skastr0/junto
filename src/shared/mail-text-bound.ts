@@ -6,11 +6,12 @@
  * measured as the row's encoded JSON. A mail's row is its text plus an
  * envelope: ids, the sender's stamp and regions, a thread's subject, up to
  * OPERATOR_ATTACHMENTS_MAX file refs. MAIL_ENVELOPE_BYTES is room for all of
- * that as far as it is bounded (25,039 bytes in tests/mail-text-bound-row:
- * ten refs with 255-character names, a subject anchored on a 1,024-character
- * file). It is the composer's hint, said before send: the sender's name and
- * regions have no bound of their own yet, so main's row measure stays the
- * authority, and a mail it would refuse goes with its text as LONG_TEXT_FILE.
+ * that at its bounds (23,575 bytes in tests/mail-text-bound-row: ten refs
+ * with 255-character names, a subject anchored on a 1,024-character file,
+ * MAIL_SENDER_REGIONS_MAX regions named at REGION_NAME_MAX). It is the
+ * composer's hint, said before send: the sender's name is still unbounded, so
+ * main's row measure stays the authority, and a mail it would refuse goes
+ * with its text as LONG_TEXT_FILE.
  * The text is measured as the row measures it: its UTF-8 bytes once
  * JSON-escaped, so quotes, newlines and control characters count at what
  * they cost.

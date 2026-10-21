@@ -7,7 +7,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { assertWorkRowBound, workRowBytes } from "../src/shared/exchange-bounds";
-import { mailExtensionMetadata } from "../src/shared/crew";
+import { MAIL_SENDER_REGIONS_MAX, REGION_NAME_MAX, mailExtensionMetadata } from "../src/shared/crew";
 import { MAIL_ENVELOPE_BYTES, MAIL_TEXT_INLINE_MAX_BYTES, mailTextBytes } from "../src/shared/mail-text-bound";
 import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -27,7 +27,10 @@ const fileRef = {
   mediaType: widestName,
   displayName: widestName,
 };
-const regions = Array.from({ length: 8 }, (_, depth) => ({ id: `region-${ulid}`, name: `${depth}${"語".repeat(79)}` }));
+const regions = Array.from({ length: MAIL_SENDER_REGIONS_MAX }, (_, depth) => ({
+  id: `region-${ulid}`,
+  name: `${depth % 10}${"語".repeat(REGION_NAME_MAX - 1)}`,
+}));
 
 /** A subject's widest anchors: a quote or a lines file at its bound, in three-byte characters. */
 const subjects: ReadonlyArray<ResourceSubject> = [
