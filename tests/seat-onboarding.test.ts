@@ -11,6 +11,7 @@ import {
   SEAT_GUIDANCE_LINE,
   commandGroupsFor,
   compileConnectionInstructions,
+  compileReach,
   onboardGuidanceFor,
   type CommandFamily,
 } from "../src/shared/seat-onboarding";
@@ -152,6 +153,49 @@ describe("per-connection instructions", () => {
   });
 });
 
+describe("onboard reach", () => {
+  const taskPorts = [...new Set(COMMAND_FAMILIES.tasks.rows.map((row) => row.port))];
+
+  it("teaches a resource in reach the commands admission grants on it, and nothing without grants", () => {
+    const taught = compileConnectionInstructions([], [{ id: "board-1", kind: "task", ports: taskPorts }]);
+    expect(taught.map((group) => group.targets)).toEqual(TASKS_ENABLED ? [["board-1"]] : []);
+    expect(compileConnectionInstructions([], [{ id: "board-1", kind: "task", ports: [] }])).toEqual([]);
+  });
+
+  it("counts a resource both wired and in reach once", () => {
+    const board = { id: "board-1", kind: "task", ports: taskPorts };
+    expect(compileConnectionInstructions([board], [board])).toEqual(compileConnectionInstructions([board]));
+  });
+
+  it("groups resources by kind with a count and the command that lists each", () => {
+    const reach = compileReach([
+      { id: "board-b", kind: "task" },
+      { id: "art-1", kind: "artifacts" },
+      { id: "board-a", kind: "task" },
+    ]);
+    expect(reach.map(({ kind, count, targets }) => ({ kind, count, targets }))).toEqual([
+      { kind: "task", count: 2, targets: ["board-a", "board-b"] },
+      { kind: "artifacts", count: 1, targets: ["art-1"] },
+    ]);
+    expect(reach[0]!.list).toBe(TASKS_ENABLED ? `junto tasks list '{"target":"<target>"}'` : "junto docs node task");
+    // No artifact list command yet: the reference instead of a command that does not exist.
+    expect(reach[1]!.list).toBe("junto docs node artifacts");
+    expect(compileReach([{ id: "board-a", kind: "task" }])[0]!.list).toBe(
+      TASKS_ENABLED ? `junto tasks list '{"target":"board-a"}'` : "junto docs node task",
+    );
+    expect(compileReach([])).toEqual([]);
+  });
+
+  it("the guidance names reach, connected seats and the commands field", () => {
+    const [first] = ONBOARD_GUIDANCE;
+    expect(first).toContain("`reach`");
+    expect(first).toContain("`connected`");
+    expect(first).toContain("`commands`");
+    expect(first).not.toContain("`instructions`");
+    expect(first).not.toContain("Edges are your permissions");
+  });
+});
+
 describe("the reference onboard leaves out is reachable from junto docs", () => {
   const doctrine = buildDoctrineDoc();
 
@@ -207,7 +251,9 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
     for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
       const spec = COMMAND_FAMILIES[family];
       const ports = [...new Set(spec.rows.map((row) => row.port))];
+      // Taught the same whether the node is wired or only in reach.
       const taught = compileConnectionInstructions([{ id: "<node>", ports }]);
+      expect(compileConnectionInstructions([], [{ id: "<node>", ports }])).toEqual(taught);
       if (taught.length === 0) continue; // family gated off in this build
       const page = buildNodeKindDoc(spec.docsKind);
       // Reviews ride an agent edge the kind doc does not offer by default;

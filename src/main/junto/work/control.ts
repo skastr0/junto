@@ -189,8 +189,10 @@ import { isHarnessId } from "@shared/managed-terminal-templates";
 import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
 import {
   compileConnectionInstructions,
+  compileReach,
   onboardGuidanceFor,
 } from "@shared/seat-onboarding";
+import { isResourceKind, resourcesInReach } from "@shared/region-reach";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -223,6 +225,7 @@ import {
   containingRegion,
   factoryRoleOfNode,
   findNode,
+  heldGrantsOnEdge,
   nodeKind,
   nodeTitle,
   regionStackFor,
@@ -1291,6 +1294,9 @@ const dispatchOp = (
       const history = yield* pastSessionsOf(self, decodedOnboard.success.past_notes ?? ONBOARD_PAST_NOTES_DEFAULT);
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
+      const reach = resourcesInReach(board, asNodeId(caller.nodeId)).flatMap((node) =>
+        isResourceKind(node.kind) ? [{ id: node.id as string, kind: node.kind }] : [],
+      );
       const overseer = self.kind === "agent" && self.overseer === true;
       const tools = overseer
         ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
@@ -1337,11 +1343,16 @@ const dispatchOp = (
           grants: c.grants,
           ...(boardBriefing(board, c.id) ?? {}),
         })),
-        // What each connection allows, compiled from the ports held on it:
-        // a seat is never taught a command its edges do not grant.
+        // What each connection and each resource in reach allows, compiled
+        // from the ports admission grants on it: a seat is never taught a
+        // command it would be refused.
         commands: compileConnectionInstructions(
           connected.map((c) => ({ id: c.id, kind: c.kind, ports: c.grants })),
+          reach.map((r) => ({ id: r.id, kind: r.kind, ports: heldGrantsOnEdge(board, caller.nodeId, r.id) })),
         ),
+        // The resources in this seat's region reach, by kind, with the
+        // command that lists each.
+        reach: compileReach(reach),
         // Operator-pinned precedent from the seat's own region stack. Region
         // rulings ride the Tasks gate: a tasks-off build names none.
         ...(TASKS_ENABLED

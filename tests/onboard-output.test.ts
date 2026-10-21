@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { region, seat as seatNode, wire } from "./support/model-nodes";
+import { artifacts, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { ModelService } from "../src/main/junto/model/service";
 import { asCanvasName, asWireId } from "../src/shared/model";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
@@ -69,7 +69,11 @@ const seat = (id: string, x: number) =>
     launch: { kind: "harness", argv: ["claude"] },
   });
 
-/** One seat in a briefed region, wired by messages wires to the given peers. */
+/**
+ * One seat in a briefed region, wired by messages wires to the given peers.
+ * Its reach: the task board beside it and the loose artifacts node, never the
+ * board in the region next door.
+ */
 const nodes = () => [
   region("region", { x: -40, y: -40, width: 900, height: 300 }, {
     label: "PTY",
@@ -77,6 +81,10 @@ const nodes = () => [
   }),
   seat("agent", 0),
   ...PEERS.map((id, index) => seat(id, 160 * (index + 1))),
+  taskBoard("board-in", { x: 0, y: 150, width: 200, height: 60 }),
+  region("next-door", { x: 1000, y: -40, width: 400, height: 300 }, { label: "Canvas" }),
+  taskBoard("board-away", { x: 1040, y: 40, width: 200, height: 60 }),
+  artifacts("shelf", { x: 2000, y: 40, width: 200, height: 60 }),
 ];
 
 let root: string;
@@ -161,6 +169,7 @@ describe("junto onboard output", () => {
       "region",
       "connected",
       "commands",
+      "reach",
       ...("rulings" in data ? ["rulings"] : []),
       "co_members",
       "paused",
@@ -213,6 +222,17 @@ describe("junto onboard output", () => {
     expect(data.co_members.map((member: { id: string }) => member.id)).toEqual(
       expect.arrayContaining([...PEERS]),
     );
+  });
+
+  it("lists the resources in the seat's region reach by kind, and teaches no command an edge does not grant", async () => {
+    await write(PEERS);
+    const data = await onboard();
+    expect(data.reach.map(({ kind, count, targets }: { kind: string; count: number; targets: string[] }) => ({ kind, count, targets }))).toEqual([
+      { kind: "task", count: 1, targets: ["board-in"] },
+      { kind: "artifacts", count: 1, targets: ["shelf"] },
+    ]);
+    // Unwired, so admission grants nothing on them yet: no command is taught for them.
+    expect(data.commands.flatMap((group: { targets: string[] }) => group.targets)).toEqual([...PEERS]);
   });
 
   it("carries the operator's soul and standing instructions, read live", async () => {

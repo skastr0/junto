@@ -17,6 +17,7 @@
 
 import { productPortEnabled, TASKS_ENABLED } from "./features";
 import type { Port } from "./physics/schema";
+import { RESOURCE_KINDS, type ResourceKind } from "./region-reach";
 
 /** A connected node and the ports the seat holds on it. */
 export type ConnectedTarget = {
@@ -267,14 +268,17 @@ export type ConnectionInstructions = {
 };
 
 /**
- * The commands each connection allows, compiled from held ports. One target
- * gets its own id written into the commands; several share one set with a
- * `<target>` placeholder so the output does not grow with the edge count.
+ * The commands each connection and each resource in reach allows, compiled
+ * from held ports. One target gets its own id written into the commands;
+ * several share one set with a `<target>` placeholder so the output does not
+ * grow with the edge count. A resource both wired and in reach counts once.
  */
 export const compileConnectionInstructions = (
   targets: readonly ConnectedTarget[] | undefined,
-): ReadonlyArray<ConnectionInstructions> =>
-  commandGroupsFor(targets).map((group) => {
+  reach: readonly ConnectedTarget[] = [],
+): ReadonlyArray<ConnectionInstructions> => {
+  const wired = new Set((targets ?? []).map((target) => target.id));
+  return commandGroupsFor([...(targets ?? []), ...reach.filter((target) => !wired.has(target.id))]).map((group) => {
     const spec = COMMAND_FAMILIES[group.family];
     const id = group.targets.length === 1 ? group.targets[0]!.id : TARGET_PLACEHOLDER;
     return {
@@ -284,6 +288,42 @@ export const compileConnectionInstructions = (
       note: spec.note,
       more: `junto docs node ${spec.docsKind}`,
     };
+  });
+};
+
+// ── Reach ──────────────────────────────────────────────────────────────────
+
+/**
+ * Where each resource kind's items are listed: a row of its command family,
+ * by intent. A kind with no list row yet points at its reference instead.
+ */
+const REACH_LISTING: Readonly<Record<ResourceKind, { readonly family: CommandFamily; readonly intent?: string }>> = {
+  task: { family: "tasks", intent: "list queue" },
+  artifacts: { family: "artifacts" },
+};
+
+/** One resource kind in a seat's reach, as `junto onboard` returns it. */
+export type ReachSection = {
+  readonly kind: ResourceKind;
+  readonly count: number;
+  /** The resource node ids, sorted. */
+  readonly targets: ReadonlyArray<string>;
+  /** The command that lists this kind's items. `<target>` stands for any id in `targets`. */
+  readonly list: string;
+};
+
+/** Resources in reach grouped by kind, in `RESOURCE_KINDS` order; empty kinds left out. */
+export const compileReach = (
+  resources: ReadonlyArray<{ readonly id: string; readonly kind: ResourceKind }>,
+): ReadonlyArray<ReachSection> =>
+  RESOURCE_KINDS.flatMap((kind) => {
+    const targets = resources.filter((resource) => resource.kind === kind).map((resource) => resource.id).sort();
+    if (targets.length === 0) return [];
+    const listing = REACH_LISTING[kind];
+    const spec = COMMAND_FAMILIES[listing.family];
+    const row = spec.rows.find((candidate) => candidate.intent === listing.intent && productPortEnabled(candidate.port));
+    const id = targets.length === 1 ? targets[0]! : TARGET_PLACEHOLDER;
+    return [{ kind, count: targets.length, targets, list: row ? row.command(id) : `junto docs node ${spec.docsKind}` }];
   });
 
 // ── Guidance ───────────────────────────────────────────────────────────────
@@ -298,7 +338,7 @@ const WORK_SOURCE_LINE = TASKS_ENABLED
  * `junto docs` away.
  */
 export const ONBOARD_GUIDANCE: ReadonlyArray<string> = [
-  "You are a seat on a Junto canvas, a workspace the operator draws. Edges are your permissions: you may act only on the nodes under `connected`, with the commands under `commands`. Mail a seat by its name or its node id.",
+  "You are a seat on a Junto canvas, a workspace the operator draws. Your region is your reach: the resources under `reach` are there for you to use, and edges join you to the seats under `connected`. Run only the commands under `commands`. Mail a seat by its name or its node id.",
   WORK_SOURCE_LINE,
   "Report through `junto feedback \"...\"` (ready for review), `junto blocked \"...\"` (cannot continue; stop and wait) and `junto escalate \"...\"` (needs attention; keep working). The operator reads that feed, not your terminal.",
   "When findings are ready but work remains, post `junto feedback` and keep working.",
