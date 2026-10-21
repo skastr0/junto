@@ -1620,7 +1620,7 @@ const dispatchOp = (
       const decoded = decodeArgs(RulingsArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       // No target: the seat's own region stack — ambient law it already lives
-      // under, so no edge is involved. A named target is edge-gated as usual.
+      // under, so no edge is involved. A named task node is admitted by reach.
       const target = decoded.success.target;
       if (target !== undefined) {
         const gate = requireTarget(board, caller.nodeId, target, op);
