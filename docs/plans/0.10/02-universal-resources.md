@@ -330,7 +330,9 @@ are not trusted and a priority rule would only move the surprise elsewhere.
      seats (`docs/security-doctrine.md:245`), and the ruling fact already
      reaches every machine. The deterministic id makes the two designs
      produce the same row, so delivery is unchanged.
-   `junto op show <opId>` reads any refused op.
+   `junto op show <opId>` reads any op, and `junto op list [--state queued|refused]`
+   lists the seat's own ops, for a fresh session that has no opIds in hand
+   (cli-lead).
 5. **Bounded** (remote-lead), as every buffer must be
    (`docs/security-doctrine.md:194-196`):
    - **One row** is at most 64 KiB. Text over that, and every artifact body,
@@ -346,7 +348,8 @@ are not trusted and a priority rule would only move the surprise elsewhere.
      interleave with it.
    - Paging must count bytes, not only rows (Contracts, Size).
    - **Reaching the bound** is the only write refusal related to the editing
-     machine being away. It is a typed, retryable `QueueFull` reason, given
+     machine being away. It is a typed, retryable `RuntimeDown` with `details.reason:
+     "queue_full"` (cli-lead), given
      at once on the writing machine.
 
 ### Moving the editing machine
@@ -375,7 +378,7 @@ This is designed for and not built in 0.10:
 | Kept | Editing machine authority, Rule 4, `rows` channel, cursors and catch up, content transfer, mail relay |
 | Reshaped | `canvas-copy.ts` cut (all non-host nodes everywhere), `entity_home` on tasks and artifacts (always the editing machine; the per-machine lane key goes), entitlement for resource facts, signal attachments as refs |
 | Deleted | Host fields on cron and relay (07), page host selection (06) |
-| New | `command.queued` rows and `ruling.*` facts on `rows` (no new link channel), `resource-command.ts`, ruling table keyed by (writer, opId), fact families per domain, pending overlay, `junto queue list` |
+| New | `command.queued` rows and `ruling.*` facts on `rows` (no new link channel), `resource-command.ts`, ruling table keyed by (writer, opId), fact families per domain, pending overlay, `junto op show` and `junto op list` |
 
 ## Questions
 
