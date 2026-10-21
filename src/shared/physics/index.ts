@@ -97,7 +97,7 @@ export {
 } from "./work-ports";
 export type { TargetWorkOpName } from "./work-ports";
 
-export { canvasToCapabilityView, pairIsClaimable } from "./view";
+export { canvasToCapabilityView } from "./view";
 export type { CapabilityViewOptions, VerbCapabilityView } from "./view";
 
 export {
@@ -107,7 +107,6 @@ export {
   Verb,
   compileVerb,
   defaultVerbForPair,
-  inferVerb,
   verbSideOf,
   verbsForPair,
   EdgeEffect,
@@ -115,7 +114,6 @@ export {
 } from "./verbs";
 export type {
   ClockKind,
-  LegacyEdgeEther,
   VerbGrant,
   VerbSide,
   WatchWhenAtom,

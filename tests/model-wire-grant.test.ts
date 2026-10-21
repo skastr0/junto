@@ -13,6 +13,7 @@ const kinds = wireKinds([
   { id: "lead", kind: "agent" },
   { id: "worker", kind: "agent" },
   { id: "queue", kind: "task" },
+  { id: "next", kind: "task" },
   { id: "memo", kind: "note" },
 ]);
 
@@ -21,7 +22,7 @@ describe("wireGrant", () => {
     expect(wireGrant(wire("messages", "lead", "worker"), kinds)?.ports).toEqual([
       "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read",
     ]);
-    expect(wireGrant(wire("works", "queue", "worker"), kinds)).toMatchObject({ claimable: true });
+    expect(wireGrant(wire("feeds", "queue", "next"), kinds)).toMatchObject({ ports: [], flow: true });
   });
 
   it("lets a mask take ports away and never add one", () => {
@@ -34,7 +35,7 @@ describe("wireGrant", () => {
   });
 
   it("grants nothing when the kinds cannot hold the verb or an end is missing", () => {
-    expect(wireGrant(wire("works", "worker", "queue"), kinds)).toBeUndefined();
+    expect(wireGrant(wire("feeds", "worker", "queue"), kinds)).toBeUndefined();
     expect(wireGrant(wire("messages", "lead", "memo"), kinds)).toBeUndefined();
     expect(wireGrant(wire("messages", "lead", "gone"), kinds)).toBeUndefined();
   });

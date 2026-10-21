@@ -13,7 +13,7 @@ const boards = [
 ];
 const ab = wire("ab", "a", "b", "feeds");
 const ac = wire("ac", "a", "c", "feeds");
-const mail = wire("mail", "worker", "a", "contributes");
+const mail = wire("mail", "worker", "a", "messages");
 const canvas = canvasOf(boards, [ab, ac, mail]);
 const noWork = taskPolicyRead([]);
 

@@ -8,10 +8,6 @@ import type { Verb } from "@shared/physics";
 const VERB_SENTENCE = {
   messages: "{from} messages {to}",
   reviews: "{from} reviews {to}",
-  manages: "{from} manages {to}",
-  contributes: "{from} contributes to {to}",
-  works: "{from} works {to}",
-  publishes: "{from} publishes to {to}",
   participates: "{from} takes part in {to}",
   navigates: "{from} drives {to}",
   feeds: "{from} feeds {to}",

@@ -3,7 +3,7 @@
 // builder: fixed deterministic ids, no ulid, no Math.random, no runtime
 // framework. Imports only native model and demo contracts.
 
-import { asNodeId, asWireId, type BindingId, type Node, type NodeOf, type Wire } from "@shared/model";
+import { asNodeId, type BindingId, type Node, type NodeOf } from "@shared/model";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 import { DEMO_THIS_MACHINE } from "../machine";
 
@@ -55,7 +55,6 @@ const at = (atBeat: number, ...ops: DemoOp[]): void => {
 // --- op builders --------------------------------------------------------------
 
 const addNodesOp = (nodes: readonly Node[]): DemoOp => ({ kind: "add-nodes", nodes });
-const addEdgesOp = (edges: readonly Wire[]): DemoOp => ({ kind: "add-edges", edges });
 
 const cameraFit = (
   nodeIds: readonly string[] | undefined,
@@ -75,27 +74,6 @@ const cameraCenter = (x: number, y: number, durationBeats: number, zoom?: number
 const selectOp = (nodeIds: readonly string[]): DemoOp => ({ kind: "select", nodeIds });
 const sfxOp = (id: string): DemoOp => ({ kind: "sfx", id });
 const hudOp = (show: boolean): DemoOp => ({ kind: "hud", show });
-
-/**
- * A wire carries exactly one authored word, and only for a pair the grammar
- * admits (VERB_TABLE). The crew are terminal cards and terminal admits no
- * verb, so the only wire this film can hold is the queue handing work to the
- * one agent seat — a verb-less or terminal-touching edge would paint during
- * the take and then be dropped by the next decode.
- */
-type EdgeVerb = Wire["verb"];
-
-const mkEdge = (
-  id: string,
-  fromNode: string,
-  toNode: string,
-  verb: EdgeVerb,
-): Wire => ({
-  id: asWireId(id),
-  from: asNodeId(fromNode),
-  to: asNodeId(toNode),
-  verb,
-});
 
 const smallTextNode = (id: string, text: string, x: number, y: number): NodeOf<"note"> => ({
   id: asNodeId(id),
@@ -314,7 +292,6 @@ at(14, addNodesOp([demoT3]));
 at(
   16,
   addNodesOp([demoAgent]),
-  addEdgesOp([mkEdge("demo-e1", "demo-task", "demo-agent", "works")]),
   cameraFit(["demo-task", "demo-agent"], 3),
 );
 at(20, cameraCenter(420, 160, 4, 1.2));

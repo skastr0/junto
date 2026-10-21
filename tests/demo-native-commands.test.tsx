@@ -68,15 +68,15 @@ afterEach(async () => {
 it("shows beat additions through the native store and removes incident wires in one act", async () => {
   await act(async () => {
     executeBeat(scenario, { at: 0, ops: [
-      { kind: "add-nodes", nodes: [seat, decodeNode({ id: "queue", kind: "task", name: "Backlog", x: 110, y: 220, width: 240, height: 96, z: 0 })] },
-      { kind: "add-edges", edges: [{ id: asWireId("work"), from: asNodeId("queue"), to: seat.id, verb: "works" }] },
+      { kind: "add-nodes", nodes: [seat, decodeNode({ id: "queue", kind: "task", name: "Backlog", x: 110, y: 220, width: 240, height: 96, z: 0 }), decodeNode({ id: "next", kind: "task", name: "Next", x: 410, y: 220, width: 240, height: 96, z: 0 })] },
+      { kind: "add-edges", edges: [{ id: asWireId("work"), from: asNodeId("queue"), to: asNodeId("next"), verb: "feeds" }] },
       { kind: "select", nodeIds: ["queue"] },
     ] });
     await flush();
   });
   expect(command).toHaveBeenCalledOnce();
   expect(command.mock.calls[0]![0]).toMatchObject({ _tag: "Batch", steps: [{ _tag: "Add" }, { _tag: "Add" }] });
-  expect(modelStore.wire$(canvas, "work").peek()?.verb).toBe("works");
+  expect(modelStore.wire$(canvas, "work").peek()?.verb).toBe("feeds");
   expect(modelStore.node$(canvas, "seat").peek()).toMatchObject({ host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:planner` });
   await act(async () => { executeBeat(scenario, { at: 1, ops: [{ kind: "remove-nodes", ids: ["queue"] }] }); await flush(); });
   expect(command.mock.calls[1]![0]).toEqual({ _tag: "Remove", canvas, nodes: ["queue"], wires: ["work"] });

@@ -34,7 +34,7 @@ import {
 } from "../../src/main/junto/work/repository";
 import { IntentFactBasis } from "../../src/shared/work-protocol";
 import type { Sandbox } from "../harness/sandbox";
-import { modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
+import { modelFixture, modelNode, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "needs-you-canvas";
@@ -48,7 +48,8 @@ const atlas = modelSeat({ id: "atlas", key: "local:e2e-needs-atlas", label: "Atl
 const asks = modelNode({ kind: "requests", id: "asks", x: 1000, y: 80, width: 240, height: 120, z: 0 });
 const board = modelNode({ kind: "task", id: "board", x: 400, y: 80, width: 240, height: 120, z: 0 });
 const nodes = [ops, atlas, board, asks];
-const fixture = modelFixture(nodes, [modelWire("e-atlas-board", "atlas", "board", "contributes", nodes)]);
+// Atlas reaches the Tasks node through the Ops region, with no wire (01).
+const fixture = modelFixture(nodes, []);
 
 /** Atlas's claimed task waiting on the operator, and an open request Atlas raised. */
 const seedWork = async (sandbox: Sandbox): Promise<void> => {

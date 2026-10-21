@@ -214,7 +214,7 @@ describe("colour and order", () => {
 describe("adding and removing", () => {
   const canvas = canvasOf(
     [seat("lead"), seat("nodes"), board("tasks")],
-    [wire("w1", "lead", "nodes"), wire("w2", "nodes", "tasks", { verb: "works" }), wire("w3", "lead", "tasks", { verb: "works" })],
+    [wire("w1", "lead", "nodes"), wire("w2", "nodes", "tasks", { verb: "messages" }), wire("w3", "lead", "tasks", { verb: "messages" })],
   );
 
   it("adds nodes and wires in one command", () => {

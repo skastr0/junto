@@ -64,7 +64,7 @@ describe("board wake set", () => {
 describe("task paths", () => {
   const line = canvas(
     [thing("task", "a"), thing("task", "b"), thing("task", "c"), seat("ana")],
-    [wire("feeds", "a", "b"), wire("feeds", "b", "c"), wire("contributes", "ana", "a")],
+    [wire("feeds", "a", "b"), wire("feeds", "b", "c"), wire("messages", "ana", "a")],
   );
 
   it("follows feeds wires and nothing else", () => {

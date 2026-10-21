@@ -50,7 +50,7 @@ const fixture = (state: TaskState = "working", workRevision = "1"): LiveCanvasRe
       taskBoard("queue", { ...at, name: "Authentication" }),
       page("page", { ...at, url: "https://example.test?access_token=private-url-value" }),
     ],
-    [wire("connection", "worker", "queue", "contributes")],
+    [wire("connection", "worker", "queue", "messages")],
     [["queue", [task("investigation", state)]]],
     workRevision,
   );
@@ -63,7 +63,7 @@ describe("Live semantic context", () => {
     const context = buildLiveContext(read, input);
     expect(context.authoritative).toMatchObject({
       canvasName: "factory", revision: "authorial-revision", workRevision: "1", counts: { blocked: 1 },
-      wires: [{ id: "connection", from: "worker", to: "queue", verb: "contributes" }],
+      wires: [{ id: "connection", from: "worker", to: "queue", verb: "messages" }],
     });
     expect(context.authoritative.nodes[0]?.id).toBe("worker");
     expect(context.authoritative.nodes.find((item) => item.id === "queue")?.tasks[0]).toMatchObject({ state: "input-required", claimedBy: actor });

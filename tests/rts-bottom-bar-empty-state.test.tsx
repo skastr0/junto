@@ -137,8 +137,8 @@ describe("RTS bottom bar follows displayed facts", () => {
   it("keeps a selected relation quiet on moves and follows endpoint names and verb changes", () => {
     let commits = 0;
     const agent = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", x: 0, y: 0, width: 100, height: 100, z: 0, label: "Planner", agentKey: `${THIS_MACHINE}:planner`, bindingId: "planner-binding", host: THIS_MACHINE, harness: "codex", overseer: false });
-    const task = Schema.decodeUnknownSync(Node)({ kind: "task", id: "tasks", x: 400, y: 0, width: 100, height: 100, z: 0, name: "Backlog" });
-    const wire = Schema.decodeUnknownSync(Wire)({ id: "link", from: agent.id, to: task.id, verb: "contributes" });
+    const task = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "tasks", x: 400, y: 0, width: 100, height: 100, z: 0, label: "Backlog", agentKey: `${THIS_MACHINE}:backlog`, bindingId: "backlog-binding", host: THIS_MACHINE, harness: "codex", overseer: false });
+    const wire = Schema.decodeUnknownSync(Wire)({ id: "link", from: agent.id, to: task.id, verb: "messages" });
     act(() => {
       seed(); modelStore.node$(canvasName, agent.id).set(agent); modelStore.node$(canvasName, task.id).set(task);
       modelStore.canvas$(canvasName).nodeIds.set([agent.id, task.id]);
@@ -146,7 +146,7 @@ describe("RTS bottom bar follows displayed facts", () => {
       state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]); state$.selectedEdgeId.set(wire.id);
       root.render(<Profiler id="bar" onRender={() => { commits += 1; }}><RtsBottomBar minimap={null} /></Profiler>);
     });
-    expect(host.textContent).toContain("Planner contributes to Backlog");
+    expect(host.textContent).toContain("Planner messages Backlog");
     commits = 0;
     act(() => batch(() => {
       modelStore.node$(canvasName, agent.id).set({ ...agent, x: 50, z: 2 });
@@ -154,12 +154,12 @@ describe("RTS bottom bar follows displayed facts", () => {
       modelStore.canvas$(canvasName).nodeIds.set([task.id, agent.id]);
     }));
     expect(commits).toBe(0);
-    act(() => modelStore.node$(canvasName, task.id).set({ ...task, name: "Shipping" }));
-    expect(host.textContent).toContain("Planner contributes to Shipping");
-    act(() => modelStore.wire$(canvasName, wire.id).set({ ...wire, verb: "manages" }));
-    expect(host.textContent).toContain("Planner manages Shipping");
+    act(() => modelStore.node$(canvasName, task.id).set({ ...task, label: "Shipping" } as Node));
+    expect(host.textContent).toContain("Planner messages Shipping");
+    act(() => modelStore.wire$(canvasName, wire.id).set({ ...wire, verb: "reviews" }));
+    expect(host.textContent).toContain("Planner reviews Shipping");
     act(() => modelStore.wire$(canvasName, wire.id).delete());
-    expect(host.textContent).not.toContain("Planner manages Shipping");
+    expect(host.textContent).not.toContain("Planner reviews Shipping");
     expect(reactErrors()).toEqual([]);
   });
 

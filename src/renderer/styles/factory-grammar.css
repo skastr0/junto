@@ -231,11 +231,8 @@
    ground. */
 :root {
   /* Hot: warm hue, chroma 0.145 and up. */
-  --wire-verb-manages: oklch(0.56 0.21 335);
-  --wire-verb-works: oklch(0.56 0.145 50);
   --wire-verb-enqueues: oklch(0.73 0.18 48);
   --wire-verb-feeds: oklch(0.79 0.15 335);
-  --wire-verb-contributes: oklch(0.93 0.145 101);
 
   /* Warm: same hues, half the chroma. */
   --wire-verb-participates: oklch(0.76 0.11 80);
@@ -247,7 +244,6 @@
   --wire-verb-navigates: oklch(0.5 0.02 190);
   --wire-verb-messages: oklch(0.68 0.065 240);
   --wire-verb-reviews: oklch(0.58 0.1 305);
-  --wire-verb-publishes: oklch(0.7 0.07 160);
   --wire-verb-chains: oklch(0.72 0.05 291);
 
   /* No verb compiled: draw it, quietly, in neutral ink. */
@@ -258,9 +254,6 @@
    within a band are solved fresh rather than mirrored. */
 html[data-theme="bright"] {
   --wire-verb-enqueues: oklch(0.34 0.11 30);
-  --wire-verb-works: oklch(0.44 0.11 50);
-  --wire-verb-manages: oklch(0.47 0.195 335);
-  --wire-verb-contributes: oklch(0.58 0.115 115);
   --wire-verb-feeds: oklch(0.62 0.16 339);
 
   --wire-verb-participates: oklch(0.36 0.065 98);
@@ -270,7 +263,6 @@ html[data-theme="bright"] {
   --wire-verb-announces: oklch(0.38 0.07 259);
   --wire-verb-navigates: oklch(0.44 0.025 192);
   --wire-verb-chains: oklch(0.46 0.045 279);
-  --wire-verb-publishes: oklch(0.49 0.035 162);
   --wire-verb-messages: oklch(0.53 0.07 236);
   --wire-verb-reviews: oklch(0.4 0.09 305);
 

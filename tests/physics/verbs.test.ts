@@ -9,7 +9,6 @@ import {
 import {
   compileVerb,
   defaultVerbForPair,
-  inferVerb,
   VERB_COLOR_TOKEN,
   VERBS,
   verbsForPair,
@@ -138,19 +137,6 @@ describe("compiled grants", () => {
       if (verbs.length === 0) continue;
       expect(verbs).toContain(defaultVerbForPair(pair[0], pair[1]));
     }
-  });
-});
-
-describe("legacy conversion", () => {
-  it("reads actor mail off the pair alone", () => {
-    expect(inferVerb(undefined, "agent", "agent")).toBe("messages");
-    expect(inferVerb({}, "agent", "page")).toBe("navigates");
-  });
-
-  it("drops what the grammar no longer holds", () => {
-    expect(inferVerb({}, "agent", "terminal")).toBeUndefined();
-    expect(inferVerb({}, "agent", "group")).toBeUndefined();
-    expect(inferVerb({}, "agent", undefined)).toBeUndefined();
   });
 });
 

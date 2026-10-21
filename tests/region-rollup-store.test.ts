@@ -20,7 +20,7 @@ const agent = (id: string, x = 10) => node({
   kind: "agent", id, x, label: id, agentKey: `local:${id}`, bindingId: `binding-${id}`,
   host: THIS_MACHINE, harness: "codex", overseer: false,
 });
-const wire = (id: string, from: string, to: string) => ({ id, from, to, verb: "contributes" }) as Wire;
+const wire = (id: string, from: string, to: string) => ({ id, from, to, verb: "messages" }) as Wire;
 
 const harness = async (nodes: Node[], wires: Wire[] = []) => {
   let notify: ((event: Changed) => void) | undefined;

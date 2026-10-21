@@ -15,7 +15,7 @@ import {
   setActorRefResolver,
 } from "../src/main/junto/kernel/cycle";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
-import { canvasOf, seat, taskBoard, wire, worldOf } from "./support/model-nodes";
+import { canvasOf, seat, taskBoard, worldOf } from "./support/model-nodes";
 
 const CANVAS = "stops";
 const FIRST = "2026-08-12T12:03:00.000Z";
@@ -32,7 +32,7 @@ const waiting = (id: string, stateSince?: string): Task => ({
 
 const canvas = canvasOf(
   [seat("atlas"), taskBoard("board", { x: 400 })],
-  [wire("e1", "atlas", "board", "contributes")],
+  [],
   CANVAS,
 );
 const context = (items: ReadonlyArray<Task>) =>

@@ -2,14 +2,13 @@
 import { Schema } from "effect";
 import { HarnessId } from "../../src/shared/managed-terminal-templates";
 import { SheetGrid } from "../../src/shared/model/sheet";
-import { Port } from "../../src/shared/physics/schema";
+import { KindSpecs } from "../../src/shared/physics/kinds";
+import { isWellKnownKind, Port, type SinkKind, type WellKnownKind } from "../../src/shared/physics/schema";
 import {
   compileVerb,
-  inferVerb,
   VERBS,
   Verb,
   verbsForPair,
-  type LegacyEdgeEther,
   type VerbGrant,
 } from "../../src/shared/physics/verbs";
 import {
@@ -17,6 +16,127 @@ import {
   Rule,
   Ruling,
 } from "../../src/shared/work-model";
+
+// ---------------------------------------------------------------------------
+// Legacy conversion, frozen here when physics/verbs.ts dropped it (0.10)
+
+/**
+ * The wire areas edges used to carry. Read loosely: this is raw document input
+ * being converted once, not a shape anything emits.
+ */
+type LegacyEdgeEther = {
+  readonly ports?: ReadonlyArray<string> | undefined;
+  readonly wake?: boolean | undefined;
+  readonly slot?: string | undefined;
+  readonly when?: unknown;
+  readonly does?: unknown;
+  readonly flow?:
+    | { readonly source?: string; readonly destination?: string }
+    | undefined;
+};
+
+const effectModeOf = (does: unknown): string | undefined => {
+  if (typeof does !== "object" || does === null) return undefined;
+  const mode = (does as { readonly mode?: unknown }).mode;
+  return typeof mode === "string" ? mode : undefined;
+};
+
+const verbForEffectMode = (mode: string): Verb | undefined => {
+  if (mode === "enqueue_task") return "enqueues";
+  if (mode === "inject_prompt") return "wakes";
+  return undefined;
+};
+
+const ACCESS_VERB_FOR_SINK = {
+  page: "navigates",
+} as const satisfies { readonly [K in SinkKind]?: Verb };
+
+const roleOfKind = (kind: WellKnownKind) => KindSpecs[kind].role;
+
+/**
+ * A legacy edge's stored fields → the verb it always meant. Deterministic; `undefined`
+ * means the edge does not survive (geography end, terminal access, a scheduler
+ * pairing the grammar never admitted).
+ *
+ * Orientation-insensitive: the caller re-stores the edge in the verb's semantic
+ * order, which for most conversions is the reverse of nothing and for
+ * agent↔sink is agent-first regardless of how it was drawn.
+ */
+const inferVerb = (
+  legacyEther: LegacyEdgeEther | undefined,
+  source: string | undefined,
+  target: string | undefined,
+): Verb | undefined => {
+  if (source === undefined || target === undefined) return undefined;
+  if (!isWellKnownKind(source) || !isWellKnownKind(target)) return undefined;
+  const candidate = inferCandidate(legacyEther, source, target);
+  if (candidate === undefined) return undefined;
+  // A conversion only survives if the grammar admits it in one of the two
+  // orientations — never a verb the pair could not hold.
+  return verbsForPair(source, target).includes(candidate) ||
+    verbsForPair(target, source).includes(candidate)
+    ? candidate
+    : undefined;
+};
+
+const inferCandidate = (
+  legacyEther: LegacyEdgeEther | undefined,
+  source: WellKnownKind,
+  target: WellKnownKind,
+): Verb | undefined => {
+  if (source === "task" && target === "task") return "feeds";
+  if (source === "agent" && target === "agent") return "messages";
+
+  const sourceRole = roleOfKind(source);
+  const targetRole = roleOfKind(target);
+
+  if (sourceRole === "scheduler" && targetRole === "scheduler") return "chains";
+
+  // agent ↔ sink: the access relationship, read off the sink kind.
+  if (
+    (sourceRole === "actor" && targetRole === "sink") ||
+    (sourceRole === "sink" && targetRole === "actor")
+  ) {
+    const sink = (sourceRole === "sink" ? source : target) as SinkKind;
+    if (sink === "board") {
+      return legacyEther?.wake === false ? "messages" : "participates";
+    }
+    const table: { readonly [K in SinkKind]?: Verb } = ACCESS_VERB_FOR_SINK;
+    return table[sink];
+  }
+
+  if (sourceRole === "scheduler" || targetRole === "scheduler") {
+    const scheduler = sourceRole === "scheduler" ? source : target;
+    const other = sourceRole === "scheduler" ? target : source;
+    const schedulerIsSource = sourceRole === "scheduler";
+
+    // Agent → relay trigger: the slot or the minted port proves it.
+    if (
+      scheduler === "relay" &&
+      other === "agent" &&
+      (legacyEther?.slot === "trigger" ||
+        (legacyEther?.ports ?? []).includes("relay.trigger"))
+    ) {
+      return "fires";
+    }
+
+    // An authored fire action names its own verb.
+    const mode = effectModeOf(legacyEther?.does);
+    if (mode !== undefined) return verbForEffectMode(mode);
+
+    // An authored watch predicate is an announcement into the relay.
+    if (legacyEther?.when !== undefined) return "announces";
+
+    // Neither authored: direction decides. Into a scheduler is an
+    // announcement; out of one is the fire action its target accepts.
+    if (!schedulerIsSource) return "announces";
+    if (other === "task") return "enqueues";
+    if (other === "agent") return "wakes";
+    return undefined;
+  }
+
+  return undefined;
+};
 
 /** The pad glance as these fixtures froze it; the pad node kind is gone. */
 const PadGlance = Schema.Struct({

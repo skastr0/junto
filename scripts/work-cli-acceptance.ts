@@ -318,10 +318,8 @@ const seed = () => Schema.decodeUnknownSync(Command)({
     { kind: "region", id: "region", x: 0, y: 0, width: 900, height: 200, z: 4,
       label: "Acceptance", hold: false, instruction: "accept the work plane" },
   ],
-  wires: [
-    { id: "e-tasks", from: AGENT, to: TASKS, verb: "contributes" },
-    { id: "e-art", from: AGENT, to: ARTS, verb: "publishes" },
-  ],
+  // The seat reaches Tasks and Artifacts through the region, with no wire (01).
+  wires: [],
 });
 
 const runCli = (

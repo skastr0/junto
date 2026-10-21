@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { expect, it } from "vitest";
-import { Node, asCanvasName, asWireId } from "../src/shared/model";
+import { Node, asCanvasName, type Wire, type WireId } from "../src/shared/model";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { feedSeatsFromCanvas, feedRegionForCanvas } from "../src/shared/operator-feed";
 import { feedCanvasModelNeeds } from "../src/shared/canvas-needs";
@@ -14,8 +14,8 @@ const decode = Schema.decodeUnknownSync(Node);
 const region = decode({ kind: "region", id: "region", label: "Ops", x: 0, y: 0, width: 700, height: 400, z: 0, defaults: {}, hold: false });
 const seat = decode({ kind: "agent", id: "worker", label: "Worker", agentKey: "local:worker", host: THIS_MACHINE, bindingId: "worker", harness: "codex", overseer: false, x: 20, y: 20, width: 100, height: 50, z: 1 });
 const task = decode({ kind: "task", id: "queue", name: "Queue", x: 200, y: 20, width: 100, height: 50, z: 2 });
-const id = asWireId("contributes");
-const canvas = { name: asCanvasName("factory"), seq: 2, nodes: new Map([region, seat, task].map((node) => [node.id, node])), wires: new Map([[id, { id, from: seat.id, to: task.id, verb: "contributes" as const }]]) };
+// No wire: the seat reaches the Tasks node through the region (01).
+const canvas = { name: asCanvasName("factory"), seq: 2, nodes: new Map([region, seat, task].map((node) => [node.id, node])), wires: new Map<WireId, Wire>() };
 
 it("companion seats carry canonical identity, harness and region from model kinds", () => {
   const inputs = feedSeatsFromCanvas(canvas, { attentionByNodeId: new Map([[seat.id, { reason: "needs input", at: 12 }]]) });

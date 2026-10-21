@@ -1,5 +1,4 @@
 import { HashMap, HashSet, Option } from "effect";
-import { productNodeKindEnabled } from "../features";
 import type { Canvas } from "../model/canvas";
 import { nodesOf, regionMembers } from "../model/canvas";
 import type { Node } from "../model/kinds";
@@ -25,16 +24,8 @@ export type CapabilityViewOptions = {
   readonly editingMachine: string;
 };
 
-/**
- * The capability view plus the facts a verb grants that are not ports.
- *
- * `claimable` holds the undirected pair keys whose relationship lets the
- * factory tick hand work to the actor seat — the `works` verb says so
- * explicitly, where a port only ever said the seat *may* claim.
- */
-export type VerbCapabilityView = CapabilityView & {
-  readonly claimable: HashSet.HashSet<string>;
-};
+/** The capability view a canvas compiles to. */
+export type VerbCapabilityView = CapabilityView;
 
 /** A note, a file and a link are plain things: they have no kind to offer. */
 const metaOfNode = (node: Node): NodeMeta =>
@@ -125,13 +116,6 @@ const viewOf = (input: {
 }): VerbCapabilityView => {
   const { nodeMeta, kinds, machine, reach } = input;
 
-  // Claimability is a capability: an endpoint kind a product gate turned off
-  // takes no factory handoff, even when a historical `works` edge survives.
-  const kindEnabledAt = (id: NodeId): boolean => {
-    const meta = HashMap.get(nodeMeta, id);
-    return Option.isNone(meta) || productNodeKindEnabled(meta.value.kind);
-  };
-
   const resourceAt = (id: string): boolean => {
     const kind = kinds.get(id);
     return kind !== undefined && (RESOURCE_KINDS as ReadonlyArray<string>).includes(kind);
@@ -152,7 +136,6 @@ const viewOf = (input: {
   // the union can never smuggle a port the target does not offer.
   const pairPorts = new Map<string, HashSet.HashSet<Port>>();
   let directedEdgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
-  let claimable = HashSet.empty<string>();
 
   for (const { from, to, wire } of input.joins) {
     const a = asNodeId(from);
@@ -180,9 +163,6 @@ const viewOf = (input: {
       const prev = pairPorts.get(key);
       pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
     }
-    if (grant?.claimable === true && kindEnabledAt(a) && kindEnabledAt(b)) {
-      claimable = HashSet.add(claimable, key);
-    }
   }
 
   let edgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
@@ -209,12 +189,5 @@ const viewOf = (input: {
     }
   }
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, machine, reach };
+  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, machine, reach };
 };
-
-/** Whether the relationship between two nodes lets the tick claim work. */
-export const pairIsClaimable = (
-  view: VerbCapabilityView,
-  a: string,
-  b: string,
-): boolean => HashSet.has(view.claimable, undirectedEdgeKey(a, b));

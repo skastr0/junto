@@ -208,9 +208,9 @@ it("validates wire grammar, forbids cycles, and removes incident wires atomicall
         decode({
           _tag: "Add",
           canvas: "factory",
-          nodes: [seat, node("t1", "task"), node("t2", "task")],
+          nodes: [seat, node("t1", "task"), node("t2", "task"), node("t3", "task")],
           wires: [
-            { id: "w", from: "seat", to: "t1", verb: "contributes" },
+            { id: "w", from: "t1", to: "t3", verb: "feeds" },
             { id: "flow", from: "t1", to: "t2", verb: "feeds" },
           ],
         }),
@@ -403,8 +403,8 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
         decode({
           _tag: "Add",
           canvas: "factory",
-          nodes: [protectedSeat, node("task", "task")],
-          wires: [{ id: "w", from: "seat", to: "task", verb: "contributes" }],
+          nodes: [protectedSeat, node("task", "task"), node("next", "task")],
+          wires: [{ id: "w", from: "task", to: "next", verb: "feeds" }],
         }),
         "operator",
       );
@@ -439,9 +439,9 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
             wires: [
               {
                 id: "duplicate",
-                from: "seat",
-                to: "task",
-                verb: "contributes",
+                from: "task",
+                to: "next",
+                verb: "feeds",
               },
             ],
           },

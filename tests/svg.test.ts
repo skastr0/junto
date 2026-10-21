@@ -18,7 +18,7 @@ const nodes = [
   note("n1", "prism", { x: 20, y: 40, width: 180, height: 70 }),
   taskBoard("n2", { x: 240, y: 40, width: 180, height: 70, name: "tower" as never }),
 ];
-const wires = [wire("e1", "n1", "n2", "contributes")];
+const wires = [wire("e1", "n1", "n2", "messages")];
 
 describe("renderCanvasSvg", () => {
   it("produces a well-formed svg element", () => {

@@ -69,17 +69,6 @@ describe("a seat is blocked by the task it is the assignee of", () => {
     expect(graph.reasonsByNodeId.get("atlas")?.map((reason) => reason.taskId)).toEqual(["t1", "t3"]);
   });
 
-  it("a wire between a seat and a task node changes nothing", () => {
-    const wired = canvasOf([...canvas.nodes.values()], [wire("e1", "cygnus", "board", "contributes")], CANVAS);
-    const graph = deriveExecutionGraph(
-      wired,
-      executionGraphContextFromActorRefs(CANVAS, [actorRefFixture("atlas", CANVAS), actorRefFixture("cygnus", CANVAS)], (nodeId) =>
-        nodeId === "board" ? [task("t1", "input-required", atlas)] : [],
-      ),
-    );
-    expect([...graph.blocked]).toEqual(["atlas"]);
-  });
-
   it("travels as a snapshot and comes back the same", () => {
     const graph = graphOf({ board: [task("t1", "input-required", atlas)] });
     const back = executionGraphFromSnapshot({
