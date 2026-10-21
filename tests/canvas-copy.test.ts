@@ -213,6 +213,7 @@ describe("each kind, cut for each machine", () => {
   const inRemote = (x: number) => ({ x, y: 300, width: 40, height: 40, z: 2 });
   const resources: ReadonlyArray<Node> = [
     { kind: "task", id: asNodeId("backlog"), ...inRemote(10), color: "#ff0000", name: "Backlog", contract: { instructions: "Task contract body." } } as Node,
+    { kind: "task", id: asNodeId("review"), ...inRemote(610), name: "Review" },
     { kind: "artifacts", id: asNodeId("shelf"), ...inRemote(60), label: "Shelf" },
     { kind: "label", id: asNodeId("caption"), ...inRemote(110), text: "Caption" },
     { kind: "file", id: asNodeId("spec"), ...inRemote(160), path: "/Users/op/private-dir/spec.md" },
@@ -231,7 +232,8 @@ describe("each kind, cut for each machine", () => {
     nodes: [...nodes, lin, ...resources],
     wires: [
       ...wires,
-      wire("lead-to-backlog", "lead", "backlog", "messages"),
+      // Resource nodes carry no wire but task to task (01); the cut reads no verb.
+      wire("backlog-to-review", "backlog", "review", "messages"),
       wire("lead-to-browser", "lead", "browser", "messages"),
       wire("lead-to-memo", "lead", "memo", "messages"),
       wire("lead-to-spec", "lead", "spec", "messages"),
@@ -253,6 +255,7 @@ describe("each kind, cut for each machine", () => {
 
   const crosses: ReadonlyArray<readonly [Node["kind"], string, object | undefined]> = [
     ["task", "backlog", { kind: "task", id: "backlog", ...at(10), name: "Backlog" }],
+    ["task", "review", { kind: "task", id: "review", ...at(610), name: "Review" }],
     ["artifacts", "shelf", { kind: "artifacts", id: "shelf", ...at(60), label: "Shelf" }],
     ["label", "caption", { kind: "label", id: "caption", ...at(110), text: "Caption" }],
     // A stub is named only by what the operator wrote, never by its path or address.
@@ -296,9 +299,17 @@ describe("each kind, cut for each machine", () => {
         }
       });
 
-      it("keeps wires to resources and drops those to a stub or a note", () => {
-        const held = destination.copy().wires.map((kept) => kept.id);
-        expect(held).toContain("lead-to-backlog");
+      it("keeps a task-to-task wire, no other wire to a resource, and none to a stub or a note", () => {
+        const copy = destination.copy();
+        const held = copy.wires.map((kept) => kept.id);
+        // Tasks may be switched off in this build; then no task crosses, and no wire to one.
+        if (productNodeKindEnabled("task")) expect(held).toContain("backlog-to-review");
+        else expect(held).not.toContain("backlog-to-review");
+        const kindOf = new Map(copy.resources.map((resource) => [resource.id as string, resource.kind]));
+        for (const kept of copy.wires) {
+          const ends = [kindOf.get(kept.from), kindOf.get(kept.to)];
+          if (ends.some((kind) => kind === "task" || kind === "artifacts")) expect(ends).toEqual(["task", "task"]);
+        }
         for (const dropped of ["lead-to-browser", "lead-to-spec", "lead-to-docs", "lead-to-repo", "lead-to-memo"]) {
           expect(held).not.toContain(dropped);
         }
