@@ -9,7 +9,7 @@ import { UsageSources, type UsageSource } from "../src/main/junto/usage/usage-so
 import { UsageService, UsageServiceLive } from "../src/main/junto/usage/usage-service";
 import { UsagePreferences } from "../src/main/junto/usage/preferences";
 
-// UsageService mirrors SnapshotsService: closure state, single in-flight
+// UsageService keeps closure state, a single in-flight
 // fan-out, subscribe, idempotent start. Sources are total (envelope-folded),
 // so refresh never rejects. Tests inject fakes via Layer.succeed(UsageSources).
 
