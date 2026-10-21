@@ -158,9 +158,29 @@ describe("planAttachFlags", () => {
     expect(plan({ video: ["ssh://host/run.mp4"] })).toMatch(/^--video: /);
   });
 
-  it("orders the card: attach, code, diff, compare, commit, video", () => {
-    const plans = plan({ video: ["https://h/v.mp4"], commit: ["HEAD"], attach: ["shot.png"], code: ["ts:x"] });
-    expect(Array.isArray(plans) && plans.map((item) => item.kind)).toEqual(["file", "code", "commit", "video"]);
+  it("takes a task or an artifact as typed, and a ref keeps its own equals signs", () => {
+    const ref = "junto://canvas/factory?node=T&item=01M5ESZPWMZZM3TZ88P6FVVK33";
+    expect(plan({ task: ["#42", "Stamp this=#7", ref, `The one=${ref}`], artifact: ["01M5ESR42S7P9YNR8FEH0TD2QC"] })).toEqual([
+      { kind: "task", ref: "#42" },
+      { kind: "task", caption: "Stamp this", ref: "#7" },
+      { kind: "task", ref },
+      { kind: "task", caption: "The one", ref },
+      { kind: "artifact", ref: "01M5ESR42S7P9YNR8FEH0TD2QC" },
+    ]);
+    expect(plan({ task: [""] })).toMatch(/^--task: /);
+    expect(plan({ artifact: ["a=b=c"] })).toMatch(/^--artifact: /);
+  });
+
+  it("orders the card: attach, code, diff, compare, commit, video, task, artifact", () => {
+    const plans = plan({
+      artifact: ["01M5ESR42S7P9YNR8FEH0TD2QC"],
+      task: ["#1"],
+      video: ["https://h/v.mp4"],
+      commit: ["HEAD"],
+      attach: ["shot.png"],
+      code: ["ts:x"],
+    });
+    expect(Array.isArray(plans) && plans.map((item) => item.kind)).toEqual(["file", "code", "commit", "video", "task", "artifact"]);
   });
 
   it("refuses by naming the flag, what a valid value looks like, and one example", () => {
@@ -270,6 +290,25 @@ describe("--attach on the needs-you commands", () => {
       ["new.ts", "text/plain"],
     ]);
     expect(JSON.stringify(args)).not.toContain(dir);
+  });
+
+  it("sends a task or an artifact as typed, uploading nothing: main resolves it", async () => {
+    const args = await Effect.runPromise(
+      loadSignalRaiseArgs("feedback", "ready", undefined, { task: ["Stamp this=#42"], artifact: ["01M5ESR42S7P9YNR8FEH0TD2QC"] }).pipe(
+        Effect.provideService(WorkSocket, socket),
+      ),
+    );
+    expect(args.attach).toEqual([
+      { kind: "task", ref: "#42", caption: "Stamp this" },
+      { kind: "artifact", ref: "01M5ESR42S7P9YNR8FEH0TD2QC" },
+    ]);
+    expect(staged).toEqual([]);
+    const fromJson = await Effect.runPromise(
+      loadSignalRaiseArgs("feedback", JSON.stringify({ text: "ready", attach: [{ task: " #42 ", caption: "Stamp" }] }), undefined).pipe(
+        Effect.provideService(WorkSocket, socket),
+      ),
+    );
+    expect(fromJson.attach).toEqual([{ kind: "task", ref: "#42", caption: "Stamp" }]);
   });
 
   it("takes every kind from the JSON list, in list order, with two inline texts as a compare", async () => {

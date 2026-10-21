@@ -33,7 +33,8 @@ const detailOption = Flag.string("detail").pipe(
 
 // One definition for all three kinds. Repeat a flag for each thing attached.
 // On the card they come in this order, each in the order given: attach, code,
-// diff, compare, commit, video. The JSON attach list keeps its own order.
+// diff, compare, commit, video, task, artifact. The JSON attach list keeps
+// its own order.
 const attachFlag = (name: string, description: string) =>
   Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
@@ -46,7 +47,7 @@ const attachOptions = {
   ),
   attach: attachFlag(
     "attach",
-    'A file to show the operator, of any kind and size: /path or "Caption=/path". Repeat for each. Card order: attach, code, diff, compare, commit, video',
+    'A file to show the operator, of any kind and size: /path or "Caption=/path". Repeat for each. Card order: attach, code, diff, compare, commit, video, task, artifact',
   ),
   code: attachFlag(
     "code",
@@ -64,6 +65,14 @@ const attachOptions = {
   video: attachFlag(
     "video",
     'A video at a web address: "https://host/run.mp4". The operator sees the address; nothing is fetched until they press play',
+  ),
+  task: attachFlag(
+    "task",
+    'A task in your reach: its junto:// ref, #42, or its id, as "Stamp this=#42". Junto resolves it; a name that matches nothing lists what you reach',
+  ),
+  artifact: attachFlag(
+    "artifact",
+    'An artifact in your reach: its junto:// ref or its id, as "The spec=<ref>". Junto resolves it in your reach',
   ),
 };
 

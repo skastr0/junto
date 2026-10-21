@@ -1055,6 +1055,18 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["feedback", "The recorded run is up.", "--video", "The run=https://media.example.com/runs/onboarding.mp4"],
   },
   {
+    command_id: "signal.feedback",
+    command: "feedback",
+    name: "ready for review, with the task it finishes",
+    description:
+      "A task in your reach, by #42, its id, or its junto:// ref. Junto resolves it in your reach and the card links to it; an artifact goes the same way with --artifact.",
+    input: {
+      text: "The import is ready for your stamp.",
+      attach: [{ task: "#42", caption: "Stamp this" }],
+    },
+    args: ["feedback", "The import is ready for your stamp.", "--task", "Stamp this=#42"],
+  },
+  {
     command_id: "signal.list",
     command: "signal list",
     name: "read the operator's answers, most urgent open signal first",

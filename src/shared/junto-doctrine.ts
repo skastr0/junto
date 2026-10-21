@@ -198,7 +198,7 @@ Every seat can signal the operator; no edge is needed. One sentence says what yo
 - \`junto blocked "..."\` — you cannot continue without the operator. Stop and wait.
 - \`junto feedback "..."\` — you are not blocked; the work is ready for the operator to review.
 
-To show the operator a file, attach it; do not write its path in the text. Repeat \`--attach\` for each file, with a caption if you like: \`junto feedback "The rail is ready to review." --attach "Before=/abs/before.png" --attach "After=/abs/after.png"\`. Any file can be attached, as many and as large as you need: images show as pictures the operator can open and compare, a video plays, a source file or a \`.diff\` shows highlighted, anything else by its name, and they are kept even if your folder is cleaned. Text you have not saved goes the same way, with no file to write first: \`--code "The guard=ts:if (!user) return;"\` for a code block, \`--diff -\` for a diff from a pipe (\`git diff | junto feedback "..." --diff -\`), \`--compare "before.ts,after.ts"\` for two files read as a change, \`--commit HEAD\` for a commit in your folder, \`--video "https://host/run.mp4"\` for a video somewhere else. Each takes a caption first (\`"Caption=..."\`). \`junto examples show feedback\` has one of each.
+To show the operator a file, attach it; do not write its path in the text. Repeat \`--attach\` for each file, with a caption if you like: \`junto feedback "The rail is ready to review." --attach "Before=/abs/before.png" --attach "After=/abs/after.png"\`. Any file can be attached, as many and as large as you need: images show as pictures the operator can open and compare, a video plays, a source file or a \`.diff\` shows highlighted, anything else by its name, and they are kept even if your folder is cleaned. Text you have not saved goes the same way, with no file to write first: \`--code "The guard=ts:if (!user) return;"\` for a code block, \`--diff -\` for a diff from a pipe (\`git diff | junto feedback "..." --diff -\`), \`--compare "before.ts,after.ts"\` for two files read as a change, \`--commit HEAD\` for a commit in your folder, \`--video "https://host/run.mp4"\` for a video somewhere else, \`--task "#42"\` or \`--artifact <ref>\` for a task or an artifact in your reach. Each takes a caption first (\`"Caption=..."\`). \`junto examples show feedback\` has one of each.
 
 When your question has two likely answers, offer them with \`--suggest\`: \`junto blocked "Which store?" --suggest "Use sqlite" --suggest "Keep JSON"\`. At most two, each a short line. They show as the operator's first one-click replies, and whichever is picked is sent as the answer like any other reply.
 
@@ -206,7 +206,7 @@ The answer arrives in this seat as operator mail; \`junto signal list\` shows yo
 
 ### Sessions
 
-\`junto onboard\` lists this seat's past sessions: the latest notes inline, and paths to older notes and transcripts. ${PAST_SESSIONS_FRAMING} To look further back, open a listed path yourself.
+\`junto onboard\` shows this seat's last session, with its notes when it left them and its transcript, and counts the earlier ones. ${PAST_SESSIONS_FRAMING}
 
 \`junto offboard\` ends this session with notes for the next one: what happened, what is relevant, and why it matters. The first line sums the session up; \`@file\` or \`-\` for stdin also work. You choose the stopping point, and the mode:
 

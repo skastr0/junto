@@ -26,7 +26,7 @@ import { decodeJsonText } from "./json";
  * at most one of them.
  *
  * What is attached (`--attach`, `--code`, `--diff`, `--compare`, `--commit`,
- * `--video`, or the JSON input's `attach` list) is read and uploaded by
+ * `--video`, `--task`, `--artifact`, or the JSON input's `attach` list) is read and uploaded by
  * `signal-attach.ts`; the signal names it by reference, so a path never
  * crosses the socket and a file of any kind and size can be attached.
  */
@@ -139,7 +139,7 @@ export const SignalRaiseCliInput = Schema.Struct({
 });
 export type SignalRaiseCliInput = typeof SignalRaiseCliInput.Type;
 
-const ATTACH_FLAG_NAMES = ["attach", "code", "diff", "compare", "commit", "video"] as const;
+const ATTACH_FLAG_NAMES = ["attach", "code", "diff", "compare", "commit", "video", "task", "artifact"] as const;
 
 export const loadSignalRaiseArgs = (
   kind: AgentSignalKind,

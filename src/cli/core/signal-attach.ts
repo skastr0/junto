@@ -18,6 +18,8 @@ import { InputError } from "./errors";
  *   --compare [Caption=]<before path>,<after path>  two files read as a change
  *   --commit  [Caption=]<rev>                       a commit in this folder
  *   --video   [Caption=]<http or https address>     a video somewhere else
+ *   --task    [Caption=]<ref|#42|id>                a task in this seat's reach
+ *   --artifact [Caption=]<ref|id>                   an artifact in this seat's reach
  *
  * One caption rule for every flag: the whole value is tried first, and if it
  * is valid as written it is the value and there is no caption. Otherwise the
@@ -28,7 +30,8 @@ import { InputError } from "./errors";
  * Everything made of text or bytes is uploaded (`stageFile`) before the
  * signal is raised, and nothing is uploaded unless every item passes its
  * check: main sees references, a commit id and an address only. A path never
- * crosses the socket. The checks here only fail fast; main is the authority.
+ * crosses the socket. A task or an artifact goes as typed: main resolves it
+ * in the seat's reach. The checks here only fail fast; main is the authority.
  */
 
 /** Where a text comes from: typed inline, a file, or stdin. */
@@ -44,6 +47,8 @@ export type AttachPlan = { readonly caption?: string } & (
   | { readonly kind: "compare"; readonly before: AttachText; readonly after: AttachText; readonly language?: string }
   | { readonly kind: "commit"; readonly rev: string }
   | { readonly kind: "video"; readonly url: string }
+  | { readonly kind: "task"; readonly ref: string }
+  | { readonly kind: "artifact"; readonly ref: string }
 );
 
 export type AttachFlags = {
@@ -53,6 +58,8 @@ export type AttachFlags = {
   readonly compare?: ReadonlyArray<string>;
   readonly commit?: ReadonlyArray<string>;
   readonly video?: ReadonlyArray<string>;
+  readonly task?: ReadonlyArray<string>;
+  readonly artifact?: ReadonlyArray<string>;
 };
 
 /** What the checks ask of the machine, so the parsing itself stays pure. */
@@ -98,6 +105,8 @@ const FLAG_HELP = {
   compare: { looks: "<before path>,<after path>, two files that exist", example: '--compare "The limit=old.ts,new.ts"' },
   commit: { looks: "a commit in this folder: HEAD, a branch, or an id", example: '--commit "The fix=HEAD"' },
   video: { looks: "an address that starts with http:// or https://", example: '--video "The run=https://host/run.mp4"' },
+  task: { looks: "a task: its junto:// ref, #42, or its id", example: '--task "Stamp this=#42"' },
+  artifact: { looks: "an artifact: its junto:// ref or its id", example: '--artifact "The spec=junto://canvas/<canvas>?node=<id>&item=<id>"' },
 } as const;
 
 type FlagName = keyof typeof FLAG_HELP;
@@ -169,6 +178,15 @@ const withCaption = <T extends object>(plan: T, caption: string | undefined): T 
   caption === undefined ? plan : { ...plan, caption };
 
 /**
+ * A task or an artifact as typed. A ref keeps its own `=`s; anything else
+ * with an `=` in it is read as `Caption=value`.
+ */
+const isResourceRef = (value: string): boolean => {
+  const trimmed = value.trim();
+  return trimmed !== "" && !/[\n\r]/u.test(trimmed) && (trimmed.startsWith("junto://") || !trimmed.includes("="));
+};
+
+/**
  * Pure (given the probe): every flag value as a plan, or the first one that
  * is not valid. The order on the card is fixed: attach, code, diff, compare,
  * commit, video, each in the order given.
@@ -220,6 +238,13 @@ export const planAttachFlags = (
     if (!split) return fail("video", raw);
     plans.push(withCaption({ kind: "video" as const, url: split.value.trim() }, split.caption));
   }
+  for (const kind of ["task", "artifact"] as const) {
+    for (const raw of flags[kind] ?? []) {
+      const split = splitCaption(raw, isResourceRef);
+      if (!split) return fail(kind, raw);
+      plans.push(withCaption({ kind, ref: split.value.trim() }, split.caption));
+    }
+  }
   return { ok: true, plans };
 };
 
@@ -243,6 +268,8 @@ export const SignalAttachCliItem = Schema.Union([
   }).annotate(strict),
   Schema.Struct({ commit: Schema.String, ...captionField }).annotate(strict),
   Schema.Struct({ url: Schema.String, ...captionField }).annotate(strict),
+  Schema.Struct({ task: Schema.String, ...captionField }).annotate(strict),
+  Schema.Struct({ artifact: Schema.String, ...captionField }).annotate(strict),
 ]);
 export type SignalAttachCliItem = typeof SignalAttachCliItem.Type;
 
@@ -260,6 +287,8 @@ export const planAttachItems = (items: ReadonlyArray<SignalAttachCliItem>): Read
     if ("diff" in item) return withCaption({ kind: "diff" as const, text: { from: "inline" as const, text: item.diff } }, caption);
     if ("commit" in item) return withCaption({ kind: "commit" as const, rev: item.commit.trim() }, caption);
     if ("url" in item) return withCaption({ kind: "video" as const, url: item.url.trim() }, caption);
+    if ("task" in item) return withCaption({ kind: "task" as const, ref: item.task.trim() }, caption);
+    if ("artifact" in item) return withCaption({ kind: "artifact" as const, ref: item.artifact.trim() }, caption);
     return withCaption(
       {
         kind: "compare" as const,
@@ -318,7 +347,9 @@ type Checked =
   | { readonly kind: "file"; readonly upload: Upload; readonly caption?: string }
   | { readonly kind: "compare"; readonly before: Upload; readonly after: Upload; readonly name: string; readonly caption?: string }
   | { readonly kind: "commit"; readonly sha: string; readonly caption?: string }
-  | { readonly kind: "link"; readonly url: string; readonly caption?: string };
+  | { readonly kind: "link"; readonly url: string; readonly caption?: string }
+  | { readonly kind: "task"; readonly ref: string; readonly caption?: string }
+  | { readonly kind: "artifact"; readonly ref: string; readonly caption?: string };
 
 /**
  * Check every plan, then upload what is made of bytes, in order. Nothing is
@@ -383,6 +414,10 @@ export const stageAttachPlans = (
           }
           return { kind: "commit", sha, ...caption } as Checked;
         }
+        if (plan.kind === "task" || plan.kind === "artifact") {
+          if (plan.ref === "") return yield* Effect.fail(kindError(plan, `name the ${plan.kind}`));
+          return { kind: plan.kind, ref: plan.ref, ...caption } as Checked;
+        }
         const link = admitLinkUrl(plan.url);
         if (!link.ok) return yield* Effect.fail(kindError(plan, `${plan.url}: ${link.reason}`));
         return { kind: "link", url: link.url, ...caption } as Checked;
@@ -418,6 +453,7 @@ export const stageAttachPlans = (
           ...caption,
         } as AgentSignalAttachmentInput);
       } else if (item.kind === "commit") out.push({ kind: "commit", sha: item.sha, ...caption });
+      else if (item.kind === "task" || item.kind === "artifact") out.push({ kind: item.kind, ref: item.ref, ...caption });
       else out.push({ kind: "link", url: item.url, ...caption });
     }
     return out;

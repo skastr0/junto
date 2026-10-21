@@ -142,6 +142,7 @@ import {
   releaseSignalAttachments,
   signalAttachmentOwner,
 } from "../signals/attachments";
+import { signalResourcesFor } from "../signals/resource-refs";
 import {
   materializeContentObject,
   taskContentRef,
@@ -2681,10 +2682,14 @@ const dispatchOp = (
             details: { retryable: false, next_step: "raise the signal without --attach" },
           });
         }
+        // A task or an artifact is named as the seat typed it: resolved here
+        // in its reach to the canonical ref, then judged with the rest.
+        const named = yield* signalResourcesFor(board, caller.canvasName, asNodeId(caller.nodeId), decoded.success.attach);
         attachments = yield* claimSignalAttachments(
           contentOption.value,
           { ...seat, signalId },
-          decoded.success.attach,
+          named.inputs,
+          named.resources,
         ).pipe(
           Effect.mapError((refused): WorkErrorBody => ({
             type: "InputError",
