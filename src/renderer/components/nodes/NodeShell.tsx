@@ -463,7 +463,7 @@ export function NodeShell({
     <NodeIdContext.Provider value={id}>
     <NodeBlockedContext.Provider value={shellBlocked}>
     <div
-      className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${look === "spine" ? "" : bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
+      className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${look === "spine" ? "" : bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked && look !== "spine" ? "junto-blocker" : ""}`}
       data-look={look === "spine" ? "spine" : undefined}
       onMouseEnter={onHoverEnter}
       onMouseLeave={onHoverLeave}

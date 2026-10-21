@@ -126,8 +126,9 @@
   margin-right: -6px;
 }
 
-/* The status pip shows only on the far disc. */
-.spine-pip {
+/* The status pip shows only on the far disc (it is also a .spine-shape,
+   whose display comes later in this file, hence the chip in the selector). */
+.spine-chip > .spine-pip {
   display: none;
 }
 
@@ -266,14 +267,20 @@
   height: 12px;
 }
 
+/* The name is what tells rows apart, so a detail gives way four times as
+   fast as the name when a row is squeezed. */
 .spine__text {
   min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .spine__detail {
-  flex: none;
+  min-width: 0;
+  flex: 0 4 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-dim);
   font-size: var(--text-label);
 }
