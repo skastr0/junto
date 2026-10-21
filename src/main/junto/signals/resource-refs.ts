@@ -183,7 +183,7 @@ const readReachedItems = (
 /**
  * A signal's attach list with every task and artifact ref made canonical,
  * and what `claimSignalAttachments` judges them against. Without a task or an
- * artifact in the list nothing is read and no resources are given.
+ * artifact in the list nothing is read and the resources hold nothing.
  */
 export const signalResourcesFor = (
   board: Canvas,
@@ -191,12 +191,12 @@ export const signalResourcesFor = (
   seatId: NodeId,
   inputs: ReadonlyArray<AgentSignalAttachmentInput>,
 ): Effect.Effect<
-  { readonly inputs: ReadonlyArray<AgentSignalAttachmentInput>; readonly resources?: SignalResources },
+  { readonly inputs: ReadonlyArray<AgentSignalAttachmentInput>; readonly resources: SignalResources },
   WorkErrorBody
 > =>
   Effect.gen(function* () {
     const kinds = new Set(inputs.filter(isResourceInput).map((input) => input.kind));
-    if (kinds.size === 0) return { inputs };
+    if (kinds.size === 0) return { inputs, resources: { canvas: board, holds: () => false } };
     const { items, missing } = yield* readReachedItems(board, canvasName, seatId, kinds);
     const resolved = yield* Effect.forEach(inputs, (input, index): Effect.Effect<AgentSignalAttachmentInput, WorkErrorBody> =>
       isResourceInput(input)

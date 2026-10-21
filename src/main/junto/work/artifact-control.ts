@@ -439,11 +439,8 @@ export const handleArtifactOp = (
             ),
           );
         }
-        // `whole` is no anchor; an artifact never takes a lines anchor.
+        // `whole` is no anchor; an artifact anchor never takes lines (its type rules them out).
         const anchor = input.anchor === undefined ? undefined : subjectAnchorOf(input.anchor);
-        if (anchor?.kind === "lines") {
-          return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
-        }
         const author = head.artifact.createdBy;
         const posted = yield* ports
           .comment(
