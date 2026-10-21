@@ -218,3 +218,19 @@
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
+
+/* Board settings in the main pane */
+
+.tasks-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 20px;
+}
+
+.tasks-settings__head {
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}

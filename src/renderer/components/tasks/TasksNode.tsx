@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Settings2 } from "lucide-react";
 import { mintItemId } from "@shared/resource-command";
 import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-model";
 import { tasksSource, useCanvasTasks, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
 import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { FocusSurface } from "../FocusSurface";
+import { BoardSettings } from "../rules/BoardSettings";
 import {
   Button,
   IconButton,
@@ -75,6 +76,7 @@ export function TasksNode({
   const [filter, setFilter] = useState<StateFilter>("all");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const now = useClock();
 
@@ -105,15 +107,26 @@ export function TasksNode({
       <PaneHeader
         eyebrow={`Tasks, ${openCount(tasks)} open`}
         actions={
-          <IconButton
-            aria-label="New task"
-            title="New task"
-            size="sm"
-            aria-expanded={creating}
-            onClick={() => setCreating(!creating)}
-          >
-            <Plus size={14} />
-          </IconButton>
+          <>
+            <IconButton
+              aria-label="Board settings"
+              title="Board settings: instructions, rules, checks, handoff"
+              size="sm"
+              aria-pressed={settings}
+              onClick={() => setSettings(!settings)}
+            >
+              <Settings2 size={14} />
+            </IconButton>
+            <IconButton
+              aria-label="New task"
+              title="New task"
+              size="sm"
+              aria-expanded={creating}
+              onClick={() => setCreating(!creating)}
+            >
+              <Plus size={14} />
+            </IconButton>
+          </>
         }
       />
       {creating ? <NewTaskForm onCancel={() => setCreating(false)} onCreate={(title) => void create(title)} /> : null}
@@ -156,7 +169,14 @@ export function TasksNode({
 
   return (
     <FocusSurface measure="workspace" height="immersive" label="Tasks" onClose={onClose}>
-      {selected === null ? (
+      {settings ? (
+        <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Board settings">
+          <section className="tasks-settings" data-testid="tasks-settings">
+            <header className="tasks-settings__head">Board settings</header>
+            <BoardSettings nodeId={node} />
+          </section>
+        </TwoPane>
+      ) : selected === null ? (
         <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Task">
           <PaneEmpty
             glyph={<ResourceGlyphMark kind="task" size={20} />}

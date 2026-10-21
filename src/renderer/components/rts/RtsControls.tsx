@@ -4,7 +4,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   BookmarkPlus,
-  Gauge,
   Globe,
   Link2,
   ListChecks,
@@ -19,8 +18,7 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
-import type { TaskAdmission, TasksIncoming } from "@shared/work-model";
-import { resolveTaskAdmission } from "@shared/work-model";
+import type { TasksIncoming } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   productNodeKindEnabled,
@@ -30,10 +28,6 @@ import { verbsForPair, type Verb } from "@shared/physics";
 import { titleOf } from "@shared/model/title";
 import { modelStore } from "../../lib/use-model";
 import { verbSentence as formatWireSentence } from "../../lib/verb-sentence";
-import {
-  ADMISSION_ORDER,
-  admissionLabel,
-} from "../../lib/admission-labels";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { openWorkDetail } from "../../lib/work-detail-open";
@@ -249,9 +243,8 @@ function PageKindKeys({ node }: { readonly node: Page }) {
 }
 
 function TaskKindKeys({ node }: { readonly node: TaskBoard }) {
-  const [pop, setPop] = useState<"admission" | "wait" | null>(null);
+  const [pop, setPop] = useState<"wait" | null>(null);
   const contract = node.contract;
-  const admission = resolveTaskAdmission(contract);
   const waitMs = contract?.incoming?.waitMs;
 
   const writeIncoming = (
@@ -294,15 +287,6 @@ function TaskKindKeys({ node }: { readonly node: TaskBoard }) {
         <Pencil size={ICON} />
       </KindKey>
       <KindKey
-        label="Who starts tasks"
-        title={`Starts: ${admissionLabel(admission)}`}
-        active={pop === "admission" || admission !== "auto"}
-        style={pop === "admission" || admission !== "auto" ? { color: HUE.amber } : undefined}
-        onClick={() => setPop((current) => (current === "admission" ? null : "admission"))}
-      >
-        <Gauge size={ICON} />
-      </KindKey>
-      <KindKey
         label="Wait before starting"
         title={`Wait: ${formatWait(waitMs) || "none"}`}
         active={pop === "wait" || waitMs !== undefined}
@@ -311,28 +295,6 @@ function TaskKindKeys({ node }: { readonly node: TaskBoard }) {
       >
         <Timer size={ICON} />
       </KindKey>
-      {pop === "admission" ? (
-        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
-          <span className="rts-kind-pop__title">Who starts tasks</span>
-          <div className="rts-kind-pop__choices">
-            {ADMISSION_ORDER.map((value) => (
-              <Button
-                key={value}
-                size="xs"
-                variant={admission === value ? "primary" : "chrome"}
-                aria-pressed={admission === value}
-                onClick={() => {
-                  writeIncoming({ admission: value as TaskAdmission });
-                  setPop(null);
-                }}
-              >
-                {admissionLabel(value)}
-              </Button>
-            ))}
-          </div>
-          <span className="rts-kind-pop__hint">Who can start new tasks on this board.</span>
-        </div>
-      ) : null}
       {pop === "wait" ? (
         <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Wait quick set">
           <span className="rts-kind-pop__title">Wait before starting</span>

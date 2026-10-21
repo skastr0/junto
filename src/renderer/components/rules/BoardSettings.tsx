@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react";
-import { ulid } from "ulid";
 import { use$ } from "@legendapp/state/react";
 import { state$ } from "../../lib/state";
 import { useNodeOf } from "../../lib/use-model";
-import type { Check, Rule, TaskAdmission, TasksContract } from "@shared/work-model";
-import { resolveTaskAdmission } from "@shared/work-model";
+import type { Check, Rule, TasksContract } from "@shared/work-model";
 import { setBoardSettings } from "../../lib/mutations";
-import { admissionChoiceLabel, ADMISSION_ORDER } from "../../lib/admission-labels";
 import { ChecksEditor } from "./ChecksEditor";
 import { RuleList } from "./RuleList";
-import { RequiresReviewControl } from "../work/RequiresReviewControl";
-import { boardReviewGate, withRequiresReviewRule } from "../../lib/crew-review-view";
 import { formatWait, normalizeBoardSettings, parseWait } from "./board-settings";
-import { Select } from "../ui";
 
 function TextField({
   label,
@@ -75,40 +69,9 @@ export function BoardSettings({
         hint="Answered by whoever completes work here."
         onChange={(rules: ReadonlyArray<Rule>) => write({ ...contract, rules })}
       />
-      <RequiresReviewControl
-        gate={boardReviewGate(contract)}
-        editable
-        onChange={(required) =>
-          write({
-            ...contract,
-            rules: withRequiresReviewRule(contract?.rules ?? [], required, ulid),
-          })
-        }
-      />
       {focusSide !== "outgoing" ? (
         <div className="inspector-section">
           <div className="inspector-section__label">Incoming</div>
-          <label className="inspector-editor">
-            <span>Who starts tasks</span>
-            <Select
-              dense
-              aria-label="Who starts tasks"
-              value={resolveTaskAdmission(contract)}
-              options={ADMISSION_ORDER.map((value) => ({
-                value,
-                label: admissionChoiceLabel(value),
-              }))}
-              onChange={(admission) =>
-                write({
-                  ...contract,
-                  incoming: {
-                    ...incoming,
-                    admission: admission as TaskAdmission,
-                  },
-                })
-              }
-            />
-          </label>
           <label className="inspector-editor">
             <span>Wait before starting</span>
             <input
