@@ -25,18 +25,24 @@
  * automation.author)` (region-reach.ts), rechecked at fire time. `author` is
  * stored for that recheck and set by main from the caller, never written.
  *
- * Stand-ins: `Anchor` belongs to mail-threads.ts (plan 03) and the task
- * states to task.ts (plan 04). Until those land they are declared below,
- * shaped exactly as the plans write them, and switch over when they do.
+ * Writes are `AutomationOp`s riding remote's `resourceCommandSchema` (02):
+ * an edit replaces the whole definition and is refused `stale` when its base
+ * moved; a toggle carries no base, so it never goes stale. The author never
+ * travels in an op. Reads are the IPC payloads at the end of this file.
+ *
+ * Stand-in: `Anchor` belongs to mail-threads.ts (plan 03). Until it lands it
+ * is declared below, shaped exactly as the plan writes it.
  */
 import { Schema } from "effect";
 import { isValidCronExpression } from "./cron-expression";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
+import { RefusalReason } from "./resource-command";
+import { TASK_STATES } from "./task-model";
 import { ItemId } from "./work-ids";
 
-// ── Stand-ins (plans 03 and 04) ────────────────────────────────────────────
+// ── Stand-in (plan 03) ─────────────────────────────────────────────────────
 
 /** Stand-in for mail-threads.ts `Anchor` (plan 03). */
 const Anchor = Schema.Union([
@@ -54,18 +60,7 @@ const Anchor = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("lines"), file: Schema.String, from: Schema.Int, to: Schema.Int }),
 ]);
 
-/** Stand-in for task.ts task states (plan 04 "States"). */
-export const AutomationTaskState = Schema.Literals([
-  "backlog",
-  "assigned",
-  "working",
-  "input-required",
-  "in-review",
-  "done",
-  "canceled",
-  "archived",
-]);
-export type AutomationTaskState = typeof AutomationTaskState.Type;
+const TaskState = Schema.Literals(TASK_STATES);
 
 // ── Ids and bounds ─────────────────────────────────────────────────────────
 
@@ -75,6 +70,12 @@ export type AutomationId = ItemId;
 
 export const FiringId = ItemId;
 export type FiringId = ItemId;
+
+/** The head of an automation's definition: 1 on create, one more per edit. */
+export const AutomationVersion = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).pipe(
+  Schema.brand("AutomationVersion"),
+);
+export type AutomationVersion = typeof AutomationVersion.Type;
 
 /** The poll floor: no automation polls more than once a minute. */
 export const POLL_MIN_EVERY_MS = 60_000;
@@ -139,7 +140,7 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
   const taskWatch = {
     kind: Schema.Literal("task"),
     task: Schema.Union([ref, Schema.Struct({ node })]),
-    becomes: AutomationTaskState,
+    becomes: TaskState,
   };
 
   const Watch = Schema.Union([
@@ -216,12 +217,37 @@ export const Automation = Schema.Struct({
   automationId: AutomationId,
   nodeId: NodeId,
   author: AutomationAuthor,
+  version: AutomationVersion,
   ...stored.Definition.fields,
 });
 export type Automation = typeof Automation.Type;
 export type AutomationWire = typeof Automation.Encoded;
 
 export const decodeAutomation = Schema.decodeUnknownResult(Automation, { onExcessProperty: "error" });
+
+// ── Writes ─────────────────────────────────────────────────────────────────
+
+/**
+ * The automation domain's ops, the `op` of a `ResourceCommand` whose target
+ * is `{ kind: "automation", nodeId, itemId }`. Closed: a new verb is a new
+ * member, and every ruling match breaks until it is handled.
+ *
+ * - `create` mints the item at version 1; main sets the author from the
+ *   ruled actor.
+ * - `edit` replaces the whole definition; a moved head refuses it `stale`
+ *   with `expected` the head.
+ * - `set-enabled` carries no base: a toggle never goes stale.
+ * - `run` is `junto automation run`: one firing now, recorded with cause run.
+ */
+export const AutomationOp = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("create"), automationId: AutomationId, definition: AutomationDefinition }),
+  Schema.Struct({ kind: Schema.Literal("edit"), baseVersion: AutomationVersion, definition: AutomationDefinition }),
+  Schema.Struct({ kind: Schema.Literal("set-enabled"), enabled: Schema.Boolean }),
+  Schema.Struct({ kind: Schema.Literal("archive") }),
+  Schema.Struct({ kind: Schema.Literal("run") }),
+]);
+export type AutomationOp = typeof AutomationOp.Type;
+export type AutomationOpKind = AutomationOp["kind"];
 
 /** 0.10 refuses webhook triggers; everything else is available. */
 export const triggerRefusal = (trigger: Trigger): "not_available" | undefined => {
@@ -311,7 +337,7 @@ export type SkipReason = typeof SkipReason.Type;
 export const ActionRuling = Schema.Union([
   Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("applied") }),
   Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("queued") }),
-  Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("refused"), code: Text(64) }),
+  Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("refused"), reason: RefusalReason }),
 ]);
 export type ActionRuling = typeof ActionRuling.Type;
 
@@ -351,3 +377,29 @@ export const limitSkip = (
   if (inHour >= limits.maxPerHour) return "max_per_hour";
   return undefined;
 };
+
+// ── Reads (IPC) ────────────────────────────────────────────────────────────
+
+/** The most firings one page returns. */
+export const FIRINGS_PAGE_MAX = 100;
+
+/** Every automation on one Automations node. */
+export const AutomationListRequest = Schema.Struct({ nodeId: NodeId });
+export type AutomationListRequest = typeof AutomationListRequest.Type;
+export const AutomationListResponse = Schema.Struct({ automations: Schema.Array(Automation) });
+export type AutomationListResponse = typeof AutomationListResponse.Type;
+
+/**
+ * One automation's firings, newest first. `before` pages back: only firings
+ * older than that one. Without `limit` a page is FIRINGS_PAGE_MAX.
+ */
+export const AutomationFiringsRequest = Schema.Struct({
+  automationId: AutomationId,
+  before: Schema.optionalKey(FiringId),
+  limit: Schema.optionalKey(Bounded(1, FIRINGS_PAGE_MAX)),
+});
+export type AutomationFiringsRequest = typeof AutomationFiringsRequest.Type;
+export const AutomationFiringsResponse = Schema.Struct({
+  firings: Schema.Array(Firing).pipe(Schema.check(Schema.isMaxLength(FIRINGS_PAGE_MAX))),
+});
+export type AutomationFiringsResponse = typeof AutomationFiringsResponse.Type;

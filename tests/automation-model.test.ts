@@ -2,6 +2,8 @@ import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   type Action,
+  AutomationFiringsRequest,
+  AutomationOp,
   automationShape,
   type AutomationId,
   type AutomationWire,
@@ -26,6 +28,7 @@ const base = (over: Partial<AutomationWire> = {}): AutomationWire => ({
   automationId: ULID_A,
   nodeId: "automations-1",
   author: { kind: "operator" },
+  version: 1,
   name: "Morning standup",
   enabled: true,
   trigger: { kind: "schedule", cron: "0 9 * * 1-5", timezone: "America/Sao_Paulo" },
@@ -102,6 +105,45 @@ describe("Automation schema", () => {
     expect(Result.isSuccess(decode({ ...missed, outcome: { kind: "fired", actions: [{ index: 0, ruling: "queued" }] } }))).toBe(
       true,
     );
+    const refused = (reason: string) => ({ ...firing, outcome: { kind: "fired", actions: [{ index: 0, ruling: "refused", reason }] } });
+    expect(Result.isSuccess(decode(refused("not_in_reach")))).toBe(true);
+    expect(Result.isFailure(decode(refused("because")))).toBe(true);
+  });
+});
+
+describe("AutomationOp", () => {
+  const decode = Schema.decodeUnknownResult(AutomationOp, { onExcessProperty: "error" });
+  const { automationId, nodeId, author, version, ...definition } = base();
+
+  it("decodes every verb", () => {
+    for (const op of [
+      { kind: "create", automationId, definition },
+      { kind: "edit", baseVersion: 1, definition },
+      { kind: "set-enabled", enabled: false },
+      { kind: "archive" },
+      { kind: "run" },
+    ]) {
+      expect(Result.isSuccess(decode(op)), op.kind).toBe(true);
+    }
+    expect([nodeId, author, version]).toHaveLength(3);
+  });
+
+  it("refuses an edit without a base, a toggle with one, and an author in any op", () => {
+    expect(Result.isFailure(decode({ kind: "edit", definition }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "edit", baseVersion: 0, definition }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "set-enabled", enabled: true, baseVersion: 1 }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "create", automationId, definition: { ...definition, author } }))).toBe(true);
+  });
+});
+
+describe("reads", () => {
+  const decode = Schema.decodeUnknownResult(AutomationFiringsRequest);
+
+  it("pages firings at most 100 at a time", () => {
+    expect(Result.isSuccess(decode({ automationId: ULID_A, before: ULID_B, limit: 100 }))).toBe(true);
+    expect(Result.isSuccess(decode({ automationId: ULID_A }))).toBe(true);
+    expect(Result.isFailure(decode({ automationId: ULID_A, limit: 101 }))).toBe(true);
+    expect(Result.isFailure(decode({ automationId: ULID_A, limit: 0 }))).toBe(true);
   });
 });
 
@@ -177,8 +219,10 @@ describe("type-level", () => {
     const trigger: Trigger = { kind: "interval", everyMs: 60_000 };
     // @ts-expect-error actions are a closed union
     const action: Action = { kind: "wake", to: { kind: "seat", nodeId: at } };
+    // @ts-expect-error an edit names the head it replaces
+    const edit: AutomationOp = { kind: "edit", definition: base() };
     // @ts-expect-error a seat takes no comment
     const comment: Action = { kind: "comment", on: { kind: "seat", nodeId: at }, text: "hi" };
-    expect([id, event, unheld, raw, trigger, action, comment]).toHaveLength(7);
+    expect([id, event, unheld, raw, trigger, action, edit, comment]).toHaveLength(8);
   });
 });
