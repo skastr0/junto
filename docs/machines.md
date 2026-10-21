@@ -502,7 +502,7 @@ trap 'rm -f "$IDX"' EXIT
 
 GIT_INDEX_FILE=$IDX git read-tree "$PARENT"
 GIT_INDEX_FILE=$IDX git add -- "${PATHS[@]}"
-GIT_INDEX_FILE=$IDX git diff --cached --stat "$PARENT"   # read it: every line yours
+GIT_INDEX_FILE=$IDX git diff --cached "$PARENT"   # read every line, not a stat: all yours
 TREE=$(GIT_INDEX_FILE=$IDX git write-tree)
 NEW=$(printf '%s\n' "$MSG" | git commit-tree "$TREE" -p "$PARENT")
 
@@ -518,6 +518,11 @@ git show --stat --oneline HEAD
   another seat's hunks or deletion made since you looked. A path that shows
   as deleted when you deleted nothing, or a line that is not yours, stops
   the commit.
+- Read the whole cached diff, never only `--stat`. A stat counts files and
+  lines, so another seat's deletion inside a file you also touched passes it
+  (101f36c40 carried an uncommitted removal of three node kinds that way).
+- Before `git add` of a path, run `git diff HEAD -- <path>`. If any hunk is
+  not yours, do not add that path: apply only your hunks, as below.
 - For a deletion, name the deleted paths or their directory.
 - For only your lines of a shared file: write a patch with just your hunks
   and use `git apply --cached` on the private index in place of `git add`.
