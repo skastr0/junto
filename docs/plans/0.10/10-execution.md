@@ -165,7 +165,7 @@ everyone else reports by mail and on the needs-you feed.
 | Migration slots | canvas-model keeps the list; numbers go out as steps land | running |
 | Artifact contract | product-shell, 3d9c5facc, 28 tests; shared edit reducer `ruleArtifactEdit` for ruler and pending view | landed |
 | Task model contract | canvas, `task-model.ts` d540d3f61, 84897c9aa; reach review fixes 4fd64a703 | landed, ruler migrating |
-| Tasks UI | product-modals; on main's IPC 8d94f7606, 4c49e4f60; old board deleted fc7a66131 (28 files, -8.7k); real-app run product-verify | live |
+| Tasks UI | product-modals; on main's IPC 8d94f7606, 4c49e4f60; old board deleted fc7a66131 (28 files, -8.7k); seat strip f0c5acee0 | live; milestone run at 155f06e0c 9 of 10 pass; defects with product-modals (card counts, 0 of 2 tally, launch-state errors); approve rerun batched after fixes |
 | Task op wire, TaskView, machine on contract | canvas cd37581ef, 0b55944dd, 50e5d51ea, fa799aec3; numbers #42 293b8e7aa | landed |
 | Blocked mark on seat ring; C1 reach in admitPure; C2 factory cuts | canvas ba0efac29; 73bf05d6d, 50a67cd60, dab3240b8, c0eecdae4; 3f359eb4b, 0b0ffe50d, 5f82c5de5 | landed |
 | Deletions step | migration 32 be53079c9 | landed |
