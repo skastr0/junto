@@ -262,7 +262,13 @@ own seats. Operator mail, an automation's mail and signal answers or
 dismissals come from the canvas's editing machine, where automations run; the
 editing machine takes them from no peer. A mail author is one of a closed set
 of kinds (seat, operator, automation), each admitted from one machine; an
-identity on a node that is not its own is no author. A receipt cannot claim
+identity on a node that is not its own is no author. A command's actor is
+judged the same way: a seat's command row is valid only from the machine
+placement says that seat was on when it was written, and an operator's or an
+automation's command is written on the editing machine and taken from no
+peer. Rulings come only from the editing machine, which takes them from no
+peer, and a refusal carries only its closed reason, never text a seat or a
+domain wrote. A receipt cannot claim
 delivery to another machine's seat. Rejection leaves rows and cursor unchanged.
 
 A machine may relay other writers' rows only for canvases it keeps in full.

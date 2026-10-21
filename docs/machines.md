@@ -90,10 +90,10 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    keyed by the writing installation and the opId. A seat's command row is
    valid only from the machine placement says that seat was on when it was
    written; an operator's or an automation's command, and every ruling, only
-   from the machine that edits the canvas, which takes them from no peer. The editing
-   machine remembers which machine each seat was on and when, so mail written
-   before a seat moved or was removed is still judged against where the seat
-   was.
+   from the machine that edits the canvas, which takes them from no peer.
+   The editing machine remembers which machine each seat was on and when, so
+   mail written before a seat moved or was removed is still judged against
+   where the seat was.
 5. **Entitlement.** Every machine on a canvas gets the canvas rows and every
    ruling for that canvas. A machine gets the mail addressed to its seats. A
    `command.queued` row goes to the editing machine only and is never passed
