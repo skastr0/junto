@@ -227,6 +227,8 @@ export type TasksGlance = {
   /** Paused for input: held by a seat that waits on someone. */
   readonly needsInput: number;
   readonly done: number;
+  /** Waiting with no assignee: the card never reads zero over a task it lists. */
+  readonly backlog: number;
   /** The rows the card lists: what is held first, else what waits in the backlog. At most `limit`. */
   readonly rows: ReadonlyArray<TaskView>;
 };
@@ -240,6 +242,7 @@ export const tasksGlance = (views: ReadonlyArray<TaskView>, limit = 4): TasksGla
     open: count(["assigned", "working", "in-review"]),
     needsInput: count(["input-required"]),
     done: count(["done"]),
+    backlog: count(["backlog"]),
     rows: (held.length > 0 ? held : visibleTasks(views, { state: "backlog", query: "" })).slice(0, limit),
   };
 };

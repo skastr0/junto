@@ -131,11 +131,14 @@ describe("local tasks source", () => {
     await s.apply(CANVAS, build, ids[2]!, { kind: "cancel" });
     const views = await s.list(CANVAS, build);
     const glance = tasksGlance(views);
-    expect(glance).toMatchObject({ open: 1, needsInput: 1, done: 0 });
+    expect(glance).toMatchObject({ open: 1, needsInput: 1, done: 0, backlog: 2 });
     expect(glance.rows.map((view) => view.title)).toEqual(["a", "b"]);
     const quiet = tasksGlance(views.filter((view) => view.current.state === "backlog"));
     expect(quiet.rows.map((view) => view.title)).toEqual(["d", "e"]);
-    expect(tasksGlance([])).toEqual({ open: 0, needsInput: 0, done: 0, rows: [] });
+    expect(tasksGlance([])).toEqual({ open: 0, needsInput: 0, done: 0, backlog: 0, rows: [] });
+    const idle = tasksGlance(views.filter((view) => view.current.state === "backlog"));
+    expect(idle).toMatchObject({ open: 0, backlog: 2 });
+    expect(idle.rows.length).toBeGreaterThan(0);
   });
 
   it("builds the ruler's context from the canvas's tasks", async () => {

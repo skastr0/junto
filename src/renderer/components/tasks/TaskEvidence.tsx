@@ -1,10 +1,48 @@
+import { useEffect, useState } from "react";
 import { BadgeCheck } from "lucide-react";
 import { asNodeId } from "@shared/physics/schema";
 import type { CompletionEvidence } from "@shared/work-model";
-import { useNodeArtifacts } from "../../lib/artifacts-source";
+import { artifactsSource, type ArtifactsSource } from "../../lib/artifacts-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { Eyebrow, ResourceChip } from "../ui";
 import { evidenceGroups, hasEvidence, shortCommit } from "./task-evidence-model";
+
+type Heads =
+  | { readonly state: "loading" }
+  | { readonly state: "failed" }
+  | { readonly state: "ready"; readonly heads: Awaited<ReturnType<ArtifactsSource["list"]>> };
+
+/**
+ * One Artifacts node's artifacts, read: loading until the first read lands,
+ * failed when it did not (kept apart from an artifact that is gone), ready
+ * with what it holds. Read again whenever main says they changed.
+ */
+const useEvidenceHeads = (canvasName: string, nodeId: string): Heads => {
+  const [heads, setHeads] = useState<Heads>({ state: "loading" });
+  useEffect(() => {
+    let live = true;
+    let latest = 0;
+    setHeads({ state: "loading" });
+    const read = (): void => {
+      const mine = ++latest;
+      artifactsSource()
+        .list(canvasName, asNodeId(nodeId))
+        .then((list) => {
+          if (live && mine === latest) setHeads({ state: "ready", heads: list });
+        })
+        .catch(() => {
+          if (live && mine === latest) setHeads({ state: "failed" });
+        });
+    };
+    read();
+    const off = artifactsSource().onChanged(read);
+    return () => {
+      live = false;
+      off();
+    };
+  }, [canvasName, nodeId]);
+  return heads;
+};
 
 /** The cited artifacts of one Artifacts node, named by their titles, each a chip that opens it. */
 function EvidenceArtifacts({
@@ -16,13 +54,16 @@ function EvidenceArtifacts({
   readonly nodeId: string;
   readonly artifactIds: ReadonlyArray<string>;
 }) {
-  const heads = useNodeArtifacts(canvasName, asNodeId(nodeId));
+  const read = useEvidenceHeads(canvasName, nodeId);
   return (
     <>
       {artifactIds.map((id) => {
-        const head = heads.find((entry) => entry.artifact.artifactId === id);
+        if (read.state === "loading") return <ResourceChip key={id} kind="artifact" label="Loading" pending />;
+        // A failed read is not a gone artifact: say it could not be read, and the artifact may be fine.
+        if (read.state === "failed") return <ResourceChip key={id} kind="artifact" label="Could not be read" missing />;
+        const head = read.heads.find((entry) => entry.artifact.artifactId === id);
         return head === undefined ? (
-          <ResourceChip key={id} kind="artifact" label="Unavailable" missing />
+          <ResourceChip key={id} kind="artifact" label="Gone" missing />
         ) : (
           <ResourceChip
             key={id}

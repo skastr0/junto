@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type ClosedTaskLayer, type TaskId, type TaskView } from "../src/shared/task-model";
@@ -8,6 +11,7 @@ import { evidenceGroups, hasEvidence, shortCommit } from "../src/renderer/compon
 import { TaskEvidence } from "../src/renderer/components/tasks/TaskEvidence";
 import { TaskLayers } from "../src/renderer/components/tasks/TaskLayers";
 import { SelectedTask } from "../src/renderer/components/tasks/TasksNode";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
 
 const evidence: CompletionEvidence = {
   artifacts: [
@@ -48,7 +52,10 @@ describe("TaskEvidence", () => {
     const html = renderToStaticMarkup(<TaskEvidence canvasName="c" evidence={evidence} handoff="Over to QA, the tabs are done." />);
     expect(html).toContain("Over to QA, the tabs are done.");
     expect(html).toContain("Artifacts cited");
+    // Drawn before any read has landed: each cited artifact is pending, never "Unavailable".
     expect((html.match(/data-kind="artifact"/g) ?? []).length).toBe(3);
+    expect(html).toContain("Loading");
+    expect(html).not.toContain("Gone");
     expect(html).toContain(">0123456<");
     expect(html).toContain(">fedcba9<");
     expect(html).toContain("Tests run green");
@@ -109,5 +116,60 @@ describe("evidence in the pane", () => {
     expect(html).toContain("Left on QA board");
     expect(html).toContain("QA is green");
     expect(html).toContain(">deadbee<");
+  });
+});
+
+describe("evidence chips and the artifact read", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  let original: ArtifactsSource;
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    original = artifactsSource();
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    setArtifactsSource(original);
+  });
+  const one: CompletionEvidence = { artifacts: [{ artifactId: "a1", nodeId: "artifacts-x" }] };
+  const mount = async (list: ArtifactsSource["list"]) => {
+    setArtifactsSource({ list, onChanged: () => () => undefined } as unknown as ArtifactsSource);
+    await act(async () => {
+      root.render(<TaskEvidence canvasName="c" evidence={one} />);
+    });
+    await act(async () => undefined);
+  };
+
+  it("shows pending until the first read lands, then the artifact by its title", async () => {
+    let land: (heads: Awaited<ReturnType<ArtifactsSource["list"]>>) => void = () => undefined;
+    setArtifactsSource({
+      list: () => new Promise((resolve) => (land = resolve)),
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+    await act(async () => {
+      root.render(<TaskEvidence canvasName="c" evidence={one} />);
+    });
+    expect(host.textContent).toContain("Loading");
+    await act(async () => land([{ artifact: { artifactId: "a1", title: "Release notes", type: "document" } } as never]));
+    expect(host.textContent).toContain("Release notes");
+    expect(host.textContent).not.toContain("Loading");
+  });
+
+  it("says a failed read could not be read, which is not an artifact that is gone", async () => {
+    await mount(async () => {
+      throw new Error("The bridge dropped.");
+    });
+    expect(host.textContent).toContain("Could not be read");
+    expect(host.textContent).not.toContain("Gone");
+  });
+
+  it("says an artifact the node no longer holds is gone", async () => {
+    await mount(async () => []);
+    expect(host.textContent).toContain("Gone");
+    expect(host.textContent).not.toContain("Could not be read");
   });
 });
