@@ -1,0 +1,64 @@
+/* Reach preview: while the operator drags, every card whose reach the drop
+   would change carries data-reach-preview (lib/reach-preview.ts), and the
+   card under the pointer carries the words in data-reach-summary. Motion law:
+   the ring breathes with transform and opacity only, on the compositor. */
+
+.react-flow__node[data-reach-preview="gains"] { --reach-hue: var(--color-green); }
+.react-flow__node[data-reach-preview="loses"] { --reach-hue: var(--color-orange); }
+.react-flow__node[data-reach-preview="both"] { --reach-hue: var(--color-yellow); }
+.react-flow__node[data-reach-preview="held"] { --reach-hue: var(--color-cyan); }
+
+.react-flow__node[data-reach-preview]::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 0 0 2px var(--reach-hue),
+    0 0 18px color-mix(in oklab, var(--reach-hue) 40%, transparent);
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: junto-reach-breathe 1.44s ease-in-out infinite;
+}
+/* Leaving reach is drawn dashed, so it reads without the hue. */
+.react-flow__node[data-reach-preview="loses"]::before {
+  box-shadow: none;
+  outline: 2px dashed var(--reach-hue);
+  outline-offset: 0;
+}
+
+.react-flow__node[data-reach-summary]::after {
+  content: attr(data-reach-summary);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 14px);
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-raise-2);
+  box-shadow: 0 0 0 1px var(--color-stroke-hi);
+  color: var(--color-ink);
+  font: var(--text-label) / var(--leading-compact) var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-preview]::before {
+  inset: -18px;
+  box-shadow: 0 0 0 8px var(--reach-hue);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-preview="loses"]::before {
+  box-shadow: none;
+  outline-width: 8px;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-summary]::after {
+  bottom: calc(100% + 40px);
+  padding: 10px 24px;
+  font-size: calc(var(--text-label) * 3);
+}
+
+@keyframes junto-reach-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.015); }
+}
+html[data-surface-motion="paused"] .react-flow__node[data-reach-preview]::before { animation: none; }

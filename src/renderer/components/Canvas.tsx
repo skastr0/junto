@@ -62,11 +62,13 @@ import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
 import { seatTasks$ } from "../lib/seat-tasks";
+import { endReachPreview, startReachPreview, updateReachPreview } from "../lib/reach-preview";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { thisMachineName } from "../lib/machines";
 import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
+import "../styles/reach-preview.css";
 import {
   newArtifacts, newAutomations, newRegion, newImage,
   newLabel, newSeat, newPage, newTaskBoard, newNote,
@@ -536,6 +538,7 @@ function useCanvasInteractions(
   const finishDrag = useCallback((sync: boolean, dropped: ReadonlyArray<FlowNode> = []) => {
     if (!dragInProgressRef.current) return;
     holdDragRef.current = null;
+    endReachPreview();
     // The drag is over before the drop is sent, not after. The Move shows in
     // the store at once, and the canvas is rebuilt from the store in the same
     // turn, which sets each dropped card on the whole-number place the model
@@ -575,6 +578,7 @@ function useCanvasInteractions(
       if (dragInProgressRef.current) {
         dragInProgressRef.current = false;
         holdDragRef.current = null;
+        endReachPreview();
         pendingRebuildRef.current = false;
       }
     };
@@ -583,6 +587,8 @@ function useCanvasInteractions(
   const onNodeDragStart: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
     dragInProgressRef.current = true;
     holdDragRef.current = null;
+    // What the drop would do to reach shows before the drop (01 rule 6).
+    startReachPreview(modelStore.canvasOf(node.data.canvas), seatTasks$.bySeat.peek());
     const region = nodeAt(node.data.canvas, node.id);
     if (region?.kind !== "region" || !region.hold) return;
     const startPositions = new Map<string, { x: number; y: number }>();
@@ -593,15 +599,21 @@ function useCanvasInteractions(
     }
     holdDragRef.current = { regionId: node.id, regionStart: node.position, startPositions };
   }, [rf, dragInProgressRef]);
-  const onNodeDrag: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
+  const onNodeDrag: OnNodeDrag<FlowNode> = useCallback((_event, node, dragged) => {
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const moving of dragged) positions.set(moving.id, moving.position);
+    positions.set(node.id, node.position);
     const drag = holdDragRef.current;
-    if (!drag || node.id !== drag.regionId || drag.startPositions.size === 0) return;
-    const dx = node.position.x - drag.regionStart.x;
-    const dy = node.position.y - drag.regionStart.y;
-    setNodes((nodes) => nodes.map((n) => {
-      const start = drag.startPositions.get(n.id);
-      return start ? { ...n, position: { x: start.x + dx, y: start.y + dy } } : n;
-    }));
+    if (drag && node.id === drag.regionId && drag.startPositions.size > 0) {
+      const dx = node.position.x - drag.regionStart.x;
+      const dy = node.position.y - drag.regionStart.y;
+      for (const [id, start] of drag.startPositions) positions.set(id, { x: start.x + dx, y: start.y + dy });
+      setNodes((nodes) => nodes.map((n) => {
+        const start = drag.startPositions.get(n.id);
+        return start ? { ...n, position: { x: start.x + dx, y: start.y + dy } } : n;
+      }));
+    }
+    updateReachPreview(positions, node.id);
   }, [setNodes]);
   const onNodeDragStop: OnNodeDrag<FlowNode> = useCallback((_event, _node, dropped) => {
     finishDrag(true, dropped);
