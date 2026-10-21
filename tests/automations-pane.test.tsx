@@ -123,6 +123,15 @@ describe("automations pane", () => {
     sidebarNew.focus();
     await act(async () => sidebarNew.click());
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Automation name");
+
+    // With unsaved edits New asks first; the dialog gives focus back as it closes, and the name still wins.
+    await typeName("Unsaved");
+    sidebarNew.focus();
+    await act(async () => sidebarNew.click());
+    expect(document.body.textContent).toContain("Discard your edits?");
+    await act(async () => button("Discard").click());
+    expect(nameShown()).toBe("New automation");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Automation name");
   });
 
   it("keeps keyboard focus where the press was: Save and Run now stay focused, Archive hands it to New", async () => {
