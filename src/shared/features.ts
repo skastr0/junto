@@ -17,8 +17,6 @@
 
 import { featureTierOn, type FeatureKey, type FeatureTier } from "./feature-catalog";
 
-declare const __JUNTO_CRON_ENABLED__: boolean | undefined;
-declare const __JUNTO_RELAY_ENABLED__: boolean | undefined;
 declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
 declare const __JUNTO_BOARD_ENABLED__: boolean | undefined;
 declare const __JUNTO_REQUESTS_ENABLED__: boolean | undefined;
@@ -60,16 +58,6 @@ const envTier = (key: string): FeatureTier => {
 
 const definedTier = (value: unknown): value is FeatureTier =>
   typeof value === "boolean" || value === "experimental";
-
-export const CRON_ENABLED: boolean =
-  typeof __JUNTO_CRON_ENABLED__ === "boolean"
-    ? __JUNTO_CRON_ENABLED__
-    : envEnabled("JUNTO_CRON");
-
-export const RELAY_ENABLED: boolean =
-  typeof __JUNTO_RELAY_ENABLED__ === "boolean"
-    ? __JUNTO_RELAY_ENABLED__
-    : envEnabled("JUNTO_RELAY");
 
 export const BROWSER_ENABLED: boolean =
   typeof __JUNTO_BROWSER_ENABLED__ === "boolean"
@@ -250,8 +238,6 @@ export const REVIEWS_ENABLED: boolean =
     : envEnabled("JUNTO_REVIEWS");
 
 export const BUILD_FEATURES = {
-  cron: CRON_ENABLED,
-  relay: RELAY_ENABLED,
   browser: BROWSER_ENABLED,
   board: BOARD_ENABLED,
   requests: REQUESTS_ENABLED,
@@ -298,11 +284,6 @@ export const featureOn = (
 export const seatAwarenessOn = (optIns: ExperimentalOptIns): boolean =>
   featureOn("seatAwareness", optIns);
 
-/** Whether an authored scheduler kind has a live product surface in this build. */
-export const schedulerFeatureEnabled = (
-  kind: "cron" | "relay" | "gauge",
-): boolean => kind === "cron" ? CRON_ENABLED : RELAY_ENABLED;
-
 /**
  * Historical hidden kinds remain decodable, but cannot regain authoring
  * controls. This is the one predicate every authoring, wire, and capability
@@ -310,8 +291,8 @@ export const schedulerFeatureEnabled = (
  */
 export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "task") return TASKS_ENABLED;
-  if (kind === "cron" || kind === "timer") return CRON_ENABLED;
-  if (kind === "relay" || kind === "watcher" || kind === "gauge") return RELAY_ENABLED;
+  // The scheduler kinds are gone from the product; old nodes decode, never author.
+  if (kind === "cron" || kind === "timer" || kind === "relay" || kind === "watcher" || kind === "gauge") return false;
   if (kind === "page") return BROWSER_ENABLED;
   if (kind === "board") return BOARD_ENABLED;
   if (kind === "requests") return REQUESTS_ENABLED;

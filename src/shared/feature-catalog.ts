@@ -1,12 +1,4 @@
 export const FEATURE_CATALOG = {
-  cron: {
-    env: "JUNTO_CRON",
-    define: "__JUNTO_CRON_ENABLED__",
-  },
-  relay: {
-    env: "JUNTO_RELAY",
-    define: "__JUNTO_RELAY_ENABLED__",
-  },
   browser: {
     env: "JUNTO_BROWSER",
     define: "__JUNTO_BROWSER_ENABLED__",
@@ -201,8 +193,6 @@ export const featureTierWord = (tier: FeatureTier): "on" | "experimental" | "off
  * experimental: compiled in, toggled off by default.
  */
 export const SHIP_FEATURES: FeatureSet = {
-  cron: false,
-  relay: false,
   browser: false,
   board: false,
   requests: false,
@@ -230,8 +220,6 @@ export const SHIP_FEATURES: FeatureSet = {
 };
 
 export const ALL_FEATURES: FeatureSet = {
-  cron: true,
-  relay: true,
   browser: true,
   board: true,
   requests: true,

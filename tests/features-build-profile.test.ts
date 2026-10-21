@@ -19,8 +19,6 @@ describe("compile-time feature profiles", () => {
     expect(resolved.profile).toBe("ship");
     expect(resolved.features).toEqual(SHIP_FEATURES);
     expect(resolved.features).toEqual({
-      cron: false,
-      relay: false,
       browser: false,
       board: false,
       requests: false,
@@ -73,27 +71,27 @@ describe("compile-time feature profiles", () => {
     const resolved = resolveBuildFeatures({
       JUNTO_FEATURE_PROFILE: "all-on",
       JUNTO_BROWSER: "0",
-      JUNTO_CRON: "0",
+      JUNTO_BOARD: "0",
       JUNTO_AUDIO: "1",
     });
     expect(resolved.features.browser).toBe(false);
-    expect(resolved.features.cron).toBe(false);
+    expect(resolved.features.board).toBe(false);
     expect(resolved.features.audio).toBe(true);
-    expect(resolved.overrides).toEqual(["cron", "browser", "audio"]);
+    expect(resolved.overrides).toEqual(["browser", "board", "audio"]);
   });
 
   it("rejects malformed profiles and overrides", () => {
     expect(() =>
       resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "maybe" }),
     ).toThrow(/must be ship or all-on/u);
-    expect(() => resolveBuildFeatures({ JUNTO_RELAY: "true" })).toThrow(
-      /JUNTO_RELAY must be 0, 1 or experimental/u,
+    expect(() => resolveBuildFeatures({ JUNTO_BOARD: "true" })).toThrow(
+      /JUNTO_BOARD must be 0, 1 or experimental/u,
     );
   });
 
   it("refuses the experimental tier for a feature with no Settings toggle", () => {
-    expect(() => resolveBuildFeatures({ JUNTO_RELAY: "experimental" })).toThrow(
-      /JUNTO_RELAY=experimental is not available: relay has no Settings toggle/u,
+    expect(() => resolveBuildFeatures({ JUNTO_BOARD: "experimental" })).toThrow(
+      /JUNTO_BOARD=experimental is not available: board has no Settings toggle/u,
     );
     // Every experimental entry in the shipped profiles has a toggle.
     for (const [key, tier] of Object.entries(SHIP_FEATURES)) {
@@ -107,7 +105,7 @@ describe("compile-time feature profiles", () => {
     const ship = resolveBuildFeatures({});
     expect(ship.experimental).toEqual(["seatAwareness"]);
     expect(ship.fingerprint).toContain("seatAwareness=x");
-    expect(ship.fingerprint).toContain("cron=0");
+    expect(ship.fingerprint).toContain("board=0");
     expect(ship.fingerprint).toContain("harnessKimi=1");
     // Experimental is not on: an all-on build and a ship build differ here.
     const allOn = resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "all-on" });
