@@ -269,6 +269,7 @@ describe("schema/examples from validating schemas", () => {
       "browser.goto",
       "browser.eval",
       "browser.shot",
+      "browser.comment",
       "browser.close",
       "browser.stop",
     ];

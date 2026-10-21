@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  BROWSER_MAX_COMMENT_TEXT_BYTES,
   CONTROL_HOME_ENV,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_TOKEN_HEADER,
@@ -247,6 +248,75 @@ describe("junto browser on the standard envelope", { timeout: 30_000 }, () => {
         error: { type: "UnknownTarget", message, details: { reason: "not_found", retryable: false } },
       });
     }
+  });
+
+  it("sends a comment as {sessionId, tab?, rect, text} to /comment", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen, (url) =>
+      url === "/comment" ? { status: 200, body: { ok: true, data: { messageId: "m1", threadId: "th1" } } } : undefined,
+    );
+
+    const named = await runCli(["comment", "session-1", "--box", "10,20,300,40", "--text", "too tight", "--tab", "t2"], { home: root });
+    const active = await runCli(["comment", "session-1", "--box", "0,0,1.5,2", "--text", "here"], { home: root });
+
+    for (const result of [named, active]) {
+      expect(result.code, result.stderr).toBe(0);
+      expect(envelope(result.stdout)).toEqual({ ok: true, command: "browser comment", data: { messageId: "m1", threadId: "th1" } });
+    }
+    expect(seen.map(({ method, url, body }) => ({ method, url, body }))).toEqual([
+      { method: "POST", url: "/comment", body: { sessionId: "session-1", tab: "t2", rect: { x: 10, y: 20, w: 300, h: 40 }, text: "too tight" } },
+      { method: "POST", url: "/comment", body: { sessionId: "session-1", rect: { x: 0, y: 0, w: 1.5, h: 2 }, text: "here" } },
+    ]);
+  });
+
+  it("passes a comment's refusals through in control's words", async () => {
+    const refusals = [
+      { status: 501, error: { _tag: "unsupported_capability", message: "seat-made shots are held until the operator purge lands" }, type: "InputError" },
+      { status: 403, error: { _tag: "forbidden", message: "this lease names no seat; a comment needs one" }, type: "AuthError" },
+      { status: 404, error: { _tag: "not_found", message: "no session session-1 held by this seat" }, type: "UnknownTarget" },
+      { status: 400, error: { _tag: "invalid", message: "the box lies outside the page" }, type: "InputError" },
+    ] as const;
+    for (const refusal of refusals) {
+      const root = await newRoot();
+      const seen: SeenRequest[] = [];
+      await startRogueControl(root, seen, () => ({ status: refusal.status, body: { ok: false, error: refusal.error } }));
+
+      const result = await runCli(["comment", "session-1", "--box", "1,2,3,4", "--text", "x"], { home: root });
+      expect(result.code, refusal.error._tag).toBe(1);
+      expect(envelope(result.stderr)).toMatchObject({
+        ok: false,
+        command: "browser comment",
+        error: { type: refusal.type, message: refusal.error.message, details: { reason: refusal.error._tag, retryable: false } },
+      });
+      expect(seen).toHaveLength(1);
+    }
+  });
+
+  it("refuses a comment without a box, without text, or with a bad box before transport", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen);
+
+    for (const args of [
+      ["comment", "session-1", "--text", "x"],
+      ["comment", "session-1", "--box", "1,2,3,4"],
+      ["comment", "session-1", "--box", "1,2,3", "--text", "x"],
+      ["comment", "session-1", "--box", "1,2,NaN,4", "--text", "x"],
+      ["comment", "session-1", "--box", "1,2,3,4", "--text", " "],
+      ["comment", "session-1", "--box", "1,2,3,4", "--text", "é".repeat(BROWSER_MAX_COMMENT_TEXT_BYTES / 2 + 1)],
+      ["comment", "bad id", "--box", "1,2,3,4", "--text", "x"],
+    ]) {
+      const result = await runCli(args, { home: root });
+      expect(result.code, args.join(" ")).toBe(1);
+      expect(result.stdout).not.toContain('"ok":true');
+    }
+    const badBox = await runCli(["comment", "session-1", "--box", "1,2,3", "--text", "x"], { home: root });
+    expect(envelope(badBox.stderr)).toMatchObject({ ok: false, command: "browser comment", error: { type: "InputError" } });
+    // The limit is bytes: 2-byte characters overflow it at half the count.
+    const oversized = await runCli(["comment", "session-1", "--box", "1,2,3,4", "--text", "é".repeat(BROWSER_MAX_COMMENT_TEXT_BYTES / 2 + 1)], { home: root });
+    expect(envelope(oversized.stderr)).toMatchObject({ ok: false, command: "browser comment", error: { type: "InputError" } });
+    expect(seen).toHaveLength(0);
   });
 
   it("refuses bad input as InputError before transport", async () => {

@@ -21,6 +21,7 @@ const ROUTE = {
   goto: "goto",
   eval: "eval",
   shot: "screenshot",
+  comment: "comment",
   close: "close",
   stop: "stop",
 } as const satisfies Record<BrowserCommandName, ControlRouteName>;
@@ -37,9 +38,9 @@ const tabFlag = Flag.string("tab").pipe(
 /** The request body for a command, checked against its schema before transport. */
 export const browserRequestBody = (
   name: BrowserCommandName,
-  fields: Readonly<Record<string, string | undefined>>,
-): Result.Result<Record<string, string> | undefined, InputError> => {
-  const body: Record<string, string> = {};
+  fields: Readonly<Record<string, unknown>>,
+): Result.Result<Record<string, unknown> | undefined, InputError> => {
+  const body: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) if (value !== undefined) body[key] = value;
   // An empty Struct takes any field, so the field list is checked here too.
   const unknown = Object.keys(body).find((key) => !(key in BROWSER_COMMANDS[name].schema.fields));
@@ -66,11 +67,32 @@ export const browserRequestBody = (
   return Result.succeed(Object.keys(body).length === 0 ? undefined : body);
 };
 
-const run = (name: BrowserCommandName, fields: Readonly<Record<string, string | undefined>> = {}) =>
+/** `--box x,y,w,h` as the rect the comment route takes: four finite numbers. */
+export const parseBox = (box: string): Result.Result<{ x: number; y: number; w: number; h: number }, InputError> => {
+  const parts = box.split(",").map((part) => part.trim());
+  const numbers = parts.map(Number);
+  if (parts.length !== 4 || parts.some((part) => part === "") || !numbers.every(Number.isFinite)) {
+    return Result.fail(
+      new InputError({
+        message: `--box takes four numbers x,y,w,h, not ${JSON.stringify(box.slice(0, 80))}`,
+        path: "box",
+        next_step: "junto schema show browser.comment",
+      }),
+    );
+  }
+  const [x, y, w, h] = numbers as [number, number, number, number];
+  return Result.succeed({ x, y, w, h });
+};
+
+const run = (
+  name: BrowserCommandName,
+  fields: Readonly<Record<string, unknown>> | Result.Result<Readonly<Record<string, unknown>>, InputError> = {},
+) =>
   executeJsonCommand(
     `browser ${name}`,
     Effect.gen(function* () {
-      const body = yield* Effect.fromResult(browserRequestBody(name, fields));
+      const checked = Result.isResult(fields) ? yield* Effect.fromResult(fields) : fields;
+      const body = yield* Effect.fromResult(browserRequestBody(name, checked));
       return yield* callBrowserControl(ROUTE[name], body);
     }),
   );
@@ -109,6 +131,18 @@ const shotCommand = Command.make(
   ({ sessionId, tab }) => run("shot", { sessionId, tab: tabOf(tab) }),
 ).pipe(describe("shot"));
 
+const commentCommand = Command.make(
+  "comment",
+  {
+    sessionId: sessionArg,
+    box: Flag.string("box").pipe(Flag.withDescription("The box to comment on, as x,y,w,h in page pixels")),
+    text: Flag.string("text").pipe(Flag.withDescription("The comment")),
+    tab: tabFlag,
+  },
+  ({ sessionId, box, text, tab }) =>
+    run("comment", Result.map(parseBox(box), (rect) => ({ sessionId, tab: tabOf(tab), rect, text }))),
+).pipe(describe("comment"));
+
 const closeCommand = Command.make("close", { sessionId: sessionArg }, ({ sessionId }) =>
   run("close", { sessionId }),
 ).pipe(describe("close"));
@@ -128,6 +162,7 @@ export const browserCommand = Command.make("browser").pipe(
     gotoCommand,
     evalCommand,
     shotCommand,
+    commentCommand,
     closeCommand,
     stopCommand,
   ]),

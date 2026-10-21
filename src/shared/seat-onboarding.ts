@@ -156,6 +156,11 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
       { port: "browser.automate", intent: "navigate", command: () => "junto browser goto <sessionId> <url> [--tab <tab>]" },
       { port: "browser.automate", intent: "inspect", command: () => "junto browser eval <sessionId> <code> [--tab <tab>]" },
       { port: "browser.automate", intent: "capture", command: () => "junto browser shot <sessionId> [--tab <tab>]" },
+      {
+        port: "browser.automate",
+        intent: "comment on a box",
+        command: () => "junto browser comment <sessionId> --box x,y,w,h --text \"...\" [--tab <tab>]",
+      },
     ],
   },
 };

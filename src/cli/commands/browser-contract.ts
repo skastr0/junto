@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import {
   CloseRequest,
+  CommentRequest,
   EvalRequest,
   GotoRequest,
   OpenRequest,
@@ -28,6 +29,7 @@ export type BrowserCommandName =
   | "goto"
   | "eval"
   | "shot"
+  | "comment"
   | "close"
   | "stop";
 
@@ -89,6 +91,12 @@ export const BROWSER_COMMANDS = {
     description: `Capture a screenshot to a PNG Junto owns, and return its path.${TAB}`,
     schema: ScreenshotRequest,
   },
+  comment: {
+    usage: "comment <sessionId> --box <x,y,w,h> --text <text> [--tab <tab>]",
+    category: "workflow",
+    description: `Ask to comment on a box of the page. Control refuses it as unsupported_capability until seat-made shots are allowed; then it answers the message and thread ids.${TAB}`,
+    schema: CommentRequest,
+  },
   close: {
     usage: "close <sessionId>",
     category: "workflow",
@@ -137,6 +145,13 @@ export const browserExamples: ReadonlyArray<CommandExample> = [
     name: "capture one tab",
     args: ["browser", "shot", "session-1", "--tab", "tab-2"],
     input: { sessionId: "session-1", tab: "tab-2" },
+  },
+  {
+    command_id: "browser.comment",
+    command: "browser comment <sessionId> --box <x,y,w,h> --text <text>",
+    name: "comment on a box of the page",
+    args: ["browser", "comment", "session-1", "--box", "40,120,320,80", "--text", "this button overlaps the title"],
+    input: { sessionId: "session-1", rect: { x: 40, y: 120, w: 320, h: 80 }, text: "this button overlaps the title" },
   },
 ];
 
