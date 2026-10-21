@@ -210,6 +210,36 @@ describe("TaskThread", () => {
     expect(button().disabled).toBe(false);
   });
 
+  it("sends one op id per post: a retry of the same text reuses it, other text gets its own", async () => {
+    const seen: string[] = [];
+    let refuse = true;
+    const flaky: SubjectThreadsSource = {
+      threads: async () => [],
+      post: async (_c, _s, post) => {
+        seen.push(post.opId);
+        return refuse ? { ok: false, message: "Out of reach." } : { ok: true, threadId: "t", messageId: "m" };
+      },
+      subscribe: () => () => undefined,
+    };
+    setSubjectThreadsSource(flaky);
+    await mount();
+    const field = await typeInto("Same words");
+    await enter(field);
+    await act(async () => undefined);
+    await enter(field);
+    await act(async () => undefined);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBe(seen[0]);
+    await typeInto("Different words");
+    await enter(host.querySelector('textarea[aria-label="Comment on this task"]')!);
+    await act(async () => undefined);
+    expect(seen[2]).not.toBe(seen[0]);
+    refuse = false;
+    await enter(host.querySelector('textarea[aria-label="Comment on this task"]')!);
+    await act(async () => undefined);
+    expect(seen[3]).toBe(seen[2]);
+  });
+
   it("keeps the text and says why when the post is refused", async () => {
     const refusing: SubjectThreadsSource = {
       threads: async () => [],

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { MessageSquare } from "lucide-react";
 import type { MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
@@ -7,6 +7,7 @@ import type { TaskId, TaskNodeId, TaskView } from "@shared/task-model";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import {
   newPostOpId,
+  subjectThreadsLive,
   subjectThreadsSource,
   useSubjectThreads,
   type SubjectThread,
@@ -91,7 +92,7 @@ export function ThreadPosts({
       {posts.map((post) => (
         <li key={post.messageId} className="task-thread__post" data-testid="task-thread-post">
           <div className="task-thread__meta">
-            <strong>{actorLabel(post.author, seatName)}</strong>
+            <strong>{post.name ?? actorLabel(post.author, seatName)}</strong>
             <span>{agoLabel(post.at, now)}</span>
           </div>
           <PostText text={post.text} nodeKindOf={nodeKindOf} onOpen={onOpen} />
@@ -146,17 +147,23 @@ export function TaskThread({
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const ready = text.trim().length > 0 && !sending;
+  // One op id per post: a retry of the same text is the same post, so a resend after a lost answer posts once.
+  const pendingOp = useRef<{ readonly text: string; readonly opId: string } | null>(null);
 
   const send = async (): Promise<void> => {
     if (!ready) return;
     const sent = text.trim();
     setSending(true);
     setFailure(null);
+    const opId = pendingOp.current?.text === sent ? pendingOp.current.opId : newPostOpId();
+    pendingOp.current = { text: sent, opId };
     try {
-      const outcome = await subjectThreadsSource().post(canvasName, { kind: "task", nodeId: node, taskId }, { text: sent, opId: newPostOpId() });
+      const outcome = await subjectThreadsSource().post(canvasName, { kind: "task", nodeId: node, taskId }, { text: sent, opId });
       // Clear only what was sent: anything typed while it was in flight stays.
-      if (outcome.ok) setText((now) => (now.trim() === sent ? "" : now));
-      else setFailure(outcome.message);
+      if (outcome.ok) {
+        pendingOp.current = null;
+        setText((now) => (now.trim() === sent ? "" : now));
+      } else setFailure(outcome.message);
     } catch (cause) {
       setFailure(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -171,6 +178,9 @@ export function TaskThread({
       void send();
     }
   };
+
+  // Comments that would stay in this window and never reach main or the seat are not offered.
+  if (!subjectThreadsLive()) return null;
 
   return (
     <section className="task-thread" aria-label="Comment thread" data-testid="task-thread">

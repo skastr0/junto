@@ -12,7 +12,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { NodeId } from "@shared/physics/schema";
 import type { Anchor } from "@shared/thread-subject";
-import { mintItemId, mintOpId, type ResourceActor } from "@shared/resource-command";
+import type { ThreadPostAuthor, ThreadResourceApi } from "@shared/resource-ipc";
+import { mintItemId, mintOpId } from "@shared/resource-command";
 import type { ItemId } from "@shared/work-ids";
 
 /** The resource a thread hangs on. Extended as panes move on (artifact, page). */
@@ -23,9 +24,17 @@ export type ThreadSubjectRef =
 export const subjectKey = (subject: ThreadSubjectRef): string =>
   subject.kind === "task" ? `task:${subject.nodeId}:${subject.taskId}` : `artifact:${subject.nodeId}:${subject.artifactId}`;
 
+/** Who wrote a post: the operator, or a seat or an automation by its node. */
+export type ThreadAuthor =
+  | { readonly kind: "operator" }
+  | { readonly kind: "seat"; readonly nodeId: NodeId }
+  | { readonly kind: "automation"; readonly nodeId: NodeId };
+
 export type ThreadPost = {
   readonly messageId: string;
-  readonly author: ResourceActor;
+  readonly author: ThreadAuthor;
+  /** The name main shows for the author, when it has one. */
+  readonly name?: string;
   /** The written text: mentions as links. */
   readonly text: string;
   /** Epoch ms. */
@@ -61,7 +70,7 @@ export interface SubjectThreadsSource {
 
 /** An in-memory source, as the stand-in and for tests. Every post is `actor`'s. */
 export const makeLocalSubjectThreads = (
-  actor: ResourceActor = { kind: "operator" },
+  actor: ThreadAuthor = { kind: "operator" },
   now: () => number = Date.now,
 ): SubjectThreadsSource => {
   const held = new Map<string, SubjectThread[]>();
@@ -105,12 +114,72 @@ export const makeLocalSubjectThreads = (
 };
 
 let source: SubjectThreadsSource = makeLocalSubjectThreads();
+let live = false;
 
 export const subjectThreadsSource = (): SubjectThreadsSource => source;
+
+/**
+ * Whether comments reach main (a source was set: main's, or a test's). The
+ * default stand-in keeps posts in this window only, so a pane that would
+ * lose them must not offer to post until this is true.
+ */
+export const subjectThreadsLive = (): boolean => live;
+
+/** Main's threads over the resource IPC: the same list and post as `junto task comment`. */
+export const makeIpcSubjectThreads = (api: ThreadResourceApi): SubjectThreadsSource => ({
+  threads: async (canvasName, subject) =>
+    (await api.list(canvasName, subject)).map((thread) => ({
+      threadId: thread.threadId,
+      ...(thread.anchor === undefined ? {} : { anchor: thread.anchor }),
+      posts: thread.posts.map((post) => ({
+        messageId: post.postId,
+        author: actorOf(post.author),
+        name: post.author.name,
+        text: post.text,
+        at: post.at,
+      })),
+    })),
+  post: async (canvasName, subject, post) => {
+    const outcome = await api.post(canvasName, subject, {
+      opId: post.opId as never,
+      text: post.text,
+      ...(post.threadId === undefined ? {} : { threadId: post.threadId as never }),
+      ...(post.anchor === undefined ? {} : { anchor: post.anchor }),
+    });
+    return outcome.kind === "applied"
+      ? { ok: true, threadId: outcome.threadId, messageId: outcome.postId }
+      : { ok: false, message: outcome.error.message };
+  },
+  subscribe: (listener) => api.onChanged(() => listener()),
+});
+
+const actorOf = (author: ThreadPostAuthor): ThreadAuthor => {
+  switch (author.kind) {
+    case "operator":
+      return { kind: "operator" };
+    case "seat":
+      return { kind: "seat", nodeId: author.nodeId };
+    case "automation":
+      return { kind: "automation", nodeId: author.nodeId };
+  }
+};
+
+let installed = false;
+
+/** Point comments at main. Idempotent; without the bridge (a build that leaves threads out) nothing is set and comments stay unoffered. */
+export const installIpcSubjectThreads = (api: ThreadResourceApi | undefined): boolean => {
+  if (api === undefined) return false;
+  if (!installed) {
+    setSubjectThreadsSource(makeIpcSubjectThreads(api));
+    installed = true;
+  }
+  return true;
+};
 
 /** Tests and the main-side switch set the source. */
 export const setSubjectThreadsSource = (next: SubjectThreadsSource): void => {
   source = next;
+  live = true;
   for (const listener of swapListeners) listener();
 };
 

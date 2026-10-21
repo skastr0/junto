@@ -6,6 +6,7 @@ import type { ArtifactOp, ArtifactType, TextPatch } from "@shared/artifact";
 import type { ArtifactPendingWrite } from "../../lib/artifacts-source";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { ResourceActor } from "@shared/resource-command";
+import type { ThreadAuthor } from "../../lib/subject-threads-source";
 import type { Anchor } from "@shared/thread-subject";
 
 export type TypeFilter = ArtifactType | "all";
@@ -74,7 +75,7 @@ export const anchorLabel = (anchor: Anchor | undefined): string => {
 };
 
 /** Who wrote it, as the operator reads it. A seat's name is resolved by the caller. */
-export const actorLabel = (actor: ResourceActor, seatName?: (nodeId: string) => string | undefined): string => {
+export const actorLabel = (actor: ResourceActor | ThreadAuthor, seatName?: (nodeId: string) => string | undefined): string => {
   switch (actor.kind) {
     case "operator":
       return "You";
