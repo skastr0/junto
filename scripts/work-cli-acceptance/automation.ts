@@ -32,9 +32,11 @@ export const automationArea: AcceptanceArea = {
       check("list reads as a seat", listed.code === 0 && list?.ok === true && Array.isArray(list.data?.automations), listed),
       pending("show reads one automation", "canvas-automation"),
       pending("history reads its firings", "canvas-automation"),
+      // A seat with no overseer flag is refused before the overseer grant is read (control.ts, op "overseer").
       check(
         "a seat's write is refused at the overseer gate",
-        written.code === 1 && write?.ok === false && write.error?.type === "AuthError" && write.error?.details?.missing === "overseer grant",
+        written.code === 1 && write?.ok === false && write.error?.type === "ScopeError" &&
+          write.error?.details?.caller === "agent" && write.error?.details?.retryable === false,
         written,
       ),
       pending("the refusal's next step names junto automation show", "cli-external"),
