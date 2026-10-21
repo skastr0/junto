@@ -85,16 +85,10 @@ describe("junto artifact discovery", () => {
     expect(allExamples.some((e) => e.command_id === "artifact.publish")).toBe(false);
   });
 
-  it.runIf(ARTIFACTS_ENABLED)("has examples that decode under their verb's schema once the CLI mints its ids", () => {
+  it.runIf(ARTIFACTS_ENABLED)("has examples that decode under their verb's schema, ids as the CLI mints them", () => {
     for (const example of artifactExamples) {
       const contract = artifactSchemas.find((s) => s.command_id === example.command_id)!;
-      const writes = contract.description.includes("mints the opId");
-      const input = {
-        ...(example.input as object),
-        ...(writes ? { opId: OP } : {}),
-        ...(example.command_id === "artifact.create" ? { artifactId: ID } : {}),
-      };
-      expect(() => Schema.decodeUnknownSync(contract.schema as never, { onExcessProperty: "error" })(input), example.name).not.toThrow();
+      expect(() => Schema.decodeUnknownSync(contract.schema as never, { onExcessProperty: "error" })(example.input), example.name).not.toThrow();
       expect(allExamples).toContainEqual(example);
     }
   });

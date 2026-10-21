@@ -253,16 +253,18 @@ export const artifactSchemas: ReadonlyArray<CommandSchemaContract> = VERBS.map((
   input_modes: ["argv"],
 }));
 
-const example = (verb: Verb, name: string, description: string, args: ReadonlyArray<string>, input: unknown): CommandExample => ({
+/** The args as sent: a write carries the opId the CLI minted, and create the artifact's id too. */
+const example = (verb: Verb, name: string, description: string, args: ReadonlyArray<string>, input: object): CommandExample => ({
   command_id: opOf(verb),
   command: `artifact ${verb}`,
   name,
   description,
-  input,
+  input: isArtifactWriteOp(opOf(verb)) ? { opId: OP, ...(verb === "create" ? { artifactId: ID } : {}), ...input } : input,
   args: ["artifact", verb, ...args],
 });
 
 const ID = "01M5ESMQ2ZT55QZ073EWPH10SG";
+const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
 
 export const artifactExamples: ReadonlyArray<CommandExample> = [
   example("list", "the sheets in reach", "Every Artifacts node in reach.", ["--type", "sheet"], { type: "sheet" }),
