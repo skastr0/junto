@@ -140,6 +140,10 @@ everyone else reports by mail and on the needs-you feed.
 | Flow graph tests | canvas-writers, c521f4c56 | in review |
 | Migration slots | canvas-model keeps the list; only v26 fixed | running |
 | Artifact contract | product-shell, 3d9c5facc, 28 tests; shared edit reducer `ruleArtifactEdit` for ruler and pending view | landed |
+| Task model contract | canvas, `task-model.ts` d540d3f61; ruler still on stand-in types, moving onto it | landed, ruler migrating |
+| Tasks UI: verb bar, reviewers | product-modals, ebbd76ae2, offers only what the ruler admits | landed, continuing |
+| MentionCombobox, availability hooks | product-keyboard, 8ea979958, b02bb6f06, 6b8de8cee, 30 tests | landed, in review; replacing old copies next |
+| Hermes Providers card | product-settings, 11b9db75b | landed |
 | One id source lock | product-verify, `tests/item-id-one-source.test.ts` | passing, commits after the four contracts land |
 | cli L4 `junto automation` | cli-external, review cli-overseer | started |
 | cli L5 `junto browser` port | cli-overseer, review cli-external | started |
