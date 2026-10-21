@@ -70,4 +70,17 @@ describe("Crew SQL transaction participants", () => {
       expect(yield* crew.firstAuthorForSha(receipt.refSha)).toBe(author);
     }));
   });
+
+  it("fails a write that breaks a CHECK or NOT NULL, and skips only a repeated key", async () => {
+    await runtime.runPromise(Effect.gen(function* () {
+      const crew = yield* CrewRepository;
+      const failed = <A, E>(write: Effect.Effect<A, E>) => Effect.map(Effect.result(write), Result.isFailure);
+      expect(yield* failed(crew.postVerdict({ ...verdict("x".repeat(300), "green", 30) }))).toBe(true);
+      expect(yield* failed(crew.recordReviewReceipt({ ...receipt, canvasName: "c".repeat(300) }))).toBe(true);
+      const observation = { checkoutKey: "checkout-1", sha: "b".repeat(40), observedAt: "2026-09-01T00:00:00.000Z" };
+      expect(yield* failed(crew.recordCheckoutObservation({ ...observation, seatId: "not-a-seat" }))).toBe(true);
+      expect(yield* crew.recordCheckoutObservation(observation)).toBe(true);
+      expect(yield* crew.recordCheckoutObservation(observation)).toBe(false);
+    }));
+  });
 });

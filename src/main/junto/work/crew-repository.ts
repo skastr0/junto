@@ -310,7 +310,8 @@ export const CrewRepositoryLive = Layer.effect(
           "crew.review-verdict",
           sql`
         -- A crew verdict is always a seat's (migration 33's reviewer_kind).
-        INSERT OR IGNORE INTO work_review_verdicts(
+        -- Only a repeated verdict id is skipped: any other failure fails the write.
+        INSERT INTO work_review_verdicts(
           verdict_id, kind, reviewer_kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
           subject_kind, subject_task_installation, subject_task_canvas, subject_task_node,
           subject_task_item, subject_epoch, subject_sha, subject_checkout, subject_hash,
@@ -325,6 +326,7 @@ export const CrewRepositoryLive = Layer.effect(
           ${subject.kind === "commit" ? subject.sha : null}, ${null},
           ${verdict.subjectHash}, ${verdict.epoch}, ${JSON.stringify(verdict.findings)},
           ${JSON.stringify(verdict.refs)}, ${verdict.postedAtMs})
+        ON CONFLICT (verdict_id) DO NOTHING
       `.raw.pipe(Effect.flatMap(changed)),
         );
         return { verdict, created: Number(result.changes) > 0 };
@@ -358,12 +360,13 @@ export const CrewRepositoryLive = Layer.effect(
         const result = yield* unjournaledWorkMutationEffect(
           "crew.review-receipt",
           sql`
-        INSERT OR IGNORE INTO work_review_receipts(
+        INSERT INTO work_review_receipts(
           canvas_name, source_kind, source_id, ref_sha, reviewer_seat_id,
           task_id, author_seat_id, message_id, created_at
         ) VALUES (${input.canvasName}, ${input.sourceKind}, ${input.sourceId}, ${input.refSha},
           ${input.reviewerSeatId}, ${input.taskId ?? null}, ${input.authorSeatId},
           ${input.messageId ?? null}, ${input.createdAt})
+        ON CONFLICT (canvas_name, source_kind, source_id, ref_sha, reviewer_seat_id) DO NOTHING
       `.raw.pipe(Effect.flatMap(changed)),
         );
         return Number(result.changes) > 0;
@@ -397,10 +400,11 @@ export const CrewRepositoryLive = Layer.effect(
         const result = yield* unjournaledWorkMutationEffect(
           "crew.checkout-observation",
           sql`
-        INSERT OR IGNORE INTO work_review_checkout_observations(
+        INSERT INTO work_review_checkout_observations(
           checkout_key, sha, seat_id, task_id, attributed_via, observed_at
         ) VALUES (${input.checkoutKey}, ${input.sha}, ${input.seatId ?? null},
           ${input.taskId ?? null}, ${input.attributedVia ?? null}, ${input.observedAt})
+        ON CONFLICT (checkout_key, sha) DO NOTHING
       `.raw.pipe(Effect.flatMap(changed)),
         );
         return Number(result.changes) > 0;
