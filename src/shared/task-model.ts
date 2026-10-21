@@ -255,7 +255,12 @@ export type TaskRefusalDetail =
   /** The command's target item and the create's task id disagree. */
   | { readonly kind: "target-mismatch"; readonly target: TaskId; readonly taskId: TaskId }
   /** A node the command names is not of the kind it must be. */
-  | { readonly kind: "wrong-node"; readonly nodeId: NodeId; readonly expected: "agent" | "task" };
+  | { readonly kind: "wrong-node"; readonly nodeId: NodeId; readonly expected: "agent" | "task" }
+  /**
+   * A node the command names is outside reach: the assignee seat that does
+   * not reach the task node, or the task node `depend` points at.
+   */
+  | { readonly kind: "not-in-reach"; readonly nodeId: NodeId };
 
 export type TaskRefusalKind = TaskRefusalDetail["kind"];
 
@@ -281,6 +286,7 @@ export const TASK_REFUSAL_REASON = {
   "cannot-review": "invalid_input",
   "target-mismatch": "invalid_input",
   "wrong-node": "invalid_input",
+  "not-in-reach": "not_in_reach",
 } as const satisfies Readonly<Record<TaskRefusalKind, RefusalReason>>;
 
 export type TaskRefusal = { readonly reason: RefusalReason; readonly detail: TaskRefusalDetail };

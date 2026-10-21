@@ -151,6 +151,7 @@ describe("task refusals", () => {
     "cannot-review": { kind: "cannot-review", actor: "automation" },
     "target-mismatch": { kind: "target-mismatch", target: "01M5ETKKW2KX682NBXQZYA69MY" as never, taskId: "01M5ETKKW2KX682NBXQZYA69MZ" as never },
     "wrong-node": { kind: "wrong-node", nodeId: asNodeId("n"), expected: "agent" },
+    "not-in-reach": { kind: "not-in-reach", nodeId: asNodeId("n") },
   };
 
   it("sends every detail under a closed wire reason and keeps the detail whole", () => {

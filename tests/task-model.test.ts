@@ -58,6 +58,7 @@ describe("task model", () => {
       reason: "stale",
       detail: { kind: "stale-epoch", expected: 3 },
     });
+    expect(taskRefusal({ kind: "not-in-reach", nodeId: asNodeId("task-9") }).reason).toBe("not_in_reach");
   });
 
   it("exempts only the assignee's own transitions on its open task from reach", () => {
