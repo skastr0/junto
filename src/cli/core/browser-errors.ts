@@ -17,7 +17,7 @@ const BY_TAG = {
   forbidden: { type: "AuthError", retryable: false },
   bad_request: { type: "InputError", retryable: false, next_step: "junto schema show <browser command> lists the fields" },
   invalid: { type: "InputError", retryable: false },
-  not_found: { type: "UnknownTarget", retryable: false, next_step: "junto browser pages and junto browser sessions list what exists" },
+  not_found: { type: "UnknownTarget", retryable: false, next_step: "junto browser pages and junto browser sessions list what exists; junto browser open <ref> --tab <tab> joins a tab" },
   timeout: { type: "Timeout", retryable: true },
   cancelled: { type: "Timeout", retryable: true },
   resource_exhausted: { type: "InternalError", retryable: true, next_step: "retry after a moment, or stop a session you no longer need" },

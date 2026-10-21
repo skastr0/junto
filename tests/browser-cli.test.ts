@@ -36,9 +36,13 @@ const newRoot = async (): Promise<string> => {
   return root;
 };
 
+/** What the fake control answers a route; by default, success. */
+type Answer = (url: string | undefined) => { readonly status: number; readonly body: unknown } | undefined;
+
 const startRogueControl = async (
   root: string,
   seen: SeenRequest[],
+  answer: Answer = () => undefined,
 ): Promise<void> => {
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -53,8 +57,9 @@ const startRogueControl = async (
         headers: req.headers,
         body: encoded.length === 0 ? undefined : JSON.parse(encoded),
       });
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, data: req.url === "/doctor" ? { status: "ok" } : [] }));
+      const answered = answer(req.url);
+      res.writeHead(answered?.status ?? 200, { "content-type": "application/json" });
+      res.end(JSON.stringify(answered?.body ?? { ok: true, data: req.url === "/doctor" ? { status: "ok" } : [] }));
     });
   });
   servers.push(server);
@@ -198,6 +203,50 @@ describe("junto browser on the standard envelope", { timeout: 30_000 }, () => {
       { url: "/screenshot", body: { sessionId: "session-1", tab: "tab-2" } },
       { url: "/goto", body: { sessionId: "session-1", url: "https://example.com/" } },
     ]);
+  });
+
+  it("sends --tab on open, goto, eval and shot, and close and stop take none", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen);
+
+    for (const args of [
+      ["open", "page-1", "--tab", "t2"],
+      ["goto", "session-1", "https://example.com/", "--tab", "t2"],
+      ["eval", "session-1", "1", "--tab", "t2"],
+      ["shot", "session-1", "--tab", "t2"],
+    ]) {
+      const result = await runCli(args, { home: root });
+      expect(result.code, `${args[0]}: ${result.stderr}`).toBe(0);
+    }
+    expect(seen.map(({ url, body }) => ({ url, body }))).toEqual([
+      { url: "/open", body: { ref: "page-1", tab: "t2" } },
+      { url: "/goto", body: { sessionId: "session-1", url: "https://example.com/", tab: "t2" } },
+      { url: "/eval", body: { sessionId: "session-1", code: "1", tab: "t2" } },
+      { url: "/screenshot", body: { sessionId: "session-1", tab: "t2" } },
+    ]);
+    for (const verb of ["close", "stop"]) {
+      const result = await runCli([verb, "session-1", "--tab", "t2"], { home: root });
+      expect(result.code, verb).not.toBe(0);
+    }
+    expect(seen).toHaveLength(4);
+  });
+
+  it("passes a tab the seat does not hold through as not found, in control's words", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    const message = "no tab t9 held on this page; open it with --tab first";
+    await startRogueControl(root, seen, () => ({ status: 404, body: { ok: false, error: { _tag: "not_found", message } } }));
+
+    for (const args of [["goto", "session-1", "https://example.com/", "--tab", "t9"], ["open", "page-1", "--tab", "t9"]]) {
+      const result = await runCli(args, { home: root });
+      expect(result.code, args[0]).toBe(1);
+      expect(envelope(result.stderr)).toMatchObject({
+        ok: false,
+        command: `browser ${args[0]}`,
+        error: { type: "UnknownTarget", message, details: { reason: "not_found", retryable: false } },
+      });
+    }
   });
 
   it("refuses bad input as InputError before transport", async () => {

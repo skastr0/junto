@@ -38,7 +38,7 @@ interface BrowserCommandSpec {
   readonly schema: Schema.Struct<Schema.Struct.Fields>;
 }
 
-const TAB = " With --tab <tab> it acts on that tab; without, on the active tab.";
+const TAB = " With --tab <tab> it acts on this seat's session of that tab, joined with open --tab; without, on the active tab.";
 
 export const BROWSER_COMMANDS = {
   doctor: {
@@ -68,7 +68,7 @@ export const BROWSER_COMMANDS = {
   open: {
     usage: "open <node-ref> [--tab <tab>]",
     category: "workflow",
-    description: `Open or reuse a session on a granted page.${TAB}`,
+    description: "Open or reuse a session on a granted page. With --tab <tab> it joins that tab and returns its session; without, the active tab.",
     schema: OpenRequest,
   },
   goto: {
