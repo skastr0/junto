@@ -15,7 +15,7 @@ import {
   type CanvasPlacement,
   type RowsFrame,
 } from "@shared/work-exchange";
-import { assertWorkRowBound } from "@shared/exchange-bounds";
+import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
@@ -5007,6 +5007,8 @@ export type ExchangeRowsInput = {
   readonly writer: InstallationId;
   readonly after: string;
   readonly limit: number;
+  /** The bytes of rows one page may carry, so it fits one frame (EXCHANGE_ROWS_PAGE_BYTES). */
+  readonly bytes: number;
 };
 
 export type ExchangeRow = {
@@ -8200,15 +8202,17 @@ export const WorkRepositoryLive = Layer.effect(
             input.after,
             input.limit + 1,
           ]);
-          const more = stored.length > input.limit;
-          const page = more ? stored.slice(0, input.limit) : stored;
+          const page = pageExchangeRows(
+            stored.slice(0, input.limit + 1).map((row) => ({ seq: row.seq, fact: exchangeFactOf(row) })),
+            { count: input.limit, bytes: input.bytes },
+          );
           const rows: ExchangeRow[] = [];
-          for (const row of page) {
-            const fact = exchangeFactOf(row);
-            if (fact === undefined) continue;
+          for (const fact of page.taken) {
             rows.push({ fact, mailAuthorNodeId: yield* exchangeMailAuthor(sql, fact) });
           }
-          if (more) return { rows, through: page.at(-1)!.seq, more };
+          if (page.cutAt !== undefined) return { rows, through: page.cutAt, more: true };
+          const more = stored.length > input.limit;
+          if (more) return { rows, through: stored.at(-1)!.seq, more };
           // Past the last row, a machine vouches for its own sequence, or for
           // as far as it was itself vouched another writer's.
           const through =

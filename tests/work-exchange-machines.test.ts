@@ -15,7 +15,9 @@ import { ExchangeClosed, makeRowExchange, type RowExchange } from "../src/main/j
 import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipts";
 import { WorkRepository, WorkRepositoryLive, workRecordContentSha256 } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
-import type { CanvasPlacement, ExchangeFrame, RowsFrame } from "../src/shared/work-exchange";
+import { COMMAND_ROW_MAX_BYTES } from "../src/shared/resource-command";
+import { EXCHANGE_ROWS_PAGE_BYTES, LINK_FRAME_MAX_BYTES, workRowTooLargeIn } from "../src/shared/exchange-bounds";
+import { encodeExchangeFrame, type CanvasPlacement, type ExchangeFrame, type RowsFrame } from "../src/shared/work-exchange";
 import type { Message } from "../src/shared/work-model";
 import { ActorSeatId, type ActorRef } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
@@ -63,6 +65,8 @@ type Machine = {
 };
 
 const queue: Queued[] = [];
+/** Each rows frame's bytes as the link writes it, the event around the encoded frame. */
+const rowsFrameBytes: number[] = [];
 const machines = new Map<InstallationId, Machine>();
 
 const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["factory"]): Promise<Machine> => {
@@ -118,6 +122,7 @@ const link = async (left: Machine, right: Machine): Promise<void> => {
     peer: to.self,
     send: (frame: ExchangeFrame) =>
       Effect.sync(() => {
+        if (frame.kind === "rows") rowsFrameBytes.push(Buffer.byteLength(JSON.stringify({ type: "event", channel: "rows", payload: encodeExchangeFrame(frame) })));
         queue.push({ from: from.self, to: to.self, frame: JSON.parse(JSON.stringify(frame)) });
       }),
   });
@@ -144,18 +149,18 @@ const settle = async (): Promise<void> => {
   }
 };
 
-const send = (on: Machine, from: string, to: string, messageId: string) =>
-  on.runtime.runPromise(
+const append = (on: Machine, from: string, to: string, messageId: string, text = `from ${from}`) =>
     on.repository.appendMessage({
       sink: { canvasName: "factory", nodeId: to },
       basis,
-      message: { messageId, role: "agent", parts: [{ kind: "text", text: `from ${from}` }] },
+      message: { messageId, role: "agent", parts: [{ kind: "text", text }] },
       sentBy: actor(from),
       destination: { kind: "mailbox" },
       originAt: at,
       receivedAt: at,
-    }),
-  );
+    });
+
+const send = (on: Machine, from: string, to: string, messageId: string, text?: string) => on.runtime.runPromise(append(on, from, to, messageId, text));
 
 const inbox = async (on: Machine, nodeId: string): Promise<string[]> =>
   (await on.runtime.runPromise(on.repository.mailbox("factory", nodeId))).map((message) => message.messageId);
@@ -177,7 +182,7 @@ const counts = (on: Machine) =>
 /** The frame the editing machine would send the mini for its own rows, to tamper with. */
 const frameFrom = async (from: Machine): Promise<RowsFrame> => {
   const page = await from.runtime.runPromise(
-    from.repository.exchangeRows({ canvasName: "factory", writer: from.self, after: "0", limit: 64 }),
+    from.repository.exchangeRows({ canvasName: "factory", writer: from.self, after: "0", limit: 64, bytes: EXCHANGE_ROWS_PAGE_BYTES }),
   );
   return JSON.parse(
     JSON.stringify({
@@ -277,7 +282,7 @@ describe("mail between machines", () => {
     // The mini is still caught up through the row it was not given.
     const through = (await cursors(mini)).find((cursor) => cursor.writer === EDITOR)!.through;
     const own = await editor.runtime.runPromise(
-      editor.repository.exchangeRows({ canvasName: "factory", writer: EDITOR, after: "0", limit: 64 }),
+      editor.repository.exchangeRows({ canvasName: "factory", writer: EDITOR, after: "0", limit: 64, bytes: EXCHANGE_ROWS_PAGE_BYTES }),
     );
     expect(through).toBe(own.through);
   });
@@ -642,5 +647,27 @@ describe("a frame of rows taken", () => {
     } finally {
       off();
     }
+  });
+});
+
+describe("rows at the size bound", () => {
+  it("carries a backlog of rows near 64 KiB in frames that each fit the link", async () => {
+    unlink(editor, mini);
+    const ids = Array.from({ length: 20 }, (_, index) => `near-cap-${index}`);
+    for (const messageId of ids) await send(editor, "lead", "peer", messageId, "x".repeat(COMMAND_ROW_MAX_BYTES - 2_048));
+    rowsFrameBytes.length = 0;
+    await link(editor, mini);
+    await settle();
+    expect(await inbox(mini, "peer")).toEqual(expect.arrayContaining(ids));
+    // Twenty rows of 62 KiB are 1.2 MiB: more than one frame, each under the bound.
+    expect(rowsFrameBytes.filter((bytes) => bytes > COMMAND_ROW_MAX_BYTES).length).toBeGreaterThan(1);
+    expect(Math.max(...rowsFrameBytes)).toBeLessThanOrEqual(LINK_FRAME_MAX_BYTES);
+  });
+
+  it("refuses a row over 64 KiB before it is written, and says why", async () => {
+    const before = await counts(editor);
+    const failure = await editor.runtime.runPromise(Effect.flip(append(editor, "lead", "peer", "over-the-cap", "x".repeat(COMMAND_ROW_MAX_BYTES))));
+    expect(workRowTooLargeIn(failure)).toMatchObject({ _tag: "WorkRowTooLarge", limit: COMMAND_ROW_MAX_BYTES });
+    expect(await counts(editor)).toEqual(before);
   });
 });

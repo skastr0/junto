@@ -43,6 +43,7 @@ import {
   type HaveFrame,
   type SignalsFrame,
 } from "@shared/work-exchange";
+import { EXCHANGE_ROWS_PAGE_BYTES } from "@shared/exchange-bounds";
 import type { WorkRepositoryShape } from "../repository";
 
 /**
@@ -237,7 +238,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       for (;;) {
         const after = have.get(writer) ?? "0";
         const page = yield* deps.repository
-          .exchangeRows({ canvasName, writer, after, limit: EXCHANGE_MAX_FACTS_PER_FRAME })
+          .exchangeRows({ canvasName, writer, after, limit: EXCHANGE_MAX_FACTS_PER_FRAME, bytes: EXCHANGE_ROWS_PAGE_BYTES })
           .pipe(Effect.mapError(closed));
         const facts = page.rows
           .filter((row) => entitledTo(state.link.peer, row.fact, placement, row.mailAuthorNodeId))
@@ -568,7 +569,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         if (writer === peer) continue;
         let after = have.get(writer) ?? "0";
         for (;;) {
-          const page = yield* deps.repository.exchangeRows({ canvasName, writer, after, limit: EXCHANGE_MAX_FACTS_PER_FRAME }).pipe(Effect.mapError(closed));
+          const page = yield* deps.repository.exchangeRows({ canvasName, writer, after, limit: EXCHANGE_MAX_FACTS_PER_FRAME, bytes: EXCHANGE_ROWS_PAGE_BYTES }).pipe(Effect.mapError(closed));
           if (page.rows.some(row => entitledTo(peer, row.fact, placement, row.mailAuthorNodeId))) return true;
           if (!page.more) break;
           after = page.through;
