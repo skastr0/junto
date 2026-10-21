@@ -12,6 +12,7 @@ import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, reaches, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
+import { evaluateRules, rulesInForce } from "@shared/rules";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
 import {
   TASK_ARGS,
@@ -231,6 +232,19 @@ export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthor
   automationReaches: (automation, node) => {
     const author = automationAuthor(automation);
     return author !== undefined && automationTargets(canvas, automation, author).some((target) => target.id === node);
+  },
+  // The rules in force on the node: its regions' and its own. A task carries no
+  // rules of its own in 0.10, so a waiver answers none of these (04).
+  rulesUnmet: (node, _taskId, evidence) => {
+    const failure = evaluateRules({ rules: rulesInForce(canvas, node), evidence });
+    return failure === undefined
+      ? undefined
+      : {
+        missing: failure.missing,
+        message: failure.message,
+        nextStep: failure.next_step,
+        ...(failure.ruleId === undefined ? {} : { ruleId: failure.ruleId }),
+      };
   },
 });
 

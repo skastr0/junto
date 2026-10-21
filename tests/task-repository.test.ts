@@ -78,6 +78,7 @@ const everywhere: RulingContext = { inReach: () => true };
 const env = (over: Partial<TaskCanvasEnv> = {}): TaskCanvasEnv => ({
   downstream: () => [],
   stampDefaultOf: () => ({ required: 0 }),
+  rulesUnmet: () => undefined,
   seatReaches: () => true,
   ...over,
 });

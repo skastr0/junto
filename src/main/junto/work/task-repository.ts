@@ -59,8 +59,12 @@ export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceErro
   { operation: Schema.String, message: Schema.String, cause: Schema.Unknown },
 ) {}
 
-/** What the ruler reads from the canvas besides tasks; the clock is the repository's. */
-export type TaskCanvasEnv = Omit<TaskDomainEnv, "at">;
+/**
+ * What the ruler reads from the canvas besides tasks; the clock is the
+ * repository's. The rules in force are required here, so no caller can rule a
+ * finish without them.
+ */
+export type TaskCanvasEnv = Omit<TaskDomainEnv, "at"> & Required<Pick<TaskDomainEnv, "rulesUnmet">>;
 
 export type TaskListQuery = {
   readonly nodeIds: ReadonlyArray<NodeId>;

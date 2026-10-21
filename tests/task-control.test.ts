@@ -22,7 +22,7 @@ import {
   type TaskCommandKind,
   type TaskView,
 } from "../src/shared/task-model";
-import type { TaskRecord } from "../src/shared/task-machine";
+import { ruleTaskBoardCommand, type TaskRecord } from "../src/shared/task-machine";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ActorSeatId } from "../src/shared/actor-seat";
@@ -339,6 +339,26 @@ describe("what the ruler reads of the canvas", () => {
     expect(taskCanvasEnv(automations).automationReaches?.(auto, tnode)).toBe(false);
     expect(taskCanvasEnv(automations, () => ({ kind: "operator" })).automationReaches?.(auto, tnode)).toBe(true);
     expect(taskCanvasEnv(automations, () => ({ kind: "operator" })).automationReaches?.(auto, taskNodeId(asNodeId("tasks-2")))).toBe(false);
+  });
+
+  it("refuses a finish that leaves a rule in force unanswered, and lets a claim through", () => {
+    const ruled = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
+      [id, id === "tasks-1" ? { ...(node as object), contract: { rules: [{ id: "tests", text: "Tests pass" }] } } : node])) } as unknown as Canvas;
+    const finish = (evidence?: Record<string, unknown>) =>
+      ruleTaskBoardCommand(
+        { tasks: new Map([[ID, record({ state: "working", assignee: seatNodeId(asNodeId("seat-a")) })]]), nextNumber: TaskNumber.make(43) },
+        { node: tnode, taskId: ID },
+        { kind: "seat", seat: seatNodeId(asNodeId("seat-a")) },
+        { kind: "finish", next: taskNodeId(asNodeId("tasks-3")), ...(evidence === undefined ? {} : { evidence: evidence as never }) },
+        { ...taskCanvasEnv(ruled), at: 1 },
+      );
+    const unmet = finish();
+    expect(unmet.ok ? undefined : unmet.refusal).toMatchObject({ detail: { kind: "rules-unmet", missing: "claims", ruleId: "tests" } });
+    // A waiver answers a task's own rule on a path it left, never the node's.
+    const waived = finish({ artifacts: [], waivers: [{ ruleId: "tests", reason: "n/a" }] });
+    expect(waived.ok).toBe(false);
+    expect(finish({ artifacts: [], claims: [{ ruleId: "tests", text: "vitest is green" }] }).ok).toBe(true);
+    expect(taskCanvasEnv(canvas).rulesUnmet(tnode, ID, undefined)).toBeUndefined();
   });
 
   it("puts a seat's reach and the operator's whole canvas in the ruling context", () => {
