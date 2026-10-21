@@ -265,12 +265,14 @@ const httpStatus = (tag: ControlErrorTag): number =>
               ? 429
               : tag === "result_too_large"
                 ? 413
-                : tag === "unsupported_result" ||
-                    tag === "unsupported_capability"
-                  ? 422
-                  : tag === "bad_request" || tag === "invalid"
-                    ? 400
-                    : 500;
+                : tag === "operator_holds"
+                  ? 409
+                  : tag === "unsupported_result" ||
+                      tag === "unsupported_capability"
+                    ? 422
+                    : tag === "bad_request" || tag === "invalid"
+                      ? 400
+                      : 500;
 
 const fromResult = <T>(result: BrowserResult<T>): ControlEnvelope<T> =>
   result.ok ? controlOk(result.data) : controlErr(result.code, result.message);
@@ -706,11 +708,23 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           : { ...target, generation: admittedGeneration },
       );
 
+      // While this seat holds the shared page, it goes nowhere this grant
+      // does not reach for this page and profile.
+      const admitsTopLevel = (url: string): boolean => {
+        const origin = exactHttpOrigin(url);
+        return origin !== undefined && lease.scope.some(
+          (allowed) =>
+            allowed.ref === resolved.data.ref &&
+            allowed.profile === resolved.data.profile &&
+            allowed.exactOrigins.includes(origin),
+        );
+      };
       const opened = await deps.sessions.openForOwner(
         lease.auditId,
         resolved.data,
         signal,
         () => deps.resolvePageTarget(input.ref),
+        admitsTopLevel,
       );
       if (!opened.ok) {
         deps.sessions.destroyOwnerSessions(lease.auditId, "browser open failed closed");

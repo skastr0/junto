@@ -1115,6 +1115,70 @@ describe("BrowserSessionService", () => {
     }
   });
 
+  it("keeps a page the seats hold within every holder's grant until the operator takes it", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("held");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    const events = views[0]!.events;
+    // No seat holds it: the ordinary browser policy alone decides.
+    expect(events.admitsTopLevel("https://elsewhere.example.net/")).toBe(true);
+
+    const inGrant = (url: string) => new URL(url).origin === "https://held.example.com";
+    expect(await service.openForOwner("job-a", page, undefined, undefined, inGrant)).toMatchObject({ ok: true });
+    // An overseer is not origin-bound.
+    expect(await service.openForOwner("job-b", page)).toMatchObject({ ok: true });
+    expect(events.admitsTopLevel("https://held.example.com/next")).toBe(true);
+    expect(events.admitsTopLevel("https://elsewhere.example.net/")).toBe(false);
+
+    // The operator going off the grant takes the page over first.
+    const away = service.goto(ui.data.sessionId, "https://elsewhere.example.net/");
+    expect(away).toMatchObject({ ok: true });
+    expect(service.drivingFor(away.ok ? away.data.sessionId : "")?.control.kind).toBe("operator-held");
+    expect(events.admitsTopLevel("https://elsewhere.example.net/")).toBe(true);
+  });
+
+  it("takes the page over on the operator's input: seats are refused, a running one ends, release resumes", async () => {
+    const evaluation = deferred<unknown>();
+    const spy = makeSpyAdapter();
+    let pending = true;
+    const adapter: BrowserViewAdapter = async (partition, events) => {
+      const view = await spy.adapter(partition, events);
+      return {
+        ...view,
+        executeJavaScript: (code) => (pending ? evaluation.promise : view.executeJavaScript!(code)),
+      };
+    };
+    const { service } = makeService(adapter);
+    const page = target("takeover");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    spy.views[0]?.events.onLoadOk(ui.data.sessionId);
+    expect(await service.openForOwner("job-a", page)).toMatchObject({ ok: true });
+
+    const running = service.evalForOwner("job-a", ui.data.sessionId, "document.title");
+    await Promise.resolve();
+    spy.views[0]?.events.onOperatorInput();
+    expect(await running).toMatchObject({ ok: false, code: "operator_holds" });
+    evaluation.resolve("late");
+    pending = false;
+
+    expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: false, code: "operator_holds" });
+    expect(service.gotoForOwner("job-a", ui.data.sessionId, "https://takeover.example.com/2"))
+      .toMatchObject({ ok: false, code: "operator_holds" });
+    expect(service.traverseForOwner("job-a", ui.data.sessionId, "reload"))
+      .toMatchObject({ ok: false, code: "operator_holds" });
+    // The seat keeps its hold and the operator keeps acting.
+    expect(service.stateForOwner("job-a", ui.data.sessionId)).toMatchObject({ ok: true });
+    expect(await service.eval(ui.data.sessionId, "1")).toMatchObject({ ok: true });
+    expect(spy.views[0]?.destroyed).toBe(false);
+
+    expect(service.release(ui.data.sessionId)).toMatchObject({ ok: true });
+    expect(service.drivingFor(ui.data.sessionId)?.control.kind).toBe("shared");
+    expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+  });
+
   it("aborting navigation destroys its view and invalidates its rotated sessionId", async () => {
     const { service, views } = makeDefaultService();
     const opened = await service.open(target("nav-abort"));

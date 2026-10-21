@@ -25,6 +25,7 @@ const BY_TAG = {
   unsupported_result: { type: "InputError", retryable: false, next_step: "return a plain JSON value from the page" },
   result_too_large: { type: "InputError", retryable: false },
   failed: { type: "InternalError", retryable: false },
+  operator_holds: { type: "Paused", retryable: true, next_step: "the operator has taken this page over; retry once they hand it back" },
   runtime_down: { type: "RuntimeDown", retryable: true, next_step: "start the Junto app on this machine" },
 } as const satisfies Record<ControlErrorTag, Mapped>;
 

@@ -276,6 +276,8 @@ describe("electron browser view generation seam", () => {
     const titles: Array<readonly [string, string]> = [];
     const ambiguous: string[] = [];
     const unexpectedTerminations: number[] = [];
+    const operatorInputs: number[] = [];
+    const guard = { admits: (_url: string): boolean => true };
     let pageGeneration = 1;
     const handle = await electronViewAdapter(
       "persist:test",
@@ -289,6 +291,8 @@ describe("electron browser view generation seam", () => {
         onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
         onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
         onTitle: (sessionId, title) => titles.push([sessionId, title]),
+        admitsTopLevel: (url) => guard.admits(url),
+        onOperatorInput: () => operatorInputs.push(1),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
     );
@@ -304,6 +308,8 @@ describe("electron browser view generation seam", () => {
       titles,
       ambiguous,
       unexpectedTerminations,
+      operatorInputs,
+      guard,
     };
   };
 
@@ -332,6 +338,8 @@ describe("electron browser view generation seam", () => {
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
       onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
 
@@ -368,6 +376,8 @@ describe("electron browser view generation seam", () => {
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
       onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -410,6 +420,8 @@ describe("electron browser view generation seam", () => {
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
       onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -454,6 +466,8 @@ describe("electron browser view generation seam", () => {
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
       onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -489,6 +503,8 @@ describe("electron browser view generation seam", () => {
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
       onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -617,6 +633,34 @@ describe("electron browser view generation seam", () => {
     webContents.emit("did-start-navigation", navigation("https://public.example.net/back"));
     expect(webContents.stopCalls).toBe(0);
     expect(starts.map((start) => start.url)).toContain("https://public.example.net/back");
+  });
+
+  it("refuses a top-level start or redirect the holders' grants do not reach", async () => {
+    const { handle, webContents, starts, guard } = await setup();
+    guard.admits = (url) => new URL(url).origin === "https://example.com";
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    const redirect = { ...navigation("https://elsewhere.example.net/"), preventDefault: vi.fn() };
+    webContents.emit("will-redirect", redirect);
+    expect(redirect.preventDefault).toHaveBeenCalled();
+    // A history step never passes will-frame-navigate: did-start stops it.
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/back"));
+    expect(webContents.stopCalls).toBe(1);
+    expect(starts.map((start) => start.url)).not.toContain("https://elsewhere.example.net/back");
+    // A same-document step is not a new top-level document.
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
+    expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("reports the operator's key, click or tap, never a pointer passing over", async () => {
+    const { webContents, operatorInputs } = await setup();
+    webContents.emit("input-event", {}, { type: "mouseMove" });
+    webContents.emit("input-event", {}, { type: "mouseWheel" });
+    webContents.emit("input-event", {}, { type: "keyUp" });
+    expect(operatorInputs).toHaveLength(0);
+    webContents.emit("input-event", {}, { type: "mouseDown" });
+    webContents.emit("input-event", {}, { type: "rawKeyDown" });
+    expect(operatorInputs).toHaveLength(2);
   });
 
   it("fails closed when main-frame navigations overlap without a correlation id", async () => {

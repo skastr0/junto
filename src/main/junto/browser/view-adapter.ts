@@ -369,6 +369,17 @@ export const buildBoundedEvalScript = (source: string): string => {
   return `(${runBoundedEvalInPage.toString()})(${JSON.stringify(source)},${BROWSER_MAX_EVAL_RESULT_BYTES},${BROWSER_MAX_EVAL_RESULT_DEPTH},${BROWSER_MAX_EVAL_RESULT_NODES})`;
 };
 
+/** Input that means the operator is acting in the page, not just pointing past it. */
+const OPERATOR_INPUT: ReadonlySet<string> = new Set([
+  "mouseDown",
+  "rawKeyDown",
+  "keyDown",
+  "char",
+  "gestureTap",
+  "touchStart",
+  "pointerDown",
+]);
+
 const makeElectronViewAdapter = (
   attachmentTarget?: {
     readonly register: (view: AttachedElectronView) => () => void;
@@ -438,6 +449,7 @@ const makeElectronViewAdapter = (
         },
       },
       testOnlyGrant,
+      (url) => events.admitsTopLevel(url),
     );
   } catch (error) {
     // Return a teardown-capable failed handle instead of throwing after the
@@ -452,9 +464,21 @@ const makeElectronViewAdapter = (
     view.webContents.once("destroyed", releaseWebPolicy);
   }
 
+  // The operator's own key, click or tap in the page takes it over from the
+  // seats. Focus alone does not: a window regaining focus refocuses the view.
+  view.webContents.on("input-event", (_event, input) => {
+    if (OPERATOR_INPUT.has(input.type)) events.onOperatorInput();
+  });
+
   view.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame) return;
     const normalizedUrl = normalizeUrl(details.url);
+    // History steps and reloads never pass will-frame-navigate, so a page
+    // the seats hold refuses a start outside their grants here, before commit.
+    if (!details.isSameDocument && !events.admitsTopLevel(normalizedUrl)) {
+      view.webContents.stop();
+      return;
+    }
     const previousNavigation = activeNavigation;
     const expected = expectedNavigation;
     expectedNavigation = undefined;

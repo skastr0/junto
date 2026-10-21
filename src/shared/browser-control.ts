@@ -62,6 +62,7 @@ export const ControlErrorTag = Schema.Literals([
   "unsupported_result", // result is not losslessly representable as JSON
   "result_too_large", // result or response exceeds its byte budget
   "failed", // operation attempted and failed (load error, eval throw, io)
+  "operator_holds", // the operator took the page over; a seat waits for release
   "runtime_down", // app not running — socket absent or refusing (CLI-side)
 ]);
 export type ControlErrorTag = typeof ControlErrorTag.Type;
