@@ -1,4 +1,5 @@
-import { useTaskItems, useArtifactItems } from "../../lib/use-work-sink";
+import { useTaskItems } from "../../lib/use-work-sink";
+import { useNodeArtifacts } from "../../lib/artifacts-source";
 import { useWorkMail } from "../../lib/use-work-mail";
 import { type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -22,7 +23,8 @@ import { state$ } from "../../lib/state";
 import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
-import { ArtifactLibrary } from "./WorkLedger";
+import { ArtifactsNode } from "../artifacts/ArtifactsNode";
+import { asNodeId } from "@shared/physics/schema";
 import "./work-ledger.css";
 
 /** Same 28px amber tile as terminal / cron / page. */
@@ -239,9 +241,8 @@ export function TasksCard({
 }
 
 export function ArtifactsCard({ nodeId }: { readonly nodeId: string }) {
-  const { items: artifactItems } = useArtifactItems(use$(state$.canvasName) || "", nodeId);
-  const items = artifactItems.filter(
-    (item) => item.metadata?.archived !== true,
+  const items = useNodeArtifacts(use$(state$.canvasName) || "", asNodeId(nodeId)).filter(
+    (entry) => !entry.artifact.archived,
   );
   return (
     <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
@@ -258,9 +259,9 @@ export function ArtifactsCard({ nodeId }: { readonly nodeId: string }) {
         }
       />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {items.slice(0, 4).map((item) => (
-          <div key={item.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-label" style={{ color: INK }}>
-            {item.name?.trim() || item.artifactId}
+        {items.slice(0, 4).map(({ artifact }) => (
+          <div key={artifact.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-label" style={{ color: INK }}>
+            {artifact.title}
           </div>
         ))}
         {items.length === 0 ? (
@@ -295,7 +296,8 @@ export function ArtifactsDetail({
   readonly nodeId: string;
   readonly onClose: () => void;
 }) {
-  return <ArtifactLibrary nodeId={nodeId} onClose={onClose} />;
+  const canvasName = use$(state$.canvasName) || "";
+  return <ArtifactsNode canvasName={canvasName} nodeId={asNodeId(nodeId)} onClose={onClose} />;
 }
 
 export function AgentMessagesPane({ nodeId }: { readonly nodeId: string }) {

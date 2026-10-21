@@ -11,7 +11,6 @@ import { dock$ } from "../src/renderer/lib/dock-state";
 import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
 import { TaskBoard } from "../src/renderer/components/work/TaskBoard";
 import { TaskEnqueueSurface } from "../src/renderer/components/work/TaskEnqueueSurface";
-import { ArtifactLibrary } from "../src/renderer/components/work/WorkLedger";
 import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
 import { PadPinThread } from "../src/renderer/components/pad/PadPinThread";
 import { KindSurface } from "../src/renderer/components/rts/KindSurface";
@@ -160,24 +159,6 @@ it("unbinds enqueue when its native task node disappears", async () => {
   expect(document.querySelector('[data-testid="task-enqueue-surface"]')).toBeTruthy();
   await act(async () => { modelStore.node$(canvas, "queue").delete(); await flush(); });
   expect(document.body.textContent).toContain("task enqueue - unbound");
-});
-
-it("opens artifact provenance from the native task, and refuses after that id changes kind", async () => {
-  publish("queue", { kind: "task", name: "Build" });
-  publish("outputs", { kind: "artifacts", label: "Results" });
-  artifacts = [{ artifactId: "artifact", name: "Result", parts: [], task: { kind: "task", itemId: "work", sink: { canvasName: canvas, nodeId: "queue" } } }];
-  const close = vi.fn();
-  await mount(<ArtifactLibrary nodeId="outputs" onClose={close} />);
-  await click('[aria-label="Select Result"]');
-  await click('[aria-label="Open source task"]');
-  expect(close).toHaveBeenCalledOnce();
-  expect(workDetailOpen$.peek()).toEqual({ nodeId: "queue", itemId: "work" });
-  workDetailOpen$.set({ nodeId: "", itemId: "" });
-  await act(async () => { publish("queue", { kind: "note", text: "Retired" }); await flush(); });
-  await click('[aria-label="Open source task"]');
-  expect(document.body.textContent).toContain("Source task work is no longer");
-  expect(close).toHaveBeenCalledOnce();
-  expect(workDetailOpen$.nodeId.peek()).toBe("");
 });
 
 it("resolves pad post authors from native nodes instead of a document node list", async () => {
