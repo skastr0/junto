@@ -36,7 +36,7 @@ export function ListRow({
   /** A glyph or a dot. Vertically centred, never resized here. */
   readonly leading?: ReactNode;
   readonly title: ReactNode;
-  /** Right aligned beside the title. Digits do not shift as they change. */
+  /** Right aligned beside the title. Digits do not shift as they change. Past half the line it truncates. */
   readonly meta?: ReactNode;
   readonly selected?: boolean;
   /** A queued command the editing machine has not ruled yet (02): a dashed edge, read aloud as "queued". */
@@ -47,11 +47,12 @@ export function ListRow({
   const content = (
     <>
       {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}
-      <span className="min-w-0 flex-1 truncate text-body leading-compact font-medium text-ink">
+      {/* The title keeps at least half the line: a long meta truncates there, never the title down to two letters. */}
+      <span className="min-w-[50%] flex-1 truncate text-body leading-compact font-medium text-ink">
         {title}
         {pending ? <span className="sr-only">, queued</span> : null}
       </span>
-      {meta ? <span className="shrink-0 text-label leading-compact text-dim tabular-nums">{meta}</span> : null}
+      {meta ? <span className="min-w-0 truncate text-label leading-compact text-dim tabular-nums">{meta}</span> : null}
     </>
   );
   if (!rest.onClick) {
