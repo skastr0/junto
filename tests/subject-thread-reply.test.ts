@@ -27,6 +27,7 @@ import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { artifacts, automations, canvasOf, page, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { AUTOMATION_SEAT_ID } from "../src/shared/mail-author";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import type { SubjectCommentInput } from "../src/shared/subject-comment";
 import { mentionLink } from "../src/shared/mention";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
@@ -306,16 +307,16 @@ describe("subject threads", () => {
 
   // 0.10.0 refused these at the target's kind: an artifacts or page node takes no mail.
   const mentioned = [
-    { kind: "artifacts", on: "an artifact", subjectOf: async () => ({ kind: "artifact", nodeId: asNodeId(SHELF), artifactId: ItemId.make("01M5G0BJD8MBEJG2QVX5VM6DJ1") }) },
-    { kind: "task", on: "a task", subjectOf: async () => ({ kind: "task", nodeId: asNodeId(BOARD), taskId: ItemId.make(await createTask()) }) },
-    { kind: "page", on: "a page", subjectOf: async () => ({ kind: "page", nodeId: asNodeId(PAGE) }) },
+    { kind: "artifacts", on: "an artifact", subjectOf: async () => ({ kind: "artifact", nodeId: asNodeId(SHELF), artifactId: ItemId.make("01M5G0BJD8MBEJG2QVX5VM6DJ1") } as const) },
+    { kind: "task", on: "a task", subjectOf: async () => ({ kind: "task", nodeId: asNodeId(BOARD), taskId: ItemId.make(await createTask()) } as const) },
+    { kind: "page", on: "a page", subjectOf: async () => ({ kind: "page", nodeId: asNodeId(PAGE) } as const) },
   ] as const;
   for (const { kind, on, subjectOf } of mentioned) {
     it.skipIf(!productNodeKindEnabled(kind))(`a seat mentioned on ${on} replies with msg reply, and the reply posts there`, async () => {
       const subject = await subjectOf();
       const peerLink = mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "@peer", CANVAS);
       const comment = await runtime.runPromise(postSubjectComment(
-        { subject, text: `${peerLink} have a look`, actor: { kind: "seat", seatId: `seat_${"a".repeat(64)}` as ActorSeatId, nodeId: asNodeId("agent") }, opId: mintOpId() },
+        { subject, text: `${peerLink} have a look`, actor: { kind: "seat", seatId: `seat_${"a".repeat(64)}` as ActorSeatId, nodeId: asNodeId("agent") }, opId: mintOpId() } as SubjectCommentInput,
         { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [] },
       ));
       expect(comment.notified).toEqual(["peer"]);
