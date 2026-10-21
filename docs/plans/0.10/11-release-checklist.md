@@ -84,6 +84,7 @@ deletions report the commit only.
       Receipt: turn-on run a98a640f9 (product-lead).
 - [ ] Reach and queued writes, two machines: a seat on another machine queues
       commands, a stale write names the winner, one notice each.
+      Partial (remote-verify, via product-lead): 16 of 16 R2, notices, signal files and pending marks pass. RELEASE BLOCKER, cut on hold: a seat moved between machines wedges the link on a duplicate delivery receipt; remote-work is fixing it, rerun 1c follows. Tick after 1c passes.
 - [x] Deleted features really gone in the packaged app: no pin control, no
       Requests node, no bulletin board, no chat button, no Providers card,
       Hermes still opens as a terminal seat.
