@@ -8,7 +8,7 @@ import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type ClosedTaskLayer, type TaskId, type TaskView } from "../src/shared/task-model";
 import { GALLERY_BUILD, GALLERY_CANVAS, GALLERY_QA, seed } from "../src/renderer/components/gallery/TasksNodeGallery";
-import { tasksSource } from "../src/renderer/lib/tasks-source";
+import { makeLocalTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
 import { SelectedTask } from "../src/renderer/components/tasks/TasksNode";
 import type { TaskCanvasFacts } from "../src/renderer/components/tasks/tasks-pane-model";
 
@@ -96,9 +96,28 @@ describe("SelectedTask", () => {
 
   it("draws a dependency as a task chip, and a missing one as unavailable", () => {
     const dep = view({ taskId: mintItemId() as TaskId, number: 7 as TaskView["number"], title: "Land the contract" });
-    const html = draw(view({ dependsOn: [dep.taskId, mintItemId() as TaskId] }), [dep]);
+    const other = view({ taskId: mintItemId() as TaskId, number: 8 as TaskView["number"], title: "Another" });
+    const html = draw(view({ dependsOn: [dep.taskId, mintItemId() as TaskId] }), [dep, other]);
     expect(html).toContain("Land the contract");
     expect(html).toContain("Unavailable");
+    expect(html).toContain("Add dependency");
+    expect(html).toContain("Stop depending on Land the contract");
+  });
+});
+
+describe("dependencies through the source", () => {
+  it("adds one, refuses a cycle by name, and removes it", async () => {
+    const source = makeLocalTasksSource({ downstream: () => [], stampDefaultOf: () => ({ required: 0 }), seatReaches: () => true });
+    const node = taskNodeId(asNodeId("tasks-deps"));
+    const a = mintItemId() as TaskId;
+    const b = mintItemId() as TaskId;
+    await source.apply("c", node, a, { kind: "create", taskId: a, title: "a" });
+    await source.apply("c", node, b, { kind: "create", taskId: b, title: "b" });
+    expect((await source.apply("c", node, a, { kind: "depend", on: b })).ok).toBe(true);
+    const cycle = await source.apply("c", node, b, { kind: "depend", on: a });
+    expect(cycle).toMatchObject({ ok: false, refusal: { detail: { kind: "dependency-cycle" } } });
+    expect((await source.apply("c", node, a, { kind: "undepend", on: b })).ok).toBe(true);
+    expect((await source.list("c", node)).find((v) => v.taskId === a)?.dependsOn).toEqual([]);
   });
 });
 

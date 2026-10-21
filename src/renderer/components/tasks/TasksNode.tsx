@@ -20,6 +20,7 @@ import {
 } from "../ui";
 import { TaskReviewers } from "../work/TaskReviewers";
 import { TaskVerbBar } from "../work/TaskVerbBar";
+import { TaskDependencies } from "./TaskDependencies";
 import { TaskLayers } from "./TaskLayers";
 import {
   agoLabel,
@@ -216,6 +217,7 @@ export function SelectedTask({
   useEffect(() => setTitle(view.title), [view.title]);
   const ctx = taskContextFor(view, all, facts, now);
   const archived = current.state === "archived";
+  const isClosed = current.state === "done" || current.state === "canceled" || archived;
 
   const retitle = (): void => {
     const next = title.trim();
@@ -269,16 +271,7 @@ export function SelectedTask({
         onCommand={apply}
       />
       {view.body ? <p className="task-body">{view.body}</p> : null}
-      {view.dependsOn.length > 0 ? (
-        <div className="task-deps" aria-label="Depends on">
-          {view.dependsOn.map((id) => {
-            const dep = all.find((candidate) => candidate.taskId === id);
-            return (
-              <ResourceChip key={id} kind="task" label={dep?.title ?? "Unavailable"} number={dep?.number} missing={dep === undefined} />
-            );
-          })}
-        </div>
-      ) : null}
+      <TaskDependencies view={view} all={all} closed={isClosed} onCommand={apply} />
       <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} onCommand={apply} />
       <TaskLayers layers={view.layers} nodeName={nodeName} seats={seats} now={now} />
     </div>

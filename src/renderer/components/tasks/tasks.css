@@ -138,9 +138,37 @@
 }
 
 .task-deps {
+  display: grid;
+  gap: 6px;
+}
+
+.task-deps__head {
+  color: var(--color-faint);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.task-deps__none {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-deps__list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-deps__list li,
+.task-deps__add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Layers */
