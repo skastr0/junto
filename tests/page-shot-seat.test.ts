@@ -7,7 +7,7 @@
  * after, leaves the mini's store no claim on the shot.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
@@ -104,6 +104,7 @@ let mini: Machine;
 let miniContent: Context.Service.Shape<typeof ContentService>;
 let workHome: string;
 let noticeId: string;
+let copyPath: string | undefined;
 let farNoticeId: string;
 const pulls: Array<Parameters<Context.Service.Shape<typeof BodyPuller>["pull"]>[0]> = [];
 
@@ -206,6 +207,7 @@ describe("a page box shot a seat on another machine reads", () => {
     if (ready?.state !== "ready") throw new Error(`not ready: ${JSON.stringify(ready)}`);
     expect(ready.path.startsWith(workHome)).toBe(true);
     expect(new Uint8Array(await readFile(ready.path))).toEqual(PNG);
+    copyPath = ready.path;
     expect(pulls).toHaveLength(1);
   });
 
@@ -220,5 +222,12 @@ describe("a page box shot a seat on another machine reads", () => {
     expect(await miniClaims()).toEqual([]);
     expect(await read("peer", noticeId)).toEqual({ state: "removed" });
     expect(pulls).toHaveLength(1);
+  });
+
+  it("takes the seat's workspace copy away once the purge commits there, and the comment still reads", async () => {
+    if (copyPath === undefined) throw new Error("the seat never read the shot ready");
+    await expect(access(copyPath)).rejects.toThrow();
+    expect((await mini.runtime.runPromise(mini.work.mailMessage("factory", "peer", noticeId)))?.messageId).toBe(noticeId);
+    expect((await editor.runtime.runPromise(editor.work.mailMessage("factory", "page-1", C1)))?.messageId).toBe(C1);
   });
 });

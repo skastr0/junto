@@ -50,7 +50,7 @@ import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import { ModelService } from "./junto/model/service";
 import { SqlClient } from "effect/unstable/sql";
 import { shotEntitled } from "./junto/content/shot-entitlement";
-import { unlessShotPurged } from "./junto/work/shot-purge";
+import { sweepPurgedShotCopies, unlessShotPurged } from "./junto/work/shot-purge";
 import { OWNER_ENTITLEMENT, isPullableOwnerKind } from "@shared/content-pull";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
@@ -181,6 +181,8 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const store = yield* ContentService;
   const self = yield* machines.installationId;
   const sql = yield* SqlClient.SqlClient;
+  // A purged shot's seat copies a sweep missed go now (B7).
+  yield* sweepPurgedShotCopies(sql).pipe(Effect.catchCause((cause) => Effect.logWarning("purged shots' seat copies could not be swept", cause)));
   const model = yield* ModelService;
   const content = makeContentChannel({
     root: store.root,

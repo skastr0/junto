@@ -6,7 +6,7 @@
  * filtered to what entitledTo gives it.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
@@ -18,7 +18,9 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { readPageShot } from "../src/main/junto/work/page-shot-read";
 import { WorkRepository, WorkRepositoryLive, workRecordContentSha256 } from "../src/main/junto/work/repository";
 import { WorkService } from "../src/main/junto/work/service";
-import { unlessShotPurged } from "../src/main/junto/work/shot-purge";
+import { contentMaterializationPath } from "../src/main/junto/content/agent-access";
+import { removeSeatShotCopies, sweepPurgedShotCopies, unlessShotPurged } from "../src/main/junto/work/shot-purge";
+import { WORK_HOME_ENV } from "../src/shared/work-control";
 import type { MailMessageId } from "../src/shared/crew";
 import { EXCHANGE_ROWS_PAGE_BYTES } from "../src/shared/exchange-bounds";
 import { InstallationId } from "../src/shared/installation-id";
@@ -155,7 +157,11 @@ const serves = (recordId: string, machine: InstallationId) =>
     seats: seats.map((nodeId) => nodeId as NodeId),
   }));
 
+// A purge sweeps seats' workspaces after it commits: never this Mac's own ~/.junto.
+const fileHome = join(tmpdir(), `junto-shot-purge-work-${randomUUID()}`);
+
 beforeAll(async () => {
+  process.env[WORK_HOME_ENV] = fileHome;
   editor = await boot(EDITOR);
   mini = await boot(MINI);
   other = await boot(OTHER);
@@ -170,6 +176,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  delete process.env[WORK_HOME_ENV];
+  await rm(fileHome, { recursive: true, force: true });
   for (const machine of [editor, mini, other]) {
     await machine.runtime.dispose();
     await rm(machine.root, { recursive: true, force: true });
@@ -270,5 +278,67 @@ describe("who may purge", () => {
     await expect(take(other, frame, EDITOR)).rejects.toThrow(/only the machine that edits a canvas writes this row/);
     expect(await purged(editor, C2)).toBe(false);
     expect(await purged(other, C2)).toBe(false);
+  });
+});
+
+describe("a seat's workspace copy of a purged shot", () => {
+  const C3 = "01M5F8P0000000000000000004";
+  const copyAt = (home: string, seatNodeId: string, messageId = C3) =>
+    contentMaterializationPath({ workHome: home, canvasName: "factory", targetNodeId: seatNodeId, taskId: `mail-${messageId}`, ref: SHOT, name: "page-box.png" });
+  const place = async (path: string) => {
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(path, "a box");
+  };
+
+  it("goes from every seat's workspace, a seat gone from the canvas too, and nothing else does", async () => {
+    const home = join(tmpdir(), `junto-shot-purge-home-${randomUUID()}`);
+    try {
+      for (const seatNodeId of ["peer", "gone-seat"]) await place(copyAt(home, seatNodeId));
+      const attachment = join(copyAt(home, "peer"), "..", `${SHOT.sha256}-notes.txt`);
+      await writeFile(attachment, "an operator's attachment");
+      const otherThread = copyAt(home, "peer", C2);
+      await place(otherThread);
+      expect(removeSeatShotCopies(home, { canvasName: "factory", nodeId: "page-1", messageId: C3 })).toBe(2);
+      expect(await readdir(join(copyAt(home, "peer"), ".."))).toEqual([`${SHOT.sha256}-notes.txt`]);
+      expect(await readdir(join(copyAt(home, "gone-seat"), ".."))).toEqual([]);
+      expect(await readdir(join(otherThread, ".."))).toHaveLength(1);
+      // Again, and with nothing there: nothing to do.
+      expect(removeSeatShotCopies(home, { canvasName: "factory", nodeId: "page-1", messageId: C3 })).toBe(0);
+      expect(removeSeatShotCopies(join(home, "absent"), { canvasName: "factory", nodeId: "page-1", messageId: C3 })).toBe(0);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("follows no link: a seat directory that is a link to elsewhere is passed over", async () => {
+    const home = join(tmpdir(), `junto-shot-purge-home-${randomUUID()}`);
+    const elsewhere = join(tmpdir(), `junto-shot-purge-elsewhere-${randomUUID()}`);
+    try {
+      const outside = join(elsewhere, `mail-${C3}`, `${SHOT.sha256}-page-box.png`);
+      await place(outside);
+      const seatDirectory = join(copyAt(home, "peer"), "..", "..");
+      await mkdir(join(seatDirectory, ".."), { recursive: true });
+      await symlink(elsewhere, join(seatDirectory, "..", "linked-seat"));
+      expect(removeSeatShotCopies(home, { canvasName: "factory", nodeId: "page-1", messageId: C3 })).toBe(0);
+      expect(await readdir(join(outside, ".."))).toHaveLength(1);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it("is swept again at start from the purges kept here", async () => {
+    const home = join(tmpdir(), `junto-shot-purge-home-${randomUUID()}`);
+    process.env[WORK_HOME_ENV] = home;
+    try {
+      // The mini kept C1's purge; a copy left behind by a failed sweep goes at start.
+      const left = copyAt(home, "peer", C1);
+      await place(left);
+      await mini.runtime.runPromise(sweepPurgedShotCopies(mini.sql));
+      expect(await readdir(join(left, ".."))).toEqual([]);
+    } finally {
+      process.env[WORK_HOME_ENV] = fileHome;
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
