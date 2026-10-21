@@ -227,7 +227,6 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   node: "List, get, create, configure, move, resize, recolor, or delete nodes, each told by its kind",
   wire: "List, get, verb-table, connect, configure, or disconnect wires",
   task: "Task work-plane ops without requiring a connecting edge",
-  request: "Request list, get, create, resolve, comment",
   artifact: "Artifact list, get, publish, archive, delete",
   msg: "Mailbox list, send, read, reply, react",
   content: "Content ingest, path, stat, materialize",
@@ -807,14 +806,6 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "list tasks on a sink",
     args: ["overseer", "task", "list"],
     input: { target: "tasks-1" },
-  },
-  {
-    command_id: commandIdFor("request.create"),
-    command: "overseer request create",
-    name: "create a request as overseer",
-    description: "Overseer request.create is not the edge-scoped escalate command.",
-    args: ["overseer", "request", "create"],
-    input: { target: "requests-1", brief: "Need a ruling" },
   },
   {
     command_id: commandIdFor("agent.reseat"),

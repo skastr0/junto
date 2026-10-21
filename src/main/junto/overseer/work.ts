@@ -71,11 +71,6 @@ const WORK_OPERATIONS = new Set<string>([
   "task.promote",
   "task.comment",
   "task.respond",
-  "request.list",
-  "request.get",
-  "request.create",
-  "request.resolve",
-  "request.comment",
   "artifact.list",
   "artifact.get",
   "artifact.archive",
@@ -202,21 +197,6 @@ const requireArtifactsTarget = (
     if (kind !== "artifacts") {
       return yield* failBody(
         scopeError("overseer", targetId, "wrong_kind", { kind, op: "artifact.list" }),
-      );
-    }
-  });
-
-/** Request administration targets a Requests node, admitted like its thread. */
-const requireRequestsTarget = (
-  canvas: Canvas,
-  targetId: string,
-): Effect.Effect<void, WorkErrorBody> =>
-  Effect.gen(function* () {
-    yield* requireTarget(canvas, targetId, "msg.list");
-    const kind = nodeKind(findNode(canvas, targetId));
-    if (kind !== "requests") {
-      return yield* failBody(
-        scopeError("overseer", targetId, "wrong_kind", { kind, op: "msg.list" }),
       );
     }
   });
@@ -480,76 +460,6 @@ export const executeOverseerWork = (
       );
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "request.list") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.canvas, target);
-      return { target, items: yield* catchWork(work.readTasks(canvas, target, "requests")) };
-    }
-    if (op === "request.get") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.canvas, target);
-      const item = yield* catchWork(
-        work.readTask(canvas, target, args.request, "requests"),
-      );
-      if (item === undefined) {
-        return yield* failBody({
-          type: "UnknownTarget",
-          message: `request "${args.request}" not found`,
-          details: { target: args.request, retryable: false },
-        });
-      }
-      return { target, request: item };
-    }
-    if (op === "request.create") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.canvas, target);
-      const result = yield* work.workRequestCreate(
-        canvas,
-        target,
-        args.brief,
-        args.metadata,
-        actor,
-        args.reason,
-        admin,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "request.resolve") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.canvas, target);
-      const result = yield* work.workRequestResolve(
-        canvas,
-        target,
-        args.request,
-        args.responseText,
-        args.disposition,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "request.comment") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "msg.send");
-      const result = yield* work.workMessageAppend(
-        canvas,
-        target,
-        args.request,
-        makeUserMessage({
-          messageId: ulid(),
-          text: args.text,
-          contextId: canvas,
-          taskId: args.request,
-          metadata: { fromSeat: actor.nodeId },
-        }),
-        actor,
-        admin,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
     if (op === "artifact.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
@@ -597,12 +507,7 @@ export const executeOverseerWork = (
       if (args.taskId) {
         yield* requireTarget(read.canvas, targetId, "msg.list");
         const task = yield* catchWork(
-          work.readTask(
-            canvas,
-            targetId,
-            args.taskId,
-            nodeKind(findNode(read.canvas, targetId)) === "task" ? "task" : "requests",
-          ),
+          work.readTask(canvas, targetId, args.taskId, "task"),
         );
         if (!task) {
           return yield* failBody({

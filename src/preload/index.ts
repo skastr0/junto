@@ -40,7 +40,6 @@ import {
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   LIVE_OVERSEER_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -403,7 +402,6 @@ type WorkFeatureApiKey =
   | "workTaskPromote"
   | "workTaskComment"
   | "workTaskRespond"
-  | "workRequestResolve"
   | "workArtifactArchive"
   | "workArtifactDelete";
 
@@ -677,19 +675,6 @@ const taskWorkApi: Pick<
     ),
 };
 
-const requestsWorkApi: Pick<JuntoApi, "workRequestResolve"> = {
-  workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
-    invoke(
-      IPC_CHANNELS.workRequestResolve,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      responseText,
-      disposition,
-    ),
-};
-
 const taskResourceApi: ResourceIpcApi["task"] = {
   list: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.task.list, IPC_TIMEOUT_MS, { canvasName, nodeId }),
   all: (canvasName) => invoke(RESOURCE_IPC_CHANNELS.task.all, IPC_TIMEOUT_MS, { canvasName }),
@@ -888,7 +873,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("junto", {
     ...juntoApi,
     ...(TASKS_ENABLED ? taskWorkApi : {}),
-    ...(REQUESTS_ENABLED ? requestsWorkApi : {}),
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
     ...(TASKS_ENABLED || ARTIFACTS_ENABLED
       ? {

@@ -13,7 +13,6 @@ import {
 } from "./impact";
 import type { OccupancySpectrumName } from "./occupancy";
 import { resolveSpec, roleOf, type FactoryRole } from "./physics";
-import { isAttentionTaskState } from "./task";
 import { deriveRegionRollups } from "./region-rollup";
 import { readReviewVerdict, type ReviewVerdict } from "./crew";
 import { rulesInForce, taskEpoch } from "./rules";
@@ -212,11 +211,6 @@ export const digestCanvas = (
             item.state !== "archived",
         ).length;
         entityLines.push(`  tasks: ${items.length - open}/${items.length} settled`);
-      }
-      if (node.kind === "requests") {
-        const items = itemsOf(node.id);
-        const attention = items.filter((item) => isAttentionTaskState(item.state)).length;
-        entityLines.push(`  requests: ${attention}/${items.length} need attention`);
       }
       if (node.kind === "artifacts") {
         const count = live.artifactCounts?.get(node.id);

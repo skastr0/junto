@@ -40,7 +40,6 @@ import {
   ARTIFACTS_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
-  REQUESTS_ENABLED,
   SEAT_AWARENESS_COMPILED,
   TASKS_ENABLED,
   USAGE_ENABLED,
@@ -1113,33 +1112,6 @@ export const registerJuntoIpc = (): void => {
         ),
       ),
   );
-  if (REQUESTS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workRequestResolve,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      taskId: string,
-      responseText: string,
-      disposition: "completed" | "rejected",
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.request-resolve",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workRequestResolve(
-              canvas,
-              nodeId,
-              taskId,
-              responseText,
-              disposition,
-            );
-          }),
-        ),
-      ),
-  );
-
   if (ARTIFACTS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workArtifactArchive,
     (

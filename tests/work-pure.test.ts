@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { workMessageAppend, type WorkPolicyRead } from "../src/shared/work";
 import { canvasOf, region, seat } from "./support/model-nodes";
-const work: WorkPolicyRead = { itemsOf: () => [], taskAt: () => undefined, requestItemsOf: () => [], artifactsOf: () => [], artifactsByNode: new Map() };
+const work: WorkPolicyRead = { itemsOf: () => [], taskAt: () => undefined, artifactsOf: () => [], artifactsByNode: new Map() };
 
 const agentNode = (frame: { x: number; y: number; width: number; height: number } = { x: 0, y: 0, width: 200, height: 100 }) =>
   seat("agent", {

@@ -10,7 +10,7 @@ import type {
 } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
 import { taskAdmissionState } from "@shared/rules";
-import { taskBrief, isAttentionTaskState } from "@shared/task";
+import { taskBrief } from "@shared/task";
 import { isArtifactArchived } from "@shared/work";
 
 /**
@@ -31,23 +31,6 @@ export type RaisedTaskRow = {
   readonly details?: string;
   readonly dependsOnCount: number;
   readonly hasFinishCriteria: boolean;
-};
-
-export type RequestRow = {
-  readonly requestId: string;
-  readonly sinkNodeId: string;
-  readonly state: TaskState;
-  readonly title: string;
-  /**
-   * Narrow answer eligibility: only `input-required` can be resolved here.
-   * Never broaden — `auth-required` has no producer and resolve refuses it.
-   */
-  readonly needsInput: boolean;
-  /** Waits on the operator (input-required or auth-required) — drives order/tone. */
-  readonly attention: boolean;
-  readonly response?: string;
-  /** Full request text — the decision contract shown before resolve/reject. */
-  readonly details?: string;
 };
 
 export type ArtifactRow = {
@@ -135,44 +118,6 @@ export const raisedTaskRowsForSeat = (
       });
   }
   return rows.sort(compareRaisedTaskRows);
-};
-
-/** Attention first (waits on the operator), then newest first (ULID birth order). */
-const compareRequestRows = (a: RequestRow, b: RequestRow): number => {
-  const attentionRank = (row: RequestRow): number => (row.attention ? 0 : 1);
-  const byAttention = attentionRank(a) - attentionRank(b);
-  if (byAttention !== 0) return byAttention;
-  return b.requestId.localeCompare(a.requestId);
-};
-
-/**
- * Requests (escalations) this seat raised, across every requests sink in the
- * doc. A request's claimedBy is the raiser's seat — that is the "raised by"
- * identity, including on resolved requests.
- */
-export const requestRowsForSeat = (
-  entries: ReadonlyArray<WorkLaneRow>,
-  seatId: ActorSeatId,
-): ReadonlyArray<RequestRow> => {
-  const rows: RequestRow[] = [];
-  for (const { nodeId, item: request } of entries) {
-      if (request.claimedBy !== seatId) continue;
-      const title = metadataTitle(request) ?? taskTitle(request, "Untitled request");
-      const details =
-        metadataText(request, "details") ??
-        detailsBeyondTitle(fullText(request.history[0]), title);
-      rows.push({
-        requestId: request.id,
-        sinkNodeId: nodeId,
-        state: request.state,
-        title,
-        needsInput: request.state === "input-required",
-        attention: isAttentionTaskState(request.state),
-        ...(request.response !== undefined ? { response: request.response } : {}),
-        ...(details !== undefined ? { details } : {}),
-      });
-  }
-  return rows.sort(compareRequestRows);
 };
 
 const firstTextPart = (parts: ReadonlyArray<Part>): string | undefined => {

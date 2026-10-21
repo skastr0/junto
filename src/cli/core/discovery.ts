@@ -2,7 +2,6 @@ import { Schema } from "effect";
 import {
   ARTIFACTS_ENABLED,
   BROWSER_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "../../shared/features";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";

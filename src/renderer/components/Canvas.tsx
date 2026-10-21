@@ -70,7 +70,7 @@ import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import {
   newArtifacts, newAutomations, newRegion, newImage,
-  newLabel, newSeat, newPage, newRequests, newTaskBoard, newNote,
+  newLabel, newSeat, newPage, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
 import { putImagesFromDataTransfer } from "../lib/image-content";
@@ -79,7 +79,6 @@ import {
   ARTIFACTS_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
@@ -730,14 +729,6 @@ const makeAddActions = (
     if (!TASKS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = newTaskBoard(onTop(position));
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addRequests: () => {
-    if (!REQUESTS_ENABLED) return;
-    const position = positionFor({ width: 240, height: 120 });
-    const node = newRequests(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

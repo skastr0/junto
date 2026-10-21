@@ -2,7 +2,6 @@ import { asNodeId, regionStack, type Canvas, type Node } from "./model";
 import type { WorkRead } from "./work-read";
 
 export type WorkPolicyRead = WorkRead & {
-  readonly requestItemsOf: (nodeId: string) => ReadonlyArray<Task>;
   readonly artifactsOf: (nodeId: string) => ReadonlyArray<Artifact>;
   readonly artifactsByNode: ReadonlyMap<string, ReadonlyArray<Artifact>>;
 };
@@ -1119,17 +1118,8 @@ export const workMessageAppend = (
   };
 
   if (taskId) {
-    const kind = requireSink(node, ["task", "requests"] as const);
-    if (kind === "task") {
-      const items = work.itemsOf(nodeId);
-      const { task } = patchTaskInList(items, taskId, (current) => ({
-        ...current,
-        history: [...current.history, { ...stamped, taskId }],
-      }));
-      void task;
-      return { message: { ...stamped, taskId } };
-    }
-    const items = work.requestItemsOf(nodeId);
+    requireSink(node, ["task"] as const);
+    const items = work.itemsOf(nodeId);
     patchTaskInList(items, taskId, (current) => ({
       ...current,
       history: [...current.history, { ...stamped, taskId }],
@@ -1139,101 +1129,6 @@ export const workMessageAppend = (
 
   requireMessageInbox(node);
   return { message: stamped };
-};
-
-export const workRequestCreate = (
-  work: WorkPolicyRead,
-  doc: Canvas,
-  canvasName: string,
-  nodeId: string,
-  brief: string,
-  metadata: WorkMetadata | undefined,
-  ids: WorkIds,
-  raisedBy: ActorRef,
-  reason?: string,
-): WorkTaskCreateResult => {
-  const node = requireNode(doc, nodeId);
-  requireSink(node, ["requests"]);
-  const trimmed = brief.trim();
-  if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
-  const why = reason?.trim() ?? "";
-  const detailsRaw = metadata?.details;
-  const details = typeof detailsRaw === "string" ? detailsRaw.trim() : "";
-  if (!why && !details) {
-    throw new WorkError(
-      "invalid",
-      "request body required: provide reason and/or metadata.details (not title-only)",
-    );
-  }
-  rejectRetiredClaimMetadata(metadata);
-  rejectReservedTaskMetadata(metadata);
-  // A request is actor-originated and claimed by its raiser at birth. The
-  // raiser is the worker waiting on the answer, so stoppage lands on it.
-  const taskId = ids.id();
-  const contextId = regionContextId(doc, nodeId, canvasName);
-  // Message body prefers details, then reason, then brief — never title alone.
-  const bodyText = details || why || trimmed;
-  const briefMessage = makeUserMessage({
-    messageId: ids.messageId(),
-    text: bodyText === trimmed ? trimmed : `${trimmed}\n\n${bodyText}`,
-    contextId,
-    taskId,
-  });
-  const task: Task = {
-    id: taskId,
-    state: "input-required",
-    claimedBy: raisedBy.seatId,
-    history: [briefMessage],
-    ...(metadata ? { metadata } : {}),
-    ...(why ? { reason: why } : {}),
-  };
-  return { task };
-};
-
-export const workRequestResolve = (
-  work: WorkPolicyRead,
-  doc: Canvas,
-  canvasName: string,
-  nodeId: string,
-  taskId: string,
-  responseText: string,
-  disposition: "completed" | "rejected",
-  ids: WorkIds,
-): WorkTaskResult => {
-  const node = requireNode(doc, nodeId);
-  requireSink(node, ["requests"]);
-  const text = responseText.trim();
-  if (!text) throw new WorkError("invalid", "response text must be non-empty");
-  const items = work.requestItemsOf(nodeId);
-  const contextId = regionContextId(doc, nodeId, canvasName);
-  const { task } = patchTaskInList(items, taskId, (current) => {
-    if (current.state !== "input-required") {
-      throw new WorkError(
-        "illegal_transition",
-        `cannot resolve request "${taskId}" in state ${current.state}`,
-      );
-    }
-    if (!canTransitionTaskState(current.state, disposition)) {
-      throw new WorkError(
-        "illegal_transition",
-        `cannot transition request "${taskId}" from ${current.state} to ${disposition}`,
-      );
-    }
-    const reply = makeUserMessage({
-      messageId: ids.messageId(),
-      text,
-      contextId,
-      taskId,
-    });
-    // The answer is first-class on the item (glanceable), and in history.
-    return {
-      ...current,
-      state: disposition,
-      history: [...current.history, reply],
-      response: text,
-    };
-  });
-  return { task };
 };
 
 /** Soft-archive flag lives in metadata so decode admits history without schema migration. */

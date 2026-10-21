@@ -333,7 +333,6 @@ export const overseerOperationEnabled = (operation: string): boolean => {
   const family = operation.split(".", 1)[0] ?? operation;
   if (family === "task") return TASKS_ENABLED;
   if (family === "content") return TASKS_ENABLED;
-  if (family === "request") return REQUESTS_ENABLED;
   if (family === "artifact") return ARTIFACTS_ENABLED;
   if (family === "page") return BROWSER_ENABLED;
   return true;

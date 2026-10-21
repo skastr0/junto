@@ -77,7 +77,7 @@ export const feedCanvasModelNeeds = (input: {
     if (graph.blocked.has(node.id)) add(node.id, "held", "blocked", "waiting on blocked work upstream", stoppedSince.get(node.id));
   }
   for (const node of nodes) {
-    const waiting = (node.kind === "task" || node.kind === "requests" ? itemsOf(node.id) : []).filter(needsHuman);
+    const waiting = (node.kind === "task" ? itemsOf(node.id) : []).filter(needsHuman);
     if (waiting.length > 0) add(node.id, "input", "attention", attentionText(""), earliestStateSince(waiting));
   }
   for (const [nodeId, since] of input.wantsInput ?? []) add(nodeId, "input", "attention", attentionText(""), since);

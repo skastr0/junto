@@ -99,11 +99,6 @@ replay.
 | `task.promote` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `task.comment` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `task.respond` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `request.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `request.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `request.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `request.resolve` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `request.comment` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `artifact.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `artifact.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `artifact.archive` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |

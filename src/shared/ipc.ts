@@ -303,7 +303,6 @@ export const IPC_CHANNELS = {
   workTaskPromote: "junto:work-task-promote",
   workTaskComment: "junto:work-task-comment",
   workTaskRespond: "junto:work-task-respond",
-  workRequestResolve: "junto:work-request-resolve",
   workArtifactArchive: "junto:work-artifact-archive",
   workArtifactDelete: "junto:work-artifact-delete",
   workSeatRecentOps: "junto:work-seat-recent-ops",
@@ -882,13 +881,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     taskId: string,
     responseText: string,
     disposition: "working" | "rejected",
-  ) => Promise<WorkOpResult<Task>>;
-  readonly workRequestResolve: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    responseText: string,
-    disposition: "completed" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
   readonly workArtifactArchive: (
     canvas: string,

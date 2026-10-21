@@ -6,7 +6,6 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ARTIFACTS_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "../src/shared/features";
 import { asCanvasName, decodeCommand, type Node } from "../src/shared/model";
@@ -20,7 +19,6 @@ import {
   newNote,
   newPage,
   newRegion,
-  newRequests,
   newSeat,
   newTaskBoard,
   newTerminal,
@@ -46,7 +44,6 @@ describe("new nodes", () => {
     ["terminal", () => newTerminal(spot, { host: "studio", launch: { kind: "shell", cwd: "/work" } })],
     ["page", () => newPage(spot, "https://example.com")],
     ...on(TASKS_ENABLED, "task board", () => newTaskBoard(spot)),
-    ...on(REQUESTS_ENABLED, "requests", () => newRequests(spot)),
     ...on(ARTIFACTS_ENABLED, "artifacts", () => newArtifacts(spot)),
   ];
 

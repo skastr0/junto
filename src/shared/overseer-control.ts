@@ -79,11 +79,6 @@ export const OVERSEER_OPERATION_NAMES = [
   "task.promote",
   "task.comment",
   "task.respond",
-  "request.list",
-  "request.get",
-  "request.create",
-  "request.resolve",
-  "request.comment",
   "artifact.list",
   "artifact.get",
   "artifact.archive",
@@ -406,27 +401,6 @@ const TaskRespond = Schema.Struct({
   responseText: NonEmpty,
   disposition: Schema.Literals(["working", "rejected"]),
 });
-const RequestIdentity = Schema.Struct({
-  ...SinkTarget,
-  request: Id,
-});
-const RequestCreate = Schema.Struct({
-  ...SinkTarget,
-  brief: NonEmpty,
-  reason: Schema.optionalKey(Schema.String),
-  metadata: Schema.optionalKey(WorkMetadata),
-});
-const RequestResolve = Schema.Struct({
-  ...SinkTarget,
-  request: Id,
-  responseText: NonEmpty,
-  disposition: Schema.Literals(["completed", "rejected"]),
-});
-const RequestComment = Schema.Struct({
-  ...SinkTarget,
-  request: Id,
-  text: NonEmpty,
-});
 const ArtifactIdentity = Schema.Struct({
   ...SinkTarget,
   artifact: Id,
@@ -699,11 +673,6 @@ export const OverseerArgsSchemas = {
   "task.promote": TaskPromote,
   "task.comment": TaskComment,
   "task.respond": TaskRespond,
-  "request.list": Schema.Struct(SinkTarget),
-  "request.get": RequestIdentity,
-  "request.create": RequestCreate,
-  "request.resolve": RequestResolve,
-  "request.comment": RequestComment,
   "artifact.list": Schema.Struct(SinkTarget),
   "artifact.get": ArtifactIdentity,
   "artifact.archive": ArtifactArchive,
@@ -837,8 +806,6 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "task.list",
   "task.show",
   "task.rules",
-  "request.list",
-  "request.get",
   "artifact.list",
   "artifact.get",
   "content.path",

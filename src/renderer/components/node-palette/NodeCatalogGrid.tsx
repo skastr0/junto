@@ -5,7 +5,6 @@ import {
   FileText,
   GitBranch,
   Globe2,
-  Inbox,
   PanelTop,
   SquareDashed,
   SquareTerminal,
@@ -16,7 +15,6 @@ import {
 import {
   ARTIFACTS_ENABLED,
   BROWSER_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { fuzzyMatch } from "../../lib/fuzzy-match";
@@ -57,11 +55,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "tasks", category: "sinks", label: "Tasks",
     icon: Blocks,
     purpose: "A work queue. Connected agents pick up tasks and turn in finished work.",
-  } satisfies NodeCatalogEntry] : []),
-  ...(REQUESTS_ENABLED ? [{
-    id: "requests", category: "sinks", label: "Requests",
-    icon: Inbox,
-    purpose: "Questions from agents that only you can answer.",
   } satisfies NodeCatalogEntry] : []),
   ...(ARTIFACTS_ENABLED ? [{
     id: "artifacts", category: "sinks", label: "Artifacts",

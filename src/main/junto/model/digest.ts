@@ -27,8 +27,7 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
     for (const node of canvas.nodes.values()) {
       switch (node.kind) {
         case "task":
-        case "requests":
-          items.set(node.id, yield* work.taskLane(name, node.id, node.kind));
+          items.set(node.id, yield* work.taskLane(name, node.id, "task"));
           break;
         case "artifacts":
           artifactCounts.set(node.id, (yield* work.artifactLane(name, node.id)).length);

@@ -18,8 +18,6 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.task-comment",
   "ipc.work.task-respond",
   "ipc.work.message-append",
-  "ipc.work.request-create",
-  "ipc.work.request-resolve",
   "ipc.work.signal-answer",
   "ipc.work.signal-dismiss",
   "ipc.work.artifact-archive",

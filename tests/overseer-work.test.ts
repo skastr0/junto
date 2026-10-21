@@ -8,7 +8,7 @@ import { ActorSeatId } from "../src/shared/actor-seat";
 import { overseerOperationEnabled, productNodeKindEnabled } from "../src/shared/features";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NodeOf } from "../src/shared/model";
-import { canvasOf, requests, seat, taskBoard } from "./support/model-nodes";
+import { canvasOf, seat, taskBoard } from "./support/model-nodes";
 import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference";
 import type { ActorRef } from "../src/shared/work-protocol";
 import {
@@ -268,12 +268,11 @@ describe("executeOverseerWork", () => {
       /^[a-f0-9]{64}$/,
     );
   });
-  it("lists tasks and requests, and reads a task thread, from their rows", async () => {
+  it("lists tasks, and reads a task thread, from their rows", async () => {
     await runtime.runPromise(
       seedCanvas("rows", [
         ...factoryNodes("rows"),
         taskBoard("todo", { x: 300, y: 0, width: 200, height: 100 }),
-        requests("asks", { x: 300, y: 200, width: 200, height: 100 }),
       ]),
     );
     await grantOverseer("rows", "boss", true);
@@ -287,18 +286,11 @@ describe("executeOverseerWork", () => {
         ),
       ) as Promise<Record<string, unknown>>;
     const tasksOn = productNodeKindEnabled("task");
-    const requestsOn = productNodeKindEnabled("requests");
     // A kind this build gates off is out of the catalog, and its rows are refused.
     expect(overseerOperationEnabled("task.list")).toBe(tasksOn);
-    expect(overseerOperationEnabled("request.list")).toBe(requestsOn);
     if (!tasksOn) {
       await expect(call("task.list", { target: "todo" })).rejects.toThrow(
         /kind task is disabled in this Junto build/u,
-      );
-    }
-    if (!requestsOn) {
-      await expect(call("request.list", { target: "asks" })).rejects.toThrow(
-        /kind requests is disabled in this Junto build/u,
       );
     }
 
@@ -319,11 +311,6 @@ describe("executeOverseerWork", () => {
       expect(thread).toMatchObject({ target: "todo", taskId });
       expect(thread["items"]).toEqual(listed.items[0]!.history);
       await expect(call("msg.list", { target: "todo", taskId: "missing" })).rejects.toBeDefined();
-    }
-
-    if (requestsOn) {
-      expect(await call("request.list", { target: "asks" })).toEqual({ target: "asks", items: [] });
-      await expect(call("request.get", { target: "asks", request: "missing" })).rejects.toBeDefined();
     }
   });
 });

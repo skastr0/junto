@@ -49,7 +49,6 @@ export type ModeDeckActions = {
   ) => void;
 
   readonly addTasks: () => void;
-  readonly addRequests: () => void;
   readonly addArtifacts: () => void;
   readonly addAutomations: () => void;
   readonly addGit: () => void;
@@ -77,7 +76,6 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
   switch (entry.id) {
     case "terminal": actions.addTerminal(); break;
     case "tasks": actions.addTasks(); break;
-    case "requests": actions.addRequests(); break;
     case "artifacts": actions.addArtifacts(); break;
     case "automations": actions.addAutomations(); break;
     case "git": actions.addGit(); break;

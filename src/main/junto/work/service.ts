@@ -48,8 +48,6 @@ import { resolveSpec } from "@shared/physics";
 import {
   WorkError,
   workMessageAppend,
-  workRequestCreate,
-  workRequestResolve,
   workTaskCreate,
   workTaskDescribe,
   workTaskRespond,
@@ -638,22 +636,6 @@ export interface WorkServiceShape {
         readonly reactedAt: string;
       }>
     >;
-    readonly workRequestCreate: (
-      canvas: string,
-      nodeId: string,
-      brief: string,
-      metadata: WorkMetadata | undefined,
-      raisedBy: ActorRef,
-      reason?: string,
-      admin?: OverseerWorkAdmin,
-    ) => Effect.Effect<WorkOpResult<Task>>;
-    readonly workRequestResolve: (
-      canvas: string,
-      nodeId: string,
-      taskId: string,
-      responseText: string,
-      disposition: "completed" | "rejected",
-    ) => Effect.Effect<WorkOpResult<Task>>;
     /** Operator soft-archive / restore (metadata.archived). */
     readonly workArtifactArchive: (
       canvas: string,
@@ -726,10 +708,8 @@ export const WorkLive = Layer.effect(
 
     const policyRows = Effect.fn("WorkService.policyRows")(function* (
       canvasName: string, nodeId: string, ids: ReadonlyArray<string>, artifactIds: ReadonlyArray<string> = [],
-      kind: "task" | "requests" = "task",
     ): Effect.fn.Return<WorkPolicyRead, WorkServiceError> {
-      const selectedTaskIds = kind === "task" ? ids : [];
-      const rows = yield* repository.taskRowsByIds(canvasName, selectedTaskIds).pipe(Effect.mapError(toWorkServiceError));
+      const rows = yield* repository.taskRowsByIds(canvasName, ids).pipe(Effect.mapError(toWorkServiceError));
       const dependencies = [...new Set(rows.flatMap(({ item }) => item.dependsOn ?? []))].filter((id) => !ids.includes(id));
       const deps = yield* repository.taskRowsByIds(canvasName, dependencies).pipe(Effect.mapError(toWorkServiceError));
       const tasks = new Map<string, Task[]>();
@@ -737,12 +717,10 @@ export const WorkLive = Layer.effect(
         const items = tasks.get(row.nodeId) ?? [];
         items.push(row.item); tasks.set(row.nodeId, items);
       }
-      const requests = yield* Effect.forEach(kind === "requests" ? ids : [], (id) => readItem(canvasName, nodeId, id, "requests"));
       const artifacts = yield* Effect.forEach(artifactIds, (id) => repository.artifactItem(canvasName, nodeId, id).pipe(Effect.mapError(toWorkServiceError)));
       return {
         itemsOf: (board) => tasks.get(board) ?? [],
         taskAt: (board, id) => tasks.get(board)?.find((task) => task.id === id),
-        requestItemsOf: (board) => board === nodeId ? requests.filter((item): item is Task => item !== undefined) : [],
         artifactsOf: (board) => board === nodeId ? artifacts.filter((item): item is Artifact => item !== undefined) : [],
         artifactsByNode: new Map(),
       };
@@ -2199,7 +2177,7 @@ export const WorkLive = Layer.effect(
                 message: "task comments require a task board",
               });
             }
-            const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId], [], read.topology.nodes.get(asNodeId(nodeId))?.kind === "requests" ? "requests" : "task");
+            const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId]);
             const policy = yield* runPolicy(() =>
               workMessageAppend(policyWork, read.topology, canvas, nodeId, taskId, message)
             );
@@ -2300,7 +2278,7 @@ export const WorkLive = Layer.effect(
               admin,
             );
             const targetNode = yield* requireNode(read.topology, nodeId);
-            const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId], [], read.topology.nodes.get(asNodeId(nodeId))?.kind === "requests" ? "requests" : "task");
+            const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId]);
             const policy = yield* runPolicy(() =>
               workMessageAppend(policyWork, read.topology,
                 canvas,
@@ -2315,26 +2293,10 @@ export const WorkLive = Layer.effect(
               nodeId,
               recordId: policy.message.messageId,
             });
-            const targetSpec = resolveSpec({
-              isGroup: false,
-              kind: targetNode.kind,
-            });
-            const isRequestSink = Match.value(targetSpec).pipe(
-              Match.when({ _tag: "Sink", kind: "requests" }, () => true),
-              Match.orElse(() => false),
-            );
             const destination = taskId === null
               ? { kind: "mailbox" as const }
-              : isRequestSink
-                ? {
-                    kind: "request" as const,
-                    itemId: taskId,
-                  }
-                : {
-                    kind: "task" as const,
-                    itemId: taskId,
-                  };
-            if (taskId !== null) yield* itemHome(isRequestSink ? "request" : "task", canvas, nodeId, taskId);
+              : { kind: "task" as const, itemId: taskId };
+            if (taskId !== null) yield* itemHome("task", canvas, nodeId, taskId);
             const outcome = yield* local(
                 repository.appendMessage({
                   sink: sinkRef(canvas, nodeId),
@@ -2824,139 +2786,6 @@ export const WorkLive = Layer.effect(
                 })),
               );
             return yield* complete(outcome);
-          }),
-        ),
-
-      workRequestCreate: (
-        canvas,
-        nodeId,
-        brief,
-        metadata,
-        raisedBy,
-        reason,
-        admin,
-      ) =>
-        asResult(
-          Effect.gen(function* () {
-            const read = yield* readTopology(canvas);
-            yield* requireActor(
-              read,
-              raisedBy,
-              nodeId,
-              // A request is filed into the Requests node's thread; seats no
-              // longer escalate through it (agent signals replaced that).
-              "msg.send",
-              admin,
-            );
-            const policyWork = yield* policyRows(canvas, nodeId, []);
-            const policy = yield* runPolicy(() =>
-              workRequestCreate(policyWork, read.topology,
-                canvas,
-                nodeId,
-                brief,
-                metadata,
-                ids,
-                raisedBy,
-                reason,
-              )
-            );
-            const outcome = yield* local(
-                repository.createRequest({
-                  sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(read.intentWitness),
-                  request: policy.task,
-                  raisedBy,
-                }),
-                admin,
-              );
-            return yield* complete(outcome);
-          }),
-        ),
-
-      workRequestResolve: (
-        canvas,
-        nodeId,
-        taskId,
-        responseText,
-        disposition,
-      ) =>
-        asResult(
-          Effect.gen(function* () {
-            const [read] = yield* Effect.all([
-              readTopology(canvas),
-              itemHome("request", canvas, nodeId, taskId),
-            ]);
-            const before = yield* readItem(canvas, nodeId, taskId, "requests");
-            if (before !== undefined && isTerminalTaskState(before.state)) {
-              // Already resolved — a stale second surface (RequestInbox
-              // overlay or actor ledger) may still offer Send while its doc
-              // write is in flight. Absorb the duplicate as an idempotent
-              // settle: the current doc is truth and the surfaces refresh
-              // from it via scoped Work store refresh, so no error banner.
-              return yield* complete({
-                value: before,
-                disposition: "applied",
-                message:
-                  `request "${taskId}" is already resolved (${before.state})`,
-              });
-            }
-            const policyWork = yield* policyRows(canvas, nodeId, [taskId], [], "requests");
-            const policy = yield* runPolicy(() =>
-              workRequestResolve(policyWork, read.topology,
-                canvas,
-                nodeId,
-                taskId,
-                responseText,
-                disposition,
-                ids,
-              )
-            );
-            const message =
-              before !== undefined &&
-                policy.task.history.length > before.history.length
-                ? policy.task.history.at(-1)
-                : undefined;
-            const outcome = yield* local(
-                repository.resolveRequest({
-                  sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(read.intentWitness),
-                  requestId: taskId,
-                  response: policy.task.response!,
-                  disposition,
-                  ...(message === undefined ? {} : { message }),
-                }),
-              );
-            const completed = yield* complete(outcome);
-            if (
-              outcome.disposition === "applied" &&
-              before?.claimedBy !== undefined
-            ) {
-              const raisers = read.actorRefs.filter(
-                (actor) =>
-                  actor.canvasName === canvas &&
-                  actor.seatId === before.claimedBy,
-              );
-              if (raisers.length === 0) {
-                // Never a silent drop: the raising agent must learn its
-                // escalation was answered. If no live actor ref matches the
-                // claiming seat (node deleted / moved off canvas), say so.
-                console.warn(
-                  `[work] request "${taskId}" resolved but no live actor ref ` +
-                    `on canvas "${canvas}" matches seat "${before.claimedBy}" — ` +
-                    "resolved-response nudge not delivered",
-                );
-              } else {
-                for (const raiser of raisers) {
-                  messageDelivery.notifyRequestResolved({
-                    canvas,
-                    actorNodeId: raiser.nodeId,
-                    requestId: taskId,
-                    response: policy.task.response!,
-                  });
-                }
-              }
-            }
-            return completed;
           }),
         ),
 

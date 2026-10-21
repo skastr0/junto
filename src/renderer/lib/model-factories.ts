@@ -1,7 +1,6 @@
 import { ulid } from "ulid";
 import {
   ARTIFACTS_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { asNodeId, type NodeOf } from "@shared/model";
@@ -119,11 +118,6 @@ export const newPage = (
 export const newTaskBoard = (spot: Spot): NodeOf<"task"> => {
   requireFeature(TASKS_ENABLED, "tasks sink");
   return { kind: "task", ...placed("task", spot, SINK_SIZE) };
-};
-
-export const newRequests = (spot: Spot): NodeOf<"requests"> => {
-  requireFeature(REQUESTS_ENABLED, "requests sink");
-  return { kind: "requests", ...placed("requests", spot, SINK_SIZE) };
 };
 
 export const newArtifacts = (spot: Spot): NodeOf<"artifacts"> => {

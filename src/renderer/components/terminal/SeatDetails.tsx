@@ -6,7 +6,7 @@ import { useWorkMail } from "../../lib/use-work-mail";
  * Seat details: everything about one agent seat that is worth a look now and
  * then, kept out of the way behind one button in the agent modal's header.
  * The seat's AI reading and onboarding status, its signals, its standing with
- * the work kernel (task, escalations, raised tasks, artifacts) and its
+ * the work kernel (task, raised tasks, artifacts) and its
  * mail. Work rows project from the canvas (no IPC reads; operator actions
  * go through the work IPC mutations).
  *
@@ -34,9 +34,7 @@ import "./actor-ledger-mail.css";
 import {
   artifactRowsForSeat,
   raisedTaskRowsForSeat,
-  requestRowsForSeat,
   seatIdForActorNode,
-  type RequestRow,
 } from "../../lib/actor-ledger-work";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
@@ -44,15 +42,12 @@ import { terminal$ } from "../../lib/terminal-state";
 import { SIGNALS_SECTION, useSeatSignals } from "../../lib/agent-signals-view";
 import { clearSectionReveal, sidebarSections$ } from "../../lib/sidebar-sections";
 import { getJuntoApi } from "../../lib/junto-api";
-import { modKeyGlyph } from "../../lib/platform";
 import { Button, Chip, IconButton, Popover, TaskStateMark, type ChipTone } from "../ui";
 import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
 import { DetailsGroup } from "./DetailsGroup";
 import { SeatSignalsSection } from "./SeatSignalsSection";
 import { OnboardingSection } from "./OnboardingSection";
 import { ThreadHealthSection } from "./ThreadHealthSection";
-import { Textarea } from "../ui/Field";
-import { keyAria, keyIs } from "../../lib/key-match";
 
 // Module-level so the popover's placement effect sees one stable array.
 const DETAILS_SIDES = ["below", "left"] as const;
@@ -125,105 +120,6 @@ function MailRowItem({
             </p>
           ) : null}
         </>
-      ) : null}
-    </li>
-  );
-}
-
-function RequestRowItem({
-  row,
-  pending,
-  open,
-  onToggle,
-  onResolve,
-}: {
-  readonly row: RequestRow;
-  readonly pending: boolean;
-  readonly open: boolean;
-  readonly onToggle: () => void;
-  readonly onResolve: (
-    response: string,
-    disposition: "completed" | "rejected",
-  ) => void;
-}) {
-  const [response, setResponse] = useState("");
-  const canSend = !pending && response.trim().length > 0;
-  return (
-    <li
-      className="actor-ledger__item"
-      data-testid="actor-ledger-request-row"
-      data-request-id={row.requestId}
-    >
-      <button
-        type="button"
-        className="actor-ledger__item-row"
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        <span className="actor-ledger__item-head">
-          <Chip tone={row.attention ? "amber" : taskStateTone(row.state)}>
-            {row.needsInput ? "needs you" : row.state}
-          </Chip>
-        </span>
-        <span className="actor-ledger__item-title">{row.title}</span>
-        {!open && !row.needsInput && row.response ? (
-          <span className="actor-ledger__item-detail">{row.response}</span>
-        ) : null}
-      </button>
-      {open ? (
-        <div className="actor-ledger__respond">
-          {/* The full decision contract precedes any action. */}
-          {row.details ? (
-            <div className="actor-ledger__contract">{row.details}</div>
-          ) : null}
-          {row.state === "auth-required" ? (
-            <p className="actor-ledger__contract" role="note">
-              This request has an older authorization-wait state. It remains
-              unresolved and cannot be answered here.
-            </p>
-          ) : null}
-          {row.response ? (
-            <div className="actor-ledger__contract actor-ledger__contract--response">
-              {row.response}
-            </div>
-          ) : null}
-          {row.needsInput ? (
-            <>
-              <Textarea
-                value={response}
-                onChange={(event) => setResponse(event.target.value)}
-                onKeyDown={(event) => {
-                  if (!keyIs(event, "message.send")) return;
-                  event.preventDefault();
-                  if (canSend) onResolve(response.trim(), "completed");
-                }}
-                placeholder="Decision, information, or authorization…"
-                rows={3}
-                aria-label="Your response"
-                aria-keyshortcuts={keyAria("message.send")}
-              />
-              <div className="actor-ledger__actions">
-                <Button
-                  size="xs"
-                  variant="danger"
-                  disabled={!canSend}
-                  onClick={() => onResolve(response.trim(), "rejected")}
-                >
-                  Reject
-                </Button>
-                <Button
-                  size="xs"
-                  variant="primary"
-                  disabled={!canSend}
-                  title={`${modKeyGlyph()}+↵`}
-                  onClick={() => onResolve(response.trim(), "completed")}
-                >
-                  Send response
-                </Button>
-              </div>
-            </>
-          ) : null}
-        </div>
       ) : null}
     </li>
   );
@@ -351,15 +247,10 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
     [actorRefs, node.id],
   );
   const attentionRows = useAttentionRows(live ? canvas : "");
-  const requestPage = useActorPage("requests", live ? canvas : "", seatId);
   const taskPage = useActorPage("task", live ? canvas : "", seatId);
   const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
   const seatTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
   const claim = live ? seatTask : undefined;
-  const requests = useMemo(
-    () => live && seatId !== undefined && requestPage.page.kind === "requests" ? requestRowsForSeat(requestPage.page.items, seatId) : [],
-    [requestPage.page, seatId, live],
-  );
   const raisedTasks = useMemo(
     () => live && seatId !== undefined && taskPage.page.kind === "task"
       ? raisedTaskRowsForSeat(taskPage.page.items, (nodeId) => contractOf(held.nodes.get(asNodeId(nodeId))), seatId) : [],
@@ -444,7 +335,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
         </div>
       ) : null}
       {signalsSection}
-      <WorkPageControls {...requestPage} />
       <WorkPageControls {...taskPage} />
       <WorkPageControls {...artifactPage} />
       {claim ? (
@@ -463,39 +353,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
             </span>
             <span className="actor-ledger__item-title">{claim.label} {claim.title}</span>
           </div>
-        </DetailsGroup>
-      ) : null}
-      {requests.length > 0 ? (
-        <DetailsGroup
-          title="escalations"
-          count={requests.length}
-          countTone={requests.some((row) => row.attention) ? "amber" : "faint"}
-        >
-          <ul className="actor-ledger__list">
-            {requests.map((row) => {
-              const key = `request:${row.sinkNodeId}:${row.requestId}`;
-              return (
-                <RequestRowItem
-                  key={key}
-                  row={row}
-                  pending={pendingKeys.has(key)}
-                  open={openKey === key}
-                  onToggle={() => toggleOpen(key)}
-                  onResolve={(response, disposition) =>
-                    void runWork(key, () =>
-                      api!.workRequestResolve(
-                        canvas,
-                        row.sinkNodeId,
-                        row.requestId,
-                        response,
-                        disposition,
-                      ),
-                    )
-                  }
-                />
-              );
-            })}
-          </ul>
         </DetailsGroup>
       ) : null}
       {raisedTasks.length > 0 ? (

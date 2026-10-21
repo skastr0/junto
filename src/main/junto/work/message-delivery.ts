@@ -197,13 +197,6 @@ type PendingMail = {
   readonly bindingId: string;
 };
 
-type PendingResponse = {
-  readonly canvas: string;
-  readonly actorNodeId: string;
-  readonly requestId: string;
-  readonly response: string;
-};
-
 const mailKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
@@ -312,8 +305,6 @@ export class MessageDeliveryService {
   private readonly seatChains = new Map<string, Promise<unknown>>();
   /** Each seat's gathering batch, by binding; it leaves here as its write starts. */
   private readonly batches = new Map<string, SeatBatch>();
-  /** Operator answers to requests, waiting for the raising seat. */
-  private readonly responses = new Map<string, PendingResponse>();
   /** Messages whose sender asked that they never start a seat. */
   private readonly noWake = new Set<string>();
   /** One wake in flight per seat. */
@@ -371,7 +362,6 @@ export class MessageDeliveryService {
     this.flights.clear();
     this.delivered.clear();
     this.seatChains.clear();
-    this.responses.clear();
     this.noWake.clear();
     this.waking.clear();
     this.passes.clear();
@@ -854,9 +844,6 @@ export class MessageDeliveryService {
       const first = mail.find((pending) => !this.noWake.has(pending.messageId)) ?? mail[0];
       if (first !== undefined) void this.deliver(first.canvas, first.nodeId, first.messageId);
     }
-    for (const [key, response] of this.responses) {
-      void this.deliverResponse(key, response, bindingId);
-    }
   }
 
   /**
@@ -932,69 +919,7 @@ export class MessageDeliveryService {
     }
   }
 
-  /**
-   * Push an operator's answer into the seat that raised the request, now or
-   * when that seat comes up. Process-local: the resolved request stays the
-   * durable record.
-   */
-  notifyRequestResolved(input: PendingResponse): void {
-    if (this.suspended) return;
-    const key = `${input.canvas}::${input.actorNodeId}::request::${input.requestId}`;
-    this.responses.set(key, input);
-    void this.deliverResponse(key, input);
-  }
 
-  private async deliverResponse(
-    key: string,
-    pending: PendingResponse,
-    onlyBinding?: string,
-  ): Promise<void> {
-    const generation = this.lifecycleGeneration;
-    const transport = this.transport;
-    const store = this.store;
-    if (!this.active(generation) || !transport || !store) return;
-    if (this.flights.has(key)) return;
-    const flight = (async (): Promise<MailDeliveryState> => {
-      const doc = await store.readModel(pending.canvas, "attempt");
-      const node = doc?.nodes.get(asNodeId(pending.actorNodeId));
-      const target = node === undefined ? undefined : this.targetHere(node);
-      if (target === undefined || target === "elsewhere") {
-        this.responses.delete(key);
-        return "waiting";
-      }
-      if (onlyBinding !== undefined && target.bindingId !== onlyBinding) return "waiting";
-      if (!this.active(generation) || !transport.seatLive(target.bindingId)) {
-        return "waiting";
-      }
-      const raw = `[request resolved - ${pending.requestId}] ${pending.response}`;
-      const payload =
-        sanitizeDeliveryLine(raw).length > MESSAGE_PTY_FULL_BODY_MAX
-          ? sanitizeDeliveryLine(`[request resolved - ${pending.requestId}] — junto msg list`)
-          : sanitizeDeliveryLine(raw);
-      const written = await this.inSeatOrder(target.bindingId, () =>
-        transport.writeMail(target.bindingId, payload),
-      );
-      if (written !== "written") return "waiting";
-      this.responses.delete(key);
-      const preview = wireTrafficPreview(pending.response);
-      this.emitDelivered({
-        canvasName: pending.canvas,
-        toNodeId: pending.actorNodeId,
-        fromName: "operator",
-        kind: "answer",
-        messageId: `request::${pending.requestId}`,
-        ...(preview !== undefined ? { preview } : {}),
-        at: Date.now(),
-      });
-      return "delivered";
-    })().catch((): MailDeliveryState => "waiting");
-    this.flights.set(key, flight);
-    try {
-      await flight;
-    } finally {
-      if (this.flights.get(key) === flight) this.flights.delete(key);
-    }
-  }
 }
 
 export const messageDelivery = new MessageDeliveryService();

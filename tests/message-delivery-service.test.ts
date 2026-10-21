@@ -1015,21 +1015,4 @@ describe("mail delivery", () => {
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
     expect(seat.writes).toHaveLength(0);
   });
-
-  it("pushes a request answer now, or when the raising seat starts", async () => {
-    const seat = rig({ live: false });
-    seat.service.notifyRequestResolved({
-      canvas,
-      actorNodeId: nodeId,
-      requestId: "req-1",
-      response: "Use the v2 schema.",
-    });
-    await settle();
-    expect(seat.writes).toHaveLength(0);
-
-    seat.setLive(true);
-    seat.service.onSeatLive(bindingId);
-    await settle();
-    expect(seat.writes).toEqual(["[request resolved - req-1] Use the v2 schema."]);
-  });
 });
