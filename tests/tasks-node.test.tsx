@@ -125,7 +125,7 @@ describe("Tasks node gallery seed", () => {
   it("rules every seeded write: a task sent on, one working, one in review, two in backlog", async () => {
     await seed();
     const build = await tasksSource().list(GALLERY_CANVAS, GALLERY_BUILD);
-    expect(build.map((v) => v.current.state).toSorted()).toEqual(["backlog", "backlog", "in-review", "working"]);
+    expect(build.map((v) => v.current.state).sort()).toEqual(["backlog", "backlog", "in-review", "working"]);
     const review = build.find((v) => v.current.state === "in-review");
     expect(review?.current.stamps).toHaveLength(1);
     const qa = await tasksSource().list(GALLERY_CANVAS, GALLERY_QA);

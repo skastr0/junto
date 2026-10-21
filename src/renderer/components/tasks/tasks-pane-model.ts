@@ -62,7 +62,7 @@ export const visibleTasks = (
           view.title.toLowerCase().includes(query) ||
           numberLabel(view).toLowerCase().includes(query.replace(/^#?/, "#"))),
     )
-    .toSorted(
+    .sort(
       (a, b) =>
         STATE_RANK[a.current.state] - STATE_RANK[b.current.state] ||
         (a.number ?? Number.MAX_SAFE_INTEGER) - (b.number ?? Number.MAX_SAFE_INTEGER),
