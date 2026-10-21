@@ -26,7 +26,7 @@ Not tests, but the text the tests and reviewers read.
 |---|---|
 | `docs/architecture-canvas-physics.md:257` | "Region membership alone: Not a grant" |
 | `docs/architecture-canvas-physics.md:286` | "Ambient region grants" as a non-goal. 01 keeps "Region is geography, not a security domain" and states it plainly; the non-goal row goes. |
-| `docs/architecture-canvas-physics.md:261` | PR test: no capability "without a connected edge" |
+| `docs/architecture-canvas-physics.md:264` | PR test: no capability "without a connected edge" |
 | `docs/security-doctrine.md:87` | "Mail still requires a granting edge" (01: no longer holds) |
 | `AGENTS.md:161`, `:443`, `:463` | edges as the only grant, "No ambient region grants" |
 
