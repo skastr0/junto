@@ -45,7 +45,12 @@ if (import.meta.main) {
       process.exitCode = 2;
     }
   } else if (dispatch.kind === "browser") {
-    if (!browserCliAvailable) {
+    // Inline on purpose: bun drops the browser CLI from the machine bundle only
+    // when the define is tested at this site. Through a module const it stays.
+    if (typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) {
+      process.stderr.write("junto browser: the browser runs in the desktop app, not on a Junto Remote machine\n");
+      process.exitCode = 2;
+    } else if (!browserCliAvailable) {
       process.stderr.write("junto browser: disabled in this build\n");
       process.exitCode = 2;
     } else {

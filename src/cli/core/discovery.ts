@@ -660,7 +660,8 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   ...referencesSchemas,
   contentStageSchema,
   ...overseerSchemas,
-  ...(BROWSER_ENABLED
+  // Inline on purpose: a module const would keep the browser rows in the machine bundle.
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
     ? [
         browserPagesSchema,
         browserOpenSchema,
@@ -1430,7 +1431,8 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     input: { target: "pad-1" },
     args: ["pad", "tagged", '{"target":"pad-1"}'],
   },
-  ...(BROWSER_ENABLED
+  // Inline on purpose: a module const would keep the browser rows in the machine bundle.
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
     ? [
         {
           command_id: "browser.pages",
@@ -1883,7 +1885,8 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     schemas: [padTaggedSchema],
     examples: allExamples.filter((e) => e.command_id === "pad.tagged"),
   },
-  ...(BROWSER_ENABLED
+  // Inline on purpose: a module const would keep the browser rows in the machine bundle.
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
     ? [
         {
           command_id: "browser.pages",
