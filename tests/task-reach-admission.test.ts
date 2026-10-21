@@ -32,7 +32,8 @@ describe.runIf(TASKS_ENABLED)("task ops admitted by reach", () => {
   });
 
   it("refuses a seat out of reach, and a target that is no task node", () => {
-    const far = admitWorkTarget(canvas, "seat-c", "tasks-1", "task.rules");
+    // rules, wait and check moved to the task verbs, whose handler checks reach (task-control.test.ts).
+    const far = admitWorkTarget(canvas, "seat-c", "tasks-1", "rulings");
     expect(Result.isFailure(far) && far.failure.details?.reason).toBe("out_of_reach");
     const seat = admitWorkTarget(canvas, "seat-a", "seat-c", "content.path");
     expect(Result.isFailure(seat) && seat.failure.type).toBe("ScopeError");
@@ -40,10 +41,10 @@ describe.runIf(TASKS_ENABLED)("task ops admitted by reach", () => {
   });
 
   it("admits the operator anywhere, and an overseer at a task node only", () => {
-    expect(Result.isSuccess(admitWorkTarget(canvas, OPERATOR_SEAT_ID, "tasks-1", "task.wait"))).toBe(true);
+    expect(Result.isSuccess(admitWorkTarget(canvas, OPERATOR_SEAT_ID, "tasks-1", "rulings"))).toBe(true);
     expect(Result.isSuccess(admitOverseerWorkTarget(canvas, "tasks-1", "task.claim"))).toBe(true);
     expect(Result.isFailure(admitOverseerWorkTarget(canvas, "seat-a", "task.update"))).toBe(true);
-    expect(kindAllowsOp("task", "task.check")).toBe(true);
-    expect(kindAllowsOp("agent", "task.check")).toBe(false);
+    expect(kindAllowsOp("task", "content.path")).toBe(true);
+    expect(kindAllowsOp("agent", "content.path")).toBe(false);
   });
 });

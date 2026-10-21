@@ -248,6 +248,22 @@ describe("task verbs", () => {
     expect(hidden.message).toBe("no task #44 in this seat's reach");
   });
 
+  it("refuses rules, wait and check on a task or node out of reach, as missing", async () => {
+    const ports = portsWith(applied());
+    const byTask = failure(await run("task.rules", { task: "#44" }, ports));
+    expect([byTask.type, byTask.message]).toEqual(["UnknownTarget", "no task #44 in this seat's reach"]);
+    // tasks-2 shares its name with tasks-1; by name or by id, only the node in reach answers.
+    const byNode = failure(await run("task.rules", { node: "tasks-2" }, ports));
+    expect([byNode.type, byNode.details?.path]).toEqual(["UnknownTarget", "node"]);
+    expect(Exit.isSuccess(await run("task.rules", { node: "CLI tasks" }, ports))).toBe(true);
+    const waited = failure(await run("task.wait", { task: "#44", until: "done", timeoutMs: 0 }, ports));
+    expect([waited.type, waited.message]).toEqual(["UnknownTarget", "no task #44 in this seat's reach"]);
+    const checked = failure(await run("task.check", {
+      opId: OP, task: "#44", results: [{ checkId: "c1", side: "outgoing", exitCode: 0, outputTail: "" }],
+    }, ports));
+    expect([checked.type, checked.message]).toEqual(["UnknownTarget", "no task #44 in this seat's reach"]);
+  });
+
   it("depends on another task by number, only within reach", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
     await run("task.depend", { opId: OP, task: "#42", on: "#43" }, portsWith(applied(), submitted));
