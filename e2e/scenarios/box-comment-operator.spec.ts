@@ -13,10 +13,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { ElectronApplication } from "playwright-core";
-import { browserPageNode } from "../harness/browser-automation-fixtures";
 import { controlCall, readSandboxControlToken, sandboxControlSocketPath, waitForControlDoctor } from "../harness/browser-control-client";
 import { launchJunto } from "../harness/launch";
-import { modelFixture } from "../harness/model";
+import { modelFixture, modelNode } from "../harness/model";
 
 const SHOTS = process.env.BOX_RUN_SHOTS;
 const PAGE_URL = "https://example.com/?from=box-run#top";
@@ -83,7 +82,7 @@ const drag = (app: ElectronApplication, from: { x: number; y: number }, to: { x:
 
 test("the operator draws a box on a page, sees the shot, and posts exactly it", async () => {
   test.setTimeout(180_000);
-  const nodes = [browserPageNode({ id: "p1", url: PAGE_URL, profile: "personal", x: 0, y: 0 })];
+  const nodes = [modelNode({ kind: "page", id: "p1", url: PAGE_URL, profile: "personal", onRemove: "kill-session", x: 0, y: 0, width: 240, height: 80, z: 0 })];
   const junto = await launchJunto({ seedModels: { "box-run": modelFixture(nodes, []) } });
   try {
     const { app, page, sandbox } = junto;
