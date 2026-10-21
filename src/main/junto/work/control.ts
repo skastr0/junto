@@ -155,7 +155,6 @@ import { WorkService, type WorkOpResult } from "./service";
 import { AUTOMATION_WRITE_OPS, isAutomationOp } from "@shared/automation-control";
 import { handleAutomationOp, liveAutomationPorts } from "./automation-control";
 import { liveSeatObservation } from "./seat-observation-live";
-import { readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
 import { manualSchedulerFire } from "../kernel/cycle";
@@ -443,6 +442,25 @@ const mailIdArg = (path: string, value: string): Result.Result<string, WorkError
         message: `${path} must be ${MAIL_MESSAGE_ID_SHAPE}`,
         details: { path, expected: "ULID", retryable: false },
       });
+};
+
+/** A mail target: a seat, never an item inside a node. */
+const resolveMailTarget = (
+  board: Canvas,
+  callerId: string,
+  typed: string,
+  op: WorkOpName,
+): Result.Result<string, WorkErrorBody> => {
+  const named = resolveWorkTarget(board, callerId, typed, op);
+  if (Result.isFailure(named)) return Result.fail(named.failure);
+  if (named.success.itemId !== undefined) {
+    return Result.fail({
+      type: "InputError",
+      message: "mail goes to a seat; this target names an item inside a node",
+      details: { path: "target", retryable: false, next_step: "send to the seat's name, node id or ref without &item" },
+    });
+  }
+  return Result.succeed(named.success.nodeId);
 };
 
 /** The thread metadata a reply to `parent` carries. One rule for all mail. */
@@ -1179,7 +1197,6 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
       sessions,
       ...(handoff ? { handoff } : {}),
       ...(previousWithoutNotes ? { previousWithoutNotes } : {}),
-      ...(previous === undefined ? {} : { previousStartedAt: previous.startedAt }),
     };
   });
 
@@ -1358,12 +1375,6 @@ const dispatchOp = (
         // The resources in this seat's region reach, by kind, with the
         // command that lists each.
         reach: compileReach(reach),
-        // Since your last session: replies owed and awaited, open signals,
-        // silent answers since the previous session started, unread mail.
-        // A failed read says so instead of dropping the section.
-        since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
-          Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
-        ),
         // Operator-pinned precedent from the seat's own region stack. Region
         // rulings ride the Tasks gate: a tasks-off build names none.
         ...(TASKS_ENABLED
@@ -2033,7 +2044,7 @@ const dispatchOp = (
     if (op === "msg.prompt") {
       const decoded = decodeArgs(MsgPromptArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const named = resolveWorkTarget(board, caller.nodeId, decoded.success.target, op);
+      const named = resolveMailTarget(board, caller.nodeId, decoded.success.target, op);
       if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
       const input = { ...decoded.success, target: named.success };
       const gate = requireTarget(board, caller.nodeId, input.target, op);
@@ -2089,7 +2100,7 @@ const dispatchOp = (
       const asked = decodeArgs(MsgSendArgs, args);
       if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
       // A target is a node id or the name of a seat this one is wired to.
-      const named = resolveWorkTarget(board, caller.nodeId, asked.success.target, op);
+      const named = resolveMailTarget(board, caller.nodeId, asked.success.target, op);
       if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
       const decoded = { success: { ...asked.success, target: named.success } };
       const recipient = recipientOf(board, named.success);
@@ -2264,7 +2275,7 @@ const dispatchOp = (
       const toOperator = asked.success.target.trim() === "operator";
       let target = asked.success.target;
       if (!toOperator) {
-        const named = resolveWorkTarget(board, caller.nodeId, target, op);
+        const named = resolveMailTarget(board, caller.nodeId, target, op);
         if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
         target = named.success;
         const gate = requireTarget(board, caller.nodeId, target, op);

@@ -1,5 +1,4 @@
 import {
-  findSeatByName,
   regionMembers,
   regionStack,
   seatIdentity,
@@ -27,7 +26,9 @@ import {
   type TargetWorkOpName,
 } from "@shared/physics";
 import { canvasToCapabilityView } from "@shared/physics/view";
-import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
+import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
+import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
+import { resourcesInReach } from "@shared/region-reach";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
@@ -718,53 +719,87 @@ export const regionVisibility = (
     .sort((a, b) => a.id.localeCompare(b.id));
 };
 
+/** Where resolution looks for what a target could mean: what the caller reaches for this op. */
+export type TargetCandidates = (doc: Canvas, callerId: string, op: WorkOpName) => ReadonlyArray<TargetCandidate>;
+
+const candidateOf = (node: Node): TargetCandidate => ({ kind: node.kind, nodeId: node.id, name: titleOf(node) });
+
+/** Mail: every seat wired to the caller that this op admits. */
+export const wiredTargetCandidates: TargetCandidates = (doc, callerId, op) =>
+  wiredNodes(doc, callerId)
+    .filter((node) => Result.isSuccess(admitWorkTarget(doc, callerId, node.id, op)))
+    .map(candidateOf);
+
 /**
- * The node a target names, as a seat typed it: a node id, or the name of a
- * node it is wired to and may reach with this op. A name two of those share
- * is refused, listing each; a name none of them has is refused, naming the
- * ones it can reach. An id is passed on for the op's own admission to judge.
+ * Resource ops: every resource node in the caller's region reach (01). An op
+ * that names items adds them beside their node, with their numbers.
+ */
+export const reachTargetCandidates: TargetCandidates = (doc, callerId) =>
+  resourcesInReach(doc, asNodeId(callerId))
+    .map((reached) => findNode(doc, reached.id))
+    .filter((node): node is Node => node !== undefined)
+    .map(candidateOf);
+
+/**
+ * The node, or item, a target names as a seat typed it: a node id, a
+ * `junto://` ref, `#42`, or the name of something it reaches with this op. A
+ * name two candidates share is refused listing each; a target nothing matches
+ * is refused naming every candidate. An id or a ref to an existing node is
+ * passed on for the op's own admission to judge.
  */
 export const resolveWorkTarget = (
   doc: Canvas,
   callerId: string,
   typed: string,
   op: WorkOpName,
-): Result.Result<string, WorkErrorBody> => {
+  candidatesOf: TargetCandidates = wiredTargetCandidates,
+): Result.Result<ResolvedTarget, WorkErrorBody> => {
   const wanted = typed.trim();
-  if (findNode(doc, wanted) !== undefined) return Result.succeed(wanted);
-  const reachable = wiredNodes(doc, callerId).filter((node) =>
-    Result.isSuccess(admitWorkTarget(doc, callerId, node.id, op)),
-  );
-  const match = findSeatByName(reachable, wanted);
-  if (match.ok) return Result.succeed(match.node.id);
-  const listed = (nodes: ReadonlyArray<Node>) => nodes.map((node) => seatIdentity(doc, node));
-  const line = (seat: SeatIdentity) => `${seatLabel(seat)} [${seat.nodeId}]`;
-  if (match.reason === "ambiguous") {
-    const seats = listed(match.matches);
+  const resolved = resolveTarget({
+    typed: wanted,
+    candidates: candidatesOf(doc, callerId, op),
+    kindOf: (nodeId) => findNode(doc, nodeId)?.kind,
+  });
+  if (resolved.ok) return Result.succeed(resolved.target);
+  if (resolved.reason === "malformed") {
     return Result.fail({
       type: "InputError",
-      message: `"${wanted}" names ${seats.length} seats you can reach: ${seats.map(line).join("; ")}`,
+      message: resolved.message,
+      details: { path: "target", retryable: false, next_step: "send the ref exactly as Junto printed it" },
+    });
+  }
+  const line = (candidate: TargetCandidate): string => {
+    const node = findNode(doc, candidate.nodeId);
+    const label = node !== undefined && candidate.itemId === undefined ? seatLabel(seatIdentity(doc, node)) : candidate.name;
+    const number = candidate.number === undefined ? "" : `#${candidate.number} `;
+    return `${number}${label} [${candidate.itemId ?? candidate.nodeId}]`;
+  };
+  const candidates = resolved.candidates;
+  if (resolved.reason === "ambiguous") {
+    return Result.fail({
+      type: "InputError",
+      message: `"${wanted}" names ${candidates.length} things you can reach: ${candidates.map(line).join("; ")}`,
       details: {
         target: wanted,
         retryable: false,
-        seats,
+        candidates,
         next_step: "send again with the node id of the one you mean",
       },
     });
   }
-  const seats = listed(reachable);
+  const what = resolved.typed.kind === "number" ? `no task you can reach is ${wanted}` : `nothing you can reach is called "${wanted}"`;
   return Result.fail({
     type: "UnknownTarget",
-    message: seats.length === 0
-      ? `no seat you can reach is called "${wanted}", and this seat reaches none`
-      : `no seat you can reach is called "${wanted}"; you can reach ${seats.map(line).join("; ")}`,
+    message: candidates.length === 0
+      ? `${what}, and this seat reaches nothing for this command`
+      : `${what}; you can reach ${candidates.map(line).join("; ")}`,
     details: {
       target: wanted,
       retryable: false,
-      seats,
-      next_step: seats.length === 0
+      candidates,
+      next_step: candidates.length === 0
         ? "ask the operator to wire this seat to the one it should reach"
-        : "send again with one of these names or node ids",
+        : "send again with one of these names or ids",
     },
   });
 };

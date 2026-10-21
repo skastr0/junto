@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSeatByName, regionPathText, seatIdentity, seatLabel, seatRegions } from "../src/shared/model";
+import { regionPathText, seatIdentity, seatLabel, seatRegions } from "../src/shared/model";
 import { canvasOf, region, seat } from "./support/model-nodes";
 
 const at = (x: number, y: number) => ({ x, y, width: 100, height: 40 });
@@ -30,15 +30,5 @@ describe("seat identity", () => {
     expect(seatLabel(seatIdentity(canvas, node("lead")))).toBe("cli-lead (Junto / CLI)");
     expect(seatLabel(seatIdentity(canvas, node("loose")))).toBe("loose");
     expect(regionPathText([])).toBeUndefined();
-  });
-
-  it("finds a seat by id, or by name ignoring case, and calls a shared name ambiguous", () => {
-    const seats = [...canvas.nodes.values()].filter((candidate) => candidate.kind === "agent");
-    expect(findSeatByName(seats, "lead")).toMatchObject({ ok: true, node: { id: "lead" } });
-    expect(findSeatByName(seats, "  CLI-Lead ")).toMatchObject({ ok: true, node: { id: "lead" } });
-    expect(findSeatByName(seats, "nobody")).toEqual({ ok: false, reason: "none" });
-    const twins = findSeatByName(seats, "HELPER");
-    expect(twins.ok).toBe(false);
-    expect(!twins.ok && twins.reason === "ambiguous" && twins.matches.map((match) => match.id)).toEqual(["twin-a", "twin-b"]);
   });
 });

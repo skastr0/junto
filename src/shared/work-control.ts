@@ -16,6 +16,9 @@ import {
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
+import { NODE_KINDS } from "./model/kinds";
+import { NodeId } from "./physics/schema";
+import { ItemId, OpId, TaskNumber } from "./work-ids";
 import {
   AgentSignal,
   AgentSignalAttachmentInput,
@@ -159,16 +162,24 @@ export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
 "InternalError",
 "Paused",
 "Timeout",
-"ReviewerIsAuthor",]);
+"ReviewerIsAuthor",
+/** Written against an old version; `expected` is the head, and a retry on it may pass. */
+"Stale",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
 
-/** A seat as mail names it: its id, its name, and its regions outermost first. */
-export const SeatIdentityWire = Schema.Struct({
-  nodeId: Schema.String,
+/**
+ * A node, or an item inside one, that a refused target could have meant or
+ * that the caller reaches. `kind` is the node's kind; `itemId` and `number`
+ * name an item in it (a task's id and its `#42`).
+ */
+export const TargetCandidate = Schema.Struct({
+  kind: Schema.Literals(NODE_KINDS),
+  nodeId: NodeId,
+  itemId: Schema.optionalKey(ItemId),
   name: Schema.String,
-  regions: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  number: Schema.optionalKey(TaskNumber),
 });
-export type SeatIdentityWire = typeof SeatIdentityWire.Type;
+export type TargetCandidate = typeof TargetCandidate.Type;
 
 export const WorkErrorDetails = Schema.Struct({
   path: Schema.optionalKey(Schema.String),
@@ -186,9 +197,12 @@ export const WorkErrorDetails = Schema.Struct({
   /** Durable prompt identity, returned even when immediate admission refuses. */
   messageId: Schema.optionalKey(Schema.String),
   generation: Schema.optionalKey(Schema.String),
+  /** A sub-code in snake_case, such as `queue_full` or `depends_on_refused`. */
   reason: Schema.optionalKey(Schema.String),
-  /** The seats a refused target could have meant, or the ones the caller can reach. */
-  seats: Schema.optionalKey(Schema.Array(SeatIdentityWire)),
+  /** What a refused target could have meant, or what the caller reaches. */
+  candidates: Schema.optionalKey(Schema.Array(TargetCandidate)),
+  /** The write this refusal or timeout is about; a retry resends it. */
+  opId: Schema.optionalKey(OpId),
 });
 export type WorkErrorDetails = typeof WorkErrorDetails.Type;
 
@@ -198,6 +212,38 @@ export const WorkErrorBody = Schema.Struct({
   details: Schema.optionalKey(WorkErrorDetails),
 });
 export type WorkErrorBody = typeof WorkErrorBody.Type;
+
+/** A write against an old version: retryable, with the head version it should build on. */
+export const staleError = (input: {
+  readonly message: string;
+  readonly expected: string | number;
+  readonly reason?: string;
+  readonly opId?: OpId;
+}): WorkErrorBody => ({
+  type: "Stale",
+  message: input.message,
+  details: {
+    expected: input.expected,
+    retryable: true,
+    ...(input.reason === undefined ? {} : { reason: input.reason }),
+    ...(input.opId === undefined ? {} : { opId: input.opId }),
+  },
+});
+
+/**
+ * The writing machine's queue for the editing machine is full: the one write
+ * refusal that comes from the editing machine being away. Retryable.
+ */
+export const queueFullError = (opId: OpId): WorkErrorBody => ({
+  type: "RuntimeDown",
+  message: "the queue of writes waiting for the editing machine is full",
+  details: {
+    reason: "queue_full",
+    retryable: true,
+    opId,
+    next_step: "wait for the editing machine to come back, then send again with the same --op-id",
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Request / response envelopes (wire)

@@ -176,9 +176,9 @@ describe("a mail target is a seat's name or its node id", () => {
     const refused = await call("agent", "msg.send", { target: "reviewer", text: "which one?" });
     expect(refused.ok).toBe(false);
     expect(refused.error.type).toBe("InputError");
-    expect(refused.error.details.seats).toEqual([
-      { nodeId: "rev-a", name: "reviewer", regions: [JUNTO] },
-      { nodeId: "rev-b", name: "reviewer", regions: [JUNTO, PTY] },
+    expect(refused.error.details.candidates).toEqual([
+      { kind: "agent", nodeId: "rev-a", name: "reviewer" },
+      { kind: "agent", nodeId: "rev-b", name: "reviewer" },
     ]);
     expect(refused.error.message).toContain("reviewer (Junto) [rev-a]");
     expect(refused.error.message).toContain("reviewer (Junto / PTY) [rev-b]");
@@ -191,7 +191,7 @@ describe("a mail target is a seat's name or its node id", () => {
       const refused = await call("agent", "msg.send", { target, text: "hello?" });
       expect(refused.ok).toBe(false);
       expect(refused.error.type).toBe("UnknownTarget");
-      expect(refused.error.details.seats.map((seat: { nodeId: string }) => seat.nodeId)).toEqual(["lead", "rev-a", "rev-b"]);
+      expect(refused.error.details.candidates.map((candidate: { nodeId: string }) => candidate.nodeId)).toEqual(["lead", "rev-a", "rev-b"]);
       expect(refused.error.message).toContain("cli-lead (Junto / CLI) [lead]");
     }
     expect(await mailbox("solo-seat")).toEqual([]);

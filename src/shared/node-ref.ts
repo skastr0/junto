@@ -3,10 +3,18 @@
 // never encodes an action, URL, browser profile, token, path, or capability.
 
 import { isCanonicalCanvasName } from "./canvas-name";
+import { isItemId, type ItemId } from "./work-ids";
 
+/**
+ * A node, or an item inside it with `itemId` (`&item=<itemId>`). The canvas
+ * name is part of the canonical form, but a resolver keys on the node id and
+ * item and takes the canvas from context, so a renamed canvas's old links
+ * still resolve.
+ */
 export interface NodeRef {
   readonly canvasName: string;
   readonly nodeId: string;
+  readonly itemId?: ItemId;
 }
 
 export type NodeRefKey = string;
@@ -18,6 +26,7 @@ export type NodeRefErrorCode =
   | "canvas_name"
   | "encoding"
   | "node_id"
+  | "item_id"
   | "canonical";
 
 export interface NodeRefParseError {
@@ -34,7 +43,7 @@ export class NodeRefFormatError extends Error {
   readonly name = "NodeRefFormatError";
 
   constructor(
-    readonly code: Extract<NodeRefErrorCode, "canvas_name" | "node_id" | "encoding">,
+    readonly code: Extract<NodeRefErrorCode, "canvas_name" | "node_id" | "item_id" | "encoding">,
     message: string,
   ) {
     super(message);
@@ -88,7 +97,11 @@ export const formatNodeRef = (ref: NodeRef): NodeRefKey => {
   } catch {
     throw new NodeRefFormatError("encoding", "node id is not valid Unicode");
   }
-  return `${SCHEME}://${AUTHORITY}/${ref.canvasName}?node=${encodedNodeId}`;
+  if (ref.itemId !== undefined && !isItemId(ref.itemId)) {
+    throw new NodeRefFormatError("item_id", "item id must be a ULID");
+  }
+  const item = ref.itemId === undefined ? "" : `&item=${ref.itemId}`;
+  return `${SCHEME}://${AUTHORITY}/${ref.canvasName}?node=${encodedNodeId}${item}`;
 };
 
 export const nodeRefKey = (ref: NodeRef): NodeRefKey => formatNodeRef(ref);
@@ -123,11 +136,16 @@ export const parseNodeRef = (input: string): NodeRefSchemaIssue => {
   }
 
   const canvasName = pathAndQuery.slice(0, queryStart);
-  const query = pathAndQuery.slice(queryStart + 1);
-  if (canvasName.includes("/") || query.includes("&") || !query.startsWith("node=")) {
-    return fail("shape", "Junto reference must be /<canvas-name>?node=<node-id>");
+  const [nodeParam, itemParam, ...extra] = pathAndQuery.slice(queryStart + 1).split("&");
+  if (
+    canvasName.includes("/") ||
+    extra.length > 0 ||
+    !nodeParam!.startsWith("node=") ||
+    (itemParam !== undefined && !itemParam.startsWith("item="))
+  ) {
+    return fail("shape", "Junto reference must be /<canvas-name>?node=<node-id>, optionally &item=<item-id>");
   }
-  const encodedNodeId = query.slice("node=".length);
+  const encodedNodeId = nodeParam!.slice("node=".length);
   if (encodedNodeId.length === 0) {
     return fail("node_id", "node id must not be empty");
   }
@@ -145,7 +163,12 @@ export const parseNodeRef = (input: string): NodeRefSchemaIssue => {
     return fail("node_id", "node id is empty, oversized, or contains a forbidden character");
   }
 
-  const value: NodeRef = { canvasName, nodeId };
+  const itemId = itemParam?.slice("item=".length);
+  if (itemId !== undefined && !isItemId(itemId)) {
+    return fail("item_id", "item id must be a ULID");
+  }
+
+  const value: NodeRef = { canvasName, nodeId, ...(itemId === undefined ? {} : { itemId }) };
   let canonical: NodeRefKey;
   try {
     canonical = formatNodeRef(value);

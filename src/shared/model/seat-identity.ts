@@ -39,25 +39,3 @@ export const seatLabel = (identity: Pick<SeatIdentity, "name" | "regions">): str
   const path = regionPathText(identity.regions);
   return path === undefined ? identity.name : `${identity.name} (${path})`;
 };
-
-export type SeatNameMatch =
-  | { readonly ok: true; readonly node: Node }
-  | { readonly ok: false; readonly reason: "none" }
-  | { readonly ok: false; readonly reason: "ambiguous"; readonly matches: ReadonlyArray<Node> };
-
-const fold = (text: string): string => text.trim().toLowerCase();
-
-/**
- * Find a seat among candidates by what a seat typed: its node id exactly, or
- * its name ignoring case. A name two candidates share is ambiguous; the caller
- * refuses it and lists them.
- */
-export const findSeatByName = (candidates: ReadonlyArray<Node>, typed: string): SeatNameMatch => {
-  const byId = candidates.find((node) => node.id === typed.trim());
-  if (byId !== undefined) return { ok: true, node: byId };
-  const wanted = fold(typed);
-  if (wanted === "") return { ok: false, reason: "none" };
-  const matches = candidates.filter((node) => fold(titleOf(node)) === wanted);
-  if (matches.length === 1) return { ok: true, node: matches[0]! };
-  return matches.length === 0 ? { ok: false, reason: "none" } : { ok: false, reason: "ambiguous", matches };
-};
