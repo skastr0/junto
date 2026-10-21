@@ -9,6 +9,8 @@ import {
   FIRINGS_PAGE_MAX,
   type FiringCause,
   type FiringOutcome,
+  type LastOutcome,
+  lastOutcomeOf,
 } from "@shared/automation";
 import {
   type AutomationFact,
@@ -51,6 +53,11 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
       canvasName: string,
       nodeId: NodeId,
     ) => Effect.Effect<ReadonlyArray<Automation>, AutomationPersistenceError>;
+    /** What each live automation's newest firing came to, by automation id; one that never fired has no key. */
+    readonly lastOutcomes: (
+      canvasName: string,
+      nodeId: NodeId,
+    ) => Effect.Effect<Readonly<Record<string, LastOutcome>>, AutomationPersistenceError>;
     readonly cursor: (
       canvasName: string,
       automationId: AutomationId,
@@ -249,6 +256,29 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         });
       });
 
+      const lastOutcomes = Effect.fn("AutomationRepository.lastOutcomes")(function* (canvasName: string, nodeId: NodeId) {
+        const rows = yield* sql<{ readonly firing_json: string }>`
+          SELECT f.firing_json FROM automation_firings f
+          JOIN automations a ON a.canvas_name = f.canvas_name AND a.automation_id = f.automation_id
+          WHERE a.canvas_name = ${canvasName} AND a.node_id = ${nodeId} AND a.archived = 0
+            AND f.firing_id = (
+              SELECT MAX(g.firing_id) FROM automation_firings g
+              WHERE g.canvas_name = f.canvas_name AND g.automation_id = f.automation_id
+            )
+        `.pipe(Effect.mapError(failure("lastOutcomes")));
+        return yield* Effect.try({
+          try: () => {
+            const byAutomation: Record<string, LastOutcome> = {};
+            for (const row of rows) {
+              const firing = decodeFiring(JSON.parse(row.firing_json));
+              byAutomation[firing.automationId] = lastOutcomeOf(firing.outcome);
+            }
+            return byAutomation;
+          },
+          catch: failure("lastOutcomes"),
+        });
+      });
+
       const cursor = Effect.fn("AutomationRepository.cursor")(function* (canvasName: string, automationId: AutomationId) {
         const rows = yield* sql<{ readonly cursor_epoch_ms: number }>`
           SELECT cursor_epoch_ms FROM automation_cursors WHERE canvas_name = ${canvasName} AND automation_id = ${automationId}
@@ -409,6 +439,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         loadState,
         applyFacts,
         list,
+        lastOutcomes,
         cursor,
         setCursor,
         rulingCursor,

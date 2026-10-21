@@ -47,7 +47,9 @@ export const automationIpcHandlers = (run: AutomationsRun, changed: (event: Auto
     run(Effect.gen(function* () {
       const canvas = yield* decode(CanvasName)(canvasName);
       const request = yield* decode(AutomationListRequest)(input);
-      return { automations: yield* (yield* AutomationRepository).list(canvas, request.nodeId) };
+      const repository = yield* AutomationRepository;
+      const automations = yield* repository.list(canvas, request.nodeId);
+      return { automations, lastOutcomes: yield* repository.lastOutcomes(canvas, request.nodeId) };
     })),
 
   firings: (canvasName: unknown, input: unknown): Promise<AutomationFiringsResponse> =>

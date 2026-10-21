@@ -13,7 +13,7 @@ import { ItemId } from "../src/shared/work-ids";
 import { liveAutomationPorts } from "../src/main/junto/work/automation-control";
 import { asNodeId } from "../src/shared/physics/schema";
 import { OpId } from "../src/shared/work-ids";
-import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelService } from "../src/main/junto/model/service";
@@ -24,7 +24,7 @@ import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { seat } from "./support/model-nodes";
-import type { AutomationDefinition, AutomationsChanged } from "../src/shared/automation";
+import { Firing, type AutomationDefinition, type AutomationsChanged, type FiringOutcome } from "../src/shared/automation";
 import { Command } from "../src/shared/model";
 import { Artifacts, Automations, TaskBoard } from "../src/shared/model/kinds";
 import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
@@ -54,7 +54,7 @@ const run = async (
     handlers: ReturnType<typeof automationIpcHandlers>,
     changed: AutomationsChanged[],
     sql: (statement: string) => Promise<void>,
-    inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository | AutomationRunnerService | ModelService>) => Promise<A>,
+    inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository | AutomationRunnerService | ModelService | AutomationRepository>) => Promise<A>,
   ) => Promise<void>,
   /** A stand-in work service; without it the runner has none, as where it is not built. */
   work?: Partial<WorkServiceShape>,
@@ -137,6 +137,26 @@ describe("automation IPC", () => {
       await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition } });
       expect(await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "archive" } })).toEqual({ kind: "applied" });
       expect((await handlers.list("factory", { nodeId: NODE })).automations).toEqual([]);
+    }));
+
+  it("lists each automation's newest firing as its last outcome, failed when an action was refused", () =>
+    run(async (handlers, _changed, _sql, inApp) => {
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition } });
+      expect((await handlers.list("factory", { nodeId: NODE })).lastOutcomes).toEqual({});
+      const firing = (firingId: string, outcome: FiringOutcome): Firing =>
+        Schema.decodeUnknownSync(Firing)({ firingId, automationId: ID, at: 1_000, cause: { kind: "change", key: firingId }, outcome });
+      const settle = (firingId: string, outcome: FiringOutcome) =>
+        inApp(Effect.gen(function* () {
+          const repository = yield* AutomationRepository;
+          yield* repository.claimFiring("factory", firing(firingId, { kind: "claimed" }));
+          yield* repository.settleFiring("factory", firing(firingId, { kind: "claimed" }), outcome);
+        }));
+      await settle("01M5FNN0000000000000000001", { kind: "fired", actions: [{ index: 0, ruling: "applied" }] });
+      expect((await handlers.list("factory", { nodeId: NODE })).lastOutcomes).toEqual({ [ID]: "fired" });
+      await settle("01M5FNN0000000000000000002", { kind: "fired", actions: [{ index: 0, ruling: "refused", reason: "invalid_input" }] });
+      expect((await handlers.list("factory", { nodeId: NODE })).lastOutcomes).toEqual({ [ID]: "failed" });
+      await settle("01M5FNN0000000000000000003", { kind: "skipped", reason: "min_interval" });
+      expect((await handlers.list("factory", { nodeId: NODE })).lastOutcomes).toEqual({ [ID]: "skipped" });
     }));
 
   it("rejects input that does not decode", () =>

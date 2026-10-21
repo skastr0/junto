@@ -423,7 +423,22 @@ export const FIRINGS_PAGE_MAX = 100;
 /** Every automation on one Automations node. */
 export const AutomationListRequest = Schema.Struct({ nodeId: NodeId });
 export type AutomationListRequest = typeof AutomationListRequest.Type;
-export const AutomationListResponse = Schema.Struct({ automations: Schema.Array(Automation) });
+/**
+ * What an automation's newest firing came to, for the card: `failed` is a
+ * firing that ran and had an action refused. Skipped (a limit) is not failed.
+ */
+export const LAST_OUTCOMES = ["claimed", "fired", "failed", "skipped"] as const;
+export const LastOutcome = Schema.Literals(LAST_OUTCOMES);
+export type LastOutcome = typeof LastOutcome.Type;
+
+export const lastOutcomeOf = (outcome: FiringOutcome): LastOutcome =>
+  outcome.kind === "fired" && outcome.actions.some((action) => action.ruling === "refused") ? "failed" : outcome.kind;
+
+/** `lastOutcomes` is keyed by automation id; an automation that never fired has no key. */
+export const AutomationListResponse = Schema.Struct({
+  automations: Schema.Array(Automation),
+  lastOutcomes: Schema.optionalKey(Schema.Record(Schema.String, LastOutcome)),
+});
 export type AutomationListResponse = typeof AutomationListResponse.Type;
 
 /**
