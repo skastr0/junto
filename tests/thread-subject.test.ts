@@ -8,6 +8,8 @@ import {
   type ThreadSubject,
   sameSubject,
   subjectNodeOf,
+  TEXT_QUOTE_MAX,
+  textAnchorOf,
   threadSubjectMetadata,
   threadSubjectOf,
 } from "../src/shared/thread-subject";
@@ -24,6 +26,19 @@ describe("thread subjects", () => {
     expect(threadSubjectOf({ metadata: { factoryMail: true } })).toBeUndefined();
     expect(subjectNodeOf(subject)).toBe(shelf);
     expect(subjectNodeOf({ kind: "mailbox", seat })).toBe(seat);
+  });
+
+  it("reads a subject stored before the quote bound with its quote cut, so it keeps its thread", () => {
+    const stored = { kind: "artifact", nodeId: shelf, artifactId, anchor: { kind: "text", quote: "q".repeat(TEXT_QUOTE_MAX + 500), offset: 4 } };
+    expect(threadSubjectOf({ metadata: { threadSubject: stored } })).toEqual({
+      ...stored,
+      anchor: { kind: "text", quote: "q".repeat(TEXT_QUOTE_MAX), offset: 4 },
+    });
+  });
+
+  it("cuts a quote at the bound without splitting a character", () => {
+    const quote = `${"q".repeat(TEXT_QUOTE_MAX - 1)}😀more`;
+    expect(textAnchorOf(quote).quote).toBe("q".repeat(TEXT_QUOTE_MAX - 1));
   });
 
   it("reads no subject from one that does not decode", () => {

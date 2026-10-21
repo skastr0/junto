@@ -58,12 +58,34 @@ export const TextAnchor = Schema.Struct({
 });
 export type TextAnchor = typeof TextAnchor.Type;
 
+/** A quote cut to TEXT_QUOTE_MAX, never through a character's surrogate pair. */
+const cutQuote = (quote: string): string => {
+  if (quote.length <= TEXT_QUOTE_MAX) return quote;
+  const cut = quote.slice(0, TEXT_QUOTE_MAX);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+};
+
 /** A text anchor on a selection, its quote cut to TEXT_QUOTE_MAX. */
 export const textAnchorOf = (quote: string, offset?: number): TextAnchor => ({
   kind: "text",
-  quote: quote.slice(0, TEXT_QUOTE_MAX),
+  quote: cutQuote(quote),
   ...(offset === undefined ? {} : { offset }),
 });
+
+/**
+ * A stored subject with its text quote cut to the bound. Rows written before
+ * TEXT_QUOTE_MAX hold the whole selection; read as cut, they keep their
+ * subject, and a reply copies the cut one.
+ */
+const withQuoteCut = (held: unknown): unknown => {
+  if (typeof held !== "object" || held === null) return held;
+  const anchor = (held as { readonly anchor?: unknown }).anchor;
+  if (typeof anchor !== "object" || anchor === null) return held;
+  const { kind, quote } = anchor as { readonly kind?: unknown; readonly quote?: unknown };
+  if (kind !== "text" || typeof quote !== "string" || quote.length <= TEXT_QUOTE_MAX) return held;
+  return { ...held, anchor: { ...anchor, quote: cutQuote(quote) } };
+};
 /** The longest file path a lines anchor names: a repo path, not prose. */
 export const LINES_FILE_MAX = 1_024;
 /** The most of a file path a notice header prints. */
@@ -132,7 +154,7 @@ export const threadSubjectOf = (message: {
 }): ResourceSubject | undefined => {
   const held = message.metadata?.[THREAD_SUBJECT_KEY];
   if (held === undefined) return undefined;
-  const read = decodeSubject(held);
+  const read = decodeSubject(withQuoteCut(held));
   return Result.isSuccess(read) ? read.success : undefined;
 };
 
