@@ -19,7 +19,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { executeOverseer } from "../src/main/junto/overseer/dispatch";
-import { makeOverseerNativeLive } from "../src/main/junto/overseer/native";
+import { makeOverseerNativeLive, workDetails } from "../src/main/junto/overseer/native";
 import { LinkBuildMismatch } from "../src/main/junto/link/types";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import type { OverseerRequest } from "../src/shared/overseer-control";
@@ -132,5 +132,26 @@ describe("a seat whose machine runs another build, as the CLI reads it", () => {
     expect(read._tag).toBe("Failure");
     if (read._tag !== "Failure") return;
     expect(read.failure).toMatchObject({ type: "RuntimeDown", message: "no window in test", details: { hint: '{"unavailable":true}' } });
+  });
+});
+
+describe("an overseer error's hint, on its way to the calling seat", () => {
+  const secret = "Authorization: Bearer ghp_seatsecret123";
+  // No native error sets a string or a hinted detail today; these are what a future one would send.
+  it.each([
+    ["a string detail", secret],
+    ["a decoded hint", { hint: secret, retryable: false }],
+    ["the JSON of any other detail", { unavailable: true, why: secret }],
+    ["expected, never passed as data", { expected: secret }],
+  ])("%s comes out scrubbed", (_, details) => {
+    const scrubbed = workDetails(details);
+    expect(scrubbed?.hint).toBeDefined();
+    expect(JSON.stringify(scrubbed)).not.toContain("ghp_seatsecret123");
+    expect(scrubbed?.expected).toBeUndefined();
+  });
+
+  it("keeps a decoded detail's other fields as data", () => {
+    expect(workDetails({ machine: OTHER_MACHINE })).toEqual({ machine: OTHER_MACHINE });
+    expect(workDetails({ hint: "plain", retryable: false })).toEqual({ hint: "plain", retryable: false });
   });
 });

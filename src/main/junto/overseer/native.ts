@@ -32,6 +32,7 @@ import type { ControlLease } from "../term/local-host";
 import { asNodeId, inPaintOrder, seatIdentity, type Canvas, type Node, type NodeOf } from "@shared/model";
 import { modelError } from "../model/records";
 import { encodeError } from "../failure-encode";
+import { scrubMessage } from "../credentials/scrub";
 import { LinkBuildMismatch } from "../link/types";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
@@ -208,17 +209,26 @@ const asWorkError = (error: OverseerErrorBody): WorkErrorBody => {
 
 const decodeWorkDetails = Schema.decodeUnknownResult(WorkErrorDetails, { onExcessProperty: "error" });
 
-/** Details as data when they fit the work shape; a string is the hint, and anything else its JSON. */
-const workDetails = (details: unknown): WorkErrorDetails | undefined => {
+/**
+ * Details as data when they fit the work shape; a string is the hint, and
+ * anything else its JSON. Every hint is scrubbed: it reaches the calling seat.
+ * Expected and received are unknown values, so they never pass as data.
+ */
+export const workDetails = (details: unknown): WorkErrorDetails | undefined => {
   if (details === undefined) return undefined;
-  if (typeof details === "string") return { hint: details };
+  if (typeof details === "string") return { hint: scrubMessage(details) };
   const decoded = decodeWorkDetails(details);
-  if (Result.isSuccess(decoded)) return decoded.success;
-  try {
-    return { hint: JSON.stringify(details) ?? String(details) };
-  } catch {
-    return { hint: String(details) };
+  if (Result.isSuccess(decoded) && decoded.success.expected === undefined && decoded.success.received === undefined) {
+    const { hint, ...rest } = decoded.success;
+    return hint === undefined ? rest : { ...rest, hint: scrubMessage(hint) };
   }
+  let text: string;
+  try {
+    text = JSON.stringify(details) ?? String(details);
+  } catch {
+    text = String(details);
+  }
+  return { hint: scrubMessage(text) };
 };
 
 const OVERSEER_PAGE_OWNER = "overseer";
