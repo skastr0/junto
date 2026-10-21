@@ -95,16 +95,22 @@ export const automationArea: AcceptanceArea = {
       inApp.runPromise<ReadonlyArray<Record<string, unknown>>>(Effect.flatMap(SqlClient.SqlClient, (client) => client.unsafe(statement)));
     const [own] = await sql(`SELECT editor_installation_id AS editor FROM canvases WHERE canvas_name = '${canvas}'`);
     const restore = own?.editor == null ? "NULL" : `'${String(own.editor)}'`;
+    // Work event sequences naming atlas: the refusal writes nothing, so there are none.
+    const naming = `FROM work_event_sequences WHERE event_home = '${EDITOR.installation}' OR entity_home = '${EDITOR.installation}'`;
     let offEditor: Awaited<ReturnType<typeof cli>>;
+    let leftover = -1;
     try {
       await sql(`INSERT INTO known_installations(installation_id,registered_at) VALUES ('${EDITOR.installation}','2026-10-21T00:00:00Z')`);
       await sql(`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('${EDITOR.machine}','${EDITOR.installation}','2026-10-21T00:00:00Z')`);
       await sql(`UPDATE canvases SET editor_installation_id = '${EDITOR.installation}' WHERE canvas_name = '${canvas}'`);
       offEditor = await cli(["overseer", "automation", "create", JSON.stringify({ ...ruledInput, name: "off the editor" })], overseer);
+      leftover = Number((await sql(`SELECT count(*) AS n ${naming}`))[0]?.n);
     } finally {
       // Later areas see the canvas, and this core's atlas, as they were.
       await sql(`UPDATE canvases SET editor_installation_id = ${restore} WHERE canvas_name = '${canvas}'`);
       await sql(`DELETE FROM machine_peers WHERE machine_name = '${EDITOR.machine}'`);
+      // Asserted none below; any there would hold known_installations by its RESTRICT key.
+      await sql(`DELETE ${naming}`);
       await sql(`DELETE FROM known_installations WHERE installation_id = '${EDITOR.installation}'`);
     }
     log("overseer automation create off the editing machine", offEditor.stdout || offEditor.stderr);
@@ -158,6 +164,7 @@ export const automationArea: AcceptanceArea = {
           String(off.error?.message).includes(EDITOR.machine) && String(off.error?.details?.next_step).includes(EDITOR.machine),
         offEditor,
       ),
+      check("the refused write leaves no work event sequence naming the editing machine", leftover === 0, offEditor),
     ];
   },
 };
