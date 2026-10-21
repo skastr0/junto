@@ -132,7 +132,7 @@ everyone else reports by mail and on the needs-you feed.
 | cli L2 `junto task` | cli-performance, review cli-identity | started |
 | cli L3 `junto artifact` | cli-identity, review cli-performance | started |
 | Artifacts main side: read ops, repository, version table, ruler's artifact ops | cli-identity (L3), on product-shell's `artifact.ts`, migration slot from canvas C3 | started |
-| Tasks main side: ops and ruler integration | canvas C4 if it covers them, else cli-performance (L2); cli-lead and canvas-lead settle | open |
+| Tasks main side | canvas C4 (canvas-writers): model, state machine, ruler (state, assignee, reviewers, stamps, numbers, flows send-on, ResourceCommand handler). cli L2 (cli-performance): control.ts op handlers and `junto task`. Seam: canvas's task contract | started |
 | Region reach contract | canvas, 945dc0d1c | landed |
 | Ids: `work-ids.ts` owns `ItemId` and `OpId`; others import | cli-protocol | decided, landing |
 | Listbox ARIA model | product-accessibility, a07e90e17 | landed |
