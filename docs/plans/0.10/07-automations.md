@@ -21,6 +21,11 @@ closed overseer ops, replacing scheduler fire, status and configure. A write's
 domain refuses every other seat. The stored author is the operator or that
 overseer seat.
 
+**A canvas copy leaves them at home.** Copying or cutting a canvas never
+carries its Automations nodes: a copy that brought them would fire the same
+mail and tasks twice, from a canvas nobody chose to automate. The operator or
+an overseer recreates them on the copy.
+
 ## Today
 
 - No scheduler service; the kernel runs it (`src/main/junto/kernel/cycle.ts`,
