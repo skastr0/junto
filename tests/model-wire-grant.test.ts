@@ -27,7 +27,7 @@ describe("wireGrant", () => {
 
   it("lets a mask take ports away and never add one", () => {
     const masked = wireGrant(
-      wire("messages", "lead", "worker", ["msg.list", "tasks.claim"]),
+      wire("messages", "lead", "worker", ["msg.list", "browser.automate"]),
       kinds,
     );
     expect(masked?.ports).toEqual(["msg.list"]);

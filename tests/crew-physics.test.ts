@@ -45,10 +45,12 @@ describe("crew wire authority", () => {
     expect(allows(canvasWith([empty]), "author", "reviewer", "msg.send")).toBe(false);
   });
 
-  it("cannot manufacture review, task update, input or signal power in a mask", () => {
-    const masked = messages(["tasks.update", "terminal.read"]);
+  it("cannot manufacture review, task, input or signal power in a mask", () => {
+    const masked = messages(["browser.automate", "terminal.read"]);
     expect(wireGrant(masked, wireKinds(seats))?.ports).toEqual(["terminal.read"]);
-    expect(decodes({ ...messages(), mask: ["verdict.post"] })).toBe(false);
+    for (const retired of ["verdict.post", "tasks.update", "artifact.publish"]) {
+      expect(decodes({ ...messages(), mask: [retired] }), retired).toBe(false);
+    }
     for (const invalid of ["terminal.write", "terminal.resize", "terminal.signal"]) {
       expect(decodes({ ...messages(), mask: [invalid] }), invalid).toBe(false);
     }

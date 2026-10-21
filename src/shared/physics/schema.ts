@@ -29,31 +29,17 @@ export type FactoryRole = typeof FactoryRole.Type;
 // ---------------------------------------------------------------------------
 // Ports — capability facets on an edge (access plane, not phase/criteria)
 
-export const Port = Schema.Literals(["tasks.list", "tasks.create",
-"tasks.claim",
-"tasks.update",
-"msg.list",
-"msg.send",
-"msg.prompt",
-"seat.wait",
-"terminal.read",
-"artifact.publish",
-"browser.automate",]);
-export type Port = typeof Port.Type;
-
-export const ALL_PORTS: ReadonlyArray<Port> = [
-  "tasks.list",
-  "tasks.create",
-  "tasks.claim",
-  "tasks.update",
+export const Port = Schema.Literals([
   "msg.list",
   "msg.send",
   "msg.prompt",
   "seat.wait",
   "terminal.read",
-  "artifact.publish",
   "browser.automate",
-];
+]);
+export type Port = typeof Port.Type;
+
+export const ALL_PORTS: ReadonlyArray<Port> = Port.literals;
 
 export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
   HashSet.fromIterable(ports);

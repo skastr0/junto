@@ -276,3 +276,9 @@ export const STATE_SCHEMA_V47_SQL = stepped(
   STATE_SCHEMA_V46_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 47)!.migrate,
 );
+
+// Version 48 took the task and artifact ports out of every wire mask (47 -> 48).
+export const STATE_SCHEMA_V48_SQL = stepped(
+  STATE_SCHEMA_V47_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 48)!.migrate,
+);

@@ -52,6 +52,10 @@ import {
 } from "./migrate-canvas-deletions";
 import { RELAY_TRIGGER_PORT_REPLACED_TABLES, migrateRelayTriggerPort } from "./migrate-relay-trigger-port";
 import {
+  TASK_ARTIFACT_PORTS_REPLACED_TABLES,
+  migrateTaskArtifactPorts,
+} from "./migrate-task-artifact-ports";
+import {
   BOARD_REQUESTS_REMOVED_TABLES,
   BOARD_REQUESTS_REPLACED_TABLES,
   migrateBoardRequests,
@@ -609,7 +613,18 @@ export const STATE_SCHEMA_V47_IDENTITY = {
     "34452160b8cd729a99fbabbed23eae8393f1bcfae9c181557f56d2e074570f11",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 47;
+/**
+ * Version 48 takes the `tasks.*` ports and `artifact.publish` out of every
+ * stored wire mask, so they can leave the closed list masks decode against:
+ * a seat reaches those nodes by region, with no port. The schema text does
+ * not move. Consolidate.
+ */
+export const STATE_SCHEMA_V48_IDENTITY = {
+  actualSchemaSha256:
+    "34452160b8cd729a99fbabbed23eae8393f1bcfae9c181557f56d2e074570f11",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 48;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -617,7 +632,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 47;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V47_IDENTITY;
+  STATE_SCHEMA_V48_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -978,6 +993,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V46_IDENTITY,
     replacesTables: ["content_refs"],
     migrate: (database) => migrateSignalContentOwner(database),
+  },
+  {
+    fromVersion: 47,
+    toVersion: 48,
+    name: "take the task and artifact ports out of every wire mask",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V47_IDENTITY,
+    replacesTables: [...TASK_ARTIFACT_PORTS_REPLACED_TABLES],
+    migrate: migrateTaskArtifactPorts,
   },
 ];
 

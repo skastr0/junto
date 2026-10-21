@@ -1,9 +1,5 @@
 import { Data, HashMap, HashSet, Match } from "effect";
-import {
-  ARTIFACTS_ENABLED,
-  BROWSER_ENABLED,
-  TASKS_ENABLED,
-} from "../features";
+import { BROWSER_ENABLED, TASKS_ENABLED } from "../features";
 import {
   isWellKnownKind,
   portSet,
@@ -39,24 +35,12 @@ export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
 ];
 
 const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
-const taskOffers = TASKS_ENABLED
-  ? portSet(
-    "tasks.list",
-    "tasks.create",
-    "tasks.claim",
-    "tasks.update",
-    "msg.list",
-    "msg.send",
-  )
-  : emptyOffers;
 // Feature-gated sink offers. A disabled feature keeps its role (historical
 // rows stay decodable and render as cards) but offers no port, so every
 // capability surface — CLI grants, work ops, overseer admin, station wire —
 // fails closed on the same empty set. The gate lives here, at the one table
 // both admission and the work vocabulary read.
-const artifactsOffers = ARTIFACTS_ENABLED
-  ? portSet("artifact.publish")
-  : emptyOffers;
+const taskOffers = TASKS_ENABLED ? portSet("msg.list", "msg.send") : emptyOffers;
 const pageOffers = BROWSER_ENABLED ? portSet("browser.automate") : emptyOffers;
 
 /**
@@ -86,7 +70,8 @@ export const KindSpecs = {
   agent: { kind: "agent", role: "actor", offers: msgOffers },
   page: { kind: "page", role: "sink", offers: pageOffers },
   task: { kind: "task", role: "sink", offers: taskOffers },
-  artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
+  // Artifacts offer no port: a seat publishes to the node in its reach.
+  artifacts: { kind: "artifacts", role: "sink", offers: emptyOffers },
   // Automations offer no port: only the operator and overseers write them,
   // and seats read them by reach, never by an edge.
   automations: { kind: "automations", role: "sink", offers: emptyOffers },

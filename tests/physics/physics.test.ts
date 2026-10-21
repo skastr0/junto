@@ -54,7 +54,7 @@ describe("physics PortGrant attenuation", () => {
   it("allows checks offers under full and subset", () => {
     const offers = portSet("browser.automate", "msg.send");
     expect(PortGrant.full.allows("browser.automate", offers)).toBe(true);
-    expect(PortGrant.full.allows("tasks.list", offers)).toBe(false);
+    expect(PortGrant.full.allows("msg.list", offers)).toBe(false);
     expect(PortGrant.of("msg.send").allows("msg.send", offers)).toBe(true);
     expect(PortGrant.of("msg.send").allows("browser.automate", offers)).toBe(false);
     expect(PortGrant.empty.allows("msg.send", offers)).toBe(false);
@@ -248,7 +248,7 @@ describe.runIf(!reachKindsOn)("physics reach, resource kinds gated off", () => {
       agent("worker", 40, 40),
       taskBoard("backlog", { x: 200, y: 40, ...SIZE }),
     ]);
-    const result = admitPure(canvasToCapabilityView(doc, VIEW), asNodeId("worker"), asNodeId("backlog"), "tasks.create");
+    const result = admitPure(canvasToCapabilityView(doc, VIEW), asNodeId("worker"), asNodeId("backlog"), "msg.send");
     expect(Result.isFailure(result)).toBe(true);
   });
 });
@@ -274,9 +274,9 @@ describe.runIf(reachKindsOn)("physics reach", () => {
   const reasonOf = (result: ReturnType<typeof admitPure>) =>
     Result.isFailure(result) ? result.failure.reason : "granted";
 
-  it("a seat uses a task board in its own region with no edge, every item port", () => {
+  it("a seat uses a task board in its own region with no edge, every port it offers", () => {
     const nodes = [outer, left, agent("worker", 40, 40), taskBoard("backlog", at(200, 40))];
-    for (const port of ["tasks.list", "tasks.create", "tasks.claim", "tasks.update"] as const) {
+    for (const port of ["msg.list", "msg.send"] as const) {
       expect(reasonOf(admits(nodes, "worker", "backlog", port)), port).toBe("granted");
     }
   });
@@ -284,14 +284,14 @@ describe.runIf(reachKindsOn)("physics reach", () => {
   it("a seat reaches a region inside its own and a region around it", () => {
     // Seat in outer, board in left: below. Seat in left, board in outer: above.
     const below = [outer, left, agent("lead", 450, 500), taskBoard("inner", at(40, 40))];
-    expect(reasonOf(admits(below, "lead", "inner", "tasks.create"))).toBe("granted");
+    expect(reasonOf(admits(below, "lead", "inner", "msg.send"))).toBe("granted");
     const above = [outer, left, agent("worker", 40, 40), taskBoard("top", at(450, 500))];
-    expect(reasonOf(admits(above, "worker", "top", "tasks.create"))).toBe("granted");
+    expect(reasonOf(admits(above, "worker", "top", "msg.send"))).toBe("granted");
   });
 
   it("a sibling region is out of reach, and the denial says so", () => {
     const nodes = [outer, left, right, agent("worker", 40, 40), taskBoard("theirs", at(540, 40))];
-    const result = admits(nodes, "worker", "theirs", "tasks.create");
+    const result = admits(nodes, "worker", "theirs", "msg.send");
     expect(reasonOf(result)).toBe("out_of_reach");
     if (Result.isFailure(result)) expect(result.failure.message).toMatch(/outside the reach/);
   });
@@ -299,26 +299,28 @@ describe.runIf(reachKindsOn)("physics reach", () => {
   it("an edge does not buy reach, and a wire's mask does not cut it", () => {
     // A stored wire to a sibling's board grants nothing across the regions.
     const apart = [outer, left, right, agent("worker", 40, 40), taskBoard("theirs", at(540, 40))];
-    const wired = admits(apart, "worker", "theirs", "tasks.create", [wire("e1", "worker", "theirs", "messages")]);
+    const wired = admits(apart, "worker", "theirs", "msg.send", [wire("e1", "worker", "theirs", "messages")]);
     expect(reasonOf(wired)).toBe("out_of_reach");
     // A masked wire to a board in reach takes no port away.
     const near = [outer, left, agent("worker", 40, 40), taskBoard("backlog", at(200, 40))];
-    const masked = admits(near, "worker", "backlog", "tasks.create", [
-      wire("e1", "worker", "backlog", "messages", { mask: ["tasks.list"] }),
+    const masked = admits(near, "worker", "backlog", "msg.send", [
+      wire("e1", "worker", "backlog", "messages", { mask: ["msg.list"] }),
     ]);
     expect(reasonOf(masked)).toBe("granted");
   });
 
   it("the root is on one line with everything", () => {
     const loose = [outer, left, agent("worker", 40, 40), taskBoard("root", at(2000, 2000))];
-    expect(reasonOf(admits(loose, "worker", "root", "tasks.create"))).toBe("granted");
+    expect(reasonOf(admits(loose, "worker", "root", "msg.send"))).toBe("granted");
     const looseSeat = [outer, left, agent("roamer", 2000, 2000), taskBoard("inner", at(40, 40))];
-    expect(reasonOf(admits(looseSeat, "roamer", "inner", "tasks.create"))).toBe("granted");
+    expect(reasonOf(admits(looseSeat, "roamer", "inner", "msg.send"))).toBe("granted");
   });
 
-  it("an artifacts node is a resource too", () => {
-    const nodes = [left, agent("worker", 40, 40), artifacts("shelf", at(200, 40))];
-    expect(reasonOf(admits(nodes, "worker", "shelf", "artifact.publish"))).toBe("granted");
+  it("an artifacts node is a resource too: reach decides it, and it offers no port", () => {
+    const near = [left, agent("worker", 40, 40), artifacts("shelf", at(200, 40))];
+    expect(reasonOf(admits(near, "worker", "shelf", "msg.send"))).toBe("no_port");
+    const apart = [outer, left, right, agent("worker", 40, 40), artifacts("shelf", at(540, 40))];
+    expect(reasonOf(admits(apart, "worker", "shelf", "msg.send"))).toBe("out_of_reach");
   });
 
   it("only what the resource offers is admitted", () => {
@@ -328,7 +330,7 @@ describe.runIf(reachKindsOn)("physics reach", () => {
 
   it("reach skips the machine check: the write travels to the machine that edits the canvas", () => {
     const nodes = [left, agent("away", 40, 40, OTHER_MACHINE), taskBoard("backlog", at(200, 40))];
-    expect(reasonOf(admits(nodes, "away", "backlog", "tasks.create"))).toBe("granted");
+    expect(reasonOf(admits(nodes, "away", "backlog", "msg.send"))).toBe("granted");
   });
 
   it("a page stays edge-bound: reach is for resource nodes only", () => {
@@ -339,7 +341,7 @@ describe.runIf(reachKindsOn)("physics reach", () => {
   it("a terminal is no actor and reaches nothing", () => {
     const nodes = [left, terminal("shell", at(40, 40)), taskBoard("backlog", at(200, 40))];
     // Not an actor, so not reach: the edge path refuses it, the same as any sink.
-    expect(reasonOf(admits(nodes, "shell", "backlog", "tasks.create"))).toBe("not_connected");
+    expect(reasonOf(admits(nodes, "shell", "backlog", "msg.send"))).toBe("not_connected");
   });
 });
 
@@ -456,7 +458,7 @@ describe("physics across machines", () => {
     const doc = canvasOf([agent("worker"), taskBoard("board", { x: 200 })]);
     for (const editingMachine of [THIS_MACHINE, OTHER_MACHINE]) {
       // Where the build gates the kind off (ship), it is refused from every machine.
-      const result = admits(doc, "worker", "board", "tasks.claim", editingMachine);
+      const result = admits(doc, "worker", "board", "msg.send", editingMachine);
       expect(Result.isSuccess(result), editingMachine).toBe(reachKindsOn);
       if (!reachKindsOn && Result.isFailure(result)) expect(result.failure.reason, editingMachine).not.toBe("other_machine");
     }
