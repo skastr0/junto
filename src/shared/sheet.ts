@@ -1,14 +1,10 @@
 /**
- * Sheet sink: a small operator-authored grid.
+ * Sheet: a small grid, the body of a sheet artifact.
  *
  * Deliberately not a spreadsheet. No formulas, no types, no formatting model —
  * every cell is text the operator typed, and the only structure is "which
- * column is this under". It exists so a number or a name can be jotted on the
- * canvas next to the work it belongs to, and so an agent can read that grid.
- *
- * Authority: the sheet grid's own SQLite row, read by node id and written by
- * operator commands. Agents read through `sheet.read`; the grid travels only
- * when it changes, independently of node placement and Work.
+ * column is this under". It exists so a number or a name can be jotted down
+ * beside the work it belongs to, and so an agent can read that grid.
  */
 
 import { Schema } from "effect";

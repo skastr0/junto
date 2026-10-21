@@ -1,7 +1,7 @@
 /**
  * Structural pad SVG for the privileged renderer. Pad strings never become
  * markup here — paint is resolved to hex/`none` or a trusted theme default.
- * Serialized `padToSvg` remains for pad.read / CLI / look-here export only.
+ * Serialized `padToSvg` is for export only.
  */
 import type { Pad, PadImage, PadInk, PadPin, PadShape } from "@shared/pad";
 import {

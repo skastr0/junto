@@ -64,15 +64,6 @@ const FROZEN_OPERATIONS = [
   "board.mark-read",
   "board.tags",
   "board.notify",
-  "pad.read",
-  "pad.patch",
-  "pad.digest",
-  "pad.render",
-  "pad.look-here",
-  "pad.get",
-  "pad.tagged",
-  "sheet.read",
-  "sheet.configure",
   "content.ingest",
   "content.path",
   "content.stat",
@@ -151,11 +142,6 @@ const FROZEN_READ_ONLY = [
   "artifact.get",
   "board.list",
   "board.tags",
-  "pad.digest",
-  "pad.render",
-  "pad.get",
-  "pad.tagged",
-  "sheet.read",
   "content.path",
   "content.stat",
   "agent.list",
@@ -192,7 +178,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(120);
+    expect(FROZEN_OPERATIONS).toHaveLength(111);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("GrantOverseer");
     expect(matrix).toContain("tests/overseer-admission.test.ts");
@@ -209,7 +195,6 @@ describe("overseer coverage matrix", () => {
     expect(matrix).toContain("| `page.eval` | mutation |");
     expect(matrix).toContain("| `canvas.screenshot` | mutation |");
     expect(matrix).toContain("| `msg.list` | mutation |");
-    expect(matrix).toContain("| `pad.read` | mutation |");
   });
 
   it("maps key risks to owning suites without a full-pass claim", () => {

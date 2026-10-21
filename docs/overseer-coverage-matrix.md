@@ -120,15 +120,6 @@ replay.
 | `board.mark-read` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `board.tags` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `board.notify` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.read` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.patch` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.digest` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.render` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.look-here` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `pad.tagged` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `sheet.read` | read | canvas `executeOverseerCanvas` | retired | handler `overseer/canvas.ts`; retired surface, suite removed |
-| `sheet.configure` | mutation | canvas `executeOverseerCanvas` | retired | handler `overseer/canvas.ts`; retired surface, suite removed |
 | `content.ingest` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/overseer-dispatch.test.ts; local ingest exercised; Remote page/content stay on caller installation in dispatch |
 | `content.path` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `content.stat` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |

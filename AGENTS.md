@@ -197,10 +197,7 @@ except closed overseer commands from a live granted seat.
 
 **Board:** `board.mark_read` is install-local. Operator megaphone / edge `wake` is UI only; agent posts never wake.
 
-**Pad (shared page):** a work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
-
-- Contract and guide: [`docs/pad.md`](docs/pad.md)
-- CLI: `junto pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
+**Pad:** an artifact body type, not a node. Contract: [`docs/pad.md`](docs/pad.md).
 
 ### Machines
 
@@ -228,8 +225,8 @@ except closed overseer commands from a live granted seat.
 `src/shared/model/` is the contract. Import from `@shared/model`.
 
 - **Node** — a closed union on `kind`: `agent` (a seat), `terminal`, `page`,
-  `task`, `requests`, `artifacts`, `board`, `pad`, `sheet`, `cron`, `relay`,
-  `watcher`, `note`, `label`, `file`, `link`, `git`, `region`. Each kind has
+  `task`, `requests`, `artifacts`, `board`, `cron`, `relay`, `watcher`,
+  `note`, `label`, `file`, `link`, `git`, `region`. Each kind has
   exactly its own fields. A new kind is a new member with its own table, never
   a string and a bag, and decoding refuses a field a kind does not have.
 - **Wire** — `from`, `to`, `verb`, an optional `mask`, and the sides it
@@ -258,7 +255,6 @@ of seats must not cost it a frame, and one command must change one row.
 | agent → task | `manages` \| `contributes` | task ports (`contributes` adds `tasks.claim`) |
 | agent → artifacts | `publishes` | `artifact.publish` |
 | agent → board | `messages` \| `participates` | board ports; `wake` false / true |
-| agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |
 | agent → page | `navigates` | `browser.automate` |
 | agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the seat's raised hand (an open `junto blocked` / `junto escalate` signal) |
 | task → agent | `works` | task ports; `claimable: true` — the claim selector reads this |
