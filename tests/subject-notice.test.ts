@@ -19,6 +19,7 @@ import {
 } from "../src/shared/subject-notice";
 import {
   Anchor,
+  LINES_FILE_MAX,
   sameSubject,
   subjectLabel,
   subjectAnchorOf,
@@ -94,6 +95,10 @@ describe("thread subject", () => {
     expect(subjectNodeOf(task)).toBe(BOARD);
     expect(subjectNodeOf({ kind: "mailbox", seat: SEAT_A })).toBe(SEAT_A);
     expect(subjectLabel(task)).toBe(`task ${TASK_ID} at ${BOARD}`);
+    const long = `${"d/".repeat(100)}a.ts`;
+    expect(subjectLabel({ kind: "page", nodeId: BOARD, anchor: { kind: "lines", file: long, from: 2, to: 2 } }))
+      .toBe(`page ${BOARD} (...${long.slice(-80)}:2)`);
+    expect(Schema.is(Anchor)({ kind: "lines", file: "a".repeat(LINES_FILE_MAX + 1), from: 1, to: 1 })).toBe(false);
     expect(sameSubject(task, { kind: "task", nodeId: BOARD, taskId: TASK_ID })).toBe(true);
     expect(sameSubject(task, { kind: "page", nodeId: BOARD })).toBe(false);
   });

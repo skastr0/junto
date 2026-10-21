@@ -88,12 +88,15 @@ const mentionsOf = (row: Message, seat: (nodeId: string) => SeatParty): Readonly
 
 /**
  * One mailbox row as thread mail, or undefined when it is not conversation:
- * receipts, Junto's own prompts, and a seat's private notes. A row in a
- * subject thread, a task comment or a notice on a resource, is thread mail
- * and carries its subject.
+ * receipts, Junto's own prompts, a seat's private notes, and a task comment
+ * with no subject. A row in a subject thread, a task comment or a notice on
+ * a resource, is thread mail and carries its subject.
  */
 const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatParty): Entry | undefined => {
   if (row.metadata?.factoryMail !== true) return undefined;
+  const subject = threadSubjectOf(row);
+  // A task comment from before subjects names its task and no subject: not thread mail.
+  if (row.taskId !== undefined && subject === undefined) return undefined;
   if (stringField(row, "mailKind") === "receipt") return undefined;
   const fromSeat = stringField(row, "fromSeat");
   const senderName = stringField(row, "senderName");
@@ -102,6 +105,8 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
     if (senderName !== "operator") return undefined;
     from = OPERATOR;
   } else {
+    // A refusal notice has no seat stamp: it is written from the refused
+    // resource's node, and the thread names that node as its writer.
     const sender = stringField(row, "senderNodeId") ?? fromSeat;
     if (sender === undefined) return undefined;
     from = seat(sender);
@@ -117,7 +122,6 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
   const mentions = mentionsOf(row, seat);
   // Files only on the operator's mail: a seat's metadata never names a digest.
   const attachments = from.kind === "operator" ? attachmentsOf(row) : [];
-  const subject = threadSubjectOf(row);
   return {
     messageId: row.messageId,
     threadId: mailThreadOf(row),

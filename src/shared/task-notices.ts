@@ -1,6 +1,6 @@
 import type { MailMessageId, MailSenderStamp } from "./crew";
 import type { NodeId } from "./physics/schema";
-import { REFUSAL } from "./resource-command";
+import { REFUSAL, type RefusalReason } from "./resource-command";
 import { refusalText, subjectNoticeRecipients, type SubjectNoticeInput } from "./subject-notice";
 import {
   formatTaskNumber,
@@ -150,6 +150,21 @@ export const taskRefusalLostTo = (detail: TaskRefusalDetail, nameOf: (seat: Seat
   }
 };
 
+/** Each refusal reason as the seat reads it. Exhaustive: a new reason fails tsc here. */
+const REFUSAL_SENTENCE: { readonly [R in RefusalReason]: string } = {
+  not_in_reach: "the task is out of this seat's reach",
+  unknown_target: "it names something that is not there",
+  invalid_input: "the command does not fit the task",
+  invalid_transition: "the task is not in a state that takes it",
+  already_held: "someone else holds it",
+  reviewer_is_author: "a seat does not review its own task",
+  stale: "the task changed since the command was written",
+  rebase_conflict: "the change conflicts with a newer one",
+  depends_on_refused: "a command it depends on was refused",
+  not_available: "it is not available here",
+  queue_full: "the queue of pending writes is full",
+};
+
 export type RefusedTaskRuling = {
   readonly installationId: string;
   readonly opId: OpId;
@@ -181,7 +196,7 @@ export const taskRefusalNotice = (ruling: RefusedTaskRuling): Extract<SubjectNot
       command: `task ${ruling.command} on ${taskName(ruling.task)}`,
       error: {
         type: family.type,
-        message: ruling.refusal.reason,
+        message: REFUSAL_SENTENCE[ruling.refusal.reason],
         details: { retryable: family.retryable, ...(ruling.nextStep === undefined ? {} : { next_step: ruling.nextStep }) },
       },
       ...(lostTo === undefined ? {} : { lostTo }),

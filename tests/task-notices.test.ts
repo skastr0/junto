@@ -104,7 +104,7 @@ describe("task refusal notice", () => {
     });
     expect(notice).toMatchObject({ kind: "refusal", recipient: LEAD, from: { nodeId: NODE, name: "Tasks" } });
     expect(notice.text).toBe([
-      `task assign on ${T42} fix tabs was refused: already_held (ClaimConflict)`,
+      `task assign on ${T42} fix tabs was refused: someone else holds it (ClaimConflict)`,
       "lost to: pty-inject already holds the task",
       `next step: run junto task show ${T42}`,
     ].join("\n"));

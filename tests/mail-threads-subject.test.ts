@@ -59,4 +59,13 @@ describe("subject threads in a mailbox", () => {
     expect(messages.map((message) => message.subject?.kind)).toEqual(["task", "task"]);
     expect(messages[0]?.text).toBe(`pty-lead assigned you ${formatTaskNumber(TaskNumber.make(7))} fix tabs`);
   });
+
+  it("drops a task comment from before subjects: a taskId and no subject", () => {
+    const [notice] = notices(["01M5ESMJV6GNZ0891YFFWS0S3P"]);
+    const { threadSubject: _subject, ...bare } = notice!.metadata ?? {};
+    const legacy = { ...notice!, taskId: TASK, metadata: bare };
+    const input: MailThreadsInput = { mailboxes: [{ nodeId: WORKER, messages: [legacy] }], nameOf: () => undefined };
+    expect(seatMailThreads(input, WORKER)).toEqual([]);
+    expect(seatMailThreads({ ...input, mailboxes: [{ nodeId: WORKER, messages: [{ ...notice!, taskId: TASK }] }] }, WORKER)).toHaveLength(1);
+  });
 });

@@ -50,10 +50,15 @@ export const TextAnchor = Schema.Struct({
   quote: Schema.String.check(Schema.isMinLength(1)),
   offset: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
+/** The longest file path a lines anchor names: a repo path, not prose. */
+export const LINES_FILE_MAX = 1_024;
+/** The most of a file path a notice header prints. */
+const LABEL_FILE_MAX = 80;
+
 /** Git review's: lines of a file. Never an artifact's. */
 export const LinesAnchor = Schema.Struct({
   kind: Schema.Literal("lines"),
-  file: Schema.String.check(Schema.isMinLength(1)),
+  file: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(LINES_FILE_MAX)),
   from: Line,
   to: Line,
 }).check(Schema.makeFilter((lines) => lines.from <= lines.to || "a lines anchor ends at or after its first line"));
@@ -146,7 +151,7 @@ const anchorLabel = (anchor: PlaceAnchor | undefined): string => {
     case "text":
       return " (a quote)";
     case "lines":
-      return ` (${anchor.file}:${String(anchor.from)}${anchor.to === anchor.from ? "" : `-${String(anchor.to)}`})`;
+      return ` (${anchor.file.length > LABEL_FILE_MAX ? `...${anchor.file.slice(-LABEL_FILE_MAX)}` : anchor.file}:${String(anchor.from)}${anchor.to === anchor.from ? "" : `-${String(anchor.to)}`})`;
   }
 };
 
