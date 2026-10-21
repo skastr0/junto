@@ -7,10 +7,8 @@ import {
   Flame,
   Gauge,
   Globe,
-  Inbox,
   Link2,
   ListChecks,
-  MessageSquareText,
   Mic,
   Package,
   Pencil,
@@ -24,7 +22,7 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
-import type { TaskAdmission, TasksContract, TasksIncoming } from "@shared/work-model";
+import type { TaskAdmission, TasksIncoming } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
@@ -44,9 +42,8 @@ import {
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { openWorkDetail } from "../../lib/work-detail-open";
-import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { terminalBindingOf } from "@shared/terminal";
-import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
+import { openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { isProfileSeat } from "../../lib/agent-profiles";
@@ -458,26 +455,8 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
           </>
         );
       }
-      if (ACP_CHAT_SURFACE_HIDDEN) {
-        return (
-          <>
-            <OverseerToggleKey nodeId={node.id} />
-            {customize}
-            {rename}
-            {guidance}
-            {saveProfile}
-          </>
-        );
-      }
       return (
         <>
-          <KindKey
-            label="Open chat"
-            title="Open chat"
-            onClick={() => openAgentChatSurface(state$.canvasName.peek(), node.id)}
-          >
-            <MessageSquareText size={ICON} />
-          </KindKey>
           <OverseerToggleKey nodeId={node.id} />
           {customize}
           {rename}
@@ -500,25 +479,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
       return BROWSER_ENABLED ? <PageKindKeys node={node} /> : null;
     case "task":
       return <TaskKindKeys node={node} />;
-    case "requests":
-      return (
-        <>
-          <KindKey
-            label="Open request inbox"
-            title="Open requests"
-            onClick={() => openWorkDetail(node.id)}
-          >
-            <Inbox size={ICON} />
-          </KindKey>
-          <KindKey
-            label="Rename"
-            title="Rename"
-            onClick={() => state$.editNodeId.set(node.id)}
-          >
-            <Pencil size={ICON} />
-          </KindKey>
-        </>
-      );
     case "artifacts":
       return (
         <KindKey
@@ -528,25 +488,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
         >
           <Package size={ICON} />
         </KindKey>
-      );
-    case "board":
-      return (
-        <>
-          <KindKey
-            label="Open board"
-            title="Open the board"
-            onClick={() => openWorkDetail(node.id)}
-          >
-            <MessageSquareText size={ICON} />
-          </KindKey>
-          <KindKey
-            label="Rename"
-            title="Rename"
-            onClick={() => state$.editNodeId.set(node.id)}
-          >
-            <Pencil size={ICON} />
-          </KindKey>
-        </>
       );
     case "watcher":
     case "cron":
