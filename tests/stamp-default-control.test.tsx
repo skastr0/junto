@@ -11,9 +11,10 @@ const disabled = (html: string, label: string): boolean => {
 };
 
 describe("StampDefaultControl", () => {
-  it("says none at zero and stops going lower", () => {
+  it("reads zero plainly and stops going lower", () => {
     const html = draw(0);
-    expect(html).toContain("approvals, so none");
+    expect(html).toContain(">approvals<");
+    expect(html).not.toContain("so none");
     expect(disabled(html, "Default one fewer approval")).toBe(true);
     expect(disabled(html, "Default one more approval")).toBe(false);
   });

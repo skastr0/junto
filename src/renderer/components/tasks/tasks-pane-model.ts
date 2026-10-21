@@ -220,3 +220,26 @@ export const queuedCreates = (
       ? [{ taskId: write.taskId, title: write.command.title }]
       : [],
   );
+
+export type TasksGlance = {
+  /** Assigned, working or in review: held by a seat and moving. */
+  readonly open: number;
+  /** Paused for input: held by a seat that waits on someone. */
+  readonly needsInput: number;
+  readonly done: number;
+  /** The rows the card lists: what is held first, else what waits in the backlog. At most `limit`. */
+  readonly rows: ReadonlyArray<TaskView>;
+};
+
+/** What the Tasks node's card on the canvas shows: counts and the few tasks that matter now. */
+export const tasksGlance = (views: ReadonlyArray<TaskView>, limit = 4): TasksGlance => {
+  const count = (states: ReadonlyArray<TaskState>): number =>
+    views.filter((view) => states.includes(view.current.state)).length;
+  const held = visibleTasks(views, { state: "open", query: "" });
+  return {
+    open: count(["assigned", "working", "in-review"]),
+    needsInput: count(["input-required"]),
+    done: count(["done"]),
+    rows: (held.length > 0 ? held : visibleTasks(views, { state: "backlog", query: "" })).slice(0, limit),
+  };
+};

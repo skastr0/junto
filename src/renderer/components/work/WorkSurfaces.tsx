@@ -1,18 +1,11 @@
-import { useTaskItems } from "../../lib/use-work-sink";
 import { useNodeArtifacts } from "../../lib/artifacts-source";
 import { useAutomations } from "../../lib/automations-source";
 import { useWorkMail } from "../../lib/use-work-mail";
 import { type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { ListChecks, Package, Plus, Workflow } from "lucide-react";
-import type { Part, TaskState } from "@shared/work-model";
+import type { Part } from "@shared/work-model";
 import { TASKS_ENABLED } from "@shared/features";
-import {
-  compareTasksByLatestActivityDesc,
-  isTerminalTaskState,
-  taskBrief,
-} from "@shared/task";
-import { sinkGlance, taskScanCounts } from "@shared/attention";
 import { taskBoardTitle } from "@shared/model/title";
 import { renamed } from "../../lib/model-edits";
 import { openTaskCreateSurface } from "../../lib/dock-state";
@@ -24,8 +17,10 @@ import { state$ } from "../../lib/state";
 import { useCanvas, useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TasksNode } from "../tasks/TasksNode";
+import { numberLabel, tasksGlance } from "../tasks/tasks-pane-model";
+import { TaskStateMark } from "../ui";
 import { seatChoicesInReach } from "../tasks/tasks-canvas";
-import { installIpcTasksSource } from "../../lib/tasks-source";
+import { installIpcTasksSource, useNodeTasks } from "../../lib/tasks-source";
 import { getJuntoApi } from "../../lib/junto-api";
 import { titleOf } from "@shared/model/title";
 import { taskNodeId } from "@shared/task-model";
@@ -99,31 +94,9 @@ function SinkGlanceHead({
   );
 }
 
-/** One task-state palette, so a task reads the same wherever it is drawn. */
-export const stateHue = (state: TaskState): string => {
-  switch (state) {
-    case "completed":
-      return GREEN;
-    case "working":
-      return HUE.cyan;
-    case "input-required":
-    case "auth-required":
-      return HUE.amber;
-    case "failed":
-    case "rejected":
-      return HUE.crimson;
-    case "canceled":
-      return DIM;
-    case "submitted":
-      return DIM;
-    default:
-      return DIM;
-  }
-};
-
 // --- Cards -----------------------------------------------------------------
 
-/** Glance-grade sink: open count + input-required hot only. */
+/** The Tasks node on the canvas: how many are held, who waits on input, how many are done, and the tasks that matter now. */
 export function TasksCard({
   nodeId,
   renaming = false,
@@ -132,36 +105,11 @@ export function TasksCard({
 }: {
   readonly nodeId: string;
 } & SinkRenameProps) {
-  const { items } = useTaskItems(use$(state$.canvasName) || "", nodeId);
   const canvas = use$(state$.canvasName) || "";
-  const contract = useNodeFieldOf(canvas, nodeId, "task", (node) => node.contract);
+  installIpcTasksSource(getJuntoApi()?.resource?.task);
+  const views = useNodeTasks(canvas, taskNodeId(asNodeId(nodeId)));
   const name = useNodeValue(canvas, nodeId, (node) => taskBoardTitle(node?.kind === "task" ? node : undefined, nodeId).name);
-  const { needsInput } = sinkGlance(items, contract);
-  const { completed: completedCount } = taskScanCounts(items, contract);
-  // "Open" = unfinished work the fleet can act on: claimable/submitted +
-  // working. Input-required and residual auth-required are attention waits,
-  // not flight — they render as their own counter, disjoint from open.
-  // (Matches the board header counter; sinkGlance.queued would drop
-  // approval-gated and operator-assigned submitted tasks.)
-  const openCount = items.filter(
-    (t) => t.state === "submitted" || t.state === "working",
-  ).length;
-  const hotItems = items.filter(
-    (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
-  );
-  // Latest activity first on the glance list (and Closed / complete elsewhere).
-  const glancePool = (
-    hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state))
-  )
-    .slice()
-    .sort(compareTasksByLatestActivityDesc);
-  const visibleItems = glancePool.map((item) => ({
-    id: item.id,
-    brief: taskBrief(item),
-    state: item.state,
-    kind: "task" as const,
-  }));
-  const visibleRows = visibleItems.slice(0, 4);
+  const glance = tasksGlance(views);
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
       <SinkGlanceHead
@@ -203,41 +151,36 @@ export function TasksCard({
       >
         <span
           className="max-w-full truncate"
-          style={{ color: needsInput > 0 ? HUE.amber : DIM }}
+          style={{ color: glance.needsInput > 0 ? HUE.amber : DIM }}
           data-testid="tasks-glance"
         >
-          {`${openCount} open${needsInput > 0 ? ` - ${needsInput} need input` : ""}`}
+          {`${glance.open} open${glance.needsInput > 0 ? ` - ${glance.needsInput} need input` : ""}`}
         </span>
         <span
           className="max-w-full truncate"
-          style={{ color: completedCount > 0 ? GREEN : DIM }}
+          style={{ color: glance.done > 0 ? GREEN : DIM }}
           data-testid="tasks-glance-completed"
-          aria-label={`${completedCount} completed`}
+          aria-label={`${glance.done} done`}
         >
-          {`${completedCount} done`}
+          {`${glance.done} done`}
         </span>
       </div>
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {visibleRows.map((item) => (
-            <div
-              key={item.id}
-              className="factory-glance__row factory-glance__row--task truncate text-label leading-snug"
-              style={{ color: INK }}
-              data-state={item.state}
-              data-kind={item.kind}
-              data-attention={
-                item.state === "input-required" || item.state === "auth-required"
-                    ? "fire"
-                    : "idle"
-              }
-            >
-              <span style={{ color: stateHue(item.state) }}>
-                ●
-              </span>{" "}
-              {item.brief}
-            </div>
-          ))}
-        {items.length === 0 ? (
+        {glance.rows.map((view) => (
+          <div
+            key={view.taskId}
+            className="factory-glance__row factory-glance__row--task flex items-center gap-1 truncate text-label leading-snug"
+            style={{ color: INK }}
+            data-state={view.current.state}
+            data-kind="task"
+            data-attention={view.current.state === "input-required" ? "fire" : "idle"}
+          >
+            <TaskStateMark state={view.current.state} />
+            <span className="tabular-nums">{numberLabel(view)}</span>
+            <span className="truncate">{view.title}</span>
+          </div>
+        ))}
+        {views.length === 0 ? (
           <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
             empty
           </div>

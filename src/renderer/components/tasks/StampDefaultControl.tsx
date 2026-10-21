@@ -39,7 +39,7 @@ export function StampDefaultControl({
       >
         <Plus size={12} />
       </IconButton>
-      <span>{required === 0 ? "approvals, so none" : required === 1 ? "approval" : "approvals"}</span>
+      <span>{required === 1 ? "approval" : "approvals"}</span>
     </div>
   );
 }

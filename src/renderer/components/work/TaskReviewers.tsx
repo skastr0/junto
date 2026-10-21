@@ -134,7 +134,7 @@ export function TaskReviewers({
         </div>
       </header>
 
-      {required > 0 && (inReview || tally.slots.length > required) ? (
+      {required > 0 ? (
         <div className="task-reviewers__tally">
           <StampTally tally={tally} />
         </div>

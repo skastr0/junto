@@ -11,6 +11,7 @@ import {
   numberLabel,
   numberOfTask,
   openCount,
+  tasksGlance,
   taskContextFor,
   visibleTasks,
 } from "../src/renderer/components/tasks/tasks-pane-model";
@@ -116,6 +117,25 @@ describe("local tasks source", () => {
     const backlog = visibleTasks(views, { state: "backlog", query: "" });
     expect(listedTasks(backlog, backlog[0]!)).toBe(backlog);
     expect(listedTasks(backlog, null)).toBe(backlog);
+  });
+
+  it("counts what the canvas card shows: held, paused for input, done, and the rows that matter now", async () => {
+    const s = sourceWith();
+    const ids = [await create(s, "a"), await create(s, "b"), await create(s, "c"), await create(s, "d"), await create(s, "e")];
+    const seatAs = (seat: typeof ada) => s.as({ kind: "seat", seat });
+    await s.apply(CANVAS, build, ids[0]!, { kind: "assign", seat: ada });
+    await seatAs(ada).apply(CANVAS, build, ids[0]!, { kind: "start" });
+    await s.apply(CANVAS, build, ids[1]!, { kind: "assign", seat: bo });
+    await seatAs(bo).apply(CANVAS, build, ids[1]!, { kind: "start" });
+    await seatAs(bo).apply(CANVAS, build, ids[1]!, { kind: "pause" });
+    await s.apply(CANVAS, build, ids[2]!, { kind: "cancel" });
+    const views = await s.list(CANVAS, build);
+    const glance = tasksGlance(views);
+    expect(glance).toMatchObject({ open: 1, needsInput: 1, done: 0 });
+    expect(glance.rows.map((view) => view.title)).toEqual(["a", "b"]);
+    const quiet = tasksGlance(views.filter((view) => view.current.state === "backlog"));
+    expect(quiet.rows.map((view) => view.title)).toEqual(["d", "e"]);
+    expect(tasksGlance([])).toEqual({ open: 0, needsInput: 0, done: 0, rows: [] });
   });
 
   it("builds the ruler's context from the canvas's tasks", async () => {
