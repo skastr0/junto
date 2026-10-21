@@ -23,7 +23,7 @@ import { ItemId, OpId } from "../src/shared/work-ids";
 import type { MailMessageId, MailSenderStamp } from "../src/shared/crew";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
-import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { automations, canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { AUTOMATION_SEAT_ID } from "../src/shared/mail-author";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
@@ -36,7 +36,12 @@ import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { taskCanvasEnv, taskRulingContext } from "../src/main/junto/work/task-control";
+import { mintItemId, mintOpId } from "../src/shared/resource-command";
+import { taskNodeId } from "../src/shared/task-model";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
@@ -44,6 +49,8 @@ import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "subjects";
 const BOARD = "board";
+/** A task board in region other: out of reach of agent, peer and the board. */
+const FAR_BOARD = "far-board";
 
 const makeRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
@@ -53,6 +60,7 @@ const makeRuntime = (root: string) => {
       MachineRepositoryLive,
       SettingsLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+      Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, WorkRepositoryLive)),
     ),
     Layer.mergeAll(
       makeStateEngineLive(join(root, "state", "junto.db")),
@@ -73,6 +81,7 @@ const NODES = [
   taskBoard(BOARD, { x: 400, y: 40, width: 200, height: 100 }),
   automations("auto", { x: 640, y: 40, width: 160, height: 100 }),
   region("other", { x: -40, y: 600, width: 400, height: 300 }),
+  taskBoard(FAR_BOARD, { x: 200, y: 640, width: 120, height: 100 }),
   seatNode("outsider", { x: 0, y: 640, width: 120, height: 48, bindingId: "bind-outsider" as never, launch: { kind: "harness", argv: ["claude"] } }),
 ];
 const WIRES = [wire("agent-peer", "agent", "peer", "messages"), wire("peer-agent", "peer", "agent", "messages")];
@@ -130,10 +139,24 @@ const run = <A>(f: (work: typeof WorkService.Service) => Effect.Effect<A, unknow
 const mailbox = (nodeId: string): Promise<ReadonlyArray<Message>> => run((work) => work.readMailbox(CANVAS, nodeId));
 
 /**
- * A 0.10 task id on the board. A comment names its task by id and node; the
- * comment path neither reads nor needs the task store, so none runs here.
+ * A 0.10 task on the board, or on `nodeId`, created by the operator in the
+ * real task store: a comment is admitted only on a task held at its node.
  */
-const createTask = async (): Promise<string> => ulid();
+const createTask = async (nodeId: string = BOARD): Promise<string> => {
+  const taskId = mintItemId();
+  const outcome = await runtime.runPromise(Effect.gen(function* () {
+    const canvas = yield* readSeeded(CANVAS);
+    const writer = yield* (yield* MachineRepository).installationId;
+    return yield* (yield* TaskRepository).submit(
+      writer,
+      { opId: mintOpId(), canvasName: CANVAS, actor: { kind: "operator" }, target: { kind: "task", nodeId: taskNodeId(asNodeId(nodeId)) }, basis: null, after: [], op: { kind: "create", taskId, title: "fix tabs" } },
+      taskRulingContext(canvas),
+      taskCanvasEnv(canvas),
+    );
+  }) as unknown as Effect.Effect<{ readonly kind: string }>);
+  expect(outcome.kind).toBe("applied");
+  return taskId;
+};
 
 const sender: MailSenderStamp = {
   fromSeat: "seat_agent" as MailSenderStamp["fromSeat"],
@@ -177,6 +200,16 @@ describe("subject threads", () => {
     const elsewhere = await call("agent", "msg.send", { target: BOARD, taskId, threadId: "01M5ESQ6X9VS1GKZHNAS6BKJ49", text: "?" });
     expect(elsewhere.ok).toBe(false);
     expect(elsewhere.error.type).toBe("InputError");
+  });
+
+  it.skipIf(!TASKS_ENABLED)("a task comment is admitted by the task's own node: a task held elsewhere, or no task, is refused alike", async () => {
+    const far = await createTask(FAR_BOARD);
+    for (const taskId of [far, ulid()]) {
+      const refused = await call("agent", "msg.send", { target: BOARD, taskId, text: "look" });
+      expect(refused.ok, JSON.stringify(refused)).toBe(false);
+      expect(refused.error).toMatchObject({ type: "UnknownTarget", message: `no task "${taskId}" on "${BOARD}"`, details: { path: "taskId", target: taskId } });
+    }
+    expect((await mailbox(BOARD)).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
   });
 
   it.skipIf(!TASKS_ENABLED)("a reply to a notice posts to the task, not to the notice's sender", async () => {
