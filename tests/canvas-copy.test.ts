@@ -10,7 +10,7 @@ import {
 import { productNodeKindEnabled } from "../src/shared/features";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, asNodeId, type Node, type Region, type Wire } from "../src/shared/model";
-import { seat as seatNode, wire } from "./support/model-nodes";
+import { page, seat as seatNode, wire } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook-installation");
@@ -220,11 +220,13 @@ describe("each kind, cut for each machine", () => {
     { kind: "link", id: asNodeId("docs"), ...inRemote(210), url: "https://docs.test/secret-path?token=1" },
     { kind: "git", id: asNodeId("repo"), ...inRemote(260), cwd: "/Users/op/private-repo" },
     { kind: "git", id: asNodeId("named-repo"), ...inRemote(560), cwd: "/Users/op/other-repo", label: "Junto source" },
-    { kind: "page", id: asNodeId("browser"), ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile", host: "mini" as never, onRemove: "detach" },
+    // The shared builder, so the page keeps compiling when its host field goes (R4).
+    page("browser", { ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile" }),
     { kind: "note", id: asNodeId("memo"), ...inRemote(360), text: "Note body stays home." },
     { kind: "cron", id: asNodeId("nightly"), ...inRemote(410), host: "macbook" as never, label: "Nightly", expression: "0 3 * * *" },
     { kind: "relay", id: asNodeId("relay"), ...inRemote(460), host: "macbook" as never, label: "Relay" },
     { kind: "watcher", id: asNodeId("gauge"), ...inRemote(510), host: "macbook" as never, label: "Gauge" },
+    { kind: "automations", id: asNodeId("routines"), ...inRemote(660), label: "Morning routines" },
   ];
   const lin = seat("lin", "linux", { x: 2300, y: 50 });
   const everything: CanvasCopySource = {
@@ -263,12 +265,14 @@ describe("each kind, cut for each machine", () => {
     ["link", "docs", { kind: "stub", of: "link", id: "docs", ...at(210) }],
     ["git", "repo", { kind: "stub", of: "git", id: "repo", ...at(260) }],
     ["git", "named-repo", { kind: "stub", of: "git", id: "named-repo", ...at(560), label: "Junto source" }],
-    // The editing machine's name, not the row's: pages live where the canvas is edited.
+    // The editing machine's name: pages live where the canvas is edited.
     ["page", "browser", { kind: "stub", of: "page", id: "browser", ...at(310), host: "macbook" }],
     ["note", "memo", undefined],
     ["cron", "nightly", undefined],
     ["relay", "relay", undefined],
     ["watcher", "gauge", undefined],
+    // A copy would fire the same mail and tasks twice: automations never cross (07).
+    ["automations", "routines", undefined],
   ];
 
   for (const destination of destinations) {
@@ -293,6 +297,7 @@ describe("each kind, cut for each machine", () => {
           "secret-page",
           "work-profile",
           "Note body stays home",
+          "Morning routines",
           "0 3 * * *",
         ]) {
           expect(sent).not.toContain(never);
