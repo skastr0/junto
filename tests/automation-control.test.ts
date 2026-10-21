@@ -238,10 +238,8 @@ describe("automation types", () => {
     void bad;
   });
 
-  it("gives a queued write no version, and has no refused result", () => {
-    expectTypeOf<AutomationDisposition>().toEqualTypeOf<"applied" | "queued">();
-    type Queued = Extract<AutomationWriteResult, { disposition: "queued" }>;
-    expectTypeOf<Queued>().not.toHaveProperty("version");
+  it("has only an applied result, never a queued or refused one", () => {
+    expectTypeOf<AutomationDisposition>().toEqualTypeOf<"applied">();
     // @ts-expect-error a refusal is the typed error, not a result
     const refusedResult: AutomationWriteResult = { disposition: "refused", opId: OP as OpId, error: {} as WorkErrorBody };
     void refusedResult;

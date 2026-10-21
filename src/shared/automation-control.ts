@@ -190,23 +190,17 @@ export const isAutomationWriteOp = (op: string): op is AutomationWriteOp =>
   (AUTOMATION_WRITE_OPS as ReadonlyArray<string>).includes(op);
 
 /**
- * How a write ended. `applied`: the editing machine ruled it and the new
- * version is readable here. `queued`: the editing machine is away; the
- * command waits and `junto op show <opId>` reads its ruling later. A refusal
- * is never a result: it comes back as the typed error.
+ * How a write ended: the editing machine ruled it and the new version is
+ * readable here. A write is ruled on the editing machine or refused
+ * not_available elsewhere, so nothing waits. A refusal is never a result: it
+ * comes back as the typed error.
  */
-export type AutomationWriteResult =
-  | {
-      readonly disposition: "applied";
-      readonly opId: OpId;
-      readonly automationId: AutomationId;
-      readonly version: AutomationVersion;
-    }
-  | {
-      readonly disposition: "queued";
-      readonly opId: OpId;
-      readonly automationId: AutomationId;
-    };
+export type AutomationWriteResult = {
+  readonly disposition: "applied";
+  readonly opId: OpId;
+  readonly automationId: AutomationId;
+  readonly version: AutomationVersion;
+};
 
 export type AutomationDisposition = AutomationWriteResult["disposition"];
 

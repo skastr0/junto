@@ -68,7 +68,7 @@ const fakePorts = (submitted: Array<ResourceCommand<AutomationOp>>): AutomationP
   firings: () => Effect.succeed([]),
   submit: (command) => {
     submitted.push(command);
-    return Effect.succeed({ disposition: "queued", opId: command.opId, automationId: command.target.itemId! });
+    return Effect.succeed({ disposition: "applied", opId: command.opId, automationId: command.target.itemId!, version: AutomationVersion.make(2) });
   },
 });
 
