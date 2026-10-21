@@ -290,8 +290,18 @@ function SelectedArtifact({
     }
     return refusalLine(ruling);
   };
+  /** The document's save, run before a text-anchored comment posts. */
+  const saveDocument = useRef<(() => Promise<string | null>) | null>(null);
   /** Post through the one comment path (03); the refusal in words, or null. */
   const comment = async (text: string, anchor: Anchor | undefined, threadId?: string): Promise<string | null> => {
+    // Main checks a quote against the saved document, so typing still
+    // resting in the editor is saved first; a refused save stops the post.
+    if (anchor?.kind === "text" && saveDocument.current !== null) {
+      const unsaved = await saveDocument.current();
+      if (unsaved !== null) {
+        return `Not posted: the document did not save (${unsaved}). Choose Overwrite theirs or Take theirs above, then post again.`;
+      }
+    }
     const outcome = await subjectThreadsSource().post(canvasName, subject, {
       text,
       opId: newPostOpId(),
@@ -323,7 +333,10 @@ function SelectedArtifact({
             version={base}
             readOnly={readOnly}
             onPatch={(baseVersion, patches) => edit(() => ({ kind: "patch", type: "document", baseVersion, patches: [...patches] }))}
-            onCommentText={(quote, offset) => setDraftAnchor(textAnchorOf(quote, offset))}
+            onCommentText={(quote, offset, save) => {
+              saveDocument.current = save;
+              setDraftAnchor(textAnchorOf(quote, offset));
+            }}
           />
         );
       case "sheet":

@@ -28,7 +28,12 @@ export function DocumentEditor({
   readonly readOnly?: boolean;
   /** Sends patches written against `baseVersion`; resolves to a refusal line, or null when applied. */
   readonly onPatch: (baseVersion: ArtifactVersion, patches: ReadonlyArray<TextPatch>) => Promise<string | null>;
-  readonly onCommentText?: (quote: string, offset: number) => void;
+  /**
+   * A selection to comment on, with the save to run before the comment posts:
+   * main checks the quote against the saved document, so text still resting
+   * in the draft is sent first. The save resolves to a refusal line, or null.
+   */
+  readonly onCommentText?: (quote: string, offset: number, save: () => Promise<string | null>) => void;
 }) {
   const [draft, setDraft] = useState(body.markdown);
   const [view, setView] = useState<View>("split");
@@ -55,21 +60,24 @@ export function DocumentEditor({
     setDraft(body.markdown);
   }, [version, body.markdown]);
 
-  const send = (): Promise<void> => {
+  /** Send what is unsent; resolves to the refusal line, or null when nothing is left unsent. */
+  const send = (): Promise<string | null> => {
     if (timer.current !== null) {
       clearTimeout(timer.current);
       timer.current = null;
     }
-    chain.current = chain.current.then(async () => {
+    const sent = chain.current.then(async (): Promise<string | null> => {
       const text = draftRef.current;
       const patch = textSplice(synced.current.markdown, text);
-      if (patch === null) return;
+      if (patch === null) return null;
       const base = synced.current.version;
       const refused = await onPatch(base, [patch]);
       setRefusal(refused);
       if (refused === null) synced.current = { markdown: text, version: (base + 1) as ArtifactVersion };
+      return refused;
     });
-    return chain.current;
+    chain.current = sent.then(() => undefined);
+    return sent;
   };
 
   const type = (text: string): void => {
@@ -125,7 +133,7 @@ export function DocumentEditor({
             size="sm"
             variant="subtle"
             onClick={() => {
-              onCommentText(selection.quote, selection.offset);
+              onCommentText(selection.quote, selection.offset, send);
               setSelection(null);
             }}
           >
