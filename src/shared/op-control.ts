@@ -6,6 +6,7 @@
  */
 import { Result, Schema } from "effect";
 import { refusalErrorOf, type RulingResult } from "./command-row";
+import type { PendingEntry } from "./resource-command";
 import { WorkErrorBody } from "./work-control";
 import { OpId } from "./work-ids";
 
@@ -33,8 +34,17 @@ export type OpListArgs = typeof OpListArgs.Type;
  * the opId whose refusal refused this one, itself when it was refused on its
  * own merits.
  */
+/**
+ * What the writing machine reads of a queued write over its last ruled state
+ * (read-your-writes, 02): `pending` applies as things stand; `at_risk` with a
+ * refusal would be refused now; `at_risk` waiting has no preview, its base is
+ * not pulled here. Computed at read time, local only, never a row. Absent for
+ * a write whose domain has no overlay reader in this build.
+ */
+export type OpOverlay = PendingEntry extends infer Entry ? (Entry extends PendingEntry ? Omit<Entry, "opId"> : never) : never;
+
 export type OpView =
-  | { readonly state: "queued"; readonly opId: OpId }
+  | { readonly state: "queued"; readonly opId: OpId; readonly overlay?: OpOverlay }
   | { readonly state: "applied"; readonly opId: OpId; readonly made: Readonly<Record<string, unknown>> }
   | { readonly state: "refused"; readonly opId: OpId; readonly error: WorkErrorBody; readonly root: OpId };
 

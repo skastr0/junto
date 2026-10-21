@@ -13,7 +13,7 @@
  */
 import { Context, Effect, Layer, Result, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { RulingAppliedResult, RulingRefusedResult } from "@shared/command-row";
+import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult, type QueuedCommand } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import { opViewOf, opViewOfRuling, type OpListResult, type OpListState, type OpView } from "@shared/op-control";
 import type { NodeId } from "@shared/physics/schema";
@@ -37,9 +37,30 @@ export class OpRepository extends Context.Service<OpRepository,
       scope: OpScope,
       filter: { readonly state?: OpListState; readonly before?: OpId; readonly limit: number },
     ) => Effect.Effect<OpListResult, OpReadError>;
+    /**
+     * Every command this machine wrote on the canvas that no ruling answers
+     * yet, every seat's, in queue order: the queue the overlay replays.
+     */
+    readonly unruled: (canvasName: string) => Effect.Effect<{ readonly writer: InstallationId; readonly commands: ReadonlyArray<QueuedCommand> } | undefined, OpReadError>;
   }>()("@junto/main/OpRepository") {}
 
 const decodeRuling = Schema.decodeUnknownResult(Schema.Union([RulingAppliedResult, RulingRefusedResult]));
+const decodeQueued = Schema.decodeUnknownResult(CommandQueuedResult);
+
+/** No ruling made here or received answers the command row `event`. */
+const UNRULED = `
+  AND NOT EXISTS (
+    SELECT 1 FROM resource_rulings AS ruled
+    WHERE ruled.canvas_name = event.item_canvas_name AND ruled.writer = event.event_home
+      AND ruled.op_id = event.item_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM work_events AS ruling
+    JOIN work_facts AS ruled USING (event_home, entity_home, seq)
+    WHERE ruling.item_canvas_name = event.item_canvas_name AND ruling.item_kind = 'ruling'
+      AND ruling.item_id = event.item_id
+      AND json_extract(ruled.result_json, '$.writer') = event.event_home
+  )`;
 
 type Narrow = { readonly opId?: OpId; readonly before?: OpId; readonly refusedOnly?: boolean; readonly limit: number };
 
@@ -132,18 +153,7 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
              AND json_extract(fact.result_json, '$.command.actor.kind') = 'seat'
              AND json_extract(fact.result_json, '$.command.actor.nodeId') = ?
              ${where.sql}
-             AND NOT EXISTS (
-               SELECT 1 FROM resource_rulings AS ruled
-               WHERE ruled.canvas_name = event.item_canvas_name AND ruled.writer = event.event_home
-                 AND ruled.op_id = event.item_id
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM work_events AS ruling
-               JOIN work_facts AS ruled USING (event_home, entity_home, seq)
-               WHERE ruling.item_canvas_name = event.item_canvas_name AND ruling.item_kind = 'ruling'
-                 AND ruling.item_id = event.item_id
-                 AND json_extract(ruled.result_json, '$.writer') = event.event_home
-             )
+             ${UNRULED}
            ORDER BY event.item_id DESC LIMIT ?`,
           [writer, writer, scope.canvasName, scope.seat, ...where.params, narrow.limit],
         ),
@@ -194,6 +204,31 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
         }),
       ).pipe(Effect.mapError((error) => (error instanceof OpReadError ? error : fail("op.list")(error))));
 
-    return OpRepository.of({ show, list });
+    const unruled = (canvasName: string) =>
+      withSqlRead(
+        sql,
+        Effect.gen(function* () {
+          const writer = yield* self;
+          if (writer === undefined) return undefined;
+          const rows = yield* sql.unsafe<{ result_json: string }>(
+            `SELECT fact.result_json FROM work_events AS event
+             JOIN work_facts AS fact USING (event_home, entity_home, seq)
+             WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
+               AND event.item_kind = 'command' AND event.operation = 'command.queued'
+               ${UNRULED}
+             ORDER BY length(event.seq), event.seq`,
+            [writer, writer, canvasName],
+          );
+          const commands = yield* Effect.forEach(rows, (row) => {
+            const held = decodeQueued(parsed(row.result_json));
+            return Result.isSuccess(held)
+              ? Effect.succeed(held.success.command)
+              : Effect.fail(new OpReadError({ operation: "op.unruled", message: "a command row does not decode" }));
+          });
+          return { writer, commands };
+        }),
+      ).pipe(Effect.mapError((error) => (error instanceof OpReadError ? error : fail("op.unruled")(error))));
+
+    return OpRepository.of({ show, list, unruled });
   }),
 );

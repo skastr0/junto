@@ -4,9 +4,12 @@
  * target, no edge, and never another seat's writes.
  */
 import { Effect, Option, Result, Schema } from "effect";
-import { OP_LIST_MAX, OpListArgs, OpShowArgs, unknownOpError, type OpListResult, type OpView } from "@shared/op-control";
+import { ArtifactOp } from "@shared/artifact";
+import { OP_LIST_MAX, OpListArgs, OpShowArgs, unknownOpError, type OpListResult, type OpOverlay, type OpView } from "@shared/op-control";
+import type { ResourceCommand } from "@shared/resource-command";
 import type { NodeId } from "@shared/physics/schema";
 import type { WorkErrorBody } from "@shared/work-control";
+import { ArtifactRepository } from "./artifact-repository";
 import { OpRepository } from "./op-repository";
 
 export const OP_OPS = ["op.show", "op.list"] as const;
@@ -33,6 +36,37 @@ const unreadable = (message: string): WorkErrorBody => ({
   details: { retryable: true },
 });
 
+const decodeArtifactOp = Schema.decodeUnknownResult(ArtifactOp);
+
+/**
+ * Each queued write with what this machine reads of it over its ruled state
+ * (read-your-writes, 02), for the domains with an overlay reader: artifacts.
+ * The whole queue of this machine is replayed, every seat's, in queue order,
+ * since an earlier command changes what a later one meets.
+ */
+const withOverlay = (
+  canvasName: string,
+  views: ReadonlyArray<OpView>,
+): Effect.Effect<ReadonlyArray<OpView>, WorkErrorBody, OpRepository> =>
+  Effect.gen(function* () {
+    if (!views.some((view) => view.state === "queued")) return views;
+    const artifacts = yield* Effect.serviceOption(ArtifactRepository);
+    if (Option.isNone(artifacts)) return views;
+    const queue = yield* (yield* OpRepository).unruled(canvasName).pipe(Effect.mapError((error) => unreadable(error.message)));
+    if (queue === undefined) return views;
+    const commands = queue.commands.flatMap((command): ReadonlyArray<ResourceCommand<ArtifactOp>> => {
+      if (command.target.kind !== "artifact") return [];
+      const op = decodeArtifactOp(command.op);
+      return Result.isSuccess(op) ? [{ ...command, op: op.success }] : [];
+    });
+    const entries = yield* artifacts.value.overlay(canvasName, queue.writer, commands).pipe(Effect.mapError((error) => unreadable(error.message)));
+    const overlays = new Map(entries.map(({ opId, ...overlay }) => [opId, overlay as OpOverlay]));
+    return views.map((view) => {
+      const overlay = view.state === "queued" ? overlays.get(view.opId) : undefined;
+      return overlay === undefined ? view : { ...view, overlay };
+    });
+  });
+
 export const handleOpOp = (
   op: OpOp,
   args: unknown,
@@ -53,17 +87,20 @@ export const handleOpOp = (
         const { opId } = yield* decode(OpShowArgs, args);
         const view = yield* repository.value.show(scope, opId).pipe(Effect.mapError((error) => unreadable(error.message)));
         if (view === undefined) return yield* Effect.fail(unknownOpError(opId));
-        return { op: view };
+        const [shown] = yield* withOverlay(caller.canvasName, [view]).pipe(Effect.provideService(OpRepository, repository.value));
+        return { op: shown ?? view };
       }
       case "op.list": {
         const input = yield* decode(OpListArgs, args);
-        return yield* repository.value
+        const listed = yield* repository.value
           .list(scope, {
             ...(input.state === undefined ? {} : { state: input.state }),
             ...(input.before === undefined ? {} : { before: input.before }),
             limit: Math.min(input.limit ?? OP_LIST_DEFAULT, OP_LIST_MAX),
           })
           .pipe(Effect.mapError((error) => unreadable(error.message)));
+        const ops = yield* withOverlay(caller.canvasName, listed.ops).pipe(Effect.provideService(OpRepository, repository.value));
+        return { ...listed, ops };
       }
     }
   });

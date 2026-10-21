@@ -52,6 +52,9 @@ import {
   type CommandKey,
   ResourceActor as ResourceActorSchema,
   commandKey,
+  emptyRuled,
+  overlay,
+  type PendingEntry,
   rule,
 } from "@shared/resource-command";
 import { canonicalJson } from "@shared/work-canonical-json";
@@ -135,6 +138,16 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
     ) => Effect.Effect<{ readonly versions: ReadonlyArray<ArtifactVersionRead>; readonly more: boolean }, ArtifactPersistenceError>;
     /** This machine's installation id: the writer of commands made here. */
     readonly localWriter: () => Effect.Effect<Option.Option<InstallationId>, ArtifactPersistenceError>;
+    /**
+     * This machine's own unruled artifact commands over the ruled state it
+     * holds, in queue order (read-your-writes, 02). A command whose artifact's
+     * head body is not held here waits: its base is behind an edit not pulled.
+     */
+    readonly overlay: (
+      canvasName: string,
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
+    ) => Effect.Effect<ReadonlyArray<PendingEntry>, ArtifactPersistenceError>;
     /** Rule one command here and write what it makes. */
     readonly submit: (
       writer: InstallationId,
@@ -620,6 +633,25 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       return Option.map(row, (found) => found.installation_id as InstallationId);
     }, Effect.mapError(persistence("localWriter")));
 
-    return ArtifactRepository.of({ list, head, body, history, localWriter, submit });
+    const overlayOf = Effect.fn("artifacts.overlay")(function* (
+      canvasName: string,
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
+    ) {
+      const entries = new Map<ItemId, ArtifactEntry>();
+      for (const id of new Set(queued.flatMap(({ target }) => (target.itemId === undefined ? [] : [target.itemId])))) {
+        const entry = yield* readEntry(canvasName, id);
+        if (Option.isSome(entry)) entries.set(id, entry.value);
+      }
+      const domain = artifactDomain({ now: Date.now, bodyRef: artifactBodyRef });
+      return overlay(domain, emptyRuled<ArtifactState, ArtifactFact>(entries), writer, queued, {
+        // Reach was checked when the command was queued; the ruler checks it again.
+        inReach: () => true,
+        // The same verdict a head read gives: a body resolveBody cannot load yet is null.
+        baseComplete: (target) => target.itemId === undefined || entries.get(target.itemId)?.body !== null,
+      }).pending;
+    }, Effect.mapError(persistence("overlay")));
+
+    return ArtifactRepository.of({ list, head, body, history, localWriter, submit, overlay: overlayOf });
   }),
 );
