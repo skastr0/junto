@@ -22,6 +22,8 @@ import {
   sinceQuote,
   type Since,
   type SinceInput,
+  type SinceLine,
+  type SinceRef,
   type SinceSection,
   type SinceSectionKey,
 } from "../src/shared/seat-since";
@@ -125,10 +127,12 @@ const inputOf = (
   mailboxes: Object.entries(mailboxes).map(([nodeId, messages]): HeldMailbox => ({ nodeId, messages })),
   nameOf: (nodeId) => NAMES[nodeId],
   signals: [],
-  previousStartedAt: 0,
   now: minute(1000),
   ...over,
 });
+
+const mailRef = (row: Message): SinceRef => ({ kind: "mail", messageId: row.messageId });
+const signalRef = (row: AgentSignal): SinceRef => ({ kind: "signal", signalId: row.signalId });
 
 const since = (input: SinceInput, perSection = SINCE_PER_SECTION): Since => seatSince(input, { perSection });
 
@@ -137,7 +141,7 @@ describe("owed and awaited replies", () => {
     const root = seatMail(minute(1), LEAD, "Please land the contract", { readAt: minute(2) });
     const out = since(inputOf({ [ME]: [root] }));
     expect(out.owedReplies.lines).toEqual([
-      { text: 'lead wrote last, you have not replied: "Please land the contract"', ref: root.messageId },
+      { text: 'lead wrote last, read, you have not replied: "Please land the contract"', ref: mailRef(root) },
     ]);
     expect(out.awaitingReplies.lines).toEqual([]);
   });
@@ -148,7 +152,7 @@ describe("owed and awaited replies", () => {
     const out = since(inputOf({ [ME]: [root], [LEAD]: [reply] }));
     expect(out.owedReplies.lines).toEqual([]);
     expect(out.awaitingReplies.lines).toEqual([
-      { text: 'You wrote last to lead, delivered, unread: "Landed"', ref: reply.messageId },
+      { text: 'You wrote last to lead, delivered, unread: "Landed"', ref: mailRef(reply) },
     ]);
   });
 
@@ -162,16 +166,42 @@ describe("owed and awaited replies", () => {
     ]);
   });
 
+  it("tells mail the seat never saw from mail it saw and left", () => {
+    const seen = seatMail(minute(1), LEAD, "seen", { deliveredAt: minute(2), readAt: minute(3) });
+    const unseen = seatMail(minute(4), PEER, "unseen", { deliveredAt: minute(5) });
+    const lines = since(inputOf({ [ME]: [seen, unseen] })).owedReplies.lines.map((line) => line.text);
+    expect(lines).toEqual([
+      'peer wrote last, delivered, unread, you have not replied: "unseen"',
+      'lead wrote last, read, you have not replied: "seen"',
+    ]);
+  });
+
+  it("keeps an owed reply when a third seat writes last in the thread", () => {
+    const ask = seatMail(minute(1), LEAD, "ask me");
+    const aside = seatMail(minute(2), LEAD, "aside to peer", { threadId: ask.messageId });
+    const out = since(inputOf({ [ME]: [ask], [PEER]: [aside] }));
+    expect(out.owedReplies.lines.map((line) => line.ref)).toEqual([mailRef(ask)]);
+  });
+
+  it("keeps an awaited reply when a third seat writes last in the thread", () => {
+    const ask = seatMail(minute(1), LEAD, "root");
+    const mine = seatMail(minute(2), ME, "my answer", { threadId: ask.messageId });
+    const aside = seatMail(minute(3), PEER, "peer to lead", { threadId: ask.messageId });
+    const out = since(inputOf({ [ME]: [ask], [LEAD]: [mine, aside] }));
+    expect(out.awaitingReplies.lines.map((line) => line.ref)).toEqual([mailRef(mine)]);
+    expect(out.owedReplies.lines).toEqual([]);
+  });
+
   it("has no time boundary: a thread from long before the previous session still counts", () => {
     const old = seatMail(minute(1), LEAD, "old ask");
     const out = since(inputOf({ [ME]: [old] }, { previousStartedAt: minute(900) }));
-    expect(out.owedReplies.lines.map((line) => line.ref)).toEqual([old.messageId]);
+    expect(out.owedReplies.lines.map((line) => line.ref)).toEqual([mailRef(old)]);
   });
 
   it("owes the operator a reply, and awaits the operator after replying", () => {
     const ask = operatorMail(minute(1), "Status?");
     expect(since(inputOf({ [ME]: [ask] })).owedReplies.lines[0]?.text).toBe(
-      'the operator wrote last, you have not replied: "Status?"',
+      'the operator wrote last, not delivered yet, you have not replied: "Status?"',
     );
     const answer = replyToOperator(minute(2), ME, "On it", ask.messageId);
     const out = since(inputOf({ [ME]: [ask, answer] }));
@@ -199,11 +229,19 @@ describe("owed and awaited replies", () => {
     const a = seatMail(minute(1), LEAD, "older");
     const b = seatMail(minute(2), PEER, long);
     const lines = since(inputOf({ [ME]: [a, b] })).owedReplies.lines;
-    expect(lines.map((line) => line.ref)).toEqual([b.messageId, a.messageId]);
+    expect(lines.map((line) => line.ref)).toEqual([mailRef(b), mailRef(a)]);
     expect(lines[0]?.text).toContain(sinceQuote(long));
     expect(sinceQuote(long)).toHaveLength(SINCE_QUOTE_MAX);
     expect(sinceQuote(long).endsWith("…")).toBe(true);
     expect(sinceQuote(long)).not.toContain("\n");
+  });
+
+  it("cuts a quote by code points, never inside a surrogate pair", () => {
+    const emoji = "😀".repeat(150);
+    const cut = sinceQuote(emoji);
+    expect([...cut]).toHaveLength(SINCE_QUOTE_MAX);
+    expect(cut).not.toMatch(/[\uD800-\uDFFF]/u); // with u, only a lone surrogate matches
+    expect(sinceQuote("😀".repeat(SINCE_QUOTE_MAX))).toBe("😀".repeat(SINCE_QUOTE_MAX));
   });
 });
 
@@ -215,8 +253,8 @@ describe("signals", () => {
     const elsewhere = signal({ state: "open", nodeId: PEER });
     const out = since(inputOf({}, { signals: [feedback, blocked, closed, elsewhere] }));
     expect(out.openSignals.lines).toEqual([
-      { text: `Open blocked: "${blocked.text}"`, ref: blocked.signalId },
-      { text: `Open feedback: "${feedback.text}"`, ref: feedback.signalId },
+      { text: `Open blocked: "${blocked.text}"`, ref: signalRef(blocked) },
+      { text: `Open feedback: "${feedback.text}"`, ref: signalRef(feedback) },
     ]);
     expect(out.openSignals.command).toBe("junto signal list");
   });
@@ -227,9 +265,18 @@ describe("signals", () => {
     const later = signal({ state: "answered", kind: "blocked", response: { text: "unblocked", at: minute(120) }, closedAt: minute(120) });
     const out = since(inputOf({}, { signals: [before, atStart, later], previousStartedAt: minute(100) }));
     expect(out.answersSince.lines).toEqual([
-      { text: `The operator answered your blocked "${later.text}" without mail: "unblocked"`, ref: later.signalId },
-      { text: `The operator answered your escalate "${atStart.text}" without mail: "go ahead"`, ref: atStart.signalId },
+      { text: `The operator answered your blocked "${later.text}" without mail: "unblocked"`, ref: signalRef(later) },
+      { text: `The operator answered your escalate "${atStart.text}" without mail: "go ahead"`, ref: signalRef(atStart) },
     ]);
+  });
+
+  it("lists every silent answer on a first session, since no session has seen them", () => {
+    const early = signal({ state: "answered", response: { text: "early", at: 1 }, closedAt: 1 });
+    const late = signal({ state: "answered", response: { text: "late", at: minute(500) }, closedAt: minute(500) });
+    const first = since(inputOf({}, { signals: [early, late] }));
+    expect(first.answersSince.lines.map((line) => line.ref)).toEqual([signalRef(late), signalRef(early)]);
+    const bounded = since(inputOf({}, { signals: [early, late], previousStartedAt: minute(100) }));
+    expect(bounded.answersSince.lines.map((line) => line.ref)).toEqual([signalRef(late)]);
   });
 
   it("leaves a mailed answer to the mail sections", () => {
@@ -239,7 +286,7 @@ describe("signals", () => {
     });
     const out = since(inputOf({ [ME]: [mail] }, { signals: [answered] }));
     expect(out.answersSince.lines).toEqual([]);
-    expect(out.owedReplies.lines.map((line) => line.ref)).toEqual([mail.messageId]);
+    expect(out.owedReplies.lines.map((line) => line.ref)).toEqual([mailRef(mail)]);
   });
 });
 
@@ -288,6 +335,16 @@ describe("types", () => {
     // @ts-expect-error a bare string is not a NodeId
     const bad: SinceInput["seat"] = "seat-me";
     void bad;
+  });
+
+  it("tags every ref by kind, so a follow-up is chosen by type", () => {
+    expectTypeOf<SinceRef["kind"]>().toEqualTypeOf<"mail" | "signal">();
+    expectTypeOf<Extract<SinceRef, { kind: "mail" }>>().toEqualTypeOf<{ readonly kind: "mail"; readonly messageId: string }>();
+    expectTypeOf<Extract<SinceRef, { kind: "signal" }>>().toEqualTypeOf<{ readonly kind: "signal"; readonly signalId: string }>();
+    // @ts-expect-error a bare id is not a ref
+    const bare: SinceLine["ref"] = "01M5ESKVNCR1EYXNTQ9QEASQPD";
+    void bare;
+    expectTypeOf<SinceInput["previousStartedAt"]>().toEqualTypeOf<number | undefined>();
   });
 
   it("has one section per key and one command per section", () => {

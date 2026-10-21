@@ -1,20 +1,22 @@
 import type { AgentSignal, AgentSignalKind } from "./agent-signals";
 import { compareSignalListOrder } from "./agent-signals";
 import { mailListMatches } from "./mail-list-filter";
-import { seatMailThreads, type HeldMailbox } from "./mail-threads";
+import { seatMailThreadEntries, type HeldMailbox } from "./mail-threads";
 import type { NodeId } from "./model/base";
 import type { Message } from "./work-model";
-import type { MailParty, MailThreadSummary } from "./wire/mail-threads";
+import type { MailParty, MailThreadMessage } from "./wire/mail-threads";
 
 /**
  * Since your last session: what a fresh session owes, waits on and missed,
  * computed at onboard from rows Junto already holds and never stored
  * (docs/plans/0.10/08-continuity.md, Contract).
  *
- * - Owed and awaited replies are thread state, with no time boundary: the
- *   last message of each of the seat's threads in the `mail-threads.ts`
- *   derivation, its direction, and its `deliveredAt` and `readAt`. A replaced
- *   session ends when the next starts, so a window would always be empty.
+ * - Owed and awaited replies are thread state, with no time boundary: in
+ *   each of the seat's threads in the `mail-threads.ts` derivation, the last
+ *   mail the seat wrote or was written, its direction, and its `deliveredAt`
+ *   and `readAt`. Mail between other seats in the same thread does not move
+ *   it. A replaced session ends when the next starts, so a window would
+ *   always be empty.
  * - A signal answer the operator mailed is mail and shows as a thread. A
  *   silent answer has no receipt, so the previous session's `started_at`
  *   bounds it.
@@ -32,13 +34,20 @@ export type SinceInput = {
   readonly nameOf: (nodeId: string) => string | undefined;
   /** The canvas's signals; only this seat's are read. */
   readonly signals: ReadonlyArray<AgentSignal>;
-  /** Bounds silent signal answers only. 0 when there was no previous session. */
-  readonly previousStartedAt: number;
+  /**
+   * Bounds silent signal answers only. Absent on a first session: no session
+   * has seen any answer, so every silent answer is listed.
+   */
+  readonly previousStartedAt?: number;
   /** Epoch ms the projection is as of. */
   readonly now: number;
 };
 
-export type SinceLine = { readonly text: string; readonly ref: string };
+/** What a line is about, so the follow-up command is chosen by its kind. */
+export type SinceRef =
+  | { readonly kind: "mail"; readonly messageId: string }
+  | { readonly kind: "signal"; readonly signalId: string };
+export type SinceLine = { readonly text: string; readonly ref: SinceRef };
 export type SinceSection = {
   readonly lines: ReadonlyArray<SinceLine>;
   /** Lines past the cap, listed by `command`. */
@@ -55,7 +64,7 @@ export type Since = { readonly asOf: number; readonly unread: number } & {
 
 /** Lines per section in onboard. */
 export const SINCE_PER_SECTION = 8;
-/** A line's quoted text, in characters, before it is cut. */
+/** A line's quoted text, in code points as the mail composer counts, before it is cut. */
 export const SINCE_QUOTE_MAX = 100;
 
 /** The command that lists a section in full. */
@@ -63,6 +72,8 @@ export const SINCE_COMMANDS: Readonly<Record<SinceSectionKey, string>> = {
   owedReplies: "junto since --all",
   awaitingReplies: "junto since --all",
   openSignals: "junto signal list",
+  // Until `signal list` pages (08, small fixes) it shows the last 20 closed
+  // signals, so answers past those are not listed yet.
   answersSince: "junto signal list",
 };
 
@@ -72,10 +83,10 @@ const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
   feedback: "feedback",
 };
 
-/** One line of text, cut to {@link SINCE_QUOTE_MAX} characters. */
+/** One line of text, cut to {@link SINCE_QUOTE_MAX} code points, never inside a surrogate pair. */
 export const sinceQuote = (text: string): string => {
-  const line = text.replace(/\s+/gu, " ").trim();
-  return line.length <= SINCE_QUOTE_MAX ? line : `${line.slice(0, SINCE_QUOTE_MAX - 1).trimEnd()}…`;
+  const points = [...text.replace(/\s+/gu, " ").trim()];
+  return points.length <= SINCE_QUOTE_MAX ? points.join("") : `${points.slice(0, SINCE_QUOTE_MAX - 1).join("").trimEnd()}…`;
 };
 
 const partyName = (party: MailParty): string => (party.kind === "operator" ? "the operator" : party.name);
@@ -87,7 +98,7 @@ const stamp = (row: Message | undefined, key: "deliveredAt" | "readAt"): boolean
   return typeof value === "number" && Number.isFinite(value);
 };
 
-/** What became of the last mail: the recipient's read and delivery receipts. */
+/** What became of a mail: its recipient's read and delivery receipts. */
 const receiptWords = (row: Message | undefined): string =>
   stamp(row, "readAt") ? "read" : stamp(row, "deliveredAt") ? "delivered, unread" : "not delivered yet";
 
@@ -110,17 +121,27 @@ export const seatSince = (input: SinceInput, caps: { readonly perSection: number
   const rows = new Map<string, Message>();
   for (const mailbox of input.mailboxes) for (const row of mailbox.messages) rows.set(row.messageId, row);
 
-  const threads: ReadonlyArray<MailThreadSummary> = seatMailThreads(input, seat);
+  // Each thread's last mail the seat wrote or was written, newest first.
+  const lasts: MailThreadMessage[] = [];
+  for (const entries of seatMailThreadEntries(input, seat).values()) {
+    for (let at = entries.length - 1; at >= 0; at -= 1) {
+      const entry = entries[at]!;
+      if (![entry.from, ...entry.to].some((party) => isSeat(party, seat))) continue;
+      lasts.push(entry);
+      break;
+    }
+  }
+  lasts.sort((a, b) => b.at - a.at || (a.messageId < b.messageId ? 1 : a.messageId > b.messageId ? -1 : 0));
   const owed: SinceLine[] = [];
   const awaiting: SinceLine[] = [];
-  for (const thread of threads) {
-    const last = thread.last;
+  for (const last of lasts) {
     const quote = sinceQuote(last.text);
+    const receipt = receiptWords(rows.get(last.messageId));
+    const ref: SinceRef = { kind: "mail", messageId: last.messageId };
     if (isSeat(last.from, seat)) {
-      const to = last.to.map(partyName).join(", ");
-      awaiting.push({ text: `You wrote last to ${to}, ${receiptWords(rows.get(last.messageId))}: "${quote}"`, ref: last.messageId });
-    } else if (last.to.some((party) => isSeat(party, seat))) {
-      owed.push({ text: `${partyName(last.from)} wrote last, you have not replied: "${quote}"`, ref: last.messageId });
+      awaiting.push({ text: `You wrote last to ${last.to.map(partyName).join(", ")}, ${receipt}: "${quote}"`, ref });
+    } else {
+      owed.push({ text: `${partyName(last.from)} wrote last, ${receipt}, you have not replied: "${quote}"`, ref });
     }
   }
 
@@ -128,7 +149,7 @@ export const seatSince = (input: SinceInput, caps: { readonly perSection: number
   const open = mine
     .filter((signal) => signal.state === "open")
     .sort(compareSignalListOrder)
-    .map((signal) => ({ text: `Open ${KIND_WORDS[signal.kind]}: "${sinceQuote(signal.text)}"`, ref: signal.signalId }));
+    .map((signal): SinceLine => ({ text: `Open ${KIND_WORDS[signal.kind]}: "${sinceQuote(signal.text)}"`, ref: { kind: "signal", signalId: signal.signalId } }));
 
   const mailed = new Set<string>();
   for (const row of rows.values()) {
@@ -140,13 +161,13 @@ export const seatSince = (input: SinceInput, caps: { readonly perSection: number
       (signal): signal is AgentSignal & { readonly response: NonNullable<AgentSignal["response"]> } =>
         signal.state === "answered" &&
         signal.response !== undefined &&
-        signal.response.at >= input.previousStartedAt &&
+        (input.previousStartedAt === undefined || signal.response.at >= input.previousStartedAt) &&
         !mailed.has(signal.signalId),
     )
     .sort(byAnswer)
-    .map((signal) => ({
+    .map((signal): SinceLine => ({
       text: `The operator answered your ${KIND_WORDS[signal.kind]} "${sinceQuote(signal.text)}" without mail: "${sinceQuote(signal.response.text)}"`,
-      ref: signal.signalId,
+      ref: { kind: "signal", signalId: signal.signalId },
     }));
 
   const unreadOnly = mailListMatches({ unread: true });

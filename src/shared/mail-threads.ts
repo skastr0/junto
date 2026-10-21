@@ -180,6 +180,9 @@ const threadsTouching = (input: MailThreadsInput, nodeId: string): ReadonlyMap<s
   return threads;
 };
 
+/** Every thread a seat wrote or was written to in, each with all its mail oldest first, keyed by thread id. */
+export const seatMailThreadEntries = (input: MailThreadsInput, nodeId: string): ReadonlyMap<string, ReadonlyArray<Entry>> => threadsTouching(input, nodeId);
+
 /** Newest activity first; the thread id breaks a tie. */
 const byActivity = (a: { lastAt: number; threadId: string }, b: { lastAt: number; threadId: string }): number =>
   b.lastAt - a.lastAt || compareId(b.threadId, a.threadId);
