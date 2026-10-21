@@ -1401,6 +1401,28 @@ describe("BrowserSessionService", () => {
     }
   });
 
+  it("stops every tab of the page on Stop Page, and the page opens again fresh", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("stop-all-tabs");
+    const first = await service.open(page);
+    if (!first.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(first.data.sessionId, "Home");
+    service.setBounds(first.data.sessionId, { x: 0, y: 0, width: 400, height: 300 });
+    const second = await service.openTab(first.data.sessionId, "https://stop-all-tabs.example.com/two");
+    const third = await service.openTab(first.data.sessionId, "https://stop-all-tabs.example.com/three", false);
+    if (!second.ok || !third.ok) throw new Error("open tab failed");
+    expect(service.sessionIdForRef(page.ref)).toBe(second.data.sessionId);
+
+    await expect(service.stopPage(second.data.sessionId)).resolves.toMatchObject({ ok: true });
+    expect(views.map((view) => view.destroyed)).toEqual([true, true, true]);
+    expect(service.list()).toEqual({ ok: true, data: [] });
+    expect(service.sessionIdForRef(page.ref)).toBeUndefined();
+
+    const reopened = await service.open(page);
+    if (!reopened.ok) throw new Error("reopen failed");
+    expect(service.pageState(reopened.data.sessionId)?.tabs.tabs).toHaveLength(1);
+  });
+
   it("keeps a tab whose view went listed, and reopens it where it was when shown", async () => {
     const { service, views } = makeDefaultService();
     const page = target("tab-ended");

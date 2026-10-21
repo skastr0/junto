@@ -281,7 +281,7 @@ export const registerBrowserIpc = (
   ipcMain.handle(IPC_CHANNELS.browserStop, (_e, ...args: ReadonlyArray<unknown>) => {
     if (args.length !== 1) return invalidArguments();
     const parsed = parseBrowserSessionId(args[0]);
-    return parsed.ok ? browserSessions.stop(parsed.value) : parsed;
+    return parsed.ok ? browserSessions.stopPage(parsed.value) : parsed;
   });
 
   ipcMain.handle(IPC_CHANNELS.browserWipeProfile, async (event, ...args: ReadonlyArray<unknown>) => {

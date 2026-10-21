@@ -2832,6 +2832,16 @@ export class BrowserSessionService {
     return this.stopForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
   }
 
+  /**
+   * The operator's Stop Page: every tab of the page ends, and the receipt
+   * waits on each view. The page opens again fresh, one tab at its address.
+   */
+  stopPage(sessionId: string): Promise<BrowserResult<BrowserStopReceipt>> {
+    return this.runUiOperation("stop", () =>
+      this.stopForOwnerAdmitted(BROWSER_UI_SESSION_OWNER, sessionId, true),
+    );
+  }
+
   stopForOwner(
     owner: string,
     sessionId: string,
@@ -2844,6 +2854,7 @@ export class BrowserSessionService {
   private async stopForOwnerAdmitted(
     owner: string,
     sessionId: string,
+    wholePage = false,
   ): Promise<BrowserResult<BrowserStopReceipt>> {
     const guestKey = `${owner}\0${sessionId}`;
     const guestStopped = this.guestStops.get(guestKey);
@@ -2879,10 +2890,19 @@ export class BrowserSessionService {
       stopped: true,
       alreadyStopped: false,
     });
+    // Stop Page ends the operator's page: every tab's view, not only the
+    // shown one, and the receipt waits on each. Shown first, so the surface
+    // never hears a sibling tab take its place.
+    const siblings = wholePage ? this.pageEntries(entry.ref).filter((tab) => tab !== entry) : [];
     // The bounded stop receipt may time out while Electron's destruction
     // witness is still live. The shared view witness remains in the shutdown
     // set independently of the public Stop Page result.
-    const acknowledgement = this.retainViewDestroyWitness(entry);
+    const shown = this.retainViewDestroyWitness(entry);
+    const siblingWitnesses = siblings.map((tab) => this.retainViewDestroyWitness(tab));
+    const acknowledgement =
+      shown === undefined || siblingWitnesses.some((witness) => witness === undefined)
+        ? undefined
+        : Promise.all([shown, ...siblingWitnesses]).then(() => undefined);
     const record: BrowserStopRecord = {
       owner,
       snapshot,
@@ -2891,7 +2911,7 @@ export class BrowserSessionService {
       completion: undefined,
       lastResult: undefined,
     };
-    return this.runStopAttempt(record, false, entry);
+    return this.runStopAttempt(record, false, entry, siblings);
   }
 
   /** A guest stopping a shared page ends its own hold; the operator's view runs on. */
@@ -2927,8 +2947,9 @@ export class BrowserSessionService {
     record: BrowserStopRecord,
     repeated: boolean,
     entry?: SessionEntry,
+    siblings: ReadonlyArray<SessionEntry> = [],
   ): Promise<BrowserResult<BrowserStopReceipt>> {
-    const completion = this.stopEntry(record, entry);
+    const completion = this.stopEntry(record, entry, siblings);
     record.completion = completion;
     this.pendingStops.set(record.receipt.sessionId, record);
     const result = await completion;
@@ -2947,15 +2968,20 @@ export class BrowserSessionService {
   private async stopEntry(
     record: BrowserStopRecord,
     entry?: SessionEntry,
+    siblings: ReadonlyArray<SessionEntry> = [],
   ): Promise<BrowserResult<BrowserStopReceipt>> {
     if (entry !== undefined) {
-      try {
-        this.destroySession(entry.sessionId);
-      } catch {
-        // The adapter's physical destruction acknowledgement is authoritative.
-        // Reducer/detach teardown may throw after destroy() has already closed
-        // the WebContents, so those errors cannot override a positive receipt.
+      for (const tab of [entry, ...siblings]) {
+        try {
+          this.destroySession(tab.sessionId);
+        } catch {
+          // The adapter's physical destruction acknowledgement is authoritative.
+          // Reducer/detach teardown may throw after destroy() has already closed
+          // the WebContents, so those errors cannot override a positive receipt.
+        }
       }
+      // A stopped page opens again fresh, one tab at its own address.
+      if (siblings.length > 0 && this.pageEntries(entry.ref).length === 0) this.pages.delete(entry.ref);
     }
     const destroyed = await this.awaitProfileViewDestruction(
       record.acknowledgement === undefined ? [] : [record.acknowledgement],

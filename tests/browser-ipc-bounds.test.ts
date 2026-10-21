@@ -245,7 +245,7 @@ describe("browser IPC bounds ingress", () => {
     const sessionMethod = method === "close"
       ? vi.spyOn(browserSessions, "close")
       : method === "stop"
-        ? vi.spyOn(browserSessions, "stop")
+        ? vi.spyOn(browserSessions, "stopPage")
         : vi.spyOn(browserSessions, "state");
 
     const result = await invoke(channel, ...args);
@@ -257,7 +257,7 @@ describe("browser IPC bounds ingress", () => {
   it.each(["", "   ", null, 42, "path/id"])(
     "rejects malformed Stop Page session id %j before the service is called",
     async (sessionId) => {
-      const stop = vi.spyOn(browserSessions, "stop");
+      const stop = vi.spyOn(browserSessions, "stopPage");
 
       const result = await invoke(IPC_CHANNELS.browserStop, sessionId);
 
