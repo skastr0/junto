@@ -14,7 +14,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
-import { TASKS_ENABLED } from "../src/shared/features";
+import { productNodeKindEnabled, TASKS_ENABLED } from "../src/shared/features";
 import { asNodeId } from "../src/shared/physics/schema";
 import { subjectNoticeRow, type SubjectNoticeInput } from "../src/shared/subject-notice";
 import { makeUserMessage } from "../src/shared/task";
@@ -24,7 +24,7 @@ import type { MailMessageId, MailSenderStamp } from "../src/shared/crew";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
-import { automations, canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { artifacts, automations, canvasOf, page, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { AUTOMATION_SEAT_ID } from "../src/shared/mail-author";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { mentionLink } from "../src/shared/mention";
@@ -91,12 +91,17 @@ const OldTaskStoreDies = Layer.effect(WorkService, Effect.gen(function* () {
 const seat = (id: string, x: number) =>
   seatNode(id, { x, y: 40, width: 120, height: 48, bindingId: `bind-${id}` as never, launch: { kind: "harness", argv: ["claude"] } });
 
+const SHELF = "shelf";
+const PAGE = "page";
+
 const NODES = [
   region("team", { x: -40, y: -40, width: 900, height: 400 }),
   seat("agent", 0),
   seat("peer", 160),
   taskBoard(BOARD, { x: 400, y: 40, width: 200, height: 100 }),
   automations("auto", { x: 640, y: 40, width: 160, height: 100 }),
+  artifacts(SHELF, { x: 400, y: 200, width: 120, height: 100 }),
+  page(PAGE, { x: 600, y: 200, width: 120, height: 100 }),
   region("other", { x: -40, y: 600, width: 400, height: 300 }),
   taskBoard(FAR_BOARD, { x: 200, y: 640, width: 120, height: 100 }),
   seatNode("outsider", { x: 0, y: 640, width: 120, height: 48, bindingId: "bind-outsider" as never, launch: { kind: "harness", argv: ["claude"] } }),
@@ -297,6 +302,41 @@ describe("subject threads", () => {
     expect(replied.ok, JSON.stringify(replied)).toBe(true);
     expect(replied.data).toMatchObject({ threadId: taskId, inReplyTo: noticeId });
     expect((await mailbox("agent")).some((message) => message.parts.some((part) => part.kind === "text" && part.text === "on it"))).toBe(false);
+  });
+
+  // 0.10.0 refused these at the target's kind: an artifacts or page node takes no mail.
+  const mentioned = [
+    { kind: "artifacts", on: "an artifact", subjectOf: async () => ({ kind: "artifact", nodeId: asNodeId(SHELF), artifactId: ItemId.make("01M5G0BJD8MBEJG2QVX5VM6DJ1") }) },
+    { kind: "task", on: "a task", subjectOf: async () => ({ kind: "task", nodeId: asNodeId(BOARD), taskId: ItemId.make(await createTask()) }) },
+    { kind: "page", on: "a page", subjectOf: async () => ({ kind: "page", nodeId: asNodeId(PAGE) }) },
+  ] as const;
+  for (const { kind, on, subjectOf } of mentioned) {
+    it.skipIf(!productNodeKindEnabled(kind))(`a seat mentioned on ${on} replies with msg reply, and the reply posts there`, async () => {
+      const subject = await subjectOf();
+      const peerLink = mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "@peer", CANVAS);
+      const comment = await runtime.runPromise(postSubjectComment(
+        { subject, text: `${peerLink} have a look`, actor: { kind: "seat", seatId: `seat_${"a".repeat(64)}` as ActorSeatId, nodeId: asNodeId("agent") }, opId: mintOpId() },
+        { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [] },
+      ));
+      expect(comment.notified).toEqual(["peer"]);
+      const mention = (await mailbox("peer")).find((message) => message.metadata?.subjectNotice === "mention");
+      expect(mention).toBeDefined();
+
+      const replied = await call("peer", "msg.reply", { target: subject.nodeId, inReplyTo: mention!.messageId, text: "on it" });
+      expect(replied.ok, JSON.stringify(replied)).toBe(true);
+      expect(replied.data).toMatchObject({ threadId: comment.threadId, inReplyTo: mention!.messageId, notified: ["agent"] });
+      const posted = (await mailbox(subject.nodeId)).find((message) => message.messageId === replied.data.messageId);
+      expect(posted?.metadata).toMatchObject({ threadId: comment.threadId, inReplyTo: mention!.messageId, senderNodeId: "peer" });
+      expect(posted === undefined ? undefined : threadSubjectOf(posted)).toMatchObject(subject);
+    });
+  }
+
+  it("a reply to plain mail at an artifacts node is still refused by its kind", async () => {
+    const plain = await call("agent", "msg.send", { target: "peer", text: "hello" });
+    expect(plain.ok, JSON.stringify(plain)).toBe(true);
+    const refused = await call("peer", "msg.reply", { target: SHELF, inReplyTo: plain.data.messageId, text: "?" });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("ScopeError");
   });
 
   it.skipIf(!TASKS_ENABLED)("a refusal takes no reply", async () => {

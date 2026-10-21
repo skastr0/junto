@@ -1951,12 +1951,16 @@ const dispatchOp = (
       // answers, below, never by an edge.
       const toOperator = asked.success.target.trim() === "operator";
       let target = asked.success.target;
+      // Held until the parent is read: a reply in a subject thread is admitted
+      // by reach to the subject, not by its node's kind (an artifacts or page
+      // node takes no mail).
+      let refusedByKind: WorkErrorBody | undefined;
       if (!toOperator) {
         const named = resolveMailTarget(board, caller.nodeId, target, op);
         if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
         target = named.success;
         const gate = requireTarget(board, caller.nodeId, target, op);
-        if ("type" in gate) return yield* Effect.fail(gate);
+        if ("type" in gate) refusedByKind = gate;
       }
       const decoded = { success: { ...asked.success, target } };
       const typed = decoded.success.text.trim();
@@ -1974,6 +1978,9 @@ const dispatchOp = (
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
       // The parent is mail to this seat, and its thread is the reply's.
       const parent = yield* work.readMailMessage(caller.canvasName, caller.nodeId, inReplyTo).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+      if (refusedByKind !== undefined && (parent === undefined || threadSubjectOf(parent)?.nodeId !== target)) {
+        return yield* Effect.fail(refusedByKind);
+      }
       if (parent === undefined) {
         return yield* Effect.fail({
           type: "UnknownTarget" as const,
