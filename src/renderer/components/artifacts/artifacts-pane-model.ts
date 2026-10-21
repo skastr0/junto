@@ -1,0 +1,117 @@
+/**
+ * The Artifacts node's pure parts: which rows the sidebar shows, the text
+ * patch a document edit becomes, and how an anchor and an author read.
+ */
+import type { ArtifactType, TextPatch } from "@shared/artifact";
+import type { ArtifactEntry } from "@shared/artifact-domain";
+import type { ResourceActor } from "@shared/resource-command";
+import type { Anchor } from "@shared/thread-subject";
+
+export type TypeFilter = ArtifactType | "all";
+
+export interface SidebarFilter {
+  readonly type: TypeFilter;
+  readonly query: string;
+  readonly archived: boolean;
+}
+
+/** The rows the sidebar lists: by type, by a case-blind title match, live or archived. */
+export const visibleArtifacts = (
+  entries: ReadonlyArray<ArtifactEntry>,
+  filter: SidebarFilter,
+): ReadonlyArray<ArtifactEntry> => {
+  const query = filter.query.trim().toLowerCase();
+  return entries.filter(
+    ({ artifact }) =>
+      artifact.archived === filter.archived &&
+      (filter.type === "all" || artifact.type === filter.type) &&
+      (query.length === 0 || artifact.title.toLowerCase().includes(query)),
+  );
+};
+
+/**
+ * The one splice that turns `before` into `after`: the common head and tail
+ * stay, the middle is replaced. Null when nothing changed.
+ */
+export const textSplice = (before: string, after: string): TextPatch | null => {
+  if (before === after) return null;
+  let head = 0;
+  const shorter = Math.min(before.length, after.length);
+  while (head < shorter && before.charCodeAt(head) === after.charCodeAt(head)) head += 1;
+  let tail = 0;
+  while (
+    tail < shorter - head &&
+    before.charCodeAt(before.length - 1 - tail) === after.charCodeAt(after.length - 1 - tail)
+  ) {
+    tail += 1;
+  }
+  return {
+    op: "splice",
+    at: head,
+    remove: before.length - head - tail,
+    insert: after.slice(head, after.length - tail),
+  };
+};
+
+const QUOTE_MAX = 48;
+
+/** Where a thread hangs, said briefly. */
+export const anchorLabel = (anchor: Anchor | undefined): string => {
+  if (anchor === undefined) return "Whole artifact";
+  switch (anchor.kind) {
+    case "whole":
+      return "Whole artifact";
+    case "text":
+      return anchor.quote.length > QUOTE_MAX ? `"${anchor.quote.slice(0, QUOTE_MAX - 1)}…"` : `"${anchor.quote}"`;
+    case "cells":
+      return `Cells ${anchor.range}`;
+    case "box":
+      return `Area at ${Math.round(anchor.x)}, ${Math.round(anchor.y)}`;
+    case "lines":
+      return `${anchor.file} line ${String(anchor.from)}`;
+  }
+};
+
+/** Who wrote it, as the operator reads it. A seat's name is resolved by the caller. */
+export const actorLabel = (actor: ResourceActor, seatName?: (nodeId: string) => string | undefined): string => {
+  switch (actor.kind) {
+    case "operator":
+      return "You";
+    case "seat":
+      return seatName?.(actor.nodeId) ?? actor.nodeId;
+    case "automation":
+      return "Automation";
+  }
+};
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** A short age: now, 5m, 3h, 2d, or the date. */
+export const ageLabel = (at: number, now: number): string => {
+  const age = Math.max(0, now - at);
+  if (age < MINUTE) return "now";
+  if (age < HOUR) return `${Math.floor(age / MINUTE)}m`;
+  if (age < DAY) return `${Math.floor(age / HOUR)}h`;
+  if (age < 7 * DAY) return `${Math.floor(age / DAY)}d`;
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+export const TYPE_NOUN: { readonly [T in ArtifactType]: string } = {
+  link: "Link",
+  document: "Document",
+  pad: "Pad",
+  sheet: "Sheet",
+  file: "File",
+};
+
+/** Is this an http(s) URL a link may point at. */
+export const isLinkUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
