@@ -226,7 +226,7 @@ describe("junto artifact in main", () => {
       .toMatchObject({ path: "anchor" });
     expect(comments).toEqual([]);
     expect(ok(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "cells", range: "B2" } })))
-      .toEqual({ opId: OP2, threadId: "T1", messageId: "M1", notified: ["S1"] });
+      .toEqual({ disposition: "applied", opId: OP2, threadId: "T1", messageId: "M1", notified: ["S1"] });
     expect(comments[0]).toEqual({
       input: {
         subject: { kind: "artifact", nodeId: "AR", artifactId: NEW },

@@ -449,8 +449,12 @@ export const handleArtifactOp = (
             ),
           );
         }
-        // `whole` is no anchor; an artifact anchor never takes lines (its type rules them out).
+        // `whole` is no anchor. The wire Anchor still spells lines, which no
+        // artifact takes, so the check narrows it to an artifact's place.
         const anchor = input.anchor === undefined ? undefined : subjectAnchorOf(input.anchor);
+        if (anchor?.kind === "lines") {
+          return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
+        }
         const author = head.artifact.createdBy;
         const posted = yield* ports
           .comment(
@@ -465,6 +469,7 @@ export const handleArtifactOp = (
           )
           .pipe(Effect.mapError((error) => ({ ...error, details: { ...error.details, opId: input.opId } })));
         return {
+          disposition: "applied",
           opId: input.opId,
           threadId: posted.threadId,
           messageId: posted.messageId,

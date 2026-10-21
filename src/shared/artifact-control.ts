@@ -212,6 +212,7 @@ export type ArtifactDisposition = ArtifactWriteResult["disposition"];
 
 /** A posted comment: its thread, its row, and the seats told, each once. */
 export type ArtifactCommentResult = {
+  readonly disposition: "applied";
   readonly opId: OpId;
   readonly threadId: string;
   readonly messageId: string;
