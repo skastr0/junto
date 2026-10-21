@@ -1,35 +1,24 @@
 import { useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { X } from "lucide-react";
-import type { Part, WorkMetadata } from "@shared/work-model";
-import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
-import { resolveTaskAdmission } from "@shared/work-model";
+import { Minus, Plus, X } from "lucide-react";
+import { asNodeId } from "@shared/model";
+import { mintItemId } from "@shared/resource-command";
+import { STAMPS_REQUIRED_MAX, taskNodeId } from "@shared/task-model";
 import type { WorkSurface } from "../../lib/surface-registry";
-import {
-  closeWorkbenchSurface,
-  dock$,
-} from "../../lib/dock-state";
-import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
+import { closeWorkbenchSurface, dock$ } from "../../lib/dock-state";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
-import { useCanvas, useNodeOf } from "../../lib/use-model";
-import { getJuntoApi } from "../../lib/junto-api";
-import { IconButton } from "../ui";
-import {
-  resolveArtifactsNodeId,
-  TaskCreateDialog,
-} from "./TaskBoard";
-import "./task-board.css";
-
-const runWorkMutation = <T,>(
-  operation: () => Promise<WorkOpResult<T>>,
-): Promise<WorkOpResult<T> | undefined> => runCanvasAuthoringOperation(operation);
-
+import { useNodeOf } from "../../lib/use-model";
+import { tasksSource } from "../../lib/tasks-source";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { Button, IconButton, Input, Textarea } from "../ui";
+import "./task-enqueue.css";
 
 /**
- * Workbench pane: quick enqueue for a tasks sink.
- * Coexists with a terminal in a split (and vice versa).
- * Successful create clears the form and keeps the surface open.
+ * Workbench pane: quick enqueue for a task node. A title, what it is about,
+ * and how many approvals finishing needs; the task lands in the node's
+ * backlog. Coexists with a terminal in a split. A created task clears the
+ * form and keeps the pane open for the next one.
  */
 export function TaskEnqueueSurface({
   surface,
@@ -44,15 +33,13 @@ export function TaskEnqueueSurface({
   const nodeId = payload?.nodeId;
   const name = use$(state$.canvasName);
   const node = useNodeOf(name, nodeId ?? "", "task");
-  const canvas = useCanvas(name);
-  const artifactsNodeId = nodeId ? resolveArtifactsNodeId(nodeId, canvas) : undefined;
-  const admissionFloor = resolveTaskAdmission(node?.contract);
+  const [title, setTitle] = useState("");
+  const [details, setDetails] = useState("");
+  const [required, setRequired] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [resetToken, setResetToken] = useState(0);
-  const api = getJuntoApi();
 
-  if (!payload || !node) {
+  if (!payload || !node || nodeId === undefined) {
     return (
       <section className="dock-slot workbench-surface">
         <div className="workbench-surface__placeholder">task enqueue - unbound</div>
@@ -60,43 +47,26 @@ export function TaskEnqueueSurface({
     );
   }
 
-  const create = async (
-    title: string,
-    details: string,
-    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
-    dependsOn: ReadonlyArray<string>,
-    finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
-    options: TaskCreateOptions | undefined,
-  ) => {
-    if (!api || !title.trim() || !details.trim()) return;
+  const ready = title.trim().length > 0 && !pending;
+  const create = async (): Promise<void> => {
+    if (!ready) return;
     setError("");
     setPending(true);
     try {
-      const metadata: WorkMetadata = {
+      const taskId = mintItemId();
+      const ruling = await tasksSource().apply(name, taskNodeId(asNodeId(nodeId)), taskId, {
+        kind: "create",
+        taskId,
         title: title.trim(),
-        details: details.trim(),
-      };
-      const result = await runWorkMutation(() =>
-        api.workTaskCreate(
-          name,
-          nodeId,
-          title.trim(),
-          metadata,
-          undefined,
-          media.length > 0 ? media : undefined,
-          dependsOn.length > 0 ? dependsOn : undefined,
-          finishCriteria,
-          undefined,
-          options,
-        ),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
+        ...(details.trim() === "" ? {} : { body: details.trim() }),
+        stampPolicy: { required },
+      });
+      if (!ruling.ok) {
+        setError(ruling.message);
         return;
       }
-      // Stay open — clear for the next enqueue.
-      setResetToken((token) => token + 1);
+      setTitle("");
+      setDetails("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -104,54 +74,78 @@ export function TaskEnqueueSurface({
     }
   };
 
-  const actions = (
-    <>
-      <IconButton
-        size="md"
-        tone="danger"
-        aria-label="Close task enqueue"
-        title="Close"
-        onClick={() => closeWorkbenchSurface(surface.id)}
-        disabled={pending}
-      >
-        <X size={14} />
-      </IconButton>
-    </>
-  );
-
   return (
     <section
-      className="dock-slot dock-slot--task-create workbench-surface"
+      className="dock-slot dock-slot--task-create workbench-surface task-enqueue"
       aria-label={`Quick enqueue - ${payload.title}`}
       aria-hidden={!visible}
       data-focus-owner="interactive"
       data-testid="task-enqueue-surface"
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
+      <header className="task-enqueue__head">
+        <span>New task on {payload.title}</span>
+        <IconButton
+          size="md"
+          tone="danger"
+          aria-label="Close task enqueue"
+          title="Close"
+          onClick={() => closeWorkbenchSurface(surface.id)}
+          disabled={pending}
+        >
+          <X size={14} />
+        </IconButton>
+      </header>
       {error ? (
-        <div className="task-board-error" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError("")}>
-            Dismiss
-          </button>
-        </div>
+        <p className="task-enqueue__error" role="alert">
+          {error}
+        </p>
       ) : null}
-      <TaskCreateDialog
-        mode="task"
-        pending={pending}
-        artifactsNodeId={artifactsNodeId}
-        admissionFloor={admissionFloor}
-        shell="inline"
-        stayOpen
-        resetToken={resetToken}
-        headerActions={actions}
-        onClose={() => {
-          if (!pending) closeWorkbenchSurface(surface.id);
+      <form
+        className="task-enqueue__form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void create();
         }}
-        onCreate={(title, details, media, dependsOn, finishCriteria, options) => {
-          void create(title, details, media, dependsOn, finishCriteria, options);
-        }}
-      />
+      >
+        <Input
+          ref={claimFocusOnMount}
+          aria-label="Task title"
+          placeholder="What needs doing?"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <Textarea
+          aria-label="Details"
+          placeholder="Context, constraints, expected result…"
+          rows={5}
+          value={details}
+          onChange={(event) => setDetails(event.target.value)}
+        />
+        <div className="task-enqueue__review">
+          <span>Approvals needed to finish</span>
+          <IconButton
+            aria-label="Require one fewer approval"
+            title="Require one fewer approval"
+            disabled={pending || required <= 0}
+            onClick={() => setRequired(required - 1)}
+          >
+            <Minus size={12} />
+          </IconButton>
+          <output aria-label="Approvals required">{required}</output>
+          <IconButton
+            aria-label="Require one more approval"
+            title="Require one more approval"
+            disabled={pending || required >= STAMPS_REQUIRED_MAX}
+            onClick={() => setRequired(required + 1)}
+          >
+            <Plus size={12} />
+          </IconButton>
+        </div>
+        <Button type="submit" size="md" variant="primary" disabled={!ready}>
+          Add task
+        </Button>
+      </form>
     </section>
   );
 }

@@ -1,0 +1,47 @@
+.task-enqueue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.task-enqueue__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+.task-enqueue__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-enqueue__review {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-enqueue__review output {
+  min-width: 1.5ch;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.task-enqueue__error {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-crimson);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}

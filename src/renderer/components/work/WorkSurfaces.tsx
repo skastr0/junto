@@ -21,9 +21,14 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Field";
 import { commitCommands } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
-import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
+import { useCanvas, useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { TaskBoard } from "./TaskBoard";
+import { TasksNode } from "../tasks/TasksNode";
+import { seatChoicesInReach } from "../tasks/tasks-canvas";
+import { installIpcTasksSource } from "../../lib/tasks-source";
+import { getJuntoApi } from "../../lib/junto-api";
+import { titleOf } from "@shared/model/title";
+import { taskNodeId } from "@shared/task-model";
 import { ArtifactsNode } from "../artifacts/ArtifactsNode";
 import { AutomationsPane } from "../automations/AutomationsPane";
 import { asNodeId } from "@shared/physics/schema";
@@ -333,7 +338,24 @@ export function TasksDetail({
   /** Pre-select this task when opening (jump-to-blocker-cause). */
   readonly initialItemId?: string;
 }) {
-  return <TaskBoard nodeId={nodeId} onClose={onClose} initialItemId={initialItemId} />;
+  const canvasId = use$(state$.canvasName) || "";
+  const canvas = useCanvas(canvasId);
+  installIpcTasksSource(getJuntoApi()?.resource?.task);
+  const node = taskNodeId(asNodeId(nodeId));
+  const nameOf = (id: string): string => {
+    const found = canvas.nodes.get(asNodeId(id));
+    return found === undefined ? id : titleOf(found);
+  };
+  return (
+    <TasksNode
+      canvasName={canvasId}
+      node={node}
+      {...(initialItemId === undefined ? {} : { initialTaskId: initialItemId })}
+      seats={seatChoicesInReach(canvas, node, nameOf)}
+      nodeName={nameOf}
+      onClose={onClose}
+    />
+  );
 }
 
 export function ArtifactsDetail({

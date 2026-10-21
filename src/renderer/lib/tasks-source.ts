@@ -219,3 +219,18 @@ export const useTaskFacts = (canvasName: string): TaskFacts =>
 
 export const useCanvasTasks = (canvasName: string): ReadonlyArray<TaskView> =>
   useSourced(() => tasksSource().all(canvasName), NONE, canvasName);
+
+let installed = false;
+
+/**
+ * Point the Tasks node at main's tasks. Idempotent. Without the API (the
+ * feature is off, or no bridge in a test) the in-memory source stays.
+ */
+export const installIpcTasksSource = (api: TaskResourceApi | undefined): boolean => {
+  if (api === undefined) return false;
+  if (!installed) {
+    setTasksSource(makeIpcTasksSource(api));
+    installed = true;
+  }
+  return true;
+};

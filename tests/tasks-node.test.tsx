@@ -9,6 +9,8 @@ import { mintItemId } from "../src/shared/resource-command";
 import { seatNodeId, taskNodeId, type ClosedTaskLayer, type TaskId, type TaskView } from "../src/shared/task-model";
 import { GALLERY_BUILD, GALLERY_CANVAS, GALLERY_QA, seed } from "../src/renderer/components/gallery/TasksNodeGallery";
 import { makeLocalTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
+import { seatChoicesInReach } from "../src/renderer/components/tasks/tasks-canvas";
+import type { ReachCanvas, ReachNode } from "../src/shared/region-reach";
 import { SelectedTask } from "../src/renderer/components/tasks/TasksNode";
 import type { TaskCanvasFacts } from "../src/renderer/components/tasks/tasks-pane-model";
 
@@ -132,5 +134,35 @@ describe("Tasks node gallery seed", () => {
     expect(qa).toHaveLength(1);
     expect(qa[0]?.layers).toHaveLength(1);
     expect(qa[0]?.current.stampPolicy.required).toBe(1);
+  });
+});
+
+describe("seats in reach of a task node", () => {
+  const at = (id: string, kind: ReachNode["kind"], x: number, y: number, w = 50, h = 50): ReachNode => ({
+    id: asNodeId(id),
+    kind,
+    x,
+    y,
+    width: w,
+    height: h,
+  });
+  const canvas: ReachCanvas = {
+    nodes: new Map(
+      [
+        at("region-a", "region", 0, 0, 400, 400),
+        at("region-b", "region", 600, 0, 400, 400),
+        at("tasks-a", "task", 10, 10),
+        at("seat-zed", "agent", 100, 10),
+        at("seat-amy", "agent", 100, 100),
+        at("seat-far", "agent", 700, 10),
+        at("note-a", "note", 100, 200),
+      ].map((n) => [n.id, n] as const),
+    ),
+  };
+
+  it("lists the seats of the same region, named and sorted, and not seats elsewhere or other kinds", () => {
+    const names: Record<string, string> = { "seat-zed": "Zed", "seat-amy": "Amy", "seat-far": "Far" };
+    const found = seatChoicesInReach(canvas, taskNodeId(asNodeId("tasks-a")), (id) => names[id] ?? id);
+    expect(found.map((seat) => seat.name)).toEqual(["Amy", "Zed"]);
   });
 });

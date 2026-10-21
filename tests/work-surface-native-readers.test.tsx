@@ -9,7 +9,9 @@ import { modelStore } from "../src/renderer/lib/use-model";
 import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
-import { TaskBoard } from "../src/renderer/components/work/TaskBoard";
+import { makeLocalTasksSource, setTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
+import { taskNodeId } from "../src/shared/task-model";
+import { asNodeId } from "../src/shared/model";
 import { TaskEnqueueSurface } from "../src/renderer/components/work/TaskEnqueueSurface";
 import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
 import { KindSurface } from "../src/renderer/components/rts/KindSurface";
@@ -109,45 +111,23 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("mounts task paths and settings from native rows, then follows a changed contract and name", async () => {
-  publish("before", { kind: "task", name: "Plan" });
-  publish("queue", { kind: "task", name: "Build", contract: { instructions: "Ship the change" } });
-  publish("after", { kind: "task", name: "Verify" });
-  wire("in", "before", "queue"); wire("out", "queue", "after");
-  await mount(<TaskBoard nodeId="queue" onClose={() => {}} />);
-  expect(document.body.textContent).toContain("Build");
-  expect(document.querySelector('[data-testid="task-lane-incoming"]')?.textContent).toContain("Plan");
-  expect(document.querySelector('[data-testid="task-lane-outgoing"]')?.textContent).toContain("Verify");
-  await click('[aria-label="Edit board settings"]');
-  expect(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Instructions"]')?.value).toBe("Ship the change");
-  await act(async () => {
-    publish("queue", { kind: "task", name: "Release", contract: { instructions: "Review the release", incoming: { admission: "approval" } } });
-    await flush();
-  });
-  expect(document.body.textContent).toContain("Release");
-  expect(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Instructions"]')?.value).toBe("Review the release");
-});
-
-it("enqueues under the native admission floor and artifact sink with no document mirror", async () => {
-  publish("queue", { kind: "task", name: "Build", contract: { incoming: { admission: "approval" } } });
-  publish("outputs", { kind: "artifacts", label: "Results" });
+it("enqueues a task on its node through the tasks source, with its body and approvals, and clears for the next", async () => {
+  setTasksSource(makeLocalTasksSource());
+  state$.canvasName.set(canvas);
+  publish("queue", { kind: "task", name: "Build" });
   dock$.taskCreateById["enqueue"].set({ nodeId: "queue", title: "Build", mode: "task" });
   await mount(<TaskEnqueueSurface surface={{ id: "enqueue", kind: "task-create" }} visible onActivate={() => {}} />);
-  expect(document.body.textContent).toContain("This board's default: Approval");
   await type('input[placeholder="What needs doing?"]', "Ship it");
   await type('textarea[placeholder="Context, constraints, expected result…"]', "Implement and verify");
-  const checkbox = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((input) => input.parentElement?.textContent?.includes("Require artifact"));
-  expect(checkbox?.disabled).toBe(false);
-  await act(async () => checkbox!.click());
+  await click('[aria-label="Require one more approval"]');
   await act(async () => {
     document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await flush();
   });
-  expect(create).toHaveBeenCalledOnce();
-  expect(create.mock.calls[0]).toEqual(expect.arrayContaining([
-    canvas, "queue", "Ship it", expect.objectContaining({ artifacts: { nodeId: "outputs" } }),
-    expect.objectContaining({ admission: "approval" }),
-  ]));
+  const made = await tasksSource().list(canvas, taskNodeId(asNodeId("queue")));
+  expect(made).toHaveLength(1);
+  expect(made[0]).toMatchObject({ title: "Ship it", body: "Implement and verify", current: { state: "backlog", stampPolicy: { required: 1 } } });
+  expect(document.querySelector<HTMLInputElement>('input[placeholder="What needs doing?"]')?.value).toBe("");
 });
 
 it("unbinds enqueue when its native task node disappears", async () => {
