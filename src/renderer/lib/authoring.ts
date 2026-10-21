@@ -8,8 +8,9 @@ import { modelStore } from "./use-model";
 // model-edits.ts against `modelStore.canvasOf(canvas)` and handed here.
 
 export const authoring = createAuthoring({
-  canvasOf: modelStore.canvasOf,
-  show: modelStore.show,
+  // Looked up at each call, so a test that spies on the store sees it.
+  canvasOf: (canvas) => modelStore.canvasOf(canvas),
+  show: (...args) => modelStore.show(...args),
   deliver: async (command, shown) => {
     // No main (the demo, a unit rig): the store is all there is.
     if (getJuntoApi() === undefined) return;
