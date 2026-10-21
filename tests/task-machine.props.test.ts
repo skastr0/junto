@@ -16,6 +16,7 @@ import {
 } from "../src/shared/task-machine";
 import {
   ASSIGNEE_ONLY,
+  CLOSED_TASK_STATES,
   isClosedTaskState,
   isOpenTaskState,
   reviewerKey,
@@ -273,6 +274,58 @@ describe("task machine properties", () => {
     if (dump(a) !== dump(b)) out.push("the same sequence ruled two ways");
     return out;
   }));
+});
+
+describe("an assignee-only command on a closed task", () => {
+  it("is an illegal transition from that state, for every kind and every actor, the assignee too", () => {
+    const env: TaskDomainEnv = { at: 1_000, downstream: () => [], stampDefaultOf: () => ({ required: 0 }), seatReaches: () => true };
+    const [ada, bo] = [SEATS[0]!, SEATS[1]!];
+    const taskId = ULIDS[0]!;
+    const drive = (commands: ReadonlyArray<[TaskActor, TaskCommand]>): TaskBoardState =>
+      commands.reduce((board, [actor, command]) => {
+        const ruling = ruleTaskBoardCommand(board, { node: NODES[0]!, taskId }, actor, command, env);
+        if (!ruling.ok) throw new Error(`${command.kind} was refused: ${JSON.stringify(ruling.refusal)}`);
+        return { tasks: new Map(board.tasks).set(ruling.task.id, ruling.task), nextNumber: board.nextNumber };
+      }, emptyTaskBoard());
+    const operator: TaskActor = { kind: "operator" };
+    const assignee: TaskActor = { kind: "seat", seat: ada };
+    const opening: ReadonlyArray<[TaskActor, TaskCommand]> = [[operator, { kind: "create", taskId, title: "t" }], [operator, { kind: "assign", seat: ada }]];
+    const closed: ReadonlyArray<[TaskState, TaskBoardState]> = [
+      ["canceled", drive([...opening, [operator, { kind: "cancel" }]])],
+      ["done", drive([...opening, [assignee, { kind: "start" }], [assignee, { kind: "finish" }]])],
+      ["archived", drive([...opening, [operator, { kind: "cancel" }], [operator, { kind: "archive" }]])],
+    ];
+    expect(closed.map(([state]) => state).sort()).toEqual([...CLOSED_TASK_STATES].sort());
+    const commandOfKind: { readonly [K in TaskCommand["kind"]]?: TaskCommand } = {
+      start: { kind: "start" },
+      pause: { kind: "pause" },
+      resume: { kind: "resume" },
+      finish: { kind: "finish" },
+      check: { kind: "check", results: [] },
+    };
+    const kinds = (Object.keys(ASSIGNEE_ONLY) as Array<TaskCommand["kind"]>).filter((kind) => ASSIGNEE_ONLY[kind]);
+    const actors: ReadonlyArray<TaskActor> = [assignee, { kind: "seat", seat: bo }, operator, { kind: "automation", automation: asNodeId("auto") }];
+    const out: string[] = [];
+    for (const [state, board] of closed) {
+      expect(board.tasks.get(taskId)?.state).toBe(state);
+      for (const kind of kinds) {
+        const command = commandOfKind[kind];
+        if (command === undefined) {
+          out.push(`no command built for ${kind}`);
+          continue;
+        }
+        for (const actor of actors) {
+          const ruling = ruleTaskBoardCommand(board, { node: NODES[0]!, taskId }, actor, command, env);
+          const detail = ruling.ok ? undefined : ruling.refusal.detail;
+          if (JSON.stringify(detail) !== JSON.stringify({ kind: "illegal-transition", from: state, command: kind })) {
+            out.push(`${kind} by ${actor.kind} on a ${state} task: ${ruling.ok ? "applied" : JSON.stringify(detail)}`);
+          }
+        }
+      }
+    }
+    expect(out).toEqual([]);
+    expect(kinds.length).toBe(5);
+  });
 });
 
 describe("the walks are not vacuous", () => {

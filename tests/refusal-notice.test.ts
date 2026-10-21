@@ -6,6 +6,8 @@ import { ActorSeatId } from "../src/shared/actor-seat";
 import type { QueuedCommand, RulingRefusedResult } from "../src/shared/command-row";
 import { InstallationId } from "../src/shared/installation-id";
 import { commandWords, lostToWords, refusalNoticeOf, refusedWith, refusalSubjectOf, type QueuedLink } from "../src/shared/refusal-notice";
+import { taskRefusalToken, taskRefusalWordsOf } from "../src/shared/task-machine";
+import { TASK_STATES } from "../src/shared/task-model";
 import { subjectNoticeId, subjectNoticeKindOf } from "../src/shared/subject-notice";
 import { threadSubjectOf } from "../src/shared/thread-subject";
 import { ItemId, OpId } from "../src/shared/work-ids";
@@ -63,6 +65,26 @@ describe("a task's refused transition", () => {
     expect(notice?.row.text).toContain("task start was refused: A canceled task cannot start");
     expect(notice?.row.text).not.toContain("not in a state that allows this");
     expect(notice?.row.text).not.toContain("lost to");
+  });
+
+  it("keeps the generic words for a token outside the closed set, or one that does not match the reason", () => {
+    const textOf = (reason: RulingRefusedResult["reason"], expected: string) =>
+      refusalNoticeOf({ installationId: MINI, ruling: refused({ reason, expected }), command: command({ op: { kind: "start" } } as Partial<QueuedCommand>), queue: [] })?.row.text;
+    expect(textOf("invalid_transition", "from:sideways")).toContain("The resource is not in a state that allows this");
+    expect(textOf("invalid_transition", "from:canceled-ish")).toContain("The resource is not in a state that allows this");
+    expect(textOf("invalid_transition", "epoch:7")).toContain("The resource is not in a state that allows this");
+    expect(textOf("stale", "epoch:7")).toContain("The task moved on; its epoch is now 7");
+    // A command kind outside the closed set keeps the generic words: never "A canceled task cannot zap".
+    expect(taskRefusalWordsOf("invalid_transition", "from:canceled", "zap")).toBeUndefined();
+    const zap = refusalNoticeOf({ installationId: MINI, ruling: refused({ reason: "invalid_transition", expected: "from:canceled" }), command: command({ op: { kind: "zap" } } as Partial<QueuedCommand>), queue: [] })?.row.text;
+    expect(zap).toContain("The resource is not in a state that allows this");
+    expect(zap).not.toContain("cannot zap");
+  });
+
+  it("words every token the task store writes", () => {
+    for (const state of TASK_STATES) expect(taskRefusalWordsOf("invalid_transition", taskRefusalToken({ kind: "illegal-transition", from: state, command: "start" }), "start")).toBe(`A ${state} task cannot start`);
+    expect(taskRefusalWordsOf("stale", taskRefusalToken({ kind: "stale-epoch", expected: 12 }), "start")).toContain("12");
+    expect(taskRefusalToken({ kind: "not-assignee" })).toBeUndefined();
   });
 });
 

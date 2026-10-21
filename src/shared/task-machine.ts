@@ -1,3 +1,4 @@
+import { Option, Schema } from "effect";
 import type { NodeId } from "./model/base";
 import type { CompletionEvidence } from "./work-model";
 import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
@@ -571,11 +572,29 @@ export const taskRefusalToken = (detail: unknown): string | undefined => {
   return undefined;
 };
 
-/** The task's own words for a refused command, from its row's token and the command's kind; none for any other token. */
-export const taskRefusalWordsOf = (token: string | undefined, command: string): string | undefined => {
-  const from = token?.startsWith("from:") ? token.slice("from:".length) : undefined;
-  if (from === undefined || !(TASK_STATES as ReadonlyArray<string>).includes(from) || !/^[a-z][a-z-]{0,31}$/.test(command)) return undefined;
-  return taskRefusalMessage({ kind: "illegal-transition", from: from as TaskState, command: command as TaskCommandKind });
+/** The closed set of tokens a task refusal leaves on its row: `from:<TaskState>` and `epoch:<int>`, nothing else. */
+export const TaskRefusalToken = Schema.String.pipe(
+  Schema.check(Schema.isPattern(new RegExp(`^(?:from:(?:${TASK_STATES.join("|")})|epoch:(?:0|[1-9][0-9]{0,14}))$`))),
+);
+const decodeTaskRefusalToken = Schema.decodeUnknownOption(TaskRefusalToken);
+
+const isTaskCommandKind = (kind: string): kind is TaskCommandKind => Object.hasOwn(ASSIGNEE_ONLY, kind);
+
+/**
+ * The task's own words for a refused command, decoded from its row's token on
+ * the reading machine: `from:` for an invalid transition, `epoch:` for a stale
+ * one. Undefined for any token outside the closed set, or one that does not
+ * match the reason, so the generic words stand.
+ */
+export const taskRefusalWordsOf = (reason: string, token: string | undefined, command: string): string | undefined => {
+  const known = decodeTaskRefusalToken(token);
+  if (Option.isNone(known) || !isTaskCommandKind(command)) return undefined;
+  const [form, value] = known.value.split(":") as [string, string];
+  if (form === "from" && reason === "invalid_transition") {
+    return taskRefusalMessage({ kind: "illegal-transition", from: value as TaskState, command });
+  }
+  if (form === "epoch" && reason === "stale") return taskRefusalMessage({ kind: "stale-epoch", expected: Number(value) });
+  return undefined;
 };
 
 const toRefusal = ({ reason, detail }: TaskRefusal): Refusal => ({

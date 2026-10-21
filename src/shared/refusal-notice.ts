@@ -84,12 +84,10 @@ export const commandWords = (command: QueuedCommand): string => {
   return kind === undefined ? command.target.kind : `${command.target.kind} ${kind}`;
 };
 
-/** A task's own words for a transition it refused (`A canceled task cannot start`), rebuilt from the row's token. */
+/** A task's own words for what it refused (`A canceled task cannot start`), decoded from the row's closed token. */
 const domainWordsOf = (ruling: RulingRefusedResult, command: QueuedCommand): string | undefined => {
   const kind = opKindOf(command);
-  return command.target.kind === "task" && ruling.reason === "invalid_transition" && kind !== undefined
-    ? taskRefusalWordsOf(ruling.expected, kind)
-    : undefined;
+  return command.target.kind === "task" && kind !== undefined ? taskRefusalWordsOf(ruling.reason, ruling.expected, kind) : undefined;
 };
 
 /** What the command lost to, as a bounded token, such as `epoch:7`; anything else is left out of the text. */
