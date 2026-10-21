@@ -164,6 +164,29 @@ describe("automation IPC", () => {
     }));
 });
 
+describe("when conditions, read on the editing machine", () => {
+  it("skips a run whose task condition does not hold, then fires once it does", () =>
+    run(async (handlers) => {
+      // Fires only while some task on the tasks node is in the backlog.
+      const gated = { ...definition, when: [{ kind: "task", task: { node: TASKS }, becomes: "backlog", holds: true }] };
+      const OTHER = "01M5ESKJFC1A88R1MH1NEZWJ2R";
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition: gated as never } });
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "run" } });
+      expect((await handlers.firings("factory", { automationId: ID })).firings.map((f) => f.outcome)).toEqual([
+        { kind: "skipped", reason: "condition_unmet" },
+      ]);
+
+      // A second automation files a task in the backlog; now the first one's condition holds.
+      await handlers.apply("factory", { nodeId: NODE, automationId: OTHER, op: { kind: "create", automationId: OTHER, enabled: false, definition } });
+      await handlers.apply("factory", { nodeId: NODE, automationId: OTHER, op: { kind: "run" } });
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "run" } });
+      expect((await handlers.firings("factory", { automationId: ID })).firings[0]?.outcome).toEqual({
+        kind: "fired",
+        actions: [{ index: 0, ruling: "applied" }],
+      });
+    }));
+});
+
 describe("the CLI's live automation ports", () => {
   const OVERSEER_RUN = OpId.make("01M5ESKJFC1A88R1MH1NEZWJ40");
 

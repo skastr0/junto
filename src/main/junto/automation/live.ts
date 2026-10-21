@@ -10,14 +10,15 @@
  * resource as the automation, through the one comment write path. A task
  * action is ruled here as the automation, with its author's reach. An action
  * whose port has not landed yet is ruled refused `not_available` in the
- * firing's history, so a firing never reads as done when it did nothing. A
- * `when` condition holds only once the seat-state and task-state ports land;
- * until then it never holds and the firing is skipped `condition_unmet`.
+ * firing's history, so a firing never reads as done when it did nothing.
+ * A `when` condition reads the task states and the seat task index fetched
+ * with the canvas before the pass, on the editing machine.
  */
 import { createHash } from "node:crypto";
 import { Context, Duration, Effect, Layer, Option, Schedule, Schema } from "effect";
 import { ulid } from "ulid";
-import type { Action, ActionRuling, Automation, AutomationId, Firing } from "@shared/automation";
+import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
+import type { SeatTask } from "@shared/seat-task-index";
 import { FiringId } from "@shared/automation";
 import { mailExtensionMetadata } from "@shared/crew";
 import { automationActorRef, AutomationNodeId } from "@shared/mail-author";
@@ -40,6 +41,7 @@ import { noteResourceChanged } from "../work/resource-changes";
 import { taskCanvasEnv } from "../work/task-control";
 import { deliverTaskEffects, type TaskDelivery } from "../work/task-delivery";
 import { TaskRepository } from "../work/task-repository";
+import { readSeatTaskIndex } from "../work/seat-task-read";
 import { MachineRepository } from "../machines/repository";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
@@ -62,6 +64,45 @@ export const automationMailId = (firingId: FiringId, index: number, part?: strin
 };
 
 const decodeAutomationNode = Schema.decodeUnknownOption(AutomationNodeId);
+
+/** A task as a `when` condition reads it. */
+export type TaskStateRow = { readonly taskId: string; readonly node: string; readonly state: string };
+
+/** What a pass reads for its `when` conditions. */
+export type ConditionView = {
+  readonly tasks: ReadonlyArray<TaskStateRow>;
+  /** The open task each seat holds (seat-task-read.ts). */
+  readonly seatTasks: Readonly<Record<string, Pick<SeatTask, "blocked"> | undefined>>;
+  readonly seatOnCanvas: (seat: string) => boolean;
+};
+
+/**
+ * A seat's state as its tasks tell it: gone when it left the canvas,
+ * attention when its open task waits on someone else, working while it holds
+ * an open task, idle when it holds none.
+ */
+export const seatStateOf = (view: ConditionView, seat: string): SeatBecomes => {
+  if (!view.seatOnCanvas(seat)) return "gone";
+  const task = view.seatTasks[seat];
+  return task === undefined ? "idle" : task.blocked ? "attention" : "working";
+};
+
+/**
+ * Whether a `when` condition holds over what this pass read: a seat in that
+ * state, a named task in that state, or any task on the named node in it.
+ */
+export const conditionHolds = (condition: Condition, view: ConditionView): boolean => {
+  const { tasks } = view;
+  if (condition.kind === "seat") return condition.seat.kind === "seat" && seatStateOf(view, condition.seat.nodeId) === condition.becomes;
+  const on = condition.task;
+  if ("kind" in on) return on.kind === "task" && tasks.some((task) => task.taskId === on.taskId && task.state === condition.becomes);
+  return tasks.some((task) => task.node === on.node && task.state === condition.becomes);
+};
+
+const TASK_STATES_READ_MAX = 1_000;
+
+/** Nothing read: no task and no seat, so no condition holds. */
+const EMPTY_VIEW: ConditionView = { tasks: [], seatTasks: {}, seatOnCanvas: () => false };
 
 const notAvailable = (index: number): ActionRuling => ({ index, ruling: "refused", reason: "not_available" });
 
@@ -252,9 +293,10 @@ export const AutomationRunnerLive = Layer.effect(
       : Option.none();
     // The canvas as it stood when this pass began; the ports read it synchronously.
     const canvases = new Map<string, Canvas>();
+    const views = new Map<string, ConditionView>();
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
-      holds: () => false,
+      holds: (canvasName, condition) => conditionHolds(condition, views.get(canvasName) ?? EMPTY_VIEW),
       perform: (canvasName, automation, action, index, firingId) =>
         performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
@@ -263,11 +305,34 @@ export const AutomationRunnerLive = Layer.effect(
       now: () => Date.now(),
     };
     const runner = makeAutomationRunner(ports);
+    // What a `when` reads: every task's state on the canvas's task nodes, and the seat task index.
+    const readConditionView = (canvasName: string, canvas: Canvas): Effect.Effect<ConditionView> =>
+      Option.isNone(taskStore)
+        ? Effect.succeed({ ...EMPTY_VIEW, seatOnCanvas: (seat) => canvas.nodes.has(seat as never) })
+        : Effect.all({
+            listed: taskStore.value.list(canvasName, {
+              nodeIds: [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => node.id),
+              limit: TASK_STATES_READ_MAX,
+            }),
+            seatTasks: readSeatTaskIndex(taskStore.value, canvas),
+          }).pipe(
+            Effect.map(({ listed, seatTasks }): ConditionView => ({
+              tasks: listed.tasks.map((task) => ({ taskId: task.taskId, node: task.current.node, state: task.current.state })),
+              seatTasks,
+              seatOnCanvas: (seat) => canvas.nodes.get(seat as never)?.kind === "agent",
+            })),
+            // An unreadable store holds no condition: the firing is skipped, never fired.
+            Effect.orElseSucceed(() => EMPTY_VIEW),
+          );
     const load = (canvasName: string) =>
       model.canvas(canvasName).pipe(
         Effect.tap((canvas) => Effect.sync(() => canvases.set(canvasName, canvas))),
+        Effect.tap((canvas) => Effect.map(readConditionView(canvasName, canvas), (view) => views.set(canvasName, view))),
         Effect.asVoid,
-        Effect.catchCause(() => Effect.sync(() => canvases.delete(canvasName))),
+        Effect.catchCause(() => Effect.sync(() => {
+          canvases.delete(canvasName);
+          views.delete(canvasName);
+        })),
       );
     const withRepository = <A, E>(effect: Effect.Effect<A, E, AutomationRepository>) =>
       Effect.provideService(effect, AutomationRepository, repository);
