@@ -7,7 +7,8 @@ import {
   buildNodesCatalogDoc,
   DOC_TOPICS,
 } from "../src/shared/junto-docs";
-import { productNodeKindEnabled } from "../src/shared/features";
+import { productNodeKindEnabled, TASKS_ENABLED } from "../src/shared/features";
+import { SINCE_COMMANDS } from "../src/shared/seat-since";
 
 describe("junto docs catalog", () => {
   it("agent kind doc carries mail and seat credential identity", () => {
@@ -67,6 +68,25 @@ describe("junto docs catalog", () => {
     expect(doc).toContain("only the operator and overseers write them");
     expect(doc).toContain("`junto signal list --since <ISO time or signal id>`");
     expect(doc).toContain("- `Stale` — ");
+    expect(doc).not.toContain("·");
+  });
+
+  it("doctrine teaches since's task sections in the words their lines read, with the command that lists each", () => {
+    const doc = buildDoctrineDoc();
+    const taught = [
+      "`your_tasks`",
+      '`Your task #N "Title" is <state> [task #N]`',
+      "`... is now <state>, changed since your last session`",
+      "`... was sent on to <node> since your last session, and is <state> there`",
+      `\`${SINCE_COMMANDS.yourTasks}\` lists them. \`reviews_owed\``,
+      "`<assignee>'s task #N \"Title\" is in review and waits on your stamp [task #N]`",
+      `\`${SINCE_COMMANDS.reviewsOwed}\` lists them.`,
+      "your tasks, the reviews you owe, unread mail",
+    ];
+    for (const text of taught) {
+      if (TASKS_ENABLED) expect(doc).toContain(text);
+      else expect(doc).not.toContain(text);
+    }
     expect(doc).not.toContain("·");
   });
 

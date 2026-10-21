@@ -63,6 +63,11 @@ export const JUNTO_INTRO = `## Junto
 You are running inside **Junto** — a collaborative workspace where coding agents work as peers on a shared canvas. The canvas is your operational environment: nodes are work surfaces (${WORK_SURFACE_WORDS.join(", ")}), and regions group them. **Your region is your reach**: the resources in it are there for you to use, with no edge. **Edges join seats**: an edge to another seat is what lets you mail it.${EDGE_EXTRA} Your seat is the node you occupy. All collaboration and work operations go through one CLI: \`junto\`.`;
 
 
+/** The two task sections of since, in the words their lines read. */
+const SINCE_TASKS_LINE = TASKS_ENABLED
+  ? ` Two sections are about tasks. \`your_tasks\` is your open task and any you held that changed: \`Your task #N "Title" is <state> [task #N]\`, \`... is now <state>, changed since your last session\` when its state changed, and \`... was sent on to <node> since your last session, and is <state> there\` when it left your board; \`junto task list --assignee me\` lists them. \`reviews_owed\` is each task in review that waits on your stamp: \`<assignee>'s task #N "Title" is in review and waits on your stamp [task #N]\`, answered with \`junto task stamp <task> approve\` or \`changes\`; \`junto since --all\` lists them.`
+  : "";
+
 /** Seats — durable per-agent identity on the canvas, where grants accrue. */
 export const SEAT_DOCTRINE = `## Seats
 
@@ -71,7 +76,7 @@ A **seat** is your identity on the canvas: the node you occupy, bound to your pr
 - **Reach** is where you sit. You may use the resources (${REACH_WORDS.join(", ")}) in your own region, in every region inside it and in every region that contains it, never in a sibling region; a seat in no region reaches everything outside regions. No edge is needed, and none changes it. Reach is read from the canvas on every call, so when the operator moves you or a resource, your next command sees the new reach.
 - **Edges** join you to other seats. A messages edge can grant mail, prompts, waits and terminal reads. The operator's mask on an edge only removes ports.${EDGE_EXTRA} \`junto capabilities\` gives the ports you actually hold; a neighboring node alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
-- **Orientation** is one command: \`junto onboard\` returns, most stable first, the operator's briefings and your seat's instructions, then your seat, role, the seats you are connected to, the commands you may run, the resources in your reach and co-members by region, then what changed since your last session. \`junto since\` returns that last part alone, capped like onboard; \`junto since --all\` lists every line. Re-run onboard whenever your view may be stale.
+- **Orientation** is one command: \`junto onboard\` returns, most stable first, the operator's briefings and your seat's instructions, then your seat, role, the seats you are connected to, the commands you may run, the resources in your reach and co-members by region, then what changed since your last session. \`junto since\` returns that last part alone, capped like onboard; \`junto since --all\` lists every line.${SINCE_TASKS_LINE} Re-run onboard whenever your view may be stale.
 ${TASKS_ENABLED ? "- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: `junto rulings`.\n" : ""}\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Onboard once per session, and again only when you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
@@ -181,7 +186,7 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 | intent | command |
 |---|---|
 | orient (always first) | \`junto onboard\` — seat, region briefing, ${ORIENT_DETAIL} |
-| what changed since your last session | \`junto since\` — replies you owe and wait on, open signals, answers the operator gave without mail, unread mail; \`--all\` lists every line |
+| what changed since your last session | \`junto since\` — replies you owe and wait on, open signals, answers the operator gave without mail, ${TASKS_ENABLED ? "your tasks, the reviews you owe, " : ""}unread mail; \`--all\` lists every line |
 | live contract / grants | \`junto capabilities\` |
 | automations in your reach | \`junto automation list\` - \`junto automation show '{"target":"<node>","automation":"<id or name>"}'\` - \`junto automation history '{"target":"<node>"}'\` — seats read automations; only the operator and overseers write them |
 ${TASKS_ENABLED ? `| pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |

@@ -1,5 +1,6 @@
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
+import { TASKS_ENABLED } from "../../shared/features";
 import { WORK_PROTOCOL_VERSION, WORK_TOKEN_ENV } from "../../shared/work-control";
 import { loadOffboardArgs } from "../core/offboard-input";
 import { CLI_NAME, CLI_VERSION, DEFAULT_TIMEOUT_MS } from "../core/constants";
@@ -166,7 +167,7 @@ export const sinceCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Since your last session: replies you owe and wait on, open signals, answers the operator gave without mail, unread mail. Onboard carries it capped; --all lists every line",
+    `Since your last session: replies you owe and wait on, open signals, answers the operator gave without mail, ${TASKS_ENABLED ? "your tasks, the reviews you owe, " : ""}unread mail. Onboard carries it capped; --all lists every line`,
   ),
 );
 

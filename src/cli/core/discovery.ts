@@ -892,7 +892,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command: "since",
     category: "discovery",
     description:
-      "What changed while this seat was away: replies it owes and waits on, its open signals, answers given without mail, and unread mail. Onboard carries it capped; --all lists every line.",
+      `What changed while this seat was away: replies it owes and waits on, its open signals, answers given without mail, ${TASKS_ENABLED ? "its tasks, the reviews it owes, " : ""}and unread mail. Onboard carries it capped; --all lists every line.`,
     schemas: [sinceSchema],
   },
   {
