@@ -251,15 +251,17 @@ describe("mentionNodesAt: what main resolves is what the composer offers", () =>
     }
   });
 
-  it("in comments, the resource's reach as the composer's, and the resource itself", () => {
+  it("in comments, the resource's reach and the resource itself, exactly as the composer's", () => {
     for (const nodeId of ["board-1", "docs-1", "page-1", "board-2", "board-far"]) {
-      expect(ids(mentionNodesAt(nested, "caller", { kind: "comments", nodeId })))
-        .toEqual(ids([...resourceNodesInReach(nested, asNodeId(nodeId)), { id: nodeId }]));
+      const offered = ids(resourceNodesInReach(nested, asNodeId(nodeId)));
+      expect(offered).toContain(nodeId);
+      expect(ids(mentionNodesAt(nested, "caller", { kind: "comments", nodeId }))).toEqual(offered);
     }
   });
 
-  it("for a live overseer's mail, the composer's reach and every task board", () => {
-    expect(ids(mentionNodesAt(nested, "boss", MAIL)))
-      .toEqual(ids([...resourceNodesInReach(nested, asNodeId("boss")), { id: "board-1" }, { id: "board-2" }]));
+  it("for a live overseer's mail, its reach and every task board, exactly as the composer's", () => {
+    const offered = ids(resourceNodesInReach(nested, asNodeId("boss")));
+    expect(offered).toEqual(expect.arrayContaining(["board-1", "board-2"]));
+    expect(ids(mentionNodesAt(nested, "boss", MAIL))).toEqual(offered);
   });
 });

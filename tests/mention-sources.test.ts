@@ -59,11 +59,11 @@ describe("mention sources", () => {
     expect(ids).not.toContain("PB");
   });
 
-  it("from a page, the tasks, artifacts and other pages in its reach, not itself and not a sibling region's", () => {
+  it("from a page, the tasks, artifacts and pages in its reach, itself included, and not a sibling region's", () => {
     const ids = resourceNodesInReach(canvas, asNodeId("P")).map((entry) => entry.id);
     expect(ids).toContain("T");
     expect(ids).toContain("R");
-    expect(ids).not.toContain("P");
+    expect(ids).toContain("P");
     expect(ids).not.toContain("PB");
     expect(ids).not.toContain("S");
   });
