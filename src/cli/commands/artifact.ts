@@ -111,7 +111,7 @@ const listCommand = Command.make(
   {
     node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("An Artifacts node: its id, its name or a junto:// ref")),
     type: Flag.choice("type", ARTIFACT_TYPES).pipe(Flag.optional, Flag.withDescription("Only artifacts of this type")),
-    archived: Flag.boolean("archived").pipe(Flag.withDescription("List the archived artifacts instead")),
+    archived: Flag.boolean("archived").pipe(Flag.withDefault(false), Flag.withDescription("List the archived artifacts instead")),
     limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${ARTIFACT_LIST_LIMIT_MAX}, default 50)`)),
     timeout: timeoutFlag,
   },

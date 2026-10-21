@@ -153,7 +153,7 @@ export const onboardCommand = Command.make(
 export const sinceCommand = Command.make(
   "since",
   {
-    all: Flag.boolean("all").pipe(Flag.withDescription("Every line of every section, uncapped")),
+    all: Flag.boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every line of every section, uncapped")),
     timeout: timeoutOption,
   },
   ({ all, timeout }) =>
