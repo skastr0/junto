@@ -71,8 +71,7 @@ const refusal = (index: number, message: string): AttachmentRefusal => ({ path: 
 
 /**
  * What a task or an artifact attachment is judged against: the canvas the
- * seat is on, and whether an item is on its node now. Without it the runtime
- * takes neither.
+ * seat is on, and whether an item is on its node now.
  */
 export type SignalResources = {
   readonly canvas: ReachCanvas;
@@ -130,7 +129,7 @@ export const claimSignalAttachments = (
   content: ContentService["Service"],
   signal: Pick<AgentSignal, "signalId" | "canvasName" | "nodeId">,
   inputs: ReadonlyArray<AgentSignalAttachmentInput>,
-  resources?: SignalResources,
+  resources: SignalResources,
 ): Effect.Effect<ReadonlyArray<AgentSignalAttachment>, AttachmentRefusal> => {
   const owner = signalAttachmentOwner(signal);
   // The same file named twice is held once: a signal owns its bytes, not a count of them.
@@ -199,9 +198,6 @@ export const claimSignalAttachments = (
         return { kind: "commit", sha, ...caption } as AgentSignalAttachment;
       }
       if (input.kind === "task" || input.kind === "artifact") {
-        if (resources === undefined) {
-          return yield* Effect.fail(refusal(index, `${input.kind}s cannot be attached in this Junto runtime`));
-        }
         const admitted = admitResourceAttachment(input, asNodeId(signal.nodeId), resources);
         if (!admitted.ok) return yield* Effect.fail(refusal(index, admitted.reason));
         return admitted.attachment;

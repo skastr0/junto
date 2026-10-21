@@ -66,11 +66,14 @@ const boot = async () => {
     return { ref: { sha256: answer.ref.sha256, byteLength: answer.ref.byteLength } };
   };
   const claim = (inputs: Parameters<typeof claimSignalAttachments>[2], to = signal) =>
-    Effect.runPromise(Effect.result(claimSignalAttachments(content, to, inputs)));
+    Effect.runPromise(Effect.result(claimSignalAttachments(content, to, inputs, noResources)));
   const owners = async (bytes: Buffer) =>
     (await Effect.runPromise(content.listRefs(sha(bytes)))).map((row) => row.owner.recordId);
   return { content, stage, claim, owners };
 };
+
+/** A canvas with nothing on it: these signals name files, commits and links only. */
+const noResources = { canvas: { nodes: new Map() }, holds: () => false };
 
 describe("claimSignalAttachments", () => {
   it("takes images and text in order, typed by their bytes and named as uploaded", async () => {

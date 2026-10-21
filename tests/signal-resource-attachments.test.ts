@@ -93,11 +93,6 @@ describe("a signal's task and artifact attachments, claimed", () => {
       { kind: "artifact", nodeId: "A", artifactId: A },
     ]);
   });
-
-  it("refuses both kinds in a runtime that gives no canvas to judge them by", async () => {
-    const refused = await Effect.runPromise(Effect.flip(claimSignalAttachments(content, signal, [{ kind: "task", ref: ref("T", T) }])));
-    expect(refused).toEqual({ path: "attach[0]", message: "tasks cannot be attached in this Junto runtime" });
-  });
 });
 
 describe("task and artifact attachments on the wire", () => {
