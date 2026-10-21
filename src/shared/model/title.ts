@@ -99,10 +99,10 @@ export const titleOf = (node: Node): string => {
     case "label":
       return firstLine(node.text) ?? "untitled";
     case "file":
-      return node.path.split("/").pop() || node.path;
+      return compact(node.label) ?? (node.path.split("/").pop() || node.path);
     case "link":
     case "page":
-      return hostOf(node.url) ?? node.kind;
+      return compact(node.label) ?? hostOf(node.url) ?? node.kind;
     case "git":
       return compact(node.label) ?? (node.cwd.split("/").pop() || node.cwd);
     case "terminal":

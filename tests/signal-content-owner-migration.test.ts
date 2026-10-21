@@ -11,7 +11,6 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateSignalContentOwner } from "../src/main/junto/state/migrate-signal-content-owner";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V46_IDENTITY,
@@ -19,7 +18,6 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V46_SQL, STATE_SCHEMA_V47_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
@@ -69,11 +67,9 @@ const refs = (database: DatabaseSync) =>
   database.prepare("SELECT ref_id, sha256, byte_length, media_type, display_name, owner_kind, owner_canvas, owner_node, owner_record_id, created_at FROM content_refs ORDER BY ref_id").all();
 
 describe("state step 46 to 47: a signal's files under their own owner kind", () => {
-  it("starts from the version-46 witness and ends at the version-47 one, which is the head", () => {
+  it("starts from the version-46 witness and ends at the version-47 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V46_SQL)).toEqual(STATE_SCHEMA_V46_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V47_SQL)).toEqual(STATE_SCHEMA_V47_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V47_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V47_IDENTITY);
   });
 
   it("keeps every row, moves each signal's file to its own kind and id, and leaves every other row as it was", async () => {

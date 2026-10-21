@@ -74,6 +74,7 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         url: node.url,
         profile: node.profile,
         on_remove: node.onRemove,
+        label: node.label ?? null,
       };
     case "task":
       return {
@@ -88,9 +89,9 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
     case "label":
       return { ...base, text: node.text };
     case "file":
-      return { ...base, path: node.path, subpath: node.subpath ?? null };
+      return { ...base, path: node.path, subpath: node.subpath ?? null, label: node.label ?? null };
     case "link":
-      return { ...base, url: node.url };
+      return { ...base, url: node.url, label: node.label ?? null };
     case "git":
       return { ...base, label: node.label ?? null, cwd: node.cwd };
     case "stub":
@@ -155,6 +156,7 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
         url: row.url,
         profile: row.profile,
         onRemove: row.on_remove,
+        ...label,
       };
       break;
     case "task":
@@ -172,10 +174,10 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
       fields = { text: row.text };
       break;
     case "file":
-      fields = { path: row.path, ...optional(row, "subpath") };
+      fields = { path: row.path, ...optional(row, "subpath"), ...label };
       break;
     case "link":
-      fields = { url: row.url };
+      fields = { url: row.url, ...label };
       break;
     case "git":
       fields = { ...label, cwd: row.cwd };

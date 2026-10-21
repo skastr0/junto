@@ -111,6 +111,8 @@ export const Page = Schema.Struct({
   url: Schema.String,
   profile: NonEmpty,
   onRemove: PageOnRemove,
+  /** What the operator named it. Without one, a page is called by its host. */
+  label: Schema.optionalKey(OneLine),
 });
 export type Page = typeof Page.Type;
 
@@ -166,6 +168,8 @@ export const FileCard = Schema.Struct({
   ...placement,
   path: NonEmpty,
   subpath: Schema.optionalKey(Schema.String),
+  /** What the operator named it. Without one, a file is called by its name. */
+  label: Schema.optionalKey(OneLine),
 });
 export type FileCard = typeof FileCard.Type;
 
@@ -174,6 +178,8 @@ export const LinkCard = Schema.Struct({
   kind: Schema.Literal("link"),
   ...placement,
   url: Schema.String,
+  /** What the operator named it. Without one, a link is called by its host. */
+  label: Schema.optionalKey(OneLine),
 });
 export type LinkCard = typeof LinkCard.Type;
 

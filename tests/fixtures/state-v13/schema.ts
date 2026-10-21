@@ -282,3 +282,9 @@ export const STATE_SCHEMA_V48_SQL = stepped(
   STATE_SCHEMA_V47_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 48)!.migrate,
 );
+
+// Version 49 let the operator name a page, a file or a link (48 -> 49).
+export const STATE_SCHEMA_V49_SQL = stepped(
+  STATE_SCHEMA_V48_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 49)!.migrate,
+);

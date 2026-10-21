@@ -142,7 +142,8 @@ export const MODEL_STATE_SCHEMA_SQL = `
     `
     url TEXT NOT NULL,
     profile TEXT NOT NULL,
-    on_remove TEXT NOT NULL CHECK (on_remove IN ('detach', 'kill-session'))`,
+    on_remove TEXT NOT NULL CHECK (on_remove IN ('detach', 'kill-session')),
+    label TEXT`,
   )}
 
   ${table(
@@ -155,8 +156,8 @@ export const MODEL_STATE_SCHEMA_SQL = `
   ${AUTOMATION_BOARDS_STATE_SCHEMA_SQL}
   ${table("notes", "text TEXT NOT NULL")}
   ${table("labels", "text TEXT NOT NULL")}
-  ${table("file_cards", "path TEXT NOT NULL, subpath TEXT")}
-  ${table("link_cards", "url TEXT NOT NULL")}
+  ${table("file_cards", "path TEXT NOT NULL, subpath TEXT, label TEXT")}
+  ${table("link_cards", "url TEXT NOT NULL, label TEXT")}
   ${table("git_repositories", "label TEXT, cwd TEXT NOT NULL")}
 
   CREATE TABLE IF NOT EXISTS wires (

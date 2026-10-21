@@ -624,7 +624,17 @@ export const STATE_SCHEMA_V48_IDENTITY = {
     "34452160b8cd729a99fbabbed23eae8393f1bcfae9c181557f56d2e074570f11",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 48;
+/**
+ * Version 49 lets the operator name a page, a file or a link: `label` added
+ * as the last column of `pages`, `file_cards` and `link_cards`, empty on every
+ * row already held. Expand only.
+ */
+export const STATE_SCHEMA_V49_IDENTITY = {
+  actualSchemaSha256:
+    "f3e72b3be6c97c0cc9ca5950d5e9a36c8054c067675a3e75bbede87059788bfa",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 49;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -632,7 +642,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 48;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V48_IDENTITY;
+  STATE_SCHEMA_V49_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1002,6 +1012,18 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V47_IDENTITY,
     replacesTables: [...TASK_ARTIFACT_PORTS_REPLACED_TABLES],
     migrate: migrateTaskArtifactPorts,
+  },
+  {
+    fromVersion: 48,
+    toVersion: 49,
+    name: "let the operator name a page, a file or a link",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V48_IDENTITY,
+    migrate: (database) => {
+      for (const table of ["pages", "file_cards", "link_cards"]) {
+        database.exec(`ALTER TABLE ${table} ADD COLUMN label TEXT`);
+      }
+    },
   },
 ];
 
