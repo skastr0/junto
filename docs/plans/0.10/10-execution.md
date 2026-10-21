@@ -153,7 +153,7 @@ everyone else reports by mail and on the needs-you feed.
 | Machine build define `__JUNTO_MACHINE_BUILD__` | cli owns, remote-core asserts the bundle | requested |
 | Automation domain, tables, runner plan | canvas-automation 9acfdfb16, e8955635b, 20328f683, f929f8afc, 740d7d686; history keeps newest 1,000 (4c771668a); open defects: edit widening reach, edit re-enabling, reassigned reviewer's old approval | landed, defects under fix |
 | Automations are operator and overseer only | operator ruling; 01 and 07 (f1a30d748) | decided |
-| Automations UI | product-settings 9503999c1..b7aab2ac8, mount bc258da20, 6eb99ce2c, IPC ea440c715; real-app run product-accessibility | live |
+| Automations UI | product-settings 9503999c1..b7aab2ac8, mount bc258da20, 6eb99ce2c, IPC ea440c715; focus fixes 07a93b9a6 | live; milestone run passed at a201a3fec (create, edit, stale, toggle, run, history, archive, keyboard and screen reader); one open defect: focus on create from empty state |
 | Seat-state trigger rules (P5) | pty, f913ccad3, 37 tests | done |
 | Mention contract | product-feed, `mention.ts` fb267e17a | landed |
 | Thread subject and anchor contract | pty-mail, `thread-subject.ts` 74b442b98; tests by product-feed 1e4c91e0b | landed |
