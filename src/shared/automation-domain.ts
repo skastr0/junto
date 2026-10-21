@@ -1,0 +1,250 @@
+/**
+ * The automation resource domain (02, 07): `rule` and `apply` over the
+ * automation contract, for the ruler on the editing machine and the pending
+ * overlay on the writing machine. Every write invariant lives here; storage,
+ * transport and firing are the caller's.
+ *
+ * - The author is the ruled actor, never written: a seat writes as itself,
+ *   the operator as the operator. An automation never writes automations, so
+ *   no automation can make or change another (loop safety).
+ * - A definition may name only nodes among `automationTargets` for its node
+ *   and author, checked here at write time and again at fire time.
+ * - An edit replaces the whole definition against its base; a moved head
+ *   refuses it `stale` with the head. A toggle carries no base.
+ * - 0.10 refuses webhook triggers `not_available`.
+ */
+import { Schema } from "effect";
+import {
+  Automation,
+  type AutomationAuthor,
+  AutomationDefinition,
+  AutomationId,
+  type AutomationOp,
+  AutomationVersion,
+  targetNodeIds,
+  triggerRefusal,
+} from "./automation";
+import { NodeId } from "./physics/schema";
+import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
+
+/** One automation as the ruler holds it. */
+export interface AutomationEntry {
+  readonly automation: Automation;
+  readonly archived: boolean;
+  readonly updatedAt: number;
+}
+
+export type AutomationState = ReadonlyMap<AutomationId, AutomationEntry>;
+
+export const emptyAutomationState = (): AutomationState => new Map();
+
+export const FIRST_AUTOMATION_VERSION = AutomationVersion.make(1);
+
+// ── Facts ──────────────────────────────────────────────────────────────────
+
+const At = Schema.Number;
+
+export const AutomationFact = Schema.Union([
+  Schema.Struct({ fact: Schema.Literal("automation.created"), automation: Automation, at: At }),
+  Schema.Struct({
+    fact: Schema.Literal("automation.edited"),
+    automationId: AutomationId,
+    version: AutomationVersion,
+    definition: AutomationDefinition,
+    at: At,
+  }),
+  Schema.Struct({ fact: Schema.Literal("automation.enabled"), automationId: AutomationId, enabled: Schema.Boolean, at: At }),
+  Schema.Struct({ fact: Schema.Literal("automation.archived"), automationId: AutomationId, at: At }),
+  /** `junto automation run`: the runner records one firing with cause `run`. */
+  Schema.Struct({ fact: Schema.Literal("automation.run"), automationId: AutomationId, nodeId: NodeId, at: At }),
+]);
+export type AutomationFact = typeof AutomationFact.Type;
+
+// ── Rule ───────────────────────────────────────────────────────────────────
+
+/**
+ * The nodes a definition on `nodeId` by `author` may name: region-reach's
+ * `automationTargets` over the ruling canvas, as ids.
+ */
+export type TargetsOf = (nodeId: NodeId, author: AutomationAuthor) => ReadonlySet<NodeId>;
+
+const refuse = (refusal: Refusal): DomainVerdict<AutomationFact> => ({ kind: "refuse", refusal });
+const apply = (fact: AutomationFact): DomainVerdict<AutomationFact> => ({ kind: "apply", facts: [fact] });
+
+const READ_HEAD = "Read the head with junto automation show, then edit against it";
+
+/** The author a ruled actor writes as; undefined for an automation. */
+export const authorOf = (actor: ResourceActor): AutomationAuthor | undefined => {
+  switch (actor.kind) {
+    case "operator":
+      return { kind: "operator" };
+    case "seat":
+      return { kind: "seat", seat: actor.nodeId };
+    case "automation":
+      return undefined;
+    default:
+      return actor satisfies never;
+  }
+};
+
+/** Why a definition cannot be stored for this node and author, if it cannot. */
+const definitionRefusal = (
+  automation: Automation,
+  targetsOf: TargetsOf,
+): Refusal | undefined => {
+  if (triggerRefusal(automation.trigger) !== undefined) {
+    return { reason: "not_available", message: "webhook triggers are not available in this version" };
+  }
+  const targets = targetsOf(automation.nodeId, automation.author);
+  const outside = targetNodeIds(automation).filter((id) => !targets.has(id));
+  if (outside.length > 0) {
+    return {
+      reason: "not_in_reach",
+      message: `an automation here may not act on ${outside.join(", ")}`,
+      next_step: "Name only seats and resources in this node's region and below, within your reach",
+    };
+  }
+  return undefined;
+};
+
+/** A whole-definition replace: a field the new definition leaves out (`when`) is gone. */
+const replaced = (automation: Automation, definition: AutomationDefinition, version: AutomationVersion): Automation => ({
+  automationId: automation.automationId,
+  nodeId: automation.nodeId,
+  author: automation.author,
+  version,
+  ...definition,
+});
+
+/** The domain. `now` stamps facts; the ruler passes the editing machine's clock, the overlay its own. */
+export const automationDomain = (
+  now: () => number,
+  targetsOf: TargetsOf,
+): ResourceDomain<AutomationState, AutomationOp, AutomationFact> => ({
+  kind: "automation",
+  rule: (state, command) => ruleAutomationCommand(state, command, now(), targetsOf),
+  apply: applyAutomationFact,
+});
+
+export const ruleAutomationCommand = (
+  state: AutomationState,
+  command: ResourceCommand<AutomationOp>,
+  at: number,
+  targetsOf: TargetsOf,
+): DomainVerdict<AutomationFact> => {
+  const { target, op } = command;
+  if (target.kind !== "automation") {
+    return refuse({ reason: "invalid_input", message: `an automation command targets an automation, not a ${target.kind}` });
+  }
+  const author = authorOf(command.actor);
+  if (author === undefined) {
+    return refuse({ reason: "invalid_input", message: "an automation cannot write automations" });
+  }
+
+  if (op.kind === "create") {
+    if (target.itemId !== undefined && target.itemId !== op.automationId) {
+      return refuse({ reason: "invalid_input", message: "target.itemId and the created automationId differ" });
+    }
+    if (state.has(op.automationId)) {
+      return refuse({ reason: "invalid_input", message: `automation ${op.automationId} already exists` });
+    }
+    const automation: Automation = {
+      automationId: op.automationId,
+      nodeId: target.nodeId,
+      author,
+      version: FIRST_AUTOMATION_VERSION,
+      ...op.definition,
+    };
+    const refusal = definitionRefusal(automation, targetsOf);
+    return refusal === undefined ? apply({ fact: "automation.created", automation, at }) : refuse(refusal);
+  }
+
+  const automationId = target.itemId;
+  if (automationId === undefined) {
+    return refuse({ reason: "invalid_input", message: "an automation command names its automation as target.itemId" });
+  }
+  const entry = state.get(automationId);
+  if (entry === undefined || entry.automation.nodeId !== target.nodeId) {
+    return refuse({ reason: "unknown_target", message: `no automation ${automationId} on ${target.nodeId}` });
+  }
+  if (entry.archived) {
+    return refuse({ reason: "invalid_transition", message: `automation ${automationId} is archived` });
+  }
+  const head = entry.automation.version;
+
+  switch (op.kind) {
+    case "edit": {
+      if (op.baseVersion !== head) {
+        return refuse({
+          reason: "stale",
+          message: `automation ${automationId} is at version ${head}, not ${op.baseVersion}`,
+          expected: head,
+          next_step: READ_HEAD,
+        });
+      }
+      // The author stays the one who created it: an edit never widens reach.
+      const edited = replaced(entry.automation, op.definition, AutomationVersion.make(head + 1));
+      const refusal = definitionRefusal(edited, targetsOf);
+      if (refusal !== undefined) return refuse(refusal);
+      return apply({ fact: "automation.edited", automationId, version: edited.version, definition: op.definition, at });
+    }
+    case "set-enabled":
+      return apply({ fact: "automation.enabled", automationId, enabled: op.enabled, at });
+    case "archive":
+      return apply({ fact: "automation.archived", automationId, at });
+    case "run":
+      return triggerRefusal(entry.automation.trigger) === undefined
+        ? apply({ fact: "automation.run", automationId, nodeId: target.nodeId, at })
+        : refuse({ reason: "not_available", message: "webhook triggers are not available in this version" });
+    default:
+      return op satisfies never;
+  }
+};
+
+// ── Apply ──────────────────────────────────────────────────────────────────
+
+const withEntry = (
+  state: AutomationState,
+  automationId: AutomationId,
+  change: (entry: AutomationEntry) => AutomationEntry,
+): AutomationState => {
+  const entry = state.get(automationId);
+  return entry === undefined ? state : new Map(state).set(automationId, change(entry));
+};
+
+/** Fold one ruled fact into state. A fact for an unknown automation changes nothing. */
+export const applyAutomationFact = (state: AutomationState, fact: AutomationFact): AutomationState => {
+  switch (fact.fact) {
+    case "automation.created":
+      return new Map(state).set(fact.automation.automationId, {
+        automation: fact.automation,
+        archived: false,
+        updatedAt: fact.at,
+      });
+    case "automation.edited":
+      return withEntry(state, fact.automationId, (entry) => ({
+        ...entry,
+        automation: replaced(entry.automation, fact.definition, fact.version),
+        updatedAt: fact.at,
+      }));
+    case "automation.enabled":
+      return withEntry(state, fact.automationId, (entry) => ({
+        ...entry,
+        automation: { ...entry.automation, enabled: fact.enabled },
+        updatedAt: fact.at,
+      }));
+    case "automation.archived":
+      return withEntry(state, fact.automationId, (entry) => ({ ...entry, archived: true, updatedAt: fact.at }));
+    case "automation.run":
+      return state;
+    default:
+      return fact satisfies never;
+  }
+};
+
+/** The live automations on one node, newest change first. */
+export const automationsOnNode = (state: AutomationState, nodeId: NodeId): ReadonlyArray<Automation> =>
+  [...state.values()]
+    .filter((entry) => !entry.archived && entry.automation.nodeId === nodeId)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((entry) => entry.automation);
