@@ -5,9 +5,12 @@ Proposed owner: remote. Reviewers: canvas, cli.
 ## Target
 
 Every node that does not need a host's runtime exists on every machine:
-tasks, artifacts, automations, labels, files, links, regions (notes are
+tasks, artifacts, labels, files, links, regions (notes are
 untouched by 0.10, operator decision 10). Seats,
-terminals and browser pages stay on their host. A seat on any machine reads
+terminals and browser pages stay on their host. Automations are not
+resources and never cross (operator ruling, 2026-10-21, `f1a30d748`; 07 at
+`a7cc837bb`): they are written and ruled only on the editing machine, by the
+operator or an overseer, and their Automations nodes stay there. A seat on any machine reads
 and writes resources in its reach (01) with the same commands and the same
 result. Mentions and threads work across machines with the same rules.
 
@@ -99,7 +102,7 @@ type ResourceCommand = {
   readonly canvasName: string;
   readonly actor: NodeId;           // the seat, or "operator"
   readonly target: ResourceRef;     // { kind, nodeId, itemId? }
-  readonly op: ResourceOp;          // closed union per domain (04, 05, 07, 03)
+  readonly op: ResourceOp;          // closed union per domain (04, 05, 03), plus 07's overseer ops on the editing machine only
 };
 
 type ResourceRuling =
@@ -117,6 +120,7 @@ the set grows by one (cli-lead):
 | Transition not allowed | `InvalidTransition` | |
 | Written against an old version | `Stale` (new), retryable | `expected`: the head version |
 | Feature reserved, not built (webhook) | `InputError` | `reason` |
+| Automation write off the editing machine (07) | `ScopeError` | `reason`, and the editing machine it must be written on |
 
 - Link: no new channel. Commands travel as `command.queued` rows and
   rulings as `ruling.*` facts, both on `rows` (see "Editing machine away"). An
@@ -145,8 +149,9 @@ the set grows by one (cli-lead):
 - Entitlement: every machine linked for a canvas receives every resource
   fact for it. The mail entitlement rule (sink seat lives on the machine,
   `work-exchange.ts:273-284`) is unchanged.
-- Canvas copy carries every non-host node except notes to every machine as geometry and
-  label only; bodies (note text, briefings) travel as facts or content refs,
+- Canvas copy carries every non-host node except notes and Automations nodes
+  to every machine as geometry and label only (Automations nodes stay home,
+  07 at `a7cc837bb`); bodies (note text, briefings) travel as facts or content refs,
   because the whole copy is one `CopyFrame` on `rows`
   (`src/shared/work-exchange.ts:113`) under the 1 MiB frame bound (canvas-lead).
   Region outlines gain only geometry and label: briefing, references, folder
@@ -189,6 +194,9 @@ unreachable. Written by canvas-lead and remote-lead; points marked
    on when the row was written (condition 1), the same rule and the same
    placement history as mail (`docs/machines.md:72-75`). `operator` commands
    are written on the editing machine itself, so the operator never queues.
+   Automation writes never queue either (operator ruling, `f1a30d748`): an
+   overseer's automation write on any other machine is refused at once,
+   naming the editing machine, and no `command.queued` row is written.
    Rulings are the editing machine's facts: `ruling.applied` and
    `ruling.refused` go to every machine, and only the editing machine may
    write them; one from any other writer closes the link.
@@ -383,7 +391,7 @@ This is designed for and not built in 0.10:
 | | |
 |---|---|
 | Kept | Editing machine authority, Rule 4, `rows` channel, cursors and catch up, content transfer, mail relay |
-| Reshaped | `canvas-copy.ts` cut (all non-host nodes everywhere), `entity_home` on tasks and artifacts (always the editing machine; the per-machine lane key goes), entitlement for resource facts, signal attachments as refs |
+| Reshaped | `canvas-copy.ts` cut (all non-host nodes everywhere except Automations nodes), `entity_home` on tasks and artifacts (always the editing machine; the per-machine lane key goes), entitlement for resource facts, signal attachments as refs |
 | Deleted | Host fields on cron and relay (07), page host selection (06) |
 | New | `command.queued` rows and `ruling.*` facts on `rows` (no new link channel), `resource-command.ts`, ruling table keyed by (writer, opId), fact families per domain, pending overlay, `junto op show` and `junto op list` |
 
