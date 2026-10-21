@@ -41,9 +41,14 @@ export type AcceptanceContext = {
   /**
    * A new agent seat on the canvas at (x, y), with a credential the CLI can
    * run as. Region (0,0 900x200) reaches the seeded nodes; elsewhere
-   * (1200,0 600x200) reaches none of them.
+   * (1200,0 600x200) reaches none of them. With `overseer`, the operator
+   * then grants it overseer by GrantOverseer, as the canvas toggle does.
    */
-  readonly addSeat: (nodeId: string, at: { readonly x: number; readonly y: number }) => Promise<AcceptanceSeat>;
+  readonly addSeat: (
+    nodeId: string,
+    at: { readonly x: number; readonly y: number },
+    options?: { readonly overseer?: boolean },
+  ) => Promise<AcceptanceSeat>;
   /** The core's runtime, for reads an area checks the CLI against. */
   readonly runtime: ManagedRuntime.ManagedRuntime<never, never>;
   readonly log: (label: string, body: string) => void;

@@ -549,7 +549,11 @@ export const runWorkCliAcceptance = async () => {
         outside,
       );
     const seatTokens = new Map<string, string>([["local:default", mint.credential]]);
-    const addSeat = async (nodeId: string, at: { readonly x: number; readonly y: number }): Promise<AcceptanceSeat> => {
+    const addSeat = async (
+      nodeId: string,
+      at: { readonly x: number; readonly y: number },
+      options?: { readonly overseer?: boolean },
+    ): Promise<AcceptanceSeat> => {
       const agentKey = `local:${nodeId}`;
       await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({
         _tag: "Add",
@@ -558,6 +562,16 @@ export const runWorkCliAcceptance = async () => {
           label: nodeId, agentKey, host: "acceptance", overseer: false, bindingId: `work-acceptance-${nodeId}`, harness: "claude" }],
         wires: [],
       }), "operator"));
+      // The operator's grant, as the overseer toggle sends it (overseer-set.ts):
+      // a seat is made plain, and only the operator makes it an overseer.
+      if (options?.overseer === true) {
+        await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({
+          _tag: "GrantOverseer",
+          canvas: CANVAS,
+          id: nodeId,
+          overseer: true,
+        }), "operator"));
+      }
       const seatMint = mintSeatCredential();
       if (!credentials.publish(seatMint, { agentKey })) throw new Error(`acceptance credential publish failed for ${nodeId}`);
       seatTokens.set(agentKey, seatMint.credential);
