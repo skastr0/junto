@@ -59,8 +59,8 @@ const oneLine = (text: string): string => (text.split(/\r?\n/, 1)[0] ?? "").trim
 /**
  * Rename a node. Each kind keeps its name in its own field; a seat always has
  * one, so an empty name leaves a seat as it is, and clears the name of
- * anything else. Notes and bare labels have text, not a name (see `retexted`),
- * and a file, a link and a page are named by what they point at.
+ * anything else, so a file, a link or a page is called by what it points at
+ * again. Notes and bare labels have text, not a name (see `retexted`).
  */
 export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
   const node = canvas.nodes.get(id as Node["id"]);
@@ -77,12 +77,12 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
     case "automations":
     case "git":
     case "region":
-      return edited(canvas, id, node.kind, { label: value });
-    case "note":
-    case "label":
     case "file":
     case "link":
     case "page":
+      return edited(canvas, id, node.kind, { label: value });
+    case "note":
+    case "label":
     case "peer":
     case "stub":
       return NONE;
@@ -90,9 +90,8 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
 };
 
 /**
- * The kinds `titled` can name. A peer and a stub arrive with a read-only copy
- * and are never authored there; a file, a link and a page have no name field
- * yet and are called by what they point at.
+ * The kinds `titled` can name: all but a peer and a stub, which arrive with a
+ * read-only copy and are never authored there.
  */
 export const nameable = (kind: NodeKind): boolean => {
   switch (kind) {
@@ -105,10 +104,10 @@ export const nameable = (kind: NodeKind): boolean => {
     case "region":
     case "note":
     case "label":
-      return true;
     case "file":
     case "link":
     case "page":
+      return true;
     case "peer":
     case "stub":
       return false;

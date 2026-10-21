@@ -85,6 +85,9 @@ it.each([
   ["git", { kind: "git", cwd: "/tmp/repo" }, "Git name", { label: "Captain" }],
   ["note", { kind: "note", text: "# Plan\nstep one" }, "Note name", { text: "# Captain\nstep one" }],
   ["label", { kind: "label", text: "North" }, "Label name", { text: "Captain" }],
+  ["file", { kind: "file", path: "/tmp/notes.md" }, "File name", { label: "Captain" }],
+  ["link", { kind: "link", url: "https://example.test" }, "Link name", { label: "Captain" }],
+  ["page", { kind: "page", url: "https://example.test", profile: "work", onRemove: "detach" }, "Page name", { label: "Captain" }],
 ] as const)("renames a %s from the selection card", async (_kind, fields, field, written) => {
   await mount(fields);
   await rename(field, "Captain");
@@ -114,10 +117,17 @@ it("keeps the old name on Escape, and a seat keeps its name when emptied", async
   expect(named()).toMatchObject({ label: "Worker" });
 });
 
-it("offers no rename for a kind with no name yet", async () => {
+it("a page, a file or a link emptied goes back to being called by what it points at", async () => {
+  await mount({ kind: "link", url: "https://example.test/a", label: "Handbook" });
+  await rename("Link name", "");
+  expect(named()).not.toHaveProperty("label");
+  expect(titleOf(named()!)).toBe("example.test");
+});
+
+it("offers no rename for a peer or a stub, which only a read-only copy holds", async () => {
   for (const fields of [
-    { kind: "file", path: "/tmp/notes.md" },
-    { kind: "link", url: "https://example.test" },
+    { kind: "peer", label: "Remote", host: "linux", seatId: `seat_${"a".repeat(64)}` },
+    { kind: "stub", of: "file", label: "Plan" },
   ]) {
     await mount(fields);
     expect(document.querySelector(".rts-panel--cmd")).toBeTruthy();
