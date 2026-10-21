@@ -129,8 +129,7 @@ export const claimSignalAttachments = (
   content: ContentService["Service"],
   signal: Pick<AgentSignal, "signalId" | "canvasName" | "nodeId">,
   inputs: ReadonlyArray<AgentSignalAttachmentInput>,
-  /** Given whenever the inputs name a task or an artifact (`signalResourcesFor`). */
-  resources: SignalResources | undefined,
+  resources: SignalResources,
 ): Effect.Effect<ReadonlyArray<AgentSignalAttachment>, AttachmentRefusal> => {
   const owner = signalAttachmentOwner(signal);
   // The same file named twice is held once: a signal owns its bytes, not a count of them.
@@ -199,9 +198,6 @@ export const claimSignalAttachments = (
         return { kind: "commit", sha, ...caption } as AgentSignalAttachment;
       }
       if (input.kind === "task" || input.kind === "artifact") {
-        if (resources === undefined) {
-          return yield* Effect.fail(refusal(index, `a ${input.kind} came without the canvas to judge it by`));
-        }
         const admitted = admitResourceAttachment(input, asNodeId(signal.nodeId), resources);
         if (!admitted.ok) return yield* Effect.fail(refusal(index, admitted.reason));
         return admitted.attachment;
