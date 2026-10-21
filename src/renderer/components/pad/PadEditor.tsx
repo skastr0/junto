@@ -1148,8 +1148,12 @@ export function PadEditor({
           <span>z</span>
           <Kbd>⌫</Kbd>
           <span>delete</span>
-          <Kbd>P</Kbd>
-          <span>pin</span>
+          {pins.kind === "area" ? (
+            <>
+              <Kbd>P</Kbd>
+              <span>comment</span>
+            </>
+          ) : null}
           <Kbd>I</Kbd>
           <span>image</span>
           <Kbd>D</Kbd>
