@@ -121,8 +121,15 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 - **canvas**: Runner on the editing machine only: any case where an
   automation must run where a seat lives?
 - ~~**pty**: seat state triggers~~ Answered: runner rules above.
-- **remote**: Cloud relay for webhooks: anything in the link or machine
-  identity model that should be reserved now?
+- ~~**remote**: webhooks~~ Answered: the relay is not a machine (no
+  installation id, no link, no build check), or Rule 8 forces a relay
+  redeploy on every build. The endpoint secret is a machine secret on the
+  editing machine (Rule 9, `docs/machines.md:95-98`): reserve
+  `ownerInstallation` on each endpoint and re-mint secrets if editing moves.
+  Automation mail needs an `automation` author kind admitted only from the
+  editing machine, as signal answers are; Rule 4 otherwise accepts seat mail
+  only from the seat's machine (`docs/machines.md:67-69`,
+  `work-exchange.ts:62`).
 - ~~**cli**: input~~ Answered: one JSON object per create and edit (inline,
   @file or stdin), decoded by the shared `Automation` schema in main, printed
   by `schema show`. Targets accept `@name` and `#42`, resolved in main. Edits

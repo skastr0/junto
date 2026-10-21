@@ -53,7 +53,10 @@ Rule 4 stays. Universal resources are built on it, not around it.
    same opId or the command applies twice. A `Timeout` error returns the
    opId, and commands accept `--op-id` so a retry reuses it (cli-lead). The
    editing machine keeps a ruling per opId; a repeated command returns the
-   first ruling and writes nothing.
+   first ruling and writes nothing. The opId is a bare ULID (an
+   `OperationId` is at most 64 characters with no `:`,
+   `src/shared/failure.ts:15`); rulings are keyed by (sending link's peer
+   installation, opId), never by a prefix the sender wrote (remote-lead).
 5. **Ordering.** The editing machine's fact sequence is the order. Concurrent
    commands are ruled one at a time; a command written against a stale view
    (artifact `baseVersion`, task transition from a state that has moved) is
@@ -62,12 +65,36 @@ Rule 4 stays. Universal resources are built on it, not around it.
 No machine other than the editing one ever writes resource state, so there is
 nothing to merge and no conflict rule beyond "first ruled wins".
 
+Rule 4 holds under four conditions (remote-lead):
+
+1. **Actor bound to the link.** The editing machine accepts a command for
+   seat S only from the machine placement says S is on, as signals do
+   (`src/main/junto/work/exchange/session.ts:326`), and accepts `operator`
+   only from itself.
+2. **opId as above**, keyed with the sending installation.
+3. **One transaction** writes a ruling and its facts, and every fact carries
+   its opId, so rulings can be rebuilt from facts if editing ever moves
+   (`docs/machines.md:55`).
+4. **The exchange filter opens.** Today it refuses any row with a
+   predecessor and any kind outside mail and receipts
+   (`src/shared/work-exchange.ts:54,72`). Resource facts chain on
+   predecessors; that is safe because rows go per writer in seq order
+   (`session.ts:227-257`) and every machine is entitled to all of them. It is
+   a doctrine change (README).
+
+**Replication is not access.** Every machine holds every resource, so each
+core checks reach (01) on its own reads.
+
+**Read your writes.** The ruling returns before its facts arrive on `rows`.
+The CLI waits until its local cursor covers the ruling's facts before it
+returns, so a `show` right after a write prints the new state.
+
 ## Contracts
 
 ```ts
 // src/shared/resource-command.ts (new)
 type ResourceCommand = {
-  readonly opId: string;            // `${installationId}:${ulid}`
+  readonly opId: string;            // bare ULID, minted by the CLI process
   readonly canvasName: string;
   readonly actor: NodeId;           // the seat, or "operator"
   readonly target: ResourceRef;     // { kind, nodeId, itemId? }
@@ -91,9 +118,20 @@ the set grows by one (cli-lead):
 | Written against an old version | `Stale` (new), retryable | `expected`: the head version |
 | Feature reserved, not built (webhook) | `InputError` | `reason` |
 
-- New link channel `commands`: request and ruling, one in flight per opId,
-  bounded payload. Rulings for already-ruled opIds are answered from the
-  ruling table.
+- Link: a new `Channel` literal on the existing request and response frames
+  (`src/main/junto/link/protocol.ts:8,13-15`); no new frame type and no credit
+  (only `rows` is windowed). Two bounds close the whole link if hit: more
+  than 32 requests in flight (`src/main/junto/link/session.ts:32,281`), so the
+  caller keeps a per-link bound and a queue, as seat input does since
+  7fa64afb0; and a ruling slower than 30 s (`session.ts:284`), so a ruling
+  never waits on content bytes. Expected round trip on LAN 20 to 150 ms,
+  unmeasured until the channel exists.
+- Routing: a direct link to the editing machine, no relaying. In v1 the
+  editor opens every link, so every machine with a seat is already linked
+  (inferred, not checked on a three machine canvas).
+- **Size.** Row paging counts rows (64 per frame, `work-exchange.ts:29`)
+  against a 1 MiB frame bound. Inline bodies or large notes would overflow a
+  frame and close the link. Bodies travel as content refs; facts stay small.
 - New fact kinds on `rows`, one family per domain: `task.*`, `artifact.*`,
   `thread.*`, `automation.*`. Each carries the editing machine as writer.
 - Entitlement: every machine linked for a canvas receives every resource
@@ -112,6 +150,10 @@ The editing machine unreachable means no ruling. Proposal: commands fail
 with a retryable `editor_unreachable` error and the seat retries; reads keep
 working from the last replicated state, marked with its age. No offline
 queue in 0.10. (Operator decision 7.)
+
+The cost, plainly: the editing machine is the operator's desktop. While it
+sleeps, every remote seat's resource writes are refused and no automation
+fires (07).
 
 ## Kept, reshaped, deleted
 

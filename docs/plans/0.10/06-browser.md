@@ -62,13 +62,20 @@ without a window.
 |---|---|
 | Kept | Control plane, sessions, profiles and isolation, egress proxy, view adapter, process binding and edge grants |
 | Reshaped | Page node holds tabs; automation names a tab |
-| Deleted | `Page.host`, `pages.host`, region `page_host` default, host registry `browser` capability and `BROWSER_HOST_CAPABILITY`, Inspector machine picker for pages, page hosts in canvas copies, `--host` and station remnants in `scripts/browser-cli.ts`, page `announces` to relay |
+| Deleted | `THIS_MACHINE_CAPABILITIES` browser bit, `browser/station-authority.ts`, the host argument through edge grants and sessions, the browser CLI in the machine bundle, `Page.host`, `pages.host`, region `page_host` default, host registry `browser` capability and `BROWSER_HOST_CAPABILITY`, Inspector machine picker for pages, page hosts in canvas copies, `--host` and station remnants in `scripts/browser-cli.ts`, page `announces` to relay |
 | New | Tabs, box comments, the driver spike result, browser chrome |
 
 ## Questions
 
-- **remote**: Anything in the Linux desktop alpha or the machine bundle that
-  still references the browser and must go with it?
+- ~~**remote**: what else goes~~ Answered, added to Deleted: every machine
+  advertises `browser` (`src/shared/remote-hosts.ts:101-103`); the machine's
+  `bin/junto` ships the whole browser CLI (`scripts/build-machine.ts:165`, the
+  runtime-gated import at `src/cli/main.ts:47-52`, `src/cli/early-dispatch.ts:13,35-36`,
+  `src/cli/core/discovery.ts:2-9`), so cli's port must keep it out of the
+  machine build with a compile-time define; per-host admission
+  (`src/main/index.ts:1771-1774`, `browser/station-authority.ts`, the host
+  argument in `edge-grant.ts` and `sessions.ts`). The `browser_profiles`
+  tables and browser settings stay in the shared schema; harmless.
 - ~~**cli**: CLI home~~ Answered, cli-lead owns it: `src/cli/main.ts:47`
   hands `junto browser` to `scripts/browser-cli.ts`, which bypasses the JSON
   envelope, discovery, schema show and `WorkErrorBody`. Port it to

@@ -55,6 +55,11 @@ code, not before.
 | Synced rows are immutable with one writer and no conflict handling | `docs/machines.md:64-75` | Kept. Universal resources are built on it: seats propose, the editing machine rules (02) |
 | Tasks, artifacts and other sinks are not carried to other machines | `docs/machines.md:368-372` | Carried everywhere (02) |
 | Edges are capabilities for every sink | `src/shared/physics/verbs.ts`, `laws.ts:69-78` | Edges remain only for seat to seat mail, seat to page automation, and task to task flow (01) |
+| Notes, labels, files and links stay on the editing machine | `docs/machines.md:51-52` | Carried everywhere (02) |
+| The exchange is a closed list; a row stands alone | `docs/machines.md:71-72`; `src/shared/work-exchange.ts:54,72` | Opens to resource fact families that chain on predecessors (02) |
+| Rule 5 entitlement | `docs/machines.md:76-81` | Every machine linked for a canvas is entitled to every resource fact (02) |
+| Signal attachments stay where they were raised | `docs/machines.md:376-377` | Attachments as refs may cross (03) |
+| Seat browser control "comes back" across machines | `docs/machines.md:378-380`; `docs/architecture-canvas-physics.md:189,194-195,268` | Browser is local only; seats on the page's own machine drive it (06) |
 
 ## Workstreams and who reviews what
 
@@ -128,4 +133,6 @@ operator as one signal after the leads have weighed in.
 6. Harness gates that exist only as a way back off: delete them
    (recommended). (09)
 7. Writes to universal resources while the link to the editing machine is
-   down: refuse with a retryable error (recommended) or queue. (02)
+   down: refuse with a retryable error (recommended) or queue. Cost of
+   refusing: while the desktop sleeps, remote seats cannot write resources
+   and no automation fires. (02)

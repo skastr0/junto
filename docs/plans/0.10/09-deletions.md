@@ -109,5 +109,13 @@ changes with it.
   it today, from `src/main/junto/overseer/native.ts:1353-1365` and
   `src/renderer/lib/chat-state.ts:614-660`. After the cut, seat deletion goes
   through `term/node-delete.ts` only. Lands before the Hermes chat removal.
-- **remote**: Hermes host identity removal touches the host registry:
-  anything on remote machines that reads `hermesId`?
+- ~~**remote**: hermesId on remotes~~ Answered: no link frame carries it,
+  but every core reads and writes it: `machine configure` on the remote
+  (`src/main/junto/machines/repository.ts:127`), `machine.add` hardcoding
+  `["terminal","hermes"]` (`src/main/junto/hosts/machine-owner.ts:94-95`),
+  registry hydrate and upsert (`hosts/registry.ts:281,292-311`), the eager
+  identity in `HermesPlaneLive` on every core (`hermes/plane.ts:420-424`), and
+  the settings channel's `hermesHostSnapshots`
+  (`src/main/junto/settings/link-wire.ts:34,68-69`). Cut those writers and the
+  settings field in the same change as the `host_registry` rebuild, which
+  lands in canvas's v26 migration with remote's column and CHECK spec.

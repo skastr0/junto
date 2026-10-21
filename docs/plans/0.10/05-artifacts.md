@@ -97,8 +97,11 @@ thread with `MentionCombobox`.
 - **canvas**: Existing pad and sheet nodes on canvases: delete them in the
   migration (proposal, the kinds never shipped) or convert each into an
   artifacts node holding one artifact? (Operator decision 4.)
-- **remote**: Pad bodies with images can be large. Version rows with full
-  bodies, or patches with periodic snapshots?
+- ~~**remote**: pad version storage~~ Answered: each version fact carries the
+  ruled patch plus a `ContentRef` to the full body at that version. Pad images
+  are already refs (`src/shared/pad.ts:99`), so a body is plain JSON. Facts
+  stay small and history is one fetch, no replay. Keep projections and
+  thumbnails out of `nativeImage` so the windowless core can make them.
 - ~~**cli**: projections~~ Answered: pads reuse `padToDigest`
   (`src/shared/pad-project.ts:300`) as is; sheets need a new markdown table
   projection.
