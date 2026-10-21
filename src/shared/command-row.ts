@@ -16,13 +16,15 @@ import {
   COMMAND_ROW_MAX_BYTES,
   QUEUE_MAX_BYTES,
   QUEUE_MAX_ROWS,
+  RefusalReason,
   ResourceActor,
   type CommandKey,
   type ResourceCommand,
   commandKey,
+  refusalError,
   resourceCommandSchema,
 } from "./resource-command";
-import { WorkErrorBody } from "./work-control";
+import type { WorkErrorBody } from "./work-control";
 import { OpId } from "./work-ids";
 
 const encodedBytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).byteLength;
@@ -69,16 +71,53 @@ export const RulingAppliedResult = Schema.Struct({
 });
 export type RulingAppliedResult = typeof RulingAppliedResult.Type;
 
+/**
+ * A refusal as every machine receives it: the closed reason and, when the
+ * reason has one, the head it lost to. Never the command's op, its text or a
+ * content ref: those stay with the writer, which holds the command row
+ * (security doctrine draft D3).
+ */
 export const RulingRefusedResult = Schema.Struct({
   operation: Schema.Literal("ruling.refused"),
   ...rulingKeyFields,
-  error: WorkErrorBody,
+  reason: RefusalReason,
+  /** The version, epoch or head the command lost to. */
+  expected: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)))),
   /** The command this refusal goes back to: itself, or the refused command its `after` reaches. */
   root: OpId,
 });
 export type RulingRefusedResult = typeof RulingRefusedResult.Type;
 
 export type RulingResult = RulingAppliedResult | RulingRefusedResult;
+
+/** Fixed words per reason, so a refusal row carries no text a seat or a domain wrote. */
+const REFUSAL_WORDS: { readonly [R in RefusalReason]: string } = {
+  not_in_reach: "The resource is not in this actor's reach",
+  unknown_target: "The resource does not exist",
+  invalid_input: "The command is not one this resource takes",
+  invalid_transition: "The resource is not in a state that allows this",
+  already_held: "Another command was ruled first",
+  reviewer_is_author: "The author cannot review its own work",
+  stale: "Written against an old version",
+  rebase_conflict: "The change does not apply to the current version",
+  depends_on_refused: "This builds on a command that was refused",
+  not_available: "This is not available yet",
+  queue_full: "This machine holds too many unruled commands",
+};
+
+/** The error a refusal row stands for, rebuilt from its closed fields. */
+export const refusalErrorOf = (ruling: RulingRefusedResult): WorkErrorBody => {
+  const body = refusalError(
+    {
+      reason: ruling.reason,
+      message: REFUSAL_WORDS[ruling.reason],
+      ...(ruling.expected === undefined ? {} : { expected: ruling.expected }),
+      ...(ruling.root === ruling.opId ? {} : { next_step: `junto op show ${ruling.root}` }),
+    },
+    ruling.root === ruling.opId ? undefined : ruling.root,
+  );
+  return { ...body, details: { ...body.details, opId: ruling.opId } };
+};
 
 /** The row a command becomes, from the envelope a domain built. */
 export const commandQueuedBody = <Op extends typeof QueuedOp.Type>(command: ResourceCommand<Op>): CommandQueuedResult => ({
@@ -105,6 +144,24 @@ export const commandRowWriter = (
       return { kind: "editing-machine" };
   }
 };
+
+export type CommandRowBody = CommandQueuedResult | RulingResult;
+
+export const isCommandRowBody = (body: { readonly operation: string }): body is CommandRowBody =>
+  body.operation === "command.queued" || body.operation === "ruling.applied" || body.operation === "ruling.refused";
+
+/**
+ * Was this row written by a machine that may write it? A ruling, and a
+ * command of the operator or an automation, only by the machine that edits
+ * the canvas (02 condition 4, Rule 4). A seat's command is judged on where
+ * its seat was, as mail is, by the author check. A row that fails closes the
+ * link.
+ */
+export const commandRowWrittenBy = (
+  writer: InstallationId,
+  editor: InstallationId,
+  body: CommandRowBody,
+): boolean => commandRowWriter(body).kind === "actor-machine" || writer === editor;
 
 /**
  * Who receives a row of this kind. A command goes to the editing machine and

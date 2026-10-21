@@ -15,6 +15,7 @@ import {
   type CanvasPlacement,
   type RowsFrame,
 } from "@shared/work-exchange";
+import { commandRowWrittenBy, isCommandRowBody } from "@shared/command-row";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
@@ -8182,7 +8183,7 @@ export const WorkRepositoryLive = Layer.effect(
               WHERE event.event_home = ?
                 AND event.entity_home = ?
                 AND event.item_canvas_name = ?
-                AND event.operation IN ('message.append', 'delivery.accepted')
+                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused')
                 AND fact.predecessor_seq IS NULL
                 AND (
                   length(event.seq) > length(?)
@@ -8287,6 +8288,15 @@ export const WorkRepositoryLive = Layer.effect(
               // and an automation's rows from no peer: only it writes those.
               // Any other machine takes the editing machine's rows as already
               // judged, and judges a writer's own rows against the copy it holds.
+              // A ruling, and the operator's or an automation's command, is
+              // the editing machine's own row: from any other writer it
+              // closes the link before its author is looked at.
+              if (
+                isCommandRowBody(fact.body) &&
+                !commandRowWrittenBy(fact.id.route.eventHome, placement.editor, fact.body)
+              ) {
+                return yield* Effect.fail(refuseExchange("only the machine that edits a canvas writes this row"));
+              }
               const authored =
                 placement.editor === self
                   ? !editorTakesFromNoPeer(fact) && (yield* exchangeAuthorWasThere(writer, fact))

@@ -1,0 +1,170 @@
+/**
+ * Who may write a ruling, on the apply path of real databases: a ruling, and
+ * the operator's command, is the editing machine's own row. From any other
+ * writer it is refused and nothing is written, whichever machine passes it on.
+ */
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Cause, Context, Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { WorkRepository, WorkRepositoryLive, workRecordContentSha256 } from "../src/main/junto/work/repository";
+import { ActorSeatId } from "../src/shared/actor-seat";
+import { InstallationId } from "../src/shared/installation-id";
+import type { CanvasPlacement, RowsFrame } from "../src/shared/work-exchange";
+import { OpId } from "../src/shared/work-ids";
+import { WORK_PROTOCOL } from "../src/shared/work-protocol";
+import { seedCanvasRows } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
+
+const id = Schema.decodeUnknownSync(InstallationId);
+const EDITOR = id("macbook");
+const MINI = id("mini");
+const OTHER = id("other-mini");
+const at = "2026-10-21T12:00:00.000Z";
+const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"2".repeat(64)}`);
+const opId = Schema.decodeUnknownSync(OpId)("01M5ESR3G8AN1BA0AVVQC2X4WY");
+
+const placement: CanvasPlacement = {
+  canvasId: "canvas-factory",
+  editor: EDITOR,
+  holds: (machine) => machine === EDITOR || machine === MINI || machine === OTHER,
+  seatOf: (nodeId) => (nodeId === "peer" ? { seatId, machine: MINI } : undefined),
+};
+
+type Machine = {
+  readonly root: string;
+  readonly runtime: ManagedRuntime.ManagedRuntime<WorkRepository | SqlClient.SqlClient, unknown>;
+  readonly repository: Context.Service.Shape<typeof WorkRepository>;
+};
+
+const boot = async (self: InstallationId): Promise<Machine> => {
+  const root = join(tmpdir(), `junto-command-row-${self}-${randomUUID()}`);
+  const runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, makeStateEngineLive(join(root, "junto.db"))));
+  const repository = await runtime.runPromise(WorkRepository);
+  await runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${self}, ${at})`;
+          yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${at})`;
+          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("peer", { y: 0 })] }]]) });
+        }),
+      );
+    }),
+  );
+  return { root, runtime, repository };
+};
+
+/** A row by `writer` at `seq`, with a hash that matches its content. */
+const row = <Body extends { readonly operation: string }>(writer: InstallationId, seq: string, item: object, body: Body) => {
+  const semantic = {
+    protocol: WORK_PROTOCOL,
+    id: { route: { eventHome: writer, entityHome: writer }, seq },
+    recordType: "fact",
+    basis: { kind: "canvas", canvasName: "factory", seq: 1 },
+    item,
+    operation: body.operation,
+    predecessor: null,
+    body,
+  };
+  return { ...semantic, originAt: at, contentSha256: workRecordContentSha256(semantic as never) };
+};
+
+const ruling = (writer: InstallationId, seq: string) =>
+  row(
+    writer,
+    seq,
+    { kind: "ruling", itemId: opId, sink: { canvasName: "factory", nodeId: "board-1" } },
+    {
+      operation: "ruling.refused",
+      writer: MINI,
+      opId,
+      actor: { kind: "seat", seatId, nodeId: "peer" },
+      reason: "invalid_transition",
+      root: opId,
+    },
+  );
+
+const operatorCommand = (writer: InstallationId, seq: string) =>
+  row(
+    writer,
+    seq,
+    { kind: "command", itemId: opId, sink: { canvasName: "factory", nodeId: "board-1" } },
+    {
+      operation: "command.queued",
+      command: {
+        opId,
+        canvasName: "factory",
+        actor: { kind: "operator" },
+        target: { kind: "task", nodeId: "board-1" },
+        basis: null,
+        after: [],
+        op: { kind: "start" },
+      },
+    },
+  );
+
+const frame = (writer: InstallationId, facts: ReadonlyArray<unknown>, through: string): RowsFrame =>
+  ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer, facts, through }) as unknown as RowsFrame;
+
+const apply = (on: Machine, peer: InstallationId, sent: RowsFrame) =>
+  on.runtime.runPromiseExit(on.repository.applyExchangeRows({ peer, frame: sent, placement, receivedAt: at }));
+
+/** Refused by the writer rule itself, not by any later check. */
+const refusedAsNotTheEditor = (exit: Exit.Exit<unknown, unknown>): boolean =>
+  Exit.isFailure(exit) && Cause.pretty(exit.cause).includes("only the machine that edits a canvas writes this row");
+
+const facts = (on: Machine) =>
+  on.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      return (yield* sql.unsafe<{ n: number }>("SELECT count(*) AS n FROM work_facts"))[0]!.n;
+    }),
+  );
+
+let editor: Machine;
+let mini: Machine;
+
+beforeAll(async () => {
+  editor = await boot(EDITOR);
+  mini = await boot(MINI);
+});
+
+afterAll(async () => {
+  for (const machine of [editor, mini]) {
+    await machine.runtime.dispose();
+    await rm(machine.root, { recursive: true, force: true });
+  }
+});
+
+describe("who may write a ruling", () => {
+  it("refuses a ruling a seat's machine wrote, sent to the editing machine", async () => {
+    const before = await facts(editor);
+    expect(refusedAsNotTheEditor(await apply(editor, MINI, frame(MINI, [ruling(MINI, "1")], "1")))).toBe(true);
+    expect(await facts(editor)).toBe(before);
+  });
+
+  it("refuses an operator's command from any machine but the editing one", async () => {
+    const before = await facts(editor);
+    expect(refusedAsNotTheEditor(await apply(editor, MINI, frame(MINI, [operatorCommand(MINI, "2")], "2")))).toBe(true);
+    expect(await facts(editor)).toBe(before);
+  });
+
+  it("refuses a ruling another machine wrote, even passed on by the editing machine", async () => {
+    const before = await facts(mini);
+    expect(refusedAsNotTheEditor(await apply(mini, EDITOR, frame(OTHER, [ruling(OTHER, "1")], "1")))).toBe(true);
+    expect(await facts(mini)).toBe(before);
+  });
+
+  it("takes a ruling the editing machine wrote", async () => {
+    const before = await facts(mini);
+    const taken = await apply(mini, EDITOR, frame(EDITOR, [ruling(EDITOR, "1")], "1"));
+    expect(Exit.isSuccess(taken) && taken.value.taken).toBe(1);
+    expect(await facts(mini)).toBe(before + 1);
+  });
+});

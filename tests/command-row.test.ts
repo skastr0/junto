@@ -5,6 +5,7 @@ import {
   CommandQueuedResult,
   commandRowWriter,
   queueAdmits,
+  refusalErrorOf,
   rulingKeyOf,
   type RulingRefusedResult,
 } from "../src/shared/command-row";
@@ -71,7 +72,7 @@ const refused = row(
     writer: mini,
     opId,
     actor: command.actor,
-    error: { type: "InvalidTransition", message: "Task is done", details: { reason: "invalid_transition" } },
+    reason: "invalid_transition",
     root: opId,
   },
   { kind: "ruling", itemId: opId, sink: { canvasName: "factory", nodeId: "board-1" } },
@@ -141,6 +142,34 @@ describe("command and ruling rows on the exchange", () => {
 
   it("keys a ruling by its writer and opId", () => {
     expect(rulingKeyOf(fact(refused).body as RulingRefusedResult)).toBe(commandKey(mini, opId));
+  });
+});
+
+describe("a refusal on the wire", () => {
+  it("carries only a closed reason and a bounded head, never free text", () => {
+    expect(crosses({ ...refused, body: { ...refused.body, reason: "because I said so" } })).toBe(false);
+    expect(
+      crosses({ ...refused, body: { ...refused.body, error: { type: "InputError", message: "the op body, leaked" } } }),
+    ).toBe(false);
+    expect(crosses({ ...refused, body: { ...refused.body, expected: "x".repeat(129) } })).toBe(false);
+    expect(crosses({ ...refused, body: { ...refused.body, reason: "stale", expected: "v7" } })).toBe(true);
+  });
+
+  it("rebuilds the caller's error from the reason, in fixed words", () => {
+    const stale = fact({ ...refused, body: { ...refused.body, reason: "stale", expected: "v7" } }).body as RulingRefusedResult;
+    expect(refusalErrorOf(stale)).toEqual({
+      type: "Stale",
+      message: "Written against an old version",
+      details: { reason: "stale", retryable: true, expected: "v7", opId },
+    });
+    const dependent = fact({ ...refused, item: { ...refused.item, itemId: laterOpId }, body: { ...refused.body, opId: laterOpId, reason: "depends_on_refused" } })
+      .body as RulingRefusedResult;
+    expect(refusalErrorOf(dependent).details).toMatchObject({
+      reason: "depends_on_refused",
+      from: opId,
+      next_step: `junto op show ${opId}`,
+      opId: laterOpId,
+    });
   });
 });
 
