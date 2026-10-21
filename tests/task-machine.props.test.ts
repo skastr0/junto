@@ -299,11 +299,8 @@ describe("the walks are not vacuous", () => {
 describe("approvals across a change of assignee", () => {
   // A stamp is the reviewer's verdict on the work at an epoch. Unassigning and
   // assigning another seat changes who does the work without moving the epoch.
-  // Today unassign keeps stamps and the epoch, so bo's approval of ada's work
-  // counts toward bo's own work once bo is assigned. `it.fails` records that;
-  // it turns red when the machine settles it (clear stamps on unassign, or
-  // count only stamps of reviewers other than the assignee), and the marker goes.
-  it.fails("does not let a seat's earlier approval count once that seat is assigned the task", () => {
+  // A seat's own stamp never counts toward a task it is assigned (3095a6fff).
+  it("does not let a seat's earlier approval count once that seat is assigned the task", () => {
     const [ada, bo] = SEATS;
     const env = envOf(0);
     const id = ULIDS[0]!;
