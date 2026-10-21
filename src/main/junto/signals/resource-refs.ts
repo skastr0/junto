@@ -31,6 +31,8 @@ export type ReachedItem = {
   readonly itemId: ItemId;
   readonly name: string;
   readonly number?: TaskNumber;
+  /** An archived artifact: found, so it is not called missing, but not attached. */
+  readonly archived?: true;
 };
 
 const NODE_KIND = { task: "task", artifact: "artifacts" } as const satisfies Record<ResourceKind, string>;
@@ -68,8 +70,15 @@ export const resolveResourceRef = (
       canvasName,
     ),
   });
+  const archived = (item: ReachedItem): Result.Result<ResourceInput, WorkErrorBody> =>
+    Result.fail({
+      type: "InvalidTransition",
+      message: `${input.kind} ${item.itemId} is archived`,
+      details: { target: typed, retryable: false, next_step: "restore it first, or attach another" },
+    });
   if (isItemId(typed)) {
     const found = ofKind.find((item) => item.itemId === typed);
+    if (found?.archived === true) return archived(found);
     return found !== undefined
       ? Result.succeed(linked(found.nodeId, found.itemId))
       : Result.fail({
@@ -78,11 +87,15 @@ export const resolveResourceRef = (
           details: { target: typed, retryable: false, next_step: `send the ${input.kind}'s ref exactly as Junto printed it` },
         });
   }
-  const resolved = resolveWorkTarget(board, seatId, typed, "signal.raise", () => ofKind.map(candidateOf));
+  const live = ofKind.filter((item) => item.archived !== true);
+  const resolved = resolveWorkTarget(board, seatId, typed, "signal.raise", () => live.map(candidateOf));
   if (Result.isFailure(resolved)) return Result.fail(resolved.failure);
   const { nodeId, itemId } = resolved.success;
-  if (itemId !== undefined) return Result.succeed(linked(nodeId, itemId));
-  const inNode = ofKind.filter((item) => item.nodeId === nodeId).map(candidateOf);
+  if (itemId !== undefined) {
+    const found = ofKind.find((item) => item.nodeId === nodeId && item.itemId === itemId);
+    return found?.archived === true ? archived(found) : Result.succeed(linked(nodeId, itemId));
+  }
+  const inNode = live.filter((item) => item.nodeId === nodeId).map(candidateOf);
   return Result.fail({
     type: "InputError",
     message: `"${typed}" names a node, not a ${input.kind} in it`,
@@ -97,7 +110,7 @@ export const resolveResourceRef = (
 
 /** Pure: whether an item is on its node now, by the items read for this signal. */
 export const holdsOf = (items: ReadonlyArray<ReachedItem>): SignalResources["holds"] => {
-  const held = new Set(items.map((item) => `${item.kind}:${item.nodeId}:${item.itemId}`));
+  const held = new Set(items.filter((item) => item.archived !== true).map((item) => `${item.kind}:${item.nodeId}:${item.itemId}`));
   return (kind, nodeId, item) => held.has(`${kind}:${nodeId}:${item}`);
 };
 
@@ -111,24 +124,26 @@ const storeError = (error: { readonly message: string }): WorkErrorBody => ({
 
 /**
  * Every task or artifact in the seat's reach, of the kinds the signal names,
- * read from the task store and the artifact store. A store this runtime does
- * not run reads as absent: `claimSignalAttachments` then refuses the kind.
+ * read from the task store and the artifact store, archived artifacts too.
+ * A store this runtime does not run is named in `missing`: only that kind is
+ * refused. Past `SCAN_LIMIT` items of one kind the rest read as not in reach.
  */
 const readReachedItems = (
   board: Canvas,
   canvasName: string,
   seatId: NodeId,
   kinds: ReadonlySet<ResourceKind>,
-): Effect.Effect<ReadonlyArray<ReachedItem> | undefined, WorkErrorBody> =>
+): Effect.Effect<{ readonly items: ReadonlyArray<ReachedItem>; readonly missing: ReadonlySet<ResourceKind> }, WorkErrorBody> =>
   Effect.gen(function* () {
     const reached = resourcesInReach(board, seatId);
     const nodesOf = (kind: ResourceKind) => reached.filter((node) => node.kind === NODE_KIND[kind]).map((node) => node.id);
     const items: ReachedItem[] = [];
+    const missing = new Set<ResourceKind>();
     if (kinds.has("task")) {
       const repo = yield* Effect.serviceOption(TaskRepository);
-      if (Option.isNone(repo)) return undefined;
       const nodeIds = nodesOf("task");
-      if (nodeIds.length > 0) {
+      if (Option.isNone(repo)) missing.add("task");
+      else if (nodeIds.length > 0) {
         const { tasks } = yield* repo.value.list(canvasName, { nodeIds, limit: SCAN_LIMIT }).pipe(Effect.mapError(storeError));
         for (const task of tasks) {
           items.push({
@@ -143,18 +158,26 @@ const readReachedItems = (
     }
     if (kinds.has("artifact")) {
       const repo = yield* Effect.serviceOption(ArtifactRepository);
-      if (Option.isNone(repo)) return undefined;
       const nodeIds = nodesOf("artifact");
-      if (nodeIds.length > 0) {
-        const { artifacts } = yield* repo.value
-          .list(canvasName, { nodeIds, archived: false, limit: SCAN_LIMIT })
-          .pipe(Effect.mapError(storeError));
-        for (const artifact of artifacts) {
-          items.push({ kind: "artifact", nodeId: artifact.nodeId, itemId: artifact.artifactId, name: artifact.title });
+      if (Option.isNone(repo)) missing.add("artifact");
+      else if (nodeIds.length > 0) {
+        for (const archived of [false, true]) {
+          const { artifacts } = yield* repo.value
+            .list(canvasName, { nodeIds, archived, limit: SCAN_LIMIT })
+            .pipe(Effect.mapError(storeError));
+          for (const artifact of artifacts) {
+            items.push({
+              kind: "artifact",
+              nodeId: artifact.nodeId,
+              itemId: artifact.artifactId,
+              name: artifact.title,
+              ...(archived ? { archived: true as const } : {}),
+            });
+          }
         }
       }
     }
-    return items;
+    return { items, missing };
   });
 
 /**
@@ -174,11 +197,18 @@ export const signalResourcesFor = (
   Effect.gen(function* () {
     const kinds = new Set(inputs.filter(isResourceInput).map((input) => input.kind));
     if (kinds.size === 0) return { inputs };
-    const items = yield* readReachedItems(board, canvasName, seatId, kinds);
-    if (items === undefined) return { inputs };
+    const { items, missing } = yield* readReachedItems(board, canvasName, seatId, kinds);
     const resolved = yield* Effect.forEach(inputs, (input, index): Effect.Effect<AgentSignalAttachmentInput, WorkErrorBody> =>
       isResourceInput(input)
-        ? Effect.fromResult(resolveResourceRef(board, canvasName, seatId, input, items)).pipe(
+        ? Effect.fromResult(
+            missing.has(input.kind)
+              ? Result.fail<WorkErrorBody>({
+                  type: "InputError",
+                  message: `${input.kind}s cannot be attached in this Junto runtime`,
+                  details: { reason: "not_available", retryable: false },
+                })
+              : resolveResourceRef(board, canvasName, seatId, input, items),
+          ).pipe(
             Effect.mapError((error): WorkErrorBody => ({
               ...error,
               details: { ...error.details, path: `args.attach[${index}]` },

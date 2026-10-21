@@ -81,6 +81,16 @@ describe("a signal's task and artifact refs, resolved in reach", () => {
     expect(holds("artifact", asNodeId("A"), T42)).toBe(false);
   });
 
+  it("calls an archived artifact archived, never missing, and never holds it", () => {
+    const OLD = "01M5ESR42S7P9YNR8FEH0TD2QD" as ItemId;
+    const withOld = [...items, { kind: "artifact" as const, nodeId: asNodeId("A"), itemId: OLD, name: "Old", archived: true as const }];
+    for (const typed of [OLD, href("A", OLD)]) {
+      const refused = resolveResourceRef(board, "factory", S, { kind: "artifact", ref: typed }, withOld);
+      expect(Result.isFailure(refused) && refused.failure).toMatchObject({ type: "InvalidTransition", message: `artifact ${OLD} is archived` });
+    }
+    expect(holdsOf(withOld)("artifact", asNodeId("A"), OLD)).toBe(false);
+  });
+
   it("admits what it resolved", () => {
     const resolved = resolve("task", "#42");
     expect(Result.isSuccess(resolved)).toBe(true);
