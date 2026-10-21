@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import type { NodeKind, NodeOf } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import type { FlowNode } from "../../lib/convert";
@@ -96,6 +97,11 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const kind = useNodeValue(canvasName, id, (node) => node?.kind);
   const text = useNodeValue(canvasName, id, (node) =>
     node?.kind === "note" || node?.kind === "label" ? node.text : "",
+  );
+  // The inner surface takes keyboard focus after the card, so it says what
+  // pressing it does and to what, as the card's own name does.
+  const surfaceName = useNodeValue(canvasName, id, (node) =>
+    node?.kind === "note" || node?.kind === "label" ? `Edit ${node.kind}, ${titleOf(node)}` : "",
   );
   const color = useNodeValue(canvasName, id, (node) => node?.color);
   // Each body follows its own row; gestures read it at the moment of the act.
@@ -344,6 +350,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           <div
             role="button"
             tabIndex={0}
+            aria-label={surfaceName}
             className="label-surface nopan flex h-full w-full cursor-text items-center overflow-hidden border-0 bg-transparent p-0 text-left font-display"
             style={{ color: labelHue }}
             onClick={(event) => {
@@ -465,6 +472,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         <div
           role="button"
           tabIndex={0}
+          aria-label={surfaceName}
           className="note-surface nopan h-full w-full cursor-text overflow-hidden border-0 bg-transparent p-0 text-left font-mono items-stretch justify-start"
 
           onClick={(event) => {
