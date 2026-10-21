@@ -92,13 +92,23 @@ with
 > fact families. Only a resource fact may name a predecessor, and only an
 > earlier fact of the same writer.
 
-`docs/security-doctrine.md:245-247`. After "A machine writes for its own
-seats." insert
+`docs/security-doctrine.md`, "Immutable work". After R6's sentence "A mail
+author is one of a closed set of kinds (seat, operator, automation), each
+admitted from one machine; an identity on a node that is not its own is no
+author." (`a530ccc85`) insert
 
-> A command row or seat occupancy fact is valid only from the machine
-> placement says its seat was on when it was written; an operator's or an
-> automation's command only from the editing machine itself. Rulings and resource facts come
-> only from the editing machine.
+> A command's actor is judged the same way: a seat's command row is valid
+> only from the machine placement says that seat was on when it was
+> written, and an operator's or an automation's command is written on the
+> editing machine and taken from no peer. Rulings and resource facts come
+> only from the editing machine, which takes them from no peer. A seat
+> occupancy fact is valid only from the seat's own machine.
+
+`docs/machines.md` rule 4, after R6's "mail from the operator or an
+automation, and an answer to a signal, only from the machine that edits the
+canvas", the same three writers in one sentence: a seat's command from its
+machine, an operator's or automation's command, a ruling and a resource fact
+only from the machine that edits the canvas.
 
 ## D3 Rule 5, entitlement
 
