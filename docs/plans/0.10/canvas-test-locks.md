@@ -71,3 +71,7 @@ enters the chain in the same commit that makes physics write `flows` (today
 land first, and apart, one side's task to task wire writes fail a CHECK.
 `participates` stays in the CHECK while boards and request boards are live
 kinds (133f7adbf).
+
+## Standing locks
+
+Automations never leave their canvas (07): any future node copy or cut drops `automations` nodes, as a canvas copy does today (`tests/canvas-copy.test.ts`, the `automations` row of `crosses`, a139bde94).
