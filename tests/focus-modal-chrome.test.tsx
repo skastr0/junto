@@ -180,4 +180,9 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
       /\.focus-surface\[data-maximized="true"\] \.focus-surface__panel \{[^}]*flex: 1 1 0%;[^}]*max-width: none !important;/,
     );
   });
+
+  it("a split workbench shows one Maximize: only the front pane passes the window on", () => {
+    const panes = readFileSync(join(root, "src/renderer/components/workbench/WorkbenchPanes.tsx"), "utf8");
+    expect(panes).toContain('<FocusWindowContext.Provider value={paneSlot === "0" ? focusWindow : null}>');
+  });
 });

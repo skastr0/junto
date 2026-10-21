@@ -14,6 +14,7 @@ import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
 import { NoteSurface } from "./NoteSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { BROWSER_ENABLED, TASKS_ENABLED } from "@shared/features";
+import { FocusWindowContext, useFocusWindow } from "../ui/FocusWindow";
 
 function resolveSurfaceBody(
   surface: WorkSurface,
@@ -94,6 +95,9 @@ const WorkbenchPane = memo(function WorkbenchPane({
     [surface.id],
   );
 
+  // One modal, one Maximize: the front pane's header carries it, and the
+  // second pane of a split and the parked panes carry none.
+  const focusWindow = useFocusWindow();
   return (
     <div
       ref={(element) => registerPane(surface.id, element)}
@@ -108,7 +112,9 @@ const WorkbenchPane = memo(function WorkbenchPane({
       aria-hidden={!visible}
       inert={!visible}
     >
-      {resolveSurfaceBody(surface, visible, onActivate)}
+      <FocusWindowContext.Provider value={paneSlot === "0" ? focusWindow : null}>
+        {resolveSurfaceBody(surface, visible, onActivate)}
+      </FocusWindowContext.Provider>
     </div>
   );
 });
