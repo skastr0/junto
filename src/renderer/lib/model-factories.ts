@@ -132,6 +132,12 @@ export const newArtifacts = (spot: Spot): NodeOf<"artifacts"> => {
   return { kind: "artifacts", ...placed("artifacts", spot, SINK_SIZE) };
 };
 
+/** An Automations node: its automations act on what sits at or below it. */
+export const newAutomations = (spot: Spot): NodeOf<"automations"> => ({
+  kind: "automations",
+  ...placed("automations", spot, SINK_SIZE),
+});
+
 export const newBoard = (spot: Spot): NodeOf<"board"> => {
   requireFeature(BOARD_ENABLED, "board sink");
   return { kind: "board", ...placed("board", spot, SINK_SIZE) };

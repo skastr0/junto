@@ -11,6 +11,7 @@ import {
   SquareDashed,
   SquareTerminal,
   Type,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -69,6 +70,11 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Archive,
     purpose: "A shelf for finished outputs: files, results, and proof of work.",
   } satisfies NodeCatalogEntry] : []),
+  {
+    id: "automations", category: "sinks", label: "Automations",
+    icon: Workflow,
+    purpose: "Schedules and triggers that mail seats and file tasks in this region.",
+  },
   ...(BOARD_ENABLED ? [{
     id: "board", category: "sinks", label: "Board",
     icon: Braces,

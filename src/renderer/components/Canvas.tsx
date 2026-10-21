@@ -69,7 +69,7 @@ import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import {
-  newArtifacts, newBoard, newRegion, newImage,
+  newArtifacts, newAutomations, newBoard, newRegion, newImage,
   newLabel, newSeat, newPage, newRequests, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
@@ -755,6 +755,13 @@ const makeAddActions = (
     if (!ARTIFACTS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = newArtifacts(onTop(position));
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addAutomations: () => {
+    const position = positionFor({ width: 240, height: 120 });
+    const node = newAutomations(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
