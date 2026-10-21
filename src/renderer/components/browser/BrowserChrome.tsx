@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { ArrowLeft, ArrowRight, Hand, Plus, RotateCw, Undo2, X } from "lucide-react";
 import type { BrowserChromeState } from "@shared/browser-chrome";
 import type { BrowserTabId } from "@shared/browser-tab";
@@ -7,6 +7,7 @@ import type { ChromeCommand } from "../../lib/browser-chrome-source";
 import { addressTarget, driverView, refusalLine, tabLabel, takeoverOffer } from "../../lib/browser-chrome-model";
 import type { BrowserChromeOutcome } from "@shared/browser-chrome";
 import { claimFocus } from "../../lib/focus-ownership";
+import { registerPageChromeKeys } from "../../lib/page-chrome-keys";
 import { Button, IconButton, Input, StatusDot } from "../ui";
 import "./browser-chrome.css";
 
@@ -175,6 +176,7 @@ export function AddressBar({
   onCommand,
   onRefused,
   onFocusPage,
+  inputRef,
 }: {
   readonly state: BrowserChromeState;
   readonly pending: boolean;
@@ -182,6 +184,8 @@ export function AddressBar({
   readonly onRefused: (message: string) => void;
   /** Move keyboard focus into the page: after Enter goes, and on Escape. */
   readonly onFocusPage: () => void;
+  /** The address field, so the page's key (Cmd+L) can focus it. */
+  readonly inputRef?: Ref<HTMLInputElement>;
 }) {
   const tab = activeTab(state.tabs);
   const [typed, setTyped] = useState(tab.url);
@@ -210,6 +214,7 @@ export function AddressBar({
       </IconButton>
       <Input
         dense
+        ref={inputRef}
         aria-label="Address"
         placeholder="Search or type an address"
         spellCheck={false}
@@ -265,11 +270,26 @@ export function BrowserChrome({
       })
       .finally(() => setPending(false));
   };
+  // While this chrome shows it is the page in front for Cmd+L and Cmd+R (the
+  // menu hands them back as keydowns, so they work while the page has focus).
+  const addressRef = useRef<HTMLInputElement>(null);
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(
+    () =>
+      registerPageChromeKeys({
+        address: () => {
+          claimFocus(addressRef.current, "gesture", { select: true });
+        },
+        reload: () => runRef.current({ kind: "traverse", step: "reload" }),
+      }),
+    [],
+  );
   return (
     <div className="browser-chrome" data-testid="browser-chrome">
       <TabStrip state={state} pending={pending} onCommand={run} controls={controls} />
       <div className="browser-chrome__row">
-        <AddressBar state={state} pending={pending} onCommand={run} onRefused={setRefused} onFocusPage={onFocusPage} />
+        <AddressBar state={state} pending={pending} onCommand={run} onRefused={setRefused} onFocusPage={onFocusPage} inputRef={addressRef} />
         <DriverMark state={state} now={now} seatName={seatName} />
         <TakeoverControl state={state} pending={pending} onCommand={run} />
         {trailing}

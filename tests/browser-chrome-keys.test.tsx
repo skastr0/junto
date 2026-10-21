@@ -6,6 +6,7 @@ import type { BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving } from "../src/shared/page-driver";
 import { initialPageTabs, reducePageTabs, type PageTabs } from "../src/shared/page-tabs";
 import { BrowserChrome } from "../src/renderer/components/browser/BrowserChrome";
+import { runPageChromeKey } from "../src/renderer/lib/page-chrome-keys";
 import type { ChromeCommand } from "../src/renderer/lib/browser-chrome-source";
 
 let host: HTMLDivElement;
@@ -157,5 +158,22 @@ describe("address bar keys", () => {
     });
     expect(commands).toEqual([]);
     expect(focusPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("the page's keys (Cmd+L, Cmd+R) while the chrome shows", () => {
+  it("Cmd+L focuses the address field with its address selected, Cmd+R reloads, and both pass once the chrome is gone", async () => {
+    const commands: ChromeCommand[] = [];
+    await mount(three, commands);
+    expect(runPageChromeKey("address")).toBe(true);
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Address"]')!;
+    expect(document.activeElement).toBe(field);
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(field.value.length);
+    expect(runPageChromeKey("reload")).toBe(true);
+    expect(commands).toEqual([{ kind: "traverse", step: "reload" }]);
+    await act(async () => root.render(<div />));
+    expect(runPageChromeKey("address")).toBe(false);
+    expect(runPageChromeKey("reload")).toBe(false);
   });
 });
