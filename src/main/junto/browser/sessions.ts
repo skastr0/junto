@@ -37,11 +37,6 @@ import {
   isValidBrowserSessionId,
 } from "@shared/browser-limits";
 import type { BrowserSessionInfo, BrowserSurfaceBounds } from "@shared/ipc";
-import {
-  mergePageLoadStatus,
-  pageLoadMapKey,
-  type PageLoadStatus,
-} from "@shared/scheduler-effects";
 import { parseNodeRef } from "@shared/node-ref";
 import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
 import type { BrowserProfileServiceApi } from "./profiles";
@@ -730,25 +725,6 @@ export class BrowserSessionService {
     return () => {
       this.sessionListeners.delete(listener);
     };
-  }
-
-  /**
-   * Thin readiness map for kernel watch: `${canvasName}::${nodeId}` → load
-   * status from every current warm session (all owners). ready/failed from
-   * onLoadOk/onLoadFail satisfy page completes equals.
-   */
-  pageLoadSnapshot(): ReadonlyMap<string, PageLoadStatus> {
-    const out = new Map<string, PageLoadStatus>();
-    for (const entry of this.sessions.values()) {
-      if (!this.isCurrent(entry)) continue;
-      const state = entry.machine.state;
-      if (state === "destroyed") continue;
-      const parsed = parseNodeRef(entry.ref);
-      if (!parsed.ok) continue;
-      const key = pageLoadMapKey(parsed.value.canvasName, parsed.value.nodeId);
-      out.set(key, mergePageLoadStatus(out.get(key), state));
-    }
-    return out;
   }
 
   /** Install Settings (or test fake) as the pool-limits authority. */

@@ -1784,21 +1784,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
           overseerComposition?.bindPages(composition.sessions);
-          // Page→relay watch: thin load map from browser sessions + wake on
-          // load ok/fail so rising-edge fire is not stuck on the 30s watchdog.
-          const kernel = kernelService;
-          if (kernel !== undefined) {
-            kernel.setPageLoadProvider(() => composition.sessions.pageLoadSnapshot());
-            const unsubPageLoad = composition.sessions.subscribeSessionChanges(() => {
-              kernel.requestCycle();
-            });
-            const priorCleanup = unsubscribeCanvasEdgeGrants;
-            unsubscribeCanvasEdgeGrants = () => {
-              unsubPageLoad();
-              kernel.setPageLoadProvider(undefined);
-              priorCleanup?.();
-            };
-          }
         },
         {
           sql: await AppRuntime.runPromise(SqlClient.SqlClient),
