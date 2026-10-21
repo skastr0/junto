@@ -7,6 +7,7 @@ import {
 } from "../lib/focus-measure";
 import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 import { noteSubjectInUse, subjectOf, useModalLayer } from "../lib/modal-stack";
+import { clampToFrame, watchOperatorResize } from "../lib/operator-resize";
 import { FocusWindowContext, type FocusWindow } from "./ui/FocusWindow";
 
 // What a press may land on and keep: controls, fields, and the terminal.
@@ -55,8 +56,9 @@ const INTERACTIVE_SELECTOR = [
  *
  * Maximize: any surface that is not `fit` offers its header a toggle that
  * widens the panel to the full frame, less the surface's own padding
- * (`data-maximized`, styled in styles.css). Size memory never records the
- * maximized box, so restoring returns the size the operator had.
+ * (`data-maximized`, styled in styles.css). Size memory is the operator's
+ * drag on the resize grip and nothing else, so restoring returns the size
+ * they chose.
  *
  * Close: backdrop click (optional), Escape (optional). The PTY keeps Esc for
  * the PTY and only closes via Close / ⌘W / backdrop.
@@ -131,14 +133,16 @@ export function FocusSurface({
     },
   });
 
-  // Resizable document surfaces: restore last size for this session.
+  // Resizable document surfaces: restore the size the operator last dragged
+  // this surface to, never more than the frame has now.
   useEffect(() => {
     if (height !== "resizable" || !panelRef.current) return;
-    const stored = readSessionSize(measure);
+    const stored = sessionSizes.get(label);
     if (!stored) return;
-    panelRef.current.style.width = `${stored.width}px`;
-    panelRef.current.style.height = `${stored.height}px`;
-  }, [height, measure]);
+    const frame = panelRef.current.parentElement;
+    panelRef.current.style.width = `${clampToFrame(stored.width, frame?.clientWidth ?? 0)}px`;
+    panelRef.current.style.height = `${clampToFrame(stored.height, frame?.clientHeight ?? 0)}px`;
+  }, [height, label]);
 
   // Opening the modal is the operator opt-in: put keyboard on the subject
   // (xterm textarea, composer, first field) instead of leaving it on the canvas.
@@ -154,20 +158,20 @@ export function FocusSurface({
     return scheduleFocusPrimaryControl(() => panelRef.current);
   }, [claimFocusOnOpen, contain]);
 
+  // Only a drag on the resize grip is remembered, and a double click on it
+  // forgets the size (see operator-resize.ts).
   useEffect(() => {
-    if (height !== "resizable") return;
     const panel = panelRef.current;
-    if (!panel) return;
-    const observer = new ResizeObserver(() => {
-      if (rootRef.current?.dataset.maximized === "true") return;
-      writeSessionSize(measure, {
-        width: panel.offsetWidth,
-        height: panel.offsetHeight,
-      });
+    if (height !== "resizable" || !panel) return;
+    return watchOperatorResize(panel, {
+      onResize: (size) => void sessionSizes.set(label, size),
+      onReset: () => {
+        sessionSizes.delete(label);
+        panel.style.removeProperty("width");
+        panel.style.removeProperty("height");
+      },
     });
-    observer.observe(panel);
-    return () => observer.disconnect();
-  }, [height, measure]);
+  }, [height, label]);
 
   // A press on blank chrome (an empty header, the space under a list, an
   // empty stretch of the rail) would park the keyboard on the panel or drop
@@ -268,13 +272,7 @@ export function FocusSurface({
 }
 
 // --- session size memory (resizable only) ------------------------------------
+// By surface, not by measure: eight surfaces share the document measure, and
+// one's size is not another's.
 
-const sessionSizes = new Map<FocusMeasure, { width: number; height: number }>();
-
-function readSessionSize(measure: FocusMeasure) {
-  return sessionSizes.get(measure);
-}
-
-function writeSessionSize(measure: FocusMeasure, size: { width: number; height: number }) {
-  sessionSizes.set(measure, size);
-}
+const sessionSizes = new Map<string, { width: number; height: number }>();

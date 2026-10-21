@@ -17,6 +17,7 @@ import {
   type FocusMeasure,
 } from "../../lib/focus-measure";
 import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
+import { clampToFrame, watchOperatorResize } from "../../lib/operator-resize";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
 import { actorRailExpanded } from "../../lib/actor-rail";
@@ -111,8 +112,7 @@ export function WorkFocusShell() {
     }
   }, []);
 
-  const panelObserverRef = useRef<ResizeObserver | null>(null);
-  const lastWritten = useRef<number | null>(null);
+  const stopWatchRef = useRef<(() => void) | null>(null);
   const lastRails = useRef<{ readonly front: string | undefined; readonly px: number } | null>(null);
   useEffect(() => {
     if (!hasFocus) return;
@@ -138,35 +138,32 @@ export function WorkFocusShell() {
       // Remembered width is the CONTENT width — the panel minus whatever the
       // right instrument pane occupies. Storing the whole panel box instead
       // freezes that pane into the user's terminal-width dial.
+      // A remembered width is the operator's wish, never more than the frame
+      // has now: a smaller window gets a smaller panel for this open and the
+      // memory waits, whole, for a wider one.
       const stored = dock$.registry.peek().focusSize;
       if (stored && stored.key === sizeKey) {
-        const width = stored.width + terminalRailsPx;
-        panel.style.width = `${width}px`;
-        lastWritten.current = width;
+        const frame = panel.parentElement?.clientWidth ?? 0;
+        panel.style.width = `${clampToFrame(stored.width + terminalRailsPx, frame)}px`;
       } else {
         panel.style.removeProperty("width");
-        lastWritten.current = null;
       }
-      panelObserverRef.current?.disconnect();
-      const obs = new ResizeObserver(() => {
-        const w = panel.offsetWidth;
-        if (lastWritten.current === w) return;
-        // The maximized box is the surface's, not the operator's size.
-        if (panel.closest('[data-maximized="true"]')) return;
-        lastWritten.current = w;
-        setWorkbenchFocusSize({
-          key: sizeKey,
-          width: w - terminalRailsPx,
-          height: panel.offsetHeight,
-        });
+      stopWatchRef.current?.();
+      // Only the operator's drag on the resize grip is remembered; a double
+      // click on the grip forgets it and gives the width back to the measure.
+      stopWatchRef.current = watchOperatorResize(panel, {
+        onResize: (size) =>
+          setWorkbenchFocusSize({ key: sizeKey, width: size.width - terminalRailsPx, height: size.height }),
+        onReset: () => {
+          setWorkbenchFocusSize(null);
+          panel.style.removeProperty("width");
+        },
       });
-      obs.observe(panel);
-      panelObserverRef.current = obs;
     });
     return () => {
       cancelAnimationFrame(id);
-      panelObserverRef.current?.disconnect();
-      panelObserverRef.current = null;
+      stopWatchRef.current?.();
+      stopWatchRef.current = null;
     };
     // terminalRailsPx remains part of the dependency contract if a future
     // instrument-pane presentation changes width.
