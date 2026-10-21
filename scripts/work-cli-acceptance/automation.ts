@@ -92,12 +92,17 @@ export const automationArea: AcceptanceArea = {
       ),
       // A seat with no overseer flag is refused before the overseer grant is read (control.ts, op "overseer").
       check(
-        "a seat's write is refused at the overseer gate",
+        "a seat's write is refused not_permitted at the overseer gate",
         written.code === 1 && write?.ok === false && write.error?.type === "ScopeError" &&
-          write.error?.details?.caller === "agent" && write.error?.details?.retryable === false,
+          write.error?.details?.reason === "not_permitted" && write.error?.details?.caller === "agent" &&
+          write.error?.details?.retryable === false,
         written,
       ),
-      pending("the refusal's next step names junto automation show", "cli-external"),
+      check(
+        "the refusal's next step names junto automation show",
+        String(write?.error?.details?.next_step ?? "").includes("junto automation show"),
+        written,
+      ),
       // Automations nodes and their store live only on the editing machine, so the write splits by machine.
       pending("an overseer on the editing machine writes an automation, ruled and applied", "remote"),
       // The net runs one machine; this waits on a second core.
