@@ -1,3 +1,4 @@
+import type { ResourceIpcApi } from "./resource-ipc";
 import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
@@ -624,6 +625,11 @@ export interface ShellEnvironmentApi {
 }
 
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
+  /**
+   * Tasks and artifacts from main's stores, written through main's ruler as
+   * the operator (resource-ipc.ts). Each domain is there only with its feature.
+   */
+  readonly resource: ResourceIpcApi;
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */

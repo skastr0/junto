@@ -25,6 +25,8 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.artifact-publish",
   "ipc.work.artifact-archive",
   "ipc.work.artifact-delete",
+  "ipc.resource.task-apply",
+  "ipc.resource.artifact-apply",
   "control.work.tasks-claim",
   "control.work.tasks-create",
   "control.work.tasks-update",

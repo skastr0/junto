@@ -1,3 +1,4 @@
+import { RESOURCE_IPC_CHANNELS, type ResourceChanged, type ResourceIpcApi } from "@shared/resource-ipc";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";
@@ -395,6 +396,7 @@ const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
  * them so the enabled groups are spread at the exposure site.
  */
 type WorkFeatureApiKey =
+  | "resource"
   | "workTaskCreate"
   | "workTaskDescribe"
   | "workTaskTransition"
@@ -693,6 +695,26 @@ const requestsWorkApi: Pick<JuntoApi, "workRequestResolve"> = {
     ),
 };
 
+const taskResourceApi: ResourceIpcApi["task"] = {
+  list: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.task.list, IPC_TIMEOUT_MS, { canvasName, nodeId }),
+  all: (canvasName) => invoke(RESOURCE_IPC_CHANNELS.task.all, IPC_TIMEOUT_MS, { canvasName }),
+  context: (canvasName) => invoke(RESOURCE_IPC_CHANNELS.task.context, IPC_TIMEOUT_MS, { canvasName }),
+  apply: (canvasName, nodeId, taskId, opId, command) =>
+    invoke(RESOURCE_IPC_CHANNELS.task.apply, IPC_TIMEOUT_MS, { canvasName, nodeId, taskId, opId, command }),
+  onChanged: (listener) => subscribe<ResourceChanged>(RESOURCE_IPC_CHANNELS.task.changed, listener),
+};
+
+const artifactResourceApi: ResourceIpcApi["artifact"] = {
+  list: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.artifact.list, IPC_TIMEOUT_MS, { canvasName, nodeId }),
+  history: (canvasName, artifactId) =>
+    invoke(RESOURCE_IPC_CHANNELS.artifact.history, IPC_TIMEOUT_MS, { canvasName, artifactId }),
+  body: (canvasName, artifactId, version) =>
+    invoke(RESOURCE_IPC_CHANNELS.artifact.body, IPC_TIMEOUT_MS, { canvasName, artifactId, version }),
+  apply: (canvasName, nodeId, artifactId, opId, op) =>
+    invoke(RESOURCE_IPC_CHANNELS.artifact.apply, IPC_TIMEOUT_MS, { canvasName, nodeId, artifactId, opId, op }),
+  onChanged: (listener) => subscribe<ResourceChanged>(RESOURCE_IPC_CHANNELS.artifact.changed, listener),
+};
+
 const artifactsWorkApi: Pick<
   JuntoApi,
   "workArtifactArchive" | "workArtifactDelete"
@@ -925,6 +947,14 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(TASKS_ENABLED ? taskWorkApi : {}),
     ...(REQUESTS_ENABLED ? requestsWorkApi : {}),
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
+    ...(TASKS_ENABLED || ARTIFACTS_ENABLED
+      ? {
+          resource: {
+            ...(TASKS_ENABLED ? { task: taskResourceApi } : {}),
+            ...(ARTIFACTS_ENABLED ? { artifact: artifactResourceApi } : {}),
+          },
+        }
+      : {}),
     ...(BOARD_ENABLED ? boardWorkApi : {}),
     ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
     ...(USAGE_ENABLED ? usageApi : {}),

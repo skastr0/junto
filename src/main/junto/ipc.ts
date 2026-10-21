@@ -53,6 +53,7 @@ import { registerSettingsIpc } from "./settings/ipc";
 import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
+import { liveResourceIpcPorts, registerResourceIpc } from "./work/resource-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
@@ -336,6 +337,17 @@ export const registerJuntoIpc = (): void => {
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
+  registerResourceIpc(
+    privilegedIpc,
+    (effect) => AppRuntime.runPromise(effect),
+    liveResourceIpcPorts(broadcast),
+    { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED },
+    {
+      task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),
+      artifact: (operation) => runMainAuthoring("ipc.resource.artifact-apply", operation),
+    },
+  );
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {
