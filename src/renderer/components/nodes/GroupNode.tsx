@@ -6,6 +6,7 @@ import type { NodeProps } from "@xyflow/react";
 import { AlertTriangle, FolderOpen, KeyRound, Lock, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { MAX_REGION_DEPTH, UNNAMED_REGION } from "@shared/graph";
+import { REGION_NAME_MAX } from "@shared/region-bounds";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { claimFocus } from "../../lib/focus-ownership";
 import { resizeNode, syncPositions } from "../../lib/geometry";
@@ -113,6 +114,7 @@ function RegionLabel({
         ref={inputRef}
         data-focus-owner="canvas-draft"
         aria-label="Edit region label"
+        maxLength={REGION_NAME_MAX}
         className="junto-group__label-input nodrag rounded-md bg-inset px-1.5 py-0.5 outline-none"
         style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }}
         value={draft}

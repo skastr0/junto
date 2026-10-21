@@ -26,6 +26,7 @@ import type { Region } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { compareSeverity, type MemberSeverity, type RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
+import { REGION_NAME_MAX } from "@shared/region-bounds";
 import { selectNode, state$ } from "../../lib/state";
 import { readRegionRollups, useRegionRollups } from "../../lib/region-rollups";
 import { toggleSlotAssignment } from "../../lib/command-group-runtime";
@@ -268,6 +269,7 @@ function RegionCommandCard({
                 data-focus-owner="canvas-draft"
                 className="rts-cmd__title-input"
                 aria-label="Region name"
+                maxLength={REGION_NAME_MAX}
                 value={nameDraft}
                 onChange={(event) => setNameDraft(event.target.value)}
                 onBlur={commitRename}
