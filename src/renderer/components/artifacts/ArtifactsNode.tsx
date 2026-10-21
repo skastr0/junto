@@ -12,7 +12,7 @@ import {
 import type { ArtifactEntry } from "@shared/artifact-domain";
 import type { NodeId } from "@shared/physics/schema";
 import { type ItemId, mintItemId } from "@shared/resource-command";
-import type { Anchor } from "@shared/thread-subject";
+import { textAnchorOf, type Anchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
 import { nodeAt } from "../../lib/use-model";
 import {
@@ -277,7 +277,7 @@ function SelectedArtifact({
             version={base}
             readOnly={readOnly}
             onPatch={(baseVersion, patches) => edit(() => ({ kind: "patch", type: "document", baseVersion, patches: [...patches] }))}
-            onCommentText={(quote, offset) => setDraftAnchor({ kind: "text", quote, offset })}
+            onCommentText={(quote, offset) => setDraftAnchor(textAnchorOf(quote, offset))}
           />
         );
       case "sheet":

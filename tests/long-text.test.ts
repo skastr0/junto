@@ -26,7 +26,7 @@ describe("a composer's text bound", () => {
   it("says so before send, and waits when the tray has no room", () => {
     const long = "x".repeat(MAIL_TEXT_INLINE_MAX_BYTES + 1);
     expect(longTextOf("short", 0)).toEqual({ carriage: { kind: "inline" }, notice: undefined, blocked: false });
-    expect(longTextOf(long, 0)).toMatchObject({ notice: "Over 40 KB, so this goes as message.md, attached", blocked: false });
+    expect(longTextOf(long, 0)).toMatchObject({ notice: "Over 38 KB, so this goes as message.md, attached", blocked: false });
     expect(longTextOf(long, 10)).toMatchObject({ blocked: true });
     expect(longTextOf("x".repeat(9000), 0, { bytes: MAIL_TEXT_INLINE_MAX_BYTES, characters: 8000 }).notice).toBe(
       "Over 8,000 characters, so this goes as message.md, attached",

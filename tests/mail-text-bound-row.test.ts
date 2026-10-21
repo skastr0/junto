@@ -10,6 +10,9 @@ import { assertWorkRowBound, workRowBytes } from "../src/shared/exchange-bounds"
 import { mailExtensionMetadata } from "../src/shared/crew";
 import { MAIL_ENVELOPE_BYTES, MAIL_TEXT_INLINE_MAX_BYTES, mailTextBytes } from "../src/shared/mail-text-bound";
 import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
+import { asNodeId } from "../src/shared/physics/schema";
+import { LINES_FILE_MAX, TEXT_QUOTE_MAX, type ResourceSubject, textAnchorOf, threadSubjectMetadata } from "../src/shared/thread-subject";
+import { ItemId } from "../src/shared/work-ids";
 import { ExchangeFact } from "../src/shared/work-exchange";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 
@@ -26,7 +29,13 @@ const fileRef = {
 };
 const regions = Array.from({ length: 8 }, (_, depth) => ({ id: `region-${ulid}`, name: `${depth}${"語".repeat(79)}` }));
 
-const mailWith = (text: string) =>
+/** A subject's widest anchors: a quote or a lines file at its bound, in three-byte characters. */
+const subjects: ReadonlyArray<ResourceSubject> = [
+  { kind: "artifact", nodeId: asNodeId(`artifacts-${ulid}`), artifactId: Schema.decodeSync(ItemId)(ulid), anchor: textAnchorOf("語".repeat(TEXT_QUOTE_MAX + 50), Number.MAX_SAFE_INTEGER) },
+  { kind: "page", nodeId: asNodeId(`page-${ulid}`), anchor: { kind: "lines", file: "語".repeat(LINES_FILE_MAX), from: Number.MAX_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER } },
+];
+
+const mailWith = (text: string, subject: ResourceSubject = subjects[0]!) =>
   decodeFact({
     protocol: WORK_PROTOCOL,
     id: { route: { eventHome: "m".repeat(128), entityHome: "m".repeat(128) }, seq: "9".repeat(32) },
@@ -49,6 +58,7 @@ const mailWith = (text: string) =>
           agentSignalId: ulid,
           threadId: ulid,
           inReplyTo: ulid,
+          ...threadSubjectMetadata(subject),
           attachments: Array.from({ length: OPERATOR_ATTACHMENTS_MAX }, () => fileRef),
           ...mailExtensionMetadata({
             mailKind: "prompt",
@@ -67,11 +77,15 @@ const mailWith = (text: string) =>
   });
 
 describe("a mail's inline text bound", () => {
-  it("leaves room for the longest envelope", () => {
-    const envelope = workRowBytes(mailWith(""));
+  it.each(subjects.map((subject) => ["anchor" in subject ? subject.anchor?.kind : "no", subject] as const))("leaves room for the longest envelope, %s anchored", (_kind, subject) => {
+    const envelope = workRowBytes(mailWith("", subject));
     const text = "x".repeat(MAIL_TEXT_INLINE_MAX_BYTES);
     expect(mailTextBytes(text)).toBe(MAIL_TEXT_INLINE_MAX_BYTES);
     expect({ envelope, fits: envelope <= MAIL_ENVELOPE_BYTES }).toEqual({ envelope, fits: true });
-    expect(assertWorkRowBound(mailWith(text))).toBeUndefined();
+    expect(assertWorkRowBound(mailWith(text, subject))).toBeUndefined();
+  });
+
+  it("quotes a long selection from its start, to the bound", () => {
+    expect(textAnchorOf("a".repeat(TEXT_QUOTE_MAX + 1), 3)).toEqual({ kind: "text", quote: "a".repeat(TEXT_QUOTE_MAX), offset: 3 });
   });
 });

@@ -6,10 +6,11 @@
  * measured as the row's encoded JSON. A mail's row is its text plus an
  * envelope: ids, the sender's stamp and regions, a thread's subject, up to
  * OPERATOR_ATTACHMENTS_MAX file refs. MAIL_ENVELOPE_BYTES is room for all of
- * that at its longest (measured at 21,810 bytes in tests/mail-text-bound-row,
- * ten refs with 255-character names dominating), so a text inside
- * MAIL_TEXT_INLINE_MAX_BYTES never makes a row the machine refuses. A text
- * anchor's quote and the sender's regions have no bound of their own yet.
+ * that as far as it is bounded (25,039 bytes in tests/mail-text-bound-row:
+ * ten refs with 255-character names, a subject anchored on a 1,024-character
+ * file). It is the composer's hint, said before send: the sender's name and
+ * regions have no bound of their own yet, so main's row measure stays the
+ * authority, and a mail it would refuse goes with its text as LONG_TEXT_FILE.
  * The text is measured as the row measures it: its UTF-8 bytes once
  * JSON-escaped, so quotes, newlines and control characters count at what
  * they cost.
@@ -17,7 +18,7 @@
 import { COMMAND_ROW_MAX_BYTES } from "./resource-command";
 
 /** Room in a mail's row for everything but its text. */
-export const MAIL_ENVELOPE_BYTES = 24 * 1024;
+export const MAIL_ENVELOPE_BYTES = 26 * 1024;
 
 /** The most text, as its row measures it, a mail carries inline. */
 export const MAIL_TEXT_INLINE_MAX_BYTES = COMMAND_ROW_MAX_BYTES - MAIL_ENVELOPE_BYTES;

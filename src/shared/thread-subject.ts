@@ -45,10 +45,24 @@ export const CellsAnchor = Schema.Struct({
   kind: Schema.Literal("cells"),
   range: Schema.String.check(Schema.makeFilter((range) => isCellRange(range) || "an A1 range: B2 or A1:C4, top left first")),
 });
+/**
+ * The most of a selection a text anchor quotes: enough to find the place
+ * again, and bounded so a subject fits a mail's row envelope
+ * (`mail-text-bound.ts`). A longer selection is quoted from its start.
+ */
+export const TEXT_QUOTE_MAX = 1_000;
 export const TextAnchor = Schema.Struct({
   kind: Schema.Literal("text"),
-  quote: Schema.String.check(Schema.isMinLength(1)),
+  quote: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(TEXT_QUOTE_MAX)),
   offset: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+export type TextAnchor = typeof TextAnchor.Type;
+
+/** A text anchor on a selection, its quote cut to TEXT_QUOTE_MAX. */
+export const textAnchorOf = (quote: string, offset?: number): TextAnchor => ({
+  kind: "text",
+  quote: quote.slice(0, TEXT_QUOTE_MAX),
+  ...(offset === undefined ? {} : { offset }),
 });
 /** The longest file path a lines anchor names: a repo path, not prose. */
 export const LINES_FILE_MAX = 1_024;
