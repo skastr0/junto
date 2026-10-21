@@ -61,7 +61,7 @@ everyone else reports by mail and on the needs-you feed.
   factory tick and claim prompt, task edge roles and admission, `cron`,
   `relay`, `watcher`, `timer`, Region Pulse, legacy edges, `from-legacy-row`
   (floor v13), pad and sheet node kinds. Blocked mark moves to the seat ring.
-- C3 Migration chain: v26 deletions now; v27, v28, v29 as their tracks land.
+- C3 Migration chain: v26 deletions now; every other step numbered when it lands, from canvas-model's slot list.
 - C4 Task model, state machine, assignment invariants, stamps on the verdict
   tables, task numbers, `flows`, state remap. Tests for state machine, rules
   and flow graph.
@@ -136,6 +136,9 @@ everyone else reports by mail and on the needs-you feed.
 | Region reach contract | canvas, 945dc0d1c | landed |
 | Ids: `work-ids.ts` owns `ItemId` and `OpId`; others import | cli-protocol | decided, landing |
 | Listbox ARIA model | product-accessibility, a07e90e17 | landed |
+| Task state machine (pure) | canvas-writers, eeb17e7d3, 34 tests | in review |
+| Flow graph tests | canvas-writers, c521f4c56 | in review |
+| Migration slots | canvas-model keeps the list; only v26 fixed | running |
 | cli L4 `junto automation` | cli-external, review cli-overseer | started |
 | cli L5 `junto browser` port | cli-overseer, review cli-external | started |
 | cli L6 onboard output | cli-skill, review cli-protocol | started |
