@@ -220,7 +220,7 @@ export function BrowserSurfaceSlot({
       <Button
         size="xs"
         variant={stopArm.armed ? "danger" : "chrome"}
-        className={stopArm.armed ? "ring-1 ring-crimson/60" : undefined}
+        className={stopArm.armed ? "chrome-action ring-1 ring-crimson/60" : "chrome-action"}
         title={stopArm.armed ? "Click again to stop the page session" : "Stop the page session"}
         onPointerDown={(e) => {
           e.preventDefault();
@@ -228,11 +228,13 @@ export function BrowserSurfaceSlot({
           stopArm.arm();
         }}
       >
-        {stopArm.armed ? "Confirm" : "Stop Page"}
+        {stopArm.armed ? "Stop every tab" : "Stop page"}
       </Button>
       <Button
         size="xs"
-        variant="primary"
+        variant="chrome"
+        className="chrome-action"
+        title="Close the page view; the page keeps running"
         onPointerDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -300,7 +302,7 @@ export function BrowserSurfaceSlot({
               className="shrink-0 border-b border-stroke px-3.5 py-1.5 text-[11px] leading-snug text-dim"
               role="status"
             >
-              The page session ended. Stop Page or Close will clear this surface.
+              The page session ended. Stop page or Close clears this surface.
             </div>
           ) : alerts.length > 0 ? (
             <div className="shrink-0 border-b border-stroke px-3.5 py-1.5" role="alert">

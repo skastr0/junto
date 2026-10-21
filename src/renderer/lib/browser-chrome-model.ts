@@ -34,6 +34,8 @@ export type DriverView = {
   readonly text: string;
   /** A seat is acting right now: the mark moves. */
   readonly live: boolean;
+  /** The seat's name, when a seat drives or drove last. */
+  readonly seat?: string;
 };
 
 /** The mark as words. A seat's name is resolved by the caller. */
@@ -52,7 +54,7 @@ export const driverView = (
       return { kind: "operator-held", text: "You hold this page. Seats are paused.", live: false };
     case "seat": {
       const name = seatName(mark.nodeId) ?? mark.nodeId;
-      return { kind: "seat", text: mark.running ? `${name} is driving` : `${name} drove last`, live: mark.running };
+      return { kind: "seat", text: mark.running ? `${name} is driving` : `${name} drove last`, live: mark.running, seat: name };
     }
   }
 };

@@ -31,9 +31,9 @@ describe("driverView and takeoverOffer", () => {
   it("reads idle, a running seat, a seat that drove, the operator and a held page", () => {
     expect(driverView(initialPageDriving, 0, name)).toMatchObject({ kind: "idle", live: false });
     const running = reducePageDriving(initialPageDriving, { kind: "seat-start", nodeId: seat, at: 1_000 });
-    expect(driverView(running, 1_500, name)).toEqual({ kind: "seat", text: "Ada is driving", live: true });
+    expect(driverView(running, 1_500, name)).toEqual({ kind: "seat", text: "Ada is driving", live: true, seat: "Ada" });
     const ended = reducePageDriving(running, { kind: "seat-end", nodeId: seat, at: 2_000 });
-    expect(driverView(ended, 3_000, name)).toEqual({ kind: "seat", text: "Ada drove last", live: false });
+    expect(driverView(ended, 3_000, name)).toEqual({ kind: "seat", text: "Ada drove last", live: false, seat: "Ada" });
     expect(driverView(ended, 60_000, name).kind).toBe("idle");
     const operator = reducePageDriving(initialPageDriving, { kind: "operator-act", at: 1 });
     expect(driverView(operator, 2, name).text).toBe("You are driving");

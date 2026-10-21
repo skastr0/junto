@@ -79,4 +79,28 @@ describe("BrowserChrome", () => {
     expect(held).toContain("Hand back");
     expect(held).not.toContain("Take over");
   });
+
+  it("keeps the driver quiet when nobody drives, and names the seat a takeover pauses", () => {
+    const idle = draw({ tabs: tabsTwo, driving: initialPageDriving });
+    expect(idle).toMatch(/<span class="sr-only" role="status">Nobody is driving<\/span>/);
+    expect(idle).not.toContain('class="driver-mark"');
+    const seatRuns = draw({ tabs: tabsTwo, driving: reducePageDriving(initialPageDriving, { kind: "seat-start", nodeId: seat, at: 4_500 }) });
+    expect(seatRuns).toContain('aria-label="Take over from Ada"');
+    expect(seatRuns).toContain('data-kind="seat" data-live="true"');
+  });
+
+  it("puts the surface's own actions in the tab band, apart from the page's row", () => {
+    const html = renderToStaticMarkup(
+      <BrowserChrome
+        state={{ tabs: tabsTwo, driving: initialPageDriving }}
+        now={5_000}
+        seatName={() => undefined}
+        onCommand={async () => ({ ok: true })}
+        onFocusPage={() => undefined}
+        trailing={<button type="button">Close</button>}
+      />,
+    );
+    const top = html.slice(html.indexOf('class="browser-chrome__top"'), html.indexOf('class="browser-chrome__row"'));
+    expect(top).toContain('class="browser-chrome__window"><button type="button">Close</button>');
+  });
 });

@@ -1,5 +1,7 @@
 /* The page chrome (plan 06): tab strip, address bar, driver mark, takeover. */
 
+/* Two bands: the strip of tabs with the surface's own actions on a recessed
+   band, and the shown tab's row, which the active tab joins. */
 .browser-chrome {
   display: flex;
   flex-direction: column;
@@ -8,10 +10,47 @@
   background: var(--color-raise-2);
 }
 
+.browser-chrome__top {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 8px;
+  background: var(--color-raise);
+}
+
+/* The band's lower edge, drawn under the tabs so the shown tab can cover it
+   even while the strip scrolls. */
+.browser-chrome__top::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: var(--color-stroke);
+  pointer-events: none;
+}
+
+.browser-chrome__window {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+}
+
+/* The chrome's words are labels in sentence case, never shouting next to the address. */
+.browser-chrome .chrome-action {
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-flat);
+  text-transform: none;
+}
+
 .browser-chrome__row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 6px 10px;
 }
 
@@ -49,49 +88,79 @@
 
 .tab-strip {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 2px;
-  padding: 4px 8px 0;
+  min-width: 0;
+  padding: 6px 8px 0;
 }
 
 .tab-strip__list {
   display: flex;
-  align-items: center;
+  flex: 0 1 auto;
+  align-items: flex-end;
   gap: 2px;
   min-width: 0;
   overflow-x: auto;
+  scrollbar-width: none;
 }
 
+/* More tabs than room: the strip scrolls, and its far edge fades instead of cutting a word. */
+.tab-strip__list[data-overflow="true"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+
+/* Tabs share the width: each shrinks evenly toward the floor, then the strip scrolls. */
 .tab-strip__tab {
   display: flex;
+  flex: 0 1 200px;
   align-items: center;
-  min-width: 0;
-  max-width: 200px;
+  gap: 2px;
+  min-width: 88px;
+  padding-right: 6px;
   border: 1px solid transparent;
   border-bottom: 0;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   color: var(--color-dim);
 }
 
+.tab-strip__tab:not([data-active="true"]):hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+/* The shown tab joins the row below it: same ground, no seam, an amber cap. */
 .tab-strip__tab[data-active="true"] {
+  position: relative;
+  z-index: 1;
   border-color: var(--color-stroke);
-  border-top: 2px solid var(--color-amber);
-  background: var(--color-overlay-3);
+  background: var(--color-raise-2);
+  box-shadow: inset 0 2px 0 var(--color-amber);
   color: var(--color-ink);
 }
 
 .tab-strip__label {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: 26px;
-  padding: 0 8px;
+  min-height: 28px;
+  padding: 0 4px 0 10px;
   border: 0;
   background: transparent;
   color: inherit;
   font-size: var(--text-body);
   text-align: left;
+}
+
+.tab-strip__tab[data-active="true"] .tab-strip__label {
+  font-weight: 500;
+}
+
+/* Close shows on the shown tab, under the pointer, and to the keyboard. */
+.tab-strip__tab:not([data-active="true"]):not(:hover):not(:focus-within) .tab-strip__close {
+  opacity: 0;
 }
 
 .tab-strip__label:focus-visible {
@@ -135,14 +204,63 @@
   min-width: 0;
 }
 
-.driver-mark {
+/* Who drives, and the one control over it, in one piece. */
+.driver-control {
   display: inline-flex;
   flex: none;
   align-items: center;
+  gap: 8px;
+  max-width: 45%;
+  min-width: 0;
+  min-height: 26px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+}
+
+.driver-control:has(.driver-mark) {
+  padding-left: 10px;
+  border-color: var(--color-stroke);
+}
+
+.driver-control[data-kind="seat"][data-live="true"] {
+  border-color: color-mix(in oklab, var(--color-cyan) 45%, transparent);
+  background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
+}
+
+.driver-control[data-kind="operator-held"] {
+  border-color: color-mix(in oklab, var(--color-amber) 45%, transparent);
+  background: color-mix(in oklab, var(--color-amber) 10%, transparent);
+}
+
+.driver-control > button {
+  border-radius: var(--radius-pill);
+}
+
+.driver-mark {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  min-width: 0;
   color: var(--color-ink);
-  font-size: var(--text-body);
+  font-size: var(--text-label);
   white-space: nowrap;
+}
+
+.driver-mark__text {
+  display: flex;
+  min-width: 0;
+  white-space: pre;
+}
+
+.driver-mark__seat {
+  overflow: hidden;
+  max-width: 16ch;
+  text-overflow: ellipsis;
+}
+
+.driver-control[data-kind="seat"]:not([data-live="true"]) .driver-mark {
+  color: var(--color-dim);
 }
 
 /* A comment on an area: the shot first, then the words. */

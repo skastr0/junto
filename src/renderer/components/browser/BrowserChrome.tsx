@@ -12,7 +12,11 @@ import { Button, IconButton, Input, StatusDot } from "../ui";
 import { BoxCommentComposer } from "./BoxCommentComposer";
 import "./browser-chrome.css";
 
-/** Who is driving the page, as a mark and one sentence. A running seat's lamp pulses. */
+/**
+ * Who is driving the page, as a mark and words. A running seat's lamp pulses;
+ * a seat that drove last goes quiet. Nobody driving says nothing aloud but
+ * still says it to a screen reader.
+ */
 export function DriverMark({
   state,
   now,
@@ -23,11 +27,25 @@ export function DriverMark({
   readonly seatName: (nodeId: string) => string | undefined;
 }) {
   const view = driverView(state.driving, now, seatName);
-  const tone = view.kind === "operator-held" ? "amber" : view.kind === "seat" ? "cyan" : view.kind === "operator" ? "green" : "steel";
+  if (view.kind === "idle") {
+    return (
+      <span className="sr-only" role="status">
+        {view.text}
+      </span>
+    );
+  }
+  const tone = view.kind === "operator-held" ? "amber" : view.kind === "operator" ? "green" : view.live ? "cyan" : "steel";
   return (
-    <span className="driver-mark" data-kind={view.kind} data-live={view.live ? "true" : undefined} role="status">
+    <span className="driver-mark" data-kind={view.kind} data-live={view.live ? "true" : undefined} role="status" title={view.text}>
       <StatusDot tone={tone} pulse={view.live} />
-      <span>{view.text}</span>
+      {view.seat === undefined ? (
+        <span className="driver-mark__text">{view.kind === "operator-held" ? "You hold this page" : view.text}</span>
+      ) : (
+        <span className="driver-mark__text">
+          <span className="driver-mark__seat">{view.seat}</span>
+          <span className="driver-mark__verb">{view.live ? " is driving" : " drove last"}</span>
+        </span>
+      )}
     </span>
   );
 }
@@ -35,27 +53,51 @@ export function DriverMark({
 /** One control: take the page over, or hand it back while you hold it. */
 export function TakeoverControl({
   state,
+  now,
+  seatName,
   pending,
   onCommand,
 }: {
   readonly state: BrowserChromeState;
+  readonly now: number;
+  readonly seatName: (nodeId: string) => string | undefined;
   readonly pending: boolean;
   readonly onCommand: (command: ChromeCommand) => void;
 }) {
   const offer = takeoverOffer(state.driving);
   const release = offer.action === "release";
+  const seat = driverView(state.driving, now, seatName).seat;
   return (
     <Button
       size="xs"
       variant={release ? "primary" : "chrome"}
+      className="chrome-action"
       disabled={pending}
       data-testid={release ? "browser-release" : "browser-takeover"}
+      aria-label={release || seat === undefined ? undefined : `${offer.label} from ${seat}`}
       title={release ? "Let the connected seats act on this page again" : "Pause every seat on this page and drive it yourself"}
       onClick={() => onCommand({ kind: release ? "release" : "takeOver" })}
     >
       {release ? <Undo2 size={12} aria-hidden /> : <Hand size={12} aria-hidden />}
       {offer.label}
     </Button>
+  );
+}
+
+/** Who drives and the one control over it, as one piece. */
+export function DriverControl(props: {
+  readonly state: BrowserChromeState;
+  readonly now: number;
+  readonly seatName: (nodeId: string) => string | undefined;
+  readonly pending: boolean;
+  readonly onCommand: (command: ChromeCommand) => void;
+}) {
+  const view = driverView(props.state.driving, props.now, props.seatName);
+  return (
+    <div className="driver-control" data-kind={view.kind} data-live={view.live ? "true" : undefined}>
+      <DriverMark state={props.state} now={props.now} seatName={props.seatName} />
+      <TakeoverControl {...props} />
+    </div>
   );
 }
 
@@ -87,6 +129,22 @@ export function TabStrip({
     if (at === null) return;
     focusAfter.current = null;
     claimFocus(listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[at], "gesture");
+  }, [tabs.length]);
+  // The shown tab stays in sight when the strip scrolls.
+  useEffect(() => {
+    listRef.current?.querySelector('[role="tab"][aria-selected="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [active, tabs.length]);
+  // Whether the tabs overflow the strip, so its far edge fades.
+  const [overflow, setOverflow] = useState(false);
+  useEffect(() => {
+    const list = listRef.current;
+    if (list === null) return;
+    const measure = (): void => setOverflow(list.scrollWidth > list.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
   }, [tabs.length]);
   // Manual activation (APG): arrows, Home and End move focus only, since
   // activating a tab swaps a live view; Enter and Space activate (the button's
@@ -120,7 +178,7 @@ export function TabStrip({
   };
   return (
     <div className="tab-strip" data-testid="browser-tabs">
-      <div className="tab-strip__list" role="tablist" aria-label="Tabs" ref={listRef}>
+      <div className="tab-strip__list" role="tablist" aria-label="Tabs" ref={listRef} data-overflow={overflow ? "true" : undefined}>
         {tabs.map((tab) => {
           const label = tabLabel(tab);
           return (
@@ -146,6 +204,7 @@ export function TabStrip({
                   aria-label={`Close ${label}`}
                   title="Close tab (Delete on the tab)"
                   size="xs"
+                  className="tab-strip__close"
                   tabIndex={-1}
                   disabled={pending}
                   onClick={() => onCommand({ kind: "closeTab", tab: tab.id as BrowserTabId })}
@@ -261,7 +320,7 @@ export function SeatCodeNotice({
   return (
     <div className="browser-chrome__notice" role="status" data-testid="browser-chrome-seat-code">
       <span>{notice.message}</span>
-      <Button size="xs" variant="chrome" disabled={pending} onClick={() => onCommand({ kind: "traverse", step: "reload" })}>
+      <Button size="xs" variant="chrome" className="chrome-action" disabled={pending} onClick={() => onCommand({ kind: "traverse", step: "reload" })}>
         <RotateCw size={12} aria-hidden />
         Reload
       </Button>
@@ -383,14 +442,17 @@ export function BrowserChrome({
   );
   return (
     <div className="browser-chrome" data-testid="browser-chrome">
-      <TabStrip state={state} pending={pending} onCommand={run} controls={controls} />
+      <div className="browser-chrome__top">
+        <TabStrip state={state} pending={pending} onCommand={run} controls={controls} />
+        {trailing === undefined ? null : <div className="browser-chrome__window">{trailing}</div>}
+      </div>
       <div className="browser-chrome__row">
         <AddressBar state={state} pending={pending} onCommand={run} onRefused={setRefused} onFocusPage={onFocusPage} inputRef={addressRef} />
-        <DriverMark state={state} now={now} seatName={seatName} />
         {canBox ? (
           <Button
             size="xs"
             variant="chrome"
+            className="chrome-action"
             disabled={pending || drawing || draft !== null}
             data-testid="browser-comment-area"
             title="Draw a box on the page to comment on it"
@@ -400,8 +462,7 @@ export function BrowserChrome({
             {drawing ? "Draw on the page" : "Comment on an area"}
           </Button>
         ) : null}
-        <TakeoverControl state={state} pending={pending} onCommand={run} />
-        {trailing}
+        <DriverControl state={state} now={now} seatName={seatName} pending={pending} onCommand={run} />
       </div>
       <SeatCodeNotice state={state} pending={pending} onCommand={run} />
       <NavigationBlockNotice state={state} />
