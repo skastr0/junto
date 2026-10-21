@@ -33,6 +33,7 @@ import {
 } from "../../lib/mention-draft";
 import { RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
 import { Textarea } from "./Field";
+import { ResourceGlyphMark } from "./ResourceChip";
 import "./mention-combobox.css";
 
 const NODE_KIND_OF_MENTION: Readonly<Record<MentionKind, NodeKind>> = Object.fromEntries(
@@ -155,6 +156,9 @@ export function MentionCombobox({
   const [caret, setCaret] = useState(shown.length);
   const [dismissedAt, setDismissedAt] = useState<number>();
   const [activeKey, setActiveKey] = useState<string>();
+  // What the live region says after a pick, until the next edit: the list
+  // closes as the mention goes in, so the pick itself must be heard.
+  const [picked, setPicked] = useState<string>();
 
   const commit = (next: MentionDraft, at: number, fieldValue: string): void => {
     setDraft(next);
@@ -224,6 +228,7 @@ export function MentionCombobox({
     if (query === undefined) return;
     const next = pickCandidate(draft, query, caret, candidate);
     pendingCaret.current = next.caret;
+    setPicked(`Mentioned ${candidate.label}`);
     commit(next.draft, next.caret, next.shown);
   };
 
@@ -270,7 +275,7 @@ export function MentionCombobox({
   };
 
   const spans = mentionSpans(draft);
-  const announcement = listboxAnnouncement({ open, count: offered.length, noun });
+  const announcement = picked ?? listboxAnnouncement({ open, count: offered.length, noun });
 
   return (
     <div className="mention-combobox" data-placement={placement}>
@@ -313,6 +318,7 @@ export function MentionCombobox({
           const element = event.currentTarget;
           const next = editDraft(draft, element.value);
           setDismissedAt(undefined);
+          setPicked(undefined);
           commit(next.draft, next.caret, next.shown);
           if (mirror.current) mirror.current.scrollTop = element.scrollTop;
         }}
@@ -338,6 +344,7 @@ export function MentionCombobox({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => pick(candidate)}
                 >
+                  <ResourceGlyphMark kind={candidate.ref.kind} />
                   <span className="mention-combobox__label">{candidate.label}</span>
                   {candidate.detail ? <span className="mention-combobox__detail">{candidate.detail}</span> : null}
                   <span className="mention-combobox__kind">{visual.noun}</span>

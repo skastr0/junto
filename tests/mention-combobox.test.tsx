@@ -123,6 +123,10 @@ describe("MentionCombobox", () => {
     expect(mentions).toEqual([{ kind: "seat", nodeId: "agent-lead" }]);
     expect(list()).toBeNull();
     expect(field().getAttribute("aria-activedescendant")).toBeNull();
+    // The list went with the pick, so the pick is what is heard, until the next edit.
+    expect(live()).toBe("Mentioned @product-lead");
+    type("x");
+    expect(live()).toBe("");
     // Enter went to the list, not to the composer's send.
     expect(outerKeys).not.toContain("composer-send");
   });
