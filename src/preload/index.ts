@@ -395,10 +395,7 @@ const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
  * with their feature (same pattern as `browserApi`); `juntoApi` excludes
  * them so the enabled groups are spread at the exposure site.
  */
-type WorkFeatureApiKey =
-  | "resource"
-  | "workArtifactArchive"
-  | "workArtifactDelete";
+type WorkFeatureApiKey = "resource";
 
 const mentionsApi: MentionIpcApi = {
   list: (canvasName, target, page) =>
@@ -498,7 +495,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   contentPutImage: (input) =>
     invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
   workItem: (query) => invoke(IPC_CHANNELS.workItem, IPC_TIMEOUT_MS, query),
-  workActorPage: (query) => invoke(IPC_CHANNELS.workActorPage, IPC_TIMEOUT_MS, query),
   workAttention: (query) => invoke(IPC_CHANNELS.workAttention, IPC_TIMEOUT_MS, query),
   workSinkPage: (query) => invoke(IPC_CHANNELS.workSinkPage, IPC_TIMEOUT_MS, query),
   onWorkSinkChanged: (listener) => subscribe<WorkSinkChanged>(IPC_CHANNELS.workSinkChanged, listener),
@@ -636,28 +632,6 @@ const threadResourceApi: ResourceIpcApi["thread"] = {
   onChanged: (listener) => subscribe<ThreadChanged>(RESOURCE_IPC_CHANNELS.thread.changed, listener),
 };
 
-const artifactsWorkApi: Pick<
-  JuntoApi,
-  "workArtifactArchive" | "workArtifactDelete"
-> = {
-  workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
-    invoke(
-      IPC_CHANNELS.workArtifactArchive,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      artifactId,
-      archived,
-    ),
-  workArtifactDelete: (canvas, nodeId, artifactId) =>
-    invoke(
-      IPC_CHANNELS.workArtifactDelete,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      artifactId,
-    ),
-};
 
 const usageApi: JuntoUsageApi = {
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
@@ -832,7 +806,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("chassis", chassisApi);
   contextBridge.exposeInMainWorld("junto", {
     ...juntoApi,
-    ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
     ...(TASKS_ENABLED || ARTIFACTS_ENABLED
       ? {
           resource: {

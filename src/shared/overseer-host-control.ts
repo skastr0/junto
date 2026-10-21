@@ -7,7 +7,6 @@ export const OVERSEER_HOST_OPERATIONS = [
   "node.get", "node.create", "node.configure", "node.move", "node.resize",
   "wire.verbs", "wire.connect", "wire.configure", "wire.disconnect",
   "agent.list", "agent.get", "agent.output",
-  "artifact.list", "artifact.get",
 ] as const satisfies ReadonlyArray<OverseerOperation>;
 
 const Id = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256)));

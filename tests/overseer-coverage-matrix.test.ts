@@ -32,19 +32,12 @@ const FROZEN_OPERATIONS = [
   "wire.connect",
   "wire.configure",
   "wire.disconnect",
-  "artifact.list",
-  "artifact.get",
-  "artifact.archive",
-  "artifact.delete",
   "msg.list",
   "msg.send",
   "msg.read",
   "msg.reply",
   "msg.react",
   "content.ingest",
-  "content.path",
-  "content.stat",
-  "content.materialize",
   "agent.list",
   "agent.get",
   "agent.reseat",
@@ -110,10 +103,6 @@ const FROZEN_READ_ONLY = [
   "wire.list",
   "wire.get",
   "wire.verbs",
-  "artifact.list",
-  "artifact.get",
-  "content.path",
-  "content.stat",
   "agent.list",
   "agent.get",
   "agent.output",
@@ -148,7 +137,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(88);
+    expect(FROZEN_OPERATIONS).toHaveLength(81);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("GrantOverseer");
     expect(matrix).toContain("tests/overseer-admission.test.ts");

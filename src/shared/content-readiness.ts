@@ -14,7 +14,7 @@ import type {
   ContentRef,
 } from "./content";
 import { isContentPart } from "./content";
-import type { Artifact, Message, Part, Task } from "./work-model";
+import type { Message, Part, Task } from "./work-model";
 
 export type ContentAvailabilityResolver = (
   ref: ContentRef,
@@ -64,10 +64,6 @@ export const collectContentRefsFromTask = (
 export const collectContentRefsFromMessage = (
   message: Message,
 ): ReadonlyArray<ContentRef> => contentPartRefs(message.parts);
-
-export const collectContentRefsFromArtifact = (
-  artifact: Artifact,
-): ReadonlyArray<ContentRef> => contentPartRefs(artifact.parts);
 
 /** True only for a verified receipt whose observed identity matches the ref. */
 export const isVerifiedContentReceipt = (

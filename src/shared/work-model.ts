@@ -24,7 +24,6 @@ export {
   ContentSha256,
   ContentUnavailable,
   ContentTimestamp,
-  collectContentRefsFromArtifact,
   collectContentRefsFromMessage,
   collectContentRefsFromParts,
   collectContentRefsFromTask,

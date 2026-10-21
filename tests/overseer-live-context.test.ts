@@ -35,7 +35,6 @@ const reading = (
   name: "factory",
   canvas: canvasOf(nodes, wires),
   tasks: new Map(tasks),
-  artifacts: new Map(),
   revision: "authorial-revision",
   workRevision,
 });

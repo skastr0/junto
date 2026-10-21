@@ -417,16 +417,13 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "task.stamp":
     case "task.comment":
     // The task ops that keep their 0.9 handlers, and the old store's writes,
-    // admit by reach too (admitTaskReach); a task's content by its node's.
+    // admit by reach too (admitTaskReach).
     case "task.claim":
     case "task.update":
     case "task.wait":
     case "task.rules":
     case "task.check":
     case "rulings":
-    case "content.path":
-    case "content.stat":
-    case "content.materialize":
       return false;
     case "msg.list":
     case "msg.send":

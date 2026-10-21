@@ -4,7 +4,7 @@ import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
 import type { WorkAttentionSnapshot } from "./work-attention";
-import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
+import type { WorkItemQuery, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
@@ -302,12 +302,9 @@ export const IPC_CHANNELS = {
    */
   contentPutImage: "junto:content-put-image",
   // work plane (serialized canvas mutations)
-  workArtifactArchive: "junto:work-artifact-archive",
-  workArtifactDelete: "junto:work-artifact-delete",
   workSeatRecentOps: "junto:work-seat-recent-ops",
   workMailPage: "junto:work-mail-page",
   workItem: "junto:work-item",
-  workActorPage: "junto:work-actor-page",
   workAttention: "junto:work-attention",
   workSinkPage: "junto:work-sink-page",
   workSinkChanged: "junto:work-sink-changed",
@@ -844,19 +841,7 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   >;
   // work plane — repository-native SQLite mutations; canvas reads provide
   // topology and runtime projection only.
-  readonly workArtifactArchive: (
-    canvas: string,
-    nodeId: string,
-    artifactId: string,
-    archived: boolean,
-  ) => Promise<WorkOpResult<import("./work-model").Artifact>>;
-  readonly workArtifactDelete: (
-    canvas: string,
-    nodeId: string,
-    artifactId: string,
-  ) => Promise<WorkOpResult<{ readonly artifactId: string }>>;
   readonly workItem: (query: WorkItemQuery) => Promise<Task | undefined>;
-  readonly workActorPage: (query: WorkActorQuery) => Promise<WorkActorPage>;
   readonly workAttention: (query: WorkAttentionQuery) => Promise<WorkAttentionSnapshot>;
   readonly workSinkPage: (query: WorkSinkQuery) => Promise<WorkSinkPage>;
   readonly onWorkSinkChanged: (listener: (event: WorkSinkChanged) => void) => () => void;

@@ -37,13 +37,12 @@ export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName:
 
 /**
  * One canvas as the live context reads it: the model's structure, and beside
- * it the tasks and artifact rows the context summarises.
+ * it the tasks the context summarises.
  */
 export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasName: string) {
   const sql = yield* SqlClient.SqlClient;
   return yield* withSqlRead(sql, Effect.gen(function* () {
     const model = yield* ModelService;
-    const work = yield* WorkRepository;
     const taskStore = yield* TaskRepository;
     const revisions = yield* WorkRevisions;
     const canvas = yield* model.canvas(canvasName);
@@ -53,19 +52,10 @@ export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasNam
       const listed = yield* taskStore.list(canvasName, { nodeIds: taskNodes, limit: LIVE_TASKS_READ });
       for (const task of listed.tasks) tasks.set(task.current.node, [...(tasks.get(task.current.node) ?? []), task]);
     }
-    const artifacts = new Map<string, ReadonlyArray<string>>();
-    for (const node of canvas.nodes.values()) {
-      if (node.kind !== "artifacts") continue;
-      artifacts.set(
-        node.id,
-        yield* work.artifactIds(canvasName, node.id),
-      );
-    }
     return {
       name: canvas.name,
       canvas,
       tasks,
-      artifacts,
       revision: revisionOf(canvas),
       workRevision: yield* revisions.revision(canvasName),
     } satisfies LiveCanvasRead;

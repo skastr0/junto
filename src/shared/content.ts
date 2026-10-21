@@ -145,7 +145,6 @@ export const decodeContentRef = Schema.decodeUnknownResult(ContentRef, {
 
 export {
   asContentParts,
-  collectContentRefsFromArtifact,
   collectContentRefsFromMessage,
   collectContentRefsFromParts,
   collectContentRefsFromTask,

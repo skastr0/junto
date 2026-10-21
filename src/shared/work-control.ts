@@ -12,7 +12,6 @@ import {
   TaskState,
   WorkMetadata,
 } from "./work-model";
-import { ContentRef } from "./content";
 import { MailEvidenceRef } from "./crew";
 import { NODE_KINDS } from "./model/kinds";
 import { NodeId } from "./physics/schema";
@@ -114,9 +113,6 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "task.check",
 "task.wait",
 "rulings",
-"content.path",
-"content.stat",
-"content.materialize",
 "msg.list",
 "msg.send",
 "msg.prompt",
@@ -387,36 +383,6 @@ export const RulingsArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type RulingsArgs = typeof RulingsArgs.Type;
-
-/** Process-bound content access always names the connected Tasks node. */
-const StrictContentRef = ContentRef.annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-
-const ContentAccessFields = {
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  task: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  ref: StrictContentRef,
-} as const;
-
-export const ContentPathArgs = Schema.Struct(ContentAccessFields).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type ContentPathArgs = typeof ContentPathArgs.Type;
-
-export const ContentStatArgs = Schema.Struct(ContentAccessFields).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type ContentStatArgs = typeof ContentStatArgs.Type;
-
-export const ContentMaterializeArgs = Schema.Struct({
-  ...ContentAccessFields,
-  /** Optional single filename; directory components are never accepted. */
-  name: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type ContentMaterializeArgs = typeof ContentMaterializeArgs.Type;
 
 export const MsgListArgs = Schema.Struct({
   /** Own inbox when omitted, own node id, or `canvas:nodeId`. */

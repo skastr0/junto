@@ -8,9 +8,6 @@ import { SeatReadArgs, SeatWaitArgs } from "../../shared/seat-control";
 import { TASK_WAIT_DEFAULT_MS, TASK_WAIT_MAX_MS, TaskRulesArgs, TaskWaitArgs } from "../../shared/task-control";
 import { browserCapabilities, browserExamples, browserSchemas } from "../commands/browser-contract";
 import {
-  ContentMaterializeArgs,
-  ContentPathArgs,
-  ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
   MsgPromptArgs,
@@ -314,36 +311,6 @@ export const contentStageSchema: CommandSchemaContract = {
   input_modes: ["inline-json"],
 };
 
-export const contentPathSchema: CommandSchemaContract = {
-  command_id: "content.path",
-  command: "content path",
-  schema_id: "content.path.input/v1",
-  description:
-    "Resolve an authorized task ContentRef to its verified canonical local path.",
-  schema: ContentPathArgs,
-  input_modes: inputModes,
-};
-
-export const contentStatSchema: CommandSchemaContract = {
-  command_id: "content.stat",
-  command: "content stat",
-  schema_id: "content.stat.input/v1",
-  description:
-    "Read availability, identity, metadata, and local path for an authorized task ContentRef.",
-  schema: ContentStatArgs,
-  input_modes: inputModes,
-};
-
-export const contentMaterializeSchema: CommandSchemaContract = {
-  command_id: "content.materialize",
-  command: "content materialize",
-  schema_id: "content.materialize.input/v1",
-  description:
-    "Stream an authorized task ContentRef into a stable Junto task-scoped workspace path.",
-  schema: ContentMaterializeArgs,
-  input_modes: inputModes,
-};
-
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
   sinceSchema,
@@ -366,9 +333,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   signalFeedbackSchema,
   signalListSchema,
   signalClearSchema,
-  contentPathSchema,
-  contentStatSchema,
-  contentMaterializeSchema,
   envReportSchema,
   logsReadSchema,
   ...referencesSchemas,
@@ -781,68 +745,6 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["signal", "clear", "01J0000000000000000000000"],
   },
 
-  {
-    command_id: "content.path",
-    command: "content path",
-    name: "resolve task content",
-    description: "Resolve a ContentRef carried by task t1 on target n7.",
-    input: {
-      target: "n7",
-      task: "t1",
-      ref: {
-        sha256:
-          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        byteLength: 12,
-        mediaType: "application/octet-stream",
-      },
-    },
-    args: [
-      "content",
-      "path",
-      '{"target":"n7","task":"t1","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
-    ],
-  },
-  {
-    command_id: "content.stat",
-    command: "content stat",
-    name: "inspect task content",
-    input: {
-      target: "n7",
-      task: "t1",
-      ref: {
-        sha256:
-          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        byteLength: 12,
-        mediaType: "application/octet-stream",
-      },
-    },
-    args: [
-      "content",
-      "stat",
-      '{"target":"n7","task":"t1","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
-    ],
-  },
-  {
-    command_id: "content.materialize",
-    command: "content materialize",
-    name: "materialize task content",
-    input: {
-      target: "n7",
-      task: "t1",
-      name: "record.bin",
-      ref: {
-        sha256:
-          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        byteLength: 12,
-        mediaType: "application/octet-stream",
-      },
-    },
-    args: [
-      "content",
-      "materialize",
-      '{"target":"n7","task":"t1","name":"record.bin","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
-    ],
-  },
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserExamples : []),
   ...envReportExamples,
@@ -1102,31 +1004,6 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Withdraw this seat's own open signal.",
     schemas: [signalClearSchema],
     examples: allExamples.filter((e) => e.command_id === "signal.clear"),
-  },
-  {
-    command_id: "content.path",
-    command: "content path",
-    category: "workflow",
-    description: "Resolve an authorized task ContentRef to a local path.",
-    schemas: [contentPathSchema],
-    examples: allExamples.filter((e) => e.command_id === "content.path"),
-  },
-  {
-    command_id: "content.stat",
-    command: "content stat",
-    category: "workflow",
-    description: "Inspect availability for an authorized task ContentRef.",
-    schemas: [contentStatSchema],
-    examples: allExamples.filter((e) => e.command_id === "content.stat"),
-  },
-  {
-    command_id: "content.materialize",
-    command: "content materialize",
-    category: "workflow",
-    description:
-      "Materialize an authorized task ContentRef into the task workspace.",
-    schemas: [contentMaterializeSchema],
-    examples: allExamples.filter((e) => e.command_id === "content.materialize"),
   },
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserCapabilities : []),

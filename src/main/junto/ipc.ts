@@ -2,7 +2,7 @@ import { canvasReceiptBasis } from "./work/delivery-receipts";
 import { readPageShot } from "./work/page-shot-read";
 import { purgeOperatorPageShot } from "./work/page-shot-purge";
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
-import { WorkItemQuery, WorkActorQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
+import { WorkItemQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Option, Result, Schema, Stream } from "effect";
@@ -181,7 +181,6 @@ import {
 import { ulid } from "ulid";
 import type { ActorRef } from "@shared/work-protocol";
 import {
-  MainAuthoringRefused,
   mainAuthoringGate,
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
@@ -216,21 +215,6 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
-
-const runRendererWorkAuthoring = <A>(
-  label: MainAuthoringLabel,
-  operation: () => Promise<WorkOpResult<A>>,
-): Promise<WorkOpResult<A>> =>
-  runMainAuthoring(label, operation).catch((error: unknown) => {
-    if (error instanceof MainAuthoringRefused) {
-      return {
-        ok: false as const,
-        code: "invalid" as const,
-        message: error.message,
-      };
-    }
-    return Promise.reject(error);
-  });
 
 export const resolveProjectedIpcActorRef = (
   actorRefs: ReadonlyArray<ActorRef>,
@@ -1056,60 +1040,10 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
-  if (ARTIFACTS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workArtifactArchive,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      artifactId: string,
-      archived: boolean,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.artifact-archive",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workArtifactArchive(
-              canvas,
-              nodeId,
-              artifactId,
-              archived,
-            );
-          }),
-        ),
-      ),
-  );
-
-  if (ARTIFACTS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workArtifactDelete,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      artifactId: string,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.artifact-delete",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workArtifactDelete(canvas, nodeId, artifactId);
-          }),
-        ),
-      ),
-  );
-
   privilegedIpc.handle(IPC_CHANNELS.workItem, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(WorkItemQuery, { onExcessProperty: "error" })(input);
       return yield* (yield* WorkRepository).taskItem(query);
-    })),
-  );
-  privilegedIpc.handle(IPC_CHANNELS.workActorPage, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkActorQuery, { onExcessProperty: "error" })(input);
-      return yield* (yield* WorkRepository).actorPage(query);
     })),
   );
   privilegedIpc.handle(IPC_CHANNELS.workAttention, (_event, input: unknown) =>

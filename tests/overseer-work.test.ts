@@ -244,7 +244,6 @@ describe("executeOverseerWork", () => {
 
   it("ingests content locally and flags content ops as local-routing", async () => {
     expect(overseerWorkRunsLocally("content.ingest")).toBe(true);
-    expect(overseerWorkRunsLocally("content.path")).toBe(true);
     expect(overseerWorkRunsLocally("msg.send")).toBe(false);
     await writeFactory("bytes");
     await grantOverseer("bytes", "boss", true);

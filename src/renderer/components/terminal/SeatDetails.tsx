@@ -1,12 +1,10 @@
-import { useActorPage } from "../../lib/use-actor-work";
-import { WorkPageControls } from "../work/WorkPageControls";
 import { useCanvas } from "../../lib/use-model";
 import { useWorkMail } from "../../lib/use-work-mail";
 /**
  * Seat details: everything about one agent seat that is worth a look now and
  * then, kept out of the way behind one button in the agent modal's header.
  * The seat's AI reading and onboarding status, its signals, its standing with
- * the work kernel (task, raised tasks, artifacts) and its
+ * the work kernel (task, raised tasks) and its
  * mail. Work rows project from the canvas (no IPC reads; operator actions
  * go through the work IPC mutations).
  *
@@ -29,10 +27,6 @@ import {
 } from "../../lib/actor-ledger";
 import { mailEvidenceLabel } from "../../lib/crew-mail-view";
 import "./actor-ledger-mail.css";
-import {
-  artifactRowsForSeat,
-  seatIdForActorNode,
-} from "../../lib/actor-ledger-work";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
@@ -135,7 +129,6 @@ const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
 /** The contract a task board holds its tasks to, when the node is one. */
 
 function SeatDetails({ node, session }: { readonly node: SeatFace; readonly session: SeatSession }) {
-  const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
   // The canvas the store holds: the seat's task boards and who its mail is from.
   const held = useCanvas(canvas);
@@ -154,19 +147,8 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
   const canvasMatches = boundCanvas === undefined || boundCanvas === canvas;
   const live = isActor && canvasMatches;
 
-  // The prop node is the open-time snapshot; work containers live on the canvas.
-  const seatId = useMemo(
-    () => seatIdForActorNode(actorRefs, node.id),
-    [actorRefs, node.id],
-  );
-  const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
   const seatTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
   const claim = live ? seatTask : undefined;
-  const artifacts = useMemo(
-    () => live && seatId !== undefined && artifactPage.page.kind === "artifacts"
-      ? artifactRowsForSeat(artifactPage.page.items, seatId) : [],
-    [artifactPage.page, seatId, live],
-  );
   const mail = useWorkMail(canvas, node.id, live);
   const rows = useMemo(
     () => (live ? mailboxRows(held, mail.items.map((item) => item.message)) : []),
@@ -241,7 +223,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
         </div>
       ) : null}
       {signalsSection}
-      <WorkPageControls {...artifactPage} />
       {claim ? (
         <DetailsGroup
           title="task"
@@ -258,48 +239,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
             </span>
             <span className="actor-ledger__item-title">{claim.label} {claim.title}</span>
           </div>
-        </DetailsGroup>
-      ) : null}
-      {artifacts.length > 0 ? (
-        <DetailsGroup
-          title="artifacts"
-          count={artifacts.length}
-        >
-          <ul className="actor-ledger__list">
-            {artifacts.map((row) => {
-              const key = `artifact:${row.sinkNodeId}:${row.artifactId}`;
-              return (
-                <li
-                  key={key}
-                  className="actor-ledger__item"
-                  data-testid="actor-ledger-artifact-row"
-                  data-artifact-id={row.artifactId}
-                >
-                  <button
-                    type="button"
-                    className="actor-ledger__item-row"
-                    aria-expanded={openKey === key}
-                    title={`${row.name} - ${row.partCount} part${row.partCount === 1 ? "" : "s"} on ${row.sinkNodeId}`}
-                    onClick={() => toggleOpen(key)}
-                  >
-                    <span className="actor-ledger__item-title">{row.name}</span>
-                    <span className="actor-ledger__item-detail">
-                      {row.partCount} part{row.partCount === 1 ? "" : "s"}
-                    </span>
-                  </button>
-                  {openKey === key ? (
-                    <div className="actor-ledger__mail-body">
-                      {row.textPreview
-                        ? row.textPreview.length > 600
-                          ? `${row.textPreview.slice(0, 600)}…`
-                          : row.textPreview
-                        : "No text parts — open the artifact library on the sink to view."}
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
         </DetailsGroup>
       ) : null}
       <DetailsGroup

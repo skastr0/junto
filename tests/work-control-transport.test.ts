@@ -361,7 +361,7 @@ describe("work control transport", () => {
       generationId: (server.credentials.lookup(request.token) as { generationId: string }).generationId });
     const mutation = { token: token(), op: "overseer", args: { operation: "node.move", args: { nodeId: "orphan", x: 1, y: 2 } } };
     expect(await call(server.socketPath, mutation)).toMatchObject({ ok: false, error: { type: "AuthError" } });
-    for (const op of ["msg.send", "content.materialize", "signal.raise"]) {
+    for (const op of ["msg.send", "signal.raise"]) {
       expect(await call(server.socketPath, { token: token(), op, args: {} })).toMatchObject({ ok: false, error: { type: "AuthError" } });
     }
     expect(execute).not.toHaveBeenCalled();

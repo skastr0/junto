@@ -59,19 +59,12 @@ export const OVERSEER_OPERATION_NAMES = [
   "wire.connect",
   "wire.configure",
   "wire.disconnect",
-  "artifact.list",
-  "artifact.get",
-  "artifact.archive",
-  "artifact.delete",
   "msg.list",
   "msg.send",
   "msg.read",
   "msg.reply",
   "msg.react",
   "content.ingest",
-  "content.path",
-  "content.stat",
-  "content.materialize",
   "agent.list",
   "agent.get",
   "agent.reseat",
@@ -296,24 +289,13 @@ export const OverseerCanvasBatch = Schema.Struct({
 
 // Work plane ---------------------------------------------------------------
 
-const ArtifactIdentity = Schema.Struct({
-  ...SinkTarget,
-  artifact: Id,
-});
-const ArtifactArchive = Schema.Struct({
-  ...SinkTarget,
-  artifact: Id,
-  archived: Schema.Boolean,
-});
 const MessageList = Schema.Struct({
   ...CanvasOptional,
   target: Schema.optionalKey(Id),
-  taskId: Schema.optionalKey(Id),
 });
 const MessageSend = Schema.Struct({
   ...SinkTarget,
   text: NonEmpty,
-  taskId: Schema.optionalKey(Id),
 });
 const MessageRead = Schema.Struct({
   ...CanvasOptional,
@@ -330,17 +312,6 @@ const MessageReact = Schema.Struct({
   target: Schema.optionalKey(Id),
   messageId: Id,
   reaction: Schema.optionalKey(Schema.Literal("ack")),
-});
-const ContentAccess = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  ref: ContentRef,
-});
-const ContentMaterialize = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  ref: ContentRef,
-  name: Schema.optionalKey(Schema.String),
 });
 const ContentIngest = Schema.Struct({
   ...CanvasOptional,
@@ -557,19 +528,12 @@ export const OverseerArgsSchemas = {
   "wire.connect": Schema.Struct({ ...CanvasOptional, ...WireConnect }),
   "wire.configure": Schema.Struct({ ...CanvasOptional, ...WireConfigure }),
   "wire.disconnect": Schema.Struct({ ...CanvasOptional, ...WireDisconnect }),
-  "artifact.list": Schema.Struct(SinkTarget),
-  "artifact.get": ArtifactIdentity,
-  "artifact.archive": ArtifactArchive,
-  "artifact.delete": ArtifactIdentity,
   "msg.list": MessageList,
   "msg.send": MessageSend,
   "msg.read": MessageRead,
   "msg.reply": MessageReply,
   "msg.react": MessageReact,
   "content.ingest": ContentIngest,
-  "content.path": ContentAccess,
-  "content.stat": ContentAccess,
-  "content.materialize": ContentMaterialize,
   "agent.list": Schema.Struct(CanvasOptional),
   "agent.get": Schema.Struct(NodeTarget),
   "agent.reseat": AgentReseat,
@@ -687,10 +651,6 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "wire.list",
   "wire.get",
   "wire.verbs",
-  "artifact.list",
-  "artifact.get",
-  "content.path",
-  "content.stat",
   "agent.list",
   "agent.get",
   "agent.output",

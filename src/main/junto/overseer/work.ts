@@ -22,23 +22,18 @@ import {
   type OverseerOperation,
   type OverseerRequest,
 } from "@shared/overseer-control";
-import { workControlDir, WORK_HOME_ENV } from "@shared/work-control";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
-import { resolveJuntoHome } from "@shared/junto-home";
 import type { ActorRef } from "@shared/work-protocol";
 import type { Author } from "@shared/author";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { ContentService } from "../content/service";
 import type { ModelService } from "../model/service";
-import { ContentStoreError } from "../content/store";
 import {
   admitLiveOverseer,
   admitOverseerWorkTarget,
   findNode,
-  nodeKind,
   nodeTitle,
   overseerWorkAdmin,
-  scopeError,
   type OverseerWorkAdmin,
 } from "../work/authz";
 import {
@@ -54,33 +49,17 @@ export { overseerWorkAdmin };
 export type OverseerWorkCaller = OverseerCaller;
 
 const WORK_OPERATIONS = new Set<string>([
-  "artifact.list",
-  "artifact.get",
-  "artifact.archive",
-  "artifact.delete",
   "msg.list",
   "msg.send",
   "msg.read",
   "msg.reply",
   "msg.react",
   "content.ingest",
-  "content.path",
-  "content.stat",
-  "content.materialize",
 ]);
 
 const LOCAL_CONTENT_OPERATIONS = new Set<string>([
   "content.ingest",
-  "content.path",
-  "content.stat",
-  "content.materialize",
 ]);
-
-const callerWorkHome = (): string => {
-  const env = process.env[WORK_HOME_ENV]?.trim();
-  if (env) return env;
-  return workControlDir(resolveJuntoHome());
-};
 
 const mapWorkCode = (
   code: WorkServiceErrorCode,
@@ -168,21 +147,6 @@ const requireTarget = (
   if (Result.isFailure(admitted)) return failBody(admitted.failure);
   return Effect.void;
 };
-
-/** The old artifact administration targets an Artifacts node: its kind, no port. */
-const requireArtifactsTarget = (
-  canvas: Canvas,
-  targetId: string,
-): Effect.Effect<void, WorkErrorBody> =>
-  Effect.gen(function* () {
-    yield* requireTarget(canvas, targetId, "artifact.list");
-    const kind = nodeKind(findNode(canvas, targetId));
-    if (kind !== "artifacts") {
-      return yield* failBody(
-        scopeError("overseer", targetId, "wrong_kind", { kind, op: "artifact.list" }),
-      );
-    }
-  });
 
 const decodeRequest = (
   request: OverseerRequest,
@@ -293,58 +257,9 @@ export const executeOverseerWork = (
     const raw = decoded.args;
     const op = decoded.operation;
 
-    if (op === "artifact.list") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireArtifactsTarget(read.canvas, target);
-      return { target, items: yield* catchWork(work.readArtifacts(canvas, target)) };
-    }
-    if (op === "artifact.get") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireArtifactsTarget(read.canvas, target);
-      const item = yield* catchWork(
-        work.readArtifact(canvas, target, args.artifact),
-      );
-      if (item === undefined) {
-        return yield* failBody({
-          type: "UnknownTarget",
-          message: `artifact "${args.artifact}" not found`,
-          details: { target: args.artifact, retryable: false },
-        });
-      }
-      return { target, artifact: item };
-    }
-    if (op === "artifact.archive") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireArtifactsTarget(read.canvas, target);
-      const result = yield* work.workArtifactArchive(
-        canvas,
-        target,
-        args.artifact,
-        args.archived,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "artifact.delete") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireArtifactsTarget(read.canvas, target);
-      const result = yield* work.workArtifactDelete(canvas, target, args.artifact);
-      return exposeMutation(yield* fromWorkResult(result));
-    }
     if (op === "msg.list") {
       const args = yield* decodeArgs(op, raw);
       const targetId = resolveMailboxTarget(args.target, caller);
-      if (args.taskId) {
-        // A task's mail is its thread (03), read with the task.
-        return yield* failBody({
-          type: "InputError",
-          message: "msg.list reads mailboxes; a task's comments are in its thread",
-          details: { path: "taskId", retryable: false, next_step: "run junto task show <task> to read a task and its thread" },
-        });
-      }
       if (targetId === caller.nodeId) {
         const items = yield* catchWork(work.readMailbox(caller.canvasName, caller.nodeId));
         return { target: caller.nodeId, items: sortMessagesNewestFirst(items) };
@@ -361,14 +276,6 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.canvas, target, "msg.send");
-      if (args.taskId) {
-        // A comment on a task posts in its thread (03).
-        return yield* failBody({
-          type: "InputError",
-          message: "msg.send mails a seat; a comment on a task goes in its thread",
-          details: { path: "taskId", retryable: false, next_step: "run junto task comment <task> <text> to post in a task's thread" },
-        });
-      }
       const result = yield* work.workMessageAppend(
         canvas,
         target,
@@ -488,25 +395,6 @@ export const executeOverseerWork = (
         disposition: "applied" as const,
       };
     }
-    if (op === "content.path" || op === "content.stat") {
-      yield* decodeArgs(op, raw);
-      // Task content lived on tasks before 0.10; a 0.10 task holds a title, a body and its thread.
-      return yield* failBody({
-        type: "InputError",
-        message: "content.path by task reads content a 0.10 task does not hold",
-        details: { path: "task", retryable: false, next_step: "run junto task show <task> to read a task" },
-      });
-    }
-    if (op === "content.materialize") {
-      yield* decodeArgs(op, raw);
-      // Task content lived on tasks before 0.10; a 0.10 task holds a title, a body and its thread.
-      return yield* failBody({
-        type: "InputError",
-        message: "content.materialize by task reads content a 0.10 task does not hold",
-        details: { path: "task", retryable: false, next_step: "run junto task show <task> to read a task" },
-      });
-    }
-
     return yield* failBody({
       type: "InputError",
       message: `operation "${op}" is not a work-plane overseer command`,

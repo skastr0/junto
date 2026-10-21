@@ -1,8 +1,8 @@
 # Overseer command acceptance matrix
 
 Status: inventory of the 113-op contract against integrated handlers
-and owning suites. Native/composition lifecycle fixes and cross-canvas
-artifact publisher-home routing are integrated. Coverage below distinguishes
+and owning suites. Native/composition lifecycle fixes are integrated.
+Coverage below distinguishes
 executed behavior from catalog coverage; it does not claim every operation
 has an end-to-end test.
 
@@ -88,19 +88,12 @@ replay.
 | `wire.connect` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `wire.configure` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
 | `wire.disconnect` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `artifact.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `artifact.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `artifact.archive` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `artifact.delete` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `msg.list` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.send` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
 | `msg.read` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.reply` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.react` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `content.ingest` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/overseer-dispatch.test.ts; local ingest exercised; Remote page/content stay on caller installation in dispatch |
-| `content.path` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `content.stat` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `content.materialize` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `agent.list` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.get` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.reseat` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |

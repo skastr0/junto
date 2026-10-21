@@ -15,7 +15,6 @@ const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   const group = args[0];
   if (!TASKS_ENABLED && group === "task") return "task";
   if (!TASKS_ENABLED && group === "rulings") return "rulings";
-  if (!TASKS_ENABLED && group === "content") return "content";
   if (!ARTIFACTS_ENABLED && group === "artifact") return "artifact";
   if (!BROWSER_ENABLED && group === "browser") return "browser";
   return undefined;

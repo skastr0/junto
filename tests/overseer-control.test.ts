@@ -38,7 +38,7 @@ const jsonBytes = (value: unknown): number =>
 const maximumResult = () => {
   const empty = {
     ok: true as const,
-    operation: "content.materialize" as const,
+    operation: "content.ingest" as const,
     data: "",
   };
   return {

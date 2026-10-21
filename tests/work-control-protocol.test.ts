@@ -221,13 +221,13 @@ describe("work authz — edges as capability", () => {
     ]);
     // A build whose profile gates task boards off admits neither, reach or not.
     if (!productNodeKindEnabled("task")) {
-      expect(Result.isFailure(admitWorkTarget(reach, "agent", "inside", "content.path"))).toBe(true);
-      expect(Result.isFailure(admitWorkTarget(reach, "agent", "theirs", "content.path"))).toBe(true);
+      expect(Result.isFailure(admitWorkTarget(reach, "agent", "inside", "rulings"))).toBe(true);
+      expect(Result.isFailure(admitWorkTarget(reach, "agent", "theirs", "rulings"))).toBe(true);
       return;
     }
-    expect(Result.isSuccess(admitWorkTarget(reach, "agent", "inside", "content.path"))).toBe(true);
+    expect(Result.isSuccess(admitWorkTarget(reach, "agent", "inside", "rulings"))).toBe(true);
 
-    const away = admitWorkTarget(reach, "agent", "theirs", "content.path");
+    const away = admitWorkTarget(reach, "agent", "theirs", "rulings");
     expect(Result.isFailure(away)).toBe(true);
     if (Result.isFailure(away)) {
       expect(away.failure.type).toBe("ScopeError");

@@ -303,7 +303,7 @@ const PREAMBLES: ReadonlyArray<{ readonly seat: Seat; readonly bubble: SeatBubbl
   },
   {
     seat: SEATS[1]!,
-    bubble: { current: pre({ text: "published an artifact", provenance: "agent", action: "tool", tone: "indigo" }) },
+    bubble: { current: pre({ text: "made an artifact", provenance: "agent", action: "tool", tone: "indigo" }) },
     caption: "a deliverable, the one tool call told",
   },
 ];

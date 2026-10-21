@@ -45,7 +45,6 @@ describe("main authoring architecture", () => {
         ipcPath,
         new Set([
           "runMainAuthoring",
-          "runRendererWorkAuthoring",
         ]),
       ),
       // Mail receipt admission belongs to the core both shells construct.
@@ -63,9 +62,6 @@ describe("main authoring architecture", () => {
     expect([...labels].sort()).toEqual([
       "delivery.message-stamp",
       "ipc.model.command",
-      // Artifact library operator actions (archive / hard-delete).
-      "ipc.work.artifact-archive",
-      "ipc.work.artifact-delete",
       // The renderer's tasks and artifacts, written through the ruler (resource-ipc.ts).
       "ipc.resource.artifact-apply",
       "ipc.resource.task-apply",
@@ -181,11 +177,12 @@ describe("main authoring architecture", () => {
       expect(preload).not.toContain(actorOperation);
       expect(contract).not.toContain(actorOperation);
     }
-    // Operator library actions (not process-bound actor publish).
-    expect(ipc).toContain("workArtifactArchive");
-    expect(ipc).toContain("workArtifactDelete");
-    expect(preload).toContain("workArtifactArchive");
-    expect(preload).toContain("workArtifactDelete");
+    // The old store's library actions left with its table.
+    for (const retired of ["workArtifactArchive", "workArtifactDelete"]) {
+      expect(ipc).not.toContain(retired);
+      expect(preload).not.toContain(retired);
+      expect(contract).not.toContain(retired);
+    }
     expect(control).toContain(
       "resolveProcessBoundActorRef(read.actorRefs, caller)",
     );

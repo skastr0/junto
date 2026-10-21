@@ -28,8 +28,6 @@ interface SemanticNode {
   readonly overseer: boolean;
   readonly tasks: ReadonlyArray<SemanticTask>;
   readonly omittedTasks: number;
-  readonly artifactIds: ReadonlyArray<string>;
-  readonly artifactCount: number;
 }
 
 interface SemanticWire {
@@ -48,8 +46,6 @@ export type LiveCanvasRead = {
   readonly canvas: Canvas;
   /** Tasks by the task node each sits on now; archived tasks are left out. */
   readonly tasks: ReadonlyMap<string, ReadonlyArray<TaskView>>;
-  /** Artifact ids by the artifacts node that holds them. */
-  readonly artifacts: ReadonlyMap<string, ReadonlyArray<string>>;
   /** The canvas sequence, as text. */
   readonly revision: string;
   readonly workRevision: string;
@@ -111,7 +107,6 @@ const semanticText = (text: string, maxBytes: number): string => clipBytes(text
   .replace(/\u00b7/g, ","), maxBytes);
 
 const NO_TASKS: ReadonlyArray<TaskView> = [];
-const NO_IDS: ReadonlyArray<string> = [];
 
 const taskPriority = (task: TaskView): number =>
   task.current.state === "input-required" ? 0 : task.current.state === "working" || task.current.state === "in-review" ? 1 : 2;
@@ -120,7 +115,6 @@ const projectNode = (node: Node, read: LiveCanvasRead): SemanticNode => {
   const tasks = read.tasks.get(node.id) ?? NO_TASKS;
   const shownTasks = [...tasks].sort((left, right) => taskPriority(left) - taskPriority(right) || left.taskId.localeCompare(right.taskId))
     .slice(0, LIVE_CONTEXT_LIMITS.tasksPerNode);
-  const artifacts = read.artifacts.get(node.id) ?? NO_IDS;
   return {
     id: node.id,
     kind: node.kind,
@@ -136,8 +130,6 @@ const projectNode = (node: Node, read: LiveCanvasRead): SemanticNode => {
       ...(task.current.assignee === undefined ? {} : { assignee: task.current.assignee }),
     })),
     omittedTasks: tasks.length - shownTasks.length,
-    artifactIds: artifacts.slice(0, 12),
-    artifactCount: artifacts.length,
   };
 };
 
@@ -225,7 +217,7 @@ export const quietLiveContext = (context: LiveSemanticContext): string => {
 };
 
 export interface LiveActivity {
-  readonly kind: "task-blocked" | "task-completed" | "task-failed" | "artifact-published";
+  readonly kind: "task-blocked" | "task-completed" | "task-failed";
   readonly canvasName: string;
   readonly nodeId: string;
   readonly itemId: string;
@@ -250,15 +242,6 @@ export const meaningfulLiveChanges = (previous: LiveSemanticContext, current: Li
       const kind = task.state === "input-required" ? "task-blocked" : task.state === "done" ? "task-completed" : undefined;
       if (kind) events.push({ kind, canvasName: after.canvasName, nodeId: node.id, itemId: task.id, workRevision: after.workRevision });
     }
-    // A truncated artifact list cannot prove a newly observed id was just published.
-    if (prior.artifactCount <= prior.artifactIds.length && node.artifactCount > prior.artifactCount) {
-      const priorArtifacts = new Set(prior.artifactIds);
-      for (const id of node.artifactIds) {
-        if (!priorArtifacts.has(id)) events.push({
-          kind: "artifact-published", canvasName: after.canvasName, nodeId: node.id, itemId: id, workRevision: after.workRevision,
-        });
-      }
-    }
   }
   return coalesceLiveActivity(events);
 };
@@ -267,7 +250,7 @@ export const meaningfulLiveChanges = (previous: LiveSemanticContext, current: Li
 export const coalesceLiveActivity = (events: ReadonlyArray<LiveActivity>, limit = 8): ReadonlyArray<LiveActivity> => {
   const latest = new Map<string, LiveActivity>();
   for (const event of events) {
-    const key = JSON.stringify([event.canvasName, event.nodeId, event.kind === "artifact-published" ? "artifact" : "task", event.itemId]);
+    const key = JSON.stringify([event.canvasName, event.nodeId, event.itemId]);
     latest.set(key, { ...event });
   }
   return Object.freeze([...latest.values()]

@@ -71,9 +71,6 @@ import {
 } from "@shared/mailbox-target";
 import { formatNodeRef } from "@shared/node-ref";
 import {
-  ContentMaterializeArgs,
-  ContentPathArgs,
-  ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
   MSG_LIST_ARGS_SHAPE,
@@ -122,12 +119,6 @@ import {
   signalAttachmentOwner,
 } from "../signals/attachments";
 import { signalResourcesFor } from "../signals/resource-refs";
-import {
-  materializeContentObject,
-  taskContentRef,
-} from "../content/agent-access";
-import { contentObjectPath } from "../content/paths";
-import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
 import { isAutomationReadOp, isAutomationWriteOp } from "@shared/automation-control";
 import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
@@ -191,7 +182,6 @@ import { seatPageShot, type SeatPageShot } from "./page-shot-seat";
 const MUTATING_OPS: ReadonlySet<string> = new Set([
   "task.check",
   ...TASK_WRITE_OPS,
-  "content.materialize",
   "preamble",
   "msg.list",
   "msg.send",
