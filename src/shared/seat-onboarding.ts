@@ -66,6 +66,7 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     note:
       "Work the tasks assigned to you. A task is #42; finish is ruled, and a refusal names what is missing.",
     rows: [
+      { port: "tasks.list", intent: "list queue", command: (t) => `junto task list --node ${t}` },
       { port: "tasks.list", intent: "my tasks", command: () => "junto task list --assignee me" },
       { port: "tasks.list", intent: "read a task and its layers", command: () => "junto task show #<n>" },
       {

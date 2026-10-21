@@ -180,10 +180,10 @@ describe("onboard reach", () => {
       { kind: "task", count: 2, targets: ["board-a", "board-b"] },
       { kind: "artifacts", count: 1, targets: ["art-1"] },
     ]);
-    expect(reach[0]!.list).toBe(TASKS_ENABLED ? `junto task list '{"target":"<target>"}'` : "junto docs node task");
+    expect(reach[0]!.list).toBe(TASKS_ENABLED ? "junto task list --node <target>" : "junto docs node task");
     expect(reach[1]!.list).toBe(ARTIFACTS_ENABLED ? "junto artifact list" : "junto docs node artifacts");
     expect(compileReach([{ id: "board-a", kind: "task" }])[0]!.list).toBe(
-      TASKS_ENABLED ? `junto task list '{"target":"board-a"}'` : "junto docs node task",
+      TASKS_ENABLED ? "junto task list --node board-a" : "junto docs node task",
     );
     expect(compileReach([])).toEqual([]);
   });
