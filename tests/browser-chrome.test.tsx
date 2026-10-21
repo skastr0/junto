@@ -16,7 +16,7 @@ const tabsTwo = (() => {
 })();
 const draw = (state: BrowserChromeState) =>
   renderToStaticMarkup(
-    <BrowserChrome state={state} now={5_000} seatName={(id) => (id === seat ? "Ada" : undefined)} onCommand={async () => ({ ok: true })} />,
+    <BrowserChrome state={state} now={5_000} seatName={(id) => (id === seat ? "Ada" : undefined)} onCommand={async () => ({ ok: true })} onFocusPage={() => undefined} controls="surface" />,
   );
 
 describe("BrowserChrome", () => {

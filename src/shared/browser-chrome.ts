@@ -54,6 +54,12 @@ export type BrowserChromeApi = {
   readonly openTab: (sessionId: string, url?: string) => Promise<BrowserChromeOutcome>;
   readonly closeTab: (sessionId: string, tab: BrowserTabId) => Promise<BrowserChromeOutcome>;
   readonly activateTab: (sessionId: string, tab: BrowserTabId) => Promise<BrowserChromeOutcome>;
+  /**
+   * Move keyboard focus into the page's view (`webContents.focus()`). False
+   * when the view is detached or hidden, and the caller then focuses the
+   * surface root instead. The one place focus goes to the page.
+   */
+  readonly focusPage: (sessionId: string) => Promise<boolean>;
   /** Said whenever this page's state changed, by anyone (a seat, the operator, the page itself). */
   readonly onChanged: (listener: (sessionId: string) => void) => () => void;
 };

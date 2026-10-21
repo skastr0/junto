@@ -39,6 +39,7 @@ export function BrowserChromeGallery() {
               now={now}
               seatName={(id) => NAMES[id]}
               onCommand={(command) => runChromeCommand(chrome, SESSION, command)}
+              onFocusPage={() => undefined}
             />
           )}
           <div className="grid h-40 place-items-center text-dim">the page</div>

@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Hand, Plus, RotateCw, Undo2, X } from "lucide-react";
 import type { BrowserChromeState } from "@shared/browser-chrome";
 import type { BrowserTabId } from "@shared/browser-tab";
@@ -68,33 +68,57 @@ export function TabStrip({
   state,
   pending,
   onCommand,
+  controls,
 }: {
   readonly state: BrowserChromeState;
   readonly pending: boolean;
   readonly onCommand: (command: ChromeCommand) => void;
+  /** The id of the surface region the tabs control. */
+  readonly controls?: string;
 }) {
   const { tabs, active } = state.tabs;
   const only = tabs.length === 1;
+  const listRef = useRef<HTMLDivElement>(null);
+  const focusAfter = useRef<number | null>(null);
+  useEffect(() => {
+    const at = focusAfter.current;
+    if (at === null) return;
+    focusAfter.current = null;
+    claimFocus(listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[at], "gesture");
+  }, [tabs.length]);
+  // Manual activation (APG): arrows, Home and End move focus only, since
+  // activating a tab swaps a live view; Enter and Space activate (the button's
+  // own click). Delete closes the focused tab, never the last, and focus lands
+  // on the tab that takes its place.
   const move = (event: KeyboardEvent<HTMLButtonElement>, tab: BrowserTabId): void => {
-    const keys = event.key;
-    if (keys === "Delete" && !only) {
-      event.preventDefault();
-      onCommand({ kind: "closeTab", tab });
-      return;
-    }
-    const step = keys === "ArrowRight" ? 1 : keys === "ArrowLeft" ? -1 : 0;
-    if (step === 0) return;
     const index = tabs.findIndex((candidate) => candidate.id === tab);
-    const next = tabs[(index + step + tabs.length) % tabs.length];
-    if (next === undefined || next.id === tab) return;
-    event.preventDefault();
-    onCommand({ kind: "activateTab", tab: next.id as BrowserTabId });
     const buttons = event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLElement>('[role="tab"]');
-    claimFocus(buttons?.[tabs.findIndex((candidate) => candidate.id === next.id)], "gesture", { event });
+    const focusAt = (at: number): void => {
+      event.preventDefault();
+      claimFocus(buttons?.[at], "gesture", { event });
+    };
+    switch (event.key) {
+      case "ArrowRight":
+        return focusAt((index + 1) % tabs.length);
+      case "ArrowLeft":
+        return focusAt((index - 1 + tabs.length) % tabs.length);
+      case "Home":
+        return focusAt(0);
+      case "End":
+        return focusAt(tabs.length - 1);
+      case "Delete": {
+        if (only) return;
+        event.preventDefault();
+        // Focus the tab that will sit here once the strip re-renders without this one.
+        focusAfter.current = Math.min(index, tabs.length - 2);
+        onCommand({ kind: "closeTab", tab });
+        return;
+      }
+    }
   };
   return (
     <div className="tab-strip" data-testid="browser-tabs">
-      <div className="tab-strip__list" role="tablist" aria-label="Tabs">
+      <div className="tab-strip__list" role="tablist" aria-label="Tabs" ref={listRef}>
         {tabs.map((tab) => {
           const label = tabLabel(tab);
           return (
@@ -109,6 +133,7 @@ export function TabStrip({
                 disabled={pending}
                 onClick={() => onCommand({ kind: "activateTab", tab: tab.id as BrowserTabId })}
                 onKeyDown={(event) => move(event, tab.id as BrowserTabId)}
+                aria-controls={controls}
               >
                 {tab.loading ? <span className="tab-strip__loading" aria-hidden /> : null}
                 <span className="truncate">{label}</span>
@@ -149,11 +174,14 @@ export function AddressBar({
   pending,
   onCommand,
   onRefused,
+  onFocusPage,
 }: {
   readonly state: BrowserChromeState;
   readonly pending: boolean;
   readonly onCommand: (command: ChromeCommand) => void;
   readonly onRefused: (message: string) => void;
+  /** Move keyboard focus into the page: after Enter goes, and on Escape. */
+  readonly onFocusPage: () => void;
 }) {
   const tab = activeTab(state.tabs);
   const [typed, setTyped] = useState(tab.url);
@@ -165,8 +193,10 @@ export function AddressBar({
       onSubmit={(event) => {
         event.preventDefault();
         const target = addressTarget(typed);
-        if (target.ok) onCommand({ kind: "goto", url: target.url });
-        else onRefused(target.message);
+        if (target.ok) {
+          onCommand({ kind: "goto", url: target.url });
+          onFocusPage();
+        } else onRefused(target.message);
       }}
     >
       <IconButton aria-label="Back" title="Back" size="sm" disabled={pending || !tab.canGoBack} onClick={() => onCommand({ kind: "traverse", step: "back" })}>
@@ -185,6 +215,15 @@ export function AddressBar({
         spellCheck={false}
         value={typed}
         onChange={(event) => setTyped(event.target.value)}
+        onKeyDown={(event) => {
+          // First Escape: the address goes back to the page's own and focus returns to the page.
+          // The surface's own Escape is the second one.
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          setTyped(tab.url);
+          onFocusPage();
+        }}
       />
     </form>
   );
@@ -201,12 +240,18 @@ export function BrowserChrome({
   now,
   seatName,
   onCommand,
+  onFocusPage,
+  controls,
   trailing,
 }: {
   readonly state: BrowserChromeState;
   readonly now: number;
   readonly seatName: (nodeId: string) => string | undefined;
   readonly onCommand: (command: ChromeCommand) => Promise<BrowserChromeOutcome>;
+  /** Move keyboard focus into the page view (the surface owns where it goes when it cannot). */
+  readonly onFocusPage: () => void;
+  /** The id of the surface region the tabs control. */
+  readonly controls?: string;
   readonly trailing?: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
@@ -222,9 +267,9 @@ export function BrowserChrome({
   };
   return (
     <div className="browser-chrome" data-testid="browser-chrome">
-      <TabStrip state={state} pending={pending} onCommand={run} />
+      <TabStrip state={state} pending={pending} onCommand={run} controls={controls} />
       <div className="browser-chrome__row">
-        <AddressBar state={state} pending={pending} onCommand={run} onRefused={setRefused} />
+        <AddressBar state={state} pending={pending} onCommand={run} onRefused={setRefused} onFocusPage={onFocusPage} />
         <DriverMark state={state} now={now} seatName={seatName} />
         <TakeoverControl state={state} pending={pending} onCommand={run} />
         {trailing}

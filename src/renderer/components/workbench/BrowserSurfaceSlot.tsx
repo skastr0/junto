@@ -9,6 +9,7 @@ import {
   stopDockBrowser,
 } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
+import { claimFocus } from "../../lib/focus-ownership";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { useTwoClickArm } from "../../lib/two-click-arm";
 import { Button, OverlayHeader } from "../ui";
@@ -43,6 +44,8 @@ export function BrowserSurfaceSlot({
   const session = use$(browser$.sessionByRef[pageRef]);
   const opError = use$(dock$.opErrorByRef[pageRef]);
   const sessionId = session?.sessionId;
+  const rootRef = useRef<HTMLElement>(null);
+  const surfaceId = `browser-surface-${pageRef.replace(/[^A-Za-z0-9_-]/g, "-")}`;
   const chrome = browserChromeApi();
   const chromeState = useBrowserChromeState(chrome, sessionId);
   const canvasName = use$(state$.canvasName);
@@ -243,6 +246,8 @@ export function BrowserSurfaceSlot({
 
   return (
     <section
+      ref={rootRef}
+      id={surfaceId}
       className="dock-slot workbench-surface nokey"
       // Focusable keyboard root: opening the surface parks keyboard focus here
       // (data-autofocus is the primary-focus convention), and xyflow ignores
@@ -263,6 +268,13 @@ export function BrowserSurfaceSlot({
               now={now}
               seatName={seatName}
               onCommand={(command) => runChromeCommand(chrome, sessionId!, command)}
+              onFocusPage={() => {
+                // The page view takes focus when it can; else the surface root does.
+                void chrome.focusPage(sessionId!).then((taken) => {
+                  if (!taken) claimFocus(rootRef.current, "gesture");
+                });
+              }}
+              controls={surfaceId}
               trailing={pageActions}
             />
           ) : (

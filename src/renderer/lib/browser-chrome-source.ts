@@ -102,6 +102,7 @@ export const makeLocalBrowserChrome = (homeUrl = "https://example.com/"): LocalB
     openTab: async (sessionId, url) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "open", url: url ?? homeUrl, activate: true })),
     closeTab: async (sessionId, tab) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "close", tab })),
     activateTab: async (sessionId, tab) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "activate", tab })),
+    focusPage: async () => true,
     onChanged: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
