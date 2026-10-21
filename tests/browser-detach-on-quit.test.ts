@@ -41,7 +41,15 @@ describe("browser detach-on-quit product lock", () => {
     expect(destroyBlock).not.toMatch(/wipeProfile|clearStorageData|clearCache/);
     // adapter destroy closes the runtime webContents only — no partition APIs
     expect(adapterSrc).toMatch(/webContents\.close\(\)/);
-    expect(adapterSrc).not.toMatch(/clearStorageData|clearCache|session\.defaultSession/);
+    expect(adapterSrc).not.toMatch(/clearCache|clearData|session\.defaultSession/);
+    // The one partition clear: a seat-touched origin's service workers
+    // (remote-security). One origin, service workers only; the operator's
+    // profile data is never wiped.
+    const clears = adapterSrc.match(/clearStorageData\([^)]*\)/g) ?? [];
+    expect(clears).toEqual(['clearStorageData({ origin, storages: ["serviceworkers"] })']);
+    expect(adapterSrc).toMatch(
+      /clearServiceWorkers: \(origin\) =>\s*browserPartition\.clearStorageData\(\{ origin, storages: \["serviceworkers"\] \}\)/,
+    );
   });
 
   it("views are partitioned and parented under the window contentView", () => {
