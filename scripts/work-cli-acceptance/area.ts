@@ -8,6 +8,7 @@
  * not yet on main names the cli seat building it, and is never a skip.
  */
 import type { ManagedRuntime } from "effect";
+import type { SeatCredentialRegistry } from "../../src/main/junto/work/seat-credentials";
 import type { WorkCliCommandResult } from "../work-cli-acceptance";
 
 export type CaseVerdict =
@@ -55,6 +56,8 @@ export type AcceptanceContext = {
   ) => Promise<AcceptanceSeat>;
   /** One canvas command from the operator (model commands.ts), decoded as the app sends it. */
   readonly operator: (command: Readonly<Record<string, unknown>>) => Promise<void>;
+  /** The registry the work socket admits seats by, for a server an area hosts on the same credentials. */
+  readonly credentials: SeatCredentialRegistry;
   /** The core's runtime, for reads an area checks the CLI against. */
   readonly runtime: ManagedRuntime.ManagedRuntime<never, never>;
   readonly log: (label: string, body: string) => void;
