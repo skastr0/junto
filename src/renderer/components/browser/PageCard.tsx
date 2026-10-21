@@ -59,7 +59,7 @@ export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
     // A failure's hover title leads with the error, which the leaf line cuts short.
     <div className="h-full w-full" title={err !== undefined ? `${err}\n${url || host}` : url || host}>
       <SpineCard
-        glyph={<Globe size={15} />}
+        glyph={<Globe />}
         hue="indigo"
         name={host}
         {...(err !== undefined ? { status: "failed" as const } : working ? { status: "working" as const } : {})}
