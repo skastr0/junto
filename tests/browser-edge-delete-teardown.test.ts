@@ -220,6 +220,7 @@ describe("browser edge-delete session teardown", () => {
       resolvePageTarget,
       listCanvasModels: async () => [{ name: "work", doc: liveDoc }],
       machineName: () => sessions.machineName(),
+      editsCanvas: async () => true,
       sessions: {
         destroyOwnerTargetSessions: (owner, ref, reason) =>
           sessions.destroyOwnerTargetSessions(owner, ref, reason),

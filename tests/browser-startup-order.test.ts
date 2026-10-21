@@ -39,6 +39,7 @@ describe("browser startup recovery gate", () => {
     expect(controlStart).toBeGreaterThan(grantStart);
     expect(grant).toContain("machineName: () => composition.sessions.machineName()");
     expect(grant).not.toContain("admitBrowserHost");
+    expect(grant).toContain("records.editsCanvas(canvasName)");
     expect(activation).not.toContain("subscribeHostsSnapshot");
     expect(activation).toContain("edgeGrant.clear()");
   });

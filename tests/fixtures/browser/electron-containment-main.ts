@@ -718,6 +718,7 @@ void app.whenReady().then(async () => {
     listCanvasModels,
     processMap,
     machineName: localBrowserTestMachineName,
+    editsCanvas: async () => true,
   });
   // Warm only to make the secret-free expected-principal witness available to
   // the outer probe. The protected request still goes through admitSocket and

@@ -169,6 +169,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       resolvePageTarget,
       listCanvasModels,
       machineName: () => sessions.machineName(),
+      editsCanvas: async () => true,
       ...(identity ?? {}),
     });
     const handlers = makeControlHandlers({
@@ -328,6 +329,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       },
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
       machineName: () => "studio",
+      editsCanvas: async () => true,
     });
 
     await expect(
@@ -351,6 +353,7 @@ describe("browser edge-grant process-bind dual admit", () => {
           ? { ok: true, data: TARGET }
           : { ok: false, code: "not_found", message: "missing" },
       machineName: () => "studio",
+      editsCanvas: async () => true,
     });
 
     // Placement: an edge between two machines is a route denial before host-mint checks.
@@ -374,6 +377,50 @@ describe("browser edge-grant process-bind dual admit", () => {
       listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
       machineName: () => "studio",
+      editsCanvas: async () => true,
+    });
+
+    await expect(
+      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
+    ).resolves.toMatchObject({ ok: false, denial: "physical_host_mismatch" });
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+  });
+
+  it("refuses a page on a canvas this machine holds as a copy, whatever the copy holds", async () => {
+    const doc = browserCanvas(true);
+    const capabilities = makeBrowserCapabilityRegistry();
+    registries.push(capabilities);
+    const asked: string[] = [];
+    const edgeGrant = makeEdgeGrantService({
+      capabilities,
+      listCanvasModels: async () => [{ name: "work", doc: doc }],
+      resolvePageTarget: async () => ({ ok: true, data: TARGET }),
+      machineName: () => "studio",
+      editsCanvas: async (canvasName) => {
+        asked.push(canvasName);
+        return false;
+      },
+    });
+
+    await expect(
+      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
+    ).resolves.toMatchObject({ ok: false, denial: "physical_host_mismatch" });
+    expect(asked).toEqual(["work"]);
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+  });
+
+  it("refuses when whether this machine edits the canvas cannot be read", async () => {
+    const doc = browserCanvas(true);
+    const capabilities = makeBrowserCapabilityRegistry();
+    registries.push(capabilities);
+    const edgeGrant = makeEdgeGrantService({
+      capabilities,
+      listCanvasModels: async () => [{ name: "work", doc: doc }],
+      resolvePageTarget: async () => ({ ok: true, data: TARGET }),
+      machineName: () => "studio",
+      editsCanvas: async () => {
+        throw new Error("records unavailable");
+      },
     });
 
     await expect(

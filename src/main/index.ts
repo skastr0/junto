@@ -62,6 +62,7 @@ import {
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { ModelService } from "./junto/model/service";
+import { ModelRecords } from "./junto/model/records";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
 import { registerNotificationIpc } from "./junto/notifications/ipc";
@@ -1739,6 +1740,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             resolvePageTarget: resolveBrowserPageTarget,
             listCanvasModels,
             machineName: () => composition.sessions.machineName(),
+            editsCanvas: (canvasName) => AppRuntime.runPromise(
+              Effect.flatMap(ModelRecords, (records) => records.editsCanvas(canvasName)),
+            ),
             // Edge-delete (I10): same destroy path as capability terminate, but
             // keyed by (owner, page-ref) so sibling edges stay live.
             sessions: {

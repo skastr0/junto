@@ -52,11 +52,7 @@ import {
   type PageNodeRow,
 } from "@shared/browser-control";
 import type { Canvas } from "@shared/model";
-import {
-  makeEdgeGrantService,
-  type EdgeGrantDenial,
-  type EdgeGrantService,
-} from "./edge-grant";
+import type { EdgeGrantDenial, EdgeGrantService } from "./edge-grant";
 import {
   BROWSER_CONTROL_HANDLER_TIMEOUT_MS,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
@@ -1313,7 +1309,7 @@ export const startBrowserControlServer = async (
     readonly home?: string;
     /** Canonical SQLite-backed documents for page listing and edge admission. */
     readonly listCanvasModels: ListCanvasModels;
-    readonly edgeGrant?: EdgeGrantService;
+    readonly edgeGrant: EdgeGrantService;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
@@ -1323,14 +1319,7 @@ export const startBrowserControlServer = async (
   await ensureScreenshotDirectory(controlShotsDir(home));
 
   let token = "";
-  const edgeGrant =
-    options.edgeGrant ??
-    makeEdgeGrantService({
-      capabilities: options.capabilities,
-      resolvePageTarget: options.resolvePageTarget,
-      machineName: () => options.sessions.machineName(),
-      listCanvasModels: options.listCanvasModels,
-    });
+  const { edgeGrant } = options;
   const maxActiveHandlers = boundedRuntimeValue(
     runtime.maxActiveHandlers,
     BROWSER_MAX_ACTIVE_HTTP_HANDLERS,

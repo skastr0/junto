@@ -132,6 +132,12 @@ export interface EdgeGrantDependencies {
    */
   readonly machineName: () => string | undefined;
   /**
+   * Whether this machine edits the canvas. Pages live on the editing machine,
+   * so a page on a canvas held as a copy is never admitted, whatever the copy
+   * holds.
+   */
+  readonly editsCanvas: (canvasName: string) => Promise<boolean>;
+  /**
    * Optional session teardown for edge-delete (I10). When omitted, grants
    * still attenuate / revoke but live views are not destroyed here.
    */
@@ -424,6 +430,12 @@ export const makeEdgeGrantService = (
     const match = matches[0]!;
     const callerDenial = admitsCallerOnThisMachine(match.doc, match.callerNodeId);
     if (callerDenial !== undefined) return callerDenial;
+    if (!(await dependencies.editsCanvas(match.canvasName).catch(() => false))) {
+      return fail(
+        "physical_host_mismatch",
+        "this machine holds a copy of the canvas; its pages live on the machine that edits it",
+      );
+    }
     const targets = await buildTargets(match.pageRefs);
     if (targets.length === 0) {
       return fail(
