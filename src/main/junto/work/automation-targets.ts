@@ -105,6 +105,14 @@ export const automationTargetResolver = (
     if (!(WANTED_KINDS[want] as ReadonlyArray<MentionRef["kind"]>).includes(mention.kind)) {
       return wrongKindRefusal(text, want, mention.kind, path);
     }
+    if (mention.kind === "page") {
+      // automationTargets holds seats and resources; a page stays edge-bound (plan 06).
+      return {
+        type: "InputError",
+        message: `${text} is a page, and an automation does not act on pages in this release`,
+        details: { path, reason: "not_available", received: "page", retryable: false },
+      };
+    }
     return allowed.has(mention.nodeId) ? mention : outOfReach(text, path);
   };
 

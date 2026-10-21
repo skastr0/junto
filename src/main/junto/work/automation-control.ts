@@ -20,6 +20,7 @@ import {
   type AutomationOp,
   type AutomationView,
   type AutomationWriteResult,
+  type TriggerInput,
 } from "@shared/automation-control";
 import { parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
@@ -164,8 +165,10 @@ const resolveIn = (caller: AutomationCaller, node: Node) =>
 const resolved = <A>(out: { readonly ok: true; readonly value: A } | { readonly ok: false; readonly error: WorkErrorBody }) =>
   out.ok ? Effect.succeed(out.value) : Effect.fail(out.error);
 
-const refuseReserved = (trigger: Parameters<typeof reservedTriggerRefusal>[0] | undefined) => {
-  const refusal = trigger === undefined ? undefined : reservedTriggerRefusal(trigger);
+/** Checked before any target resolves, so a webhook is refused as itself. */
+const refuseReserved = (trigger: TriggerInput | undefined) => {
+  if (trigger?.kind !== "webhook") return Effect.void;
+  const refusal = reservedTriggerRefusal(trigger);
   return refusal === undefined ? Effect.void : Effect.fail(refusal);
 };
 
@@ -208,9 +211,9 @@ export const handleAutomationOp = (
       }
       case "automation.create": {
         const input = yield* decode(AutomationCreateArgs, args);
+        yield* refuseReserved(input.trigger);
         const node = yield* findNode(caller, ports, input.target);
         const parts = yield* resolved(resolveTargets(input, resolveIn(caller, node)));
-        yield* refuseReserved(parts.trigger);
         const { trigger, then } = parts;
         if (trigger === undefined || then === undefined) return yield* Effect.die("a create resolves its trigger and actions");
         return yield* ports.submit(command(caller, input.opId, node.id, input.automationId, {
@@ -236,8 +239,8 @@ export const handleAutomationOp = (
         }
         const node = yield* findNode(caller, ports, input.target);
         const automation = yield* findAutomation(yield* ports.automations(caller.canvasName, node.id), input.automation);
+        yield* refuseReserved(input.change.trigger);
         const parts = yield* resolved(resolveTargets(input.change, resolveIn(caller, node)));
-        yield* refuseReserved(parts.trigger);
         const { name, limits } = input.change;
         return yield* ports.submit(command(caller, input.opId, node.id, automation.automationId, {
           kind: "edit",

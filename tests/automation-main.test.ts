@@ -113,8 +113,9 @@ describe("automation verbs in main", () => {
     });
   });
 
-  it("refuses a webhook trigger as not available", () => {
-    expect(failure(run("automation.create", { ...create, trigger: { kind: "webhook", endpointId: "gh" } }))).toMatchObject({
+  it("refuses a webhook trigger as not available, before any target", () => {
+    const webhook = { ...create, trigger: { kind: "webhook", endpointId: "gh" }, then: [{ kind: "mail", to: "@nobody", text: "x" }] };
+    expect(failure(run("automation.create", webhook))).toMatchObject({
       type: "InputError",
       details: { reason: "not_available", path: "trigger.kind" },
     });
@@ -188,6 +189,12 @@ describe("automationTargetResolver", () => {
       type: "UnknownTarget",
       details: { hint: "seats it can name: cli-lead, cli-external" },
     });
+  });
+
+  it("names why a page is refused", () => {
+    const withPage = { ...canvas, nodes: new Map([...canvas.nodes, [asNodeId("PG"), at("PG", "page", 400, 20, { url: "https://x.dev" })]]) } as Canvas;
+    const pages = automationTargetResolver(withPage, asNodeId("AU"), { kind: "seat", seat: asNodeId("S2") });
+    expect(pages.ref("junto://canvas/factory?node=PG", "subject", "p")).toMatchObject({ details: { reason: "not_available", received: "page" } });
   });
 
   it("refuses a seat where a task is wanted", () => {
