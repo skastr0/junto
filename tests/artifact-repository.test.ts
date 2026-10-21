@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type ArtifactEdit, type ArtifactOp, type ArtifactVersion, emptyBody } from "../src/shared/artifact";
 import type { InstallationId } from "../src/shared/installation-id";
@@ -23,11 +24,11 @@ import {
 } from "../src/main/junto/work/artifact-repository";
 
 let root: string;
-let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository, unknown>;
+let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | SqlClient.SqlClient, unknown>;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-artifacts-"));
-  runtime = ManagedRuntime.make(ArtifactRepositoryLive.pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))));
+  runtime = ManagedRuntime.make(ArtifactRepositoryLive.pipe(Layer.provideMerge(makeStateEngineLive(join(root, "junto.db")))));
 });
 
 afterEach(async () => {
@@ -64,6 +65,20 @@ const command = (
   after: extra.after ?? [],
   op,
 });
+
+const sql = (statement: (client: SqlClient.SqlClient) => Effect.Effect<unknown, unknown>) =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      return yield* statement(yield* SqlClient.SqlClient);
+    }),
+  );
+
+const failure = <A, E>(use: (repo: Repo) => Effect.Effect<A, E>) =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      return yield* Effect.flip(use(yield* ArtifactRepository));
+    }),
+  );
 
 const submit = (cmd: ResourceCommand<ArtifactOp>, context: RulingContext = everywhere) =>
   withRepo((repo) => repo.submit(mini, cmd, context));
@@ -133,7 +148,8 @@ describe("ArtifactRepository", () => {
     const opId = mintOpId();
     const first = await submit(command({ op: "edit", edit: sheetCell(1, "c1", "a") }, id, { opId }));
     const again = await submit(command({ op: "edit", edit: sheetCell(1, "c1", "a") }, id, { opId }));
-    expect(again).toEqual(first);
+    expect(first.kind === "applied" && first.facts.map((fact) => fact.fact)).toEqual(["artifact.edited"]);
+    expect(again).toEqual({ ...first, facts: [] });
     const history = await withRepo((repo) => repo.history(canvas, id, { limit: 10 }));
     expect(history.versions).toHaveLength(2);
   });
@@ -178,5 +194,27 @@ describe("ArtifactRepository", () => {
     expect(reason(await submit(command({ op: "edit", edit: sheetCell(1, "c1", "x") }, id)))).toBe("invalid_transition");
     expect(reason(await submit(command({ op: "restore" }, id)))).toBe("applied");
     expect(reason(await submit(command({ op: "edit", edit: sheetCell(1, "c1", "x") }, id)))).toBe("applied");
+  });
+
+  it("refuses a head that no longer decodes instead of reading it as absent", async () => {
+    const id = await createSheet();
+    await sql((client) => client`UPDATE artifact_heads SET created_by_json = '{"kind":"nobody"}' WHERE artifact_id = ${id}`);
+    expect(await failure((repo) => repo.head(canvas, id))).toMatchObject({ _tag: "ArtifactPersistenceError" });
+    const again = await failure((repo) =>
+      repo.submit(mini, command({ op: "create", title: "Again", body: emptyBody("sheet") }, id), everywhere),
+    );
+    expect(again.message).toContain("does not decode");
+  });
+
+  it("refuses a stored ruling that no longer decodes instead of ruling the op again", async () => {
+    const id = await createSheet();
+    const opId = mintOpId();
+    await sql((client) => client`
+      INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json)
+      VALUES (${canvas}, ${mini}, ${opId}, 'applied', '{}')`);
+    const again = await failure((repo) =>
+      repo.submit(mini, command({ op: "edit", edit: sheetCell(1, "c1", "a") }, id, { opId }), everywhere),
+    );
+    expect(again.message).toContain("does not decode");
   });
 });

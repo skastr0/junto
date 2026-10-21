@@ -77,7 +77,14 @@ export type ArtifactListQuery = {
  * made.
  */
 export type ArtifactSubmitOutcome =
-  | { readonly kind: "applied"; readonly opId: OpId; readonly artifactId: ItemId; readonly version: ArtifactVersion }
+  | {
+      readonly kind: "applied";
+      readonly opId: OpId;
+      readonly artifactId: ItemId;
+      readonly version: ArtifactVersion;
+      /** The facts this ruling applied; empty when a retry is answered from the stored ruling. */
+      readonly facts: ReadonlyArray<ArtifactFact>;
+    }
   | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody; readonly root: OpId };
 
 export class ArtifactRepository extends Context.Service<ArtifactRepository,
@@ -193,13 +200,73 @@ const outcomeOf = (
   }
   const entry = after.get(artifactId);
   // An applied ruling always leaves its artifact in state: every fact names it.
-  return { kind: "applied", opId: ruling.opId, artifactId, version: entry!.artifact.version };
+  return { kind: "applied", opId: ruling.opId, artifactId, version: entry!.artifact.version, facts: ruling.facts };
 };
 
-const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError) =>
-  ArtifactPersistenceError.make({ operation, message: error.message, cause: error });
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | ArtifactPersistenceError) =>
+  error instanceof ArtifactPersistenceError ? error : ArtifactPersistenceError.make({ operation, message: error.message, cause: error });
+
+/** A stored row that no longer decodes: refused loudly, never read as absent and written over. */
+const unreadable = (operation: string, what: string) =>
+  ArtifactPersistenceError.make({ operation, message: `${what} does not decode`, cause: undefined });
 
 const actorJson = (actor: ResourceActor): string => JSON.stringify(actor);
+
+/**
+ * The artifact domain's projection: fold applied facts into `artifact_heads`
+ * and `artifact_versions`. The local ruler runs it inside its ruling's
+ * transaction; a replica runs it when a received `ruling.applied` carries
+ * artifact facts. The caller owns the transaction.
+ */
+export const projectArtifactFacts = (
+  sql: SqlClient.SqlClient,
+  canvas: string,
+  opId: OpId,
+  facts: ReadonlyArray<ArtifactFact>,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    for (const fact of facts) {
+      switch (fact.fact) {
+        case "artifact.created": {
+          const a = fact.artifact;
+          yield* sql`
+            INSERT INTO artifact_heads (canvas_name, artifact_id, node_id, type, title, version,
+              created_by_json, updated_at, archived, task_ids_json)
+            VALUES (${canvas}, ${a.artifactId}, ${a.nodeId}, ${a.type}, ${a.title}, ${a.version},
+              ${actorJson(a.createdBy)}, ${a.updatedAt}, ${a.archived ? 1 : 0}, ${JSON.stringify(a.taskIds)})`;
+          yield* sql`
+            INSERT INTO artifact_versions (canvas_name, artifact_id, version, op_id, author_json, at, edit_json, body_json)
+            VALUES (${canvas}, ${a.artifactId}, ${a.version}, ${opId}, ${actorJson(a.createdBy)}, ${a.updatedAt},
+              NULL, ${JSON.stringify(fact.body)})`;
+          break;
+        }
+        case "artifact.edited":
+          yield* sql`
+            INSERT INTO artifact_versions (canvas_name, artifact_id, version, op_id, author_json, at, edit_json, body_json)
+            VALUES (${canvas}, ${fact.artifactId}, ${fact.version}, ${opId}, ${actorJson(fact.author)}, ${fact.at},
+              ${JSON.stringify(fact.edit)}, ${JSON.stringify(fact.body)})`;
+          yield* sql`
+            UPDATE artifact_heads SET version = ${fact.version}, updated_at = ${fact.at}
+            WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          break;
+        case "artifact.retitled":
+          yield* sql`
+            UPDATE artifact_heads SET title = ${fact.title}, updated_at = ${fact.at}
+            WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          break;
+        case "artifact.archived":
+          yield* sql`
+            UPDATE artifact_heads SET archived = ${fact.archived ? 1 : 0}, updated_at = ${fact.at}
+            WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          break;
+        case "artifact.tasks":
+          yield* sql`
+            UPDATE artifact_heads SET task_ids_json = ${JSON.stringify(fact.taskIds)}, updated_at = ${fact.at}
+            WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          break;
+      }
+    }
+  });
 
 export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlClient.SqlClient> = Layer.effect(
   ArtifactRepository,
@@ -246,10 +313,11 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
         const row = yield* headRow({ canvas, id });
         if (Option.isNone(row)) return Option.none<ArtifactHeadRead>();
         const artifact = artifactOfRow(row.value);
-        if (artifact === undefined) return Option.none<ArtifactHeadRead>();
+        if (artifact === undefined) return yield* unreadable("head", `artifact ${id}`);
         const stored = yield* bodyRow({ canvas, id, version: artifact.version });
         const body = Option.isSome(stored) ? bodyOf(stored.value.body_json) : undefined;
-        return body === undefined ? Option.none<ArtifactHeadRead>() : Option.some({ artifact, body });
+        if (body === undefined) return yield* unreadable("head", `the body of artifact ${id} at version ${artifact.version}`);
+        return Option.some({ artifact, body });
       });
 
     /**
@@ -291,51 +359,6 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
           }
         }
         return rulings;
-      });
-
-    const writeFacts = (canvas: string, opId: OpId, facts: ReadonlyArray<ArtifactFact>) =>
-      Effect.gen(function* () {
-        for (const fact of facts) {
-          switch (fact.fact) {
-            case "artifact.created": {
-              const a = fact.artifact;
-              yield* sql`
-                INSERT INTO artifact_heads (canvas_name, artifact_id, node_id, type, title, version,
-                  created_by_json, updated_at, archived, task_ids_json)
-                VALUES (${canvas}, ${a.artifactId}, ${a.nodeId}, ${a.type}, ${a.title}, ${a.version},
-                  ${actorJson(a.createdBy)}, ${a.updatedAt}, ${a.archived ? 1 : 0}, ${JSON.stringify(a.taskIds)})`;
-              yield* sql`
-                INSERT INTO artifact_versions (canvas_name, artifact_id, version, op_id, author_json, at, edit_json, body_json)
-                VALUES (${canvas}, ${a.artifactId}, ${a.version}, ${opId}, ${actorJson(a.createdBy)}, ${a.updatedAt},
-                  NULL, ${JSON.stringify(fact.body)})`;
-              break;
-            }
-            case "artifact.edited":
-              yield* sql`
-                INSERT INTO artifact_versions (canvas_name, artifact_id, version, op_id, author_json, at, edit_json, body_json)
-                VALUES (${canvas}, ${fact.artifactId}, ${fact.version}, ${opId}, ${actorJson(fact.author)}, ${fact.at},
-                  ${JSON.stringify(fact.edit)}, ${JSON.stringify(fact.body)})`;
-              yield* sql`
-                UPDATE artifact_heads SET version = ${fact.version}, updated_at = ${fact.at}
-                WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
-              break;
-            case "artifact.retitled":
-              yield* sql`
-                UPDATE artifact_heads SET title = ${fact.title}, updated_at = ${fact.at}
-                WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
-              break;
-            case "artifact.archived":
-              yield* sql`
-                UPDATE artifact_heads SET archived = ${fact.archived ? 1 : 0}, updated_at = ${fact.at}
-                WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
-              break;
-            case "artifact.tasks":
-              yield* sql`
-                UPDATE artifact_heads SET task_ids_json = ${JSON.stringify(fact.taskIds)}, updated_at = ${fact.at}
-                WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
-              break;
-          }
-        }
       });
 
     const list = Effect.fn("artifacts.list")(function* (canvasName: string, query: ArtifactListQuery) {
@@ -401,6 +424,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
                 opId: command.opId,
                 artifactId: stored.success.artifactId as ItemId,
                 version: stored.success.version as ArtifactVersion,
+                facts: [],
               }
             : {
                 kind: "refused" as const,
@@ -409,6 +433,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
                 root: stored.success.root as OpId,
               };
         }
+        return yield* unreadable("submit", `the ruling of ${command.opId}`);
       }
       const artifactId = targetOf(command);
       const state = new Map<ItemId, ArtifactEntry>();
@@ -421,11 +446,12 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       const domain = artifactDomain(() => now);
       const ruled = rule(domain, { state, rulings }, writer, command, context);
       const ruling = ruled.ruling;
-      if (ruling.kind === "applied") yield* writeFacts(canvas, command.opId, ruling.facts);
-      const outcome: ArtifactSubmitOutcome =
-        artifactId === undefined && ruling.kind === "applied"
-          ? { kind: "refused", opId: command.opId, error: { type: "InternalError", message: "applied without an artifact" }, root: command.opId }
-          : outcomeOf(ruling, ruled.ruled.state, artifactId as ItemId);
+      if (ruling.kind === "applied") {
+        // The domain refuses a command with no target item, so an applied one always names it.
+        if (artifactId === undefined) return yield* Effect.die("an applied artifact ruling names no artifact");
+        yield* projectArtifactFacts(sql, canvas, command.opId, ruling.facts);
+      }
+      const outcome = outcomeOf(ruling, ruled.ruled.state, artifactId as ItemId);
       const stored =
         outcome.kind === "applied"
           ? { kind: "applied", artifactId: outcome.artifactId, version: outcome.version }
