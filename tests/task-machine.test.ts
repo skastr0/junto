@@ -167,6 +167,14 @@ describe("assignment", () => {
     expect(one(record(), seat(ada), { kind: "assign", seat: bo }, env(), [closed]).ok).toBe(true);
   });
 
+  it("assigns only a seat that reaches the task node, unless the operator assigns", () => {
+    const reach = env({ seatReaches: (who) => who !== cy });
+    expect(refused(one(record(), seat(ada), { kind: "assign", seat: cy }, reach))).toEqual({ kind: "not-in-reach", nodeId: cy });
+    expect(refused(one(record(), { kind: "automation", automation: asNodeId("nightly") }, { kind: "assign", seat: cy }, reach)).kind)
+      .toBe("not-in-reach");
+    expect(ok(one(record(), operator, { kind: "assign", seat: cy }, reach)).task.assignee).toBe(cy);
+  });
+
   it("unassign from any open state returns to backlog and clears the assignee", () => {
     for (const state of ["assigned", "working", "input-required", "in-review"] as const) {
       const ruled = ok(one(record({ state, assignee: ada, next: qa }), seat(bo), { kind: "unassign" }));
@@ -250,6 +258,19 @@ describe("dependencies", () => {
       kind: "dependency-cycle",
       through: [T3, T1],
     });
+  });
+});
+
+describe("dependency reach", () => {
+  const far = record({ id: T2, number: taskNumber(2)!, node: ship });
+  const reach = env({ seatReaches: (_, node) => node !== ship });
+
+  it("depends a seat only on a task whose node it reaches; the operator on any", () => {
+    expect(refused(one(record(), seat(ada), { kind: "depend", on: T2 }, reach, [far]))).toEqual({
+      kind: "not-in-reach",
+      nodeId: ship,
+    });
+    expect(ok(one(record(), operator, { kind: "depend", on: T2 }, reach, [far])).task.dependsOn).toEqual([T2]);
   });
 });
 
@@ -510,6 +531,7 @@ describe("refusal text", () => {
       { kind: "cannot-review", actor: "automation" },
       { kind: "target-mismatch", target: T1, taskId: T2 },
       { kind: "wrong-node", nodeId: build, expected: "agent" },
+      { kind: "not-in-reach", nodeId: ship },
     ];
     for (const detail of details) expect(taskRefusalMessage(detail)).not.toBe("");
     expect(taskRefusalMessage({ kind: "illegal-transition", from: "done", command: "start" })).toBe("A done task cannot start");

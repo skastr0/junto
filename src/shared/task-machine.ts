@@ -59,7 +59,7 @@ export type TaskDomainEnv = {
   readonly downstream: (node: TaskNodeId) => ReadonlyArray<TaskNodeId>;
   /** The stamp default a task node sets for tasks created on or arriving at it. */
   readonly stampDefaultOf: (node: TaskNodeId) => StampPolicy;
-  /** Region reach (01) of a seat to a task node: who may be a reviewer. */
+  /** Region reach (01) of a seat to a task node: who may be a reviewer, an assignee, or depended on. */
   readonly seatReaches: (seat: SeatNodeId, node: TaskNodeId) => boolean;
 };
 
@@ -144,7 +144,7 @@ export type TaskContext = {
   readonly downstream: ReadonlyArray<TaskNodeId>;
   /** The stamp default a task node sets for tasks that arrive on it. */
   readonly stampDefaultOf: (node: TaskNodeId) => StampPolicy;
-  /** Region reach (01) of a seat to this task's node: who may be a reviewer. */
+  /** Region reach (01) of a seat to this task's node: who may be a reviewer or an assignee. */
   readonly seatReaches: (seat: SeatNodeId) => boolean;
 };
 
@@ -254,6 +254,8 @@ export const ruleTaskCommand = <T extends TaskCore>(
           ? refuse({ kind: "already-assigned", assignee: task.assignee })
           : illegal(task, command);
       }
+      // Only the operator assigns outside reach: no seat or automation hands work, and mail, to a sibling region.
+      if (actor.kind !== "operator" && !ctx.seatReaches(command.seat)) return refuse({ kind: "not-in-reach", nodeId: command.seat });
       const held = ctx.openTaskOf(command.seat);
       if (held !== undefined && held !== ctx.taskId) return refuse({ kind: "seat-busy", seat: command.seat, taskId: held });
       return rule({ ...task, state: "assigned", assignee: command.seat }, [{ kind: "assignment-notice", seat: command.seat }]);
@@ -392,7 +394,10 @@ export const ruleTaskBoardCommand = (
   const task = state.tasks.get(target.taskId);
   if (task === undefined || task.node !== target.node) return refuse({ kind: "unknown-task", taskId: target.taskId });
   if (command.kind === "depend") {
-    if (!state.tasks.has(command.on)) return refuse({ kind: "unknown-task", taskId: command.on });
+    const on = state.tasks.get(command.on);
+    if (on === undefined) return refuse({ kind: "unknown-task", taskId: command.on });
+    // A seat depends only on tasks its reach sees (01, task-dep-scope); the operator on any.
+    if (actor.kind === "seat" && !env.seatReaches(actor.seat, on.node)) return refuse({ kind: "not-in-reach", nodeId: on.node });
     const cycle = task.dependsOn.includes(command.on) ? undefined : dependencyPath(state.tasks, command.on, task.id);
     if (cycle !== undefined) return refuse({ kind: "dependency-cycle", through: cycle });
   }
@@ -460,6 +465,8 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
       return `The command names task ${detail.target} but creates ${detail.taskId}`;
     case "wrong-node":
       return `${detail.nodeId} is not ${detail.expected === "agent" ? "a seat" : "a task node"}`;
+    case "not-in-reach":
+      return `${detail.nodeId} is outside your reach`;
   }
 };
 
