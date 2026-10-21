@@ -2,9 +2,7 @@ import { observable } from "@legendapp/state";
 import { ulid } from "ulid";
 import type {
   ChatApi,
-  ChatBeginNodeDeleteResult,
   ChatEvent,
-  ChatFinishNodeDeleteOutcome,
   ChatModelChoice,
   ChatOpenResult,
 } from "@shared/ipc";
@@ -593,73 +591,6 @@ export async function closeChat(agentKey: string): Promise<boolean> {
       "error",
     );
     return false;
-  }
-}
-
-/**
- * Begin a Main-owned agent delete lease: locks keys, admits chatOpen
- * tombstones, and awaits verified close. Call finishAgentNodeDelete after
- * document commit or abort.
- */
-export async function beginAgentNodeDelete(
-  agentKeys: ReadonlyArray<string>,
-): Promise<ChatBeginNodeDeleteResult> {
-  const keys = [...new Set(agentKeys.map((k) => k.trim()).filter((k) => k.length > 0))];
-  for (const agentKey of keys) {
-    ensureAgent(agentKey);
-    chatState$[agentKey].assign({ status: "closed", pendingPermission: undefined });
-    syncChatCoarse(agentKey, getAgentChatState(agentKey));
-  }
-  const api = getChatApi();
-  if (!api || typeof api.chatBeginNodeDelete !== "function") {
-    for (const agentKey of keys) {
-      pushStatus(agentKey, "delete lease unavailable — refuse agent delete", "error");
-    }
-    return { ok: false, error: "delete lease unavailable" };
-  }
-  try {
-    const result = await api.chatBeginNodeDelete(
-      keys.map((agentKey) => ({ kind: "agent" as const, agentKey })),
-    );
-    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-      for (const agentKey of keys) {
-        pushStatus(
-          agentKey,
-          typeof result.error === "string" ? result.error : "delete lease begin failed",
-          "error",
-        );
-      }
-      return result;
-    }
-    if (result && typeof result === "object" && result.ok === true) {
-      for (const close of result.closeResults) {
-        if (!close.ok) {
-          pushStatus(close.agentKey, "agent process teardown was not clean", "error");
-        }
-      }
-      return result;
-    }
-    return { ok: false, error: "delete lease begin failed" };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "delete lease begin failed";
-    for (const agentKey of keys) {
-      pushStatus(agentKey, message, "error");
-    }
-    return { ok: false, error: message };
-  }
-}
-
-/** Release delete lease after document commit or abort (never open while releasing). */
-export async function finishAgentNodeDelete(
-  leaseId: string,
-  outcome: ChatFinishNodeDeleteOutcome,
-): Promise<void> {
-  const api = getChatApi();
-  if (!api || typeof api.chatFinishNodeDelete !== "function") return;
-  try {
-    await api.chatFinishNodeDelete(leaseId, outcome);
-  } catch {
-    // Best-effort release; TTL on main is the backstop.
   }
 }
 

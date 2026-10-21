@@ -452,11 +452,7 @@ const deleteNodesInternal = async (
 
   const sideEffects: Array<Promise<void>> = [];
 
-  // Agent delete: Main-owned lease locks keys, admits chatOpen tombstones,
-  // and awaits verified close BEFORE document mutation. Finish releases the
-  // fence after commit or abort (TTL is the backstop).
   const agentNodes = existingNodes.filter((n): n is NodeOf<"agent"> => n.kind === "agent");
-  const agentKeys = agentNodes.map((n) => n.agentKey);
   // Managed terminal authority is the exact (host, binding) pair, never the
   // agent key. Two cards may temporarily share an agent key while still owning
   // distinct seats, and duplicate references to one seat must stop it once.
@@ -467,57 +463,16 @@ const deleteNodesInternal = async (
   for (const node of agentNodes) {
     managedTerminalBindings.set(`${node.host}\0${node.bindingId}`, { bindingId: node.bindingId, hostId: node.host });
   }
-  let chatDeleteLeaseId: string | undefined;
   let terminalDeleteLeaseId: string | undefined;
   const finishDeleteLeases = async (
     outcome: "committed" | "aborted",
   ): Promise<void> => {
-    const chatLease = chatDeleteLeaseId;
     const terminalLease = terminalDeleteLeaseId;
-    chatDeleteLeaseId = undefined;
     terminalDeleteLeaseId = undefined;
-    const finishes: Array<Promise<unknown>> = [];
-    if (chatLease !== undefined) {
-      finishes.push(
-        import("./chat-state").then(({ finishAgentNodeDelete }) =>
-          finishAgentNodeDelete(chatLease, outcome)
-        ),
-      );
-    }
-    if (terminalLease !== undefined) {
-      const finish = window.junto?.terminalFinishNodeDelete;
-      if (typeof finish === "function") {
-        finishes.push(finish(terminalLease, outcome));
-      }
-    }
-    await Promise.all(finishes);
+    if (terminalLease === undefined) return;
+    const finish = window.junto?.terminalFinishNodeDelete;
+    if (typeof finish === "function") await finish(terminalLease, outcome);
   };
-
-  if (agentKeys.length > 0) {
-    if (!canvasMutationAdmissionOpen) return;
-    const { beginAgentNodeDelete } = await import("./chat-state");
-    const began = await beginAgentNodeDelete(agentKeys);
-    if (!began.ok) {
-      if (canvasMutationAdmissionOpen) {
-        state$.error.set(
-          "Agent delete fence failed; the agent node was not deleted.",
-        );
-      }
-      return;
-    }
-    chatDeleteLeaseId = began.leaseId;
-    if (!canvasMutationAdmissionOpen) {
-      await finishDeleteLeases("aborted");
-      return;
-    }
-    if (!began.closeResults.every((result) => result.ok && result.clean)) {
-      await finishDeleteLeases("aborted");
-      state$.error.set(
-        "Agent session teardown failed or was unclean; the agent node was not deleted.",
-      );
-      return;
-    }
-  }
 
   const canvasGenerationMatches = (): boolean =>
     state$.canvasName.peek() === canvasName && state$.docEpoch.peek() === docEpoch;

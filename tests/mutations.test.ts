@@ -9,7 +9,7 @@ import * as fixtures from "./support/model-nodes";
 import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
-import { dock$, openAgentChatSurface } from "../src/renderer/lib/dock-state";
+import { dock$ } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import { formatNodeRef } from "../src/shared/node-ref";
 
@@ -42,39 +42,12 @@ const chatClose = vi.fn(async (): Promise<{ ok: boolean; clean?: boolean }> => (
   ok: true,
   clean: true,
 }));
-const chatBeginNodeDelete = vi.fn(
-  async (
-    resources: ReadonlyArray<{ readonly kind: "agent"; readonly agentKey: string }>,
-  ): Promise<{
-    readonly ok: true;
-    readonly leaseId: string;
-    readonly closeResults: ReadonlyArray<{
-      readonly agentKey: string;
-      readonly ok: boolean;
-      readonly clean: boolean;
-    }>;
-  } | { readonly ok: false; readonly error: string }> => ({
-    ok: true,
-    leaseId: "test-lease",
-    closeResults: resources.map((resource) => ({
-      agentKey: resource.agentKey,
-      ok: true,
-      clean: true,
-    })),
-  }),
-);
-const chatFinishNodeDelete = vi.fn(
-  async (): Promise<{ readonly ok: true }> => ({ ok: true }),
-);
-
 const runtimeWindow = {
   junto: {
     modelCommand: async () => ({ seq: 1 }),
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),
     chatClose,
-    chatBeginNodeDelete,
-    chatFinishNodeDelete,
     // The base document's two nodes are real seats, and deleting a seat takes
     // a lease on its terminal first. These cases are not about that lease.
     terminalBeginNodeDelete: async () => ({ ok: true as const, leaseId: "terminal-lease" }),
@@ -120,18 +93,6 @@ describe("renderer graph mutations", () => {
     browserStop.mockResolvedValue({ ok: true });
     chatClose.mockReset();
     chatClose.mockResolvedValue({ ok: true, clean: true });
-    chatBeginNodeDelete.mockReset();
-    chatBeginNodeDelete.mockImplementation(async (resources) => ({
-      ok: true as const,
-      leaseId: "test-lease",
-      closeResults: resources.map((resource) => ({
-        agentKey: resource.agentKey,
-        ok: true,
-        clean: true,
-      })),
-    }));
-    chatFinishNodeDelete.mockReset();
-    chatFinishNodeDelete.mockResolvedValue({ ok: true });
     browser$.sessionByRef.set({});
     dock$.registry.set(initialWorkbenchState());
     dock$.chatById.set({});
@@ -288,69 +249,6 @@ describe("renderer graph mutations", () => {
     expect(docNow().nodes).toMatchObject([
       { id: "page", url: "https://replacement.example.com" },
     ]);
-  });
-
-  it("rechecks canvas epoch after agent close and refuses deletion on epoch drift", async () => {
-    state$.canvasName.set("mutation-test");
-    load([fixtures.seat("agent", { agentKey: "local:default", label: "agent", x: 0, y: 0, width: 220, height: 84 })]);
-    let finishBegin!: (result: {
-      readonly ok: true;
-      readonly leaseId: string;
-      readonly closeResults: ReadonlyArray<{
-        readonly agentKey: string;
-        readonly ok: boolean;
-        readonly clean: boolean;
-      }>;
-    }) => void;
-    chatBeginNodeDelete.mockImplementationOnce(
-      () => new Promise((resolve) => {
-        finishBegin = resolve;
-      }),
-    );
-
-    deleteNode("agent");
-    await waitFor(() =>
-      expect(chatBeginNodeDelete).toHaveBeenCalledWith([
-        { kind: "agent", agentKey: "local:default" },
-      ]),
-    );
-    // Canvas switch / reload advances docEpoch while lease begin awaits.
-    load([fixtures.seat("agent", { agentKey: "local:default", label: "replacement", x: 10, y: 10, width: 220, height: 84 })]);
-    finishBegin({
-      ok: true,
-      leaseId: "lease-epoch",
-      closeResults: [{ agentKey: "local:default", ok: true, clean: true }],
-    });
-
-    await waitFor(() => expect(state$.error.peek()).toBe(
-      "Canvas changed before deletion completed; no nodes were deleted.",
-    ));
-    expect(chatFinishNodeDelete).toHaveBeenCalledWith("lease-epoch", "aborted");
-    expect(docNow().nodes).toMatchObject([
-      { id: "agent", label: "replacement" },
-    ]);
-  });
-
-  it("begins delete lease then finishes committed after document commit", async () => {
-    state$.canvasName.set("mutation-test");
-    load([fixtures.seat("agent", { agentKey: "local:default", label: "agent", width: 220, height: 84 })]);
-    // The chat opens on the seat the store holds.
-    openAgentChatSurface("mutation-test", "agent");
-    expect(dock$.registry.peek().surfaces).toMatchObject([
-      { id: "chat:agent", kind: "chat", zone: "focus" },
-    ]);
-
-    deleteNode("agent");
-    await waitFor(() => expect(docNow().nodes).toEqual([]));
-    await waitFor(() => expect(dock$.registry.peek().surfaces).toEqual([]));
-    expect(dock$.chatById.peek()).toEqual({});
-    expect(chatBeginNodeDelete).toHaveBeenCalledWith([
-      { kind: "agent", agentKey: "local:default" },
-    ]);
-    expect(chatFinishNodeDelete).toHaveBeenCalledWith("test-lease", "committed");
-    const beginOrder = chatBeginNodeDelete.mock.invocationCallOrder[0]!;
-    const finishOrder = chatFinishNodeDelete.mock.invocationCallOrder[0]!;
-    expect(beginOrder).toBeLessThan(finishOrder);
   });
 
   it("rejects a duplicate source-to-target relation", () => {

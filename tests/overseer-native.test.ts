@@ -785,20 +785,6 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     expect(termPlane.nodeDelete.isLocked("bind-a1", THIS_MACHINE)).toBe(false);
   });
 
-  it("reuses ChatService.nodeDelete rather than constructing a second fence", async () => {
-    const chats = makeChats();
-    const native = live([{ name: "factory", doc: doc([agent("a1")]) }], { chats });
-    expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
-    const prepared = await native.prepareOverseerNodeDelete([
-      { kind: "agent", agentKey: "local:a1" },
-    ]);
-    expect(prepared.ok).toBe(true);
-    expect(chats.nodeDelete.isLocked("local:a1")).toBe(true);
-    if (!prepared.ok) return;
-    native.finishOverseerNodeDelete(prepared.leaseId, "aborted");
-    expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
-  });
-
   it("uses late-bound pages for delete after construct-time undefined", async () => {
     const stopForOwner = vi.fn(async () => ({
       ok: true as const,
@@ -928,8 +914,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     ]);
   });
 
-  it("does not begin agent/terminal teardown when a live page stop fails", async () => {
-    const chats = makeChats();
+  it("does not begin terminal teardown when a live page stop fails", async () => {
     const termPlane = makeTermPlane({ deleteBinding: vi.fn(async () => true) });
     const pages = {
       stopForOwner: vi.fn(async () => ({
@@ -943,13 +928,11 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: doc([agent("a1"), page("p1")]) }], {
-      chats,
       termPlane,
       pages,
     });
     const prepared = await native.prepareOverseerNodeDelete([
       { kind: "page", canvasName: "factory", nodeId: "p1" },
-      { kind: "agent", agentKey: "local:a1" },
       { kind: "terminal", bindingId: "bind-a1", hostId: THIS_MACHINE },
     ]);
     expect(prepared.ok).toBe(true);
@@ -957,7 +940,6 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     expect(prepared.pageStops).toEqual([
       { sessionId: "sess-1", stopped: false, error: "view still destroying" },
     ]);
-    expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
     expect(termPlane.nodeDelete.isLocked("bind-a1", THIS_MACHINE)).toBe(false);
   });
 

@@ -163,7 +163,6 @@ describe("what an overseer may not remove", () => {
       { canvasName: "ops", nodeIds: new Set(["peer", "web", "n1"]) },
       { canvasName: "nowhere", nodeIds: new Set(["peer"]) },
     ])).toEqual([
-      { kind: "agent", agentKey: "local:peer" },
       { kind: "terminal", bindingId: "bind-peer", hostId: THIS_MACHINE },
       { kind: "page", canvasName: "ops", nodeId: "web" },
     ]);

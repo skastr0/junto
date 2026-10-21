@@ -781,7 +781,7 @@ describe("executeOverseerCanvas", () => {
     expect(await nodeAt("ops", "peer")).toBeUndefined();
   });
 
-  it("deleting a seat plans its session and its agent for teardown, and a page by its node", async () => {
+  it("deleting a seat plans its session for teardown", async () => {
     await boot();
     const planned: Array<ReadonlyArray<unknown>> = [];
     setOverseerNativeDeleteHooks({
@@ -793,7 +793,6 @@ describe("executeOverseerCanvas", () => {
     });
     await expectOk({ operation: "node.delete", args: { nodeIds: ["peer"] } });
     expect(planned).toEqual([[
-      { kind: "agent", agentKey: "local:amp" },
       { kind: "terminal", bindingId: "bind-peer", hostId: THIS_MACHINE },
     ]]);
   });

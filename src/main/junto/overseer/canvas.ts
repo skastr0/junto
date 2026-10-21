@@ -106,7 +106,6 @@ export type OverseerDeletePrepareResult =
       readonly ok: true;
       readonly leaseId: string;
       readonly termLeaseId?: string;
-      readonly chatLeaseId?: string;
       readonly pageStops: ReadonlyArray<{
         readonly sessionId: string;
         readonly stopped: boolean;

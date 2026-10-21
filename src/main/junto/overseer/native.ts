@@ -106,7 +106,6 @@ export type OverseerDeletePrepareResult =
       readonly ok: true;
       readonly leaseId: string;
       readonly termLeaseId?: string;
-      readonly chatLeaseId?: string;
       readonly pageStops: ReadonlyArray<{
         readonly sessionId: string;
         readonly stopped: boolean;
@@ -1221,14 +1220,12 @@ const dispatchNative = async (
 type ActiveDeleteLease = {
   readonly id: string;
   readonly termLeaseId?: string;
-  readonly chatLeaseId?: string;
   readonly pageRefs: ReadonlyArray<string>;
 };
 
 const makeDeleteHooks = (
   ctx: {
     readonly termPlane: TermPlane;
-    readonly chats: ChatService;
     readonly pages: () => BrowserSessionService | undefined;
   },
 ): OverseerNativeDeleteHooks => {
@@ -1236,15 +1233,13 @@ const makeDeleteHooks = (
 
   return {
     prepareOverseerNodeDelete: async (resources) => {
-      const agents = resources.filter((resource) => resource.kind === "agent");
       const terminals = resources.filter((resource) => resource.kind === "terminal");
       const pages = resources.filter((resource) => resource.kind === "page");
-      if (agents.length + terminals.length + pages.length === 0) {
+      if (terminals.length + pages.length === 0) {
         return { ok: false, error: "no overseer resources to delete" };
       }
 
       let termLeaseId: string | undefined;
-      let chatLeaseId: string | undefined;
       const pageStops: Array<{ sessionId: string; stopped: boolean; error?: string }> = [];
       const pageRefs: string[] = [];
       const leaseId = `odl-${randomBytes(12).toString("hex")}`;
@@ -1349,25 +1344,9 @@ const makeDeleteHooks = (
           }
           termLeaseId = began.leaseId;
         }
-        if (agents.length > 0) {
-          const began = await ctx.chats.nodeDelete.beginNodeDelete(
-            agents.map((resource) => ({ kind: "agent" as const, agentKey: resource.agentKey })),
-          );
-          if (!began.ok) {
-            if (termLeaseId !== undefined) {
-              ctx.termPlane.nodeDelete.finishNodeDelete(termLeaseId, "aborted");
-            }
-            releasePageFences();
-            return { ok: false, error: began.error };
-          }
-          chatLeaseId = began.leaseId;
-        }
       } catch (error) {
         if (termLeaseId !== undefined) {
           ctx.termPlane.nodeDelete.finishNodeDelete(termLeaseId, "aborted");
-        }
-        if (chatLeaseId !== undefined) {
-          ctx.chats.nodeDelete.finishNodeDelete(chatLeaseId, "aborted");
         }
         const runtime = ctx.pages();
         if (runtime !== undefined) {
@@ -1383,13 +1362,11 @@ const makeDeleteHooks = (
         id: leaseId,
         pageRefs: Object.freeze([...pageRefs]),
         ...(termLeaseId !== undefined ? { termLeaseId } : {}),
-        ...(chatLeaseId !== undefined ? { chatLeaseId } : {}),
       });
       return {
         ok: true,
         leaseId,
         ...(termLeaseId !== undefined ? { termLeaseId } : {}),
-        ...(chatLeaseId !== undefined ? { chatLeaseId } : {}),
         pageStops: Object.freeze(pageStops),
       };
     },
@@ -1404,10 +1381,6 @@ const makeDeleteHooks = (
       }
       if (lease.termLeaseId !== undefined) {
         const finished = ctx.termPlane.nodeDelete.finishNodeDelete(lease.termLeaseId, outcome);
-        if (!finished.ok) return finished;
-      }
-      if (lease.chatLeaseId !== undefined) {
-        const finished = ctx.chats.nodeDelete.finishNodeDelete(lease.chatLeaseId, outcome);
         if (!finished.ok) return finished;
       }
       leases.delete(id);
@@ -1431,16 +1404,14 @@ export type OverseerNative = OverseerNativeDeleteHooks & {
  * Live constructor. Parent / composition worker constructs this after
  * TermPlane, ChatService, BrowserSessionService, and ManagedTerminalDrive exist.
  *
- * Fence identity: `termPlane.nodeDelete` and `chats.nodeDelete` are the same
- * instances renderer IPC uses. Do not construct a second TerminalNodeDeleteService
- * or chat NodeDeleteService.
+ * Fence identity: `termPlane.nodeDelete` is the same instance renderer IPC
+ * uses. Do not construct a second TerminalNodeDeleteService.
  */
 export const makeOverseerNativeLive = (
   options: OverseerNativeLiveOptions,
 ): OverseerNative => {
   const hooks = makeDeleteHooks({
     termPlane: options.termPlane,
-    chats: options.chats,
     pages: () => options.pages,
   });
 

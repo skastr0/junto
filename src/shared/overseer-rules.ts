@@ -38,7 +38,6 @@ export type OverseerSeatBinding = {
 };
 
 export type OverseerDeleteResource =
-  | { readonly kind: "agent"; readonly agentKey: string }
   | {
       readonly kind: "terminal";
       readonly bindingId: string;
@@ -157,9 +156,6 @@ export const nativeDeleteResourcesOf = (
     if (canvas === undefined) continue;
     for (const node of canvas.nodes.values()) {
       if (!target.nodeIds.has(node.id)) continue;
-      if (node.kind === "agent") {
-        push({ kind: "agent", agentKey: node.agentKey }, `agent:${node.agentKey}`);
-      }
       if (node.kind === "agent" || node.kind === "terminal") {
         push(
           { kind: "terminal", bindingId: node.bindingId, hostId: node.host },

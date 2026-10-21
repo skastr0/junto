@@ -11,11 +11,6 @@ import { seat } from "./support/model-nodes";
 import { held, openCanvas } from "./support/open-canvas";
 import { state$ } from "../src/renderer/lib/state";
 
-type AgentDeleteResource = {
-  readonly kind: "agent";
-  readonly agentKey: string;
-};
-
 const confirmDelete = vi.fn(() => true);
 type TerminalDeleteResource = { readonly bindingId: string; readonly hostId?: string };
 const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) => ({
@@ -35,28 +30,11 @@ const terminalFinishNodeDelete = vi.fn(
   async () => ({ ok: true as const }),
 );
 const modelCommand = vi.fn(async () => ({ seq: 1 }));
-const chatBeginNodeDelete = vi.fn(
-  async (resources: ReadonlyArray<AgentDeleteResource>) => ({
-    ok: true as const,
-    leaseId: "managed-delete-lease",
-    closeResults: resources.map((resource) => ({
-      agentKey: resource.agentKey,
-      ok: true,
-      clean: true,
-    })),
-  }),
-);
-const chatFinishNodeDelete = vi.fn(
-  async () => ({ ok: true as const }),
-);
-
 const runtimeWindow = {
   junto: {
     modelCommand,
     terminalBeginNodeDelete,
     terminalFinishNodeDelete,
-    chatBeginNodeDelete,
-    chatFinishNodeDelete,
   },
   setTimeout: globalThis.setTimeout.bind(globalThis),
   clearTimeout: globalThis.clearTimeout.bind(globalThis),
@@ -103,18 +81,6 @@ describe.sequential("managed agent node terminal teardown", () => {
     terminalFinishNodeDelete.mockResolvedValue({ ok: true });
     modelCommand.mockReset();
     modelCommand.mockResolvedValue({ seq: 1 });
-    chatBeginNodeDelete.mockReset();
-    chatBeginNodeDelete.mockImplementation(async (resources) => ({
-      ok: true as const,
-      leaseId: "managed-delete-lease",
-      closeResults: resources.map((resource) => ({
-        agentKey: resource.agentKey,
-        ok: true,
-        clean: true,
-      })),
-    }));
-    chatFinishNodeDelete.mockReset();
-    chatFinishNodeDelete.mockResolvedValue({ ok: true });
   });
 
   it("awaits the exact terminal stop after confirmation and before document commit", async () => {
@@ -145,10 +111,6 @@ describe.sequential("managed agent node terminal teardown", () => {
 
     finishTerminalDelete();
     await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
-    expect(chatFinishNodeDelete).toHaveBeenCalledWith(
-      "managed-delete-lease",
-      "committed",
-    );
     expect(terminalFinishNodeDelete).toHaveBeenCalledWith(
       "terminal-delete-lease",
       "committed",
@@ -168,10 +130,6 @@ describe.sequential("managed agent node terminal teardown", () => {
       "Junto could not stop the managed terminal cleanly; the agent node was not deleted.",
     ));
     expect(nodesHeld()).toEqual([node]);
-    expect(chatFinishNodeDelete).toHaveBeenCalledWith(
-      "managed-delete-lease",
-      "aborted",
-    );
   });
 
   it("keys teardown by binding, not a shared agent key", async () => {
@@ -197,9 +155,6 @@ describe.sequential("managed agent node terminal teardown", () => {
     expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
       { bindingId: "binding-a", hostId: "station-a" },
-    ]);
-    expect(chatBeginNodeDelete).toHaveBeenCalledWith([
-      { kind: "agent", agentKey: `${THIS_MACHINE}:duplicate` },
     ]);
   });
 
@@ -264,10 +219,6 @@ describe.sequential("managed agent node terminal teardown", () => {
       "Canvas changed before deletion completed; no nodes were deleted.",
     ));
     expect(nodesHeld()).toEqual([replacement]);
-    expect(chatFinishNodeDelete).toHaveBeenCalledWith(
-      "managed-delete-lease",
-      "aborted",
-    );
   });
 
   // Quiescence is a monotonic process latch, so this proof must remain last.
@@ -297,9 +248,5 @@ describe.sequential("managed agent node terminal teardown", () => {
 
     expect(nodesHeld()).toEqual([node]);
     expect(modelCommand).not.toHaveBeenCalled();
-    expect(chatFinishNodeDelete).toHaveBeenCalledWith(
-      "managed-delete-lease",
-      "aborted",
-    );
   });
 });
