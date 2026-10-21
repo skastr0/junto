@@ -192,6 +192,20 @@ describe("owed and awaited replies", () => {
     expect(out.owedReplies.lines).toEqual([]);
   });
 
+  it("never owes a reply to a refusal notice, and keeps what was owed before it", () => {
+    const ask = seatMail(minute(1), LEAD, "review this");
+    const refusal = seatMail(minute(2), "task-node", "refused: stale", { threadId: ask.messageId, subjectNotice: "refusal" });
+    const out = since(inputOf({ [ME]: [ask, refusal] }));
+    expect(out.owedReplies.lines.map((line) => line.ref)).toEqual([mailRef(ask)]);
+    const alone = since(inputOf({ [ME]: [seatMail(minute(3), "task-node", "refused", { subjectNotice: "refusal" })] }));
+    expect(alone.owedReplies.lines).toEqual([]);
+  });
+
+  it("owes a reply to a notice that takes one", () => {
+    const assigned = seatMail(minute(1), LEAD, "assigned to you", { subjectNotice: "assignment" });
+    expect(since(inputOf({ [ME]: [assigned] })).owedReplies.lines.map((line) => line.ref)).toEqual([mailRef(assigned)]);
+  });
+
   it("has no time boundary: a thread from long before the previous session still counts", () => {
     const old = seatMail(minute(1), LEAD, "old ask");
     const out = since(inputOf({ [ME]: [old] }, { previousStartedAt: minute(900) }));

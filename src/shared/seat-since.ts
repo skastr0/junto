@@ -3,6 +3,7 @@ import { compareSignalListOrder } from "./agent-signals";
 import { mailListMatches } from "./mail-list-filter";
 import { seatMailThreadEntries, type HeldMailbox } from "./mail-threads";
 import type { NodeId } from "./model/base";
+import { noticeTakesReply, subjectNoticeKindOf } from "./subject-notice";
 import type { Message } from "./work-model";
 import type { MailParty, MailThreadMessage } from "./wire/mail-threads";
 
@@ -15,7 +16,7 @@ import type { MailParty, MailThreadMessage } from "./wire/mail-threads";
  *   each of the seat's threads in the `mail-threads.ts` derivation, the last
  *   mail the seat wrote or was written, its direction, and its `deliveredAt`
  *   and `readAt`. Mail between other seats in the same thread does not move
- *   it. A replaced session ends when the next starts, so a window would
+ *   it, nor does a notice that takes no reply (a refusal). A replaced session ends when the next starts, so a window would
  *   always be empty.
  * - A signal answer the operator mailed is mail and shows as a thread. A
  *   silent answer has no receipt, so the previous session's `started_at`
@@ -121,12 +122,18 @@ export const seatSince = (input: SinceInput, caps: { readonly perSection: number
   const rows = new Map<string, Message>();
   for (const mailbox of input.mailboxes) for (const row of mailbox.messages) rows.set(row.messageId, row);
 
+  // A notice that takes no reply never makes a reply owed.
+  const answerable = (entry: MailThreadMessage): boolean => {
+    const kind = subjectNoticeKindOf(rows.get(entry.messageId) ?? {});
+    return kind === undefined || noticeTakesReply(kind);
+  };
+
   // Each thread's last mail the seat wrote or was written, newest first.
   const lasts: MailThreadMessage[] = [];
   for (const entries of seatMailThreadEntries(input, seat).values()) {
     for (let at = entries.length - 1; at >= 0; at -= 1) {
       const entry = entries[at]!;
-      if (![entry.from, ...entry.to].some((party) => isSeat(party, seat))) continue;
+      if (![entry.from, ...entry.to].some((party) => isSeat(party, seat)) || !answerable(entry)) continue;
       lasts.push(entry);
       break;
     }
