@@ -2731,13 +2731,17 @@ export class BrowserSessionService {
         }
       }
       entry.lastActiveAt = this.now();
-      view.traverse(step, owner === BROWSER_UI_SESSION_OWNER);
+      // Marked before the step: a view may start it inside traverse, and that
+      // start clears the mark. Marked after, it would outlive the start and
+      // hold the page busy until the timer.
       entry.stepOwner = owner;
       entry.stepPending = setTimeout(() => {
         entry.stepPending = undefined;
         entry.stepOwner = undefined;
       }, BROWSER_STEP_START_MS);
+      view.traverse(step, owner === BROWSER_UI_SESSION_OWNER);
     } catch (error) {
+      this.clearStepPending(entry);
       return err("failed", error instanceof Error ? error.message : String(error));
     }
     return { ok: true, data: this.info(entry) };
