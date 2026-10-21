@@ -4,7 +4,7 @@ import type { BrowserBoxApi, BrowserBoxDraft, BrowserChromeState } from "@shared
 import type { BrowserTabId } from "@shared/browser-tab";
 import { activeTab } from "@shared/page-tabs";
 import type { ChromeCommand } from "../../lib/browser-chrome-source";
-import { addressTarget, driverView, refusalLine, tabLabel, takeoverOffer } from "../../lib/browser-chrome-model";
+import { addressTarget, boxShotSpent, driverView, refusalLine, tabLabel, takeoverOffer } from "../../lib/browser-chrome-model";
 import type { BrowserChromeOutcome } from "@shared/browser-chrome";
 import { claimFocus } from "../../lib/focus-ownership";
 import { registerPageChromeKeys } from "../../lib/page-chrome-keys";
@@ -317,7 +317,11 @@ export function BrowserChrome({
       .post(sessionId, draft.shotId, text)
       .then((outcome) => {
         if (outcome.ok) setDraft(null);
-        else setRefused(refusalLine(outcome.refusal));
+        else {
+          setRefused(refusalLine(outcome.refusal));
+          // A spent shot cannot be posted again: the composer closes and the operator draws a new box.
+          if (boxShotSpent(outcome.refusal)) setDraft(null);
+        }
       })
       .finally(() => setPosting(false));
   };

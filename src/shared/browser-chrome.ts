@@ -95,7 +95,14 @@ export type BrowserBoxApi = {
    * refusal when the capture was refused (`page-shot.ts` words, as `invalid`).
    */
   readonly start: (sessionId: string) => Promise<BrowserBoxResult>;
-  /** Post the comment with exactly the staged shot; the staged shot is dropped either way. */
+  /**
+   * Post the comment with exactly the staged shot. A post refused before main
+   * claims the shot (empty text, a mentioned seat out of reach, an unknown
+   * thread, a page not readable) keeps it staged: retry with the same id. The
+   * id is spent when the post is applied, when it is discarded, or when a
+   * failure came after the claim; then a retry is refused as already posted
+   * or dropped, and the operator draws the box again.
+   */
   readonly post: (sessionId: string, shotId: string, text: string) => Promise<BrowserChromeOutcome>;
   /** Drop a staged shot the operator did not post. */
   readonly discard: (sessionId: string, shotId: string) => Promise<void>;

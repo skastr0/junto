@@ -96,3 +96,11 @@ export const refusalLine = (refusal: BrowserChromeRefusal): string => {
       return "This page is not open any more.";
   }
 };
+
+/**
+ * Whether a refused box post says its staged shot is spent (main's words:
+ * "That shot was already posted or dropped: draw the box again."). Only then
+ * is the shot gone; any other refusal leaves it staged for a retry.
+ */
+export const boxShotSpent = (refusal: BrowserChromeRefusal): boolean =>
+  refusal.kind === "invalid" && /already posted or dropped/i.test(refusal.message);

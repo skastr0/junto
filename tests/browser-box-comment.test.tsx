@@ -141,6 +141,22 @@ describe("comment on an area", () => {
     expect(host.querySelector('[data-testid="box-comment-composer"]')).not.toBeNull();
   });
 
+  it("closes the composer when the shot is spent, and says to draw again", async () => {
+    const box = fakeBox(async () => ({ kind: "drawn", draft }));
+    box.post.mockResolvedValueOnce({
+      ok: false,
+      refusal: { kind: "invalid", message: "That shot was already posted or dropped: draw the box again." },
+    } as never);
+    await mount(box);
+    await click('[data-testid="browser-comment-area"]');
+    await typeInto('textarea[aria-label="Comment"]', "Hello");
+    await act(async () => {
+      host.querySelector('[data-testid="box-comment-composer"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(host.querySelector('[data-testid="box-comment-composer"]')).toBeNull();
+    expect(host.querySelector('[data-testid="browser-chrome-refused"]')?.textContent).toContain("draw the box again");
+  });
+
   it("shows no composer when drawing ends without a box, and the refusal when the capture is refused", async () => {
     await mount(fakeBox(async () => ({ kind: "ended" })));
     await click('[data-testid="browser-comment-area"]');
