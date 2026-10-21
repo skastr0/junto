@@ -16,7 +16,6 @@ describe("node palette catalog contract", () => {
     expect(NODE_CATALOG_CATEGORY_ACCENT).toEqual({
       shell: "text-cyan",
       sinks: "text-amber",
-      schedule: "text-violet",
       canvas: "text-indigo",
     });
     expect(Object.values(NODE_CATALOG_CATEGORY_ACCENT)).not.toContain("text-crimson");
