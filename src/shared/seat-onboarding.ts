@@ -81,9 +81,9 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
       { intent: "start or hand off", command: () => "junto task start #<n>, junto task assign #<n> @<seat>" },
       { intent: "rules + readiness", command: () => "junto task rules #<n>" },
       {
-        intent: "run this move's checks",
-        command: (t) => `junto task check '{"target":"${t}","task":"<taskId>"}'`,
-        detail: 'add `"next":"<board>"` when the board has more than one Next',
+        intent: "report this move's checks",
+        command: () => "junto task check #<n> --outgoing <checkId>=<exitCode>",
+        detail: "run each yourself first; --incoming for the next node's, --next <node> when there are several",
       },
       {
         intent: "progress, finish, ask for input",

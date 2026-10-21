@@ -26,7 +26,6 @@ import {
   SignalClearArgs,
   SignalListArgs,
   RulingsArgs,
-  TasksCheckCliArgs,
 } from "../../shared/work-control";
 import { SignalRaiseCliInput } from "./signal-input";
 import { Level, rankOf } from "../../shared/wire/urgency";
@@ -113,16 +112,6 @@ export const taskRulesSchema: CommandSchemaContract = {
     "The rules in force on a task node, with provenance: name a task for the rules where it sits and which its finish leaves unanswered, or --node for a node's.",
   schema: TaskRulesArgs,
   input_modes: ["argv"],
-};
-
-export const taskCheckSchema: CommandSchemaContract = {
-  command_id: "task.check",
-  command: "task check",
-  schema_id: "task.check.input/v1",
-  description:
-    "Run this board's outgoing checks and the next board's incoming checks in the seat environment, then submit the results. Name next when the path forks.",
-  schema: TasksCheckCliArgs,
-  input_modes: inputModes,
 };
 
 export const rulingsSchema: CommandSchemaContract = {
@@ -361,7 +350,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   offboardSchema,
   taskWaitSchema,
   taskRulesSchema,
-  taskCheckSchema,
   rulingsSchema,
   msgListSchema,
   msgSendSchema,
@@ -431,24 +419,6 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     description: "The rules where the task sits, and which its finish leaves unanswered.",
     input: { task: "#42" },
     args: ["task", "rules", "#42"],
-  },
-  {
-    command_id: "task.check",
-    command: "task check",
-    name: "run checks",
-    description:
-      "Resolve and run the applicable checks locally, then submit their results.",
-    input: { target: "n7", task: "t1" },
-    args: ["task", "check", '{"target":"n7","task":"t1"}'],
-  },
-  {
-    command_id: "task.check",
-    command: "task check",
-    name: "run checks for a next board",
-    description:
-      "Name the next board when the path forks; its incoming checks join this board's outgoing checks.",
-    input: { target: "n7", task: "t1", next: "n8" },
-    args: ["task", "check", '{"target":"n7","task":"t1","next":"n8"}'],
   },
   {
     command_id: "rulings",
@@ -978,15 +948,6 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Rules in force on a task node, and what a task's finish leaves unanswered.",
     schemas: [taskRulesSchema],
     examples: allExamples.filter((e) => e.command_id === "task.rules"),
-  },
-  {
-    command_id: "task.check",
-    command: "task check",
-    category: "workflow",
-    description:
-      "Run this move's outgoing and incoming checks in the seat environment and submit the results.",
-    schemas: [taskCheckSchema],
-    examples: allExamples.filter((e) => e.command_id === "task.check"),
   },
   {
     command_id: "rulings",

@@ -360,31 +360,6 @@ const RuleInForceView = Schema.Struct({
   provenance: RuleProvenanceView,
 });
 
-/** Strict response contract consumed by `task check`. */
-export const TasksRulesView = Schema.Struct({
-  rules: Schema.Array(RuleInForceView),
-  readiness: Schema.optionalKey(Schema.Struct({
-    unanswered: Schema.Array(Schema.Struct({
-      ruleId: Schema.String,
-      text: Schema.String,
-      provenance: RuleProvenanceView,
-    })),
-    checks: Schema.Array(Schema.Struct({
-      destination: Schema.String,
-      checks: Schema.Array(Schema.Struct({
-        checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-        side: CheckSide,
-        label: Schema.String,
-        command: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-        status: Schema.Literals(["green", "red", "missing", "stale"]),
-      })),
-    })),
-  })),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksRulesView = typeof TasksRulesView.Type;
-
 /**
  * Check submission. The agent CLI executes each command in its own environment
  * and submits only the observed results. Junto never runs a check.
@@ -404,20 +379,6 @@ export const TasksCheckArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksCheckArgs = typeof TasksCheckArgs.Type;
-
-/**
- * CLI-facing `task check` input. The CLI resolves and runs the applicable
- * commands; the caller supplies target/task/next, never `results`.
- */
-export const TasksCheckCliArgs = Schema.Struct({
-  target: Schema.String,
-  task: Schema.String,
-  /** Next board whose incoming checks apply, required when the path forks. */
-  next: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksCheckCliArgs = typeof TasksCheckCliArgs.Type;
 
 export const RulingsArgs = Schema.Struct({
   /** Omitted: the agent's own region stack. */

@@ -265,7 +265,7 @@ Where the operator drew a task path, finishing does not close the task: it hands
 
 - With one next node, \`task finish\` sends the task on; with more than one, name it with \`--next <node>\`.
 - Cite the work on the finish: \`--commit <sha>\` and \`--artifact <node id>/<artifactId>\`, repeated for several.
-- **Checks** are the operator's deterministic gates for that move. Run them with \`task check\`: the commands run in your own shell and the results are stamped from what they returned.
+- **Checks** are the operator's deterministic gates for that move. \`task rules <task>\` lists each with its command and status. Run each in your own shell, then report it: \`task check <task> --outgoing <checkId>=<exitCode>\`, \`--incoming\` for the next node's, or \`--results @file\` with each output's tail. A finish with a required check red or not run at this epoch is refused checks-unmet, naming them.
 - The next node sees your layer as stamps, comments and cited refs, never your interior work.
 - \`task stamp <task> changes --text "<what to change>"\` sends the task back to \`working\` on a new epoch: earlier stamps stop counting and check results are stale, so answer the rules again and re-run the checks.`;
 

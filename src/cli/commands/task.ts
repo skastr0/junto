@@ -4,10 +4,11 @@ import { mintItemId } from "../../shared/resource-command";
 import {
   TASK_ARGS,
   TASK_LIST_LIMIT_MAX,
+  TaskCheckArgs,
   isTaskWriteOp,
   type TaskControlOp,
 } from "../../shared/task-control";
-import { STAMPS_REQUIRED_MAX, TASK_STATES } from "../../shared/task-model";
+import { CHECK_OUTPUT_TAIL_MAX, STAMPS_REQUIRED_MAX, TASK_STATES } from "../../shared/task-model";
 import type {
   CommandCapability,
   CommandExample,
@@ -15,10 +16,10 @@ import type {
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { InputError } from "../core/errors";
+import { loadJsonInput } from "../core/json";
 import { opIdFlag, opIdOf } from "../core/op-id";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
-import { taskCheckCommand } from "./board";
 import { taskWaitCommand } from "./seat";
 import { taskRulesCommand } from "./work";
 
@@ -73,7 +74,8 @@ const DESCRIPTIONS = {
   start: "Start the task assigned to this seat: assigned becomes working.",
   pause: "Ask for input: working becomes input-required.",
   resume: "Go back to work: input-required becomes working.",
-  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet.",
+  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run.",
+  check: "Report the checks you ran for this move, each with its exit code: Junto never runs one. task rules lists them with their side, command and status; --outgoing reports this node's, --incoming the next node's, or --results carries them as JSON with each output's tail.",
   cancel: "Cancel a task that is not done.",
   archive: "Archive a done or canceled task.",
   depend: "Make a task wait on another: it cannot finish until --on is done.",
@@ -207,6 +209,57 @@ const finishCommand = Command.make(
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.finish));
 
+type CheckSide = "outgoing" | "incoming";
+
+/** `<checkId>=<exitCode>` as one result on `side`; the flags carry no output. */
+const flaggedResult = (side: CheckSide, value: string) =>
+  Effect.flatMap(pairOf(side, "<checkId>=<exitCode>", value, value.lastIndexOf("=")), ([checkId, code]) =>
+    /^-?\d+$/.test(code)
+      ? Effect.succeed({ checkId, side, exitCode: Number(code), outputTail: "" })
+      : Effect.fail(new InputError({ message: `--${side} takes <checkId>=<exitCode>, got ${JSON.stringify(value)}`, path: side })));
+
+/** The results the flags name, or the JSON --results carries; one way or the other. Each tail keeps its last bytes. */
+export const checkResultsOf = (flags: {
+  readonly outgoing: ReadonlyArray<string>;
+  readonly incoming: ReadonlyArray<string>;
+  readonly results: Option.Option<string>;
+}) =>
+  Effect.gen(function* () {
+    const flagged = yield* Effect.forEach(
+      [...flags.outgoing.map((value) => ["outgoing", value] as const), ...flags.incoming.map((value) => ["incoming", value] as const)],
+      ([side, value]) => flaggedResult(side, value),
+    );
+    if (Option.isSome(flags.results) === (flagged.length > 0)) {
+      return yield* Effect.fail(new InputError({ message: "report results with --outgoing and --incoming, or with --results, not both", path: "results" }));
+    }
+    const results = Option.isSome(flags.results) ? yield* loadJsonInput(TaskCheckArgs.fields.results, flags.results.value) : flagged;
+    return results.map((result) => ({ ...result, outputTail: result.outputTail.slice(-CHECK_OUTPUT_TAIL_MAX) }));
+  });
+
+const checkCommand = Command.make(
+  "check",
+  {
+    task: taskArg,
+    outgoing: repeated("outgoing", "A check of this node you ran: <checkId>=<exitCode>; repeat for several"),
+    incoming: repeated("incoming", "A check of the next node you ran: <checkId>=<exitCode>; repeat for several"),
+    results: Flag.string("results").pipe(
+      Flag.optional,
+      Flag.withDescription("Instead of the flags: [{checkId, side, exitCode, outputTail}] as JSON, @file or -"),
+    ),
+    next: Flag.string("next").pipe(Flag.optional, Flag.withDescription("The node whose incoming checks these answer, when there are several")),
+    opId: opIdFlag,
+    timeout: timeoutFlag,
+  },
+  ({ task, outgoing, incoming, results, next, opId, timeout }) =>
+    executeJsonCommand(
+      "task check",
+      Effect.gen(function* () {
+        const reported = yield* checkResultsOf({ outgoing, incoming, results });
+        return yield* call("task.check", { opId: yield* opIdOf(opId), task, ...present({ next }), results: reported }, timeout);
+      }),
+    ),
+).pipe(Command.withDescription(DESCRIPTIONS.check));
+
 const dependCommand = (verb: "depend" | "undepend") =>
   Command.make(
     verb,
@@ -288,6 +341,7 @@ export const taskCommand = Command.make("task").pipe(
     oneCommand("pause"),
     oneCommand("resume"),
     finishCommand,
+    checkCommand,
     oneCommand("cancel"),
     oneCommand("archive"),
     dependCommand("depend"),
@@ -296,7 +350,6 @@ export const taskCommand = Command.make("task").pipe(
     stampPolicyCommand,
     stampCommand,
     commentCommand,
-    taskCheckCommand,
     taskRulesCommand,
     taskWaitCommand,
   ]),
@@ -343,6 +396,18 @@ export const taskExamples: ReadonlyArray<CommandExample> = [
   example("finish", "finish with evidence", "--claim answers a rule in force; --commit cites the work.", ["#42", "--commit", "2e219a5ca", "--claim", "tests=work-cli passes under all-on"], {
     task: "#42",
     evidence: { artifacts: [], git: { commits: ["2e219a5ca"] }, claims: [{ ruleId: "tests", text: "work-cli passes under all-on" }] },
+  }),
+  example("check", "report checks", "Each check you ran, with its exit code; a red one blocks the finish.", ["#42", "--outgoing", "tests=0", "--outgoing", "lint=1"], {
+    task: "#42",
+    results: [
+      { checkId: "tests", side: "outgoing", exitCode: 0, outputTail: "" },
+      { checkId: "lint", side: "outgoing", exitCode: 1, outputTail: "" },
+    ],
+  }),
+  example("check", "report checks with output", "--results carries each output's tail; @file or - reads it.", ["#42", "--next", "Review", "--results", "@checks.json"], {
+    task: "#42",
+    next: "Review",
+    results: [{ checkId: "e2e", side: "incoming", exitCode: 1, outputTail: "1 failed: replay keeps the opId" }],
   }),
   example("stamp", "ask for changes", "changes needs --text.", ["#42", "changes", "--text", "Cover the replay path"], {
     task: "#42",

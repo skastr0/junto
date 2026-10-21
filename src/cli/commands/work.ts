@@ -75,7 +75,7 @@ export const taskRulesCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "The rules in force on a task node, with provenance: name a task for the rules where it sits and which its finish leaves unanswered, or --node for a node's own",
+    "The rules in force on a task node, with provenance: name a task for the rules where it sits, which its finish leaves unanswered and the checks it needs with their status, or --node for a node's own",
   ),
 );
 
