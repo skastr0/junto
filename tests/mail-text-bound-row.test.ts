@@ -5,6 +5,7 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { ActorSeatId } from "../src/shared/actor-seat";
 import { assertWorkRowBound, workRowBytes } from "../src/shared/exchange-bounds";
 import { mailExtensionMetadata } from "../src/shared/crew";
 import { MAIL_ENVELOPE_BYTES, MAIL_TEXT_INLINE_MAX_BYTES, mailTextBytes } from "../src/shared/mail-text-bound";
@@ -14,7 +15,7 @@ import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 
 const decodeFact = Schema.decodeUnknownSync(ExchangeFact);
 const ulid = "01M5EWVMGBCK0SD7DAZK23GXZG";
-const seat = `seat_${"1".repeat(64)}`;
+const seat = Schema.decodeSync(ActorSeatId)(`seat_${"1".repeat(64)}`);
 /** A name at its 255 bound in the costliest characters it may hold: three UTF-8 bytes each. */
 const widestName = "語".repeat(255);
 const fileRef = {
