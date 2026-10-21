@@ -227,6 +227,12 @@ const expectedAdmission = (
   edgeMode: MatrixEdgeMode,
   port: Port,
 ): "allow" | "deny" => {
+  // Plan 01: a seat uses a Tasks or Artifacts node in reach with no edge, and
+  // no edge changes that. Both cell nodes sit loose on the root, so the target
+  // is in reach; whatever it offers is admitted, in either direction.
+  if (sourceKind === "agent" && (targetKind === "task" || targetKind === "artifacts")) {
+    return HashSet.has(KindSpecs[targetKind].offers, port) ? "allow" : "deny";
+  }
   if (sourceKind !== "agent" || edgeMode === "absent") return "deny";
   if (!HashSet.has(KindSpecs[targetKind].offers, port)) return "deny";
   if (!isGrantedTarget(targetKind) || edgeMode === "foreign-verb") return "deny";
