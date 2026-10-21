@@ -142,6 +142,8 @@ describe("main authoring architecture", () => {
       "src/main/junto/work/seat-observation-live.ts",
       // Prompt mail to a seat, written only under ipc.work.message-append.
       "src/main/junto/work/seat-prompt.ts",
+      // A ruling's notices go out as the actor's mail, only from the ruled task command.
+      "src/main/junto/work/task-delivery.ts",
     ]);
 
     const companion = source("src/main/junto/companion/operator-actions.ts");
