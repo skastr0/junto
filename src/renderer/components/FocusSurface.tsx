@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   focusMeasureCssVars,
@@ -7,6 +7,7 @@ import {
 } from "../lib/focus-measure";
 import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 import { noteSubjectInUse, subjectOf, useModalLayer } from "../lib/modal-stack";
+import { FocusWindowContext, type FocusWindow } from "./ui/FocusWindow";
 
 // What a press may land on and keep: controls, fields, and the terminal.
 // Anything else in the panel is blank chrome or plain text.
@@ -51,6 +52,11 @@ const INTERACTIVE_SELECTOR = [
  * Measure constrains width for human readability (see focus-measure.ts).
  * Height policy picks immersive (agent work), fit (forms), or resizable
  * (browse detail with session size memory).
+ *
+ * Maximize: any surface that is not `fit` offers its header a toggle that
+ * widens the panel to the full frame, less the surface's own padding
+ * (`data-maximized`, styled in styles.css). Size memory never records the
+ * maximized box, so restoring returns the size the operator had.
  *
  * Close: backdrop click (optional), Escape (optional). The PTY keeps Esc for
  * the PTY and only closes via Close / ⌘W / backdrop.
@@ -104,6 +110,11 @@ export function FocusSurface({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [maximized, setMaximized] = useState(false);
+  const focusWindow = useMemo<FocusWindow | null>(
+    () => (height === "fit" ? null : { maximized, toggleMaximized: () => setMaximized((on) => !on) }),
+    [height, maximized],
+  );
   const asideRef = useRef<HTMLDivElement>(null);
   const modal = useModalLayer({
     layer: "working",
@@ -148,6 +159,7 @@ export function FocusSurface({
     const panel = panelRef.current;
     if (!panel) return;
     const observer = new ResizeObserver(() => {
+      if (rootRef.current?.dataset.maximized === "true") return;
       writeSessionSize(measure, {
         width: panel.offsetWidth,
         height: panel.offsetHeight,
@@ -198,6 +210,7 @@ export function FocusSurface({
       data-focus-surface="1"
       data-focus-owner="interactive"
       data-layer="working"
+      data-maximized={maximized ? "true" : undefined}
       onKeyDown={modal.onKeyDown}
       className={[
         "focus-surface",
@@ -234,7 +247,7 @@ export function FocusSurface({
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {children}
+          <FocusWindowContext.Provider value={focusWindow}>{children}</FocusWindowContext.Provider>
         </div>
         {aside ? (
           <div

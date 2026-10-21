@@ -52,6 +52,42 @@
   }
 }
 
+.two-pane__sidebar-body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.two-pane__sidebar-body[hidden] {
+  display: none;
+}
+
+/* Collapsed: a strip that holds the controls and nothing else. Last in the
+   sheet's grid rules so it wins over the rail's column sizes. */
+.two-pane[data-sidebar="collapsed"] {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.two-pane[data-sidebar="collapsed"][data-rail="true"] {
+  grid-template-columns: 40px minmax(0, 1fr) clamp(260px, 26cqw, 320px);
+}
+
+@container (max-width: 56rem) {
+  .two-pane[data-sidebar="collapsed"][data-rail="true"] {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+}
+
+.two-pane__strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+}
+
 .pane-header {
   display: flex;
   height: 36px;

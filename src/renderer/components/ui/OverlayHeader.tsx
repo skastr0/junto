@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { Eyebrow } from "./Eyebrow";
+import { FocusMaximizeButton, useFocusWindow } from "./FocusWindow";
 
 /**
  * Overlay header — the one chrome header for every work-surface panel
@@ -9,6 +10,8 @@ import { Eyebrow } from "./Eyebrow";
  * `middle` is the room between the identity and the actions, for one or two
  * live readouts about the subject; `dense` is the one-line header, with half
  * the padding, for a surface that gives its height to its content.
+ * Inside a focus modal that can grow, the header also carries the maximize
+ * toggle, first among its actions so Close stays at the corner.
  * Replaces the cloned browser-modal-header blocks and
  * gives surfaces like the native terminal the same face.
  */
@@ -32,6 +35,7 @@ export function OverlayHeader({
   readonly dense?: boolean;
   readonly className?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
+  const growable = useFocusWindow() !== null;
   return (
     <header
       className={[
@@ -52,7 +56,12 @@ export function OverlayHeader({
         {status ? <div className="mt-0.5 truncate text-body text-dim">{status}</div> : null}
       </div>
       {middle ? <div className="flex min-w-0 flex-1 items-center gap-4">{middle}</div> : null}
-      {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
+      {actions || growable ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <FocusMaximizeButton />
+          {actions}
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -151,6 +151,8 @@ export function WorkFocusShell() {
       const obs = new ResizeObserver(() => {
         const w = panel.offsetWidth;
         if (lastWritten.current === w) return;
+        // The maximized box is the surface's, not the operator's size.
+        if (panel.closest('[data-maximized="true"]')) return;
         lastWritten.current = w;
         setWorkbenchFocusSize({
           key: sizeKey,

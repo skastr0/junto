@@ -18,6 +18,7 @@ export {
 export { Dropdown, type DropdownOption } from "./Dropdown";
 export { Combobox } from "./Combobox";
 export { OverlayHeader } from "./OverlayHeader";
+export { FocusMaximizeButton, FocusWindowContext, useFocusWindow, type FocusWindow } from "./FocusWindow";
 export { ToolbarPill } from "./ToolbarPill";
 export { Kbd, KeyChord } from "./Kbd";
 export { Popover } from "./Popover";

@@ -149,6 +149,23 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
     0 0 0 1px var(--color-overlay-1);
   animation: focus-surface-enter 160ms ease-out;
 }
+/* The station bar is a window drag region on darwin, and a drag region ignores
+   z-index: a focus panel whose header sits in the bar's 64px (the surface
+   keeps only 40px above it) would turn every click on that header into a
+   window drag. The panel and its rail cut themselves out of the drag. */
+html[data-junto-platform="darwin"] .focus-surface__panel,
+html[data-junto-platform="darwin"] .focus-surface__aside {
+  -webkit-app-region: no-drag;
+}
+/* Maximized: the panel takes the whole frame, which is the surface's padding
+   inside the window (and the outside rail, when there is one, keeps its own
+   width). Flex basis, not width, so an inline width remembered from a drag
+   resize cannot hold it back. */
+.focus-surface[data-maximized="true"] .focus-surface__panel {
+  flex: 1 1 0%;
+  width: auto;
+  max-width: none !important;
+}
 /* Leave room for the outside edges rail (248px + 12px gap). */
 .focus-surface--has-aside .focus-surface__panel {
   max-width: min(calc(100vw - 32px), calc(100% - 260px));
