@@ -109,8 +109,8 @@ const owners = (sha256: string) =>
 const failure = (result: Awaited<ReturnType<typeof post>>): WorkErrorBody | undefined => (result._tag === "Failure" ? result.failure : undefined);
 
 describe("a page box comment", () => {
-  it("carries the shot main took, held by the comment's own record and nobody else", async () => {
-    const posted = await post(comment("01M5ESMJV6GNZ0891YFFWS0S3Q"), context(capture()));
+  it("carries the shot main took, held by the comment's own record and nobody else, and the url without its query", async () => {
+    const posted = await post(comment("01M5ESMJV6GNZ0891YFFWS0S3Q"), context(capture("https://example.com/a?session=s3cret#top")));
     if (posted._tag === "Failure") throw new Error(posted.failure.message);
     expect(shots).toEqual([{ kind: "box", x: 10, y: 150, w: 40, h: 20 }]);
     const row = (await rows()).find((message) => message.messageId === posted.success.messageId)!;

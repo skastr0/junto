@@ -88,6 +88,21 @@ const posterNode = (actor: ResourceActor): NodeId | undefined => (actor.kind ===
 
 const isBoxRect = Schema.is(BoxAnchor);
 
+/**
+ * The page's address as a comment keeps it: no query and no fragment, which
+ * can hold a session token, since the comment crosses machines with its thread.
+ */
+const withoutQuery = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.href;
+  } catch {
+    return url;
+  }
+};
+
 /** Let go of a shot whose comment was not written. */
 const releaseShot = (owner: ContentOwner): Effect.Effect<void> =>
   Effect.serviceOption(ContentService).pipe(
@@ -235,7 +250,7 @@ export const postSubjectComment = (
           : { canvasName, nodeId: input.actor.nodeId as string };
         shotOwner = { kind: "message", canvasName, nodeId, recordId: messageId };
         const ref = yield* holdShot(shot, stager, shotOwner);
-        const anchor = { ...box, url: shot.url, scroll: shot.scroll, shot: ref };
+        const anchor = { ...box, url: withoutQuery(shot.url), scroll: shot.scroll, shot: ref };
         if (!isPageBox(anchor)) {
           yield* releaseShot(shotOwner);
           return yield* Effect.fail<WorkErrorBody>({
