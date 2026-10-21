@@ -131,6 +131,33 @@ describe("seat-state source: the service is the pure fold with its timer", () =>
     }
   }, 60_000);
 
+  it("drops a re-published state and still emits what the fold of every event emits", async () => {
+    // Attention re-published every 800 ms, idle and working repeated, across a new epoch.
+    const repeats = (bindingId: string, epoch: string, state: AgentSeatState, from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => ev(bindingId, epoch, state, from + i * 800));
+    const run: Script = {
+      seeds: [ev("seat-b", "e1", "idle", 0)],
+      live: [
+        ...repeats("seat-a", "e1", "attention", 1_000, 5),
+        ...repeats("seat-a", "e1", "idle", 10_000, 10),
+        ...repeats("seat-b", "e1", "idle", 20_000, 4),
+        ...repeats("seat-a", "e1", "working", 60_000, 50),
+        ...repeats("seat-a", "e2", "working", 110_000, 5),
+        ...repeats("seat-a", "e2", "attention", 120_000, 5),
+        ...repeats("seat-a", "e2", "gone", 130_000, 5),
+      ].sort((a, b) => a.at - b.at),
+      end: 130_000 + GRACE * 2,
+    };
+    const emitted = await runService(run);
+    expect(byKey(emitted)).toEqual(byKey(fold(run)));
+    expect(emitted.map((f) => `${f.seat} ${f.becomes}`)).toEqual([
+      "seat-a attention",
+      "seat-a idle",
+      "seat-a working",
+      "seat-a attention",
+      "seat-a gone",
+    ]);
+  });
 
   it("fires a hold on its timer, with no later event to settle it", async () => {
     const emitted = await runService({ seeds: [], live: [ev("seat-a", "e1", "idle", 1_000)], end: 1_000 + HOLD });

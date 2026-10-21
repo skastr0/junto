@@ -75,6 +75,13 @@ export const makeSeatStateSource = (feeds: Stream.Stream<SeatStateFeed>) =>
     const machineOf = new Map<string, InstallationId>();
     /** Seats whose machine's link was lost; the next event of each is its seed. */
     const unheard = new Set<string>();
+    /**
+     * The epoch and state of each seat's last folded live event. A seat
+     * re-publishes its state (attention every 800 ms), and folding the same
+     * epoch and state again changes no track and fires nothing, so it is
+     * dropped before the fold's pass over every seat.
+     */
+    const lastFolded = new Map<string, { readonly epoch: string; readonly state: AgentSeatStateEvent["state"] }>();
     let armed: { readonly due: number; readonly fiber: Fiber.Fiber<unknown> } | undefined;
 
     const arm = Effect.gen(function* () {
@@ -108,18 +115,26 @@ export const makeSeatStateSource = (feeds: Stream.Stream<SeatStateFeed>) =>
           // timer runs late under load and the lost link is taken before it.
           yield* fold({ _tag: "Tick", now: yield* Clock.currentTimeMillis });
           const lost = [...machineOf].flatMap(([bindingId, machine]) => (machine === feed.machine ? [bindingId] : []));
-          for (const bindingId of lost) unheard.add(bindingId);
+          for (const bindingId of lost) {
+            unheard.add(bindingId);
+            lastFolded.delete(bindingId);
+          }
           state = loseSeatTriggers(state, lost);
           return;
         }
-        const { bindingId } = feed.event;
+        const { bindingId, epoch, state: seatState } = feed.event;
         machineOf.set(bindingId, feed.machine);
         if (feed.kind === "seed") {
           unheard.delete(bindingId);
+          lastFolded.delete(bindingId);
           state = seedSeatTriggers([feed.event], feed.event.at, state);
         } else if (unheard.delete(bindingId)) {
+          lastFolded.delete(bindingId);
           state = regainSeatTriggers(state, feed.event, yield* Clock.currentTimeMillis);
         } else {
+          const last = lastFolded.get(bindingId);
+          if (last?.epoch === epoch && last.state === seatState) return;
+          lastFolded.set(bindingId, { epoch, state: seatState });
           yield* fold({ _tag: "Event", event: feed.event });
         }
       });
