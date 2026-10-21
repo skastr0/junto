@@ -21,6 +21,7 @@ import { probeManagedHarnessInstalls } from "./junto/term/templates/harness-inst
 import { makeRowsChannel } from "./junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/live";
 import { ResourceRuler } from "./junto/work/resource-ruler";
+import { makeResourceSubmitLayer } from "./junto/work/resource-submit";
 import type { RowExchange } from "./junto/work/exchange/session";
 import { messageDelivery } from "./junto/work/message-delivery";
 import { ContentService } from "./junto/content/service";
@@ -259,7 +260,12 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const links = machineLinkLayer(options.build);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
-  const seats = Layer.provideMerge(machineCoreSeatsLayer, rows);
+  // A seat's write on a canvas another machine edits is queued there, and waits for its ruling only while linked to it.
+  const submit = Layer.provideMerge(
+    Layer.unwrap(Effect.map(MachineCoreRows, (held) => makeResourceSubmitLayer((peer) => held.exchange.linked(peer)))),
+    rows,
+  );
+  const seats = Layer.provideMerge(machineCoreSeatsLayer, submit);
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);
   const boat = Layer.provideMerge(boatPlaneLayer(options.home), mail);
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {

@@ -7773,6 +7773,15 @@ export const WorkRepositoryLive = Layer.effect(
      * a ruling for this writer and its opId is held, which is the editing
      * machine's row or, on the editing machine, its own.
      */
+    /** A queue refusal anywhere in a failure's chain of causes. */
+    const queueRefusalIn = (error: unknown): CommandQueueFull | CommandTargetUnknown | undefined => {
+      for (let at: unknown = error, depth = 0; at !== undefined && depth < 8; depth += 1) {
+        if (at instanceof CommandQueueFull || at instanceof CommandTargetUnknown) return at;
+        at = typeof at === "object" && at !== null && "cause" in at ? (at as { readonly cause: unknown }).cause : undefined;
+      }
+      return undefined;
+    };
+
     /** Whether a command's target names a node, on this machine's copy, of a kind its resource kind may name. */
     const targetNamesItsKind = (
       reader: SqlClient.SqlClient,
@@ -7846,6 +7855,9 @@ export const WorkRepositoryLive = Layer.effect(
             receivedAt: timestamp(input.receivedAt),
           });
         }),
+      ).pipe(
+        // The transaction wraps a failure as a repository error; a queue refusal is the caller's to answer, so it comes back as itself.
+        Effect.mapError((error) => queueRefusalIn(error) ?? error),
       ) as Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull | CommandTargetUnknown>;
     };
 
