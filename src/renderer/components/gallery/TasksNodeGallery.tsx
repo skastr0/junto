@@ -83,7 +83,6 @@ export function TasksNodeGallery() {
       canvasName={CANVAS}
       node={BUILD}
       seats={SEATS}
-      facts={FACTS}
       nodeName={nodeName}
       onClose={() => undefined}
     />

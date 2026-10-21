@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
+import type { TaskResourceApi, ResourceChanged } from "../src/shared/resource-ipc";
+import { TASK_REFUSAL_REASON } from "../src/shared/task-model";
 import { seatNodeId, taskNodeId } from "../src/shared/task-model";
-import { makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
+import { makeIpcTasksSource, makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
 import {
   layerSummary,
   listedTasks,
@@ -53,6 +55,7 @@ describe("local tasks source", () => {
     expect((await source.apply(CANVAS, build, one, { kind: "assign", seat: ada })).ok).toBe(true);
     const refused = await source.apply(CANVAS, build, two, { kind: "assign", seat: ada });
     expect(refused).toMatchObject({ ok: false, refusal: { detail: { kind: "seat-busy", seat: ada, taskId: one } } });
+    expect(refused.ok === false && refused.message).toContain("already holds");
     const all = await source.all(CANVAS);
     expect(numberOfTask(all, one)).toBe("#1");
   });
@@ -144,5 +147,82 @@ describe("local tasks source", () => {
         closedAt: 9,
       }),
     ).toEqual({ node: build, assignee: ada, approvals: 1, required: 1, closedAt: 9 });
+  });
+});
+
+describe("tasks over the resource IPC", () => {
+  const fake = (apply: TaskResourceApi["apply"]) => {
+    const listeners = new Set<(changed: ResourceChanged) => void>();
+    const api: TaskResourceApi = {
+      list: async () => [],
+      all: async () => [],
+      context: async () => ({
+        downstream: { [build]: [qa] },
+        stampDefaults: { [qa]: { required: 2 } },
+        seatReach: { [ada]: [build] },
+      }),
+      apply,
+      onChanged: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    return { api, say: () => listeners.forEach((listener) => listener({ canvasName: CANVAS })) };
+  };
+  const id = mintItemId();
+
+  it("maps applied, queued and a domain refusal, and mints an opId per command", async () => {
+    const seen: string[] = [];
+    const { api } = fake(async (_c, _n, _t, opId, command) => {
+      seen.push(opId);
+      if (command.kind === "start") return { kind: "applied", opId };
+      if (command.kind === "pause") return { kind: "queued", opId };
+      return {
+        kind: "refused",
+        opId,
+        error: {
+          type: "ClaimConflict",
+          message: "refused",
+          details: {
+            reason: TASK_REFUSAL_REASON["seat-busy"],
+            expected: { kind: "seat-busy", seat: ada, taskId: id },
+          },
+        },
+      };
+    });
+    const source = makeIpcTasksSource(api);
+    expect(await source.apply(CANVAS, build, id, { kind: "start" })).toEqual({ ok: true });
+    expect(await source.apply(CANVAS, build, id, { kind: "pause" })).toEqual({ ok: true, queued: true });
+    const refused = await source.apply(CANVAS, build, id, { kind: "assign", seat: ada });
+    expect(refused).toMatchObject({ ok: false, refusal: { detail: { kind: "seat-busy" } } });
+    expect(refused.ok === false && refused.message).toContain("already holds");
+    expect(new Set(seen).size).toBe(3);
+  });
+
+  it("says the wire's own words for a refusal before the domain, with no refusal detail", async () => {
+    const { api } = fake(async (_c, _n, _t, opId) => ({
+      kind: "refused",
+      opId,
+      error: { type: "ScopeError", message: "out of reach of this node" },
+    }));
+    const refused = await makeIpcTasksSource(api).apply(CANVAS, build, id, { kind: "start" });
+    expect(refused).toEqual({ ok: false, message: "out of reach of this node" });
+  });
+
+  it("builds the ruling facts from the context and forwards changes", async () => {
+    const { api, say } = fake(async (_c, _n, _t, opId) => ({ kind: "applied", opId }));
+    const source = makeIpcTasksSource(api);
+    const facts = await source.facts(CANVAS);
+    expect(facts.downstream(build)).toEqual([qa]);
+    expect(facts.stampDefaultOf(qa)).toEqual({ required: 2 });
+    expect(facts.stampDefaultOf(build)).toEqual({ required: 0 });
+    expect(facts.seatReaches(ada, build)).toBe(true);
+    expect(facts.seatReaches(bo, build)).toBe(false);
+    let calls = 0;
+    const off = source.subscribe(() => (calls += 1));
+    say();
+    off();
+    say();
+    expect(calls).toBe(1);
   });
 });

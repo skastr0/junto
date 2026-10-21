@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
-import { taskRefusalMessage } from "@shared/task-machine";
 import { mintItemId } from "@shared/resource-command";
 import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-model";
-import { tasksSource, useCanvasTasks, useNodeTasks } from "../../lib/tasks-source";
+import { tasksSource, useCanvasTasks, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
 import { FocusSurface } from "../FocusSurface";
 import {
@@ -57,7 +56,6 @@ export function TasksNode({
   node,
   initialTaskId,
   seats,
-  facts,
   nodeName,
   onClose,
 }: {
@@ -66,12 +64,12 @@ export function TasksNode({
   readonly initialTaskId?: string;
   /** Seats in reach of this node (region reach, 01), named. */
   readonly seats: ReadonlyArray<SeatChoice>;
-  readonly facts: TaskCanvasFacts;
   readonly nodeName: (node: string) => string;
   readonly onClose: () => void;
 }) {
   const tasks = useNodeTasks(canvasName, node);
   const all = useCanvasTasks(canvasName);
+  const facts = useTaskFacts(canvasName);
   const [selectedId, setSelectedId] = useState<string | null>(initialTaskId ?? null);
   const [filter, setFilter] = useState<StateFilter>("all");
   const [query, setQuery] = useState("");
@@ -86,7 +84,7 @@ export function TasksNode({
 
   const apply = async (taskId: TaskId, command: TaskCommand): Promise<string | undefined> => {
     const ruling = await tasksSource().apply(canvasName, node, taskId, command);
-    const line = ruling.ok ? undefined : taskRefusalMessage(ruling.refusal.detail);
+    const line = ruling.ok ? undefined : ruling.message;
     setError(line ?? null);
     return line;
   };

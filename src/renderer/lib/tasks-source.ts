@@ -15,10 +15,13 @@ import {
   ruleTaskBoardCommand,
   emptyTaskBoard,
   taskDomain,
+  taskRefusalMessage,
   type TaskBoardState,
   type TaskDomainEnv,
   type TaskRecord,
 } from "@shared/task-machine";
+import { mintOpId } from "@shared/resource-command";
+import { taskEnvOf, taskRefusalOf, type TaskResourceApi } from "@shared/resource-ipc";
 import type {
   ClosedTaskLayer,
   TaskActor,
@@ -29,9 +32,17 @@ import type {
   TaskView,
 } from "@shared/task-model";
 
+/**
+ * What one write came back as. A refusal always has its words; it carries the
+ * domain's `refusal` when the task domain gave it (not for a refusal before
+ * the domain: reach, a full queue). `queued` is a success: durable, not ruled yet.
+ */
 export type TaskRuling =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly refusal: TaskRefusal };
+  | { readonly ok: true; readonly queued?: true }
+  | { readonly ok: false; readonly message: string; readonly refusal?: TaskRefusal };
+
+/** What the ruler consults besides the tasks: flows, stamp defaults, reach (04, 01). */
+export type TaskFacts = Omit<TaskDomainEnv, "at">;
 
 export interface TasksSource {
   /** The tasks that sit on this node now, oldest first. */
@@ -45,6 +56,8 @@ export interface TasksSource {
     taskId: TaskId,
     command: TaskCommand,
   ) => Promise<TaskRuling>;
+  /** The canvas's facts the ruler is asked in, to check a command before it is sent. */
+  readonly facts: (canvasName: string) => Promise<TaskFacts>;
   /** Called after any change; returns the unsubscribe. */
   readonly subscribe: (listener: () => void) => () => void;
 }
@@ -75,7 +88,7 @@ export type LocalTasksSource = TasksSource & { readonly as: (actor: TaskActor) =
 
 /** An in-memory source, as the stand-in and for tests. Every write is `actor`'s. */
 export const makeLocalTasksSource = (
-  env: Omit<TaskDomainEnv, "at"> = {
+  env: TaskFacts = {
     downstream: () => [],
     stampDefaultOf: () => ({ required: 0 }),
     seatReaches: () => true,
@@ -100,7 +113,7 @@ export const makeLocalTasksSource = (
       const full: TaskDomainEnv = { ...env, at };
       const state = boardOf(canvasName);
       const ruling = ruleTaskBoardCommand(state, { node, taskId }, writer, command, full);
-      if (!ruling.ok) return { ok: false, refusal: ruling.refusal };
+      if (!ruling.ok) return { ok: false, message: taskRefusalMessage(ruling.refusal.detail), refusal: ruling.refusal };
       boards.set(
         canvasName,
         taskDomain(full).apply(state, { kind: "task", task: ruling.task, effects: ruling.effects }),
@@ -117,6 +130,7 @@ export const makeLocalTasksSource = (
       for (const listener of listeners) listener();
       return { ok: true };
     },
+    facts: async () => env,
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -125,6 +139,35 @@ export const makeLocalTasksSource = (
 
   return { ...writtenBy(actor), as: writtenBy };
 };
+
+/**
+ * Main's tasks over the resource IPC (`resource-ipc.ts`): the same four reads
+ * and one write as the local stand-in. The opId is minted per command, so a
+ * resend after a lost answer is the same command to the ruler.
+ */
+export const makeIpcTasksSource = (api: TaskResourceApi): TasksSource => ({
+  list: (canvasName, node) => api.list(canvasName, node),
+  all: (canvasName) => api.all(canvasName),
+  apply: async (canvasName, node, taskId, command) => {
+    const outcome = await api.apply(canvasName, node, taskId, mintOpId(), command);
+    switch (outcome.kind) {
+      case "applied":
+        return { ok: true };
+      case "queued":
+        return { ok: true, queued: true };
+      case "refused": {
+        const refusal = taskRefusalOf(outcome.error);
+        return {
+          ok: false,
+          message: refusal === undefined ? outcome.error.message : taskRefusalMessage(refusal.detail),
+          ...(refusal === undefined ? {} : { refusal }),
+        };
+      }
+    }
+  },
+  facts: async (canvasName) => taskEnvOf(await api.context(canvasName)),
+  subscribe: (listener) => api.onChanged(() => listener()),
+});
 
 /** This window's source. Swapped for main's when cli-identity's handlers land. */
 let source: TasksSource = makeLocalTasksSource();
@@ -163,6 +206,16 @@ const NONE: ReadonlyArray<never> = [];
 
 export const useNodeTasks = (canvasName: string, node: TaskNodeId): ReadonlyArray<TaskView> =>
   useSourced(() => tasksSource().list(canvasName, node), NONE, `${canvasName}\u0000${node}`);
+
+const NO_FACTS: TaskFacts = {
+  downstream: () => [],
+  stampDefaultOf: () => ({ required: 0 }),
+  seatReaches: () => false,
+};
+
+/** The canvas's ruling facts; nothing is reachable until they are read. */
+export const useTaskFacts = (canvasName: string): TaskFacts =>
+  useSourced(() => tasksSource().facts(canvasName), NO_FACTS, canvasName);
 
 export const useCanvasTasks = (canvasName: string): ReadonlyArray<TaskView> =>
   useSourced(() => tasksSource().all(canvasName), NONE, canvasName);
