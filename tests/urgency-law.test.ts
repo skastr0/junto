@@ -88,6 +88,7 @@ const VOCAB = "a kind's own vocabulary, listed once; not an order";
 const COUNTS = "a count per tier, keyed; not an order";
 const KIND_MAP = "a kind map onto another vocabulary; ranks nothing";
 const NOT_URGENCY = "ranks something other than seat urgency";
+const TASK = "task states, which share words with seat states; not seat urgency";
 
 const ALLOWED: readonly Allowed[] = [
 
@@ -165,6 +166,12 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/shared/pad.ts", name: "PadShapeStatus", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/pad-project.ts", name: "PadFocusedItem.status", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/update.ts", name: "UpdatePhase", rule: "names", reason: "the app updater's phases, not seat urgency" },
+  { file: "src/shared/task-model.ts", name: "TASK_STATES", rule: "names", reason: TASK },
+  { file: "src/renderer/lib/resource-visuals.ts", name: "TASK_STATES", rule: "names", reason: TASK },
+  { file: "src/renderer/lib/resource-visuals.ts", name: "TASK_STATE_VISUAL", rule: "names", reason: TASK },
+  { file: "src/shared/automation.ts", name: "SeatBecomes", rule: "names", reason: "the seat states an automation watches; not an order" },
+  { file: "src/shared/automation.ts", name: "WatchedSignal", rule: "names", reason: "the signal kinds an automation watches; not an order" },
+  { file: "src/shared/seat-since.ts", name: "KIND_WORDS", rule: "names", reason: COPY },
 
   // Counts.
   { file: "src/shared/region-rollup.ts", name: "RegionRollup.counts", rule: "names", reason: COUNTS },
