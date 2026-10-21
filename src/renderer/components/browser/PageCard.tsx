@@ -56,7 +56,8 @@ export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
   const host = hostOf(url);
 
   return (
-    <div className="h-full w-full" title={url || host}>
+    // A failure's hover title leads with the error, which the leaf line cuts short.
+    <div className="h-full w-full" title={err !== undefined ? `${err}\n${url || host}` : url || host}>
       <SpineCard
         glyph={<Globe size={15} />}
         hue="indigo"

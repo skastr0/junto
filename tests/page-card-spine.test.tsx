@@ -53,6 +53,8 @@ describe("the Spines page chip", () => {
     expect(tag(html)).toBe("Failed");
     expect(html).toContain("net::ERR_NAME_NOT_RESOLVED");
     expect(html).not.toContain("browser page, personal");
+    // The hover title leads with the error, which the leaf line cuts short, then the address.
+    expect(html).toContain('title="net::ERR_NAME_NOT_RESOLVED\nhttps://docs.example.com/guide?x=1"');
     dock$.opErrorByRef[ref].set({ op: "close", message: "The page could not be detached." });
     html = draw();
     expect(html).toContain("The page could not be detached.");
