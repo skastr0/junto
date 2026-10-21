@@ -149,8 +149,8 @@ test("[fake-tui] a review's comments reach each agent as exactly one mail", asyn
     // A comment on the next line that mentions Brook: @ offers the region's agents, Enter picks.
     await pressPlusOn(page, detail, 1);
     await page.keyboard.type("Brook should check this @Bro");
-    await expect(detail.locator(".git-review__mention")).toHaveCount(1);
-    await expect(detail.locator(".git-review__mention")).toContainText("Brook");
+    await expect(detail.getByTestId("mention-option")).toHaveCount(1);
+    await expect(detail.getByTestId("mention-option")).toContainText("@Brook");
     await page.keyboard.press("Enter");
     await expect(composer.locator("textarea")).toHaveValue("Brook should check this @Brook ");
     await expect(composer.locator(".git-review__actions .git-review__to")).toHaveText("Goes to Brook");

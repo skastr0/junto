@@ -267,36 +267,6 @@
   margin-right: auto;
 }
 
-/* The agents offered while an @mention is being typed, under the field. */
-.git-review__mentions {
-  display: grid;
-  max-height: 160px;
-  margin: 0;
-  padding: 2px;
-  overflow: auto;
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-md);
-  background: var(--color-ground);
-  list-style: none;
-}
-
-.git-review__mention {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  color: var(--color-ink-2);
-  font-size: var(--text-body);
-  cursor: pointer;
-}
-
-.git-review__mention[data-active="true"],
-.git-review__mention:hover {
-  background: var(--color-overlay-1);
-  color: var(--color-ink);
-}
-
 /* Above each file's diff: start a comment without a pointer. */
 .git-review__file-tools {
   display: flex;

@@ -9,19 +9,17 @@
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Pencil, Trash2 } from "lucide-react";
+import { use$ } from "@legendapp/state/react";
 import {
-  applyMention,
   commentableLines,
-  filterMentionCandidates,
-  mentionedIn,
-  mentionQueryAt,
   quoteDiffLines,
-  reviewCandidateLabel,
   reviewCommentAnchor,
   type ReviewCandidate,
   type ReviewComment,
   type ReviewSide,
 } from "@shared/git-review";
+import { mentionLinksOf } from "@shared/mention";
+import type { NodeId } from "@shared/physics/schema";
 import {
   keepReviewDraft,
   noteReviewComposer,
@@ -33,8 +31,11 @@ import {
 import { claimFocus } from "../../lib/focus-ownership";
 import { keyAria, keyIs } from "../../lib/key-match";
 import { modKeyGlyph } from "../../lib/platform";
-import { AgentPortrait } from "../AgentPortrait";
-import { Button, DiffView, IconButton, StatusDot, Textarea, type DiffLineAnnotation } from "../ui";
+import type { MentionCandidate } from "../../lib/mention-draft";
+import { withRegionDetail } from "../../lib/mention-sources";
+import { state$ } from "../../lib/state";
+import { Button, DiffView, IconButton, StatusDot, type DiffLineAnnotation } from "../ui";
+import { MentionCombobox } from "../ui/MentionCombobox";
 
 type Draft = {
   /** Set when an existing comment is being edited. */
@@ -42,12 +43,31 @@ type Draft = {
   readonly side: ReviewSide;
   readonly line: number;
   readonly endLine: number;
+  /** The comment as written: each mentioned agent a link in it. */
   readonly text: string;
-  /** Agents picked from the mention list while writing; one counts only while its @Name is still in the text. */
-  readonly picked: ReadonlyArray<{ readonly nodeId: string; readonly name: string }>;
 };
 
 type Row = { readonly kind: "comment"; readonly comment: ReviewComment } | { readonly kind: "composer" };
+
+/**
+ * Who a comment goes to: the candidates its text mentions, once each. The
+ * text is the only record; deleting a mention takes its agent off.
+ */
+const mentionedAgents = (text: string, candidates: ReadonlyArray<ReviewCandidate>): ReadonlyArray<string> => {
+  const known = new Set(candidates.map((candidate) => candidate.nodeId));
+  return [...new Set(mentionLinksOf(text).map((link) => link.target.nodeId as string))].filter((id) => known.has(id));
+};
+
+/** A comment's text as read: each mention link as its label. */
+const shownComment = (text: string): string => {
+  let out = "";
+  let at = 0;
+  for (const link of mentionLinksOf(text)) {
+    out += text.slice(at, link.start) + link.label;
+    at = link.end;
+  }
+  return out + text.slice(at);
+};
 
 const newId = (): string => `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -70,58 +90,32 @@ function Composer({
   /** The lines this comment can sit on, on its side: set when it was started without pointing at a line. */
   readonly lines?: ReadonlyArray<number> | undefined;
   readonly onLine?: ((line: number) => void) | undefined;
-  readonly onChange: (next: Pick<Draft, "text" | "picked">) => void;
+  readonly onChange: (next: Pick<Draft, "text">) => void;
   readonly onCancel: () => void;
   readonly onSave: () => void;
 }) {
   const canSave = draft.text.trim().length > 0;
+  const canvasName = use$(state$.canvasName);
   const field = useRef<HTMLTextAreaElement | null>(null);
-  const [caret, setCaret] = useState(draft.text.length);
-  const [active, setActive] = useState(0);
-  // Escape closes the list for the @word it was open on; typing on reopens it.
-  const [closedFor, setClosedFor] = useState<string | null>(null);
   // The press on the plus (or on Edit) asked for this field: it takes the
   // keyboard once, as the answer to that gesture, even from the note field.
   useEffect(() => {
     claimFocus(field.current, "gesture", { preventScroll: true });
   }, []);
-  const typing = mentionQueryAt(draft.text, caret);
-  const offered = typing && closedFor !== `${typing.start}:${typing.query}` ? filterMentionCandidates(candidates, typing.query) : [];
-  const listOpen = typing !== undefined && offered.length > 0;
-  const at = Math.min(active, Math.max(0, offered.length - 1));
+  const offered = useMemo<ReadonlyArray<MentionCandidate>>(() => {
+    const regionPath = new Map(candidates.map((candidate) => [candidate.nodeId, candidate.regionPath]));
+    return withRegionDetail(
+      candidates.map((candidate) => ({
+        ref: { kind: "seat", nodeId: candidate.nodeId as NodeId },
+        label: `@${candidate.name}`,
+        ...(offline.has(candidate.nodeId) ? { note: "not running, mail wakes it" } : {}),
+      })),
+      (nodeId) => regionPath.get(nodeId) ?? [],
+    );
+  }, [candidates, offline]);
 
-  const pick = (candidate: ReviewCandidate): void => {
-    if (!typing) return;
-    const next = applyMention(draft.text, typing, candidate.name);
-    onChange({
-      text: next.text,
-      picked: [...draft.picked.filter((entry) => entry.nodeId !== candidate.nodeId), { nodeId: candidate.nodeId, name: candidate.name }],
-    });
-    setCaret(next.caret);
-    setActive(0);
-    requestAnimationFrame(() => field.current?.setSelectionRange(next.caret, next.caret));
-  };
-
+  // The list has taken its own keys; what reaches here is the composer's.
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (listOpen) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        setActive((at + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length);
-        return;
-      }
-      if ((event.key === "Enter" && !event.metaKey && !event.ctrlKey) || event.key === "Tab") {
-        event.preventDefault();
-        pick(offered[at]!);
-        return;
-      }
-      if (event.key === "Escape") {
-        // Closes the list only: the draft and the surface stay.
-        event.preventDefault();
-        event.stopPropagation();
-        setClosedFor(`${typing.start}:${typing.query}`);
-        return;
-      }
-    }
     if (event.key === "Escape") {
       // The field takes Escape first: it cancels the draft, and the surface stays open.
       event.preventDefault();
@@ -132,7 +126,7 @@ function Composer({
       onSave();
     }
   };
-  const mentioned = mentionedIn(draft.text, draft.picked);
+  const goesTo = mentionedAgents(draft.text, candidates);
   return (
     <div className="git-review__row" data-testid="git-review-composer">
       <div className="git-review__anchor">
@@ -155,52 +149,24 @@ function Composer({
           </label>
         ) : null}
       </div>
-      <Textarea
-        ref={field}
+      <MentionCombobox
+        fieldRef={field}
         dense
         value={draft.text}
+        onValueChange={(text) => onChange({ text })}
+        canvasName={canvasName}
+        candidates={offered}
+        listLabel={() => "Agents to mention"}
+        noun={{ one: "agent", other: "agents" }}
         aria-label={`Comment on ${anchor}`}
         placeholder={`Comment on ${draft.line === draft.endLine ? "this line" : "these lines"}, @ to send it to another agent`}
         aria-keyshortcuts={keyAria("message.send")}
-        aria-autocomplete="list"
-        aria-expanded={listOpen}
-        aria-controls={listOpen ? "git-review-mentions" : undefined}
-        // The keyboard stays in the field, so the agent the arrows are on is named from here.
-        aria-activedescendant={listOpen ? `git-review-mention-${String(at)}` : undefined}
-        onChange={(event) => {
-          setCaret(event.target.selectionStart ?? event.target.value.length);
-          onChange({ text: event.target.value, picked: draft.picked });
-        }}
-        onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
         onKeyDown={onKeyDown}
       />
-      {listOpen ? (
-        <ul id="git-review-mentions" className="git-review__mentions" role="listbox" aria-label="Agents to mention">
-          {offered.map((candidate, index) => (
-            <li
-              key={candidate.nodeId}
-              id={`git-review-mention-${String(index)}`}
-              role="option"
-              aria-selected={index === at}
-              data-active={index === at ? "true" : "false"}
-              className="git-review__mention"
-              // Press, not click: the field must keep its focus and its caret.
-              onPointerDown={(event) => {
-                event.preventDefault();
-                pick(candidate);
-              }}
-            >
-              <AgentPortrait identity={candidate.nodeId} size={18} frame="round" outline={false} badge={false} />
-              {reviewCandidateLabel(candidate, candidates)}
-              {offline.has(candidate.nodeId) ? <span className="git-review__to">not running, mail wakes it</span> : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
       <div className="git-review__actions">
-        {mentioned.length > 0 ? (
+        {goesTo.length > 0 ? (
           <span className="git-review__to">
-            Goes to {draft.picked.filter((entry) => mentioned.includes(entry.nodeId)).map((entry) => entry.name).join(", ")}
+            Goes to {candidates.filter((candidate) => goesTo.includes(candidate.nodeId)).map((candidate) => candidate.name).join(", ")}
           </span>
         ) : null}
         <Button size="md" variant="chrome" onClick={onCancel}>
@@ -286,7 +252,7 @@ export function ReviewDiff({
     const start = marked ? selected.start : first;
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setMovable(fromKeyboard);
-    setDraft({ side, line: start, endLine: marked ? selected.end : last, text: takeReviewDraft(root, path, side, start), picked: [] });
+    setDraft({ side, line: start, endLine: marked ? selected.end : last, text: takeReviewDraft(root, path, side, start) });
   };
 
   const save = (): void => {
@@ -299,7 +265,7 @@ export function ReviewDiff({
       endLine: draft.endLine,
       quote: quoteDiffLines(section, draft.side, draft.line, draft.endLine),
       text: draft.text.trim(),
-      to: mentionedIn(draft.text, draft.picked),
+      to: mentionedAgents(draft.text, candidates),
     });
     close();
   };
@@ -384,8 +350,6 @@ export function ReviewDiff({
                       line: comment.line,
                       endLine: comment.endLine,
                       text: comment.text,
-                      // The agents it already goes to, by the names they have now.
-                      picked: candidates.filter((candidate) => comment.to.includes(candidate.nodeId)).map(({ nodeId, name }) => ({ nodeId, name })),
                     });
                   }}
                 >
@@ -406,7 +370,7 @@ export function ReviewDiff({
                 </IconButton>
               </span>
             </div>
-            <p className="git-review__text">{comment.text}</p>
+            <p className="git-review__text">{shownComment(comment.text)}</p>
           </div>
         );
       }}

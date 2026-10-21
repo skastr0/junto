@@ -6,11 +6,7 @@ import { asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, note, region, seat } from "./support/model-nodes";
 import { reviewCandidates } from "../src/shared/review-candidates";
 import {
-  applyMention,
   commentableLines,
-  filterMentionCandidates,
-  mentionedIn,
-  mentionQueryAt,
   reviewCandidateLabel,
   quoteDiffLines,
   reviewCommentAnchor,
@@ -211,38 +207,5 @@ describe("who a review can go to", () => {
       "Atlas, Team / unnamed region",
       "Lead",
     ]);
-  });
-});
-
-describe("mentioning an agent in a comment", () => {
-  const candidates = [
-    { nodeId: "a", name: "Atlas", regionPath: [] },
-    { nodeId: "b", name: "Brook", regionPath: [] },
-    { nodeId: "c", name: "Coral Atlas", regionPath: [] },
-  ];
-
-  it("finds the @word being typed before the caret", () => {
-    expect(mentionQueryAt("ask @Bro", 8)).toEqual({ start: 4, query: "Bro" });
-    expect(mentionQueryAt("@", 1)).toEqual({ start: 0, query: "" });
-    expect(mentionQueryAt("mail me@host", 12)).toBeUndefined();
-    expect(mentionQueryAt("ask @Brook now", 14)).toBeUndefined();
-  });
-
-  it("filters by name, starts-with first", () => {
-    expect(filterMentionCandidates(candidates, "atl").map((candidate) => candidate.nodeId)).toEqual(["a", "c"]);
-    expect(filterMentionCandidates(candidates, "").map((candidate) => candidate.nodeId)).toEqual(["a", "b", "c"]);
-    expect(filterMentionCandidates(candidates, "zzz")).toEqual([]);
-  });
-
-  it("puts the picked name in place of the @word, and reads mentions back from the text", () => {
-    const at = mentionQueryAt("ask @Bro about it", 8)!;
-    expect(applyMention("ask @Bro about it", at, "Brook")).toEqual({ text: "ask @Brook  about it", caret: 11 });
-    const picked = [
-      { nodeId: "b", name: "Brook" },
-      { nodeId: "a", name: "Atlas" },
-    ];
-    expect(mentionedIn("ask @Brook about it", picked)).toEqual(["b"]);
-    // Deleting the words removes the recipient.
-    expect(mentionedIn("ask about it", picked)).toEqual([]);
   });
 });
