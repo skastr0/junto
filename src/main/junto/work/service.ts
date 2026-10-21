@@ -565,6 +565,16 @@ export interface WorkServiceShape {
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
     /**
+     * Command Center system mailbox notify (no process-bound sender).
+     * Used when factory topology newly enables actor↔actor msg.send.
+     * Appends as foreign user mail so message-delivery can inject the PTY.
+     */
+    readonly workSystemMailboxNotify: (
+      canvas: string,
+      nodeId: string,
+      message: Message,
+    ) => Effect.Effect<WorkOpResult<Message>>;
+    /**
      * A subject notice (03): one row in a seat's mailbox that a ruling or a
      * comment owes it, stamped as `sentBy`'s, the actor whose act it tells.
      * No edge or reach admits it: the applied ruling already did. Its id is
@@ -587,7 +597,8 @@ export interface WorkServiceShape {
       canvas: string,
       nodeId: string,
       message: Message,
-    ) => Effect.Effect<WorkOpResult<Message>>;
+      sentBy: ActorRef,
+    ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly written: boolean }>>;
     /**
      * A seat's reply to mail the operator sent it. The operator has no inbox:
      * the reply is an agent-role row in the seat's own mailbox, so it is never
