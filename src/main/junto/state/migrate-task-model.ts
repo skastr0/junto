@@ -25,7 +25,10 @@ import type { StateSchemaMigrationDatabase } from "./migrations";
  *   the brief when it says more than the title.
  * - A task id from before ids were ULIDs becomes a ULID made from the task's
  *   creation time and a hash of its canvas and old id, the same on every
- *   machine; dependencies on it follow.
+ *   machine; dependencies on it follow. Its identity changes: anything that
+ *   named it outside `work_tasks` (mail subjects, signals, mentions) no
+ *   longer resolves to it. Live ids were already ULIDs, so only fixtures
+ *   carry such tasks.
  * - Epochs start at 0 with no reviewers or stamps: nothing in the old rows is
  *   a stamp.
  */
