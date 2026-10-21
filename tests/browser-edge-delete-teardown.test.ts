@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { Canvas } from "../src/shared/model";
+import { BROWSER_ENABLED } from "../src/shared/features";
 import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
 import { makeEdgeGrantService } from "../src/main/junto/browser/edge-grant";
 import {
@@ -137,12 +138,15 @@ describe("edge-revocation pure helpers", () => {
         { ref: REF_P2 },
       ],
     );
+    // Where the build gates the browser off (ship), no edge grants a page, so
+    // every target a caller still held is lost: revocation fails closed.
     expect(lost).toEqual([
       {
         pageRef: REF_P1,
         pageNodeId: "p1",
         callerNodeId: "agent",
       },
+      ...(BROWSER_ENABLED ? [] : [{ pageRef: REF_P2, pageNodeId: "p2", callerNodeId: "agent" }]),
     ]);
   });
 
@@ -169,7 +173,9 @@ describe("edge-revocation pure helpers", () => {
   });
 });
 
-describe("browser edge-delete session teardown", () => {
+// Sessions exist only where the build enables the browser; the ship profile is
+// covered by the lost-targets case above and by browser-edge-grant's gated block.
+describe.runIf(BROWSER_ENABLED)("browser edge-delete session teardown", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
   let stateRuntime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;

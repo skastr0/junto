@@ -7,6 +7,7 @@ import { ManagedRuntime, Schema } from "effect";
 import { BindingId } from "../src/shared/model/kinds";
 import { SqlClient } from "effect/unstable/sql";
 import type { Canvas } from "../src/shared/model";
+import { BROWSER_ENABLED } from "../src/shared/features";
 import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
 import {
   dispatchControlRequest,
@@ -115,7 +116,26 @@ const terminalCanvas = (): Canvas =>
     "work",
   );
 
-describe("browser edge-grant process-bind dual admit", () => {
+describe.runIf(!BROWSER_ENABLED)("browser edge-grant, browser gated off", () => {
+  it("refuses a seat wired to a page and mints nothing: the page offers no browser.automate", async () => {
+    const capabilities = makeBrowserCapabilityRegistry();
+    try {
+      const edgeGrant = makeEdgeGrantService({
+        capabilities,
+        listCanvasModels: async () => [{ name: "work", doc: browserCanvas(true) }],
+        resolvePageTarget: async () => ({ ok: true, data: TARGET }),
+        machineName: () => "studio",
+        editsCanvas: async () => true,
+      });
+      await expect(edgeGrant.admitPrincipal({ agentKey: "local:default" })).resolves.toMatchObject({ ok: false });
+      expect(capabilities.stats().activeCapabilities).toBe(0);
+    } finally {
+      capabilities.close();
+    }
+  });
+});
+
+describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
   let stateRuntime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;
