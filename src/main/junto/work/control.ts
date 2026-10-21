@@ -186,6 +186,7 @@ import {
 } from "@shared/seat-onboarding";
 import { SINCE_PER_SECTION } from "@shared/seat-since";
 import { isResourceKind, resourcesInReach } from "@shared/region-reach";
+import { seatPageShot, type SeatPageShot } from "./page-shot-seat";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -410,6 +411,29 @@ const withMailFiles = (canvasName: string, nodeId: string) =>
       );
       return files === undefined ? message : { ...message, files };
     });
+
+/**
+ * A seat's own mail with the page box shot it names (page-shot-seat.ts):
+ * `shot` ready at a path, on its way, or removed. Mail naming no shot, or
+ * whose page is out of the seat's reach, reads as it is.
+ */
+const withPageShot = (board: Canvas, canvasName: string, nodeId: string) =>
+  <M extends Message>(message: M): Effect.Effect<M | (M & { readonly shot: SeatPageShot })> =>
+    Effect.serviceOption(ContentService).pipe(
+      Effect.flatMap((store) =>
+        Option.isNone(store)
+          ? Effect.succeed(message)
+          : seatPageShot({ canvasName, canvas: board, seatNodeId: nodeId }, message).pipe(
+              Effect.provideService(ContentService, store.value),
+              Effect.map((shot) => (shot === undefined ? message : { ...message, shot })),
+            ),
+      ),
+    );
+
+/** A seat's own mail as it reads it: its files, then its page box shot. */
+const asSeatReadsIt = (board: Canvas, canvasName: string, nodeId: string) =>
+  <M extends Message>(message: M) =>
+    Effect.flatMap(withMailFiles(canvasName, nodeId)(message), withPageShot(board, canvasName, nodeId));
 
 /**
  * A message id argument. A refusal names the path and the shape it wants and
@@ -1640,7 +1664,7 @@ const dispatchOp = (
           ...threadField,
           items: yield* Effect.forEach(
             sortMessagesNewestFirst(overlaid).map(withThread),
-            withMailFiles(caller.canvasName, caller.nodeId),
+            asSeatReadsIt(board, caller.canvasName, caller.nodeId),
           ),
           sent: filtered(yield* sentMailOf(reader.success)).map(withThread),
         };
@@ -1881,7 +1905,7 @@ const dispatchOp = (
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return {
         ...exposeWorkMutation(mapped.success),
-        message: message === undefined ? message : yield* withMailFiles(caller.canvasName, caller.nodeId)(withThread(message)),
+        message: message === undefined ? message : yield* asSeatReadsIt(board, caller.canvasName, caller.nodeId)(withThread(message)),
       };
     }
 

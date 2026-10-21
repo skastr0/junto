@@ -168,7 +168,7 @@ export const claimOperatorAttachments = (
 };
 
 /** The work home seats on this Mac read materialized files from. */
-const workHome = (): string => process.env[WORK_HOME_ENV]?.trim() || workControlDir(resolveJuntoHome());
+export const workHome = (): string => process.env[WORK_HOME_ENV]?.trim() || workControlDir(resolveJuntoHome());
 
 /**
  * The delivered mail's lines for its files: each copied into the work home

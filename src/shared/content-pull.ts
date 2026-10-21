@@ -15,7 +15,7 @@
  * a store path.
  */
 import { Schema } from "effect";
-import { resourcesInReach, type ReachCanvas } from "./region-reach";
+import { reaches, resourcesInReach, type ReachCanvas } from "./region-reach";
 import type { NodeId } from "./model/base";
 import { WorkCanvasName } from "./work-reference";
 import { ContentByteLength, ContentSha256 } from "./wire/content-ref";
@@ -157,6 +157,22 @@ export const seatReachesResource = (
 ): ResourceReached | undefined =>
   resourcesInReach(canvas, seatId).some((node) => node.id === resourceId)
     ? ({ canvasName, resourceId } as ResourceReached)
+    : undefined;
+
+/**
+ * A seat asks for a page box comment's shot: the page must be in its reach
+ * as the page's comment thread is (`reaches`, the comment path's own rule).
+ * A page is commentable, not a resource, so `seatReachesResource` never
+ * admits it.
+ */
+export const seatReachesPage = (
+  canvasName: string,
+  canvas: ReachCanvas,
+  seatId: NodeId,
+  pageId: NodeId,
+): ResourceReached | undefined =>
+  canvas.nodes.get(seatId)?.kind === "agent" && canvas.nodes.get(pageId)?.kind === "page" && reaches(canvas, seatId, pageId)
+    ? ({ canvasName, resourceId: pageId } as ResourceReached)
     : undefined;
 
 /** The operator asks: every resource of a canvas is in the operator's reach. */

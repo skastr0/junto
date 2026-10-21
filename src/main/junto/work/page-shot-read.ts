@@ -60,15 +60,31 @@ export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never,
       Effect.orElseSucceed(() => true),
     );
     if (purged) return removed;
+    return yield* judgeHeldShot(ref, { canvasName: at.canvasName, nodeId: at.nodeId, recordId: root });
+  });
+
+/** The claim a page box comment's shot is held under: the thread's root comment, at its page node. */
+export type PageShotOwner = { readonly canvasName: string; readonly nodeId: string; readonly recordId: string };
+
+/**
+ * The shot's bytes, if this machine's store holds them under `owner` and
+ * they are still what the comment named: digest, size, a PNG header, 2 MiB
+ * and 4096 pixels. Anything else is missing.
+ */
+export const judgeHeldShot = (
+  ref: ContentRef,
+  owner: PageShotOwner,
+): Effect.Effect<{ readonly ok: true; readonly ref: ContentRef; readonly bytes: Buffer } | typeof missing, never, ContentService> =>
+  Effect.gen(function* () {
     const content = yield* ContentService;
     const owners = yield* content.listRefs(ref.sha256).pipe(Effect.orElseSucceed(() => []));
     const held = owners.some(
       (owned) =>
         owned.ref.byteLength === ref.byteLength &&
         owned.owner.kind === "message" &&
-        owned.owner.canvasName === at.canvasName &&
-        owned.owner.nodeId === at.nodeId &&
-        owned.owner.recordId === root,
+        owned.owner.canvasName === owner.canvasName &&
+        owned.owner.nodeId === owner.nodeId &&
+        owned.owner.recordId === owner.recordId,
     );
     if (!held || ref.byteLength > PAGE_SHOT_MAX_BYTES) return missing;
     const opened = yield* content.openForRead(ref).pipe(Effect.orElseSucceed(() => undefined));
@@ -82,5 +98,5 @@ export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never,
     ) {
       return missing;
     }
-    return { ok: true, ref, bytes };
+    return { ok: true, ref, bytes } as const;
   });
