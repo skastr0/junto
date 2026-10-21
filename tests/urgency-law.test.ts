@@ -9,8 +9,10 @@
  *
  * Every src, e2e and tests file is parsed with the TypeScript compiler. Outside
  * urgency.ts and the named allow-list below, this fails on:
- * - an object or array literal holding two or more level or old tier names
- *   (src and e2e only: a test may name levels in a fixture);
+ * - an object or array literal holding two or more level or old tier names,
+ *   unless they all come from one closed vocabulary that shares the words
+ *   (seat states, signal kinds, task states, feed kinds); src and e2e only,
+ *   since a test may name levels in a fixture;
  * - a const or function named *URGENCY*, *SEVERITY* or *RANK* that holds a
  *   numeric table;
  * - a minted level, rank or view group: `as UrgencyLevel`, `as UrgencyRank`,
@@ -29,7 +31,9 @@ import { join, resolve } from "node:path";
 import { Schema } from "effect";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { AGENT_SEAT_STATES } from "../src/shared/agent-seat-state";
 import { NEED_CAUSES, type NeedCause } from "../src/shared/harness-domain/need";
+import { TASK_STATES } from "../src/shared/task-model";
 import { AGENT_SIGNAL_KINDS } from "../src/shared/wire/agent-signals";
 import { FeedItemKind } from "../src/shared/wire/operator-feed";
 import { RingForm } from "../src/shared/wire/rings";
@@ -67,6 +71,15 @@ const URGENCY_NAMES = new Set([
   ...["blocked", "stopped", "waiting", "escalated", "review", "done", "degraded", "working", "resting", "offline"],
   ...["attention", "needs-you", "escalate", "feedback", "ready", "idle"],
 ]);
+/**
+ * Closed vocabularies that share words with the ladder. A literal whose names
+ * all come from one of them re-lists that vocabulary, which orders nothing:
+ * the seat states, the signal kinds, the task states, the feed kinds. Mixing
+ * names across them, or naming a tier, is still a copy of the order.
+ */
+const VOCABULARIES: readonly (readonly string[])[] = [AGENT_SEAT_STATES, AGENT_SIGNAL_KINDS, TASK_STATES, FeedItemKind.literals];
+const reListsOneVocabulary = (names: ReadonlySet<string>): boolean =>
+  VOCABULARIES.some((vocabulary) => [...names].every((name) => vocabulary.includes(name)));
 const RANK_NAME = /urgency|severity|rank/i;
 const MINTED_TYPES = new Set(["UrgencyLevel", "UrgencyRank", "ViewGroup"]);
 const BRANDS = new Set(["UrgencyLevel", "UrgencyRank", ...[SeatUrgency, RegionUrgency, MemberSeverity, AlertKind, CueUrgency, Palette].map((view) => view.name)]);
@@ -88,46 +101,23 @@ const VOCAB = "a kind's own vocabulary, listed once; not an order";
 const COUNTS = "a count per tier, keyed; not an order";
 const KIND_MAP = "a kind map onto another vocabulary; ranks nothing";
 const NOT_URGENCY = "ranks something other than seat urgency";
-const TASK = "task states, which share words with seat states; not seat urgency";
 
 const ALLOWED: readonly Allowed[] = [
-
   // Step 5, remote-lead: the feed ranks each kind by levelOfFeedItem; its kinds share two level names.
   { file: "src/shared/need-surfaces.ts", name: "FEED_FROM_NEED", rule: "names", reason: KIND_MAP },
 
-  // Occupancy maps by cause and orders by the ladder.
-  { file: "src/shared/need-surfaces.ts", name: "OCCUPANCY_FROM_NEED", rule: "names", reason: `cause to occupancy, which splits levels a view keeps whole; ${KIND_MAP}` },
-
   // The need table and its maps: cause names, each cause's level from Level.
-  { file: "src/shared/harness-domain/need.ts", name: "NEED_CAUSES", rule: "names", reason: "the cause names as keys; each level is a Level.<name>" },
-  { file: "src/shared/harness-domain/need.ts", name: "REPORT_CAUSE", rule: "names", reason: KIND_MAP },
   { file: "src/shared/need-surfaces.ts", name: "NOTIFY_FROM_NEED", rule: "names", reason: "cause to notify category; notifications rank by level" },
-  { file: "src/renderer/lib/desktop-notify.ts", name: "FEED_NEED", rule: "names", reason: KIND_MAP },
   { file: "src/shared/desktop-notifications.ts", name: "NOTIFY_CATEGORIES", rule: "names", reason: "the notify categories; notifications rank by level" },
   { file: "src/shared/desktop-notifications.ts", name: "SUBTITLE", rule: "names", reason: COPY },
   { file: "src/shared/desktop-notifications.ts", name: "CUE", rule: "names", reason: KIND_MAP },
 
   // Ring-to-paint maps: exempt.
   { file: "src/shared/wire/seat-activity.ts", name: "SEVERITY_TONE", rule: "names", reason: PAINT },
-  { file: "src/shared/wire/rings.ts", name: "SIGNAL_FLAG_TONE", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/seat-rollup.ts", name: "SIGNAL_ROLLUP_TONE", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/activity-atlas.ts", name: "FLAGS", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/agent-signals-view.ts", name: "SIGNAL_KIND_TONE", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/preamble-sources.ts", name: "SIGNAL_TONE", rule: "names", reason: PAINT },
   { file: "src/renderer/lib/signal-mark.ts", name: "MARK", rule: "names", reason: PAINT },
-  { file: "src/renderer/components/feed/OperatorFeed.tsx", name: "KIND_ICON", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/occupancy-chrome.ts", name: "SPEC", rule: "names", reason: "chrome paint and copy per occupancy state; no order" },
 
   // Copy.
-  { file: "src/shared/wire/operator-feed.ts", name: "FEED_KIND_LABEL", rule: "names", reason: COPY },
-  { file: "src/shared/agent-signals.ts", name: "KIND_WORDS", rule: "names", reason: COPY },
-  { file: "src/renderer/lib/preamble-sources.ts", name: "SIGNAL_WORD", rule: "names", reason: COPY },
-  { file: "src/renderer/lib/seat-collaboration.ts", name: "STATE_PHRASE", rule: "names", reason: COPY },
-  { file: "src/renderer/lib/seat-offboard.ts", name: "REFUSAL_PHRASE", rule: "names", reason: COPY },
-  { file: "src/renderer/lib/seat-offboard.ts", name: "ONE_BLOCK", rule: "names", reason: COPY },
-  { file: "src/shared/seat-offboard.ts", name: "OFFBOARD_REFUSAL_REASON", rule: "names", reason: COPY },
   { file: "src/renderer/lib/sound/cues.ts", name: "CATEGORY_LABEL", rule: "names", reason: COPY },
-  { file: "src/main/junto/work/control.ts", name: "SIGNAL_NEXT_STEP", rule: "names", reason: COPY },
 
   // Kind maps.
   { file: "src/renderer/lib/sound/cues.ts", name: "CUE_IDS", rule: "names", reason: "the cue catalog's ids, some named like levels" },
@@ -136,25 +126,12 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/renderer/lib/sound/index.ts", name: "NOTIFICATION_CUE", rule: "names", reason: KIND_MAP },
   { file: "src/renderer/lib/sound/index.ts", name: "DEMO_CUE", rule: "names", reason: KIND_MAP },
   { file: "src/renderer/lib/occupancy-feed.ts", name: "TONE_HARNESS", rule: "names", reason: KIND_MAP },
-  { file: "src/shared/companion-seats.ts", name: "SIGNAL_STATE", rule: "names", reason: KIND_MAP },
 
   // Vocabularies.
-  { file: "src/shared/wire/agent-signals.ts", name: "AGENT_SIGNAL_KINDS", rule: "names", reason: VOCAB },
-  { file: "src/shared/wire/operator-feed.ts", name: "FeedItemKind", rule: "names", reason: VOCAB },
   { file: "src/shared/wire/companion-protocol.ts", name: "COMPANION_SEAT_STATES", rule: "names", reason: VOCAB },
-  { file: "src/shared/agent-seat-state.ts", name: "AGENT_SEAT_STATES", rule: "names", reason: VOCAB },
-  { file: "src/shared/seat-control.ts", name: "SEAT_STATE_LITERALS", rule: "names", reason: VOCAB },
-  { file: "src/shared/seat-control.ts", name: "SeatWaitUntil", rule: "names", reason: VOCAB },
-  { file: "src/cli/commands/seat.ts", name: "SEAT_WAIT_UNTIL", rule: "names", reason: VOCAB },
   { file: "src/shared/terminal.ts", name: "TerminalHarnessState", rule: "names", reason: VOCAB },
-  { file: "src/shared/harness-domain/signal.ts", name: "ActivityObserved.activity", rule: "names", reason: VOCAB },
-  { file: "src/shared/occupancy/derive.ts", name: "OccupancySpectrum", rule: "names", reason: VOCAB },
   { file: "src/shared/occupancy/derive.ts", name: "OccupancyHarnessState", rule: "names", reason: VOCAB },
-  { file: "src/main/junto/term/intervention/policy.ts", name: "SeatSignal", rule: "names", reason: VOCAB },
-  { file: "src/main/junto/term/seats-link.ts", name: "SeatsStateEvent.state", rule: "names", reason: VOCAB },
   { file: "src/main/junto/term/program-status.ts", name: "PROGRAM_STATES", rule: "names", reason: VOCAB },
-  { file: "src/renderer/lib/agent-broadcast.ts", name: "LIVE_SEAT_STATES", rule: "names", reason: "the seat states that count as live; a set, not an order" },
-  { file: "src/shared/seat-offboard.ts", name: "OFFBOARD_REFUSAL_CODES", rule: "names", reason: VOCAB },
   { file: "src/shared/seat-sessions.ts", name: "SEAT_OFFBOARD_STAGES", rule: "names", reason: VOCAB },
   { file: "src/shared/settings.ts", name: "SOUND_CATEGORIES", rule: "names", reason: "sound setting categories, not seat urgency" },
   { file: "src/shared/settings.ts", name: "SoundCategoriesSettings", rule: "names", reason: "sound setting categories, not seat urgency" },
@@ -166,12 +143,6 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/shared/pad.ts", name: "PadShapeStatus", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/pad-project.ts", name: "PadFocusedItem.status", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/update.ts", name: "UpdatePhase", rule: "names", reason: "the app updater's phases, not seat urgency" },
-  { file: "src/shared/task-model.ts", name: "TASK_STATES", rule: "names", reason: TASK },
-  { file: "src/renderer/lib/resource-visuals.ts", name: "TASK_STATES", rule: "names", reason: TASK },
-  { file: "src/renderer/lib/resource-visuals.ts", name: "TASK_STATE_VISUAL", rule: "names", reason: TASK },
-  { file: "src/shared/automation.ts", name: "SeatBecomes", rule: "names", reason: "the seat states an automation watches; not an order" },
-  { file: "src/shared/automation.ts", name: "WatchedSignal", rule: "names", reason: "the signal kinds an automation watches; not an order" },
-  { file: "src/shared/seat-since.ts", name: "KIND_WORDS", rule: "names", reason: COPY },
 
   // Counts.
   { file: "src/shared/region-rollup.ts", name: "RegionRollup.counts", rule: "names", reason: COUNTS },
@@ -180,16 +151,13 @@ const ALLOWED: readonly Allowed[] = [
 
   // Fixtures.
   { file: "src/shared/wire/companion-demo-fixture.ts", name: "DEMO_SEATS", rule: "names", reason: "demo seats for the phone's showcase; data, not an order" },
-  { file: "e2e/harness/nested-canvas-fixture.ts", name: "openSignals.kind", rule: "names", reason: "an e2e fixture's signal kinds; data, not an order" },
   { file: "e2e/scenarios/canvas-seat-states.spec.ts", name: "seats", rule: "names", reason: "an e2e scenario's seats; data, not an order" },
   { file: "e2e/scenarios/canvas-seat-states.spec.ts", name: "signalEvents", rule: "names", reason: "an e2e scenario's events; data, not an order" },
 
   // Ranks of other things.
   { file: "src/shared/harness-domain/status.ts", name: "RANK", rule: "table", reason: `signal source precedence; ${NOT_URGENCY}` },
   { file: "src/shared/region-rollup.ts", name: "kindRank", rule: "table", reason: `roll call's node kind order; ${NOT_URGENCY}` },
-  { file: "src/shared/region-rollup.ts", name: "GRAPH_REASON_RANK", rule: "table", reason: `execution graph reasons; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/command-bar.ts", name: "kindRank", rule: "table", reason: `the palette's node kind groups; ${NOT_URGENCY}` },
-  { file: "src/shared/impact/cone.ts", name: "reasonRank", rule: "table", reason: `blocked reasons in a cone; ${NOT_URGENCY}` },
   { file: "src/shared/impact/rank.ts", name: "rankStoppageSeeds", rule: "table", reason: `stoppage seeds by cone size; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/modal-stack.ts", name: "LAYER_RANK", rule: "table", reason: `modal layers; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/wire-pulse.ts", name: "VERB_RANK", rule: "table", reason: `edge verbs; ${NOT_URGENCY}` },
@@ -346,7 +314,7 @@ const scan = (rel: string, rules: ReadonlySet<Rule>, fixtures = false): Finding[
   const visit = (node: ts.Node): void => {
     if (rules.has("names") && (ts.isArrayLiteralExpression(node) || ts.isObjectLiteralExpression(node))) {
       const names = literalNames(node);
-      if (names.size >= 2) found(node, "names", [...names].join(" "));
+      if (names.size >= 2 && !reListsOneVocabulary(names)) found(node, "names", [...names].join(" "));
     }
     if (rules.has("table")) {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && RANK_NAME.test(node.name.text) && node.initializer) {
