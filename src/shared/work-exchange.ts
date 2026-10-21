@@ -23,6 +23,7 @@ import {
 import { CanvasCopy } from "./canvas-copy";
 import { commandRowEntitled } from "./command-row";
 import { InstallationId } from "./installation-id";
+import { purgeReaches } from "./shot-purge";
 import { AUTOMATION_SEAT_ID, mailAuthorOf, type MailAuthor } from "./mail-author";
 import { Seq } from "./model";
 import { WorkCanvasName } from "./work-reference";
@@ -74,6 +75,8 @@ export const ExchangeFact = WorkFact.pipe(
         case "ruling.applied":
         case "ruling.refused":
           return true;
+        case "shot.purged":
+          return fact.item.kind === "purge" || "a purge is of a comment";
         default:
           return "this kind of row does not cross machines";
       }
@@ -267,6 +270,9 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
     case "ruling.applied":
     case "ruling.refused":
       return { kind: "malformed" };
+    case "shot.purged":
+      // Only the operator purges a shot, and only on the machine that edits the canvas.
+      return { kind: "operator" };
     default:
       return { kind: "malformed" };
   }
@@ -367,7 +373,8 @@ export const judgedAt = (
 /**
  * Is this machine entitled to the row? The editing machine gets every row of
  * its canvas. Any other machine gets the mail addressed to its seats, the
- * receipts for mail its seats wrote, and every ruling; never another
+ * receipts for mail its seats wrote, every ruling, and every shot purge
+ * (`purgeReaches`); never another
  * machine's command, which stays pending only where it was written. `mailAuthorNodeId` is the author of the
  * mail a receipt answers, when the caller holds that mail.
  */
@@ -383,6 +390,8 @@ export const entitledTo = (
     case "ruling.applied":
     case "ruling.refused":
       return commandRowEntitled(machine, placement.editor, fact.body);
+    case "shot.purged":
+      return purgeReaches(machine);
   }
   if (fact.body.operation === "message.append") {
     return placement.seatOf(fact.item.sink.nodeId)?.machine === machine;

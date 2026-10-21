@@ -50,6 +50,7 @@ import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import { ModelService } from "./junto/model/service";
 import { SqlClient } from "effect/unstable/sql";
 import { shotEntitled } from "./junto/content/shot-entitlement";
+import { unlessShotPurged } from "./junto/work/shot-purge";
 import { OWNER_ENTITLEMENT, isPullableOwnerKind } from "@shared/content-pull";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
@@ -213,7 +214,8 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
       keep: (kept, keptOwner) => store.keepPublished({ ref: kept, owner: keptOwner }),
       once: (object, transfer) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit),
     }, { ref, owner, reached });
-    return yield* pull;
+    // A shot the operator purged is never pulled again (B7).
+    return yield* unlessShotPurged(sql, owner, pull, () => failed("the operator removed this shot"));
   });
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {

@@ -10,7 +10,8 @@
  * the notice kind and the recipient (`subjectNoticeId`), so the notices of
  * one comment are read by key, for each seat on the asking machine: a bound
  * of primary-key reads, never a scan, and a notice of another comment is
- * never one of them, whatever bytes it names.
+ * never one of them, whatever bytes it names. A shot the operator purged is
+ * entitled to no machine.
  */
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
@@ -21,6 +22,7 @@ import { subjectNoticeId, type SubjectNoticeKind } from "@shared/subject-notice"
 import { pageShotOf } from "@shared/thread-subject";
 import { entitledTo, type CanvasPlacement } from "@shared/work-exchange";
 import { heldMailRow } from "../work/repository";
+import { shotPurgedHere } from "../work/shot-purge";
 
 /** The notices of a comment, each of which carries its subject. */
 const COMMENT_NOTICE_KINDS: ReadonlyArray<SubjectNoticeKind> = ["comment", "mention"];
@@ -47,6 +49,8 @@ export const shotEntitled = (
     const comment = yield* heldMailRow(reader, { canvasName: owner.canvasName, nodeId: owner.nodeId, messageId: owner.recordId });
     // The owner's own comment names the shot, or nothing does.
     if (comment === undefined || !names(comment)) return false;
+    // A purged shot is served to no machine, from the moment the purge commits.
+    if (yield* shotPurgedHere(reader, owner)) return false;
     if (entitledTo(machine, comment.fact, placement)) return true;
     for (const seat of input.seats) {
       // Only a seat on the asking machine can hold a notice that crossed to it; entitledTo decides.

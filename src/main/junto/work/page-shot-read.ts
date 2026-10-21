@@ -8,6 +8,9 @@
  * judged again from the store's own file before anything shows them:
  * digest, size, a PNG header, 2 MiB and 4096 pixels.
  *
+ * A shot the operator purged reads removed, ahead of everything else: the
+ * comment stays, and no copy a later pull or row brings back is shown.
+ *
  * Reach is the caller's: the operator reaches every node. A seat's read
  * goes through its own reach check before it asks.
  */
@@ -19,6 +22,7 @@ import { PAGE_SHOT_MAX_BYTES, pageShotRefusal } from "@shared/page-shot";
 import { pageShotOf } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { ContentService } from "../content/service";
+import { WorkRepository } from "./repository";
 import { WorkService } from "./service";
 
 export type PageShotAt = {
@@ -34,12 +38,15 @@ export type PageShotRead =
   /** No such comment, or it names no shot. */
   | { readonly ok: false; readonly reason: "not-named" }
   /** The comment names a shot its thread's root no longer holds, or the store has no good copy. */
-  | { readonly ok: false; readonly reason: "missing" };
+  | { readonly ok: false; readonly reason: "missing" }
+  /** The operator purged the comment's shot. The comment and its text stay. */
+  | { readonly ok: false; readonly reason: "removed" };
 
 const notNamed = { ok: false, reason: "not-named" } as const;
 const missing = { ok: false, reason: "missing" } as const;
+const removed = { ok: false, reason: "removed" } as const;
 
-export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never, WorkService | ContentService> =>
+export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never, WorkService | WorkRepository | ContentService> =>
   Effect.gen(function* () {
     const row = yield* Effect.flatMap(WorkService, (work) => work.readMailMessage(at.canvasName, at.nodeId, at.messageId)).pipe(
       Effect.orElseSucceed(() => undefined),
@@ -48,6 +55,11 @@ export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never,
     if (row === undefined || ref === undefined) return notNamed;
     // The root took the shot and holds the claim; its id is the thread's.
     const root = mailThreadOf(row);
+    // Unknown counts as purged: a shot that might be removed is never shown.
+    const purged = yield* Effect.flatMap(WorkRepository, (work) => work.shotPurged({ canvasName: at.canvasName, nodeId: at.nodeId, recordId: root })).pipe(
+      Effect.orElseSucceed(() => true),
+    );
+    if (purged) return removed;
     const content = yield* ContentService;
     const owners = yield* content.listRefs(ref.sha256).pipe(Effect.orElseSucceed(() => []));
     const held = owners.some(

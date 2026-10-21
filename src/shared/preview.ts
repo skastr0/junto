@@ -388,8 +388,9 @@ export type PreviewResult =
       /**
        * `not-named`: the source's text does not name this path.
        * `missing`: nothing readable at the path, or not a regular file.
+       * `removed`: the operator purged a page box comment's shot.
        */
-      readonly reason: "not-named" | "missing";
+      readonly reason: "not-named" | "missing" | "removed";
     };
 
 export type PreviewRevealResult = { readonly ok: boolean };

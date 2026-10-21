@@ -1,5 +1,7 @@
 import { readWorkGlances } from "./glance";
 import type { WorkAttentionSnapshot } from "@shared/work-attention";
+import { mailThreadOf } from "@shared/crew";
+import { pageShotOf } from "@shared/thread-subject";
 import { WorkItemQuery, WorkActorQuery, type WorkActorPage, type WorkLaneRow, WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
 import { workProjectionChanges } from "./projection-changes";
@@ -33,6 +35,7 @@ import {
 } from "@shared/command-row";
 import type { ResourceCommand, ResourceKind, ResourceRuling } from "@shared/resource-command";
 import { writeRuling, type RulingRecord } from "./resource-rulings";
+import { keepShotPurge, shotPurgedHere, type PurgedComment } from "./shot-purge";
 import { refusalNoticeWrite, refusedKindOf } from "./refusal-notice";
 import type { OpId } from "@shared/work-ids";
 import { RulingFoldRefused, foldRuling } from "./ruling-projection";
@@ -4333,6 +4336,21 @@ export interface WorkRepositoryShape {
     input: RecordRulingInput,
   ) => Effect.Effect<LocalFactResult<RulingResult>, RepositoryFailure>;
   /**
+   * The operator purges a page box comment's shot, on the machine that edits
+   * the canvas only (plan 06, B7). In one transaction: the purge is kept, the
+   * claims of the comment and its replies are released, and one `shot.purged`
+   * row is written for every machine linked for the canvas. A reply names its
+   * thread's comment. Purging again writes no second row. Refused when this
+   * machine does not edit the canvas or the comment names no shot.
+   */
+  readonly purgeShot: (
+    input: PurgedComment & { readonly at?: string },
+  ) => Effect.Effect<{ readonly comment: PurgedComment; readonly released: number; readonly written: boolean }, RepositoryFailure>;
+  /** Is this message owner's shot purged here: the comment, or a reply in its thread? */
+  readonly shotPurged: (
+    owner: { readonly canvasName: string; readonly nodeId: string; readonly recordId: string },
+  ) => Effect.Effect<boolean, WorkRepositoryError>;
+  /**
    * Every command this machine holds for a canvas, from any writer, that no
    * ruling row answers yet: each writer's in its seq order. The editing
    * machine's ruler sweeps these.
@@ -6509,7 +6527,7 @@ export const WorkRepositoryLive = Layer.effect(
               WHERE event.event_home = ?
                 AND event.entity_home = ?
                 AND event.item_canvas_name = ?
-                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused')
+                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused', 'shot.purged')
                 AND fact.predecessor_seq IS NULL
                 AND (
                   length(event.seq) > length(?)
@@ -6617,9 +6635,11 @@ export const WorkRepositoryLive = Layer.effect(
               // A ruling, and the operator's or an automation's command, is
               // the editing machine's own row: from any other writer it
               // closes the link before its author is looked at.
+              // A shot's purge is the operator's, so the editing machine's alone, whoever passes it on.
               if (
-                isCommandRowBody(fact.body) &&
-                !commandRowWrittenBy(fact.id.route.eventHome, placement.editor, fact.body)
+                (isCommandRowBody(fact.body) &&
+                  !commandRowWrittenBy(fact.id.route.eventHome, placement.editor, fact.body)) ||
+                (fact.body.operation === "shot.purged" && fact.id.route.eventHome !== placement.editor)
               ) {
                 return yield* Effect.fail(refuseExchange("only the machine that edits a canvas writes this row"));
               }
@@ -6700,6 +6720,9 @@ export const WorkRepositoryLive = Layer.effect(
                     ),
                   );
                   changed.add(fact.body.kind);
+                } else if (fact.body.operation === "shot.purged") {
+                  // The operator purged a comment's shot: this machine's copy and claims go, and it stays removed.
+                  yield* keepShotPurge(writer, { canvasName: frame.canvasName, nodeId: fact.item.sink.nodeId, messageId: fact.body.messageId }, receivedAt);
                 } else if (fact.body.operation === "ruling.refused") {
                   // One of this machine's own commands was refused: its seat is told, once, from the refused node.
                   const notice = yield* refusalNoticeWrite(writer, self, frame.canvasName, fact.body, placement);
@@ -6931,6 +6954,54 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
+    const purgeShot: WorkRepositoryShape["purgeShot"] = (input) => {
+      const sink = { canvasName: input.canvasName, nodeId: input.nodeId };
+      return transaction("work.shot.purge", sink, (writer: SqlClient.SqlClient) =>
+        Effect.gen(function* () {
+          const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+          const canvas = yield* writer.unsafe<{ seq: number; editor: string | null }>(
+            "SELECT seq, editor_installation_id AS editor FROM canvases WHERE canvas_name = ?",
+            [input.canvasName],
+          );
+          // Only the operator purges, so only where the operator writes: the editing machine.
+          if (canvas[0] === undefined || (canvas[0].editor !== null && canvas[0].editor !== self)) {
+            return yield* Effect.fail(
+              authorityError("authority-mismatch", "only the machine that edits a canvas purges a shot"),
+            );
+          }
+          const row = yield* heldMailRow(writer, input);
+          if (row === undefined || pageShotOf({ metadata: row.metadata }) === undefined) {
+            return yield* Effect.fail(authorityError("missing-entity", "the comment names no shot"));
+          }
+          const comment = { canvasName: input.canvasName, nodeId: input.nodeId, messageId: mailThreadOf({ messageId: input.messageId, metadata: row.metadata }) };
+          const at = timestamp(input.at);
+          const already = yield* shotPurgedHere(writer, { canvasName: comment.canvasName, nodeId: comment.nodeId, recordId: comment.messageId });
+          const released = yield* keepShotPurge(writer, comment, at);
+          if (already) return { comment, released, written: false };
+          const body = { operation: "shot.purged" as const, messageId: comment.messageId };
+          yield* commitLocalFact(writer, {
+            localInstallationId: self,
+            sink,
+            basis: { kind: "canvas", canvasName: input.canvasName, seq: canvas[0].seq },
+            item: item("purge", comment.messageId, sink),
+            operation: body.operation,
+            predecessor: null,
+            body,
+            value: body,
+            originAt: at,
+            receivedAt: at,
+          });
+          return { comment, released, written: true };
+        }),
+      );
+    };
+
+    const shotPurged: WorkRepositoryShape["shotPurged"] = (owner) =>
+      withSqlRead(sql, shotPurgedHere(sql, owner)).pipe(
+        Effect.provideService(StateTransactionOperation, "work.shot.purged"),
+        Effect.mapError((error) => toRepositoryError("work.shot.purged", error)),
+      );
+
     const decodeQueued = Schema.decodeUnknownResult(CommandQueuedResult, strictDecode);
 
     const unruledCommands = (canvasName: string): Effect.Effect<ReadonlyArray<UnruledCommand>, WorkRepositoryError> =>
@@ -6973,6 +7044,8 @@ export const WorkRepositoryLive = Layer.effect(
     return WorkRepository.of({
       unruledCommands,
       recordRuling,
+      purgeShot,
+      shotPurged,
       queueCommand,
       commandQueueLoad,
       commandState,

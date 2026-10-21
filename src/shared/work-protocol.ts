@@ -3,6 +3,7 @@ import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult } from "./command-row";
+import { ShotPurgedResult } from "./shot-purge";
 import {
   Artifact,
   Message,
@@ -127,7 +128,8 @@ export const WorkOperation = Schema.Literals(["task.create",
 "delivery.accepted",
 "command.queued",
 "ruling.applied",
-"ruling.refused",]);
+"ruling.refused",
+"shot.purged",]);
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const DeliveryReceipt = Schema.Struct({
@@ -227,7 +229,8 @@ ArtifactPublishResult,
 DeliveryAcceptedResult,
 CommandQueuedResult,
 RulingAppliedResult,
-RulingRefusedResult,]);
+RulingRefusedResult,
+ShotPurgedResult,]);
 export type WorkResult = typeof WorkResult.Type;
 
 /** Why a work write was refused. */
@@ -298,6 +301,8 @@ const itemMatchesResult = (
     case "ruling.applied":
     case "ruling.refused":
       return item.kind === "ruling" && item.itemId === result.opId;
+    case "shot.purged":
+      return item.kind === "purge" && item.itemId === result.messageId;
   }
 };
 
@@ -309,7 +314,8 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "delivery.accepted" ||
   operation === "command.queued" ||
   operation === "ruling.applied" ||
-  operation === "ruling.refused";
+  operation === "ruling.refused" ||
+  operation === "shot.purged";
 
 const recordByteLength = (record: unknown): number | undefined => {
   try {
