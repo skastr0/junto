@@ -212,14 +212,8 @@ describe("owed and awaited replies", () => {
   it("ignores threads between other seats and mail that is not conversation", () => {
     const others = seatMail(minute(1), LEAD, "not yours");
     const receipt = seatMail(minute(2), LEAD, "receipt", { mailKind: "receipt" });
-    const taskComment = makeUserMessage({
-      messageId: ulid(minute(3)),
-      text: "task note",
-      contextId: "factory",
-      taskId: "task-1",
-      metadata: { factoryMail: true, fromSeat: "seatid-lead", senderNodeId: LEAD },
-    });
-    const out = since(inputOf({ [PEER]: [others], [ME]: [receipt, taskComment] }));
+    const prompt = makeUserMessage({ messageId: ulid(minute(3)), text: "task brief", contextId: "factory" });
+    const out = since(inputOf({ [PEER]: [others], [ME]: [receipt, prompt] }));
     expect(out.owedReplies.lines).toEqual([]);
     expect(out.awaitingReplies.lines).toEqual([]);
   });
