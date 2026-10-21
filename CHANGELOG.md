@@ -7,10 +7,7 @@
 Opening the database with 0.10.1 moves it to version 49, and 0.10.0 then
 refuses it as newer than supported. To go back to 0.10.0, open the backup
 taken at the upgrade. A CLI from 0.10.0 reads the new needs-update answer as
-a protocol error; use the CLI that ships with the app. Still open from 0.10.0:
-after a dropped link to another machine, held mail can wait minutes, and
-`junto machine status` reconnects it at once. Reading one seat or terminal on
-a machine with an older build fails without naming the update.
+a protocol error; use the CLI that ships with the app.
 
 - Rename any node from the selection card in the bottom bar, pages, links and
   files included. File and link names show on other machines' copies; page
@@ -28,8 +25,14 @@ a machine with an older build fails without naming the update.
   the reply lands in that thread.
 - Commenting on text you have not saved saves the document first. If someone
   else changed it, the comment waits and says how to choose.
+- A link to another machine reconnects on its own within seconds after it
+  drops, in the window app too, so held mail and signals no longer wait
+  minutes. A sleeping Boat machine is woken for held mail the same way.
 - A machine on an older build is listed as needing an update instead of
-  failing the whole seat or terminal list.
+  failing the whole seat or terminal list, and reading one of its seats or
+  terminals says it needs an update.
+- Threads open at the size of the window, can be maximized, render
+  formatting, and read in the body face at a comfortable line length.
 - The CLI: a mention that names nothing is sent as plain text and listed in
   the answer instead of refusing the mail. Task errors say what to do next,
   a task comment names who it reached, and task show counts its thread. A
