@@ -5,7 +5,11 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { automationIpcHandlers } from "../src/main/junto/automation/ipc";
-import { AutomationRunnerLive } from "../src/main/junto/automation/live";
+import { AutomationRunnerLive, AutomationRunnerService } from "../src/main/junto/automation/live";
+import { taskCanvasEnv } from "../src/main/junto/work/task-control";
+import { rulingContextOf } from "../src/shared/ruling-context";
+import { checkTaskCommand } from "../src/shared/task-model";
+import { ItemId } from "../src/shared/work-ids";
 import { liveAutomationPorts } from "../src/main/junto/work/automation-control";
 import { asNodeId } from "../src/shared/physics/schema";
 import { OpId } from "../src/shared/work-ids";
@@ -53,7 +57,7 @@ const run = async (
     handlers: ReturnType<typeof automationIpcHandlers>,
     changed: AutomationsChanged[],
     sql: (statement: string) => Promise<void>,
-    inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository>) => Promise<A>,
+    inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository | AutomationRunnerService | ModelService>) => Promise<A>,
   ) => Promise<void>,
 ) => {
   const home = await mkdtemp(join(tmpdir(), "junto-automation-ipc-"));
@@ -184,6 +188,58 @@ describe("when conditions, read on the editing machine", () => {
         kind: "fired",
         actions: [{ index: 0, ruling: "applied" }],
       });
+    }));
+});
+
+describe("change triggers, woken by a task write", () => {
+  /** The operator files a task on the tasks node, as the CLI or the pane would. */
+  const operatorFiles = (taskId: string) =>
+    Effect.gen(function* () {
+      const canvas = yield* (yield* ModelService).canvas("factory");
+      const wire = { kind: "create", taskId: ItemId.make(taskId), title: "By hand" } as const;
+      const checked = checkTaskCommand(wire, (id) => canvas.nodes.get(id)?.kind);
+      if (!checked.ok) throw new Error("the create does not check");
+      return yield* (yield* TaskRepository).submit(
+        "mini" as never,
+        {
+          opId: OpId.make(taskId),
+          canvasName: "factory",
+          actor: { kind: "operator" },
+          target: { kind: "task", nodeId: asNodeId(TASKS), itemId: ItemId.make(taskId) },
+          basis: null,
+          after: [],
+          op: checked.command,
+        },
+        rulingContextOf(canvas, () => undefined),
+        taskCanvasEnv(canvas),
+      );
+    });
+  const wake = Effect.gen(function* () {
+    yield* (yield* AutomationRunnerService).wake("factory");
+  });
+
+  it("fires on a task that came into the backlog, never on its own task, and once per change", () =>
+    run(async (handlers, _changed, _sql, inApp) => {
+      // On a new backlog task, file another: a loop if its own task fired it.
+      const onBacklog = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "task", task: { node: TASKS }, becomes: "backlog" } },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onBacklog as never } });
+      await inApp(wake); // the baseline
+
+      await inApp(operatorFiles("01M5ESKJFC1A88R1MH1NEZWJ60"));
+      await inApp(wake);
+      await inApp(wake); // nothing new
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => [f.cause.kind, f.outcome])).toEqual([["change", { kind: "fired", actions: [{ index: 0, ruling: "applied" }] }]]);
+
+      // The task it filed came into the backlog too, written by the automation: no firing.
+      expect((await handlers.firings("factory", { automationId: ID })).firings).toHaveLength(1);
+      const { tasks } = await inApp(Effect.gen(function* () {
+        return yield* (yield* TaskRepository).list("factory", { nodeIds: [asNodeId(TASKS)], limit: 10 });
+      }));
+      expect(tasks.map((task) => task.title).sort()).toEqual(["By hand", "Plan the day"]);
     }));
 });
 

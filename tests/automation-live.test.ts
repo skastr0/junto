@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { automationMailId, conditionHolds, performAction, type ConditionView } from "../src/main/junto/automation/live";
+import { automationMailId, changesBetween, conditionHolds, performAction, type ConditionView } from "../src/main/junto/automation/live";
 import { type Automation, AutomationId, AutomationVersion, FiringId } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -65,11 +65,12 @@ describe("performAction", () => {
 describe("conditionHolds", () => {
   const tasks: ConditionView = {
     tasks: [
-      { taskId: "01M5ESKJFC1A88R1MH1NEZWJ50", node: "tasks-1", state: "working" },
-      { taskId: "01M5ESKJFC1A88R1MH1NEZWJ51", node: "tasks-1", state: "backlog" },
+      { taskId: "01M5ESKJFC1A88R1MH1NEZWJ50", node: "tasks-1", state: "working", since: 1 },
+      { taskId: "01M5ESKJFC1A88R1MH1NEZWJ51", node: "tasks-1", state: "backlog", since: 1 },
     ],
     seatTasks: { "agent-busy": { blocked: false }, "agent-waiting": { blocked: true } },
     seatOnCanvas: (seat) => seat !== "agent-left",
+    seats: ["agent-free", "agent-busy", "agent-waiting"],
   };
   const onTask = (taskId: string, becomes: string) =>
     ({ kind: "task", task: { kind: "task", nodeId: asNodeId("tasks-1"), taskId }, becomes, holds: true }) as never;
@@ -95,5 +96,44 @@ describe("conditionHolds", () => {
     expect(seat("agent-waiting", "attention")).toBe(true);
     expect(seat("agent-left", "gone")).toBe(true);
     expect(seat("agent-busy", "idle")).toBe(false);
+  });
+});
+
+describe("changesBetween", () => {
+  const view = (tasks: ConditionView["tasks"], seatTasks: ConditionView["seatTasks"] = {}, seats = ["agent-a"]): ConditionView => ({
+    tasks,
+    seatTasks,
+    seatOnCanvas: (seat) => seats.includes(seat),
+    seats,
+  });
+  const T = "01M5ESKJFC1A88R1MH1NEZWJ50";
+  const never = () => false;
+
+  it("fires nothing on the first pass: it is the baseline", () => {
+    expect(changesBetween(undefined, view([{ taskId: T, node: "tasks-1", state: "backlog", since: 1 }]), never)).toEqual([]);
+  });
+
+  it("says a new task and a task that came into a state, once, keyed by when", () => {
+    const before = view([]);
+    const created = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 5 }]);
+    expect(changesBetween(before, created, never)).toEqual([
+      { kind: "task", key: `task:${T}:backlog:5`, nodeId: "tasks-1", taskId: T, becomes: "backlog", byAutomation: false },
+    ]);
+    expect(changesBetween(created, created, never)).toEqual([]);
+  });
+
+  it("marks a state an automation wrote, so no automation fires on it", () => {
+    const after = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 5 }]);
+    expect(changesBetween(view([]), after, (taskId, state) => taskId === T && state === "backlog")).toMatchObject([{ byAutomation: true }]);
+  });
+
+  it("says a seat that started working, waits, and left", () => {
+    const idle = view([]);
+    const working = view([], { "agent-a": { blocked: false, since: 7 } });
+    const waiting = view([], { "agent-a": { blocked: true, since: 9 } });
+    const gone = view([], {}, []);
+    expect(changesBetween(idle, working, never)).toEqual([{ kind: "seat", key: "seat:agent-a:working:7", seat: "agent-a", becomes: "working" }]);
+    expect(changesBetween(working, waiting, never)).toMatchObject([{ becomes: "attention" }]);
+    expect(changesBetween(idle, gone, never)).toMatchObject([{ seat: "agent-a", becomes: "gone" }]);
   });
 });
