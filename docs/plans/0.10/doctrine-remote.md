@@ -121,10 +121,9 @@ only from the machine that edits the canvas.
 Landed with `95ed7b998`: rulings to every machine, a command to the editing
 machine only and never relayed. Ruling shape landed with `3ee4ad729`: a
 refusal carries only the closed `RefusalReason`, an optional head and the
-root. Stated but not yet enforced: "never text a seat or a domain
-wrote", since `expected` is still any string up to 128 characters filled by
-the domain (remote-work gives it a token shape). Still held: resource facts
-for every machine, and the refused body ref served only to the writer.
+root, and `expected` is a token, never words (`67c8be98c`). Resource facts
+reach every machine inside the rulings rule 5 already gives them
+(`197c1f674`). Still held: the refused body ref served only to the writer.
 
 `docs/machines.md:76-77`. Replace
 
