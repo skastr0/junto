@@ -4697,8 +4697,9 @@ export interface WorkRepositoryShape {
   /**
    * Post a review verdict with live-task authority, validated and inserted in
    * one transaction: recompute the subject from the live task, refuse a
-   * self-review, a moved epoch/hash/author, or a missing directed reviews
-   * edge, then store the immutable verdict.
+   * self-review, a moved epoch/hash/author, or a reviewer not on the task's
+   * reviewer list (for a commit, not reached by its receipt on this canvas),
+   * then store the immutable verdict.
    */
   readonly postReviewVerdict: (
     verdict: ReviewVerdict,
@@ -6401,17 +6402,18 @@ export const WorkRepositoryLive = Layer.effect(
               if (verdict.reviewerSeatId === authorSeat) {
                 return { rejected: "reviewer-is-author" };
               }
-              // A commit's reviewers are the seats its receipts reached.
+              // A commit's reviewers on this canvas are the seats its receipts
+              // here reached; a receipt on another canvas admits nobody here.
               const receipted = yield* SqlSchema.findOneOption({
                 Request: WorkSqlBindings,
                 Result: ReviewReceiptKeyRow,
                 execute: (bindings) =>
                   writer.unsafe(
                     `SELECT ref_sha, reviewer_seat_id FROM work_review_receipts
-               WHERE ref_sha = ? AND reviewer_seat_id = ? LIMIT 1`,
+               WHERE canvas_name = ? AND ref_sha = ? AND reviewer_seat_id = ? LIMIT 1`,
                     bindings,
                   ),
-              })([subject.sha.trim().toLowerCase(), verdict.reviewerSeatId]);
+              })([opts.canvasName, subject.sha.trim().toLowerCase(), verdict.reviewerSeatId]);
               if (Option.isNone(receipted)) {
                 return { rejected: "not-a-reviewer" };
               }
