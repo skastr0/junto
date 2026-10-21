@@ -45,15 +45,17 @@ const TIERS: ReadonlyArray<readonly [Tier, number]> = [
  * guards against overlap blowups like the 809. Motion is not headroom. The
  * motion law keeps every ring and ping moving on the compositor, and each
  * moving thing is a layer the board cannot give back: one per minimap ping,
- * one per turning ring part, one per holder of a ring's parts (a card with
- * its own layer up close, a scaled mark at far and overview; a cluster's
- * mark has none). A cluster body is composited for overlapping what moves
- * near it, not for moving, so it counts with the others. So the budget is 40
- * others on top of those, counted from the DOM in the same phase. The
- * compositor's layers of those kinds must match that count, within the 1 to
- * 3 a pan moves it, so a ring that grows a further layer fails.
+ * one per turning ring part, and one holder per turning seat ring. The
+ * holder is the design, asserted as such: up close the card (its own layer,
+ * styles.css), at far and overview the scaled mark and never the card
+ * (ba5b78088); a cluster's mark has none. Nothing paints over a turning
+ * part, so the signal button holds no layer. A cluster body, and a resting
+ * cluster's ring, are composited for overlapping what moves near them, not
+ * for moving, so they count with the others. So the budget is 40 others on top of those, counted from the DOM
+ * in the same phase. Parts and holders match exactly; only the minimap's
+ * pings, which a pan carries in and out of view, get the 1 to 3 it moves.
  */
-const MOTION_SLACK = 3;
+const PING_SLACK = 3;
 const LAYER_BUDGET = 40;
 const CLOCK_TICKS_AT_REST = Math.ceil(2_000 / 90);
 const REST_PAINT_BUDGET = CLOCK_TICKS_AT_REST * 30;
@@ -86,8 +88,18 @@ type PhaseReading = {
   readonly pinned: number;
 };
 
-/** A layer for a moving thing: a ping, a ring part, a ring's holder. */
-const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark|junto-node)[' ]/;
+/** A layer for a moving thing (a ping, a ring part, a ring's holder), or for what must never be one (the signal button). */
+const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark__flag|junto-mark|junto-node)[' ]/;
+
+/**
+ * The motion kind a layer is, if any. A seat's mark is relatively placed; a
+ * cluster stack places its ring absolutely (canvas-lod.css), so a mark layer
+ * that is not relative is a cluster's, and counts with the others.
+ */
+const motionKind = (name: string): string | undefined => {
+  const kind = MOTION_LAYER.exec(name)?.[1];
+  return kind === "junto-mark" && !name.includes("(relative positioned") ? undefined : kind;
+};
 
 /** What the DOM draws moving right now, in layers the motion law requires. */
 const motionDrawn = (page: Page): Promise<Record<string, number>> =>
@@ -102,16 +114,16 @@ const motionDrawn = (page: Page): Promise<Record<string, number>> =>
     const moving = (el: Element): boolean => shown(el) && getComputedStyle(el).animationName !== "none";
     const pings = [...document.querySelectorAll(".junto-minimap-ping")].filter(moving).length;
     let parts = 0;
-    let holders = 0;
-    const transformed = (el: Element | null): boolean => el !== null && getComputedStyle(el).transform !== "none";
+    let seatRings = 0;
+    let clusterRings = 0;
     for (const mark of document.querySelectorAll(".junto-mark[data-mark-visible]")) {
       const turning = [...mark.querySelectorAll(":scope > .junto-mark__part")].filter(moving).length;
       if (turning === 0) continue;
       parts += turning;
-      if (transformed(mark.closest(".junto-node"))) holders += 1;
-      if (transformed(mark)) holders += 1;
+      if (mark.closest(".react-flow__node .junto-node")) seatRings += 1;
+      else clusterRings += 1;
     }
-    return { pings, parts, holders };
+    return { pings, parts, seatRings, clusterRings };
   });
 
 const scale = (page: Page): Promise<number> =>
@@ -225,11 +237,11 @@ const traced = async (
       .filter((e) => e.name === "TileBasedLayerImpl::AppendQuads checkerboard")
       .reduce((sum, e) => sum + Number(e.args?.["missing_tile_count"] ?? 0), 0),
     layers: layers.length,
-    motionLayers: layers.filter((l) => MOTION_LAYER.test(l.layer_name ?? "")).length,
-    motionDrawn: Object.values(drawn).reduce((a, b) => a + b, 0),
+    motionLayers: layers.filter((l) => motionKind(l.layer_name ?? "") !== undefined).length,
+    motionDrawn: drawn.pings! + drawn.parts! + drawn.seatRings!,
     motionKinds: drawn,
     motionLayerKinds: layers.reduce<Record<string, number>>((kinds, l) => {
-      const kind = MOTION_LAYER.exec(l.layer_name ?? "")?.[1];
+      const kind = motionKind(l.layer_name ?? "");
       if (kind !== undefined) kinds[kind] = (kinds[kind] ?? 0) + 1;
       return kinds;
     }, {}),
@@ -280,8 +292,16 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
           // The board is a handful of layers, not one per card or wire, on
           // top of the layers its motion requires; and that motion costs no
           // more layers than the DOM draws moving.
-          expect(Math.abs(phase.motionLayers - phase.motionDrawn), `${label}: motion layers against what the DOM draws moving`)
-            .toBeLessThanOrEqual(MOTION_SLACK);
+          const layerOf = (kind: string): number => phase.motionLayerKinds[kind] ?? 0;
+          const drawnOf = (kind: string): number => phase.motionKinds[kind] ?? 0;
+          const zoomedOut = row.tier === "far" || row.tier === "overview";
+          expect(layerOf("junto-mark__part"), `${label}: a layer per turning part`).toBe(drawnOf("parts"));
+          expect(layerOf(zoomedOut ? "junto-mark" : "junto-node"), `${label}: one holder per turning seat ring`)
+            .toBe(drawnOf("seatRings"));
+          expect(layerOf(zoomedOut ? "junto-node" : "junto-mark"), `${label}: no second holder`).toBe(0);
+          expect(layerOf("junto-mark__flag"), `${label}: the signal button paints under the parts`).toBe(0);
+          expect(Math.abs(layerOf("junto-minimap-ping") - drawnOf("pings")), `${label}: a layer per moving ping`)
+            .toBeLessThanOrEqual(PING_SLACK);
           expect(phase.layers - phase.motionLayers, `${label}: compositor layers beside the motion`)
             .toBeLessThanOrEqual(LAYER_BUDGET);
         }
