@@ -9,7 +9,7 @@ import {
   type ArtifactState,
   emptyArtifactState,
 } from "../src/shared/artifact-domain";
-import type { ArtifactWriteResult } from "../src/shared/artifact-control";
+import type { ArtifactShowResult, ArtifactWriteResult } from "../src/shared/artifact-control";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { emptyRuled, type ResourceCommand, rule, type Ruled } from "../src/shared/resource-command";
@@ -60,6 +60,7 @@ const memoryPorts = () => {
   const bodies = new Map<string, ArtifactBody>();
   const submitted: Array<ResourceCommand<ArtifactOp>> = [];
   const comments: Array<{ input: SubjectCommentInput; people: ReadonlyArray<string> }> = [];
+  const pulls: Array<Parameters<ArtifactPorts["pull"]>[0]> = [];
   const domain = artifactDomain({ now: () => 1_000, bodyRef: artifactBodyRef });
   const entries = (): ReadonlyArray<ArtifactEntry> => [...ruled.state.values()];
   const ports: ArtifactPorts = {
@@ -74,7 +75,9 @@ const memoryPorts = () => {
       Effect.succeed(
         Option.fromNullishOr(ruled.state.get(id)).pipe(Option.map(({ artifact, body, bodyRef }) => ({ artifact, bodyRef, body: body ?? bodies.get(`${id}@${artifact.version}`)! }))),
       ),
-    body: (_canvas, id, version) => Effect.succeed(Option.fromNullishOr(bodies.get(`${id}@${version}`))),
+    body: (_canvas, id, version) =>
+      Effect.succeed(Option.fromNullishOr(bodies.get(`${id}@${version}`)).pipe(Option.map((body) => ({ body, bodyRef: artifactBodyRef(body) })))),
+    pull: (input) => Effect.sync(() => void pulls.push(input)),
     history: () => Effect.succeed({ versions: [], more: false }),
     comment: (input, context) => {
       comments.push({ input, people: context.people });
@@ -102,7 +105,7 @@ const memoryPorts = () => {
       });
     },
   };
-  return { ports, submitted, comments };
+  return { ports, submitted, comments, pulls };
 };
 
 const run = (ports: ArtifactPorts, op: Parameters<typeof handleArtifactOp>[0], args: unknown, who = "S1") =>
@@ -246,6 +249,27 @@ describe("junto artifact in main", () => {
     expect(comments[0]?.input).not.toHaveProperty("anchor");
     expect(failure(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "refuse" })).details)
       .toMatchObject({ reason: "not_in_reach", opId: OP2 });
+  });
+
+  it("answers a pending body as retryable, pulls it on the seat's reach, and reads it once pulled", () => {
+    const { ports, pulls } = memoryPorts();
+    createDoc(ports, { body: { markdown: "# far" } });
+    // A replica: the head is here, its bytes are not, until the pull keeps them.
+    let pulled = false;
+    const replica: ArtifactPorts = {
+      ...ports,
+      head: (canvas, id) => Effect.map(ports.head(canvas, id), Option.map((head) => (pulled ? head : { ...head, body: null }))),
+      pull: (input) => Effect.andThen(ports.pull(input), Effect.sync(() => { pulled = true; })),
+    };
+    expect(failure(run(replica, "artifact.show", { artifact: NEW })).details).toMatchObject({ reason: "not_available", retryable: true });
+    expect(pulls).toEqual([
+      {
+        ref: artifactBodyRef({ type: "document", markdown: "# far" }),
+        owner: { kind: "artifact", canvasName: "factory", nodeId: "AR", recordId: `${NEW}@1` },
+        reached: { canvasName: "factory", resourceId: "AR" },
+      },
+    ]);
+    expect(ok<ArtifactShowResult>(run(replica, "artifact.show", { artifact: NEW })).text).toBe("# far");
   });
 
   it("refuses unknown keys and a malformed opId", () => {

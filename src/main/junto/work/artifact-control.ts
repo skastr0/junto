@@ -39,6 +39,8 @@ import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { reaches } from "@shared/region-reach";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
+import type { ContentRef } from "@shared/content";
+import { type ResourceReached, seatReachesResource } from "@shared/content-pull";
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
 import { subjectAnchorOf } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
@@ -49,7 +51,9 @@ import type {
   ArtifactSubmitOutcome,
   ArtifactVersionRead,
 } from "./artifact-repository";
-import { ArtifactRepository } from "./artifact-repository";
+import { MachineCoreRows } from "../../core-runtime";
+import type { PulledOwner } from "../content/pull";
+import { ArtifactRepository, type ArtifactBodyRead } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 
@@ -59,8 +63,13 @@ export type ArtifactPorts = {
   readonly nodes: (canvas: Canvas) => ReadonlyArray<Node>;
   readonly list: (canvasName: string, query: ArtifactListQuery) => Effect.Effect<Omit<ArtifactListResult, "artifacts"> & { readonly artifacts: ArtifactListResult["artifacts"] }, WorkErrorBody>;
   readonly head: (canvasName: string, artifactId: ItemId) => Effect.Effect<Option.Option<ArtifactHeadRead>, WorkErrorBody>;
-  /** One version's body; null while its bytes are pending. */
-  readonly body: (canvasName: string, artifactId: ItemId, version: ArtifactVersion) => Effect.Effect<Option.Option<ArtifactBody | null>, WorkErrorBody>;
+  /** One version's body and its ref; the body is null while its bytes are pending. */
+  readonly body: (canvasName: string, artifactId: ItemId, version: ArtifactVersion) => Effect.Effect<Option.Option<ArtifactBodyRead>, WorkErrorBody>;
+  /**
+   * Start bringing a pending body here from the machine that edits its canvas,
+   * and return at once. One pull per object; on the editing machine, none.
+   */
+  readonly pull: (input: { readonly ref: ContentRef; readonly owner: PulledOwner; readonly reached: ResourceReached }) => Effect.Effect<void>;
   readonly history: (
     canvasName: string,
     artifactId: ItemId,
@@ -118,6 +127,12 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
         }),
       ),
     comment: postSubjectComment,
+    pull: (input) =>
+      Effect.serviceOption(MachineCoreRows).pipe(
+        Effect.flatMap((rows) =>
+          Option.isNone(rows) ? Effect.void : rows.value.pullBody(input).pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid),
+        ),
+      ),
     taskNode: (canvasName, taskId) =>
       Effect.serviceOption(TaskRepository).pipe(
         Effect.flatMap((tasks) =>
@@ -190,12 +205,30 @@ const findNode = (
   );
 };
 
-/** A version whose bytes this machine is still fetching. */
-const pending = (artifactId: ItemId, version: ArtifactVersion): WorkErrorBody => ({
-  type: "InputError",
-  message: `the body of artifact ${artifactId} at version ${version} is still on its way to this machine`,
-  details: { reason: "not_available", retryable: true, hint: "try again in a moment" },
-});
+/**
+ * A version whose bytes are not here yet: start pulling them from the machine
+ * that edits the canvas, on this seat's reach, and answer pending now. The
+ * next read resolves from the content store once they arrive.
+ */
+const awaitPull = (
+  caller: ArtifactCaller,
+  ports: ArtifactPorts,
+  nodeId: NodeId,
+  artifactId: ItemId,
+  version: ArtifactVersion,
+  ref: ContentRef,
+): Effect.Effect<never, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const reached = seatReachesResource(caller.canvasName, caller.canvas, caller.actor.nodeId, nodeId);
+    if (reached !== undefined) {
+      yield* ports.pull({ ref, reached, owner: { kind: "artifact", canvasName: caller.canvasName, nodeId, recordId: `${artifactId}@${version}` } });
+    }
+    return yield* Effect.fail<WorkErrorBody>({
+      type: "InputError",
+      message: `the body of artifact ${artifactId} at version ${version} is still on its way to this machine`,
+      details: { reason: "not_available", retryable: true, hint: "try again in a moment" },
+    });
+  });
 
 /**
  * The head of an artifact in reach. One out of reach reads as unknown, so a
@@ -374,17 +407,18 @@ export const handleArtifactOp = (
         const input = yield* decode(ArtifactShowArgs, args);
         const head = yield* findArtifact(caller, ports, input.artifact);
         const version = input.version ?? head.artifact.version;
-        const body = version === head.artifact.version
-          ? head.body
+        const read = version === head.artifact.version
+          ? head
           : Option.getOrUndefined(yield* ports.body(caller.canvasName, input.artifact, version));
-        if (body === undefined) {
+        if (read === undefined) {
           return yield* Effect.fail<WorkErrorBody>({
             type: "UnknownTarget",
             message: `artifact ${input.artifact} has no version ${version}; the head is ${head.artifact.version}`,
             details: { path: "version", expected: head.artifact.version, retryable: false },
           });
         }
-        if (body === null) return yield* Effect.fail(pending(input.artifact, version));
+        const body = read.body;
+        if (body === null) return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, version, read.bodyRef);
         return { artifact: head.artifact, version, text: artifactText(body), body } satisfies ArtifactShowResult;
       }
       case "artifact.history": {
@@ -439,7 +473,9 @@ export const handleArtifactOp = (
       case "artifact.comment": {
         const input = yield* decode(ArtifactCommentArgs, args);
         const head = yield* findArtifact(caller, ports, input.artifact);
-        if (input.anchor !== undefined && head.body === null) return yield* Effect.fail(pending(input.artifact, head.artifact.version));
+        if (input.anchor !== undefined && head.body === null) {
+          return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, head.artifact.version, head.bodyRef);
+        }
         if (input.anchor !== undefined && head.body !== null && !admitsAnchor(head.body, input.anchor)) {
           return yield* Effect.fail(
             inputError(

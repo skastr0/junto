@@ -142,7 +142,7 @@ describe("ArtifactRepository", () => {
     const [past, history] = await withRepo((repo) =>
       Effect.all([repo.body(canvas, id, v(2)), repo.history(canvas, id, { limit: 10 })]),
     );
-    const body = Option.getOrThrow(past);
+    const { body } = Option.getOrThrow(past);
     expect(body?.type === "sheet" && body.grid.rows[0]?.cells).toEqual({ c1: "a" });
     expect(history.versions.map((entry) => entry.version)).toEqual([3, 2, 1]);
     expect(history.versions[2]?.edit).toBeUndefined();
@@ -294,6 +294,6 @@ describe("ArtifactRepository", () => {
       }),
     );
     const arrived = await withRepo((repo) => repo.body(canvas, id, v(2)));
-    expect(Option.getOrThrow(arrived)).toEqual({ type: "document", markdown: "from afar" });
+    expect(Option.getOrThrow(arrived)).toEqual({ body: { type: "document", markdown: "from afar" }, bodyRef });
   });
 });

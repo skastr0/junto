@@ -67,6 +67,9 @@ export class ArtifactPersistenceError extends Schema.TaggedError<ArtifactPersist
   { operation: Schema.String, message: Schema.String, cause: Schema.Unknown },
 ) {}
 
+/** One version's body as read: null while its bytes are pending, with the ref that names them. */
+export type ArtifactBodyRead = { readonly body: ArtifactBody | null; readonly bodyRef: ContentRef };
+
 /** A head as stored, decoded. `body` is null while its bytes are pending. */
 export type ArtifactHeadRead = {
   readonly artifact: Artifact;
@@ -118,12 +121,12 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
     ) => Effect.Effect<{ readonly artifacts: ReadonlyArray<Artifact>; readonly more: boolean }, ArtifactPersistenceError>;
     /** The head and its body. */
     readonly head: (canvasName: string, artifactId: ItemId) => Effect.Effect<Option.Option<ArtifactHeadRead>, ArtifactPersistenceError>;
-    /** One version's body. */
+    /** One version's body and its ref; the body is null while its bytes are pending. */
     readonly body: (
       canvasName: string,
       artifactId: ItemId,
       version: ArtifactVersion,
-    ) => Effect.Effect<Option.Option<ArtifactBody | null>, ArtifactPersistenceError>;
+    ) => Effect.Effect<Option.Option<ArtifactBodyRead>, ArtifactPersistenceError>;
     /** Versions newest first, without bodies; `before` pages back. */
     readonly history: (
       canvasName: string,
@@ -482,9 +485,8 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
 
     const body = Effect.fn("artifacts.body")(function* (canvasName: string, artifactId: ItemId, version: ArtifactVersion) {
       const row = yield* bodyRow({ canvas: canvasName, id: artifactId, version });
-      if (Option.isNone(row)) return Option.none<ArtifactBody | null>();
-      const { body: found } = yield* resolveBody("body", row.value, `artifact ${artifactId} at version ${version}`);
-      return Option.some(found);
+      if (Option.isNone(row)) return Option.none<ArtifactBodyRead>();
+      return Option.some<ArtifactBodyRead>(yield* resolveBody("body", row.value, `artifact ${artifactId} at version ${version}`));
     }, Effect.mapError(persistence("body")));
 
     const history = Effect.fn("artifacts.history")(function* (
