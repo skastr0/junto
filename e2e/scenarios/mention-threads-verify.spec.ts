@@ -217,7 +217,12 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
     });
 
     // The page chip last: it leaves the page's surface open for the box comment.
-    await section("chip-page", () => chipOpens(2, "5-opened-page"));
+    await section("chip-page", async () => {
+      // The task's own overlay, opened by its header chip, covers the Threads button until it is closed.
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await chipOpens(2, "5-opened-page");
+    });
 
     // Gap 1, a box comment on a page.
     await section("page-box-comment", async () => {
