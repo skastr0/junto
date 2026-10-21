@@ -139,6 +139,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
       closeOnEscape={false}
       closeOnBackdrop
       claimFocusOnOpen={false}
+      maximizable={false}
       onKeyDown={onGridKeyDown}
       panelClassName="terminal-grid__panel"
     >

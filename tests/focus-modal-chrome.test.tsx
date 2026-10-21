@@ -185,4 +185,10 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
     const panes = readFileSync(join(root, "src/renderer/components/workbench/WorkbenchPanes.tsx"), "utf8");
     expect(panes).toContain('<FocusWindowContext.Provider value={paneSlot === "0" ? focusWindow : null}>');
   });
+
+  it("the terminal grid, already at frame width, offers no Maximize", () => {
+    expect(readFileSync(join(root, "src/renderer/components/terminal/TerminalGridFocus.tsx"), "utf8")).toContain(
+      "maximizable={false}",
+    );
+  });
 });

@@ -75,6 +75,7 @@ export function FocusSurface({
   terminalRailsPx,
   aside,
   claimFocusOnOpen = true,
+  maximizable = true,
   onKeyDown,
   children,
 }: {
@@ -104,6 +105,11 @@ export function FocusSurface({
    */
   readonly claimFocusOnOpen?: boolean;
   /**
+   * False for a surface that already fills the frame (the terminal grid):
+   * a Maximize there would do nothing.
+   */
+  readonly maximizable?: boolean;
+  /**
    * The body's keys, heard wherever focus sits inside the surface, before
    * Escape and the Tab trap. Call preventDefault to keep a key from them.
    */
@@ -114,8 +120,8 @@ export function FocusSurface({
   const panelRef = useRef<HTMLDivElement>(null);
   const [maximized, setMaximized] = useState(false);
   const focusWindow = useMemo<FocusWindow | null>(
-    () => (height === "fit" ? null : { maximized, toggleMaximized: () => setMaximized((on) => !on) }),
-    [height, maximized],
+    () => (height === "fit" || !maximizable ? null : { maximized, toggleMaximized: () => setMaximized((on) => !on) }),
+    [height, maximizable, maximized],
   );
   const asideRef = useRef<HTMLDivElement>(null);
   const modal = useModalLayer({
