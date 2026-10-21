@@ -10,13 +10,15 @@ product-lead says so.
 
 - [ ] Main green: tech-lead's hourly full verify on a clean archive passes,
       all lanes, at the commit to be cut. Name the commit.
-- [ ] Open release blockers closed: browser hand-back 403, node card redesign
+- [x] Open release blockers closed: browser hand-back 403, node card redesign
       picked and built, seat portraits on mentions.
-- [ ] Operator has answered the ship switches for `tasks`, `artifacts` and
-      `browser` (`SHIP_FEATURES` in `src/shared/feature-catalog.ts`). Those
-      three flags stay until then (operator decision 6).
-- [ ] `bun run lint:product-name`, `lint:no-middot` and `lint:layers` pass
+      Receipt: hand-back 403 608e82b76; node card redesign picked, built and approved by the operator 0db2f0d47 to 08a50a9a4; seat portraits d267ecdb3, 49db53b7a (product-lead, 2026-10-21).
+- [x] Operator has answered the ship switches for `tasks`, `artifacts` and
+      `browser` (`SHIP_FEATURES` in `src/shared/feature-catalog.ts`).
+      Receipt: tasks, artifacts, browser ship on, 9695a67af.
+- [x] `bun run lint:product-name`, `lint:no-middot` and `lint:layers` pass
       (all three also run inside `bun run verify`).
+      Receipt: product-releases ran all three on main at 5bdcdf7e9 plus checklist edit, all ok.
 - [ ] `git status` clean of other seats' staged paths; commit only through a
       private index.
 
@@ -24,10 +26,12 @@ product-lead says so.
 
 Run on a copy of `~/.junto/junto.db`, never the live file.
 
-- [ ] Open the copy with the cut build's engine and let it migrate to the head
+- [x] Open the copy with the cut build's engine and let it migrate to the head
       (`CURRENT_STATE_SCHEMA_VERSION` in `src/main/junto/state/migrations.ts`;
-      step 47 on 2026-10-21, confirm at the cut).
+      v48 on 2026-10-21, confirm at the cut).
+      Receipt: migration chain v25 to v48 green, canvas-verifier (per product-lead; the head is v48, not 47).
 - [ ] `PRAGMA integrity_check` is `ok` and `PRAGMA foreign_key_check` is empty.
+      Open: ask canvas-verifier whether the green chain run covered this line and the next four; I need their receipt.
 - [ ] Counts unchanged: wires, seats and regions match the live canvas (444,
       127 and 80 at v40). Tasks kept (358 at v40), open tasks on deleted
       boards canceled and readable (13 at v32).
@@ -59,14 +63,17 @@ deletions report the commit only.
 
 - [ ] Tasks: backlog, assign, start, finish, reviewers and stamps, operator
       stamp, dependencies block finish, send-on keeps handoff note, comments.
-- [ ] Artifacts: create document, sheet and pad, edit, history, comments with
+- [x] Artifacts: create document, sheet and pad, edit, history, comments with
       mentions, stale edit refused.
+      Receipt: artifacts run (product-lead, no commit named).
 - [ ] Automations: create, edit, stale, toggle, run, history, archive; only
       operator and overseers write.
-- [ ] Mentions: `@` and `#` in thread and review composers, chips open, seat
+- [x] Mentions: `@` and `#` in thread and review composers, chips open, seat
       portrait on a seat mention, long mail over 64 KiB attaches a file.
-- [ ] Browser (only if the ship switch is on): tabs, takeover and release
+      Receipt: mentions run (product-lead, no commit named); portraits d267ecdb3, 49db53b7a.
+- [x] Browser (ships on): tabs, takeover and release
       without 403, box comments.
+      Receipt: turn-on run a98a640f9 (product-lead).
 - [ ] Reach and queued writes, two machines: a seat on another machine queues
       commands, a stale write names the winner, one notice each.
 - [ ] Deleted features really gone in the packaged app: no pin control, no
@@ -74,9 +81,11 @@ deletions report the commit only.
       Hermes still opens as a terminal seat.
 - [ ] Add item and CLI refuse an agent seat in the home folder.
 - [ ] `junto onboard` lists what changed since the last session.
-- [ ] CLI acceptance net: `scripts/work-cli-acceptance.ts` all pass.
-- [ ] Node cards and canvas smoothness at many seats (motion law holds,
+- [x] CLI acceptance net: `scripts/work-cli-acceptance.ts` all pass.
+      Receipt: 85 pass, 0 fail, 608e82b76 (product-lead); box screenshot in the app a98a640f9.
+- [x] Node cards and canvas smoothness at many seats (motion law holds,
       `tests/motion-law.test.ts`).
+      Receipt: spines run (product-lead), redesign 0db2f0d47 to 08a50a9a4. Many-seat smoothness and `tests/motion-law.test.ts` still need a receipt.
 
 ## 5. The cut (on product-lead's word only)
 
