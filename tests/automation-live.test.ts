@@ -35,7 +35,7 @@ describe("performAction", () => {
     limits: { minIntervalMs: 60_000, maxPerHour: 12 },
   };
   const perform = (action: Automation["then"][number], canvas = { nodes: new Map(), wires: new Map() } as unknown as Canvas) =>
-    Effect.runPromise(performAction(Option.none(), canvas, "factory", automation, action, 0, firing));
+    Effect.runPromise(performAction(Option.none(), Option.none(), canvas, "factory", automation, action, 0, firing));
 
   it("rules a comment on a page that is not on the canvas refused unknown_target, never applied", async () => {
     expect(await perform({ kind: "comment", on: { kind: "page", nodeId: asNodeId("gone") }, text: "Status?" })).toEqual({

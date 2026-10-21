@@ -64,7 +64,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
     id: "automations", category: "sinks", label: "Automations",
     icon: Workflow,
-    purpose: "Schedules and triggers that mail seats in this region.",
+    purpose: "Schedules and triggers that mail seats and file tasks in this region.",
   },
   {
     id: "git", category: "sinks", label: "Git",

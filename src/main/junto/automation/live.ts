@@ -7,11 +7,12 @@
  * automation's own node (`automationActorRef`) into the seat's mailbox, with
  * no reply command; its id is derived from the firing, so a firing retried
  * after a crash writes the same row once. A comment posts on the whole
- * resource as the automation, through the one comment write path. An action
- * whose port has not landed yet is ruled refused `not_available` in the firing's history, so a
- * firing never reads as done when it did nothing. A `when` condition holds
- * only once the seat-state and task-state ports land; until then it never
- * holds and the firing is skipped `condition_unmet`.
+ * resource as the automation, through the one comment write path. A task
+ * action is ruled here as the automation, with its author's reach. An action
+ * whose port has not landed yet is ruled refused `not_available` in the
+ * firing's history, so a firing never reads as done when it did nothing. A
+ * `when` condition holds only once the seat-state and task-state ports land;
+ * until then it never holds and the firing is skipped `condition_unmet`.
  */
 import { createHash } from "node:crypto";
 import { Context, Duration, Effect, Layer, Option, Schedule, Schema } from "effect";
@@ -30,7 +31,16 @@ import { postSubjectComment } from "../work/subject-comment";
 import type { SubjectCommentInput } from "@shared/subject-comment";
 import { RefusalReason as RefusalReasonSchema, type RefusalReason } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
-import { OpId } from "@shared/work-ids";
+import { ItemId, OpId } from "@shared/work-ids";
+import type { InstallationId } from "@shared/installation-id";
+import type { NodeId } from "@shared/physics/schema";
+import { rulingContextOf } from "@shared/ruling-context";
+import { checkTaskCommand, type TaskCommandWire } from "@shared/task-model";
+import { noteResourceChanged } from "../work/resource-changes";
+import { taskCanvasEnv } from "../work/task-control";
+import { deliverTaskEffects, type TaskDelivery } from "../work/task-delivery";
+import { TaskRepository } from "../work/task-repository";
+import { MachineRepository } from "../machines/repository";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
 
@@ -39,9 +49,13 @@ export const AUTOMATION_TICK = Duration.seconds(15);
 
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/** A mail row's id from its firing and action: a ULID with the firing's time and hashed random bits. */
-export const automationMailId = (firingId: FiringId, index: number): string => {
-  const digest = createHash("sha256").update(`${firingId}:${index}`).digest();
+/**
+ * An id derived from a firing, its action and a part of that action: a ULID
+ * with the firing's time and hashed random bits, so a retried firing writes
+ * each row and each op once.
+ */
+export const automationMailId = (firingId: FiringId, index: number, part?: string): string => {
+  const digest = createHash("sha256").update(part === undefined ? `${firingId}:${index}` : `${firingId}:${index}:${part}`).digest();
   let random = "";
   for (let i = 0; i < 16; i += 1) random += CROCKFORD[digest[i]! % 32];
   return `${firingId.slice(0, 10)}${random}`;
@@ -73,9 +87,59 @@ const refusalReasonOf = (error: WorkErrorBody): RefusalReason => {
   return error.type === "UnknownTarget" ? "unknown_target" : "invalid_input";
 };
 
+/** What a task action needs: the task store, this machine as the writer, and the notices a ruling owes. */
+export type TaskPort = {
+  readonly repository: TaskRepository["Service"];
+  readonly writer: Effect.Effect<InstallationId, unknown>;
+  readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, unknown>;
+};
+
+type TaskWrite = { readonly opId: OpId; readonly nodeId: NodeId; readonly taskId: ItemId; readonly wire: TaskCommandWire };
+
+/**
+ * One task command as the automation, ruled here on the editing machine with
+ * the automation's own reach (its author's). Undefined when it applied; the
+ * refusal's reason otherwise.
+ */
+const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automation: Automation, write: TaskWrite) =>
+  Effect.gen(function* () {
+    const checked = checkTaskCommand(write.wire, (id) => canvas.nodes.get(id)?.kind);
+    if (!checked.ok) return checked.refusal.reason;
+    const author = (node: NodeId) => (node === automation.nodeId ? automation.author : undefined);
+    const actor = { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId } as const;
+    const outcome = yield* port.repository.submit(
+      yield* port.writer,
+      {
+        opId: write.opId,
+        canvasName,
+        actor,
+        target: { kind: "task", nodeId: write.nodeId, itemId: write.taskId },
+        basis: null,
+        after: [],
+        op: checked.command,
+      },
+      rulingContextOf(canvas, author),
+      taskCanvasEnv(canvas, author),
+    );
+    if (outcome.kind === "refused") return refusalReasonOf(outcome.error);
+    if (!outcome.replay) {
+      noteResourceChanged("task", canvasName);
+      // The ruling is committed: a lost notice never turns it into a refusal.
+      yield* port.deliver({ canvas, canvasName, actor, opId: write.opId, task: outcome.task, effects: outcome.effects }).pipe(
+        Effect.catchCause((cause) => Effect.logWarning("automation task notices were not delivered", cause)),
+      );
+    }
+    return undefined as RefusalReason | undefined;
+  });
+
+/** An action's ruling from the refusal reason of its last write, if any. */
+const ruledAs = (index: number, reason: RefusalReason | undefined): ActionRuling =>
+  reason === undefined ? { index, ruling: "applied" } : { index, ruling: "refused", reason };
+
 /** One action, performed as the automation. Never fails: a refusal is a ruling. */
 export const performAction = (
   work: Option.Option<WorkServiceShape>,
+  tasks: Option.Option<TaskPort>,
   canvas: Canvas | undefined,
   canvasName: string,
   automation: Automation,
@@ -122,9 +186,37 @@ export const performAction = (
           ? ({ index, ruling: "applied" } as const)
           : ({ index, ruling: "refused", reason: refusalReasonOf(posted.failure) } as const);
       }
-      case "create-task":
-      case "assign-task":
-        return notAvailable(index);
+      case "create-task": {
+        if (canvas === undefined || Option.isNone(tasks)) return notAvailable(index);
+        const taskId = ItemId.make(automationMailId(firingId, index, "task"));
+        const created = yield* submitTask(tasks.value, canvas, canvasName, automation, {
+          opId: OpId.make(automationMailId(firingId, index, "create")),
+          nodeId: action.node,
+          taskId,
+          wire: { kind: "create", taskId, title: action.title },
+        });
+        if (created !== undefined || action.assign === undefined) return ruledAs(index, created);
+        // The task stands; an assign it could not make is this action's refusal.
+        if (action.assign.kind !== "seat") return { index, ruling: "refused", reason: "invalid_input" } as const;
+        const assigned = yield* submitTask(tasks.value, canvas, canvasName, automation, {
+          opId: OpId.make(automationMailId(firingId, index, "assign")),
+          nodeId: action.node,
+          taskId,
+          wire: { kind: "assign", seat: action.assign.nodeId },
+        });
+        return ruledAs(index, assigned);
+      }
+      case "assign-task": {
+        if (canvas === undefined || Option.isNone(tasks)) return notAvailable(index);
+        if (action.task.kind !== "task" || action.to.kind !== "seat") return { index, ruling: "refused", reason: "invalid_input" } as const;
+        const assigned = yield* submitTask(tasks.value, canvas, canvasName, automation, {
+          opId: OpId.make(automationMailId(firingId, index, "assign")),
+          nodeId: action.task.nodeId,
+          taskId: action.task.taskId,
+          wire: { kind: "assign", seat: action.to.nodeId },
+        });
+        return ruledAs(index, assigned);
+      }
     }
   });
 
@@ -145,13 +237,26 @@ export const AutomationRunnerLive = Layer.effect(
     const model = yield* ModelService;
     const records = yield* ModelRecords;
     const work = yield* Effect.serviceOption(WorkService);
+    const machines = yield* Effect.serviceOption(MachineRepository);
+    const taskStore = yield* Effect.serviceOption(TaskRepository);
+    const tasks: Option.Option<TaskPort> = Option.isSome(taskStore) && Option.isSome(machines)
+      ? Option.some({
+          repository: taskStore.value,
+          writer: machines.value.installationId,
+          deliver: (delivery) =>
+            deliverTaskEffects(delivery).pipe(
+              Effect.provideService(MachineRepository, machines.value),
+              Option.isSome(work) ? Effect.provideService(WorkService, work.value) : (effect) => effect,
+            ),
+        })
+      : Option.none();
     // The canvas as it stood when this pass began; the ports read it synchronously.
     const canvases = new Map<string, Canvas>();
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       holds: () => false,
       perform: (canvasName, automation, action, index, firingId) =>
-        performAction(work, canvases.get(canvasName), canvasName, automation, action, index, firingId).pipe(
+        performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
         ),
       mintFiringId: () => FiringId.make(ulid()),

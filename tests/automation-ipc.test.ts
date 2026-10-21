@@ -16,6 +16,8 @@ import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { writeRuling } from "../src/main/junto/work/resource-rulings";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
+import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import type { AutomationDefinition, AutomationsChanged } from "../src/shared/automation";
 import { Command } from "../src/shared/model";
 import { Automations, TaskBoard } from "../src/shared/model/kinds";
@@ -51,14 +53,20 @@ const run = async (
     handlers: ReturnType<typeof automationIpcHandlers>,
     changed: AutomationsChanged[],
     sql: (statement: string) => Promise<void>,
-    inApp: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>,
+    inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository>) => Promise<A>,
   ) => Promise<void>,
 ) => {
   const home = await mkdtemp(join(tmpdir(), "junto-automation-ipc-"));
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       AutomationRunnerLive,
-      Layer.mergeAll(Layer.provide(ModelLive, ModelDependents.empty), makeAutomationRepositoryLive(), recorder),
+      Layer.mergeAll(
+        Layer.provide(ModelLive, ModelDependents.empty),
+        makeAutomationRepositoryLive(),
+        recorder,
+        Layer.provide(TaskRepositoryLive, recorder),
+        MachineRepositoryLive,
+      ),
     ).pipe(
       Layer.provideMerge(makeStateEngineLive(join(home, "junto.db"))),
     ),
@@ -70,8 +78,9 @@ const run = async (
         const at = new Date().toISOString();
         // This machine, the writer of the operator's commands.
         yield* sql.withTransaction(Effect.gen(function* () {
-          yield* sql`INSERT INTO known_installations(installation_id,registered_at) VALUES ('mini',${at})`;
-          yield* sql`INSERT INTO installation(singleton,installation_id,created_at) VALUES (1,'mini',${at})`;
+          // The machine repository may already have minted this machine's id; keep it.
+          yield* sql`INSERT OR IGNORE INTO known_installations(installation_id,registered_at) VALUES ('mini',${at})`;
+          yield* sql`INSERT OR IGNORE INTO installation(singleton,installation_id,created_at) VALUES (1,'mini',${at})`;
         }));
         const model = yield* ModelService;
         yield* model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator");
@@ -139,15 +148,19 @@ describe("automation IPC", () => {
       expect((await handlers.list("factory", { nodeId: NODE })).automations).toEqual([]);
     }));
 
-  it("fires a run now, as the automation, and records what each action was ruled", () =>
-    run(async (handlers) => {
+  it("fires a run now, files the task as the automation, and records each action's ruling", () =>
+    run(async (handlers, _changed, _sql, inApp) => {
       await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition } });
+      // A disabled automation still runs by hand.
       expect(await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "run" } })).toMatchObject({ kind: "applied" });
       const { firings } = await handlers.firings("factory", { automationId: ID });
-      // A disabled automation still runs by hand; create-task's port has not landed, so it is refused, never fired as done.
       expect(firings.map((f) => [f.cause, f.outcome])).toEqual([
-        [{ kind: "run" }, { kind: "fired", actions: [{ index: 0, ruling: "refused", reason: "not_available" }] }],
+        [{ kind: "run" }, { kind: "fired", actions: [{ index: 0, ruling: "applied" }] }],
       ]);
+      const { tasks } = await inApp(Effect.gen(function* () {
+        return yield* (yield* TaskRepository).list("factory", { nodeIds: [asNodeId(TASKS)], limit: 10 });
+      }));
+      expect(tasks.map((task) => task.title)).toEqual(["Plan the day"]);
     }));
 });
 
