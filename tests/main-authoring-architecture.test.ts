@@ -75,6 +75,8 @@ describe("main authoring architecture", () => {
       "ipc.work.message-append",
       // Mail threads: the operator writes in a seat's thread, mentions included.
       "ipc.work.thread-send",
+      // The operator removes a page box comment's shot on every machine.
+      "ipc.page-shot.purge",
       "review.checkout",
       "startup.canvas.ensure-seed",
     ].sort());

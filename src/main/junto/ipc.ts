@@ -1,5 +1,7 @@
 import { canvasReceiptBasis } from "./work/delivery-receipts";
 import { readPageShot } from "./work/page-shot-read";
+import { purgeOperatorPageShot } from "./work/page-shot-purge";
+import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { WorkItemQuery, WorkActorQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
@@ -623,6 +625,19 @@ export const registerJuntoIpc = (): void => {
     const scaled = width >= height ? image.resize({ width: edge, quality: "good" }) : image.resize({ height: edge, quality: "good" });
     return scaled.isEmpty() ? undefined : { bytes: scaled.toPNG(), mediaType: "image/png" };
   };
+  // The operator's purge of a page box comment's shot: this handler is its
+  // only caller (tests/page-shot-purge.test.ts), under its own label.
+  privilegedIpc.handle(IPC_CHANNELS.pageShotPurge, (_event, request: unknown): Promise<PageShotPurged> => {
+    const named = request as Partial<PageShotPurgeRequest> | null;
+    if (typeof named?.canvasName !== "string" || typeof named.nodeId !== "string" || typeof named.messageId !== "string") {
+      return Promise.resolve({ ok: false, message: "That comment has no screenshot." });
+    }
+    const comment = { canvasName: named.canvasName, nodeId: named.nodeId, messageId: named.messageId };
+    return runMainAuthoring("ipc.page-shot.purge", () => AppRuntime.runPromise(purgeOperatorPageShot(comment))).catch(() => ({
+      ok: false as const,
+      message: "The screenshot could not be removed.",
+    }));
+  });
   privilegedIpc.handle(IPC_CHANNELS.previewRead, async (_event, request: PreviewRequest): Promise<PreviewResult> => {
     const target = request?.target;
     const render = {

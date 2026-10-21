@@ -438,6 +438,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   agentSignalDismiss: (signalId) =>
     invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
   previewRead: (request) => invoke(IPC_CHANNELS.previewRead, IPC_TIMEOUT_MS, request),
+  pageShotPurge: (request) => invoke(IPC_CHANNELS.pageShotPurge, IPC_TIMEOUT_MS, request),
   previewReveal: (source, path) =>
     invoke(IPC_CHANNELS.previewReveal, IPC_TIMEOUT_MS, source, path),
   previewPlay: (source, index) => invoke(IPC_CHANNELS.previewPlay, IPC_TIMEOUT_MS, source, index),

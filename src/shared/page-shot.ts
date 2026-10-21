@@ -67,3 +67,14 @@ export const PAGE_SHOT_REFUSED: Readonly<Record<PageShotRefusal, string>> = {
   too_large: "That box makes a shot over 2 MB: draw a smaller box.",
   too_big: "That box is over 4096 pixels on a side: draw a smaller box.",
 };
+
+/** What a page box comment shows in place of a shot the operator removed. */
+export const PAGE_SHOT_REMOVED = "Screenshot removed. The comment stays.";
+
+/** The comment whose shot the operator removes: a reply names its thread's comment. */
+export type PageShotPurgeRequest = { readonly canvasName: string; readonly nodeId: string; readonly messageId: string };
+
+/** `already`: it was removed before, and nothing new crossed. */
+export type PageShotPurged =
+  | { readonly ok: true; readonly messageId: string; readonly already: boolean }
+  | { readonly ok: false; readonly message: string };
