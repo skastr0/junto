@@ -249,6 +249,32 @@ export function AddressBar({
  * a refusal is said here in one line and nothing is lost. `trailing` is where
  * the surface puts its own buttons (stop, close).
  */
+/**
+ * The operator took over a tab whose document a seat ran code in: code it
+ * left may still watch what they type, until a reload (main's line, as is).
+ */
+export function SeatCodeNotice({
+  state,
+  pending,
+  onCommand,
+}: {
+  readonly state: BrowserChromeState;
+  readonly pending: boolean;
+  readonly onCommand: (command: ChromeCommand) => void;
+}) {
+  const notice = state.seatCode;
+  if (notice === undefined || !notice.tabs.includes(state.tabs.active)) return null;
+  return (
+    <div className="browser-chrome__notice" role="status" data-testid="browser-chrome-seat-code">
+      <span>{notice.message}</span>
+      <Button size="xs" variant="chrome" disabled={pending} onClick={() => onCommand({ kind: "traverse", step: "reload" })}>
+        <RotateCw size={12} aria-hidden />
+        Reload
+      </Button>
+    </div>
+  );
+}
+
 export function BrowserChrome({
   state,
   now,
@@ -362,6 +388,7 @@ export function BrowserChrome({
         <TakeoverControl state={state} pending={pending} onCommand={run} />
         {trailing}
       </div>
+      <SeatCodeNotice state={state} pending={pending} onCommand={run} />
       {draft === null ? null : (
         <BoxCommentComposer draft={draft} canvasName={canvasName ?? ""} nodeId={nodeId ?? ""} pending={posting} onPost={postBox} onDiscard={discardBox} />
       )}

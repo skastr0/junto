@@ -17,7 +17,7 @@ import {
 } from "@shared/browser";
 import { decodePageViewport, viewportRectOf, type Rect } from "@shared/page-box";
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
-import type { BrowserNavigationBlock } from "@shared/browser-chrome";
+import { SEAT_CODE_NOTICE, type BrowserNavigationBlock, type BrowserSeatCodeNotice } from "@shared/browser-chrome";
 import type { BrowserTopLevelNavigationRejection } from "./web-policy";
 import type { BrowserTouchedOriginStore } from "./touched-origins";
 import type { NodeId } from "@shared/model/base";
@@ -302,6 +302,7 @@ export interface BrowserPageState {
   readonly tabs: PageTabs;
   readonly driving: PageDriving;
   readonly blocked?: BrowserNavigationBlock;
+  readonly seatCode?: BrowserSeatCodeNotice;
 }
 
 /** The schema's limit trigger names this when the touched-origin record is full. */
@@ -359,6 +360,13 @@ interface SessionEntry {
    * never commits leaves in place. Moves only on a main-frame commit.
    */
   documentOrigin: string | undefined;
+  /**
+   * A seat ran code in the document now in the view. Code it left may still
+   * watch the page, so taking the page over says so; a new document clears it.
+   */
+  seatRanCode: boolean;
+  /** When the operator took over a tab whose document a seat ran code in: the chrome's notice. */
+  seatCodeNoticeAt: number | undefined;
   activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
@@ -1114,6 +1122,7 @@ export class BrowserSessionService {
    * run or the next. A site's own worker there goes too.
    */
   private markTouched(entry: SessionEntry, owner: string): void {
+    entry.seatRanCode = true;
     // An unbound seat binds the origin to nowhere: fail closed.
     const guard = entry.guests.get(owner)?.admitsTopLevel ?? (() => false);
     const key = this.originKey(entry);
@@ -1203,6 +1212,9 @@ export class BrowserSessionService {
     if (!this.isCurrent(entry) || page === undefined || page.driving.control.kind === "operator-held") return;
     page.driving = reducePageDriving(page.driving, { kind: "take-over", at: this.now() });
     for (const tab of this.pageEntries(entry.ref)) {
+      // The operator accepted that code a seat left may watch what they type
+      // (signal 01M5EY4765B700PENESKE0YC1X); the chrome says so until a reload.
+      if (tab.seatRanCode) tab.seatCodeNoticeAt = this.now();
       // A seat's step not yet started: ask the view to drop it. admitsTopLevel
       // refuses it should it start anyway.
       if (tab.stepPending !== undefined && tab.stepOwner !== tab.owner) tab.view.stopLoading?.();
@@ -1301,10 +1313,17 @@ export class BrowserSessionService {
       };
     };
     const [first, ...rest] = page.tabs.tabs;
+    const noticed = page.tabs.tabs.flatMap((tab) => {
+      const at = this.tabEntry(entry.ref, tab.id)?.seatCodeNoticeAt;
+      return at === undefined ? [] : [{ tab: tab.id, at }];
+    });
     return {
       tabs: { ...page.tabs, tabs: [live(first), ...rest.map(live)] },
       driving: page.driving,
       ...(page.blocked !== undefined ? { blocked: page.blocked } : {}),
+      ...(noticed.length === 0
+        ? {}
+        : { seatCode: { tabs: noticed.map(({ tab }) => tab), message: SEAT_CODE_NOTICE, at: Math.max(...noticed.map(({ at }) => at)) } }),
     };
   }
 
@@ -1890,6 +1909,14 @@ export class BrowserSessionService {
     this.notifyPage(entry.ref);
   }
 
+  /** A new document in the tab: no code a seat ran is in it. */
+  private clearSeatCode(entry: SessionEntry): void {
+    entry.seatRanCode = false;
+    if (entry.seatCodeNoticeAt === undefined) return;
+    entry.seatCodeNoticeAt = undefined;
+    this.notifyPage(entry.ref);
+  }
+
   private clearBlocked(entry: SessionEntry): void {
     const page = this.pages.get(entry.ref);
     if (page?.blocked === undefined || page.blocked.tab !== entry.tab) return;
@@ -2451,6 +2478,8 @@ export class BrowserSessionService {
       stepPending: undefined,
       stepOwner: undefined,
       documentOrigin: undefined,
+      seatRanCode: false,
+      seatCodeNoticeAt: undefined,
       activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
@@ -2478,6 +2507,7 @@ export class BrowserSessionService {
           onDocumentCommitted: (url) => {
             entry.documentOrigin = exactBrowserOrigin(url);
             this.clearBlocked(entry);
+            this.clearSeatCode(entry);
           },
           onServiceWorkerRegistered: (scope) => this.serviceWorkerRegistered(entry, scope),
           onNavigationBlocked: (reason) => this.navigationBlocked(entry, reason),

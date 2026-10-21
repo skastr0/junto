@@ -25,12 +25,29 @@ export type BrowserNavigationBlock = {
   readonly at: number;
 };
 
+/** What the chrome says when the operator takes over a page whose document a seat ran code in. */
+export const SEAT_CODE_NOTICE = "A seat ran code on this page and may still see what you type here. Reload to stop it.";
+
+/**
+ * The operator took over tabs whose documents a seat ran code in. Code it
+ * left may still watch the page, which the operator accepted (signal
+ * 01M5EY4765B700PENESKE0YC1X); the chrome says so, with Reload, on those
+ * tabs. Each stands until its tab shows another document.
+ */
+export type BrowserSeatCodeNotice = {
+  readonly tabs: ReadonlyArray<BrowserTabId>;
+  readonly message: string;
+  readonly at: number;
+};
+
 /** Everything the chrome paints, read together so a frame is never torn. */
 export type BrowserChromeState = {
   readonly tabs: PageTabs;
   readonly driving: PageDriving;
   /** The page's last refused navigation, while it stands. */
   readonly blocked?: BrowserNavigationBlock;
+  /** Seat code may still be watching these tabs since the operator took over. */
+  readonly seatCode?: BrowserSeatCodeNotice;
 };
 
 /**

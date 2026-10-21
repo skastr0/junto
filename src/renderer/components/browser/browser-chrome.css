@@ -24,6 +24,19 @@
   line-height: var(--leading-body);
 }
 
+/* Seat code may still watch the page the operator took over: one line, with Reload. */
+.browser-chrome__notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 10px 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-amber);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
 .tab-strip {
   display: flex;
   align-items: center;
