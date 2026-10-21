@@ -127,7 +127,7 @@ describe("per-connection instructions", () => {
   it("groups by held ports, not by the neighbor's kind", () => {
     const groups = commandGroupsFor([
       { id: "peer-2", kind: "agent", ports: peerPorts },
-      { id: "odd-one", kind: "page", ports: ["terminal.read"] },
+      { id: "odd-one", kind: "board", ports: ["terminal.read"] },
     ]);
     expect(groups.map((group) => [group.family, group.targets.map((t) => t.id)])).toEqual([
       ["msg", ["peer-2"]],
@@ -138,6 +138,7 @@ describe("per-connection instructions", () => {
   it("leaves feature-gated families out with their product gate", () => {
     const families = commandGroupsFor([
       { id: "everything", ports: ALL_PORTS },
+      { id: "board", kind: "task" },
     ]).map((group) => group.family);
     expect(families.includes("tasks")).toBe(TASKS_ENABLED);
     expect(families.includes("reviews")).toBe(TASKS_ENABLED);
@@ -145,29 +146,30 @@ describe("per-connection instructions", () => {
     expect(families).toContain("msg");
   });
 
-  it("every family note is one short line and every row names a real port", () => {
+  it("every family note is one short line; an edge row names a real port, a resource row none", () => {
     for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
       const spec = COMMAND_FAMILIES[family];
       expect(spec.note.includes("\n")).toBe(false);
       expect(spec.note.length).toBeLessThan(220);
       expect(spec.note).not.toContain("·");
-      for (const row of spec.rows) expect(ALL_PORTS).toContain(row.port);
+      for (const row of spec.rows) {
+        if (spec.reach === undefined) expect(ALL_PORTS).toContain(row.port);
+        else expect(row.port).toBeUndefined();
+      }
     }
   });
 });
 
 describe("onboard reach", () => {
-  const taskPorts = [...new Set(COMMAND_FAMILIES.tasks.rows.map((row) => row.port))];
-
-  it("teaches a resource in reach the commands admission grants on it, and nothing without grants", () => {
-    const taught = compileConnectionInstructions([], [{ id: "board-1", kind: "task", ports: taskPorts }]);
-    expect(taught.map((group) => group.targets)).toEqual(TASKS_ENABLED ? [["board-1"]] : []);
-    expect(compileConnectionInstructions([], [{ id: "board-1", kind: "task", ports: [] }])).toEqual([]);
-  });
-
-  it("counts a resource both wired and in reach once", () => {
-    const board = { id: "board-1", kind: "task", ports: taskPorts };
-    expect(compileConnectionInstructions([board], [board])).toEqual(compileConnectionInstructions([board]));
+  it("teaches a resource its kind's whole family under reach, and never over an edge", () => {
+    const [tasks] = compileReach([{ id: "board-1", kind: "task" }]);
+    expect(Object.values(tasks!.commands)).toEqual(TASKS_ENABLED ? COMMAND_FAMILIES.tasks.rows.map((row) => row.command("board-1")) : []);
+    expect(tasks!.more).toBe("junto docs node task");
+    const [shelf] = compileReach([{ id: "shelf", kind: "artifacts" }]);
+    expect(Object.keys(shelf!.commands)).toEqual(ARTIFACTS_ENABLED ? COMMAND_FAMILIES.artifacts.rows.map((row) => row.intent) : []);
+    // An edge to a resource, whatever ports it carries, teaches nothing: reach admits.
+    expect(compileConnectionInstructions([{ id: "board-1", kind: "task", ports: ALL_PORTS }, { id: "shelf", kind: "artifacts", ports: ALL_PORTS }])
+      .filter((group) => group.family === "tasks" || group.family === "artifacts")).toEqual([]);
   });
 
   it("groups resources by kind with a count and the command that lists each", () => {
@@ -181,7 +183,7 @@ describe("onboard reach", () => {
       { kind: "artifacts", count: 1, targets: ["art-1"] },
     ]);
     expect(reach[0]!.list).toBe(TASKS_ENABLED ? "junto task list --node <target>" : "junto docs node task");
-    expect(reach[1]!.list).toBe(ARTIFACTS_ENABLED ? "junto artifact list" : "junto docs node artifacts");
+    expect(reach[1]!.list).toBe(ARTIFACTS_ENABLED ? "junto artifact list --node art-1" : "junto docs node artifacts");
     expect(compileReach([{ id: "board-a", kind: "task" }])[0]!.list).toBe(
       TASKS_ENABLED ? "junto task list --node board-a" : "junto docs node task",
     );
@@ -302,22 +304,15 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
     expect(body).toContain("## Worked examples");
   });
 
-  it("teaches no command of the retired board CLI", () => {
-    for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
-      for (const row of COMMAND_FAMILIES[family].rows) {
-        expect(row.command("<node>"), `${family}: ${row.intent}`).not.toContain("junto board");
-      }
-    }
-  });
-
   it("every command onboard can teach appears in its kind's junto docs node page", () => {
     for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
       const spec = COMMAND_FAMILIES[family];
-      const ports = [...new Set(spec.rows.map((row) => row.port))];
-      // Taught the same whether the node is wired or only in reach.
-      const taught = compileConnectionInstructions([{ id: "<node>", ports }]);
-      expect(compileConnectionInstructions([], [{ id: "<node>", ports }])).toEqual(taught);
-      if (taught.length === 0) continue; // family gated off in this build
+      const ports = [...new Set(spec.rows.flatMap((row) => (row.port === undefined ? [] : [row.port])))];
+      // A resource family is taught by its kind in reach, an edge family by its ports.
+      const taught = spec.reach === undefined
+        ? compileConnectionInstructions([{ id: "<node>", ports }]).length
+        : Object.keys(compileReach([{ id: "<node>", kind: spec.reach }])[0]!.commands).length;
+      if (taught === 0) continue; // family gated off in this build
       const page = buildNodeKindDoc(spec.docsKind);
       // Reviews ride an agent edge the kind doc does not offer by default;
       // their reference is the doctrine's reviews contract.

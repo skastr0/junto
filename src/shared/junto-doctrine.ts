@@ -254,24 +254,21 @@ const TASKS_REFERENCE = `A task moves backlog, assigned, working, in-review, don
 
 ### Rules in force
 
-A board carries **rules**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the board itself, and from rules the raiser addressed to it. They are prompts for you to check, never something the server evaluates. Rules have no severity — every rule in force must be answered.
+A board carries **rules**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the board itself, and from rules the raiser addressed to it. The server does not judge them; it only checks that each is answered.
 
-- Read them with \`task rules\` — each one names where it came from.
-- Answer every rule when you finish: \`task finish <task> --claim <ruleId>="how you satisfied it"\`, once per rule.
+- Read them with \`task rules\`: each one names where it came from, and naming a task shows which are still unanswered.
+- Answer each when you finish: \`task finish <task> --claim "<ruleId>=<how this work meets it>"\`, one --claim per rule. A finish that leaves a rule in force unanswered is refused \`rules-unmet\`.
 - Only a claim answers a rule. A rule that no longer fits is the operator's to change; ask, do not skip it.
-- \`task finish\` is refused \`rules-unmet\` while a rule is unanswered; the refusal names the innermost one.
 
-### Path — one board at a time
+### Path, one node at a time
 
-Where the operator drew a task path, completing does not close the task: it hands it to the next board.
+Where the operator drew a task path, finishing does not close the task: it hands it to the next node.
 
-- With one Next, completing sends the task on automatically; with more than one, pick one with \`"next":"<board>"\` on the update.
-- **Checks** are the operator's deterministic gates for that move. Run them with \`task check\` — the commands execute in your own shell and the results are stamped from what they returned. Every applicable check must pass before the task is sent on.
-- Write what the outgoing contract asks in the update \`"handoffNote"\`: the next board sees that and your cited refs, never your interior work.
-- Sending work back is \`state: "rejected"\` with \`"defect":{"summary":"what is wrong","refs":["..."]}\` — it returns the task to the board before yours.
-- \`"waitFor":"12h"\` (or \`"7d"\`, or milliseconds) delays the first claim at the next board.
-
-A task that arrives back with an epoch bump was sent back to you: prior claims and check results are stale, so answer the rules again and re-run the checks.`;
+- With one next node, \`task finish\` sends the task on; with more than one, name it with \`--next <node>\`.
+- Cite the work on the finish: \`--commit <sha>\` and \`--artifact <node id>/<artifactId>\`, repeated for several.
+- **Checks** are the operator's deterministic gates for that move. Run them with \`task check\`: the commands run in your own shell and the results are stamped from what they returned.
+- The next node sees your layer as stamps, comments and cited refs, never your interior work.
+- \`task stamp <task> changes --text "<what to change>"\` sends the task back to \`working\` on a new epoch: earlier stamps stop counting and check results are stale, so answer the rules again and re-run the checks.`;
 
 const MSG_REFERENCE = `A mail target is a seat's name or its node id; a name two of your seats share is refused, listing each one's id and regions. Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input within seconds, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. The one wait is the input box: mail is never typed over a message the operator is composing in that seat, into a dialog, or onto a screen Junto cannot read, and goes in once the box is free. Kinds are \`notice\`, \`prompt\`, and \`receipt\`. A notice is typed whole, up to 2,500 characters, under one header: \`mail from <seat> (<regions>)\`, its id, its thread when it is a reply, and the \`junto msg reply\` that answers it; longer mail is cut there with a pointer to \`junto msg read <id>\` for the rest. Mail for one seat that arrives together is typed as one turn: a count line, then each mail under its own header, oldest first. It waits 2 seconds for more, never past 10 seconds after the first; past 6,000 characters in one turn, each further mail is one line with its id and stays unread; past 20 of those, one last line counts the rest with the \`junto msg list\` that lists them. A prompt is typed whole, as its own turn. Mail typed whole is marked read as it is typed; cut mail stays unread until you read it. The header adds a pointer to \`junto onboard\` when the recipient has not onboarded yet. Threads: every mail names its \`threadId\`, the id of the mail that started it; \`junto msg reply\` joins the parent's thread, \`junto msg send\` joins one with \`threadId\`, \`junto msg list '{"threadId":"<id>"}'\` reads one, and a reply with target \`operator\` answers mail the operator sent you. Filter a list with \`from\`, \`unread\`, \`since\` (ISO time or message id) and \`text\`, alone or with \`threadId\`; \`"peek":true\` lists without marking anything read. Avoid acknowledgement loops.
 
@@ -290,7 +287,7 @@ const REVIEWS_REFERENCE = `The directed \`verdict.post\` grant lets you review t
 
 Use \`"kind":"blocking"\` with concrete nonempty findings when changes are needed. A blocking task review records the verdict and sends the task back with a defect and new epoch. Commit review uses \`"subject":{"kind":"commit","sha":"<full-sha>"}\`; it does not move a task. The server stamps your identity, refuses self-review, and rechecks the live reviews edge and exact subject. Stale-subject refusal requires a fresh receipt or authorized task read, never rebinding your old verdict to newer work.`;
 
-const ARTIFACTS_REFERENCE = `Artifacts never block: ship intermediate and final outputs freely — they do not stop other seats.${TASKS_ENABLED ? ` When completing a task with an artifacts requirement, publish first with task linkage, then complete with \`completionEvidence.artifacts: [{"artifactId":"<id>","nodeId":"<target>"}]\`.` : ""}`;
+const ARTIFACTS_REFERENCE = `Artifacts never block: ship intermediate and final outputs freely — they do not stop other seats. Every Artifacts node in your reach admits you, with no edge. An edit names the version it was written against with \`--base\`; a stale one is refused with the head, so read it again and redo the edit.${TASKS_ENABLED ? ` For a task that wants an artifact, create it with \`--task <taskId>\`, then cite it on \`junto task finish #<n> --artifact <node id>/<artifactId>\`.` : ""}`;
 
 const BROWSER_REFERENCE = `\`browser.automate\` is a live edge grant realized by \`junto browser\` from
 the managed agent's existing shell. Existing sessions may use it immediately
@@ -301,7 +298,7 @@ const referenceFor = (group: CommandGroup): string => {
   const holds = (port: string): boolean => group.rows.some((row) => row.port === port);
   switch (group.family) {
     case "tasks":
-      return holds("tasks.update") ? TASKS_REFERENCE : "";
+      return TASKS_REFERENCE;
     case "msg":
       return holds("msg.send") || holds("msg.prompt")
         ? `${MSG_REFERENCE}\n\n${MSG_SEND_REFERENCE}`
@@ -310,6 +307,8 @@ const referenceFor = (group: CommandGroup): string => {
       return REVIEWS_REFERENCE;
     case "artifacts":
       return ARTIFACTS_REFERENCE;
+    case "board":
+      return COMMAND_FAMILIES.board.note;
     case "browser":
       return BROWSER_REFERENCE;
   }
@@ -348,7 +347,7 @@ export const buildEdgeContract = (
 
 export const EDGE_CONTRACTS_INTRO = `### Command contracts
 
-A seat is only taught the commands it may run. \`junto onboard\` compiles them from the ports the seat holds on each connected seat and each resource in its reach, and returns them under \`commands\`; the tables below are the same commands with their reference notes. When edges change mid-session, a short notice names what was added and removed; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
+A seat is only taught the commands it may run. \`junto onboard\` compiles them from the ports the seat holds on each connected seat, returned under \`commands\`, and from the kind of each resource in its reach, which admits with no edge, returned under \`reach\`; the tables below are the same commands with their reference notes. When edges change mid-session, a short notice names what was added and removed; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
 
 // ── Worked examples ────────────────────────────────────────────────────────
 
@@ -361,10 +360,8 @@ const fewShotsForTargets = (
   targets: readonly ConnectedTarget[] | undefined,
 ): readonly DoctrineFewShotPayload[] => {
   const out: DoctrineFewShotPayload[] = [];
-  if (TASKS_ENABLED && targets?.some((target) => target.ports?.includes("tasks.claim"))) out.push(FEW_SHOT_START);
-  if (TASKS_ENABLED && targets?.some((target) => target.ports?.includes("tasks.update"))) {
-    out.push(FEW_SHOT_PROGRESS, FEW_SHOT_FINISH);
-  }
+  // A task node admits by reach, so its kind brings the task examples.
+  if (TASKS_ENABLED && targets?.some((target) => target.kind === "task")) out.push(FEW_SHOT_START, FEW_SHOT_PROGRESS, FEW_SHOT_FINISH);
   // Raising a hand is universal, so every seat gets its worked example.
   out.push(FEW_SHOT_BLOCKED);
   return out;

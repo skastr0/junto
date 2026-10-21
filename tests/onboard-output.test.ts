@@ -35,7 +35,7 @@ import {
   SeatGuidanceRepositoryLive,
 } from "../src/main/junto/seat-guidance/repository";
 import { ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
-import { productPortEnabled, TASKS_ENABLED } from "../src/shared/features";
+import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { AgentSignalRepository } from "../src/main/junto/signals/repository";
 import { SINCE_UNAVAILABLE } from "../src/main/junto/work/seat-since-read";
 
@@ -257,11 +257,14 @@ describe("junto onboard output", () => {
       { kind: "task", count: 1, targets: ["board-in"] },
       { kind: "artifacts", count: 1, targets: ["shelf"] },
     ]);
-    // No edge to either: reach admits them, and the board next door is taught nothing.
-    const taught = data.commands.flatMap((group: { targets: string[] }) => group.targets);
-    expect(taught.includes("board-in")).toBe(TASKS_ENABLED);
-    expect(taught.includes("shelf")).toBe(productPortEnabled("artifact.publish"));
-    expect(taught).not.toContain("board-away");
+    // No edge to either: reach admits them and teaches each its kind's whole
+    // family, and the board next door is taught nothing.
+    const taught = (kind: string) =>
+      Object.values(data.reach.find((section: { kind: string }) => section.kind === kind).commands as Record<string, string>);
+    expect(taught("task").some((command) => command.includes("junto task list --node board-in"))).toBe(TASKS_ENABLED);
+    expect(taught("artifacts").some((command) => command.includes("junto artifact create"))).toBe(ARTIFACTS_ENABLED);
+    expect(data.commands).toEqual([]);
+    expect(JSON.stringify(data)).not.toContain("board-away");
     // Resources are in reach, never co-members.
     expect(data.co_members).toEqual([{ region: "PTY", seats: [...PEERS] }]);
   });

@@ -216,15 +216,11 @@ import {
   containingRegion,
   factoryRoleOfNode,
   findNode,
-  heldGrantsOnEdge,
   nodeKind,
   nodeTitle,
   regionStackFor,
-  linkSeatMentions,
-  mailMentionCandidates,
   regionVisibility,
   resolveWorkTarget,
-  resourceMentionCandidates,
   summarizeNode,
 } from "./authz";
 import { resolveTaskAdmission } from "@shared/work-model";
@@ -1390,15 +1386,13 @@ const dispatchOp = (
           grants: c.grants,
           ...(boardBriefing(board, c.id) ?? {}),
         })),
-        // What each connection and each resource in reach allows, compiled
-        // from the ports admission grants on it: a seat is never taught a
-        // command it would be refused.
+        // What each connection allows, compiled from the ports held over it:
+        // a seat is never taught a command its edge does not grant.
         commands: compileConnectionInstructions(
           connected.map((c) => ({ id: c.id, kind: c.kind, ports: c.grants })),
-          reach.map((r) => ({ id: r.id, kind: r.kind, ports: heldGrantsOnEdge(board, caller.nodeId, r.id) })),
         ),
-        // The resources in this seat's region reach, by kind, with the
-        // command that lists each.
+        // The resources in this seat's region reach, by kind, each with every
+        // command its kind allows: reach admits, with no edge and no port.
         reach: compileReach(reach),
         ...(references === undefined ? {} : { references }),
         // Operator-pinned precedent from the seat's own region stack. Region
@@ -1868,8 +1862,8 @@ const dispatchOp = (
       const recipient = recipientOf(board, named.success);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const typed = decoded.success.text.trim();
-      if (!typed) {
+      const text = decoded.success.text.trim();
+      if (!text) {
         return yield* Effect.fail({
           type: "InputError" as const,
           message: "text must be non-empty",
@@ -1897,12 +1891,6 @@ const dispatchOp = (
           });
         }
       }
-      // Each @name becomes its mention link: a seat in reach of the task, or wired to this one (03).
-      const linked = linkSeatMentions(board, caller.canvasName, caller.nodeId, typed, taskThread === undefined
-        ? mailMentionCandidates(board, caller.nodeId)
-        : resourceMentionCandidates(board, taskThread.subject.nodeId));
-      if (Result.isFailure(linked)) return yield* Effect.fail(linked.failure);
-      const text = linked.success;
       // A comment on a 0.10 task posts on the one comment path (03).
       if (taskThread !== undefined && taskThread.subject.kind === "task") {
         const posted = yield* postSubjectComment(
@@ -2072,8 +2060,8 @@ const dispatchOp = (
         if ("type" in gate) return yield* Effect.fail(gate);
       }
       const decoded = { success: { ...asked.success, target } };
-      const typed = decoded.success.text.trim();
-      if (!typed) {
+      const text = decoded.success.text.trim();
+      if (!text) {
         return yield* Effect.fail({
           type: "InputError" as const,
           message: "text must be non-empty",
@@ -2142,12 +2130,6 @@ const dispatchOp = (
           });
         }
       }
-      // Each @name becomes its mention link: a seat in reach of the subject, or wired to this one (03).
-      const linked = linkSeatMentions(board, caller.canvasName, caller.nodeId, typed, subject === undefined
-        ? mailMentionCandidates(board, caller.nodeId)
-        : resourceMentionCandidates(board, subject.nodeId));
-      if (Result.isFailure(linked)) return yield* Effect.fail(linked.failure);
-      const text = linked.success;
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,
