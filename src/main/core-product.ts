@@ -8,7 +8,6 @@ import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
 import { AgentSignalRepositoryLive } from "./junto/signals/repository";
 import { PortraitOverrideRepositoryLive } from "./junto/portraits/repository";
 import { CompanionDeviceRepositoryLive } from "./junto/companion/repository";
-import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
@@ -57,7 +56,6 @@ export const makeCoreProductLayer = (home: string) => {
       ProfileRepositoryLive,
       Layer.provideMerge(UsageLive, settings),
       settings,
-      SchedulerRepositoryLive,
       MachineRepositoryLive,
       OpRepositoryLive,
       // The automation store, and the recorder its ruler records each ruling through.
