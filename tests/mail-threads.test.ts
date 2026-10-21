@@ -42,6 +42,7 @@ import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
   mentionableSeats,
+  reviewCopyId,
   seatThreadMessages,
   seatThreads,
   sendOperatorThreadMail,
@@ -509,6 +510,20 @@ describe("operator threads", () => {
     expect(linesAnchorOf(copy!)).toEqual(lines);
     expect(linesAnchorOf(await stored("agent", root.messageId))).toBeUndefined();
     expect(await mailbox("peer")).toEqual([]);
+    // The copy's id is the row's and the seat's: a retried copy is the same row.
+    expect(sent.copies[0].messageId).toBe(reviewCopyId(sent.messageId, asNodeId("loner")));
+    expect(reviewCopyId(sent.messageId, asNodeId("loner"))).not.toBe(reviewCopyId(sent.messageId, asNodeId("peer")));
+  });
+
+  it("a review opened from a place no longer on the canvas is refused, never sent to every agent", async () => {
+    const text = `see ${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)}`;
+    expect(await send({ nodeId: "agent", text, review: { anchorNodeId: "gone-git" } })).toEqual({
+      ok: false, reason: "invalid", message: "The place this review was opened from is no longer on the canvas.",
+    });
+    expect(await mailbox("agent")).toEqual([]);
+    expect(await mailbox("loner")).toEqual([]);
+    // No anchor at all is the open field: every agent.
+    expect(await send({ nodeId: "agent", text, review: {} })).toMatchObject({ copies: [{ nodeId: "loner" }] });
   });
 
   it("a review refuses a seat out of reach of where it was opened, writing nothing", async () => {

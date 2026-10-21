@@ -18,8 +18,10 @@ import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
 import { mentionedOnce, mentionsOf } from "@shared/mention";
 import { linesAnchorMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
 import { reviewCandidates } from "@shared/review-candidates";
+import { subjectNoticeId } from "@shared/subject-notice";
 import { OpId } from "@shared/work-ids";
 import { asNodeId, type Canvas } from "@shared/model";
+import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
 import {
@@ -129,6 +131,13 @@ export const mentionableSeats = (canvasName: string, nodeId: string) =>
   Effect.map(Effect.flatMap(ModelService, (model) => model.canvas(canvasName)), (canvas) => mentionableIn(canvas, nodeId));
 
 type Refused = Extract<OperatorThreadSent, { ok: false }>;
+/**
+ * A review copy's id, derived from (row, seat) as an answer's copy is: the
+ * same row copies a seat under one id, so a retried copy is the same row.
+ */
+export const reviewCopyId = (rowMessageId: string, seat: NodeId): MailMessageId =>
+  subjectNoticeId({ installationId: "", sourceId: rowMessageId as MailMessageId, kind: "mention", recipient: seat });
+
 /** The row written, before delivery. */
 export type OperatorThreadWritten = {
   readonly messageId: string;
@@ -162,6 +171,10 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
     };
     const { review } = send;
     if (review !== undefined) {
+      // A named anchor that is gone is refused, never read as the open field: that would widen reach to every agent.
+      if (review.anchorNodeId !== undefined && !canvas.nodes.has(asNodeId(review.anchorNodeId))) {
+        return refused("invalid", "The place this review was opened from is no longer on the canvas.");
+      }
       // A review goes to, and copies, only the seats it can go to from where it was opened.
       const reachable = new Set(reviewCandidates(canvas, review.anchorNodeId).map((candidate) => candidate.nodeId));
       for (const id of [nodeId, ...mentions]) {
@@ -287,14 +300,19 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       return refused("failed", "The mail could not be written.");
     }
     const thread = threadId ?? result.data.messageId;
-    // A review's mentioned seats receive the row in the same thread, each its own.
+    // A review's mentioned seats receive the row in the same thread, each its
+    // own. Each copy stands alone: the row went, so a copy that cannot be
+    // written is logged and the send still answers for what landed.
     const copies: Array<{ readonly nodeId: string; readonly messageId: string }> = [];
     if (review !== undefined) {
       for (const to of mentions) {
-        const copyId = ulid();
+        const copyId = reviewCopyId(result.data.messageId, asNodeId(to));
         const copyOwner = operatorMailOwner(canvasName, to, copyId);
         const copied = yield* writeMailCarryingText(write(to, copyId, thread, result.data.messageId), { text, attachments: [], owner: copyOwner, filesText: THREAD_TEXT_FILE_NOTE });
-        if (!copied.written.ok) return refused("failed", `The mail was written, but its copy to ${nameOf(to)} could not be.`);
+        if (!copied.written.ok) {
+          yield* Effect.logWarning("a review row's copy was not written", { canvasName, row: result.data.messageId, seat: to });
+          continue;
+        }
         copies.push({ nodeId: to, messageId: copied.written.data.messageId });
       }
     }
