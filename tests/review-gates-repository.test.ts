@@ -1,6 +1,6 @@
 /**
- * The repository's review receipts, read in the writer's own transaction: a
- * commit the author's checkout shows is mailed to the seats on the task's
+ * The repository's review receipts, read in the writer's own transaction from
+ * the task store (plan 0.10/04): a commit the assignee's checkout shows is mailed to the seats on the task's
  * reviewer list, never to the author, and to nobody taken off the list. No
  * edge grants review.
  */
@@ -14,16 +14,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { InstallationId } from "../src/shared/installation-id";
 import { CanvasFactBasis } from "../src/shared/work-protocol";
 import type { ActorSeatId } from "../src/shared/actor-seat";
-import type { ActorRef } from "../src/shared/work-protocol";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import {
-  createCanvasTaskDependencyScopeCapability,
-  WorkRepository,
-  WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { canvasOf, seat, taskBoard } from "./support/model-nodes";
+import { seat, taskBoard } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
 
 const canvasName = "factory";
@@ -75,30 +70,9 @@ const open = async () => {
 
 type Opened = Awaited<ReturnType<typeof open>>;
 
-/** A working task the author holds, in the work store and as a task head listing `reviewers`. */
-const seedTask = async ({ runtime, basis }: Opened, reviewers: ReadonlyArray<string>) => {
-  await runtime.runPromise(Effect.gen(function* () {
-    const repository = yield* WorkRepository;
-    const sink = { canvasName, nodeId: "board" };
-    const dependencyScope = createCanvasTaskDependencyScopeCapability({
-      canvas: { ...canvasOf(nodes, [], canvasName), seq: 1 },
-      authoringSink: sink,
-    });
-    yield* repository.createTask({
-      sink, basis, dependencyScope,
-      task: {
-        id: taskId, state: "submitted",
-        history: [{ messageId: "brief", role: "user", parts: [{ kind: "text", text: "Ship it" }] }],
-      },
-      originAt: at, receivedAt: at,
-    });
-    yield* repository.claimLocalTask({
-      sink, basis, dependencyScope, taskId,
-      actor: { seatId: author, canvasName, nodeId: "author" } as ActorRef,
-      originAt: at, receivedAt: at,
-    });
-    yield* setReviewers(reviewers);
-  }));
+/** A working task the author holds, as the task store's head listing `reviewers`. */
+const seedTask = async ({ runtime }: Opened, reviewers: ReadonlyArray<string>) => {
+  await runtime.runPromise(setReviewers(reviewers));
 };
 
 const setReviewers = (reviewers: ReadonlyArray<string>) => Effect.gen(function* () {
@@ -116,11 +90,11 @@ const setReviewers = (reviewers: ReadonlyArray<string>) => Effect.gen(function* 
 });
 
 /** Publish one fresh commit from the author's checkout; the seats whose mailbox got a receipt. */
-const receiptsFor = ({ runtime, basis }: Opened, sha: string) =>
+const receiptsFor = ({ runtime, basis }: Opened, sha: string, epoch = 0) =>
   runtime.runPromise(Effect.gen(function* () {
     const repository = yield* WorkRepository;
     const records = yield* repository.publishCheckoutReceipts({
-      basis, canvasName, nodeId: "board", taskId, checkoutKey: `checkout-${sha.slice(0, 4)}`,
+      basis, canvasName, nodeId: "board", taskId, epoch, checkoutKey: `checkout-${sha.slice(0, 4)}`,
       author: { fromSeat: author, senderGeneration: "g1", senderHarness: "claude" },
       shas: [sha],
     });
@@ -146,5 +120,11 @@ describe("review receipts", () => {
     expect(await receiptsFor(rig, "c".repeat(40))).toEqual(["listed", "other"]);
     await rig.runtime.runPromise(setReviewers(["other"]));
     expect(await receiptsFor(rig, "d".repeat(40))).toEqual(["other"]);
+  });
+
+  it("refuse once the task's epoch has moved past the claim's", async () => {
+    const rig = await open();
+    await seedTask(rig, ["listed"]);
+    await expect(receiptsFor(rig, "f".repeat(40), 1)).rejects.toThrow(/no longer matches/);
   });
 });

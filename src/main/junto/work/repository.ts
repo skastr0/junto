@@ -154,6 +154,7 @@ import {
   reviewerSeatsOf,
 } from "./reviews";
 import { readTaskReviewers } from "./task-repository";
+import { isOpenTaskState, type TaskState as HeadState } from "@shared/task-model";
 import {
   readMailExtension,
   type MailSenderStamp,
@@ -392,6 +393,12 @@ const ReviewReceiptKeyRow = Schema.Struct({
   reviewer_seat_id: Schema.String,
 });
 const ReviewAuthorRow = Schema.Struct({ author_seat_id: Schema.String });
+const CheckoutTaskHeadRow = Schema.Struct({
+  node_id: Schema.String,
+  state: Schema.String,
+  assignee_node_id: Schema.Union([Schema.Null, Schema.String]),
+  epoch: Schema.Number,
+});
 const ArtifactRowSchema = Schema.Struct({
   artifact_id: Schema.String,
   name: Schema.Union([Schema.Null, Schema.String]),
@@ -4290,6 +4297,8 @@ export interface WorkRepositoryShape {
     readonly canvasName: string;
     readonly nodeId: string;
     readonly taskId: string;
+    /** The task's epoch when the claim was read: a new epoch is a new review subject. */
+    readonly epoch: number;
     readonly checkoutKey: string;
     readonly author: MailSenderStamp;
     readonly shas: ReadonlyArray<string>;
@@ -5705,6 +5714,7 @@ export const WorkRepositoryLive = Layer.effect(
       readonly canvasName: string;
       readonly nodeId: string;
       readonly taskId: string;
+      readonly epoch: number;
       readonly checkoutKey: string;
       readonly author: MailSenderStamp;
       readonly shas: ReadonlyArray<string>;
@@ -5729,10 +5739,27 @@ export const WorkRepositoryLive = Layer.effect(
               input.basis,
             );
             const installationId = authority.installationId;
-            const current = yield* loadTask(writer, "task", sink, input.taskId);
+            // The held task as the task store has it (plan 0.10/04): open on
+            // this node at the claim's epoch, its assignee the commits' author.
+            const head = yield* SqlSchema.findOneOption({
+              Request: WorkSqlBindings,
+              Result: CheckoutTaskHeadRow,
+              execute: (bindings) =>
+                writer.unsafe(
+                  `SELECT node_id, state, assignee_node_id, epoch FROM task_heads
+               WHERE canvas_name = ? AND task_id = ?`,
+                  bindings,
+                ),
+            })([input.canvasName, input.taskId]).pipe(Effect.map(Option.getOrUndefined));
             // Task gone: the trigger's group is stale — no receipts, no failure.
-            if (current === undefined) return [];
-            const authorSeat = reviewAuthorSeat(current.task);
+            if (head === undefined) return [];
+            const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, input.canvasName);
+            const held = head.node_id === input.nodeId && head.epoch === input.epoch &&
+              isOpenTaskState(head.state as HeadState) && head.assignee_node_id !== null;
+            // The assignee's seat is not live here: no author to stamp, nothing to send.
+            const assignee = held ? refsHere.find((ref) => ref.nodeId === head.assignee_node_id) : undefined;
+            if (held && assignee === undefined) return [];
+            const authorSeat = assignee?.seatId;
             // A claim flip since the observation is an authority refusal, not a
             // silent drop: the whole transaction rolls back.
             if (
@@ -5780,7 +5807,6 @@ export const WorkRepositoryLive = Layer.effect(
                 );
               }
             }
-            const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, input.canvasName);
             const authorNode = agentNodeForSeat(refsHere, authorSeat);
             if (doc === undefined || authorNode === undefined) return [];
             const reviewers = reviewerSeatsOf({

@@ -246,6 +246,7 @@ export const makeCheckoutWatchComposition = (
           canvasName: input.canvasName,
           nodeId: selected.taskSinkId,
           taskId: input.taskId,
+          epoch: admitted.selected.claim.epoch,
           checkoutKey: input.checkoutKey,
           author,
           shas: input.shas,

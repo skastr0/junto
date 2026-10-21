@@ -78,6 +78,8 @@ import type { CrewRepositoryShape } from "./crew-repository";
 export type CheckoutWatchClaim = {
   readonly seatId: ActorSeatId;
   readonly taskId: string;
+  /** The task's epoch when the claim was read. */
+  readonly epoch: number;
   /** The board node the task row was observed on. */
   readonly taskNodeId: string;
   /** The seat's agent node on this canvas. */
@@ -168,6 +170,7 @@ export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContex
     claims.set(`${checkoutKey}\u0000${ref.seatId}`, {
       seatId: ref.seatId,
       taskId: task.taskId,
+      epoch: task.current.epoch,
       taskNodeId,
       nodeId: ref.nodeId,
       checkoutKey,
