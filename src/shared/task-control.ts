@@ -16,6 +16,7 @@ import { Schema } from "effect";
 import type { TaskCommandKind, TaskState, TaskView } from "./task-model";
 import { STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
 import type { WorkErrorBody } from "./work-control";
+import { CompletionEvidence } from "./work-model";
 import { ItemId, OpId, TaskNumber } from "./work-ids";
 
 export { ItemId, OpId };
@@ -97,6 +98,8 @@ export const TaskFinishArgs = Schema.Struct({
   task: TaskRefText,
   /** The downstream node to send it on to, when there are several. */
   next: Schema.optionalKey(TaskNodeText),
+  /** What answers the rules in force on the task's node: cited artifacts and commits, claims, waivers. */
+  evidence: Schema.optionalKey(CompletionEvidence),
 }).annotate(strict);
 export type TaskFinishArgs = typeof TaskFinishArgs.Type;
 

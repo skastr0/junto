@@ -38,6 +38,7 @@ import {
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
 import { taskPeopleOf } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
+import type { CompletionEvidence } from "@shared/work-model";
 import type { OpId } from "@shared/work-ids";
 import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
@@ -384,8 +385,9 @@ const commandOf = (
       return Effect.succeed({ kind });
     case "finish": {
       const next = input.next as string | undefined;
+      const evidence = input.evidence === undefined ? {} : { evidence: input.evidence as CompletionEvidence };
       return next === undefined
-        ? Effect.succeed({ kind })
+        ? Effect.succeed({ kind, ...evidence })
         // One of the nodes this one flows into; it need not be in reach, since sending on hands the task over (04).
         : Effect.map(
           findNode(
@@ -394,7 +396,7 @@ const commandOf = (
             "next",
             "downstream task node",
           ),
-          (node) => ({ kind, next: taskNodeId(node.id) }),
+          (node) => ({ kind, next: taskNodeId(node.id), ...evidence }),
         );
     }
     case "depend":
@@ -428,7 +430,9 @@ const submitted = (caller: TaskCaller, ports: TaskPorts, written: ResourceComman
       task: outcome.task,
       effects: outcome.effects,
     }));
-    return Result.isFailure(delivered) ? { ...result, deliveryError: delivered.failure } : result;
+    if (Result.isSuccess(delivered)) return result;
+    yield* Effect.logWarning("task notices were not delivered", { opId: written.opId, error: delivered.failure });
+    return { ...result, deliveryError: delivered.failure };
   });
 
 /** One task verb, for a seat the work socket admitted. */

@@ -6,6 +6,7 @@ import {
   TASK_READ_OPS,
   TaskAssignArgs,
   TaskCreateArgs,
+  TaskFinishArgs,
   TaskListArgs,
   TaskStampArgs,
   isTaskWriteOp,
@@ -255,6 +256,16 @@ describe("task verbs", () => {
     await run("task.finish", { opId: OP, task: "#42", next: "Review" }, portsWith(applied(), submitted));
     expect(submitted[0]?.op).toEqual({ kind: "finish", next: "tasks-3" });
     expect(failure(await run("task.finish", { opId: OP, task: "#42", next: "CLI tasks" }, portsWith(applied()))).type).toBe("UnknownTarget");
+  });
+
+  it("carries finish evidence into the command, with or without next", async () => {
+    const evidence = { artifacts: [{ nodeId: "art-1", artifactId: "a1" }], git: { commits: ["abc123"] }, claims: [{ ruleId: "tests", text: "green" }] };
+    for (const next of [undefined, "Review"]) {
+      const submitted: Array<ResourceCommand<TaskCommand>> = [];
+      await run("task.finish", { opId: OP, task: "#42", evidence, ...(next === undefined ? {} : { next }) }, portsWith(applied(), submitted));
+      expect(submitted[0]?.op).toEqual({ kind: "finish", evidence, ...(next === undefined ? {} : { next: "tasks-3" }) });
+    }
+    expect(refused(TaskFinishArgs, { opId: OP, task: "#42", evidence: { claims: [] } })).toBe(true);
   });
 
   it("delivers a fresh ruling's mail as the actor's, and a replay's never", async () => {

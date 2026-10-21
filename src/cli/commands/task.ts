@@ -73,7 +73,7 @@ const DESCRIPTIONS = {
   start: "Start the task assigned to this seat: assigned becomes working.",
   pause: "Ask for input: working becomes input-required.",
   resume: "Go back to work: input-required becomes working.",
-  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names.",
+  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet.",
   cancel: "Cancel a task that is not done.",
   archive: "Archive a done or canceled task.",
   depend: "Make a task wait on another: it cannot finish until --on is done.",
@@ -81,7 +81,7 @@ const DESCRIPTIONS = {
   "reviewer-add": "Name a reviewer: a seat in the node's reach, operator, or this seat.",
   "reviewer-remove": "Drop a reviewer.",
   "stamp-policy": "Set how many approvals finishing needs.",
-  stamp: "Stamp a task in review: approve, or changes with what to change.",
+  stamp: "Stamp a task in review: approve, or changes with what to change in --text; changes without --text is refused before it is sent.",
   comment: "Post in the task's thread.",
 } as const;
 
@@ -156,15 +156,59 @@ const oneCommand = (verb: "unassign" | "start" | "pause" | "resume" | "cancel" |
   Command.make(verb, { task: taskArg, opId: opIdFlag, timeout: timeoutFlag }, ({ task, opId, timeout }) =>
     run(verb, opOf(verb), { task }, opId, timeout)).pipe(Command.withDescription(DESCRIPTIONS[verb]));
 
+const repeated = (name: string, description: string) => Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
+
+/** `<left><sep><right>`, both sides non-empty, split at the first separator. */
+const pairOf = (flag: string, sep: string, value: string): Effect.Effect<readonly [string, string], InputError> => {
+  const at = value.indexOf(sep);
+  return at > 0 && at < value.length - sep.length
+    ? Effect.succeed([value.slice(0, at).trim(), value.slice(at + sep.length).trim()] as const)
+    : Effect.fail(new InputError({ message: `--${flag} takes <${flag === "artifact" ? "node" : "ruleId"}>${sep}<${flag === "artifact" ? "artifactId" : flag === "claim" ? "text" : "reason"}>, got ${JSON.stringify(value)}`, path: flag }));
+};
+
+/** The evidence flags as CompletionEvidence, or nothing when none was given. */
+const evidenceOf = (flags: {
+  readonly artifact: ReadonlyArray<string>;
+  readonly commit: ReadonlyArray<string>;
+  readonly claim: ReadonlyArray<string>;
+  readonly waive: ReadonlyArray<string>;
+}) =>
+  Effect.gen(function* () {
+    const artifacts = yield* Effect.forEach(flags.artifact, (value) =>
+      Effect.map(pairOf("artifact", "/", value), ([nodeId, artifactId]) => ({ nodeId, artifactId })));
+    const claims = yield* Effect.forEach(flags.claim, (value) => Effect.map(pairOf("claim", "=", value), ([ruleId, text]) => ({ ruleId, text })));
+    const waivers = yield* Effect.forEach(flags.waive, (value) => Effect.map(pairOf("waive", "=", value), ([ruleId, reason]) => ({ ruleId, reason })));
+    if (artifacts.length + flags.commit.length + claims.length + waivers.length === 0) return {};
+    return {
+      evidence: {
+        artifacts,
+        ...(flags.commit.length === 0 ? {} : { git: { commits: [...flags.commit] } }),
+        ...(claims.length === 0 ? {} : { claims }),
+        ...(waivers.length === 0 ? {} : { waivers }),
+      },
+    };
+  });
+
 const finishCommand = Command.make(
   "finish",
   {
     task: taskArg,
     next: Flag.string("next").pipe(Flag.optional, Flag.withDescription("The downstream task node to send it on to, when there are several")),
+    artifact: repeated("artifact", "An artifact this work produced, as <node>/<artifactId>; repeat for several"),
+    commit: repeated("commit", "A commit this work landed; repeat for several"),
+    claim: repeated("claim", "Answer a rule in force: <ruleId>=<how this work meets it>; repeat for several"),
+    waive: repeated("waive", "Waive a task rule whose node is out of reach: <ruleId>=<reason>; repeat for several"),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, next, opId, timeout }) => run("finish", "task.finish", { task, ...present({ next }) }, opId, timeout),
+  ({ task, next, artifact, commit, claim, waive, opId, timeout }) =>
+    executeJsonCommand(
+      "task finish",
+      Effect.gen(function* () {
+        const evidence = yield* evidenceOf({ artifact, commit, claim, waive });
+        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence }, timeout);
+      }),
+    ),
 ).pipe(Command.withDescription(DESCRIPTIONS.finish));
 
 const dependCommand = (verb: "depend" | "undepend") =>
@@ -300,6 +344,10 @@ export const taskExamples: ReadonlyArray<CommandExample> = [
   example("assign", "hand a task to a seat", "The seat is mailed in the task's thread.", ["#42", "@cli-identity"], { task: "#42", seat: "@cli-identity" }),
   example("start", "start my task", "assigned becomes working.", ["#42"], { task: "#42" }),
   example("finish", "finish and send on", "--next names the downstream node when there are several.", ["#42", "--next", "Review"], { task: "#42", next: "Review" }),
+  example("finish", "finish with evidence", "--claim answers a rule in force; --commit cites the work.", ["#42", "--commit", "2e219a5ca", "--claim", "tests=work-cli passes under all-on"], {
+    task: "#42",
+    evidence: { artifacts: [], git: { commits: ["2e219a5ca"] }, claims: [{ ruleId: "tests", text: "work-cli passes under all-on" }] },
+  }),
   example("stamp", "ask for changes", "changes needs --text.", ["#42", "changes", "--text", "Cover the replay path"], {
     task: "#42",
     verdict: "changes",
