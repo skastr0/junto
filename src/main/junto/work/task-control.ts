@@ -17,8 +17,13 @@ import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/reso
 import {
   TASK_ARGS,
   TASK_COMMAND_OPS,
+  TASK_WAIT_DEFAULT_MS,
+  TASK_WAIT_MAX_MS,
   type TaskCommandOp,
   type TaskControlOp,
+  type TaskRulesResult,
+  type TaskWaitArgs,
+  type TaskWaitResult,
   type TaskWriteResult,
 } from "@shared/task-control";
 import {
@@ -48,7 +53,7 @@ import { ResourceSubmit } from "./resource-submit";
 import { MachineRepository } from "../machines/repository";
 import { linkSeatMentions, resourceMentionCandidates } from "./authz";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
-import { noteResourceChanged } from "./resource-changes";
+import { noteResourceChanged, onResourceChanged } from "./resource-changes";
 import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
 
@@ -78,6 +83,9 @@ export type TaskPorts = {
     input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
     context: SubjectCommentContext,
   ) => Effect.Effect<SubjectCommented, WorkErrorBody>;
+  /** Told each time a canvas's tasks change: what a wait wakes on. */
+  readonly changes: (listener: (canvasName: string) => void) => () => void;
+  readonly now: () => number;
 };
 
 export type TaskCaller = {
@@ -146,6 +154,10 @@ export const liveTaskPorts: TaskPorts = (() => {
     ) as Effect.Effect<A, WorkErrorBody>;
   return {
     nodes: taskNodes,
+    changes: (listener) => onResourceChanged((domain, canvasName) => {
+      if (domain === "task") listener(canvasName);
+    }),
+    now: () => Date.now(),
     list: (canvasName, query) => withRepo((repo) => repo.list(canvasName, query)),
     find: (canvas, canvasName, lookup) =>
       withRepo((repo) =>
@@ -299,6 +311,56 @@ const findTask = (
       return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`));
     }
     return task;
+  });
+
+/**
+ * Hold until the task is in the awaited state, or the time runs out. It reads
+ * the task again on each change to the canvas's tasks, so a task that leaves
+ * the seat's reach fails the wait at once. The subscription opens before each
+ * read, so a change between the two still wakes it.
+ */
+const waitTask = (caller: TaskCaller, ports: TaskPorts, input: TaskWaitArgs): Effect.Effect<TaskWaitResult, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const waitedMs = input.timeoutMs ?? TASK_WAIT_DEFAULT_MS;
+    const deadline = ports.now() + waitedMs;
+    for (;;) {
+      let changed = false;
+      let wake: (() => void) | undefined;
+      const off = ports.changes((canvasName) => {
+        if (canvasName !== caller.canvasName) return;
+        changed = true;
+        wake?.();
+      });
+      const settled = yield* Effect.gen(function* () {
+        const task = yield* findTask(caller, ports, input.task);
+        if (task.current.state === input.until) {
+          return { taskId: task.taskId, state: task.current.state, epoch: task.current.epoch, at: ports.now() } satisfies TaskWaitResult;
+        }
+        const left = deadline - ports.now();
+        if (left <= 0) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "Timeout",
+            message: `wait timed out after ${waitedMs}ms; last observed "${task.current.state}"`,
+            details: {
+              target: input.task,
+              from: task.current.state,
+              to: input.until,
+              hint: `task ${task.taskId} is at epoch ${task.current.epoch}`,
+              retryable: true,
+              next_step: `re-issue the wait, or raise the timeout up to ${TASK_WAIT_MAX_MS / 1000}s`,
+            },
+          });
+        }
+        yield* Effect.callback<void>((resume) => {
+          if (changed) return resume(Effect.void);
+          wake = () => resume(Effect.void);
+          const timer = setTimeout(() => resume(Effect.void), left);
+          return Effect.sync(() => clearTimeout(timer));
+        });
+        return undefined;
+      }).pipe(Effect.ensuring(Effect.sync(off)));
+      if (settled !== undefined) return settled;
+    }
   });
 
 /** One of `nodes` by id, name or ref. Callers pass only what the seat may see. */
@@ -481,6 +543,28 @@ export const handleTaskOp = (
         const input = yield* decode(TASK_ARGS[op], args);
         const task = yield* findTask(caller, ports, input.task);
         return { task };
+      }
+      case "task.rules": {
+        const input = yield* decode(TASK_ARGS[op], args);
+        if ("node" in input) {
+          const node = yield* nodeInReach(caller, ports, input.node, "node");
+          return { node: node.id, rules: rulesInForce(caller.canvas, node.id) } satisfies TaskRulesResult;
+        }
+        const task = yield* findTask(caller, ports, input.task);
+        // The list finish evaluates: none is answered until the finish carries its claims.
+        const rules = rulesInForce(caller.canvas, task.current.node);
+        return {
+          node: task.current.node,
+          rules,
+          task: {
+            taskId: task.taskId,
+            unanswered: rules.flatMap(({ rule }) => (rule.kind === "requires-review" ? [] : [{ ruleId: rule.id, text: rule.text }])),
+          },
+        } satisfies TaskRulesResult;
+      }
+      case "task.wait": {
+        const input = yield* decode(TASK_ARGS[op], args);
+        return yield* waitTask(caller, ports, input);
       }
       case "task.comment": {
         const input = yield* decode(TASK_ARGS[op], args);

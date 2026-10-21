@@ -186,6 +186,8 @@ const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<
     return Effect.succeed(outcome);
   },
   deliver: () => Effect.void,
+  changes: () => () => undefined,
+  now: () => 0,
   comment: (input, context) => {
     commented.push(input);
     people.push(context.people);
@@ -334,6 +336,60 @@ describe("task verbs", () => {
   it("lists by assignee, the caller's own name included", async () => {
     const exit = await run("task.list", { assignee: "@alpha" }, portsWith(applied()));
     expect(exit).toEqual(Exit.succeed({ tasks: [], more: false }));
+  });
+});
+
+describe("task rules and wait", () => {
+  const ruled = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
+    [id, id === "tasks-1" ? { ...(node as object), contract: { rules: [{ id: "tests", text: "Tests pass" }] } } : node])) } as unknown as Canvas;
+  const at = (ports: TaskPorts) => (op: TaskControlOp, args: unknown) =>
+    Effect.runPromiseExit(handleTaskOp(op, args, { ...caller, canvas: ruled }, ports));
+
+  it("gives the rules in force where the task sits, each unanswered until its finish", async () => {
+    const exit = await at(portsWith(applied()))("task.rules", { task: "#42" });
+    expect(Exit.isSuccess(exit) ? exit.value : undefined).toEqual({
+      node: "tasks-1",
+      rules: [{ rule: { id: "tests", text: "Tests pass" }, provenance: { kind: "board", boardId: "tasks-1" } }],
+      task: { taskId: ID, unanswered: [{ ruleId: "tests", text: "Tests pass" }] },
+    });
+    const node = await at(portsWith(applied()))("task.rules", { node: "tasks-3" });
+    expect(Exit.isSuccess(node) ? node.value : undefined).toEqual({ node: "tasks-3", rules: [] });
+    expect(failure(await at(portsWith(applied()))("task.rules", { task: "#44" }))).toMatchObject({ type: "UnknownTarget" });
+  });
+
+  it("answers at once when the task is already in the state, and refuses rejected", async () => {
+    const exit = await at(portsWith(applied()))("task.wait", { task: "#42", until: "backlog" as never });
+    expect(failure(exit)).toMatchObject({ type: "InputError" });
+    const done = { ...portsWith(applied()), find: () => Effect.succeed({ ...tasks[0]!, current: { ...tasks[0]!.current, state: "done" as const } }) };
+    const now = await at(done)("task.wait", { task: "#42", until: "done" });
+    expect(Exit.isSuccess(now) ? now.value : undefined).toMatchObject({ taskId: ID, state: "done", epoch: 0 });
+    expect(failure(await at(portsWith(applied()))("task.wait", { task: "#42", until: "rejected" }))).toMatchObject({ type: "InputError" });
+  });
+
+  it("wakes on a change to the canvas's tasks, and times out with the last state", async () => {
+    let state: "working" | "in-review" = "working";
+    const listeners = new Set<(canvasName: string) => void>();
+    const ports: TaskPorts = {
+      ...portsWith(applied()),
+      find: () => Effect.succeed({ ...tasks[0]!, current: { ...tasks[0]!.current, state, assignee: seatNodeId(asNodeId("seat-a")) } }),
+      changes: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      now: () => Date.now(),
+    };
+    const waiting = at(ports)("task.wait", { task: "#42", until: "in-review", timeoutMs: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    for (const listener of listeners) listener("elsewhere");
+    state = "in-review";
+    for (const listener of [...listeners]) listener("factory");
+    const woke = await waiting;
+    expect(Exit.isSuccess(woke) ? woke.value : undefined).toMatchObject({ state: "in-review" });
+    expect(listeners.size).toBe(0);
+
+    state = "working";
+    const timedOut = failure(await at(ports)("task.wait", { task: "#42", until: "done", timeoutMs: 30 }));
+    expect(timedOut).toMatchObject({ type: "Timeout", details: { from: "working", to: "done" } });
   });
 });
 

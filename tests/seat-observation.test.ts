@@ -110,7 +110,6 @@ const makeHarness = (input: {
 
   const deps: SeatObservationDeps = {
     // No case here puts a task on a board: there is nothing to read.
-    readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(currentDoc),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
@@ -279,7 +278,6 @@ describe("seat.wait", () => {
   it("does not lose a transition delivered synchronously at registration", async () => {
     let reads = 0;
     const service = makeSeatObservation({
-      readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(peerDoc()),
       subscribeCanvasChanges: () => () => {},
       seatStates: {
@@ -312,7 +310,6 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
-      readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
         return Effect.succeed(reads === 1 ? authorized : revoked);
@@ -384,7 +381,6 @@ describe("seat.wait", () => {
     );
     let reads = 0;
     const service = makeSeatObservation({
-      readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
         return Effect.succeed(reads === 1 ? withA : withB);
@@ -434,7 +430,6 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
-      readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
         return Effect.succeed(reads === 1 ? authorized : revoked);

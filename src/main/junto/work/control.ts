@@ -86,7 +86,6 @@ import {
   MsgSentArgs,
   SeatWaitArgs,
   SeatReadArgs,
-  TaskWaitArgs,
   PreambleArgs,
   SignalClearArgs,
   SignalListArgs,
@@ -99,7 +98,6 @@ import {
   SinceArgs,
   RulingsArgs,
   TasksCheckArgs,
-  TasksRulesArgs,
   VerdictPostArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
@@ -1581,26 +1579,6 @@ const dispatchOp = (
       return exposeWorkMutation(mapped.success);
     }
 
-    if (op === "task.rules") {
-      const decoded = decodeArgs(TasksRulesArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      return yield* work
-        .workTaskRules(
-          caller.canvasName,
-          decoded.success.target,
-          decoded.success.task,
-        )
-        .pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              mapWorkCode(error.code, error.message, error.details),
-            ),
-          ),
-        );
-    }
-
     if (op === "rulings") {
       // Region rulings ride the Tasks gate: a tasks-off build has none to read.
       if (!TASKS_ENABLED) {
@@ -1792,12 +1770,6 @@ const dispatchOp = (
       const seat = yield* liveSeatObservation();
       if (decoded.success.brief === true) return yield* seat.readPeers(caller);
       return yield* seat.readSeat(decoded.success, caller);
-    }
-    if (op === "task.wait") {
-      const decoded = decodeArgs(TaskWaitArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const seat = yield* liveSeatObservation();
-      return yield* seat.waitTask(decoded.success, caller);
     }
 
     if (op === "msg.prompt") {

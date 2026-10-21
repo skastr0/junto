@@ -17,6 +17,7 @@ import type { TaskCommandKind, TaskState, TaskView } from "./task-model";
 import { STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
 import type { WorkErrorBody } from "./work-control";
 import { CompletionEvidence } from "./work-model";
+import type { RuleInForce } from "./rules";
 import { ItemId, OpId, TaskNumber } from "./work-ids";
 
 export { ItemId, OpId };
@@ -60,6 +61,30 @@ export type TaskListArgs = typeof TaskListArgs.Type;
 
 export const TaskShowArgs = Schema.Struct({ task: TaskRefText }).annotate(strict);
 export type TaskShowArgs = typeof TaskShowArgs.Type;
+
+/** The rules in force for a task, at the node it sits on; or a task node's own. */
+export const TaskRulesArgs = Schema.Union([
+  Schema.Struct({ task: TaskRefText }).annotate(strict),
+  Schema.Struct({ node: TaskNodeText }).annotate(strict),
+]);
+export type TaskRulesArgs = typeof TaskRulesArgs.Type;
+
+/** The states a waiter waits for. */
+export const TASK_WAIT_UNTIL = ["done", "input-required", "in-review", "canceled"] as const satisfies ReadonlyArray<TaskState>;
+export const TaskWaitUntil = Schema.Literals(TASK_WAIT_UNTIL);
+export type TaskWaitUntil = typeof TaskWaitUntil.Type;
+/** How long a wait holds when the caller names no timeout, and the most it may. */
+export const TASK_WAIT_DEFAULT_MS = 60_000;
+export const TASK_WAIT_MAX_MS = 600_000;
+
+export const TaskWaitArgs = Schema.Struct({
+  task: TaskRefText,
+  until: TaskWaitUntil,
+  timeoutMs: Schema.optionalKey(Schema.Number.pipe(
+    Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(TASK_WAIT_MAX_MS)),
+  )),
+}).annotate(strict);
+export type TaskWaitArgs = typeof TaskWaitArgs.Type;
 
 export const TaskCreateArgs = Schema.Struct({
   opId: OpId,
@@ -178,7 +203,7 @@ export type TaskCommandsWithoutVerb = Exclude<TaskCommandKind, Covered>;
 const everyCommandHasAVerb: [TaskCommandsWithoutVerb] extends [never] ? true : TaskCommandsWithoutVerb = true;
 void everyCommandHasAVerb;
 
-export const TASK_READ_OPS = ["task.list", "task.show"] as const;
+export const TASK_READ_OPS = ["task.list", "task.show", "task.rules", "task.wait"] as const;
 export const TASK_WRITE_OPS = [...(Object.keys(TASK_COMMAND_OPS) as ReadonlyArray<TaskCommandOp>), "task.comment"] as const;
 export type TaskReadOp = (typeof TASK_READ_OPS)[number];
 export type TaskWriteOp = TaskCommandOp | "task.comment";
@@ -188,6 +213,8 @@ export type TaskControlOp = TaskReadOp | TaskWriteOp;
 export const TASK_ARGS = {
   "task.list": TaskListArgs,
   "task.show": TaskShowArgs,
+  "task.rules": TaskRulesArgs,
+  "task.wait": TaskWaitArgs,
   "task.create": TaskCreateArgs,
   "task.edit": TaskEditArgs,
   "task.assign": TaskAssignArgs,
@@ -210,12 +237,27 @@ export const TASK_ARGS = {
 export const isTaskWriteOp = (op: string): op is TaskWriteOp =>
   op === "task.comment" || Object.hasOwn(TASK_COMMAND_OPS, op);
 
-/** The ops `handleTaskOp` answers; rules, check and wait keep their own handlers. */
+/** The ops `handleTaskOp` answers; check keeps its own handler. */
 export const isTaskControlOp = (op: string): op is TaskControlOp =>
   Object.hasOwn(TASK_ARGS, op);
 
 // ---------------------------------------------------------------------------
 // Results
+
+/** The rules in force where a task sits; for a task, the statement rules its finish must answer. */
+export type TaskRulesResult = {
+  readonly node: string;
+  readonly rules: ReadonlyArray<RuleInForce>;
+  readonly task?: { readonly taskId: ItemId; readonly unanswered: ReadonlyArray<{ readonly ruleId: string; readonly text: string }> };
+};
+
+/** The task as the wait left it: in the awaited state. */
+export type TaskWaitResult = {
+  readonly taskId: ItemId;
+  readonly state: TaskState;
+  readonly epoch: number;
+  readonly at: number;
+};
 
 export type TaskListResult = {
   readonly tasks: ReadonlyArray<TaskView>;

@@ -52,7 +52,6 @@ import {
   SEAT_READ_MAIL_GIST_CHARS,
   SEAT_READ_MAIL_LIMIT,
   SEAT_WAIT_DEFAULT_MS,
-  TASK_WAIT_DEFAULT_MS,
   clampFollowSeconds,
   clampReadLines,
   clipReadText,
@@ -65,8 +64,6 @@ import {
   type SeatReadResult,
   type SeatWaitArgs,
   type SeatWaitResult,
-  type TaskWaitArgs,
-  type TaskWaitResult,
 } from "@shared/seat-control";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ObserverGridSnapshot, ObserverGridWindow } from "../term/observer";
@@ -95,7 +92,6 @@ export type SeatObservationDeps = {
    * return: an authorization decision is only as good as the document it was
    * made against.
    */
-  readonly readTask: (canvasName: string, nodeId: string, taskId: string, kind: "task" | "requests") => Effect.Effect<Task | undefined, WorkErrorBody>;
   readonly readTopology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   /** Canvas commit subscription — a grant change re-derives authority. */
   readonly subscribeCanvasChanges: (listener: (canvasName: string) => void) => () => void;
@@ -150,10 +146,6 @@ export type SeatObservation = {
   ) => Effect.Effect<SeatReadResult, WorkErrorBody>;
   /** `seat read --brief`: every connected seat the caller may read, without screens. */
   readonly readPeers: (caller: SeatObservationCaller) => Effect.Effect<SeatReadBriefResult, WorkErrorBody>;
-  readonly waitTask: (
-    args: TaskWaitArgs,
-    caller: SeatObservationCaller,
-  ) => Effect.Effect<TaskWaitResult, WorkErrorBody>;
 };
 
 // ---------------------------------------------------------------------------
@@ -1052,108 +1044,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       }
     });
 
-  const waitTask = (
-    args: TaskWaitArgs,
-    caller: SeatObservationCaller,
-  ): Effect.Effect<TaskWaitResult, WorkErrorBody> =>
-    Effect.gen(function* () {
-      const timeoutMs = args.timeoutMs ?? TASK_WAIT_DEFAULT_MS;
-      const deadlineAt = now() + timeoutMs;
-      let last: TaskWaitResult | undefined;
-
-      const observe = (): Effect.Effect<TaskWaitResult, WorkErrorBody> =>
-        Effect.gen(function* () {
-          const doc = yield* deps.readTopology(caller.canvasName);
-          const admitted = admitWorkTarget(doc, caller.nodeId, args.target, "task.wait");
-          if (Result.isFailure(admitted)) return yield* Effect.fail(admitted.failure);
-          const node = admitted.success.node;
-          const task = yield* deps.readTask(caller.canvasName, args.target, args.taskId, node.kind === "requests" ? "requests" : "task");
-          if (task === undefined) {
-            return yield* Effect.fail<WorkErrorBody>({
-              type: "UnknownTarget",
-              message: `task "${args.taskId}" is not on "${args.target}"`,
-              details: {
-                target: args.target,
-                received: args.taskId,
-                retryable: false,
-                next_step: "list the sink's tasks and retry with a current task id",
-              },
-            });
-          }
-          return {
-            taskId: task.id,
-            state: task.state,
-            epoch: task.epoch ?? 0,
-            at: now(),
-          };
-        });
-
-      type Signal =
-        | { readonly _tag: "observed"; readonly value: TaskWaitResult }
-        | { readonly _tag: "change" }
-        | { readonly _tag: "canvas" }
-        | { readonly _tag: "deadline" };
-
-      for (;;) {
-        // Fast path: an already-satisfied task answers without waiting a tick.
-        // It is also the last observed state, which the timeout reports.
-        const current = yield* observe();
-        last = current;
-        if (current.state === args.until) return current;
-
-        const changeSignal: Effect.Effect<Signal, WorkErrorBody> = awaitSelected(
-          deps.subscribeWorkChanges,
-          (canvasName: string | undefined) =>
-            canvasName === undefined || canvasName === caller.canvasName,
-        ).pipe(Effect.map((): Signal => ({ _tag: "change" })));
-
-        // A task edge can be revoked without any work mutation, so the wait
-        // also watches the canvas: the re-observation below then fails
-        // ScopeError at once instead of riding to the deadline.
-        const canvasSignal: Effect.Effect<Signal, WorkErrorBody> = awaitSelected(
-          deps.subscribeCanvasChanges,
-          (name: string) => name === caller.canvasName,
-        ).pipe(Effect.map((): Signal => ({ _tag: "canvas" })));
-
-        // Runs after both subscriptions are registered: a state that moved
-        // during registration is still observed.
-        const matchSignal: Effect.Effect<Signal, WorkErrorBody> = Effect.suspend(() =>
-          observe().pipe(
-            Effect.flatMap((value): Effect.Effect<Signal, WorkErrorBody> =>
-              value.state === args.until
-                ? Effect.succeed({ _tag: "observed", value })
-                : Effect.never,
-            ),
-          ),
-        );
-
-        const deadlineSignal: Effect.Effect<Signal, WorkErrorBody> = sleepUntil(
-          deadlineAt,
-          now,
-        ).pipe(Effect.map((): Signal => ({ _tag: "deadline" })));
-
-        const signal = yield* Effect.raceFirst(
-          Effect.raceFirst(changeSignal, canvasSignal),
-          Effect.raceFirst(matchSignal, deadlineSignal),
-        );
-
-        if (signal._tag === "deadline") {
-          return yield* Effect.fail(
-            timeoutError({
-              target: args.taskId,
-              from: last.state,
-              to: args.until,
-              waitedMs: timeoutMs,
-              hint: `task ${last.taskId} is at epoch ${last.epoch}`,
-            }),
-          );
-        }
-        if (signal._tag === "observed") return signal.value;
-        // A change or a grant change re-observes, which re-derives authority.
-      }
-    });
-
-  return { waitSeat, readSeat, readPeers, waitTask };
+  return { waitSeat, readSeat, readPeers };
 };
 
 /** Why a timeout reports what it does, including an untrusted stale event. */

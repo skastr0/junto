@@ -43,9 +43,6 @@ export const liveSeatObservation = (): Effect.Effect<
             }),
           ),
         ),
-      readTask: (canvasName, nodeId, taskId, kind) => work.readTask(canvasName, nodeId, taskId, kind).pipe(
-        Effect.mapError((error): WorkErrorBody => ({ type: "InternalError", message: error.message, details: { retryable: true } })),
-      ),
       subscribeCanvasChanges: (listener) =>
         work.subscribeTopologyChanges(listener),
       seatStates: {
