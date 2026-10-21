@@ -40,10 +40,10 @@ import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { claimFocus } from "../../lib/focus-ownership";
 import { nodeAt, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
+import { AutomationsCard } from "../automations/AutomationsCard";
 import {
   ArtifactsCard,
   ArtifactsDetail,
-  AutomationsCard,
   AutomationsDetail,
   TasksCard,
   TasksDetail,
@@ -63,7 +63,7 @@ import { keyIs } from "../../lib/key-match";
  * Kinds drawn in the Spines language (docs/node-card-language.md): the shell
  * paints nothing and the body is a SpineCard. A kind joins when its body moves.
  */
-const SPINE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>(["artifacts", "task", "terminal", "git"]);
+const SPINE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>(["artifacts", "task", "terminal", "git", "automations"]);
 
 /** A body follows its own model row, so a card does not subscribe to it. */
 function WithNode<K extends NodeKind>({

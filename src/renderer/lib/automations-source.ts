@@ -19,6 +19,7 @@ import {
   AutomationVersion,
   FIRINGS_PAGE_MAX,
   decodeAutomation,
+  lastOutcomeOf,
   type Automation,
   type AutomationAuthor,
   type AutomationFiringsRequest,
@@ -27,6 +28,7 @@ import {
   type AutomationListResponse,
   type AutomationOp,
   type Firing,
+  type LastOutcome,
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
 import type { Refusal } from "@shared/resource-command";
@@ -74,11 +76,18 @@ export const makeLocalAutomationsSource = (
   };
 
   return {
-    list: async (canvasName, nodeId) => ({
-      automations: [...automations.entries()]
+    list: async (canvasName, nodeId) => {
+      const listed = [...automations.entries()]
         .filter(([at, automation]) => at === keyOf(canvasName, automation.automationId) && automation.nodeId === nodeId)
-        .map(([, automation]) => automation),
-    }),
+        .map(([, automation]) => automation);
+      // As main reads it: each automation's newest firing, absent when it never fired.
+      const lastOutcomes: Record<string, LastOutcome> = {};
+      for (const automation of listed) {
+        const newest = [...(firings.get(keyOf(canvasName, automation.automationId)) ?? [])].sort((a, b) => b.at - a.at)[0];
+        if (newest !== undefined) lastOutcomes[automation.automationId] = lastOutcomeOf(newest.outcome);
+      }
+      return { automations: listed, lastOutcomes };
+    },
     firings: async (canvasName, request) => {
       const newestFirst = [...(firings.get(keyOf(canvasName, request.automationId)) ?? [])].sort((a, b) => b.at - a.at);
       const from = request.before === undefined ? 0 : newestFirst.findIndex((firing) => firing.firingId === request.before) + 1;
@@ -174,6 +183,12 @@ const NO_FIRINGS: ReadonlyArray<Firing> = [];
 /** The node's automations, kept current. */
 export const useAutomations = (canvasName: string, nodeId: NodeId): ReadonlyArray<Automation> =>
   useRead(async () => (await automationsSource().list(canvasName, nodeId)).automations, NO_AUTOMATIONS, [canvasName, nodeId]);
+
+const NO_LIST: AutomationListResponse = { automations: NO_AUTOMATIONS, lastOutcomes: {} };
+
+/** The node's automations with each one's last firing outcome, kept current: the card's one read. */
+export const useAutomationList = (canvasName: string, nodeId: NodeId): AutomationListResponse =>
+  useRead(() => automationsSource().list(canvasName, nodeId), NO_LIST, [canvasName, nodeId]);
 
 /** One automation's latest page of firings, newest first, kept current. */
 export const useFirings = (canvasName: string, automationId: AutomationId | undefined): ReadonlyArray<Firing> =>
