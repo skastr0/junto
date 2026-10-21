@@ -1,0 +1,82 @@
+/* TaskStateMark and StampTally. A hue is a mark, never a word: --mark colours
+   the glyph, edge and fill; the words stay ink. */
+
+.task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+  white-space: nowrap;
+}
+
+.task-state__mark {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  align-items: center;
+  justify-content: center;
+  color: var(--mark);
+}
+
+/* Queued (02): a dashed halo, the same box the ruled mark already sits in. */
+.task-state[data-pending="true"] .task-state__mark {
+  border-style: dashed;
+  border-color: var(--mark);
+}
+
+.task-state[data-settled="true"] .task-state__label {
+  color: var(--color-dim);
+}
+
+.stamp-tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+.stamp-tally__caps {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.stamp-tally__cap {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: var(--radius-sm);
+  color: var(--mark);
+}
+
+.stamp-tally__cap[data-slot="approved"],
+.stamp-tally__cap[data-slot="changes"] {
+  border-color: var(--mark);
+  background: color-mix(in oklab, var(--mark) 22%, transparent);
+}
+
+.stamp-tally__cap[data-dashed="true"] {
+  border-style: dashed;
+  border-color: var(--mark);
+}
+
+.stamp-tally__cap[data-slot="stale"] {
+  border-color: var(--color-stroke-hi);
+}
+
+.stamp-tally__summary {
+  font-variant-numeric: tabular-nums;
+}
