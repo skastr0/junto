@@ -37,7 +37,6 @@ import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
 import {
   productNodeKindEnabled,
-  TASKS_ENABLED,
 } from "@shared/features";
 
 // Edges are the capability system. Kernel-enforced per call via canvas physics
@@ -413,7 +412,6 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "msg.prompt":
     case "seat.wait":
     case "seat.read":
-    case "verdict.post":
     case "msg.read":
     case "msg.reply":
     case "msg.react":
@@ -428,9 +426,6 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
   "msg.prompt",
   "seat.wait",
   "seat.read",
-  // Verdicts target a task board; without the tasks surface the op leaves
-  // the actor vocabulary with the port that carried it.
-  ...(TASKS_ENABLED ? (["verdict.post"] as const) : []),
   "msg.read",
   "msg.reply",
   "msg.react",

@@ -15,7 +15,6 @@ import {
   BOARD_ENABLED,
   BROWSER_ENABLED,
   REQUESTS_ENABLED,
-  REVIEWS_ENABLED,
   TASKS_ENABLED,
 } from "./features";
 import { PAST_SESSIONS_FRAMING } from "./seat-sessions";
@@ -74,7 +73,7 @@ export const SEAT_DOCTRINE = `## Seats
 A **seat** is your identity on the canvas: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
 
 - **Reach** is where you sit. You may use the resources (${REACH_WORDS.join(", ")}) in your own region, in every region inside it and in every region that contains it, never in a sibling region; a seat in no region reaches everything outside regions. No edge is needed, and none changes it. Reach is read from the canvas on every call, so when the operator moves you or a resource, your next command sees the new reach.
-- **Edges** join you to other seats. A messages edge can grant mail, prompts, waits and terminal reads${REVIEWS_ENABLED ? "; a directed reviews edge grants \`verdict.post\` only from reviewer to author" : ""}. The operator's mask on an edge only removes ports.${EDGE_EXTRA} \`junto capabilities\` gives the ports you actually hold; a neighboring node alone proves no permission.
+- **Edges** join you to other seats. A messages edge can grant mail, prompts, waits and terminal reads. The operator's mask on an edge only removes ports.${EDGE_EXTRA} \`junto capabilities\` gives the ports you actually hold; a neighboring node alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns, most stable first, the operator's briefings and your seat's instructions, then your seat, role, the seats you are connected to, the commands you may run, the resources in your reach and co-members by region, then what changed since your last session. \`junto since\` returns that last part alone, capped like onboard; \`junto since --all\` lists every line. Re-run onboard whenever your view may be stale.
 ${TASKS_ENABLED ? "- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: `junto rulings`.\n" : ""}\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Onboard once per session, and again only when you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
@@ -283,10 +282,6 @@ It lists the 5 newest mails between you and the peer, both ways, with their thre
 const MSG_SEND_REFERENCE =
   "A send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or its input box is not free: the operator is composing, or a dialog is up). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence.";
 
-const REVIEWS_REFERENCE = `The directed \`verdict.post\` grant lets you review these authors on a configured Command Center. It grants no peer message, prompt, wait or terminal-read permission by itself. Read \`junto msg list\` for review receipt mail, then inspect the cited work. Use the receipt's target board, task id, epoch and subjectHash exactly; \`task show\` is available only with a separate task-list grant.
-
-Use \`"kind":"blocking"\` with concrete nonempty findings when changes are needed. A blocking task review records the verdict and sends the task back with a defect and new epoch. Commit review uses \`"subject":{"kind":"commit","sha":"<full-sha>"}\`; it does not move a task. The server stamps your identity, refuses self-review, and rechecks the live reviews edge and exact subject. Stale-subject refusal requires a fresh receipt or authorized task read, never rebinding your old verdict to newer work.`;
-
 const ARTIFACTS_REFERENCE = `Artifacts never block: ship intermediate and final outputs freely — they do not stop other seats. Every Artifacts node in your reach admits you, with no edge. An edit names the version it was written against with \`--base\`; a stale one is refused with the head, so read it again and redo the edit.${TASKS_ENABLED ? ` For a task that wants an artifact, create it with \`--task <taskId>\`, then cite it on \`junto task finish #<n> --artifact <node id>/<artifactId>\`.` : ""}`;
 
 const BROWSER_REFERENCE = `\`browser.automate\` is a live edge grant realized by \`junto browser\` from
@@ -303,8 +298,6 @@ const referenceFor = (group: CommandGroup): string => {
       return holds("msg.send") || holds("msg.prompt")
         ? `${MSG_REFERENCE}\n\n${MSG_SEND_REFERENCE}`
         : MSG_REFERENCE;
-    case "reviews":
-      return REVIEWS_REFERENCE;
     case "artifacts":
       return ARTIFACTS_REFERENCE;
     case "browser":

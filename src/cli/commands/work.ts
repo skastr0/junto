@@ -8,7 +8,6 @@ import {
   MsgSendArgs,
   MsgPromptArgs,
   MsgSentArgs,
-  VerdictPostArgs,
   PreambleArgs,
   RulingsArgs,
   type WorkOpName,
@@ -122,25 +121,6 @@ export const preambleCommand = Command.make(
 );
 
 // --- msg ---
-
-const verdictPostCommand = Command.make(
-  "post",
-  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
-  ({ input, concurrency, timeout }) => executeJsonCommand(
-    "verdict post",
-    runMutationBatch({
-      input,
-      concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-      itemSchema: VerdictPostArgs,
-      run: (item) => callDomain("verdict.post", item, toUndefined(timeout)),
-    }),
-  ),
-).pipe(Command.withDescription("Post a green or blocking verdict for an exact review subject"));
-
-export const verdictCommand = Command.make("verdict").pipe(
-  Command.withDescription("Post durable reviews through a current reviews edge"),
-  Command.withSubcommands([verdictPostCommand]),
-);
 
 const msgListCommand = Command.make(
   "list",

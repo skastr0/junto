@@ -58,7 +58,6 @@ export const PortForWorkOp = {
   "msg.prompt": "msg.prompt",
   "seat.wait": "seat.wait",
   "seat.read": "terminal.read",
-  "verdict.post": "verdict.post",
   // Read/reply reuse list/send edge ports — no new capability surface.
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
@@ -78,7 +77,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.prompt",
   "seat.wait",
   "seat.read",
-  "verdict.post",
   "msg.read",
   "msg.reply",
   "msg.react",

@@ -41,7 +41,6 @@ export const PORT_DESCRIPTIONS: Readonly<Partial<Record<Port, string>>> = {
   "msg.prompt": "Mail the peer as a prompt: the full text is typed into its input at once, idle or mid-turn.",
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",
-  "verdict.post": "Post an epoch-bound verdict on the work of this edge's author, from a distinct reviewer seat.",
   "browser.automate": "Control a granted page session (browser CLI).",
   "board.list": "List bulletin-board topics and posts.",
   "board.create_topic": "Create a board topic (does not notify agents).",

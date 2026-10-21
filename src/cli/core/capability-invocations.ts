@@ -46,11 +46,6 @@ const CREW_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
     command: "junto seat read",
     discover: "junto schema show seat.read",
   },
-  {
-    port: "verdict.post",
-    command: "junto verdict post",
-    discover: "junto schema show verdict.post",
-  },
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

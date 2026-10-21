@@ -105,7 +105,7 @@ const call = (
 const overseerOp = "overseer" as WorkOpName;
 
 describe("overseer Work socket completion classification", () => {
-  it.each(["msg.send", "msg.prompt", "msg.reply", "verdict.post"] as const)(
+  it.each(["msg.send", "msg.prompt", "msg.reply"] as const)(
     "does not invite replay after a dispatched %s loses its receipt",
     async (op) => {
       const server = await startFakeWorkServer("disconnect");

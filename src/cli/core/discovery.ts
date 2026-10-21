@@ -19,7 +19,6 @@ import {
   MsgReplyArgs,
   MsgSendArgs,
   MsgSentArgs,
-  VerdictPostArgs,
   PreambleArgs,
   OffboardArgs,
   OnboardArgs,
@@ -175,17 +174,6 @@ export const msgSentSchema: CommandSchemaContract = {
   description:
     "Read this sender's delivery and read receipts, optionally filtered by target. Does not mark the recipient's mailbox read.",
   schema: MsgSentArgs,
-  input_modes: inputModes,
-};
-
-export const verdictPostSchema: CommandSchemaContract = {
-  command_id: "verdict.post",
-  command: "verdict post",
-  schema_id: "verdict.post.input/v1",
-  description:
-    "Post a durable green or blocking verdict through a current reviews edge. Task target is the task board; subject carries taskId, epoch, and subjectHash from task.show. Blocking requires findings and rejects the task with a new epoch. Reviewer identity is process-bound; self-review is refused.",
-  schema: VerdictPostArgs,
-  accepts_batch: true,
   input_modes: inputModes,
 };
 
@@ -379,7 +367,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   msgSendSchema,
   msgPromptSchema,
   msgSentSchema,
-  verdictPostSchema,
   msgReadSchema,
   msgReplySchema,
   msgReactSchema,
@@ -412,20 +399,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> =
   declaredSchemas.filter((contract) => commandSurfaceEnabled(contract.command_id));
 
 const declaredExamples: ReadonlyArray<CommandExample> = [
-  {
-    command_id: "verdict.post",
-    command: "verdict post",
-    name: "review the exact staged task subject",
-    description: "Use the current epoch and subjectHash returned by task show. Identity comes from the reviewer process.",
-    input: {
-      target: "task-board", subject: { kind: "task", taskId: "task-1", epoch: 1, subjectHash: "a".repeat(64) },
-      kind: "green", findings: [],
-    },
-    args: ["verdict", "post", JSON.stringify({
-      target: "task-board", subject: { kind: "task", taskId: "task-1", epoch: 1, subjectHash: "a".repeat(64) },
-      kind: "green", findings: [],
-    })],
-  },
+
 
 
 
@@ -1085,19 +1059,6 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Wait for one authorized peer or any authorized peer to reach a named seat state.",
     schemas: [seatWaitSchema],
     examples: allExamples.filter((e) => e.command_id === "seat.wait"),
-  },
-  {
-    command_id: "verdict.post",
-    command: "verdict post",
-    category: "workflow",
-    description: "Review an exact task epoch and refs through a current directed reviews edge.",
-    schemas: [verdictPostSchema],
-    examples: allExamples.filter((e) => e.command_id === "verdict.post"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
   },
   {
     command_id: "seat.read",

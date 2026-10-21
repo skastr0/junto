@@ -92,7 +92,7 @@ const ndjsonCall = (
     let socket: Socket | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const mutatingOperation = mutatingOverseerOperation(op, args) ??
-      (["msg.send", "msg.prompt", "msg.reply", "verdict.post"].includes(op) ? op : undefined);
+      (["msg.send", "msg.prompt", "msg.reply"].includes(op) ? op : undefined);
     // An overseer write carries its opId inside the overseer envelope.
     const writeOpId = opIdInArgs(args) ??
       (op === "overseer" ? Result.match(decodeOverseerRequest(args), { onFailure: () => undefined, onSuccess: (request) => opIdInArgs(request.args) }) : undefined);

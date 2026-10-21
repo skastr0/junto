@@ -178,6 +178,8 @@ describe("the text a seat learns commands from", () => {
     /\bartifact[ .]publish\b/,
     /\bscheduler[ .](?:fire|status|configure)\b/,
     /\brelay\.trigger\b/,
+    // The command; the port stays on reviews wires until canvas rewrites them.
+    /\b(?:junto )?verdict post\b/,
     /--waive\b/,
     /\bwaivers?\b/i,
   ];
@@ -185,7 +187,7 @@ describe("the text a seat learns commands from", () => {
   /**
    * Deleted for a plain seat, still dispatched for an overseer until the old
    * task store and the reviews edge go: overseer task claim, update and
-   * promote, overseer automation writes, and verdict post.
+   * promote, and overseer automation writes.
    */
   const DELETED_FOR_SEATS: ReadonlyArray<RegExp> = [
     /(?<!overseer )\btask (?:claim|update|promote|verdict)\b/,

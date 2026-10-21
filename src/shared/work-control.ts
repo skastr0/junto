@@ -126,7 +126,6 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "msg.react",
 "seat.wait",
 "seat.read",
-"verdict.post",
 /** Universal seat-local: the seat's own agent signals (no edge, no port). */
 "signal.raise",
 "signal.clear",

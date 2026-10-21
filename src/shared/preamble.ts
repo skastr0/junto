@@ -62,14 +62,12 @@ export const PREAMBLE_TOOL_TTL_MS = 8_000;
 /**
  * Seat tool calls worth telling, in words. A preamble is premium space over
  * the seat, so only a call that leaves something behind for others earns
- * one: a verdict posted, an artifact published. Routine reads and chores
+ * one. Routine reads and chores
  * (checking tasks, reading mail, claiming work, editing the pad) are what an
  * agent does all day and say nothing; the preamble and signals carry their
  * own event, and mail is told by wire traffic at delivery.
  */
-export const SEAT_TOOL_PHRASE: Readonly<Record<string, string>> = {
-  "verdict.post": "posted a verdict",
-};
+export const SEAT_TOOL_PHRASE: Readonly<Record<string, string>> = {};
 
 /** The preamble for one successful seat tool call, or undefined when it is not news. */
 export const seatToolPreamble = (input: {

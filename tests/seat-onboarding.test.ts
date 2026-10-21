@@ -141,7 +141,6 @@ describe("per-connection instructions", () => {
       { id: "board", kind: "task" },
     ]).map((group) => group.family);
     expect(families.includes("tasks")).toBe(TASKS_ENABLED);
-    expect(families.includes("reviews")).toBe(TASKS_ENABLED);
     expect(families.includes("browser")).toBe(BROWSER_ENABLED);
     expect(families).toContain("msg");
   });
@@ -322,14 +321,10 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
         : Object.keys(compileReach([{ id: "<node>", kind: spec.reach }])[0]!.commands).length;
       if (taught === 0) continue; // family gated off in this build
       const page = buildNodeKindDoc(spec.docsKind);
-      // Reviews ride an agent edge the kind doc does not offer by default;
-      // their reference is the doctrine's reviews contract.
-      const reference = family === "reviews"
-        ? buildEdgeContracts([{ id: "<node>", ports }]).join("\n")
-        : page ?? "";
+      const reference = page ?? "";
       expect(reference, `${family} reference`).not.toBe("");
       for (const row of spec.rows) {
-        const id = family === "reviews" ? "<node>" : `<${spec.docsKind}-node-id>`;
+        const id = `<${spec.docsKind}-node-id>`;
         expect(reference, `${family}: ${row.intent}`).toContain(row.command(id));
       }
     }

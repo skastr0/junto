@@ -27,7 +27,6 @@ const commands: readonly Entry[] = [
   { name: "env", load: async () => (await import("./commands/env")).envCommand },
   { name: "logs", load: async () => (await import("./commands/logs")).logsCommand },
   { name: "references", load: async () => (await import("./commands/references")).referencesCommand },
-  { name: "verdict", load: async () => (await import("./commands/work")).verdictCommand },
   { name: "content", enabled: TASKS_ENABLED, load: async () => (await import("./commands/content")).contentCommand },
   { name: "docs", load: async () => (await import("./commands/docs")).docsCommand },
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/artifact")).artifactCommand },

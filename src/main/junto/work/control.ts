@@ -98,7 +98,6 @@ import {
   SinceArgs,
   RulingsArgs,
   TasksCheckArgs,
-  VerdictPostArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
   WorkOpName,
@@ -199,7 +198,6 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "msg.list",
   "msg.send",
   "msg.prompt",
-  "verdict.post",
   "msg.read",
   "msg.reply",
   "msg.react",
@@ -1561,22 +1559,6 @@ const dispatchOp = (
       };
       noteSeatPreamble(caller.canvasName, caller.nodeId, { text, expiresAt: event.expiresAt });
       return { ...event, disposition: "applied" as const };
-    }
-
-    if (op === "verdict.post") {
-      const decoded = decodeArgs(VerdictPostArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const reviewer = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(reviewer)) return yield* Effect.fail(reviewer.failure);
-      // The task sink is context, not the author. WorkService resolves the
-      // author and revalidates the directed reviews edge to that stable seat.
-      const { target, ...input } = decoded.success;
-      const result = yield* work.workVerdictPost(
-        caller.canvasName, target, input, reviewer.success,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "rulings") {

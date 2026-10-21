@@ -36,7 +36,6 @@ export type ConnectedTarget = {
 export type CommandFamily =
   | "tasks"
   | "msg"
-  | "reviews"
   | "artifacts"
   | "browser";
 
@@ -129,20 +128,6 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
         intent: "observe",
         command: (t) => `junto seat read ${t} --lines 40`,
         detail: "settled grid, with state, reason, confidence and generation; output activity alone is not readiness",
-      },
-    ],
-  },
-  reviews: {
-    label: "reviews",
-    docsKind: "agent",
-    note:
-      "Use the review receipt's board, task id, epoch and subjectHash exactly. A blocking verdict needs concrete findings.",
-    rows: [
-      {
-        port: "verdict.post",
-        intent: "post a verdict",
-        command: () =>
-          `junto verdict post '{"target":"<task-board>","subject":{"kind":"task","taskId":"<taskId>","epoch":0,"subjectHash":"<subjectHash>"},"kind":"green","findings":[]}'`,
       },
     ],
   },

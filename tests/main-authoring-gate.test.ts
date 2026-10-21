@@ -195,7 +195,6 @@ describe("work-control main authoring classification", () => {
       "msg.sent": "read",
       "seat.wait": "read",
       "seat.read": "read",
-      "verdict.post": "authorial",
       "msg.read": "authorial",
       "msg.reply": "authorial",
       "msg.react": "authorial",
