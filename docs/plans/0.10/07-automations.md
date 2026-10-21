@@ -67,8 +67,7 @@ Targets are `MentionRef`s (03), picked with `MentionCombobox`, limited by
 `automationTargets` (01): below the node and within the author's reach,
 rechecked at fire time; an automation the operator wrote gets everything
 below. Without the intersection a seat could create an automation in an
-ancestor node that targets its siblings (canvas-lead). Formerly limited to the
-automation's region and below (`targetsBelow`, 01).
+ancestor node that targets its siblings (canvas-lead).
 
 ## Runner
 

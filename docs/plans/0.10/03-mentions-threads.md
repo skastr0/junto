@@ -76,7 +76,7 @@ what a mention does is universal.
    - `useConnectedSeats(seat)`: seats wired to a seat by an edge.
    - `useSeatsInReach(resource)` and `useResourcesInReach(seatOrResource)`:
      region reach (01).
-   - `useTargetsBelow(automation)`: downward only (07).
+   - `useAutomationTargets(automation, author)`: below the node and within the author's reach (01, 07).
    A composer passes the sources it needs to the combobox. Main checks the
    same rule again when the text is sent; the shared rule lives in
    `src/shared/` so both sides read one function.
