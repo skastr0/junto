@@ -1381,6 +1381,9 @@ const dispatchOp = (
         // silent answers since the previous session started, unread mail.
         // A failed read says so instead of dropping the section.
         since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
+          Effect.tapError((error) =>
+            Effect.sync(() => console.error(`[onboard] since unreadable for ${caller.canvasName}/${caller.nodeId}:`, error)),
+          ),
           Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
         ),
         // Operator-pinned precedent from the seat's own region stack. Region

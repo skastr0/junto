@@ -141,6 +141,14 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     readonly take: (
       input: TakenAgentSignal,
     ) => Effect.Effect<AgentSignal | undefined, AgentSignalRepositoryError>;
+    /**
+     * A seat's answered signals by when they were answered, not raised: from
+     * `fromMs` on, or every one when absent. Uncapped; seat since reads it.
+     */
+    readonly listSeatAnswered: (
+      seat: AgentSignalSeat,
+      fromMs?: number,
+    ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
   }>()("@junto/AgentSignalRepository") {}
 
 const SignalRow = Schema.Struct({
@@ -427,6 +435,17 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       return signal;
     }, Effect.mapError(persistence("get")));
 
+    const answeredRows = SqlSchema.findAll({
+      Request: Schema.Tuple([Schema.String, Schema.String, Schema.Number]),
+      Result: SignalRow,
+      execute: ([canvasName, nodeId, fromMs]) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals
+        WHERE canvas_name = ? AND node_id = ? AND state = 'answered' AND response_at >= ?
+        ORDER BY response_at DESC, signal_id DESC`, [canvasName, nodeId, fromMs]),
+    });
+    const listSeatAnswered = Effect.fn("agent-signals.list-seat-answered")(function* (seat: AgentSignalSeat, fromMs?: number) {
+      return (yield* answeredRows([seat.canvasName, seat.nodeId, fromMs ?? 0])).map(fromRow);
+    }, Effect.mapError(persistence("list seat answered")));
+
     const close = Effect.fn("agent-signals.close")(function* (
       operation: string,
       signalId: string,
@@ -545,6 +564,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         takeRow(input).pipe(
           Effect.tap((signal) => Effect.sync(() => (signal === undefined ? undefined : emitAgentSignalChanged(signal)))),
         ),
+      listSeatAnswered,
     });
   }),
 );

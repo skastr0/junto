@@ -27,7 +27,14 @@ export const readSeatSince = (
     );
     const names = new Map(seats.map((seat) => [seat.id as string, titleOf(seat)]));
     const store = yield* Effect.serviceOption(AgentSignalRepository);
-    const signals = Option.isNone(store) ? [] : yield* store.value.listSeat({ canvasName, nodeId });
+    // Open signals from the listing, which always holds every open one;
+    // answers by answer time, since the listing's closed history is capped.
+    const signals = Option.isNone(store)
+      ? []
+      : [
+          ...(yield* store.value.listSeat({ canvasName, nodeId })).filter((signal) => signal.state === "open"),
+          ...(yield* store.value.listSeatAnswered({ canvasName, nodeId }, previousStartedAt)),
+        ];
     const now = yield* Clock.currentTimeMillis;
     const since: Since = seatSince(
       {
