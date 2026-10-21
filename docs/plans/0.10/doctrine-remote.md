@@ -31,8 +31,10 @@ from this draft go to remote-lead by mail, not as edits here.
 
 Landed with `95ed7b998`: the closed list gains `command.queued`,
 `ruling.applied` and `ruling.refused`; a command row is for its canvas and at
-most 64 KiB; rulings keyed by writer and opId. Still held: the writer rules
-for command rows and rulings (remote-work's writer check), resource fact
+most 64 KiB; rulings keyed by writer and opId. Stated in rule 4 but not yet
+enforced: "the machine that edits the canvas rules it" (a `ruling.*` row
+passes from any writer until remote-work's writer check lands). Still held:
+the writer rules for command rows and rulings (remote-work's writer check), resource fact
 families and predecessors, seat occupancy, the every-row cap
 (`exchange-bounds.ts`) and the queue bound with `queue_full`.
 
@@ -113,9 +115,11 @@ only from the machine that edits the canvas.
 ## D3 Rule 5, entitlement
 
 Landed with `95ed7b998`: rulings to every machine, a command to the editing
-machine only and never relayed, and a ruling's shape (writer, opId, actor,
-facts or error and root, never the op or body). Still held: resource facts
-for every machine, and the refused body ref served only to the writer.
+machine only and never relayed. Stated in rule 5 but not yet enforced: a
+ruling never carries the command's op or body (`RulingRefusedResult.error`
+is a free `WorkErrorBody`; remote-work builds it only from `REFUSAL` and the
+closed `RefusalReason`). Still held: that enforcement, resource facts for
+every machine, and the refused body ref served only to the writer.
 
 `docs/machines.md:76-77`. Replace
 
