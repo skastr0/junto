@@ -179,6 +179,14 @@ test("spines: every kind beside seats, near, fit and far, dark and bright, block
     await seatCli("builder", ["task", "finish", review, "--note", "Wire spec merged, ready for your stamp"]);
     await expect(card("board2")).toContainText(/Blocked/i, { timeout: 20_000 });
     await expect(card("board")).toContainText(/Needs you/i, { timeout: 20_000 });
+    // A leaf line clips at its own node's box: a long path never prints over a neighbour.
+    for (const id of ["pkg"]) {
+      const node = await card(id).boundingBox();
+      const leaf = await card(id).locator(".spine-leaf").boundingBox();
+      expect(node, `${id} node`).not.toBeNull();
+      expect(leaf, `${id} leaf`).not.toBeNull();
+      expect(leaf!.x + leaf!.width, `${id} leaf right edge`).toBeLessThanOrEqual(node!.x + node!.width + 0.5);
+    }
 
     // Spoken names, once: what a screen reader says for each card.
     const spoken: Record<string, string | null> = {};

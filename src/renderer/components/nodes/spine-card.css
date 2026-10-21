@@ -7,6 +7,8 @@
 /* The shell under a spine node paints nothing: no fill, border, shadow,
    lift, halo or occupancy outline. Status is the chip's tag and pip. */
 .junto-node[data-look="spine"] {
+  /* The node's box is the size container its lines and far disc cap at. */
+  container-type: size;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -313,8 +315,9 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-leaf {
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip {
-  width: max(28px, calc(26px * var(--node-s, 1)));
-  height: max(28px, calc(26px * var(--node-s, 1)));
+  /* Held at 26 screen px, but never past the node's own box. */
+  width: min(100cqmin, max(28px, calc(26px * var(--node-s, 1))));
+  height: min(100cqmin, max(28px, calc(26px * var(--node-s, 1))));
   justify-content: center;
   padding: 0;
   border: calc(1.5px * var(--node-s, 1)) solid color-mix(in oklab, var(--color-ink) 55%, transparent);
