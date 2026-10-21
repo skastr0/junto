@@ -23,7 +23,7 @@ import type { CanvasPlacement, RowsFrame } from "../src/shared/work-exchange";
 import { OpId } from "../src/shared/work-ids";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { seat, taskBoard } from "./support/model-nodes";
+import { canvasOf, seat, taskBoard } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook");
@@ -142,7 +142,7 @@ describe("op show", () => {
   });
 
   it("answers an unknown opId as UnknownTarget through the work op", async () => {
-    const exit = await runtime.runPromiseExit(handleOpOp("op.show", { opId: OTHER_SEAT }, { canvasName: "factory", nodeId: asNodeId("peer"), canvas: { nodes: new Map() } }));
+    const exit = await runtime.runPromiseExit(handleOpOp("op.show", { opId: OTHER_SEAT }, { canvasName: "factory", nodeId: asNodeId("peer"), canvas: canvasOf([]) }));
     expect(exit).toMatchObject({ _tag: "Failure" });
     expect(JSON.stringify(exit)).toContain("UnknownTarget");
   });

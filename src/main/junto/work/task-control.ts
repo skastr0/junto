@@ -13,7 +13,8 @@ import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, seatReachesTaskNode, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
 import { boardContractOf, evaluateRules, requiredChecks, rulesInForce, type RequiredCheck } from "@shared/rules";
-import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
+import type { ItemId, ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
+import { withPendingMark, type PendingMark } from "@shared/op-control";
 import {
   TASK_ARGS,
   TASK_COMMAND_OPS,
@@ -85,6 +86,11 @@ export type TaskPorts = {
   readonly find: (canvas: Canvas, canvasName: string, lookup: TaskLookup) => Effect.Effect<TaskView | undefined, WorkErrorBody>;
   /** Rule a command here when this machine edits the canvas; otherwise queue it for the machine that does. */
   readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskWriteOutcome, WorkErrorBody>;
+  /**
+   * The mark of each item this machine's queued writes touch (`pendingMarksOf`):
+   * list and show carry it. Absent, nothing is marked.
+   */
+  readonly pending?: (canvasName: string, canvas: Canvas) => Effect.Effect<ReadonlyMap<ItemId, PendingMark>, WorkErrorBody>;
   /** A comment in the task's thread: pty's one write path, `postSubjectComment` (03). */
   readonly comment: (
     input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
@@ -107,6 +113,11 @@ export type TaskCommenter = Omit<TaskCaller, "actor"> & {
 };
 
 const LIST_DEFAULT_LIMIT = 50;
+
+const noMarks: ReadonlyMap<ItemId, PendingMark> = new Map();
+/** What list and show mark pending (`TaskPorts.pending`). */
+const pendingOf = (caller: Pick<TaskCaller, "canvas" | "canvasName">, ports: Pick<TaskPorts, "pending">) =>
+  ports.pending === undefined ? Effect.succeed(noMarks) : ports.pending(caller.canvasName, caller.canvas);
 /** How far a number lookup reads before the store answers numbers itself. */
 const NUMBER_SCAN_LIMIT = 10_000;
 
@@ -638,12 +649,13 @@ export const handleTaskOp = (
           (assignee === undefined || task.current.assignee === assignee) && (reviewer === undefined || owed(task)));
         // Reviews owed read longest waiting first.
         const ordered = reviewer === undefined ? tasks : [...tasks].sort((a, b) => a.stateSince - b.stateSince);
-        return { tasks: ordered.slice(0, limit), more: listed.more || tasks.length > limit };
+        const marks = yield* pendingOf(caller, ports);
+        return { tasks: ordered.slice(0, limit).map((task) => withPendingMark(task, task.taskId, marks)), more: listed.more || tasks.length > limit };
       }
       case "task.show": {
         const input = yield* decode(TASK_ARGS[op], args);
         const task = yield* findTask(caller, ports, input.task);
-        return { task };
+        return { task: withPendingMark(task, task.taskId, yield* pendingOf(caller, ports)) };
       }
       case "task.rules": {
         const input = yield* decode(TASK_ARGS[op], args);

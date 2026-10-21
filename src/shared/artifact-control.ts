@@ -19,6 +19,7 @@ import {
   type ArtifactActor,
 } from "./artifact";
 import { Anchor } from "./thread-subject";
+import type { PendingMark } from "./op-control";
 import { ItemId, OpId } from "./work-ids";
 
 export { ItemId, OpId };
@@ -161,13 +162,15 @@ export type ArtifactListItem = Pick<
 >;
 
 export type ArtifactListResult = {
-  readonly artifacts: ReadonlyArray<ArtifactListItem>;
+  /** Each marked `pending` when one of this machine's queued writes touches it (`PendingMark`). */
+  readonly artifacts: ReadonlyArray<ArtifactListItem & Partial<PendingMark>>;
   /** True when more matched than `limit`. */
   readonly more: boolean;
 };
 
 export type ArtifactShowResult = {
-  readonly artifact: Artifact;
+  /** Marked `pending` when one of this machine's queued writes touches it (`PendingMark`). */
+  readonly artifact: Artifact & Partial<PendingMark>;
   /** The version shown: the head, or the one asked for. */
   readonly version: ArtifactVersion;
   /** The body as text: markdown, pad digest, sheet table, link or file line (`artifactText`). */

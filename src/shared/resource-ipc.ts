@@ -70,7 +70,7 @@ export type ArtifactApplyOutcome = ResourceApplyOutcome<{ readonly facts: Readon
  * has not ruled yet, in queue order: every seat's and the operator's, never
  * another machine's. `overlay` is what `op list` reads of it over the ruled
  * state (02 read-your-writes); absent when the build has no overlay reader
- * for the domain, which today is every task write.
+ * for the domain.
  */
 export type ArtifactPendingWrite = {
   readonly opId: OpId;

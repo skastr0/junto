@@ -146,7 +146,7 @@ import { subjectLabel, threadSubjectOf, type ResourceSubject } from "@shared/thr
 import { isItemId, OpId } from "@shared/work-ids";
 import { postSubjectComment } from "./subject-comment";
 import { subjectPeopleAt } from "./subject-people";
-import { handleOpOp, isOpOp } from "./op-control";
+import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
 import {
   AgentSignalRepository,
   type AgentSignalRepositoryError,
@@ -2126,7 +2126,7 @@ const dispatchOp = (
         canvas: board,
         canvasName: caller.canvasName,
         actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
-      }, liveTaskPorts);
+      }, { ...liveTaskPorts, pending: pendingMarksOf("task") });
     }
 
     if (isArtifactOp(op)) {
@@ -2136,7 +2136,7 @@ const dispatchOp = (
         canvas: board,
         canvasName: caller.canvasName,
         actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
-      }, liveArtifactPorts);
+      }, { ...liveArtifactPorts, pending: pendingMarksOf("artifact") });
     }
 
     if (op === "references.list" || op === "references.read") {

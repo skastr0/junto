@@ -6,7 +6,7 @@
  */
 import { Result, Schema } from "effect";
 import { refusalErrorOf, type RulingResult } from "./command-row";
-import type { PendingEntry } from "./resource-command";
+import type { ItemId, OverlayWait, PendingEntry, Refusal, ResourceRef } from "./resource-command";
 import { WorkErrorBody } from "./work-control";
 import { OpId } from "./work-ids";
 
@@ -42,6 +42,48 @@ export type OpListArgs = typeof OpListArgs.Type;
  * a write whose domain has no overlay reader in this build.
  */
 export type OpOverlay = PendingEntry extends infer Entry ? (Entry extends PendingEntry ? Omit<Entry, "opId"> : never) : never;
+
+/**
+ * How `task list|show` and `artifact list|show` mark an item that one of
+ * this machine's queued writes touches (read-your-writes, 02): `pending`, and
+ * `atRisk` with the first of those writes, in queue order, that the overlay
+ * reads at risk: refused as things stand, or waiting on a base not pulled
+ * here. Absent on an item no queued write touches.
+ */
+export type PendingMark = {
+  readonly pending: true;
+  readonly atRisk?:
+    | { readonly opId: OpId; readonly refusal: Refusal }
+    | { readonly opId: OpId; readonly waiting: OverlayWait; readonly root: OpId };
+};
+
+/** The mark of each item of `kind` this machine's queued `commands` touch, from their `overlays`. */
+export const pendingMarks = (
+  commands: ReadonlyArray<{ readonly opId: OpId; readonly target: ResourceRef }>,
+  overlays: ReadonlyMap<OpId, OpOverlay>,
+  kind: ResourceRef["kind"],
+): ReadonlyMap<ItemId, PendingMark> => {
+  const marks = new Map<ItemId, PendingMark>();
+  for (const { opId, target } of commands) {
+    if (target.kind !== kind || target.itemId === undefined) continue;
+    const held = marks.get(target.itemId);
+    if (held?.atRisk !== undefined) continue;
+    const overlay = overlays.get(opId);
+    const atRisk = overlay?.status !== "at_risk"
+      ? undefined
+      : overlay.waiting !== undefined
+        ? { opId, waiting: overlay.waiting, root: overlay.root }
+        : { opId, refusal: overlay.refusal };
+    marks.set(target.itemId, atRisk === undefined ? { pending: true } : { pending: true, atRisk });
+  }
+  return marks;
+};
+
+/** `item` with its mark, when one of `marks` names `itemId`. */
+export const withPendingMark = <T extends object>(item: T, itemId: ItemId, marks: ReadonlyMap<ItemId, PendingMark>): T & Partial<PendingMark> => {
+  const mark = marks.get(itemId);
+  return mark === undefined ? item : { ...item, ...mark };
+};
 
 export type OpView =
   | { readonly state: "queued"; readonly opId: OpId; readonly overlay?: OpOverlay }
