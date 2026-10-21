@@ -24,6 +24,7 @@ import {
 } from "../src/main/junto/work/authz";
 import { canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
 import { ScopeDenial } from "../src/shared/physics";
+import { productNodeKindEnabled } from "../src/shared/features";
 
 describe("work-control wire schemas", () => {
   it("decodes a valid request envelope", () => {
@@ -218,6 +219,12 @@ describe("work authz — edges as capability", () => {
       region("other", { x: 560, y: 160, width: 300, height: 200 }),
       taskBoard("theirs", { x: 600, y: 300, width: 100, height: 40 }),
     ]);
+    // A build whose profile gates task boards off admits neither, reach or not.
+    if (!productNodeKindEnabled("task")) {
+      expect(Result.isFailure(admitWorkTarget(reach, "agent", "inside", "content.path"))).toBe(true);
+      expect(Result.isFailure(admitWorkTarget(reach, "agent", "theirs", "content.path"))).toBe(true);
+      return;
+    }
     expect(Result.isSuccess(admitWorkTarget(reach, "agent", "inside", "content.path"))).toBe(true);
 
     const away = admitWorkTarget(reach, "agent", "theirs", "content.path");
