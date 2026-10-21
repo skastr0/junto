@@ -283,13 +283,6 @@ const seatTargetOf = (node: Seat): SeatTarget => ({
 });
 
 /**
- * Resolve the seats a wait may address under current authority.
- *
- * An explicit target must hold the port on the caller's edge; `any` is every
- * connected actor node whose edge holds the port. The caller is never a
- * candidate for `any` — a seat waiting on itself would always succeed.
- */
-/**
  * A typed seat target as a node id: the seat's name, node id or ref, resolved
  * as mail resolves it, so a name the caller is wired to admits where its id
  * does. Admission itself is the op's own.
@@ -306,6 +299,13 @@ const seatNodeIdOf = (
   return Result.succeed(named.success.nodeId);
 };
 
+/**
+ * Resolve the seats a wait may address under current authority.
+ *
+ * An explicit target must hold the port on the caller's edge; `any` is every
+ * connected actor node whose edge holds the port. The caller is never a
+ * candidate for `any` — a seat waiting on itself would always succeed.
+ */
 const resolveSeatTargets = (
   doc: Canvas,
   callerId: string,

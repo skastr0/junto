@@ -218,8 +218,11 @@ describe("reading another seat takes its name as mail does", () => {
   it("seat read and seat wait on a wired seat's name answer as its id does", async () => {
     const byId = await call("agent", "seat.read", { target: "lead", lines: 1 });
     const byName = await call("agent", "seat.read", { target: "cli-lead", lines: 1 });
-    expect(byName.ok).toBe(byId.ok);
-    if (!byId.ok) expect(byName.error.type).toBe(byId.error.type);
+    expect(byId.ok, JSON.stringify(byId)).toBe(true);
+    expect(byName.ok, JSON.stringify(byName)).toBe(true);
+    expect(byName.data.target).toBe("lead");
+    expect(byName.data.peer).toMatchObject({ nodeId: "lead", name: "cli-lead" });
+    expect(byName.data.peer).toEqual(byId.data.peer);
     const waited = await call("agent", "seat.wait", { target: "cli-lead", until: "idle", timeoutMs: 1 });
     expect(waited.error?.type).not.toBe("ScopeError");
   });
