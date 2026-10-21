@@ -11,43 +11,85 @@ import { ItemId } from "./work-ids";
  */
 
 const Coordinate = Schema.Number.check(Schema.isFinite());
+const Extent = Coordinate.check(Schema.isGreaterThan(0));
 const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 
-/** Where on a resource a thread hangs: the whole of it, or one place in it. */
-export const Anchor = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("whole") }),
-  Schema.Struct({
-    kind: Schema.Literal("box"),
-    x: Coordinate,
-    y: Coordinate,
-    w: Coordinate.check(Schema.isGreaterThanOrEqualTo(0)),
-    h: Coordinate.check(Schema.isGreaterThanOrEqualTo(0)),
-    url: Schema.optionalKey(Schema.String),
-  }),
-  Schema.Struct({ kind: Schema.Literal("cells"), range: Schema.String.check(Schema.isMinLength(1)) }),
-  Schema.Struct({
-    kind: Schema.Literal("text"),
-    quote: Schema.String.check(Schema.isMinLength(1)),
-    offset: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("lines"),
-    file: Schema.String.check(Schema.isMinLength(1)),
-    from: Line,
-    to: Line,
-  }).check(Schema.makeFilter((lines) => lines.from <= lines.to || "a lines anchor ends at or after its first line")),
-]);
+const CELL = /^([A-Z]{1,3})([1-9][0-9]{0,4})$/u;
+
+const columnNumber = (letters: string): number =>
+  [...letters].reduce((n, letter) => n * 26 + letter.charCodeAt(0) - 64, 0);
+
+/** An A1 range: `B2` or `A1:C4`, top left first. */
+export const isCellRange = (range: string): boolean => {
+  const [from, to, ...rest] = range.split(":");
+  if (rest.length > 0 || from === undefined) return false;
+  const a = CELL.exec(from);
+  if (a === null) return false;
+  if (to === undefined) return true;
+  const b = CELL.exec(to);
+  if (b === null) return false;
+  return columnNumber(a[1]!) <= columnNumber(b[1]!) && Number(a[2]) <= Number(b[2]);
+};
+
+export const WholeAnchor = Schema.Struct({ kind: Schema.Literal("whole") });
+export const BoxAnchor = Schema.Struct({
+  kind: Schema.Literal("box"),
+  x: Coordinate,
+  y: Coordinate,
+  w: Extent,
+  h: Extent,
+  /** The page the box was drawn on, for a browser page's comments. */
+  url: Schema.optionalKey(Schema.String),
+});
+export const CellsAnchor = Schema.Struct({
+  kind: Schema.Literal("cells"),
+  range: Schema.String.check(Schema.makeFilter((range) => isCellRange(range) || "an A1 range: B2 or A1:C4, top left first")),
+});
+export const TextAnchor = Schema.Struct({
+  kind: Schema.Literal("text"),
+  quote: Schema.String.check(Schema.isMinLength(1)),
+  offset: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+/** Git review's: lines of a file. Never an artifact's. */
+export const LinesAnchor = Schema.Struct({
+  kind: Schema.Literal("lines"),
+  file: Schema.String.check(Schema.isMinLength(1)),
+  from: Line,
+  to: Line,
+}).check(Schema.makeFilter((lines) => lines.from <= lines.to || "a lines anchor ends at or after its first line"));
+
+/**
+ * Where on a resource a thread hangs: the whole of it, or one place in it.
+ * The one Anchor; `artifact.ts` narrows it per artifact type.
+ */
+export const Anchor = Schema.Union([WholeAnchor, BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor]);
 export type Anchor = typeof Anchor.Type;
+
+/**
+ * The anchor a subject carries: one place, never `whole`. The whole resource
+ * is an absent anchor, so one thread has one spelling. {@link subjectAnchorOf}
+ * maps an Anchor to it.
+ */
+const PlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor]);
+export type PlaceAnchor = typeof PlaceAnchor.Type;
+/** An artifact's places: any but git review's lines. */
+const ArtifactPlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor]);
+export type ArtifactPlaceAnchor = typeof ArtifactPlaceAnchor.Type;
+
+/** A subject's anchor for an Anchor: `whole` is none. */
+export const subjectAnchorOf = <A extends Anchor>(anchor: A): Exclude<A, { readonly kind: "whole" }> | undefined =>
+  anchor.kind === "whole" ? undefined : (anchor as Exclude<A, { readonly kind: "whole" }>);
 
 export const MailboxSubject = Schema.Struct({ kind: Schema.Literal("mailbox"), seat: NodeId });
 export const TaskSubject = Schema.Struct({ kind: Schema.Literal("task"), nodeId: NodeId, taskId: ItemId });
+/** The writer runs `admitsAnchor` (artifact.ts) for the artifact's type before it writes one. */
 export const ArtifactSubject = Schema.Struct({
   kind: Schema.Literal("artifact"),
   nodeId: NodeId,
   artifactId: ItemId,
-  anchor: Schema.optionalKey(Anchor),
+  anchor: Schema.optionalKey(ArtifactPlaceAnchor),
 });
-export const PageSubject = Schema.Struct({ kind: Schema.Literal("page"), nodeId: NodeId, anchor: Schema.optionalKey(Anchor) });
+export const PageSubject = Schema.Struct({ kind: Schema.Literal("page"), nodeId: NodeId, anchor: Schema.optionalKey(PlaceAnchor) });
 
 export const ThreadSubject = Schema.Union([MailboxSubject, TaskSubject, ArtifactSubject, PageSubject]);
 export type ThreadSubject = typeof ThreadSubject.Type;
@@ -84,15 +126,19 @@ export const threadSubjectMetadata = (subject: ResourceSubject): { readonly [THR
 export const subjectNodeOf = (subject: ThreadSubject): NodeId =>
   subject.kind === "mailbox" ? subject.seat : subject.nodeId;
 
-/** Two subjects name the same thread place: same resource, same anchor. */
-export const sameSubject = (a: ThreadSubject, b: ThreadSubject): boolean =>
-  JSON.stringify(Schema.encodeSync(ThreadSubject)(a)) === JSON.stringify(Schema.encodeSync(ThreadSubject)(b));
+/** A subject as one string, keys sorted, so key order is not identity. */
+const subjectKey = (subject: ThreadSubject): string =>
+  JSON.stringify(Schema.encodeSync(ThreadSubject)(subject), (_key, value: unknown) =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : value);
 
-const anchorLabel = (anchor: Anchor | undefined): string => {
+/** Two subjects name the same thread place: same resource, same anchor. */
+export const sameSubject = (a: ThreadSubject, b: ThreadSubject): boolean => subjectKey(a) === subjectKey(b);
+
+const anchorLabel = (anchor: PlaceAnchor | undefined): string => {
   if (anchor === undefined) return "";
   switch (anchor.kind) {
-    case "whole":
-      return "";
     case "box":
       return ` (box at ${String(anchor.x)},${String(anchor.y)})`;
     case "cells":

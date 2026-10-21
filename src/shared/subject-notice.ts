@@ -18,7 +18,7 @@ import type { ItemId, OpId } from "./work-ids";
  */
 
 /** Why a seat got the notice. Closed: delivery and the header match on it. */
-export const SubjectNoticeKind = Schema.Literals(["comment", "mention", "assignment", "stamp-request", "refusal"]);
+export const SubjectNoticeKind = Schema.Literals(["comment", "mention", "assignment", "stamp-request", "defect", "refusal"]);
 export type SubjectNoticeKind = typeof SubjectNoticeKind.Type;
 
 /** The metadata key a notice names its kind under. */
@@ -41,6 +41,7 @@ export const noticeTakesReply = (kind: SubjectNoticeKind): boolean => {
     case "mention":
     case "assignment":
     case "stamp-request":
+    case "defect":
       return true;
     case "refusal":
       return false;
@@ -114,7 +115,7 @@ export type SubjectNoticeInput =
       readonly sender: MailSenderStamp;
     })
   | (NoticeBase & {
-      readonly kind: "assignment" | "stamp-request";
+      readonly kind: "assignment" | "stamp-request" | "defect";
       readonly sourceId: OpId;
       readonly sender: MailSenderStamp;
     })

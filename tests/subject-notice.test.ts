@@ -21,6 +21,7 @@ import {
   Anchor,
   sameSubject,
   subjectLabel,
+  subjectAnchorOf,
   subjectNodeOf,
   threadSubjectMetadata,
   threadSubjectOf,
@@ -49,7 +50,8 @@ describe("thread subject", () => {
   it("reads back the subject a row carries", () => {
     const subjects: ReadonlyArray<ResourceSubject> = [
       task,
-      { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "lines", file: "a.ts", from: 3, to: 9 } },
+      { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "text", quote: "the cap", offset: 4 } },
+      { kind: "page", nodeId: BOARD, anchor: { kind: "lines", file: "a.ts", from: 3, to: 9 } },
       { kind: "page", nodeId: BOARD, anchor: { kind: "box", x: 1, y: 2, w: 3, h: 4, url: "https://x" } },
     ];
     for (const subject of subjects) {
@@ -65,9 +67,27 @@ describe("thread subject", () => {
     expect(threadSubjectOf({ metadata: { threadSubject: { ...task, extra: 1 } } })).toBeUndefined();
   });
 
-  it("refuses a lines anchor that ends before it starts", () => {
-    expect(Schema.is(Anchor)({ kind: "lines", file: "a.ts", from: 9, to: 3 })).toBe(false);
-    expect(Schema.is(Anchor)({ kind: "lines", file: "a.ts", from: 3, to: 3 })).toBe(true);
+  it("refuses an anchor with no extent: lines that end before they start, a box with no area, cells not in A1", () => {
+    const isAnchor = Schema.is(Anchor);
+    expect(isAnchor({ kind: "lines", file: "a.ts", from: 9, to: 3 })).toBe(false);
+    expect(isAnchor({ kind: "lines", file: "a.ts", from: 3, to: 3 })).toBe(true);
+    expect(isAnchor({ kind: "box", x: 0, y: 0, w: 0, h: 4 })).toBe(false);
+    expect(isAnchor({ kind: "box", x: 0, y: 0, w: 1, h: 4 })).toBe(true);
+    expect(isAnchor({ kind: "cells", range: "B2" })).toBe(true);
+    expect(isAnchor({ kind: "cells", range: "A1:C4" })).toBe(true);
+    expect(isAnchor({ kind: "cells", range: "C4:A1" })).toBe(false);
+    expect(isAnchor({ kind: "cells", range: "row 2" })).toBe(false);
+  });
+
+  it("spells the whole resource one way: no anchor", () => {
+    expect(subjectAnchorOf({ kind: "whole" })).toBeUndefined();
+    expect(subjectAnchorOf({ kind: "cells", range: "B2" })).toEqual({ kind: "cells", range: "B2" });
+    const whole = { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "whole" } };
+    expect(threadSubjectOf({ metadata: { threadSubject: whole } })).toBeUndefined();
+    const lines = { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "lines", file: "a", from: 1, to: 1 } };
+    expect(threadSubjectOf({ metadata: { threadSubject: lines } })).toBeUndefined();
+    // Key order is not identity.
+    expect(sameSubject({ taskId: TASK_ID, nodeId: BOARD, kind: "task" }, task)).toBe(true);
   });
 
   it("posts to the resource's node, and names it", () => {
@@ -85,8 +105,14 @@ describe("thread subject", () => {
     const _node: ResourceSubject = { kind: "page", nodeId: "task-board" };
     // @ts-expect-error a bare string is not an ItemId
     const _task: ResourceSubject = { kind: "task", nodeId: BOARD, taskId: "01M5ESKX20QX0HA3Y6SHEPXBCX" };
+    // @ts-expect-error the whole resource is no anchor, never {kind:"whole"}
+    const _whole: ResourceSubject = { kind: "page", nodeId: BOARD, anchor: { kind: "whole" } };
+    // @ts-expect-error an artifact is never anchored to lines
+    const _lines: ResourceSubject = { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "lines", file: "a", from: 1, to: 1 } };
     void _node;
     void _task;
+    void _whole;
+    void _lines;
   });
 });
 
@@ -158,7 +184,7 @@ describe("subject notice row", () => {
   });
 
   it("types: a refusal has no seat sender, and an op notice needs an opId", () => {
-    expectTypeOf<SubjectNoticeKind>().toEqualTypeOf<"comment" | "mention" | "assignment" | "stamp-request" | "refusal">();
+    expectTypeOf<SubjectNoticeKind>().toEqualTypeOf<"comment" | "mention" | "assignment" | "stamp-request" | "defect" | "refusal">();
     const base = { installationId: "i", subject: task, threadId: THREAD, recipient: SEAT_B, text: "t" };
     // @ts-expect-error a refusal comes from a node, not a seat stamp
     const _refusal: SubjectNoticeInput = { ...base, kind: "refusal", sourceId: OP_ID, sender };
