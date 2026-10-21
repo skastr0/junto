@@ -26,7 +26,6 @@ import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactsNode } from "../artifacts/ArtifactsNode";
 import { AutomationsPane } from "../automations/AutomationsPane";
-import { FocusSurface } from "../FocusSurface";
 import { asNodeId } from "@shared/physics/schema";
 import "./work-ledger.css";
 
@@ -357,11 +356,7 @@ export function AutomationsDetail({
   readonly onClose: () => void;
 }) {
   const canvasName = use$(state$.canvasName) || "";
-  return (
-    <FocusSurface measure="workspace" height="immersive" label="Automations" onClose={onClose}>
-      <AutomationsPane canvasName={canvasName} nodeId={asNodeId(nodeId)} author={OPERATOR} />
-    </FocusSurface>
-  );
+  return <AutomationsPane canvasName={canvasName} nodeId={asNodeId(nodeId)} author={OPERATOR} onClose={onClose} />;
 }
 
 const OPERATOR = { kind: "operator" } as const;
