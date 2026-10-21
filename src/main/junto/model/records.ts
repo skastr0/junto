@@ -8,6 +8,7 @@ import {
   type Wire,
 } from "@shared/model";
 import { withSqlRead } from "../state/sql-read";
+import { archiveAutomationsOnNode } from "../automation/repository";
 import { KIND_TABLES } from "./state-schema";
 import {
   nodeFromRow,
@@ -274,7 +275,12 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
               `DELETE FROM ${KIND_TABLES[node.kind]} WHERE canvas_name=? AND id=?`,
               [canvas, node.id],
             )
-            .pipe(Effect.asVoid, failure("removeNode")),
+            .pipe(
+              // An Automations node takes its automations with it, archived (07).
+              Effect.andThen(node.kind === "automations" ? archiveAutomationsOnNode(sql, canvas, node.id, Date.now()) : Effect.void),
+              Effect.asVoid,
+              failure("removeNode"),
+            ),
       );
       const incidentWires = Effect.fn("ModelRecords.incidentWires")(function* (
         canvas: string,

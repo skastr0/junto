@@ -97,6 +97,18 @@ export const claimKeyOf = (firing: FiringType): string => {
   }
 };
 
+/**
+ * Archive every live automation on a deleted Automations node, inside the
+ * canvas change that deletes it. Deleting a node is a canvas act of the
+ * operator or an overseer, so it is never refused for holding automations;
+ * their history stays, and the runner skips archived ones.
+ */
+export const archiveAutomationsOnNode = (sql: SqlClient.SqlClient, canvasName: string, nodeId: string, at: number) =>
+  sql`
+    UPDATE automations SET archived = 1, updated_at_epoch_ms = ${at}
+    WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND archived = 0
+  `.pipe(Effect.asVoid);
+
 /** A claimed firing may have run its actions (at most once), so the limits count it. */
 const countsAsFired = (outcome: FiringOutcome): boolean => outcome.kind !== "skipped";
 
