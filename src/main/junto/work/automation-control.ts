@@ -250,7 +250,13 @@ export const handleAutomationWrite = (
         const node = yield* findNode(writer, ports, input.target);
         const parts = yield* resolved(resolveTargets(input, resolveIn(writer, node)));
         const { trigger, then } = parts;
-        if (trigger === undefined || then === undefined) return yield* Effect.die("a create resolves its trigger and actions");
+        if (trigger === undefined || then === undefined) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: "a create names its trigger and at least one action",
+            details: { path: trigger === undefined ? "trigger" : "then", retryable: false },
+          });
+        }
         return yield* ports.submit(command(writer, input.opId, node.id, input.automationId, {
           kind: "create",
           automationId: input.automationId,

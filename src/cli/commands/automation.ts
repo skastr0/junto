@@ -67,7 +67,9 @@ const readCommand = (verb: "show" | "history", schema: Schema.Top) =>
   );
 
 export const automationCommand = Command.make("automation").pipe(
-  Command.withDescription("Read the automations in this seat's reach; the operator and overseers write them"),
+  Command.withDescription(
+    "Read the automations in this seat's reach; the operator and overseers write them. Until the Automations node ships, list answers empty",
+  ),
   Command.withSubcommands([
     listCommand,
     readCommand("show", AutomationShowArgs),
