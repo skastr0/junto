@@ -82,7 +82,7 @@ const pressPlusOn = async (page: Page, detail: ReturnType<Page["getByTestId"]>, 
 
 const reviewsIn = (stdin: string): number => (stdin.match(/Code review from the operator\./g) ?? []).length;
 
-test("[fake-tui] a review's comments reach each agent as exactly one mail", async () => {
+test("[fake-tui] a review reaches its seat as one thread, and a mentioned seat gets its comment in it", async () => {
   test.setTimeout(240_000);
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "junto-e2e-review-")));
   const head = makeRepository(repo);
@@ -166,9 +166,9 @@ test("[fake-tui] a review's comments reach each agent as exactly one mail", asyn
     await expect(detail.getByTestId("git-review-comment")).toHaveCount(2);
     await expect(detail.getByLabel("Overall note for the review")).toHaveValue("Good direction, two small things.");
 
-    // One send: exactly one mail to each seat.
+    // One send: one thread in Atlas's mailbox, Brook copied on the comment that mentions it.
     await send.click();
-    await expect(status).toHaveText(/^Sent as one mail to Atlas, Brook at /, { timeout: 20_000 });
+    await expect(status).toHaveText(/^Sent as one thread to Atlas at .+, copied to Brook$/, { timeout: 20_000 });
     await expect(detail.getByTestId("git-review-comment")).toHaveCount(0);
 
     // The plus pressed on one line and dragged to the next: the comment covers both.
@@ -196,36 +196,26 @@ test("[fake-tui] a review's comments reach each agent as exactly one mail", asyn
     await page.keyboard.press("Escape");
 
     const reviewed = `Reviewed: uncommitted changes in the folder, on feat/review at ${head}, repository ${basename(repo)}.`;
-    const toAtlas = [
+    const root = [
       "Code review from the operator.",
       reviewed,
       "",
       "Overall: Good direction, two small things.",
       "",
-      "1. parser.ts, line 3",
-      "   +  const kept = parts.filter(Boolean);",
-      "   Comment: Why keep a second name here?",
-      "",
-      "1 comment in this review. The line numbers are from the state named above; check them against your working copy.",
+      "2 comments follow in this thread, one mail each. The line numbers are from the state named above; check them against your working copy.",
     ].join("\n");
-    const toBrook = [
-      "Code review from the operator.",
-      reviewed,
-      "",
-      "1. parser.ts, line 4",
-      "   +  return kept;",
-      "   Comment: Brook should check this @Brook",
-      "",
-      "1 comment in this review. The line numbers are from the state named above; check them against your working copy.",
-    ].join("\n");
-    await expect.poll(async () => (await seatA.stdinLog()).includes(toAtlas), { timeout: 20_000 }).toBe(true);
-    await expect.poll(async () => (await seatB.stdinLog()).includes(toBrook), { timeout: 20_000 }).toBe(true);
+    const first = ["parser.ts, line 3", "   +  const kept = parts.filter(Boolean);", "Comment: Why keep a second name here?"].join("\n");
+    const second = ["parser.ts, line 4", "   +  return kept;", "Comment: Brook should check this @Brook"].join("\n");
+    await expect.poll(async () => {
+      const log = await seatA.stdinLog();
+      return log.includes(root) && log.includes(first) && log.includes(second);
+    }, { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => (await seatB.stdinLog()).includes(second), { timeout: 20_000 }).toBe(true);
     const a = await seatA.stdinLog();
     const b = await seatB.stdinLog();
     expect(reviewsIn(a)).toBe(1);
-    expect(reviewsIn(b)).toBe(1);
-    // Neither seat got the other's comment, and the note went only to the review's own recipient.
-    expect(a).not.toContain("Brook should check this");
+    // Brook has only the comment that mentions it: not the root, the note or the other comment.
+    expect(reviewsIn(b)).toBe(0);
     expect(b).not.toContain("Why keep a second name here?");
     expect(b).not.toContain("Overall:");
     expect(a).toContain("mail from operator");

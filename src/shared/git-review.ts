@@ -1,13 +1,17 @@
 /**
- * A review of a diff, written by the operator and sent to agents as mail.
+ * A review of a diff, written by the operator and sent to agents as one mail
+ * thread (plan 0.10, 03 section 4).
  *
- * Comments collect as a pending review; one action sends them. Each recipient
- * gets exactly one mail holding every comment addressed to it, never one mail
- * per comment. The mail stands alone: it says what was reviewed, and for each
- * comment the file, the lines, the diff lines it refers to, and the comment.
+ * Comments collect as a pending review; one action sends them. The thread
+ * lives in the reviewed seat's mailbox: a root that says what was reviewed
+ * and carries the overall note, then one row per line comment, anchored on
+ * its lines. A seat a comment mentions receives that row in the same thread
+ * (main's side of the send). Each row stands alone: the file, the lines, the
+ * diff lines it refers to, and the comment.
  *
  * Pure: no git, no storage, no delivery. Plain text, no middle dots.
  */
+import type { LinesAnchor } from "./thread-subject";
 
 export type ReviewSide = "additions" | "deletions";
 
@@ -151,21 +155,36 @@ export const reviewCountLine = (review: PendingReview): string => {
   return hasNote ? `${comments}, and an overall note` : comments;
 };
 
-export type ReviewMail = {
-  /** The recipient's id. */
-  readonly to: string;
+/** One line comment as its row in the thread: its words, and the lines it hangs on. */
+export type ReviewThreadRow = {
+  readonly comment: ReviewComment;
   readonly text: string;
-  /** How many comments this mail carries. */
-  readonly comments: number;
+  readonly anchor: LinesAnchor;
 };
 
+export type ReviewThread = {
+  /** The seat whose mailbox holds the thread, by id. */
+  readonly to: string;
+  /** The thread's root: what was reviewed, and the overall note. */
+  readonly root: string;
+  readonly rows: ReadonlyArray<ReviewThreadRow>;
+};
+
+/** A comment's lines, as its row's anchor. */
+export const reviewLinesAnchor = (comment: ReviewComment): LinesAnchor => ({
+  kind: "lines",
+  file: comment.file,
+  from: Math.min(comment.line, comment.endLine),
+  to: Math.max(comment.line, comment.endLine),
+  ...(comment.side === "deletions" ? { side: "deletions" as const } : {}),
+});
+
 /**
- * One mail per recipient. A comment that mentions recipients goes to each of
- * them; any other comment, and the overall note, goes to the review's own
- * recipient. With no recipient of its own, unaddressed comments have nowhere
- * to go: they come back in `unaddressed` and nothing is sent for them.
+ * The review as one thread. It goes to the review's own recipient, or with
+ * none, to the first agent a comment mentions; with neither it has nowhere
+ * to go: undefined, and nothing is sent.
  */
-export const reviewMails = (input: {
+export const reviewThread = (input: {
   readonly review: PendingReview;
   /** The review's own recipient: the session it was opened from, or the one chosen. */
   readonly defaultTo: string | undefined;
@@ -173,49 +192,32 @@ export const reviewMails = (input: {
   readonly reviewed: string;
   /** The repository's name, as the operator reads it. */
   readonly repository: string;
-  /** A recipient's name, for a mention read back in the text. */
-  readonly nameOf: (id: string) => string;
-}): { readonly mails: ReadonlyArray<ReviewMail>; readonly unaddressed: ReadonlyArray<ReviewComment> } => {
-  const { review, defaultTo } = input;
-  const byRecipient = new Map<string, ReviewComment[]>();
-  const unaddressed: ReviewComment[] = [];
-  for (const comment of review.comments) {
-    const recipients = comment.to.length > 0 ? [...new Set(comment.to)] : defaultTo ? [defaultTo] : [];
-    if (recipients.length === 0) {
-      unaddressed.push(comment);
-      continue;
-    }
-    for (const id of recipients) byRecipient.set(id, [...(byRecipient.get(id) ?? []), comment]);
-  }
+}): ReviewThread | undefined => {
+  const { review } = input;
+  const to = input.defaultTo ?? review.comments.find((comment) => comment.to.length > 0)?.to[0];
+  if (to === undefined) return undefined;
   const note = review.note.trim();
-  if (note && defaultTo && !byRecipient.has(defaultTo)) byRecipient.set(defaultTo, []);
-
-  const mails: ReviewMail[] = [];
-  for (const [to, comments] of byRecipient) {
-    const lines: string[] = [
-      "Code review from the operator.",
-      `Reviewed: ${input.reviewed}, repository ${input.repository}.`,
-      "",
+  const count = review.comments.length;
+  const root = [
+    "Code review from the operator.",
+    `Reviewed: ${input.reviewed}, repository ${input.repository}.`,
+    "",
+    ...(note ? [`Overall: ${note}`, ""] : []),
+    count === 0
+      ? "No line comments in this review."
+      : `${count} ${count === 1 ? "comment follows" : "comments follow"} in this thread, one mail each. The line numbers are from the state named above; check them against your working copy.`,
+  ].join("\n");
+  const rows = review.comments.map((comment): ReviewThreadRow => {
+    const shown = comment.quote.slice(0, REVIEW_QUOTE_MAX);
+    const lines = [
+      `${comment.file}, ${lineRange(comment)}`,
+      ...shown.map((line) => `   ${line}`),
+      ...(comment.quote.length > shown.length ? [`   (${comment.quote.length - shown.length} more lines)`] : []),
+      `Comment: ${comment.text.trim()}`,
     ];
-    if (note && to === defaultTo) lines.push(`Overall: ${note}`, "");
-    comments.forEach((comment, index) => {
-      const others = comment.to.filter((id) => id !== to).map(input.nameOf);
-      lines.push(`${index + 1}. ${comment.file}, ${lineRange(comment)}`);
-      const shown = comment.quote.slice(0, REVIEW_QUOTE_MAX);
-      for (const line of shown) lines.push(`   ${line}`);
-      if (comment.quote.length > shown.length) lines.push(`   (${comment.quote.length - shown.length} more lines)`);
-      lines.push(`   Comment: ${comment.text.trim()}`);
-      if (others.length > 0) lines.push(`   Also sent to: ${others.join(", ")}`);
-      lines.push("");
-    });
-    lines.push(
-      comments.length === 0
-        ? "No line comments in this review."
-        : `${comments.length} ${comments.length === 1 ? "comment" : "comments"} in this review. The line numbers are from the state named above; check them against your working copy.`,
-    );
-    mails.push({ to, text: lines.join("\n"), comments: comments.length });
-  }
-  return { mails, unaddressed };
+    return { comment, text: lines.join("\n"), anchor: reviewLinesAnchor(comment) };
+  });
+  return { to, root, rows };
 };
 
 /** An agent a review, or one of its comments, can be sent to. */

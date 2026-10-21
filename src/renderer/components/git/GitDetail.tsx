@@ -154,7 +154,8 @@ export function GitReviewBody({
   /** The node it was opened from (a seat, a git node): its region decides who can receive the review. */
   readonly anchorNodeId?: string;
 }) {
-  const canvas = useCanvas(use$(state$.canvasName));
+  const canvasName = use$(state$.canvasName);
+  const canvas = useCanvas(canvasName);
   const candidates = useMemo(() => reviewCandidates(canvas, anchorNodeId), [canvas, anchorNodeId]);
   // An agent with no live seat can still be mailed: mail wakes it. The pickers
   // say so quietly. Read from the seat plane, which knows every seat on the
@@ -433,6 +434,8 @@ export function GitReviewBody({
       )}
       {!error && (reviewing || selected) ? (
         <ReviewFooter
+          canvasName={canvasName}
+          anchorNodeId={anchorNodeId}
           root={reviewKey}
           repository={cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd}
           reviewed={

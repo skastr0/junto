@@ -12,7 +12,7 @@ import {
   reviewCommentAnchor,
   reviewCountLine,
   reviewIsEmpty,
-  reviewMails,
+  reviewThread,
   type PendingReview,
   type ReviewComment,
 } from "../src/shared/git-review";
@@ -90,86 +90,62 @@ describe("what the surface says about a pending review", () => {
   });
 });
 
-describe("one mail per recipient", () => {
-  const nameOf = (id: string): string => ({ atlas: "Atlas", brook: "Brook" })[id] ?? id;
-  const base = { reviewed: "uncommitted changes in the folder, on feat/x at 0123abc", repository: "junto", nameOf };
+describe("a review is one thread", () => {
+  const base = { reviewed: "uncommitted changes in the folder, on feat/x at 0123abc", repository: "junto" };
 
-  it("sends every unmentioned comment and the note to the review's own recipient, as one mail", () => {
-    const { mails, unaddressed } = reviewMails({
+  it("a root with what was reviewed and the note, then one row per comment anchored on its lines", () => {
+    const thread = reviewThread({
       ...base,
       defaultTo: "atlas",
       review: { note: "Good direction.", comments: [comment({}), comment({ id: "c2", line: 41, endLine: 41, quote: ["+new tail"], text: "Rename this." })] },
-    });
-    expect(unaddressed).toEqual([]);
-    expect(mails).toHaveLength(1);
-    expect(mails[0]).toMatchObject({ to: "atlas", comments: 2 });
-    expect(mails[0]!.text).toBe(
+    })!;
+    expect(thread.to).toBe("atlas");
+    expect(thread.root).toBe(
       [
         "Code review from the operator.",
         "Reviewed: uncommitted changes in the folder, on feat/x at 0123abc, repository junto.",
         "",
         "Overall: Good direction.",
         "",
-        "1. src/a.ts, lines 11 to 12",
-        "   +const two = 22;",
-        "   +const three = 3;",
-        "   Comment: Why 22?",
-        "",
-        "2. src/a.ts, line 41",
-        "   +new tail",
-        "   Comment: Rename this.",
-        "",
-        "2 comments in this review. The line numbers are from the state named above; check them against your working copy.",
+        "2 comments follow in this thread, one mail each. The line numbers are from the state named above; check them against your working copy.",
       ].join("\n"),
     );
+    expect(thread.rows.map((row) => row.text)).toEqual([
+      "src/a.ts, lines 11 to 12\n   +const two = 22;\n   +const three = 3;\nComment: Why 22?",
+      "src/a.ts, line 41\n   +new tail\nComment: Rename this.",
+    ]);
+    expect(thread.rows.map((row) => row.anchor)).toEqual([
+      { kind: "lines", file: "src/a.ts", from: 11, to: 12 },
+      { kind: "lines", file: "src/a.ts", from: 41, to: 41 },
+    ]);
   });
 
-  it("sends a mentioned comment to the mentioned agent instead, still one mail each", () => {
-    const { mails } = reviewMails({
+  it("a comment on removed text says so, in words and in its anchor", () => {
+    const thread = reviewThread({
       ...base,
       defaultTo: "atlas",
-      review: {
-        note: "",
-        comments: [
-          comment({ id: "plain" }),
-          comment({ id: "mention", text: "Brook, this is yours.", to: ["brook"], side: "deletions", line: 11, endLine: 11, quote: ["-const two = 2;"] }),
-          comment({ id: "both", text: "For both of you.", to: ["atlas", "brook", "brook"] }),
-        ],
-      },
-    });
-    expect(mails.map((mail) => [mail.to, mail.comments])).toEqual([
-      ["atlas", 2],
-      ["brook", 2],
-    ]);
-    const brook = mails.find((mail) => mail.to === "brook")!.text;
-    expect(brook).toContain("1. src/a.ts, line 11 (removed text)\n   -const two = 2;\n   Comment: Brook, this is yours.");
-    expect(brook).toContain("Comment: For both of you.\n   Also sent to: Atlas");
-    expect(brook).not.toContain("Why 22?");
-    expect(mails.find((mail) => mail.to === "atlas")!.text).toContain("Also sent to: Brook");
+      review: { note: "", comments: [comment({ side: "deletions", line: 12, endLine: 11, quote: ["-const two = 2;"], to: ["brook"] })] },
+    })!;
+    expect(thread.rows[0]!.text.startsWith("src/a.ts, lines 11 to 12 (removed text)\n   -const two = 2;")).toBe(true);
+    expect(thread.rows[0]!.anchor).toEqual({ kind: "lines", file: "src/a.ts", from: 11, to: 12, side: "deletions" });
   });
 
-  it("with no recipient of its own, an unmentioned comment is not sent and comes back", () => {
-    const plain = comment({ id: "plain" });
-    const { mails, unaddressed } = reviewMails({
-      ...base,
-      defaultTo: undefined,
-      review: { note: "nobody to tell", comments: [plain, comment({ id: "m", to: ["brook"] })] },
-    });
-    expect(mails.map((mail) => mail.to)).toEqual(["brook"]);
-    expect(mails[0]!.text).not.toContain("Overall:");
-    expect(unaddressed).toEqual([plain]);
+  it("with no recipient of its own, it goes to the first agent a comment mentions; with neither, nowhere", () => {
+    const review = { note: "", comments: [comment({ id: "plain" }), comment({ id: "m", to: ["brook"] })] };
+    expect(reviewThread({ ...base, defaultTo: undefined, review })?.to).toBe("brook");
+    expect(reviewThread({ ...base, defaultTo: undefined, review: { note: "x", comments: [comment({})] } })).toBeUndefined();
   });
 
-  it("a note alone is a mail, and a long quote is cut with a count", () => {
-    const alone = reviewMails({ ...base, defaultTo: "atlas", review: { note: "Ship it.", comments: [] } });
-    expect(alone.mails).toHaveLength(1);
-    expect(alone.mails[0]!.text).toContain("Overall: Ship it.\n\nNo line comments in this review.");
-    const long = reviewMails({
+  it("a note alone is a root with no rows, and a long quote is cut with a count", () => {
+    const alone = reviewThread({ ...base, defaultTo: "atlas", review: { note: "Ship it.", comments: [] } })!;
+    expect(alone.rows).toEqual([]);
+    expect(alone.root).toContain("Overall: Ship it.\n\nNo line comments in this review.");
+    const long = reviewThread({
       ...base,
       defaultTo: "atlas",
       review: { note: "", comments: [comment({ quote: Array.from({ length: 11 }, (_, i) => `+line ${i}`) })] },
-    });
-    expect(long.mails[0]!.text).toContain("   +line 7\n   (3 more lines)\n   Comment: Why 22?");
+    })!;
+    expect(long.rows[0]!.text).toContain("   +line 7\n   (3 more lines)\nComment: Why 22?");
   });
 });
 

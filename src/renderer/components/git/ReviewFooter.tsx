@@ -1,15 +1,16 @@
 /**
  * The one place a review is sent from: what is pending, an overall note, who
- * receives it, and the send. Each recipient gets one mail with every comment
- * addressed to it, as operator mail on the same path a message to a seat
- * takes (sendSeatMessage); nothing here writes into a terminal.
+ * receives it, and the send. The review is one thread in the recipient's
+ * mailbox, on the operator's thread path (sendSeatThread): a root, then a
+ * row per line comment anchored on its lines, which main also hands to each
+ * seat the comment mentions. Nothing here writes into a terminal.
  */
 import { useState } from "react";
 import {
   reviewCandidateLabel,
   reviewCountLine,
   reviewIsEmpty,
-  reviewMails,
+  reviewThread,
   type ReviewCandidate,
 } from "@shared/git-review";
 import { askConfirm } from "../../lib/confirm";
@@ -22,12 +23,14 @@ import {
   useSentReview,
   setReviewNote,
 } from "../../lib/git-review";
-import { planSeatMessageFor, sendSeatMessage } from "../../lib/seat-message";
+import { sendSeatThread } from "../../lib/seat-threads";
 import { Button, Dropdown, Textarea } from "../ui";
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
 export function ReviewFooter({
+  canvasName,
+  anchorNodeId,
   root,
   repository,
   reviewed,
@@ -37,6 +40,9 @@ export function ReviewFooter({
   offline,
   nameOf,
 }: {
+  readonly canvasName: string;
+  /** The node the review was opened from: main checks every recipient against the same reach. */
+  readonly anchorNodeId: string | undefined;
   readonly root: string;
   /** The repository's name, as the mail says it. */
   readonly repository: string;
@@ -61,42 +67,43 @@ export function ReviewFooter({
 
   const send = async (): Promise<void> => {
     if (!canSend || reviewed === undefined) return;
-    const { mails, unaddressed } = reviewMails({
-      review,
-      defaultTo: to,
-      reviewed,
-      repository,
-      nameOf,
-    });
-    if (mails.length === 0) {
+    const thread = reviewThread({ review, defaultTo: to, reviewed, repository });
+    if (thread === undefined) {
       setProblem("Choose who receives it, or mention an agent in a comment.");
       return;
     }
     setBusy(true);
     setProblem(null);
-    const failed: string[] = [];
-    const delivered: { name: string; comments: number }[] = [];
-    // One mail per recipient, one after another: never a burst into one terminal.
-    for (const mail of mails) {
-      const outcome = await sendSeatMessage(planSeatMessageFor([mail.to]), mail.text);
-      if (outcome.tone === "failed") failed.push(outcome.line);
-      else delivered.push({ name: nameOf(mail.to), comments: mail.comments });
-    }
-    setBusy(false);
-    if (delivered.length > 0) recordSentReview(root, { at: Date.now(), mails: delivered });
-    if (failed.length > 0) {
-      // What did not go stays pending in full, so nothing is lost and nothing is half sent twice by a retry of the rest.
-      setProblem(failed.join(" "));
+    const seat = { canvasName, seatId: thread.to };
+    const context = anchorNodeId === undefined ? {} : { anchorNodeId };
+    const started = await sendSeatThread({ ...seat, text: thread.root, review: context });
+    if (!started.ok) {
+      // Nothing went: the whole review stays pending.
+      setBusy(false);
+      setProblem(started.message);
       return;
     }
-    if (unaddressed.length > 0) {
-      keepUnsentComments(root, unaddressed);
-      setProblem(
-        `${unaddressed.length} ${unaddressed.length === 1 ? "comment has" : "comments have"} nobody to go to and stayed here.`,
-      );
-    } else {
-      clearPendingReview(root);
+    // One row after another, in the review's order: never a burst into one terminal.
+    let sent = 0;
+    let failure: string | undefined;
+    for (const row of thread.rows) {
+      const outcome = await sendSeatThread({ ...seat, text: row.text, threadId: started.threadId, review: { ...context, anchor: row.anchor } });
+      if (!outcome.ok) {
+        failure = outcome.message;
+        break;
+      }
+      sent += 1;
     }
+    setBusy(false);
+    const copied = [...new Set(thread.rows.slice(0, sent).flatMap((row) => row.comment.to))].filter((id) => id !== thread.to);
+    recordSentReview(root, { at: Date.now(), to: nameOf(thread.to), copied: copied.map(nameOf) });
+    if (failure !== undefined) {
+      // What did not go stays pending, so a retry sends only the rest.
+      keepUnsentComments(root, thread.rows.slice(sent).map((row) => row.comment));
+      setProblem(failure);
+      return;
+    }
+    clearPendingReview(root);
   };
 
   const discard = async (): Promise<void> => {
@@ -116,7 +123,7 @@ export function ReviewFooter({
   const status = problem
     ? problem
     : empty && sent
-      ? `Sent as one mail to ${sent.mails.map((mail) => mail.name).join(", ")} at ${clock(sent.at)}`
+      ? `Sent as one thread to ${sent.to} at ${clock(sent.at)}${sent.copied.length > 0 ? `, copied to ${sent.copied.join(", ")}` : ""}`
       : reviewCountLine(review);
 
   return (

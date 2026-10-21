@@ -11,14 +11,16 @@ import { EMPTY_REVIEW, reviewIsEmpty, type PendingReview, type ReviewComment } f
  * browser's own storage is not a store for the app (settings state
  * architecture), so keeping it longer means the state engine. It is the
  * operator's draft, not work: nothing in main knows about it until it is
- * sent as mail.
+ * sent as a mail thread.
  */
 
 export type SentReview = {
   /** Epoch ms it was sent. */
   readonly at: number;
-  /** Who received a mail, by name, and how many comments each mail carried. */
-  readonly mails: ReadonlyArray<{ readonly name: string; readonly comments: number }>;
+  /** The seat whose thread it is, by name. */
+  readonly to: string;
+  /** The seats its comments mention, by name: each got its comments in the thread. */
+  readonly copied: ReadonlyArray<string>;
 };
 
 const pending$ = observable<Record<string, PendingReview>>({});
@@ -58,7 +60,7 @@ export const clearPendingReview = (root: string): void => {
   pending$[root].delete();
 };
 
-/** Keep the comments that could not be sent (no recipient); everything else went. */
+/** Keep the comments that could not be sent; everything else went. */
 export const keepUnsentComments = (root: string, comments: ReadonlyArray<ReviewComment>): void =>
   write(root, { comments, note: "" });
 
