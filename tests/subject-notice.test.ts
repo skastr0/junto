@@ -31,6 +31,9 @@ import {
   type ThreadSubject,
 } from "../src/shared/thread-subject";
 import { ItemId, OpId } from "../src/shared/work-ids";
+import { ContentRef } from "../src/shared/wire/content-ref";
+
+const SHOT = Schema.decodeUnknownSync(ContentRef)({ sha256: "a".repeat(64), byteLength: 10, mediaType: "image/png" });
 
 const TASK_ID = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCX");
 const OP_ID = OpId.make("01M5ESMJV6GNZ0891YFFWS0S3P");
@@ -53,8 +56,8 @@ describe("thread subject", () => {
     const subjects: ReadonlyArray<ResourceSubject> = [
       task,
       { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "text", quote: "the cap", offset: 4 } },
-      { kind: "page", nodeId: BOARD, anchor: { kind: "lines", file: "a.ts", from: 3, to: 9 } },
-      { kind: "page", nodeId: BOARD, anchor: { kind: "box", x: 1, y: 2, w: 3, h: 4, url: "https://x" } },
+      { kind: "artifact", nodeId: BOARD, artifactId: TASK_ID, anchor: { kind: "box", x: 1, y: 2, w: 3, h: 4 } },
+      { kind: "page", nodeId: BOARD, anchor: { kind: "box", x: 1, y: 2, w: 3, h: 4, url: "https://x.example/", scroll: { x: 0, y: 40 }, shot: SHOT } },
     ];
     for (const subject of subjects) {
       const metadata = JSON.parse(JSON.stringify(threadSubjectMetadata(subject))) as Record<string, unknown>;
@@ -96,9 +99,8 @@ describe("thread subject", () => {
     expect(subjectNodeOf(task)).toBe(BOARD);
     expect(subjectNodeOf({ kind: "mailbox", seat: SEAT_A })).toBe(SEAT_A);
     expect(subjectLabel(task)).toBe(`task ${TASK_ID} at ${BOARD}`);
-    const long = `${"d/".repeat(100)}a.ts`;
-    expect(subjectLabel({ kind: "page", nodeId: BOARD, anchor: { kind: "lines", file: long, from: 2, to: 2 } }))
-      .toBe(`page ${BOARD} (...${long.slice(-80)}:2)`);
+    expect(subjectLabel({ kind: "page", nodeId: BOARD, anchor: { kind: "box", x: 1, y: 2, w: 3, h: 4, url: "https://x.example/", scroll: { x: 0, y: 0 }, shot: SHOT } }))
+      .toBe(`page ${BOARD} (box at 1,2)`);
     expect(Schema.is(Anchor)({ kind: "lines", file: "a".repeat(LINES_FILE_MAX + 1), from: 1, to: 1 })).toBe(false);
     expect(sameSubject(task, { kind: "task", nodeId: BOARD, taskId: TASK_ID })).toBe(true);
     expect(sameSubject(task, { kind: "page", nodeId: BOARD })).toBe(false);

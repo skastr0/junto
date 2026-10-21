@@ -5,8 +5,9 @@ import { subjectNoticeId } from "./subject-notice";
 import type {
   ArtifactPlaceAnchor,
   ArtifactSubject,
+  BoxAnchor,
+  PageBoxAnchor,
   PageSubject,
-  PlaceAnchor,
   ResourceSubject,
   TaskSubject,
 } from "./thread-subject";
@@ -29,12 +30,19 @@ export type CommentTarget =
   | Omit<typeof PageSubject.Type, "anchor">;
 export type CommentTargetKind = CommentTarget["kind"];
 
-/** Where on each kind a comment may hang: a task is commented whole, an artifact never on lines. */
+/**
+ * A box as a page comment's writer sends it: a rectangle in page CSS pixels.
+ * Main reads the url and the scroll from the live view and takes the shot
+ * itself (`PageBoxAnchor`); a writer never sends bytes.
+ */
+export type PageBoxRequest = Pick<typeof BoxAnchor.Type, "kind" | "x" | "y" | "w" | "h">;
+
+/** Where on each kind a comment may hang: a task is commented whole, an artifact never on lines, a page on a box. */
 export type CommentAnchorFor<K extends CommentTargetKind> = K extends "task"
   ? never
   : K extends "artifact"
     ? ArtifactPlaceAnchor
-    : PlaceAnchor;
+    : PageBoxRequest;
 
 type CommentOn<K extends CommentTargetKind> = {
   readonly subject: Extract<CommentTarget, { readonly kind: K }>;
@@ -60,14 +68,18 @@ export type SubjectCommented = {
   readonly notified: ReadonlyArray<NodeId>;
 };
 
-/** The subject a comment's rows carry: the target with its anchor. */
-export const commentSubjectOf = (input: SubjectCommentInput): ResourceSubject => {
+/**
+ * The subject a comment's rows carry: the target with its anchor. A page's
+ * anchor is the box main captured for this write, never the writer's request.
+ */
+export const commentSubjectOf = (input: SubjectCommentInput, pageBox?: PageBoxAnchor): ResourceSubject => {
   switch (input.subject.kind) {
     case "task":
       return input.subject;
     case "artifact":
-    case "page":
       return input.anchor === undefined ? input.subject : ({ ...input.subject, anchor: input.anchor } as ResourceSubject);
+    case "page":
+      return pageBox === undefined ? input.subject : { ...input.subject, anchor: pageBox };
   }
 };
 

@@ -1,5 +1,6 @@
 import { Result, Schema } from "effect";
 import type { NodeId } from "./physics/schema";
+import type { ContentRef } from "./wire/content-ref";
 import {
   ResourceSubject,
   TEXT_QUOTE_MAX,
@@ -29,6 +30,8 @@ export {
   LINES_FILE_MAX,
   LinesAnchor,
   MailboxSubject,
+  PAGE_BOX_URL_MAX_BYTES,
+  PageBoxAnchor,
   PageSubject,
   PlaceAnchor,
   ResourceSubject,
@@ -91,6 +94,19 @@ export const threadSubjectOf = (message: {
   if (held === undefined) return undefined;
   const read = decodeSubject(withQuoteCut(held));
   return Result.isSuccess(read) ? read.success : undefined;
+};
+
+/**
+ * The shot a page comment's row names, read only here, never from raw
+ * `metadata.threadSubject`. Naming is not holding: main serves the bytes
+ * only while the comment's own record holds the claim it made in the write.
+ */
+export const pageShotOf = (message: {
+  readonly metadata?: Readonly<Record<string, unknown>> | undefined;
+}): ContentRef | undefined => {
+  if (message.metadata?.factoryMail !== true) return undefined;
+  const subject = threadSubjectOf(message);
+  return subject?.kind === "page" ? subject.anchor?.shot : undefined;
 };
 
 /** The metadata a row in a subject thread carries. */

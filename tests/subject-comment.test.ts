@@ -10,9 +10,10 @@ import {
   commentThreadOf,
   subjectCommentId,
   type CommentAnchorFor,
+  type PageBoxRequest,
   type SubjectCommentInput,
 } from "../src/shared/subject-comment";
-import type { ArtifactPlaceAnchor, PlaceAnchor } from "../src/shared/thread-subject";
+import type { ArtifactPlaceAnchor } from "../src/shared/thread-subject";
 import { isMailMessageId } from "../src/shared/crew";
 import { ItemId, OpId } from "../src/shared/work-ids";
 
@@ -44,7 +45,7 @@ describe("subject comment contract", () => {
   it("types: an anchor that does not fit its subject does not compile", () => {
     expectTypeOf<CommentAnchorFor<"task">>().toBeNever();
     expectTypeOf<CommentAnchorFor<"artifact">>().toEqualTypeOf<ArtifactPlaceAnchor>();
-    expectTypeOf<CommentAnchorFor<"page">>().toEqualTypeOf<PlaceAnchor>();
+    expectTypeOf<CommentAnchorFor<"page">>().toEqualTypeOf<PageBoxRequest>();
     const misuse = (): ReadonlyArray<SubjectCommentInput> => [
       // @ts-expect-error a task is commented whole
       { ...base, subject: { kind: "task", nodeId: NODE, taskId: ID }, anchor: { kind: "cells", range: "B2" } },

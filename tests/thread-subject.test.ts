@@ -12,7 +12,12 @@ import {
   textAnchorOf,
   threadSubjectMetadata,
   threadSubjectOf,
+  pageShotOf,
+  PageSubject,
 } from "../src/shared/thread-subject";
+import { ContentRef } from "../src/shared/wire/content-ref";
+
+const SHOT = Schema.decodeUnknownSync(ContentRef)({ sha256: "a".repeat(64), byteLength: 10, mediaType: "image/png" });
 
 const seat = asNodeId("agent-01M4727PH6NV810ND26XQ2WXX2");
 const shelf = asNodeId("artifacts-01M5");
@@ -55,7 +60,11 @@ describe("thread subjects", () => {
   });
 
   it("tells two anchors on one page apart", () => {
-    const box = (w: number): ThreadSubject => ({ kind: "page", nodeId: page, anchor: { kind: "box", x: 0, y: 0, w, h: 1 } });
+    const box = (w: number): ThreadSubject => ({
+      kind: "page",
+      nodeId: page,
+      anchor: { kind: "box", x: 0, y: 0, w, h: 1, url: "https://x.example/", scroll: { x: 0, y: 0 }, shot: SHOT },
+    });
     expect(sameSubject(box(1), box(1))).toBe(true);
     expect(sameSubject(box(1), box(2))).toBe(false);
     expect(sameSubject(box(1), { kind: "page", nodeId: page })).toBe(false);
@@ -105,5 +114,39 @@ describe("anchors", () => {
       subjectNodeOf({ kind: "page", nodeId: "page-1" });
     };
     expect(misuse).toBeTypeOf("function");
+  });
+});
+
+describe("a page's box", () => {
+  const is = Schema.is(PageSubject);
+  const box = (anchor: Record<string, unknown>) => ({
+    kind: "page",
+    nodeId: "page-1",
+    anchor: { kind: "box", x: 0, y: 10, w: 20, h: 30, url: "https://x.example/a", scroll: { x: 0, y: 10 }, shot: SHOT, ...anchor },
+  });
+
+  it("is the page subject's only anchor, with its url, scroll and shot", () => {
+    expect(is(box({}))).toBe(true);
+    expect(is({ kind: "page", nodeId: "page-1" })).toBe(true);
+    expect(is({ kind: "page", nodeId: "page-1", anchor: { kind: "cells", range: "B2" } })).toBe(false);
+    expect(is({ kind: "page", nodeId: "page-1", anchor: { kind: "box", x: 0, y: 0, w: 1, h: 1 } })).toBe(false);
+    expect(is(box({ shot: undefined }))).toBe(false);
+    expect(is(box({ scroll: undefined }))).toBe(false);
+  });
+
+  it("names an http or https page, normalized, with no name or password, at most 16 KiB", () => {
+    expect(is(box({ url: "file:///etc/passwd" }))).toBe(false);
+    expect(is(box({ url: "javascript:alert(1)" }))).toBe(false);
+    expect(is(box({ url: "https://user:pw@x.example/" }))).toBe(false);
+    expect(is(box({ url: "HTTPS://X.example" }))).toBe(false);
+    expect(is(box({ url: `https://x.example/${"a".repeat(16 * 1024)}` }))).toBe(false);
+  });
+
+  it("gives its shot only to factory mail on a page", () => {
+    const row = (metadata: Record<string, unknown>) => ({ metadata });
+    const subject = JSON.parse(JSON.stringify(box({}))) as unknown;
+    expect(pageShotOf(row({ factoryMail: true, threadSubject: subject }))).toEqual(SHOT);
+    expect(pageShotOf(row({ threadSubject: subject }))).toBeUndefined();
+    expect(pageShotOf(row({ factoryMail: true, threadSubject: { kind: "page", nodeId: "page-1" } }))).toBeUndefined();
   });
 });

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ContentRef } from "./content-ref";
 
 /**
  * The shapes of what a thread is about (plan 0.10, 03 section 4), as the
@@ -104,7 +105,47 @@ export const ArtifactSubject = Schema.Struct({
   artifactId: SubjectItemId,
   anchor: Schema.optionalKey(ArtifactPlaceAnchor),
 });
-export const PageSubject = Schema.Struct({ kind: Schema.Literal("page"), nodeId: SubjectNodeId, anchor: Schema.optionalKey(PlaceAnchor) });
+/** The most a page box's url holds, in UTF-8 bytes: the browser's own bound (`browser-limits.ts`). */
+export const PAGE_BOX_URL_MAX_BYTES = 16 * 1024;
+
+/** An http or https address with a host and no name or password, as `admitLinkUrl` admits it, already normalized. */
+const isPageUrl = (url: string): boolean => {
+  if (new TextEncoder().encode(url).byteLength > PAGE_BOX_URL_MAX_BYTES) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.hostname !== "" &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.href === url
+    );
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * A box on a browser page, the page subject's only anchor (no anchor is the
+ * whole page). The rectangle is in page CSS pixels, with the scroll it was
+ * drawn at and the page's url then. `shot` is the crop main took from the
+ * live view and claimed for the comment's own row in the same write; a
+ * writer never sends it. A reply copies its thread's subject as it is and
+ * never takes a new shot. Read the shot through `pageShotOf`.
+ */
+export const PageBoxAnchor = Schema.Struct({
+  kind: Schema.Literal("box"),
+  x: Coordinate,
+  y: Coordinate,
+  w: Extent,
+  h: Extent,
+  url: Schema.String.check(Schema.makeFilter((url) => isPageUrl(url) || "an http or https address with a host, no name or password, at most 16 KiB")),
+  scroll: Schema.Struct({ x: Coordinate, y: Coordinate }),
+  shot: ContentRef,
+});
+export type PageBoxAnchor = typeof PageBoxAnchor.Type;
+
+export const PageSubject = Schema.Struct({ kind: Schema.Literal("page"), nodeId: SubjectNodeId, anchor: Schema.optionalKey(PageBoxAnchor) });
 
 export const ThreadSubject = Schema.Union([MailboxSubject, TaskSubject, ArtifactSubject, PageSubject]);
 export type ThreadSubject = typeof ThreadSubject.Type;
