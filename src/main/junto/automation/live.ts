@@ -17,7 +17,7 @@
  * with the canvas before the pass, on the editing machine.
  */
 import { createHash } from "node:crypto";
-import { Context, Duration, Effect, Layer, Option, Queue, Schedule, Schema, Semaphore } from "effect";
+import { Context, Duration, Effect, Layer, Option, Queue, Schedule, Schema, Semaphore, Stream } from "effect";
 import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
 import type { TaskState } from "@shared/task-model";
@@ -53,6 +53,8 @@ import { MachineRepository } from "../machines/repository";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
 import { type ChangeEvent } from "./plan";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
+import { SeatStateSource } from "./seat-state-source";
+import type { SeatStateFiring } from "@shared/seat-state-trigger";
 
 /** How often the loop looks for due slots: cron and poll slots are minutes apart. */
 export const AUTOMATION_TICK = Duration.seconds(15);
@@ -113,6 +115,8 @@ export const changesBetween = (
   before: ConditionView | undefined,
   after: ConditionView,
   automationWrote: (taskId: string, state: string, since: number) => boolean,
+  /** False when the runtime seat-state source says seat changes: they are its, never the index's. */
+  seatChanges = true,
 ): ReadonlyArray<ChangeEvent> => {
   if (before === undefined) return [];
   const events: Array<ChangeEvent> = [];
@@ -156,7 +160,7 @@ export const changesBetween = (
       byAutomation: comment.byAutomation,
     });
   }
-  for (const seat of new Set([...before.seats, ...after.seats])) {
+  for (const seat of seatChanges ? new Set([...before.seats, ...after.seats]) : []) {
     const from = seatStateOf(before, seat);
     const to = seatStateOf(after, seat);
     if (from === to) continue;
@@ -171,10 +175,10 @@ export const changesBetween = (
  * attention when its open task waits on someone else, working while it holds
  * an open task, idle when it holds none.
  *
- * Gap (07, pty's runner rules): this is not the runtime seat state, so its
- * holds are not applied (idle and working for 30 s, attention once per
- * episode, gone only after 60 s with no new generation, unknown never fires).
- * It stands until pty gives a runtime seat-state source on the editing machine.
+ * Seat change triggers come from pty's runtime seat-state source when the
+ * build has one (`SeatStateSource`, held and settled by its rules); this
+ * index-derived state says them only without it. `when` conditions read this
+ * state either way: the source gives firings, not a current state.
  */
 export const seatStateOf = (view: ConditionView, seat: string): SeatBecomes => {
   if (!view.seatOnCanvas(seat)) return "gone";
@@ -374,11 +378,10 @@ export class AutomationRunnerService extends Context.Service<
     readonly tickAll: Effect.Effect<void, AutomationPersistenceError>;
     /** Fire every change trigger a canvas's tasks or seats moved through since the last pass. */
     readonly wake: (canvasName: string) => Effect.Effect<void, AutomationPersistenceError>;
-    /** Fire the change triggers a raised signal matches. */
-    readonly signalled: (
-      canvasName: string,
-      event: Extract<ChangeEvent, { readonly kind: "signal" }>,
-    ) => Effect.Effect<void, AutomationPersistenceError>;
+    /** Fire the change triggers one heard change matches: a raised signal, a seat-state firing. */
+    readonly heard: (canvasName: string, event: ChangeEvent) => Effect.Effect<void, AutomationPersistenceError>;
+    /** Fire the change triggers a runtime seat-state firing matches, on the canvas holding its seat. */
+    readonly seatFired: (firing: SeatStateFiring) => Effect.Effect<void, AutomationPersistenceError>;
     /** Fire an applied `run` now; undefined when the automation is gone. */
     readonly onRun: (canvasName: string, automationId: AutomationId) => Effect.Effect<Firing | undefined, AutomationPersistenceError>;
   }
@@ -393,6 +396,8 @@ export const AutomationRunnerLive = Layer.effect(
     const work = yield* Effect.serviceOption(WorkService);
     const machines = yield* Effect.serviceOption(MachineRepository);
     const taskStore = yield* Effect.serviceOption(TaskRepository);
+    // With the runtime seat-state source, seat changes are its firings; without it, the task index says them.
+    const seatStates = yield* Effect.serviceOption(SeatStateSource);
     const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
     // The comments each Artifacts node holds: rows whose thread subject is one of its artifacts.
     const readComments = (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyArray<ArtifactCommentRow>> => {
@@ -503,7 +508,7 @@ export const AutomationRunnerLive = Layer.effect(
           ]), ([read, artifacts, comments]) => {
             const view: ConditionView = { ...read, artifacts, comments };
             const before = views.get(canvasName);
-            const changes = changesBetween(before, view, automationWrote);
+            const changes = changesBetween(before, view, automationWrote, Option.isNone(seatStates));
             // Keep the tasks and artifacts this read left out, as they were, for the next diff.
             const seen = new Set(view.tasks.map((task) => task.taskId));
             const kept = (before?.tasks ?? []).filter((task) => !seen.has(task.taskId));
@@ -545,11 +550,27 @@ export const AutomationRunnerLive = Layer.effect(
         yield* changed(canvasName, yield* load(canvasName));
       }));
 
-    const signalled = (canvasName: string, event: Extract<ChangeEvent, { readonly kind: "signal" }>) =>
+    const heard = (canvasName: string, event: ChangeEvent) =>
       turn.withPermits(1)(Effect.gen(function* () {
         if (!(yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false)))) return;
+        // The canvas as it is now, for the reach the firing is checked against; what moved meanwhile goes first.
+        yield* changed(canvasName, yield* load(canvasName));
         yield* withRepository(runner.onChange(canvasName, event));
       }));
+
+    // A seat-state firing names its seat by binding id: the agent node holding it, on a canvas this machine edits.
+    const seatFired = (firing: SeatStateFiring) =>
+      Effect.gen(function* () {
+        const names = yield* model.listCanvases().pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
+        for (const name of names) {
+          if (!(yield* records.editsCanvas(name).pipe(Effect.orElseSucceed(() => false)))) continue;
+          const canvas = yield* model.canvas(name).pipe(Effect.option);
+          if (Option.isNone(canvas)) continue;
+          const seat = [...canvas.value.nodes.values()].find((node) => node.kind === "agent" && (node.bindingId as string) === firing.seat);
+          if (seat === undefined) continue;
+          yield* heard(name, { kind: "seat", key: firing.key, seat: seat.id, becomes: firing.becomes });
+        }
+      });
 
     const onRun = (canvasName: string, automationId: AutomationId) =>
       turn.withPermits(1)(Effect.gen(function* () {
@@ -557,7 +578,7 @@ export const AutomationRunnerLive = Layer.effect(
         return yield* withRepository(runner.onRun(canvasName, automationId));
       }));
 
-    return AutomationRunnerService.of({ tickAll, wake, signalled, onRun });
+    return AutomationRunnerService.of({ tickAll, wake, heard, seatFired, onRun });
   }),
 );
 
@@ -601,8 +622,18 @@ export const AutomationRunnerLoopLive = Layer.effectDiscard(
       unsubscribe();
       unsubscribeSignals();
     }));
+    // The runtime seat states, held and settled by pty's rules, when this build has them.
+    const seatStates = yield* Effect.serviceOption(SeatStateSource);
+    if (Option.isSome(seatStates)) {
+      yield* seatStates.value.firings.pipe(
+        Stream.runForEach((firing) =>
+          runner.seatFired(firing).pipe(Effect.catchCause((cause) => Effect.logWarning("automation seat-state firing failed", cause))),
+        ),
+        Effect.forkScoped,
+      );
+    }
     yield* Queue.take(writes).pipe(
-      Effect.flatMap((wake) => (wake.kind === "write" ? runner.wake(wake.canvasName) : runner.signalled(wake.canvasName, wake.event))),
+      Effect.flatMap((wake) => (wake.kind === "write" ? runner.wake(wake.canvasName) : runner.heard(wake.canvasName, wake.event))),
       Effect.catchCause((cause) => Effect.logWarning("automation change pass failed", cause)),
       Effect.forever,
       Effect.forkScoped,

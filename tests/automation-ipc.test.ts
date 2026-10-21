@@ -21,7 +21,9 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { writeRuling } from "../src/main/junto/work/resource-rulings";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
-import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { THIS_MACHINE } from "./support/machines";
+import { seat } from "./support/model-nodes";
 import type { AutomationDefinition, AutomationsChanged } from "../src/shared/automation";
 import { Command } from "../src/shared/model";
 import { Automations, TaskBoard } from "../src/shared/model/kinds";
@@ -30,6 +32,7 @@ const command = Schema.decodeUnknownSync(Command);
 const NODE = "automations-1";
 const ID = "01M5ESKJFC1A88R1MH1NEZWJ2Q";
 const TASKS = "tasks-1";
+const SEAT = "agent-a";
 
 const definition: AutomationDefinition = {
   name: "Standup",
@@ -69,7 +72,7 @@ const run = async (
         makeAutomationRepositoryLive(),
         recorder,
         Layer.provide(TaskRepositoryLive, recorder),
-        MachineRepositoryLive,
+        makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
       ),
     ).pipe(
       Layer.provideMerge(makeStateEngineLive(join(home, "junto.db"))),
@@ -85,12 +88,14 @@ const run = async (
           // The machine repository may already have minted this machine's id; keep it.
           yield* sql`INSERT OR IGNORE INTO known_installations(installation_id,registered_at) VALUES ('mini',${at})`;
           yield* sql`INSERT OR IGNORE INTO installation(singleton,installation_id,created_at) VALUES (1,'mini',${at})`;
+          // This machine's name, so a seat it hosts resolves.
+          yield* sql`INSERT OR IGNORE INTO machine_configuration(singleton,machine_name,supervised_preferred,configured_at) VALUES (1,${THIS_MACHINE},0,${at})`;
         }));
         const model = yield* ModelService;
         yield* model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator");
         const node = Schema.decodeUnknownSync(Automations)({ kind: "automations", id: NODE, x: 0, y: 0, width: 240, height: 160, z: 0 });
         const tasks = Schema.decodeUnknownSync(TaskBoard)({ kind: "task", id: TASKS, x: 300, y: 0, width: 240, height: 160, z: 0 });
-        yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node, tasks], wires: [] }), "operator");
+        yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node, tasks, seat(SEAT)], wires: [] }), "operator");
       }),
     );
     const changed: AutomationsChanged[] = [];
@@ -240,6 +245,40 @@ describe("change triggers, woken by a task write", () => {
         return yield* (yield* TaskRepository).list("factory", { nodeIds: [asNodeId(TASKS)], limit: 10 });
       }));
       expect(tasks.map((task) => task.title).sort()).toEqual(["By hand", "Plan the day"]);
+    }));
+});
+
+describe("signal and seat-state triggers", () => {
+  it("fire once per raised signal from a seat in reach", () =>
+    run(async (handlers, _changed, _sql, inApp) => {
+      const onBlocked = { ...definition, trigger: { kind: "change", on: { kind: "signal", signal: "blocked" } } };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onBlocked as never } });
+      const raised = { kind: "signal", key: "signal:sig-1", seat: asNodeId(SEAT), signal: "blocked" } as const;
+      const heard = Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).heard("factory", raised);
+      });
+      await inApp(heard);
+      await inApp(heard); // the same signal heard again
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => [f.cause, f.outcome.kind])).toEqual([[{ kind: "change", key: "signal:sig-1" }, "fired"]]);
+    }));
+
+  it("fire once per seat-state firing, found by the seat's binding id", () =>
+    run(async (handlers, _changed, _sql, inApp) => {
+      const onIdle = { ...definition, trigger: { kind: "change", on: { kind: "seat", seat: { kind: "seat", nodeId: SEAT }, becomes: "idle" } } };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onIdle as never } });
+      const firing = { key: "agent-a:e1:idle:5", seat: `binding-${SEAT}`, epoch: "e1", becomes: "idle", since: 5, at: 30_005, reason: "turn ended" };
+      const fired = Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).seatFired(firing as never);
+      });
+      await inApp(fired);
+      await inApp(fired);
+      // A binding no seat on an edited canvas holds is dropped.
+      await inApp(Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).seatFired({ ...firing, key: "other", seat: "binding-gone" } as never);
+      }));
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => [f.cause, f.outcome.kind])).toEqual([[{ kind: "change", key: firing.key }, "fired"]]);
     }));
 });
 

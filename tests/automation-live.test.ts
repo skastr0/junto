@@ -153,6 +153,10 @@ describe("changesBetween", () => {
     expect(changesBetween(working, waiting, never)).toMatchObject([{ becomes: "attention" }]);
     expect(changesBetween(idle, gone, never)).toMatchObject([{ seat: "agent-a", becomes: "gone" }]);
   });
+
+  it("says no seat change when the runtime seat-state source says them", () => {
+    expect(changesBetween(view([]), view([], { "agent-a": { blocked: false, since: 7 } }), never, false)).toEqual([]);
+  });
 });
 
 describe("changesBetween, artifacts", () => {
