@@ -67,13 +67,15 @@ Run on a copy of `~/.junto/junto.db`, never the live file.
 Each run: screenshots to the needs-you feed for new or changed UI only;
 deletions report the commit only.
 
-- [ ] Tasks: backlog, assign, start, finish, reviewers and stamps, operator
+- [x] Tasks: backlog, assign, start, finish, reviewers and stamps, operator
       stamp, dependencies block finish, send-on keeps handoff note, comments.
+      Receipt: product-verify on a ship build of main 4de3dcded, clean export, all pass, frames in junto feedback (via product-lead): release-sweep.spec.ts 3/3, Tasks end to end with dependency block, handoff note, defect and operator approve.
 - [x] Artifacts: create document, sheet and pad, edit, history, comments with
       mentions, stale edit refused.
       Receipt: artifacts run (product-lead, no commit named).
-- [ ] Automations: create, edit, stale, toggle, run, history, archive; only
+- [x] Automations: create, edit, stale, toggle, run, history, archive; only
       operator and overseers write.
+      Receipt: product-verify on a ship build of main 4de3dcded, clean export, all pass, frames in junto feedback (via product-lead): automations-node 2/2; release-sweep a quick task trigger fires.
 - [x] Mentions: `@` and `#` in thread and review composers, chips open, seat
       portrait on a seat mention, long mail over 64 KiB attaches a file.
       Receipt: mentions run (product-lead, no commit named); portraits d267ecdb3, 49db53b7a.
@@ -82,10 +84,12 @@ deletions report the commit only.
       Receipt: turn-on run a98a640f9 (product-lead).
 - [ ] Reach and queued writes, two machines: a seat on another machine queues
       commands, a stale write names the winner, one notice each.
-- [ ] Deleted features really gone in the packaged app: no pin control, no
+- [x] Deleted features really gone in the packaged app: no pin control, no
       Requests node, no bulletin board, no chat button, no Providers card,
       Hermes still opens as a terminal seat.
-- [ ] Add item and CLI refuse an agent seat in the home folder.
+      Receipt: product-verify on a ship build of main 4de3dcded, clean export, all pass, frames in junto feedback (via product-lead): release-sweep.spec.ts, deleted features gone and Hermes opens as a terminal seat.
+- [x] Add item and CLI refuse an agent seat in the home folder.
+      Receipt: product-verify on a ship build of main 4de3dcded, clean export, all pass, frames in junto feedback (via product-lead): release-sweep.spec.ts, Add item refuses the home folder. CLI refusal: 8ff89e4e6, CLI net 608e82b76.
 - [x] `junto onboard` lists what changed since the last session.
       Receipt: CLI net 608e82b76, since area 4 pass (product-lead).
 - [x] CLI acceptance net: `scripts/work-cli-acceptance.ts` all pass.
@@ -93,6 +97,7 @@ deletions report the commit only.
 - [x] Node cards and canvas smoothness at many seats (motion law holds,
       `tests/motion-law.test.ts`).
       Receipt: spines run (product-lead), redesign 0db2f0d47 to 08a50a9a4. Many-seat smoothness (canvas-lead, via product-lead): cards board e67800562, near pan 104 fps against 98, near rest 114, 30 layers; canvas-tier-budget fbe7aefbf 2/2 on a clean build of 8b7f678d9. `tests/motion-law.test.ts` runs inside tech-lead's verify, result pending.
+      Receipt: spines-milestone 1/1, far discs one size, no overlap, product-verify on a ship build of main 4de3dcded.
 
 ## 5. The cut (on product-lead's word only)
 
