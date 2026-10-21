@@ -522,16 +522,16 @@ export const runWorkCliAcceptance = async () => {
 
     const claim = await runCli(
       processPlane,
-      ["tasks", "claim", JSON.stringify({ target: TASKS, task: "t1" })],
+      ["task", "claim", JSON.stringify({ target: TASKS, task: "t1" })],
       env,
       outside,
     );
-    log("tasks claim", claim.stdout || claim.stderr);
+    log("task claim", claim.stdout || claim.stderr);
 
     const batch = await runCli(
       processPlane,
       [
-        "tasks",
+        "task",
         "update",
         JSON.stringify([
           { target: TASKS, task: "t1", state: "completed", note: "done" },
@@ -543,7 +543,7 @@ export const runWorkCliAcceptance = async () => {
       env,
       outside,
     );
-    log(`tasks update batch exit=${batch.code}`, batch.stdout || batch.stderr);
+    log(`task update batch exit=${batch.code}`, batch.stdout || batch.stderr);
 
     // Raising a hand needs no edge: blocked, then read it back, then withdraw.
     const raised = await runCli(
@@ -593,7 +593,7 @@ export const runWorkCliAcceptance = async () => {
 
     const scope = await runCli(
       processPlane,
-      ["tasks", "list", JSON.stringify({ target: "no-such-node" })],
+      ["task", "list", JSON.stringify({ target: "no-such-node" })],
       env,
       outside,
     );

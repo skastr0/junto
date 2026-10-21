@@ -91,14 +91,14 @@ const WORK_OPERATION_CLASSIFICATION = {
   // administrative ingress during shutdown, independently of factory pause.
   overseer: "authorial",
   "overseer.live": "read",
-  "tasks.list": "read",
-  "tasks.wait": "read",
-  "tasks.create": "authorial",
-  "tasks.claim": "authorial",
-  "tasks.update": "authorial",
-  "tasks.show": "read",
-  "tasks.rules": "read",
-  "tasks.check": "authorial",
+  "task.list": "read",
+  "task.wait": "read",
+  "task.create": "authorial",
+  "task.claim": "authorial",
+  "task.update": "authorial",
+  "task.show": "read",
+  "task.rules": "read",
+  "task.check": "authorial",
   rulings: "read",
   "content.path": "read",
   "content.stat": "read",
@@ -146,12 +146,12 @@ export const classifyMainAuthoringWorkOperation = (
 
 const WORK_AUTHORING_LABELS = {
   overseer: "control.overseer",
-  "tasks.create": "control.work.tasks-create",
-  "tasks.claim": "control.work.tasks-claim",
-  "tasks.update": "control.work.tasks-update",
+  "task.create": "control.work.tasks-create",
+  "task.claim": "control.work.tasks-claim",
+  "task.update": "control.work.tasks-update",
   // Check results stamp on the task row — same authorial family as an
   // update, so it carries the same label rather than minting a new one.
-  "tasks.check": "control.work.tasks-update",
+  "task.check": "control.work.tasks-update",
   "msg.list": "control.work.msg-send",
   "msg.send": "control.work.msg-send",
   "msg.read": "control.work.msg-send",
@@ -172,10 +172,10 @@ const WORK_AUTHORING_LABELS = {
   Extract<
     WorkOpName,
     | "overseer"
-    | "tasks.create"
-    | "tasks.claim"
-    | "tasks.update"
-    | "tasks.check"
+    | "task.create"
+    | "task.claim"
+    | "task.update"
+    | "task.check"
     | "msg.list"
     | "msg.send"
     | "msg.read"

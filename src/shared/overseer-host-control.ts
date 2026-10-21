@@ -6,7 +6,7 @@ export const OVERSEER_HOST_OPERATIONS = [
   "canvas.list", "canvas.read", "canvas.digest", "canvas.batch",
   "node.get", "node.create", "node.configure", "node.move", "node.resize",
   "wire.verbs", "wire.connect", "wire.configure", "wire.disconnect",
-  "tasks.list", "tasks.show",
+  "task.list", "task.show",
   "agent.list", "agent.get", "agent.output",
   "board.list", "board.tags", "artifact.list", "artifact.get",
 ] as const satisfies ReadonlyArray<OverseerOperation>;

@@ -366,14 +366,14 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "automation.run":
     case "automation.history":
       return false;
-    case "tasks.list":
-    case "tasks.wait":
-    case "tasks.create":
-    case "tasks.claim":
-    case "tasks.update":
-    case "tasks.show":
-    case "tasks.rules":
-    case "tasks.check":
+    case "task.list":
+    case "task.wait":
+    case "task.create":
+    case "task.claim":
+    case "task.update":
+    case "task.show":
+    case "task.rules":
+    case "task.check":
     case "rulings":
     case "content.path":
     case "content.stat":

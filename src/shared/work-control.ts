@@ -89,14 +89,14 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "preamble",
 "overseer",
 "overseer.live",
-"tasks.list",
-"tasks.create",
-"tasks.claim",
-"tasks.update",
-"tasks.show",
-"tasks.rules",
-"tasks.check",
-"tasks.wait",
+"task.list",
+"task.create",
+"task.claim",
+"task.update",
+"task.show",
+"task.rules",
+"task.check",
+"task.wait",
 "rulings",
 "content.path",
 "content.stat",
@@ -525,7 +525,7 @@ const RuleInForceView = Schema.Struct({
   provenance: RuleProvenanceView,
 });
 
-/** Strict response contract consumed by `tasks check`. */
+/** Strict response contract consumed by `task check`. */
 export const TasksRulesView = Schema.Struct({
   rules: Schema.Array(RuleInForceView),
   readiness: Schema.optionalKey(Schema.Struct({
@@ -571,7 +571,7 @@ export const TasksCheckArgs = Schema.Struct({
 export type TasksCheckArgs = typeof TasksCheckArgs.Type;
 
 /**
- * CLI-facing `tasks check` input. The CLI resolves and runs the applicable
+ * CLI-facing `task check` input. The CLI resolves and runs the applicable
  * commands; the caller supplies target/task/next, never `results`.
  */
 export const TasksCheckCliArgs = Schema.Struct({

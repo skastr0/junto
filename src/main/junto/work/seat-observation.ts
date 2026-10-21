@@ -8,7 +8,7 @@
  *   authorized transition into the requested state, or a typed timeout.
  * - `seat.read` returns a bounded window of a settled observer grid, optionally
  *   following until the grid advances or the follow duration elapses.
- * - `tasks.wait` subscribes to work mutations and returns the first authorized
+ * - `task.wait` subscribes to work mutations and returns the first authorized
  *   task state change.
  *
  * Rules this module enforces, because they are the whole point of the port:
@@ -106,7 +106,7 @@ export type SeatObservationDeps = {
   };
   /** Mailbox change stream, used by `seat.wait --until replied`. */
   readonly subscribeMailChanges?: (listener: (canvasName: string, nodeId: string) => void) => () => void;
-  /** Work mutation stream, used by `tasks.wait`. */
+  /** Work mutation stream, used by `task.wait`. */
   readonly subscribeWorkChanges: (
     listener: (canvasName: string | undefined, nodeId: string | undefined) => void,
   ) => () => void;
@@ -1064,7 +1064,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       const observe = (): Effect.Effect<TaskWaitResult, WorkErrorBody> =>
         Effect.gen(function* () {
           const doc = yield* deps.readTopology(caller.canvasName);
-          const admitted = admitWorkTarget(doc, caller.nodeId, args.target, "tasks.wait");
+          const admitted = admitWorkTarget(doc, caller.nodeId, args.target, "task.wait");
           if (Result.isFailure(admitted)) return yield* Effect.fail(admitted.failure);
           const node = admitted.success.node;
           const task = yield* deps.readTask(caller.canvasName, args.target, args.taskId, node.kind === "requests" ? "requests" : "task");

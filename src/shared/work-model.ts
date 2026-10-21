@@ -309,7 +309,7 @@ export const CheckSide = Schema.Literals(["outgoing", "incoming"]);
 export type CheckSide = typeof CheckSide.Type;
 
 /**
- * System-stamped check result. Written only by the `tasks.check` op handler
+ * System-stamped check result. Written only by the `task.check` op handler
  * from agent-submitted runs, never accepted from completion evidence.
  */
 export const CheckResult = Schema.Struct({

@@ -167,7 +167,7 @@ describe("seat read lowering", () => {
   });
 });
 
-describe("tasks wait lowering", () => {
+describe("task wait lowering", () => {
   it("lowers a task wait with its sink and bounded timeout", () => {
     const lowered = lowerTaskWait({
       task: "t1",

@@ -88,17 +88,17 @@ replay.
 | `wire.connect` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `wire.configure` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
 | `wire.disconnect` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.claim` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.describe` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.update` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.show` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.rules` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.check` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.promote` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.comment` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
-| `tasks.respond` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.claim` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.describe` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.update` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.show` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.rules` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.check` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.promote` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.comment` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `task.respond` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `request.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `request.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `request.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |

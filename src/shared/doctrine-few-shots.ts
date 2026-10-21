@@ -13,9 +13,9 @@
  */
 
 export type DoctrineFewShotPayload = {
-  /** The command word (for display), e.g. "tasks claim". */
+  /** The command word (for display), e.g. "task claim". */
   readonly command: string;
-  /** Full argv including the JSON argument, e.g. ["tasks", "claim", "{\"target\":\"n7\",...}"]. */
+  /** Full argv including the JSON argument, e.g. ["task", "claim", "{\"target\":\"n7\",...}"]. */
   readonly args: readonly string[];
   /** What the step teaches (one line). */
   readonly lesson: string;
@@ -23,15 +23,15 @@ export type DoctrineFewShotPayload = {
 
 /** Claim → progress → complete-with-evidence: the full task lifecycle. */
 export const FEW_SHOT_CLAIM: DoctrineFewShotPayload = {
-  command: "tasks claim",
-  args: ["tasks", "claim", '{"target":"n7","task":"t1"}'],
+  command: "task claim",
+  args: ["task", "claim", '{"target":"n7","task":"t1"}'],
   lesson: "Claim only unclaimed tasks; the task queue decides what is available.",
 };
 
 export const FEW_SHOT_PROGRESS: DoctrineFewShotPayload = {
-  command: "tasks update",
+  command: "task update",
   args: [
-    "tasks",
+    "task",
     "update",
     '{"target":"n7","task":"t1","state":"working","note":"first commit in; tests green so far"}',
   ],
@@ -39,9 +39,9 @@ export const FEW_SHOT_PROGRESS: DoctrineFewShotPayload = {
 };
 
 export const FEW_SHOT_COMPLETE_EVIDENCE: DoctrineFewShotPayload = {
-  command: "tasks update",
+  command: "task update",
   args: [
-    "tasks",
+    "task",
     "update",
     '{"target":"n7","task":"t1","state":"completed","note":"done","completionEvidence":{"artifacts":[{"artifactId":"a1","nodeId":"art1"}],"git":{"commits":["abc123"]}}}',
   ],

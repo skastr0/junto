@@ -105,29 +105,29 @@ export const renderSchemaContract = (contract: CommandSchemaContract) => ({
 
 const inputModes = ["inline-json", "@file", "stdin"] as const;
 
-export const tasksListSchema: CommandSchemaContract = {
-  command_id: "tasks.list",
-  command: "tasks list",
-  schema_id: "tasks.list.input/v1",
+export const taskListSchema: CommandSchemaContract = {
+  command_id: "task.list",
+  command: "task list",
+  schema_id: "task.list.input/v1",
   description: "List tasks on a connected task node.",
   schema: TasksListArgs,
   input_modes: inputModes,
 };
 
-export const tasksClaimSchema: CommandSchemaContract = {
-  command_id: "tasks.claim",
-  command: "tasks claim",
-  schema_id: "tasks.claim.input/v1",
+export const taskClaimSchema: CommandSchemaContract = {
+  command_id: "task.claim",
+  command: "task claim",
+  schema_id: "task.claim.input/v1",
   description: "Claim a task for this seat (submitted → working).",
   schema: TasksClaimArgs,
   accepts_batch: true,
   input_modes: inputModes,
 };
 
-export const tasksCreateSchema: CommandSchemaContract = {
-  command_id: "tasks.create",
-  command: "tasks create",
-  schema_id: "tasks.create.input/v3",
+export const taskCreateSchema: CommandSchemaContract = {
+  command_id: "task.create",
+  command: "task create",
+  schema_id: "task.create.input/v3",
   description:
     "Create one Task with a stable TaskId on a connected Tasks node. dependsOn accepts existing TaskIds on this board. rules addresses task-specific rules to boards on the task path. Omitted admission requires Approval; waitFor (\"12h\", \"7d\", or ms) delays the first claim.",
   schema: TasksCreateCliArgs,
@@ -135,10 +135,10 @@ export const tasksCreateSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-export const tasksUpdateSchema: CommandSchemaContract = {
-  command_id: "tasks.update",
-  command: "tasks update",
-  schema_id: "tasks.update.input/v4",
+export const taskUpdateSchema: CommandSchemaContract = {
+  command_id: "task.update",
+  command: "task update",
+  schema_id: "task.update.input/v4",
   description:
     "Transition a task to a new state. On completed, completionEvidence supplies artifacts, git commits, claims for rules in force, and path waivers; next names the next board, handoffNote carries the handoff, and waitFor delays claiming there. On rejected, defect sends the task back to an earlier visited board; defect.target defaults to the previous board.",
   schema: TasksUpdateCliArgs,
@@ -146,40 +146,40 @@ export const tasksUpdateSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-export const tasksShowSchema: CommandSchemaContract = {
-  command_id: "tasks.show",
-  command: "tasks show",
-  schema_id: "tasks.show.input/v1",
+export const taskShowSchema: CommandSchemaContract = {
+  command_id: "task.show",
+  command: "task show",
+  schema_id: "task.show.input/v1",
   description:
     "Show one task with its visits. Prior boards expose handoff notes and cited refs, never their interiors.",
   schema: TasksShowArgs,
   input_modes: inputModes,
 };
 
-export const tasksWaitSchema: CommandSchemaContract = {
-  command_id: "tasks.wait",
-  command: "tasks wait",
-  schema_id: "tasks.wait.input/v1",
+export const taskWaitSchema: CommandSchemaContract = {
+  command_id: "task.wait",
+  command: "task wait",
+  schema_id: "task.wait.input/v1",
   description:
     "Wait for one authorized task to become completed, input-required, or rejected. timeoutMs bounds the wait to at most 600000 ms.",
   schema: TaskWaitArgs,
   input_modes: inputModes,
 };
 
-export const tasksRulesSchema: CommandSchemaContract = {
-  command_id: "tasks.rules",
-  command: "tasks rules",
-  schema_id: "tasks.rules.input/v1",
+export const taskRulesSchema: CommandSchemaContract = {
+  command_id: "task.rules",
+  command: "task rules",
+  schema_id: "task.rules.input/v1",
   description:
     "Rules in force at a board, with provenance. Name a task to also get readiness: unanswered rules and required checks for each next board.",
   schema: TasksRulesArgs,
   input_modes: inputModes,
 };
 
-export const tasksCheckSchema: CommandSchemaContract = {
-  command_id: "tasks.check",
-  command: "tasks check",
-  schema_id: "tasks.check.input/v1",
+export const taskCheckSchema: CommandSchemaContract = {
+  command_id: "task.check",
+  command: "task check",
+  schema_id: "task.check.input/v1",
   description:
     "Run this board's outgoing checks and the next board's incoming checks in the seat environment, then submit the results. Name next when the path forks.",
   schema: TasksCheckCliArgs,
@@ -243,7 +243,7 @@ export const verdictPostSchema: CommandSchemaContract = {
   command: "verdict post",
   schema_id: "verdict.post.input/v1",
   description:
-    "Post a durable green or blocking verdict through a current reviews edge. Task target is the task board; subject carries taskId, epoch, and subjectHash from tasks.show. Blocking requires findings and rejects the task with a new epoch. Reviewer identity is process-bound; self-review is refused.",
+    "Post a durable green or blocking verdict through a current reviews edge. Task target is the task board; subject carries taskId, epoch, and subjectHash from task.show. Blocking requires findings and rejects the task with a new epoch. Reviewer identity is process-bound; self-review is refused.",
   schema: VerdictPostArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -463,14 +463,14 @@ export const boardTagsSchema: CommandSchemaContract = {
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
   offboardSchema,
-  tasksListSchema,
-  tasksCreateSchema,
-  tasksClaimSchema,
-  tasksUpdateSchema,
-  tasksShowSchema,
-  tasksWaitSchema,
-  tasksRulesSchema,
-  tasksCheckSchema,
+  taskListSchema,
+  taskCreateSchema,
+  taskClaimSchema,
+  taskUpdateSchema,
+  taskShowSchema,
+  taskWaitSchema,
+  taskRulesSchema,
+  taskCheckSchema,
   rulingsSchema,
   msgListSchema,
   msgSendSchema,
@@ -514,7 +514,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "verdict.post",
     command: "verdict post",
     name: "review the exact staged task subject",
-    description: "Use the current epoch and subjectHash returned by tasks show. Identity comes from the reviewer process.",
+    description: "Use the current epoch and subjectHash returned by task show. Identity comes from the reviewer process.",
     input: {
       target: "task-board", subject: { kind: "task", taskId: "task-1", epoch: 1, subjectHash: "a".repeat(64) },
       kind: "green", findings: [],
@@ -525,8 +525,8 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     })],
   },
   {
-    command_id: "tasks.create",
-    command: "tasks create",
+    command_id: "task.create",
+    command: "task create",
     name: "create a Task for Approval",
     description:
       "Create one stable-ID Task that requires operator approval. Agent-created tasks default to Approval.",
@@ -540,14 +540,14 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       admission: "approval",
     },
     args: [
-      "tasks",
+      "task",
       "create",
       '{"target":"n7","brief":"Add keyboard navigation","metadata":{"title":"Keyboard navigation","details":"Cover the task board first."},"admission":"approval"}',
     ],
   },
   {
-    command_id: "tasks.create",
-    command: "tasks create",
+    command_id: "task.create",
+    command: "task create",
     name: "create with TaskId dependencies and finish criteria",
     description:
       "dependsOn names existing TaskIds on this board. Dependencies, finish criteria, and this TaskId persist at creation.",
@@ -566,44 +566,44 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       },
     },
     args: [
-      "tasks",
+      "task",
       "create",
       '{"target":"n7","brief":"Ship media migration graph","reason":"needs prior content-ref work complete","dependsOn":["t_prereq"],"finishCriteria":{"description":"graph claimable and media uses ContentRef","git":{"minCommits":1}},"metadata":{"title":"Media migration graph","details":"Wire ContentRef media and make the graph claimable."}}',
     ],
   },
   {
-    command_id: "tasks.claim",
-    command: "tasks claim",
+    command_id: "task.claim",
+    command: "task claim",
     name: "claim one",
     description: "Claim task t1 on target node n7.",
     args: FEW_SHOT_CLAIM.args,
     input: { target: "n7", task: "t1" },
   },
   {
-    command_id: "tasks.claim",
-    command: "tasks claim",
+    command_id: "task.claim",
+    command: "task claim",
     name: "batch claim",
     description: "Claim several tasks with bounded concurrency.",
-    args: ["tasks", "claim", "@claims.json", "--concurrency", "5"],
+    args: ["task", "claim", "@claims.json", "--concurrency", "5"],
     input: [
       { target: "n7", task: "t1" },
       { target: "n7", task: "t2" },
     ],
   },
   {
-    command_id: "tasks.update",
-    command: "tasks update",
+    command_id: "task.update",
+    command: "task update",
     name: "complete",
     input: { target: "n7", task: "t1", state: "completed", note: "done" },
     args: [
-      "tasks",
+      "task",
       "update",
       '{"target":"n7","task":"t1","state":"completed","note":"done"}',
     ],
   },
   {
-    command_id: "tasks.update",
-    command: "tasks update",
+    command_id: "task.update",
+    command: "task update",
     name: "complete with evidence",
     input: {
       target: "n7",
@@ -618,8 +618,8 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: FEW_SHOT_COMPLETE_EVIDENCE.args,
   },
   {
-    command_id: "tasks.update",
-    command: "tasks update",
+    command_id: "task.update",
+    command: "task update",
     name: "answer rules and send on",
     description:
       "Complete at this board with a claim for each rule, then send the task to the named next board.",
@@ -639,14 +639,14 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       waitFor: "12h",
     },
     args: [
-      "tasks",
+      "task",
       "update",
       '{"target":"n7","task":"t1","state":"completed","note":"review passed","completionEvidence":{"artifacts":[],"claims":[{"ruleId":"r1","text":"ran the suite; all green","refs":["abc123"]}]},"next":"n8","handoffNote":"tests pass and the keyboard path is documented","waitFor":"12h"}',
     ],
   },
   {
-    command_id: "tasks.update",
-    command: "tasks update",
+    command_id: "task.update",
+    command: "task update",
     name: "send back with a defect",
     description: "Send the task back to the previous board with the reason on record.",
     input: {
@@ -656,58 +656,58 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       defect: { summary: "the brief names an endpoint that does not exist", refs: ["abc123"] },
     },
     args: [
-      "tasks",
+      "task",
       "update",
       '{"target":"n7","task":"t1","state":"rejected","defect":{"summary":"the brief names an endpoint that does not exist","refs":["abc123"]}}',
     ],
   },
   {
-    command_id: "tasks.show",
-    command: "tasks show",
+    command_id: "task.show",
+    command: "task show",
     name: "show",
     input: { target: "n7", task: "t1" },
-    args: ["tasks", "show", '{"target":"n7","task":"t1"}'],
+    args: ["task", "show", '{"target":"n7","task":"t1"}'],
   },
   {
-    command_id: "tasks.wait",
-    command: "tasks wait",
+    command_id: "task.wait",
+    command: "task wait",
     name: "wait for task completion",
     input: { target: "n7", taskId: "t1", until: "completed", timeoutMs: 30000 },
-    args: ["tasks", "wait", '{"target":"n7","taskId":"t1","until":"completed","timeoutMs":30000}'],
+    args: ["task", "wait", '{"target":"n7","taskId":"t1","until":"completed","timeoutMs":30000}'],
   },
   {
-    command_id: "tasks.rules",
-    command: "tasks rules",
+    command_id: "task.rules",
+    command: "task rules",
     name: "rules in force",
     description: "The rules in force at this board, with provenance.",
     input: { target: "n7" },
-    args: ["tasks", "rules", '{"target":"n7"}'],
+    args: ["task", "rules", '{"target":"n7"}'],
   },
   {
-    command_id: "tasks.rules",
-    command: "tasks rules",
+    command_id: "task.rules",
+    command: "task rules",
     name: "readiness for a task",
     description: "Which rules are unanswered and which checks are complete.",
     input: { target: "n7", task: "t1" },
-    args: ["tasks", "rules", '{"target":"n7","task":"t1"}'],
+    args: ["task", "rules", '{"target":"n7","task":"t1"}'],
   },
   {
-    command_id: "tasks.check",
-    command: "tasks check",
+    command_id: "task.check",
+    command: "task check",
     name: "run checks",
     description:
       "Resolve and run the applicable checks locally, then submit their results.",
     input: { target: "n7", task: "t1" },
-    args: ["tasks", "check", '{"target":"n7","task":"t1"}'],
+    args: ["task", "check", '{"target":"n7","task":"t1"}'],
   },
   {
-    command_id: "tasks.check",
-    command: "tasks check",
+    command_id: "task.check",
+    command: "task check",
     name: "run checks for a next board",
     description:
       "Name the next board when the path forks; its incoming checks join this board's outgoing checks.",
     input: { target: "n7", task: "t1", next: "n8" },
-    args: ["tasks", "check", '{"target":"n7","task":"t1","next":"n8"}'],
+    args: ["task", "check", '{"target":"n7","task":"t1","next":"n8"}'],
   },
   {
     command_id: "rulings",
@@ -1074,11 +1074,11 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     ],
   },
   {
-    command_id: "tasks.list",
-    command: "tasks list",
+    command_id: "task.list",
+    command: "task list",
     name: "list",
     input: { target: "n7" },
-    args: ["tasks", "list", '{"target":"n7"}'],
+    args: ["task", "list", '{"target":"n7"}'],
   },
   {
     command_id: "content.path",
@@ -1217,20 +1217,20 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Show examples for one command.",
   },
   {
-    command_id: "tasks.list",
-    command: "tasks list",
+    command_id: "task.list",
+    command: "task list",
     category: "workflow",
     description: "List tasks on a connected target.",
-    schemas: [tasksListSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.list"),
+    schemas: [taskListSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.list"),
   },
   {
-    command_id: "tasks.create",
-    command: "tasks create",
+    command_id: "task.create",
+    command: "task create",
     category: "workflow",
     description: "Create one or more tasks on a connected sink (batch-capable).",
-    schemas: [tasksCreateSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.create"),
+    schemas: [taskCreateSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.create"),
     batch: {
       accepts_batch: true,
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
@@ -1238,12 +1238,12 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     },
   },
   {
-    command_id: "tasks.claim",
-    command: "tasks claim",
+    command_id: "task.claim",
+    command: "task claim",
     category: "workflow",
     description: "Claim one or more tasks (batch-capable).",
-    schemas: [tasksClaimSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.claim"),
+    schemas: [taskClaimSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.claim"),
     batch: {
       accepts_batch: true,
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
@@ -1251,12 +1251,12 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     },
   },
   {
-    command_id: "tasks.update",
-    command: "tasks update",
+    command_id: "task.update",
+    command: "task update",
     category: "workflow",
     description: "Update task state (batch-capable).",
-    schemas: [tasksUpdateSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.update"),
+    schemas: [taskUpdateSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.update"),
     batch: {
       accepts_batch: true,
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
@@ -1264,37 +1264,37 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     },
   },
   {
-    command_id: "tasks.show",
-    command: "tasks show",
+    command_id: "task.show",
+    command: "task show",
     category: "workflow",
     description: "Show one task with its visits (onion-scoped for seats).",
-    schemas: [tasksShowSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.show"),
+    schemas: [taskShowSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.show"),
   },
   {
-    command_id: "tasks.wait",
-    command: "tasks wait",
+    command_id: "task.wait",
+    command: "task wait",
     category: "workflow",
     description: "Wait for an authorized task state with a bounded deadline.",
-    schemas: [tasksWaitSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.wait"),
+    schemas: [taskWaitSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.wait"),
   },
   {
-    command_id: "tasks.rules",
-    command: "tasks rules",
+    command_id: "task.rules",
+    command: "task rules",
     category: "workflow",
     description: "Rules in force at a board, plus readiness for a named task.",
-    schemas: [tasksRulesSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.rules"),
+    schemas: [taskRulesSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.rules"),
   },
   {
-    command_id: "tasks.check",
-    command: "tasks check",
+    command_id: "task.check",
+    command: "task check",
     category: "workflow",
     description:
       "Run this move's outgoing and incoming checks in the seat environment and submit the results.",
-    schemas: [tasksCheckSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.check"),
+    schemas: [taskCheckSchema],
+    examples: allExamples.filter((e) => e.command_id === "task.check"),
   },
   {
     command_id: "rulings",

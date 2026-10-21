@@ -325,7 +325,7 @@ type InstallationContext = {
   readonly localInstallationId: InstallationIdValue;
 };
 
-/** One board a task has been through, as shown by tasks.show. */
+/** One board a task has been through, as shown by task.show. */
 export type WorkTaskVisitView = {
   readonly boardId: string;
   readonly board: string;
@@ -989,8 +989,8 @@ export const WorkLive = Layer.effect(
       actor: ActorRef,
       targetNodeId: string,
       op:
-        | "tasks.create"
-        | "tasks.claim"
+        | "task.create"
+        | "task.claim"
         | "msg.send"
         | "msg.read"
         | "msg.reply"
@@ -1017,7 +1017,7 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            if (op !== "tasks.claim" && !sameActor(live, actor)) {
+            if (op !== "task.claim" && !sameActor(live, actor)) {
               return Effect.fail(
                 new WorkServiceError({
                   code: "invalid",
@@ -2023,7 +2023,7 @@ export const WorkLive = Layer.effect(
               read,
               actor,
               nodeId,
-              "tasks.claim",
+              "task.claim",
               admin,
             );
             if (sourceHome !== context.localInstallationId) {

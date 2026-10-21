@@ -80,7 +80,7 @@ Publishing artifacts is non-blocking product delivery. Ship intermediate and fin
 
 /** The loop step that says where work comes from: a claim queue, or people. */
 const WORK_STEP = TASKS_ENABLED
-  ? `2. **work** — do the work the board makes available. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed (\`tasks claim\`). Never invent backlog.`
+  ? `2. **work** — do the work the board makes available. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed (\`task claim\`). Never invent backlog.`
   : `2. **work** — do the work the operator and your region ask for. Instructions arrive in your region briefing and in mail over your edges; open the surfaces you need and work by hand. Never invent backlog.`;
 
 const UPDATE_STEP = TASKS_ENABLED
@@ -235,13 +235,13 @@ const TASKS_REFERENCE = `Finish criteria are **hard gates**: \`completed\` is re
 
 ### Stage evidence before review
 
-On a configured Command Center, a requires-review task stays \`working\` while you submit real refs: \`junto tasks update '{"target":"<target>","task":"<taskId>","state":"working","completionEvidence":{"artifacts":[],"git":{"commits":["<real-sha>"]}}}'\`. This stages evidence without completing the task. Reviewers receive the exact subject through receipt mail. Use the current epoch and subjectHash; a changed ref or epoch invalidates prior approval. After a qualifying reviewer posts green on that exact subject, complete with the same evidence. A blocking review sends work back with a defect and a new epoch. Requires-review completion is Command Center only.
+On a configured Command Center, a requires-review task stays \`working\` while you submit real refs: \`junto task update '{"target":"<target>","task":"<taskId>","state":"working","completionEvidence":{"artifacts":[],"git":{"commits":["<real-sha>"]}}}'\`. This stages evidence without completing the task. Reviewers receive the exact subject through receipt mail. Use the current epoch and subjectHash; a changed ref or epoch invalidates prior approval. After a qualifying reviewer posts green on that exact subject, complete with the same evidence. A blocking review sends work back with a defect and a new epoch. Requires-review completion is Command Center only.
 
 ### Rules in force
 
 A board carries **rules**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the board itself, and from rules the raiser addressed to it. They are prompts for you to check, never something the server evaluates. Rules have no severity — every rule in force must be answered.
 
-- Read them with \`tasks rules\` — each one names where it came from.
+- Read them with \`task rules\` — each one names where it came from.
 - Answer every rule on completion: \`completionEvidence.claims: [{"ruleId":"<id>","text":"how you satisfied it","refs":["<sha>"]}]\`.
 - A task rule whose board your chosen path no longer reaches takes a waiver instead: \`completionEvidence.waivers: [{"ruleId":"<id>","reason":"why it no longer applies"}]\`.
 - \`completed\` is refused while a rule is unanswered; the rejection names the innermost one.
@@ -251,7 +251,7 @@ A board carries **rules**: operator-authored statements the work must satisfy, i
 Where the operator drew a task path, completing does not close the task: it hands it to the next board.
 
 - With one Next, completing sends the task on automatically; with more than one, pick one with \`"next":"<board>"\` on the update.
-- **Checks** are the operator's deterministic gates for that move. Run them with \`tasks check\` — the commands execute in your own shell and the results are stamped from what they returned. Every applicable check must pass before the task is sent on.
+- **Checks** are the operator's deterministic gates for that move. Run them with \`task check\` — the commands execute in your own shell and the results are stamped from what they returned. Every applicable check must pass before the task is sent on.
 - Write what the outgoing contract asks in the update \`"handoffNote"\`: the next board sees that and your cited refs, never your interior work.
 - Sending work back is \`state: "rejected"\` with \`"defect":{"summary":"what is wrong","refs":["..."]}\` — it returns the task to the board before yours.
 - \`"waitFor":"12h"\` (or \`"7d"\`, or milliseconds) delays the first claim at the next board.
@@ -271,7 +271,7 @@ It lists the 5 newest mails between you and the peer, both ways, with their thre
 const MSG_SEND_REFERENCE =
   "A send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or its input box is not free: the operator is composing, or a dialog is up). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence.";
 
-const REVIEWS_REFERENCE = `The directed \`verdict.post\` grant lets you review these authors on a configured Command Center. It grants no peer message, prompt, wait or terminal-read permission by itself. Read \`junto msg list\` for review receipt mail, then inspect the cited work. Use the receipt's target board, task id, epoch and subjectHash exactly; \`tasks show\` is available only with a separate task-list grant.
+const REVIEWS_REFERENCE = `The directed \`verdict.post\` grant lets you review these authors on a configured Command Center. It grants no peer message, prompt, wait or terminal-read permission by itself. Read \`junto msg list\` for review receipt mail, then inspect the cited work. Use the receipt's target board, task id, epoch and subjectHash exactly; \`task show\` is available only with a separate task-list grant.
 
 Use \`"kind":"blocking"\` with concrete nonempty findings when changes are needed. A blocking task review records the verdict and sends the task back with a defect and new epoch. Commit review uses \`"subject":{"kind":"commit","sha":"<full-sha>"}\`; it does not move a task. The server stamps your identity, refuses self-review, and rechecks the live reviews edge and exact subject. Stale-subject refusal requires a fresh receipt or authorized task read, never rebinding your old verdict to newer work.`;
 

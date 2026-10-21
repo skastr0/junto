@@ -13,7 +13,7 @@ export interface CapabilityInvocation {
  * back to a surface the kernel already refuses.
  */
 export const commandSurfaceEnabled = (commandId: string): boolean => {
-  if (commandId.startsWith("tasks.")) return TASKS_ENABLED;
+  if (commandId.startsWith("task.")) return TASKS_ENABLED;
   // Staging a file serves signals, which every build has.
   if (commandId === "content.stage") return true;
   if (commandId.startsWith("content.")) return TASKS_ENABLED;

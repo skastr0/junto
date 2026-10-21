@@ -9,7 +9,7 @@
 //    reference (installation, canvas, board node, task id), the current task
 //    epoch, and `subjectHash` over the exact refs under review. A client
 //    supplies only its expectation (task id + epoch + subjectHash as read
-//    from receipt mail or tasks.show); the server validates it against
+//    from receipt mail or task.show); the server validates it against
 //    current state and refuses instead of binding an old judgment to new
 //    refs. A commit subject binds a sha; the canonical hash is computed from
 //    the lowercase sha.
@@ -141,7 +141,7 @@ export type ReviewSubjectProjection = {
 
 /**
  * Derive the current review subject of a live task row. The same projection
- * backs verdict posting, the completion gate, tasks.show, receipt mail, and
+ * backs verdict posting, the completion gate, task.show, receipt mail, and
  * the digest — one derivation, five consumers, no drift.
  */
 export const reviewSubjectProjection = (input: {
@@ -239,7 +239,7 @@ export const resolveTaskSubject = (input: {
             subjectHash: projection.subjectHash,
           },
           next_step:
-            "re-read the review subject (msg read or tasks.show) and post again",
+            "re-read the review subject (msg read or task.show) and post again",
         },
       ),
     };
@@ -391,7 +391,7 @@ export const planVerdictPost = (input: {
           {
             retryable: false,
             next_step:
-              "the task left the working state; re-read tasks.show for the current subject",
+              "the task left the working state; re-read task.show for the current subject",
           },
         ),
       };

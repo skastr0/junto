@@ -85,13 +85,13 @@ export const runCheck = (
       }),
   );
 
-export const tasksCheckCommand = Command.make("check", {
+export const taskCheckCommand = Command.make("check", {
   input: inputArg,
   timeout,
   checkTimeout,
 }, ({ input, timeout, checkTimeout }) =>
   executeJsonCommand(
-    "tasks check",
+    "task check",
     Effect.gen(function* () {
       const args = yield* loadJsonInput(TasksCheckCliArgs, input);
       const socketTimeout = toUndefined(timeout);
@@ -105,7 +105,7 @@ export const tasksCheckCommand = Command.make("check", {
         );
       }
       const rawRules = yield* call(
-        "tasks.rules",
+        "task.rules",
         TasksRulesArgs.make({ target: args.target, task: args.task }),
         socketTimeout,
       );
@@ -114,15 +114,15 @@ export const tasksCheckCommand = Command.make("check", {
           (error) =>
             new InputError({
               message: error.message,
-              path: "tasks.rules",
+              path: "task.rules",
             }),
         ),
       );
       if (rules.readiness === undefined) {
         return yield* Effect.fail(
           new InputError({
-            message: "tasks.rules did not include task readiness",
-            path: "tasks.rules.readiness",
+            message: "task.rules did not include task readiness",
+            path: "task.rules.readiness",
           }),
         );
       }
@@ -148,7 +148,7 @@ export const tasksCheckCommand = Command.make("check", {
       );
       const results = shapeCheckResults(resolved.plan, runs);
       const stamped = yield* call(
-        "tasks.check",
+        "task.check",
         {
           target: args.target,
           task: args.task,

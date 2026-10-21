@@ -21,17 +21,17 @@ export type TargetWorkOpName = Exclude<
  * (`satisfies` fails closed).
  */
 export const PortForWorkOp = {
-  "tasks.list": "tasks.list",
-  "tasks.wait": "tasks.list",
-  "tasks.create": "tasks.create",
-  "tasks.claim": "tasks.claim",
-  "tasks.update": "tasks.update",
+  "task.list": "tasks.list",
+  "task.wait": "tasks.list",
+  "task.create": "tasks.create",
+  "task.claim": "tasks.claim",
+  "task.update": "tasks.update",
   // Task path reads ride the Tasks node's existing read grant; checks submit
   // through the same grant that moves the task, so no new capability appears.
-  "tasks.show": "tasks.list",
-  "tasks.rules": "tasks.list",
+  "task.show": "tasks.list",
+  "task.rules": "tasks.list",
   "rulings": "tasks.list",
-  "tasks.check": "tasks.update",
+  "task.check": "tasks.update",
   // Content access is task-scoped read/materialization and reuses the task
   // sink's existing read grant; it never creates a second storage capability.
   "content.path": "tasks.list",
@@ -65,14 +65,14 @@ export const isTargetWorkOp = (op: WorkOpName): op is TargetWorkOpName =>
   op in PortForWorkOp;
 
 export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
-  "tasks.list",
-  "tasks.wait",
-  "tasks.create",
-  "tasks.claim",
-  "tasks.update",
-  "tasks.show",
-  "tasks.rules",
-  "tasks.check",
+  "task.list",
+  "task.wait",
+  "task.create",
+  "task.claim",
+  "task.update",
+  "task.show",
+  "task.rules",
+  "task.check",
   "rulings",
   "content.path",
   "content.stat",
@@ -108,14 +108,14 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
  */
 export const OPS_BY_SINK = {
   task: [
-    "tasks.list",
-    "tasks.wait",
-    "tasks.create",
-    "tasks.claim",
-    "tasks.update",
-    "tasks.show",
-    "tasks.rules",
-    "tasks.check",
+    "task.list",
+    "task.wait",
+    "task.create",
+    "task.claim",
+    "task.update",
+    "task.show",
+    "task.rules",
+    "task.check",
     "rulings",
     "content.path",
     "content.stat",

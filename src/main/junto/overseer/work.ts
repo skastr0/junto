@@ -61,17 +61,17 @@ export { overseerWorkAdmin };
 export type OverseerWorkCaller = OverseerCaller;
 
 const WORK_OPERATIONS = new Set<string>([
-  "tasks.list",
-  "tasks.create",
-  "tasks.claim",
-  "tasks.describe",
-  "tasks.update",
-  "tasks.show",
-  "tasks.rules",
-  "tasks.check",
-  "tasks.promote",
-  "tasks.comment",
-  "tasks.respond",
+  "task.list",
+  "task.create",
+  "task.claim",
+  "task.describe",
+  "task.update",
+  "task.show",
+  "task.rules",
+  "task.check",
+  "task.promote",
+  "task.comment",
+  "task.respond",
   "request.list",
   "request.get",
   "request.create",
@@ -323,16 +323,16 @@ export const executeOverseerWork = (
     const raw = decoded.args;
     const op = decoded.operation;
 
-    if (op === "tasks.list") {
+    if (op === "task.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.list");
+      yield* requireTarget(read.canvas, target, "task.list");
       return { target, items: yield* catchWork(work.readTasks(canvas, target, "task")) };
     }
-    if (op === "tasks.create") {
+    if (op === "task.create") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.create");
+      yield* requireTarget(read.canvas, target, "task.create");
       const result = yield* work.workTaskCreate(
         canvas,
         target,
@@ -353,10 +353,10 @@ export const executeOverseerWork = (
       );
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.claim") {
+    if (op === "task.claim") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.claim");
+      yield* requireTarget(read.canvas, target, "task.claim");
       const assignee =
         args.actor === undefined
           ? actor
@@ -377,17 +377,17 @@ export const executeOverseerWork = (
       const result = yield* work.workTaskClaim(canvas, target, args.task, assignee, admin);
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.describe") {
+    if (op === "task.describe") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "task.update");
       const result = yield* work.workTaskDescribe(canvas, target, args.task, args.brief);
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.update") {
+    if (op === "task.update") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "task.update");
       const result = yield* work.workTaskTransition(
         canvas,
         target,
@@ -404,22 +404,22 @@ export const executeOverseerWork = (
       );
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.show") {
+    if (op === "task.show") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.show");
+      yield* requireTarget(read.canvas, target, "task.show");
       return yield* catchWork(work.workTaskShow(canvas, target, args.task, "operator"));
     }
-    if (op === "tasks.rules") {
+    if (op === "task.rules") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.rules");
+      yield* requireTarget(read.canvas, target, "task.rules");
       return yield* catchWork(work.workTaskRules(canvas, target, args.task));
     }
-    if (op === "tasks.check") {
+    if (op === "task.check") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.check");
+      yield* requireTarget(read.canvas, target, "task.check");
       const result = yield* work.workTaskCheck(
         canvas,
         target,
@@ -429,17 +429,17 @@ export const executeOverseerWork = (
       );
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.promote") {
+    if (op === "task.promote") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "task.update");
       const result = yield* work.workTaskPromote(canvas, target, args.task, args.note, admin);
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.comment") {
+    if (op === "task.comment") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "task.update");
       const result = yield* work.workTaskComment(
         canvas,
         target,
@@ -459,10 +459,10 @@ export const executeOverseerWork = (
       );
       return exposeMutation(yield* fromWorkResult(result));
     }
-    if (op === "tasks.respond") {
+    if (op === "task.respond") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "task.update");
       const result = yield* work.workTaskRespond(
         canvas,
         target,

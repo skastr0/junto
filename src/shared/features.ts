@@ -364,7 +364,7 @@ export const productPortEnabled = (port: string): boolean => {
  */
 export const overseerOperationEnabled = (operation: string): boolean => {
   const family = operation.split(".", 1)[0] ?? operation;
-  if (family === "tasks") return TASKS_ENABLED;
+  if (family === "task") return TASKS_ENABLED;
   if (family === "content") return TASKS_ENABLED;
   if (family === "request") return REQUESTS_ENABLED;
   if (family === "artifact") return ARTIFACTS_ENABLED;

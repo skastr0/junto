@@ -215,7 +215,7 @@ export const SeatReadArgs = Schema.Struct({
   .annotate({ parseOptions: { onExcessProperty: "error" } });
 export type SeatReadArgs = typeof SeatReadArgs.Type;
 
-/** `tasks wait <task> --until <state> [--timeout <duration>]`. */
+/** `task wait <task> --until <state> [--timeout <duration>]`. */
 export const TaskWaitArgs = Schema.Struct({
   /** Canvas node id of the task sink holding the task. */
   target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),

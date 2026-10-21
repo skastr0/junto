@@ -25,8 +25,8 @@ import {
   TasksUpdateCliArgs,
   type WorkOpName,
 } from "../../shared/work-control";
-import { tasksCheckCommand } from "./board";
-import { tasksWaitCommand } from "./seat";
+import { taskCheckCommand } from "./board";
+import { taskWaitCommand } from "./seat";
 import { toTasksCreateArgs, toTasksUpdateArgs } from "../core/duration";
 import { InputError } from "../core/errors";
 import { materializeArtifactParts } from "../core/artifact-parts";
@@ -68,42 +68,42 @@ const callDomain = <A>(
     return yield* socket.call(op, item, timeout);
   });
 
-// --- tasks ---
+// --- task ---
 
-const tasksListCommand = Command.make(
+const taskListCommand = Command.make(
   "list",
   { input: jsonInputArg, timeout: timeoutOption },
   ({ input, timeout }) =>
     executeJsonCommand(
-      "tasks list",
+      "task list",
       Effect.gen(function* () {
         const item = yield* loadJsonInput(TasksListArgs, input);
-        return yield* callDomain("tasks.list", item, toUndefined(timeout));
+        return yield* callDomain("task.list", item, toUndefined(timeout));
       }),
     ),
 ).pipe(Command.withDescription("List tasks on a connected task node"));
 
-const tasksClaimCommand = Command.make(
+const taskClaimCommand = Command.make(
   "claim",
   { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
   ({ input, concurrency, timeout }) =>
     executeJsonCommand(
-      "tasks claim",
+      "task claim",
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: TasksClaimArgs,
-        run: (item) => callDomain("tasks.claim", item, toUndefined(timeout)),
+        run: (item) => callDomain("task.claim", item, toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription("Claim one or more tasks for this seat (batch-capable)"));
 
-const tasksCreateCommand = Command.make(
+const taskCreateCommand = Command.make(
   "create",
   { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
   ({ input, concurrency, timeout }) =>
     executeJsonCommand(
-      "tasks create",
+      "task create",
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
@@ -121,7 +121,7 @@ const tasksCreateCommand = Command.make(
               );
             }
             return yield* callDomain(
-              "tasks.create",
+              "task.create",
               lowered.args,
               toUndefined(timeout),
             );
@@ -130,12 +130,12 @@ const tasksCreateCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Create one or more tasks on a connected sink (batch-capable)"));
 
-const tasksUpdateCommand = Command.make(
+const taskUpdateCommand = Command.make(
   "update",
   { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
   ({ input, concurrency, timeout }) =>
     executeJsonCommand(
-      "tasks update",
+      "task update",
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
@@ -153,7 +153,7 @@ const tasksUpdateCommand = Command.make(
               );
             }
             return yield* callDomain(
-              "tasks.update",
+              "task.update",
               lowered.args,
               toUndefined(timeout),
             );
@@ -166,15 +166,15 @@ const tasksUpdateCommand = Command.make(
   ),
 );
 
-const tasksShowCommand = Command.make(
+const taskShowCommand = Command.make(
   "show",
   { input: jsonInputArg, timeout: timeoutOption },
   ({ input, timeout }) =>
     executeJsonCommand(
-      "tasks show",
+      "task show",
       Effect.gen(function* () {
         const item = yield* loadJsonInput(TasksShowArgs, input);
-        return yield* callDomain("tasks.show", item, toUndefined(timeout));
+        return yield* callDomain("task.show", item, toUndefined(timeout));
       }),
     ),
 ).pipe(
@@ -183,15 +183,15 @@ const tasksShowCommand = Command.make(
   ),
 );
 
-const tasksRulesCommand = Command.make(
+const taskRulesCommand = Command.make(
   "rules",
   { input: jsonInputArg, timeout: timeoutOption },
   ({ input, timeout }) =>
     executeJsonCommand(
-      "tasks rules",
+      "task rules",
       Effect.gen(function* () {
         const item = yield* loadJsonInput(TasksRulesArgs, input);
-        return yield* callDomain("tasks.rules", item, toUndefined(timeout));
+        return yield* callDomain("task.rules", item, toUndefined(timeout));
       }),
     ),
 ).pipe(
@@ -200,17 +200,17 @@ const tasksRulesCommand = Command.make(
   ),
 );
 
-export const tasksCommand = Command.make("tasks").pipe(
+export const taskCommand = Command.make("task").pipe(
   Command.withDescription("Task work-plane ops"),
   Command.withSubcommands([
-    tasksWaitCommand,
-    tasksListCommand,
-    tasksShowCommand,
-    tasksCreateCommand,
-    tasksClaimCommand,
-    tasksRulesCommand,
-    tasksUpdateCommand,
-    tasksCheckCommand,
+    taskWaitCommand,
+    taskListCommand,
+    taskShowCommand,
+    taskCreateCommand,
+    taskClaimCommand,
+    taskRulesCommand,
+    taskUpdateCommand,
+    taskCheckCommand,
   ]),
 );
 

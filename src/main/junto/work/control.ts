@@ -203,10 +203,10 @@ import { isResourceKind, resourcesInReach } from "@shared/region-reach";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
-  "tasks.claim",
-  "tasks.create",
-  "tasks.update",
-  "tasks.check",
+  "task.claim",
+  "task.create",
+  "task.update",
+  "task.check",
   "content.materialize",
   "preamble",
   "msg.list",
@@ -1544,7 +1544,7 @@ const dispatchOp = (
       return { ...event, disposition: "applied" as const };
     }
 
-    if (op === "tasks.list") {
+    if (op === "task.list") {
       const decoded = decodeArgs(TasksListArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -1677,7 +1677,7 @@ const dispatchOp = (
       };
     }
 
-    if (op === "tasks.create") {
+    if (op === "task.create") {
       const decoded = decodeArgs(TasksCreateArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -1712,7 +1712,7 @@ const dispatchOp = (
       };
     }
 
-    if (op === "tasks.claim") {
+    if (op === "task.claim") {
       const decoded = decodeArgs(TasksClaimArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -1730,7 +1730,7 @@ const dispatchOp = (
       return exposeWorkMutation(mapped.success);
     }
 
-    if (op === "tasks.update") {
+    if (op === "task.update") {
       const decoded = decodeArgs(TasksUpdateArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -1836,7 +1836,7 @@ const dispatchOp = (
       return exposeWorkMutation(mapped.success);
     }
 
-    if (op === "tasks.show") {
+    if (op === "task.show") {
       const decoded = decodeArgs(TasksShowArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -1858,7 +1858,7 @@ const dispatchOp = (
         );
     }
 
-    if (op === "tasks.rules") {
+    if (op === "task.rules") {
       const decoded = decodeArgs(TasksRulesArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -1914,7 +1914,7 @@ const dispatchOp = (
         );
     }
 
-    if (op === "tasks.check") {
+    if (op === "task.check") {
       const decoded = decodeArgs(TasksCheckArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
@@ -2070,7 +2070,7 @@ const dispatchOp = (
       if (decoded.success.brief === true) return yield* seat.readPeers(caller);
       return yield* seat.readSeat(decoded.success, caller);
     }
-    if (op === "tasks.wait") {
+    if (op === "task.wait") {
       const decoded = decodeArgs(TaskWaitArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const seat = yield* liveSeatObservation();

@@ -13,7 +13,7 @@ export { earlyDispatchFromArgv } from "./early-dispatch";
  */
 const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   const group = args[0];
-  if (!TASKS_ENABLED && group === "tasks") return "tasks";
+  if (!TASKS_ENABLED && group === "task") return "task";
   if (!TASKS_ENABLED && group === "rulings") return "rulings";
   if (!TASKS_ENABLED && group === "content") return "content";
   if (!BOARD_ENABLED && group === "board") return "board";

@@ -65,27 +65,27 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     note:
       "Claim only unclaimed tasks. `completed` is refused without evidence and an answer to every rule; the rejection names what is missing.",
     rows: [
-      { port: "tasks.list", intent: "list queue", command: (t) => `junto tasks list '{"target":"${t}"}'` },
-      { port: "tasks.list", intent: "read task + review subject", command: (t) => `junto tasks show '{"target":"${t}","task":"<taskId>"}'` },
+      { port: "tasks.list", intent: "list queue", command: (t) => `junto task list '{"target":"${t}"}'` },
+      { port: "tasks.list", intent: "read task + review subject", command: (t) => `junto task show '{"target":"${t}","task":"<taskId>"}'` },
       {
         port: "tasks.list",
         intent: "wait for task state",
-        command: (t) => `junto tasks wait <taskId> --target ${t} --until completed --timeout 30s`,
+        command: (t) => `junto task wait <taskId> --target ${t} --until completed --timeout 30s`,
         detail: "configured Command Center only; also supports input-required or rejected",
       },
-      { port: "tasks.create", intent: "author a task", command: (t) => `junto tasks create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'` },
-      { port: "tasks.claim", intent: "claim", command: (t) => `junto tasks claim '{"target":"${t}","task":"<taskId>"}'` },
-      { port: "tasks.list", intent: "rules + readiness", command: (t) => `junto tasks rules '{"target":"${t}","task":"<taskId>"}'` },
+      { port: "tasks.create", intent: "author a task", command: (t) => `junto task create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'` },
+      { port: "tasks.claim", intent: "claim", command: (t) => `junto task claim '{"target":"${t}","task":"<taskId>"}'` },
+      { port: "tasks.list", intent: "rules + readiness", command: (t) => `junto task rules '{"target":"${t}","task":"<taskId>"}'` },
       {
         port: "tasks.update",
         intent: "run this move's checks",
-        command: (t) => `junto tasks check '{"target":"${t}","task":"<taskId>"}'`,
+        command: (t) => `junto task check '{"target":"${t}","task":"<taskId>"}'`,
         detail: 'add `"next":"<board>"` when the board has more than one Next',
       },
       {
         port: "tasks.update",
         intent: "progress / settle / block task",
-        command: (t) => `junto tasks update '{"target":"${t}","task":"<taskId>","state":"<state>"}'`,
+        command: (t) => `junto task update '{"target":"${t}","task":"<taskId>","state":"<state>"}'`,
         detail: "states: working, completed, failed, canceled, input-required",
       },
       {

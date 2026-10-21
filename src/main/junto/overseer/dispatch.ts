@@ -108,7 +108,7 @@ const failed = (request: OverseerRequest, error: WorkErrorBody): OverseerResult 
 /** Shared CC/Remote dispatcher; caller and source are never command arguments. */
 /** The families the canvas handlers answer. A screenshot is taken by the window, so it is native. */
 const CANVAS_FAMILIES = ["canvas", "node", "wire", "env"] as const;
-const WORK_FAMILIES = ["tasks", "request", "artifact", "msg", "board", "content"] as const;
+const WORK_FAMILIES = ["task", "request", "artifact", "msg", "board", "content"] as const;
 
 const inFamily = (operation: string, families: ReadonlyArray<string>): boolean =>
   families.some((family) => operation.startsWith(`${family}.`));

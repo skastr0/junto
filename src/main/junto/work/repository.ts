@@ -1941,7 +1941,7 @@ const writeTaskDependsOn = Effect.fn("work.writeTaskDependsOn")(function* (
  * cannot forge visits, check results, or approvals.
  *
  * The requirements this satisfies: stable task id across the whole path
- * (same task_id at every board row); `tasks show` reconstructs the visits
+ * (same task_id at every board row); `task show` reconstructs the visits
  * from the live row's append-only visits field; ClaimConflict stays
  * per-board (claimedBy is a per-row column); same-sink dependsOn is
  * satisfied by local visit completion (the source row completes on

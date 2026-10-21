@@ -315,7 +315,7 @@ export const lowerSeatRead = (input: {
   };
 };
 
-/** Lower `tasks wait <task> --target <sink> --until <state> [--timeout]`. */
+/** Lower `task wait <task> --target <sink> --until <state> [--timeout]`. */
 export const lowerTaskWait = (input: {
   readonly task: string;
   readonly target: string;
@@ -463,9 +463,9 @@ export const seatCommand = Command.make("seat").pipe(
   Command.withSubcommands([seatWaitCommand, seatReadCommand]),
 );
 
-// --- tasks wait (registered by the tasks command) ---
+// --- task wait (registered by the task command) ---
 
-export const tasksWaitCommand = Command.make(
+export const taskWaitCommand = Command.make(
   "wait",
   {
     task: Argument.string("task").pipe(
@@ -479,7 +479,7 @@ export const tasksWaitCommand = Command.make(
   },
   ({ task, target, until, timeout }) =>
     executeJsonCommand(
-      "tasks wait",
+      "task wait",
       Effect.gen(function* () {
         const lowered = lowerTaskWait({
           task,
@@ -488,7 +488,7 @@ export const tasksWaitCommand = Command.make(
           timeout: toUndefined(timeout),
         });
         if (!lowered.ok) return yield* Effect.fail(lowered.error);
-        return yield* callDomain("tasks.wait", lowered.args, lowered.socketTimeoutMs);
+        return yield* callDomain("task.wait", lowered.args, lowered.socketTimeoutMs);
       }),
     ),
 ).pipe(

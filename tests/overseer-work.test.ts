@@ -289,10 +289,10 @@ describe("executeOverseerWork", () => {
     const tasksOn = productNodeKindEnabled("task");
     const requestsOn = productNodeKindEnabled("requests");
     // A kind this build gates off is out of the catalog, and its rows are refused.
-    expect(overseerOperationEnabled("tasks.list")).toBe(tasksOn);
+    expect(overseerOperationEnabled("task.list")).toBe(tasksOn);
     expect(overseerOperationEnabled("request.list")).toBe(requestsOn);
     if (!tasksOn) {
-      await expect(call("tasks.list", { target: "todo" })).rejects.toThrow(
+      await expect(call("task.list", { target: "todo" })).rejects.toThrow(
         /kind task is disabled in this Junto build/u,
       );
     }
@@ -303,13 +303,13 @@ describe("executeOverseerWork", () => {
     }
 
     if (tasksOn) {
-      expect(await call("tasks.list", { target: "todo" })).toEqual({ target: "todo", items: [] });
-      await call("tasks.create", {
+      expect(await call("task.list", { target: "todo" })).toEqual({ target: "todo", items: [] });
+      await call("task.create", {
         target: "todo",
         brief: "write the report",
         metadata: { details: "the quarterly one" },
       });
-      const listed = (await call("tasks.list", { target: "todo" })) as {
+      const listed = (await call("task.list", { target: "todo" })) as {
         readonly items: ReadonlyArray<{ readonly id: string; readonly history: ReadonlyArray<unknown> }>;
       };
       expect(listed.items).toHaveLength(1);
