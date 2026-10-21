@@ -2,6 +2,7 @@ import { flowDestinations } from "@shared/flow-graph";
 import { asNodeId, type Canvas, type Wire } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { isClosedTaskState, type TaskView } from "@shared/task-model";
+import { taskName } from "@shared/task-notices";
 import { tasksSource } from "./tasks-source";
 
 const count = (value: number, singular: string, plural = `${singular}s`): string =>
@@ -23,7 +24,7 @@ export const openTasksOf = (views: ReadonlyArray<TaskView>): OpenTasksOf => {
 };
 
 /**
- * Only removing a task board or a task path needs the canvas's tasks, read
+ * Only removing a task board, a task path or a seat needs the canvas's tasks, read
  * at the operator's gesture. A read that fails resolves undefined, so the
  * question is still asked and says the tasks are unknown.
  */
@@ -33,7 +34,10 @@ export const removalTasks = (
   removedNodeIds: ReadonlySet<string>,
   removedWires: ReadonlyArray<Wire>,
 ): OpenTasksOf | Promise<OpenTasksOf | undefined> =>
-  [...removedNodeIds].some((id) => canvas.nodes.get(asNodeId(id))?.kind === "task") ||
+  [...removedNodeIds].some((id) => {
+    const kind = canvas.nodes.get(asNodeId(id))?.kind;
+    return kind === "task" || kind === "agent";
+  }) ||
   removedWires.some((wire) => wire.verb === "flows")
     ? tasksSource().all(canvasName).then(openTasksOf, () => undefined)
     : openTasksOf([]);
@@ -55,6 +59,7 @@ export const removalWarnings = (
     ? [TASKS_UNREAD_WARNING]
     : [
       ...boardRemovalWarnings(canvas, removedNodeIds, tasksOf),
+      ...seatRemovalWarnings(canvas, removedNodeIds, tasksOf),
       ...wireRemovalWarnings(canvas, removedWires, tasksOf, removedNodeIds),
     ];
 
@@ -79,6 +84,32 @@ export const boardRemovalWarnings = (
     if (live > 0) warnings.push(`${boardNamed(canvas, node.id)} holds ${count(live, "live task")}.`);
   }
   return warnings;
+};
+
+/**
+ * The open tasks a removed seat holds go back to the backlog (seat-release.ts
+ * in main), each named. A task on a board removed with it is the board's
+ * warning, not the seat's. Empty means the ordinary confirmation is enough.
+ */
+export const seatRemovalWarnings = (
+  canvas: Canvas,
+  removedNodeIds: ReadonlySet<string>,
+  tasksOf: OpenTasksOf,
+): ReadonlyArray<string> => {
+  const held = new Map<string, TaskView[]>();
+  for (const board of canvas.nodes.values()) {
+    if (board.kind !== "task" || removedNodeIds.has(board.id)) continue;
+    for (const task of tasksOf(board.id)) {
+      const seat = task.current.assignee;
+      if (seat === undefined || !removedNodeIds.has(seat) || canvas.nodes.get(seat)?.kind !== "agent") continue;
+      held.set(seat, [...(held.get(seat) ?? []), task]);
+    }
+  }
+  return [...held].map(([seat, tasks]) => {
+    const names = tasks.map((task) => taskName(task));
+    const listed = names.length < 3 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    return `${boardNamed(canvas, seat)} holds ${listed}; ${tasks.length === 1 ? "it goes" : "they go"} back to the backlog.`;
+  });
 };
 
 /**
