@@ -29,6 +29,7 @@ import {
   type ArtifactHistoryResult,
   type ArtifactListResult,
   type ArtifactShowResult,
+  type ArtifactCommentResult,
   type ArtifactWriteResult,
   type BodyInput,
 } from "@shared/artifact-control";
@@ -38,6 +39,8 @@ import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { reaches } from "@shared/region-reach";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
+import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
+import { subjectAnchorOf } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import type {
@@ -48,6 +51,7 @@ import type {
 } from "./artifact-repository";
 import { ArtifactRepository } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
+import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 
 /** What the verbs need from the artifact store and the ruler. */
 export type ArtifactPorts = {
@@ -62,6 +66,8 @@ export type ArtifactPorts = {
     page: { readonly limit: number; readonly before?: ArtifactVersion },
   ) => Effect.Effect<{ readonly versions: ReadonlyArray<ArtifactVersionRead>; readonly more: boolean }, WorkErrorBody>;
   readonly submit: (command: ResourceCommand<ArtifactOp>, context: RulingContext) => Effect.Effect<ArtifactSubmitOutcome, WorkErrorBody>;
+  /** Post a comment on a resource: the one write path for comments (03). */
+  readonly comment: (input: SubjectCommentInput, context: SubjectCommentContext) => Effect.Effect<SubjectCommented, WorkErrorBody>;
   /** The task node a task sits on, when the task exists. */
   readonly taskNode: (canvasName: string, taskId: ItemId) => Effect.Effect<Option.Option<NodeId>, WorkErrorBody>;
 };
@@ -110,6 +116,7 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
           return yield* repo.submit(writer.value, command, context);
         }),
       ),
+    comment: postSubjectComment,
     taskNode: (canvasName, taskId) =>
       Effect.serviceOption(TaskRepository).pipe(
         Effect.flatMap((tasks) =>
@@ -432,13 +439,30 @@ export const handleArtifactOp = (
             ),
           );
         }
-        // Comments are mail rows in an artifact thread (03); the thread write
-        // and its delivery are not built yet, so the comment is refused whole.
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: "artifact comments are not built in this Junto build yet",
-          details: { reason: "not_available", retryable: false },
-        });
+        // `whole` is no anchor; an artifact never takes a lines anchor.
+        const anchor = input.anchor === undefined ? undefined : subjectAnchorOf(input.anchor);
+        if (anchor?.kind === "lines") {
+          return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
+        }
+        const author = head.artifact.createdBy;
+        const posted = yield* ports
+          .comment(
+            {
+              subject: { kind: "artifact", nodeId: head.artifact.nodeId, artifactId: input.artifact },
+              ...(anchor === undefined ? {} : { anchor }),
+              text: input.text,
+              actor: caller.actor,
+              opId: input.opId,
+            },
+            { canvas: caller.canvas, canvasName: caller.canvasName, people: author.kind === "seat" ? [author.nodeId] : [] },
+          )
+          .pipe(Effect.mapError((error) => ({ ...error, details: { ...error.details, opId: input.opId } })));
+        return {
+          opId: input.opId,
+          threadId: posted.threadId,
+          messageId: posted.messageId,
+          notified: posted.notified,
+        } satisfies ArtifactCommentResult;
       }
     }
   });

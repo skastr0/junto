@@ -209,3 +209,11 @@ export type ArtifactWriteResult =
   | { readonly disposition: "queued"; readonly opId: OpId; readonly artifactId: ItemId };
 
 export type ArtifactDisposition = ArtifactWriteResult["disposition"];
+
+/** A posted comment: its thread, its row, and the seats told, each once. */
+export type ArtifactCommentResult = {
+  readonly opId: OpId;
+  readonly threadId: string;
+  readonly messageId: string;
+  readonly notified: ReadonlyArray<string>;
+};

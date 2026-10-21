@@ -13,6 +13,7 @@ import type { ArtifactWriteResult } from "../src/shared/artifact-control";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { emptyRuled, type ResourceCommand, rule, type Ruled } from "../src/shared/resource-command";
+import type { SubjectCommentInput } from "../src/shared/subject-comment";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId } from "../src/shared/work-ids";
 import {
@@ -58,6 +59,7 @@ const memoryPorts = () => {
   let ruled: Ruled<ArtifactState, ArtifactFact> = emptyRuled(emptyArtifactState());
   const bodies = new Map<string, ArtifactBody>();
   const submitted: Array<ResourceCommand<ArtifactOp>> = [];
+  const comments: Array<{ input: SubjectCommentInput; people: ReadonlyArray<string> }> = [];
   const domain = artifactDomain({ now: () => 1_000, bodyRef: artifactBodyRef });
   const entries = (): ReadonlyArray<ArtifactEntry> => [...ruled.state.values()];
   const ports: ArtifactPorts = {
@@ -74,6 +76,12 @@ const memoryPorts = () => {
       ),
     body: (_canvas, id, version) => Effect.succeed(Option.fromNullishOr(bodies.get(`${id}@${version}`))),
     history: () => Effect.succeed({ versions: [], more: false }),
+    comment: (input, context) => {
+      comments.push({ input, people: context.people });
+      return input.text === "refuse"
+        ? Effect.fail({ type: "ScopeError", message: "no", details: { reason: "not_in_reach", retryable: false } })
+        : Effect.succeed({ threadId: "T1" as never, messageId: "M1" as never, notified: [asNodeId("S1")] });
+    },
     taskNode: (_canvas, taskId) =>
       Effect.succeed(taskId === TASK_HERE ? Option.some(asNodeId("TN")) : taskId === TASK_AWAY ? Option.some(asNodeId("TP")) : Option.none()),
     submit: (command, context) => {
@@ -94,7 +102,7 @@ const memoryPorts = () => {
       });
     },
   };
-  return { ports, submitted };
+  return { ports, submitted, comments };
 };
 
 const run = (ports: ArtifactPorts, op: Parameters<typeof handleArtifactOp>[0], args: unknown, who = "S1") =>
@@ -211,13 +219,33 @@ describe("junto artifact in main", () => {
     expect(ok(run(ports, "artifact.restore", { opId: "01M5ESM1XHCJ7JYJDBC37MREC2", artifact: NEW }))).toMatchObject({ version: 1 });
   });
 
-  it("checks a comment's anchor against the type before it refuses comments as not built", () => {
-    const { ports } = memoryPorts();
+  it("checks a comment's anchor against the type, then posts it on the artifact's subject", () => {
+    const { ports, comments } = memoryPorts();
     ok(run(ports, "artifact.create", { opId: OP, artifactId: NEW, type: "sheet", title: "Budget" }));
     expect(failure(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "text", quote: "x" } })).details)
       .toMatchObject({ path: "anchor" });
-    expect(failure(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "cells", range: "B2" } })).details)
-      .toMatchObject({ reason: "not_available" });
+    expect(comments).toEqual([]);
+    expect(ok(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "cells", range: "B2" } })))
+      .toEqual({ opId: OP2, threadId: "T1", messageId: "M1", notified: ["S1"] });
+    expect(comments[0]).toEqual({
+      input: {
+        subject: { kind: "artifact", nodeId: "AR", artifactId: NEW },
+        anchor: { kind: "cells", range: "B2" },
+        text: "hi",
+        actor: caller("S1").actor,
+        opId: OP2,
+      },
+      people: ["S1"],
+    });
+  });
+
+  it("posts a whole-anchored comment with no anchor, and a refusal keeps its opId", () => {
+    const { ports, comments } = memoryPorts();
+    createDoc(ports);
+    ok(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "whole" } }));
+    expect(comments[0]?.input).not.toHaveProperty("anchor");
+    expect(failure(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "refuse" })).details)
+      .toMatchObject({ reason: "not_in_reach", opId: OP2 });
   });
 
   it("refuses unknown keys and a malformed opId", () => {
