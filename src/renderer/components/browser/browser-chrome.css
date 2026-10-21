@@ -162,3 +162,8 @@
   justify-content: flex-end;
   gap: 6px;
 }
+
+.box-composer__url {
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}

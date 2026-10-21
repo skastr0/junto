@@ -89,7 +89,8 @@ describe("comment on an area", () => {
     const image = composer.querySelector("img")!;
     expect(image.getAttribute("src")).toBe(pngDataUrl(SIGNATURE));
     expect(image.getAttribute("alt")).toContain("docs.example.com");
-    expect(composer.textContent).toContain("This image goes with your comment");
+    expect(composer.textContent).toContain("This image and this address go with your comment");
+    expect(composer.textContent).toContain("https://docs.example.com/guide");
     const postButton = [...composer.querySelectorAll("button")].find((b) => b.textContent === "Post comment")!;
     expect(postButton.disabled).toBe(true);
     await typeInto('textarea[aria-label="Comment"]', "  This heading is wrong  ");

@@ -56,7 +56,7 @@ export function BoxCommentComposer({
       <figure className="box-composer__shot">
         <img src={pngDataUrl(draft.png)} alt={`The area you marked on ${hostOf(draft.url)}`} width={draft.width} height={draft.height} />
         <figcaption>
-          This image goes with your comment, from {hostOf(draft.url)}. Nothing else of the page does.
+          This image and this address go with your comment: <span className="box-composer__url">{draft.url}</span>. Nothing else of the page does.
         </figcaption>
       </figure>
       <MentionCombobox
