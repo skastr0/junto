@@ -62,7 +62,7 @@ describe("a task's refused transition", () => {
       command: command({ op: { kind: "start" } } as Partial<QueuedCommand>),
       queue: [],
     });
-    expect(notice?.row.text).toContain("task start was refused: A canceled task cannot start");
+    expect(notice?.row.text).toContain("task start was refused: This task is canceled, so it cannot start");
     expect(notice?.row.text).not.toContain("not in a state that allows this");
     expect(notice?.row.text).not.toContain("lost to");
   });
@@ -74,7 +74,7 @@ describe("a task's refused transition", () => {
     expect(textOf("invalid_transition", "from:canceled-ish")).toContain("The resource is not in a state that allows this");
     expect(textOf("invalid_transition", "epoch:7")).toContain("The resource is not in a state that allows this");
     expect(textOf("stale", "epoch:7")).toContain("The task moved on; its epoch is now 7");
-    // A command kind outside the closed set keeps the generic words: never "A canceled task cannot zap".
+    // A command kind outside the closed set keeps the generic words: never "This task is canceled, so it cannot zap".
     expect(taskRefusalWordsOf("invalid_transition", "from:canceled", "zap")).toBeUndefined();
     const zap = refusalNoticeOf({ installationId: MINI, ruling: refused({ reason: "invalid_transition", expected: "from:canceled" }), command: command({ op: { kind: "zap" } } as Partial<QueuedCommand>), queue: [] })?.row.text;
     expect(zap).toContain("The resource is not in a state that allows this");
@@ -82,7 +82,17 @@ describe("a task's refused transition", () => {
   });
 
   it("words every token the task store writes", () => {
-    for (const state of TASK_STATES) expect(taskRefusalWordsOf("invalid_transition", taskRefusalToken({ kind: "illegal-transition", from: state, command: "start" }), "start")).toBe(`A ${state} task cannot start`);
+    const spoken = TASK_STATES.map((state) => taskRefusalWordsOf("invalid_transition", taskRefusalToken({ kind: "illegal-transition", from: state, command: "start" }), "start"));
+    expect(spoken).toEqual([
+      "This task is in the backlog, so it cannot start",
+      "This task is assigned, so it cannot start",
+      "This task is in progress, so it cannot start",
+      "This task is waiting for input, so it cannot start",
+      "This task is in review, so it cannot start",
+      "This task is done, so it cannot start",
+      "This task is canceled, so it cannot start",
+      "This task is archived, so it cannot start",
+    ]);
     expect(taskRefusalWordsOf("stale", taskRefusalToken({ kind: "stale-epoch", expected: 12 }), "start")).toContain("12");
     expect(taskRefusalToken({ kind: "not-assignee" })).toBeUndefined();
   });

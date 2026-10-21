@@ -507,10 +507,22 @@ export const ruleTaskBoardCommand = (
 const choicesText = (choices: ReadonlyArray<NodeId>): string => choices.join(", ");
 
 /** What a refused task command says to whoever sent it. */
+/** Each state as a sentence says it, after "This task is". Total, so a new state fails the typecheck until it is worded. */
+const TASK_STATE_SPOKEN: Record<TaskState, string> = {
+  backlog: "in the backlog",
+  assigned: "assigned",
+  working: "in progress",
+  "input-required": "waiting for input",
+  "in-review": "in review",
+  done: "done",
+  canceled: "canceled",
+  archived: "archived",
+};
+
 export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
   switch (detail.kind) {
     case "illegal-transition":
-      return `A ${detail.from} task cannot ${detail.command}`;
+      return `This task is ${TASK_STATE_SPOKEN[detail.from]}, so it cannot ${detail.command}`;
     case "not-assignee":
       return detail.assignee === undefined
         ? "Only the assignee moves this task, and it has none"

@@ -678,7 +678,8 @@ describe("refusal text", () => {
       { kind: "not-in-reach", nodeId: ship },
     ];
     for (const detail of details) expect(taskRefusalMessage(detail)).not.toBe("");
-    expect(taskRefusalMessage({ kind: "illegal-transition", from: "done", command: "start" })).toBe("A done task cannot start");
+    expect(taskRefusalMessage({ kind: "illegal-transition", from: "done", command: "start" })).toBe("This task is done, so it cannot start");
+    expect(taskRefusalMessage({ kind: "illegal-transition", from: "input-required", command: "finish" })).toBe("This task is waiting for input, so it cannot finish");
   });
 });
 

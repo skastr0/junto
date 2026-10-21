@@ -84,7 +84,7 @@ export const commandWords = (command: QueuedCommand): string => {
   return kind === undefined ? command.target.kind : `${command.target.kind} ${kind}`;
 };
 
-/** A task's own words for what it refused (`A canceled task cannot start`), decoded from the row's closed token. */
+/** A task's own words for what it refused (`This task is canceled, so it cannot start`), decoded from the row's closed token. */
 const domainWordsOf = (ruling: RulingRefusedResult, command: QueuedCommand): string | undefined => {
   const kind = opKindOf(command);
   return command.target.kind === "task" && kind !== undefined ? taskRefusalWordsOf(ruling.reason, ruling.expected, kind) : undefined;
