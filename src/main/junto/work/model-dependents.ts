@@ -47,6 +47,9 @@ export const WorkModelDependentsLive = Layer.effect(ModelDependents, Effect.gen(
       yield* sql`DELETE FROM work_canvas_revisions WHERE canvas_name=${canvas}`;
       // What the canvas's seat deletes released goes with it (seat-release.ts).
       yield* sql`DELETE FROM task_seat_releases WHERE canvas_name=${canvas}`;
+      // So do its purged comment shots (shot-purge-schema.ts). A removed page keeps
+      // them: the shot stays unreadable whatever copy comes back.
+      yield* sql`DELETE FROM content_purges WHERE canvas_name=${canvas}`;
     }
     yield* afterSqlCommit(sql, () => {
       for (const sink of affected)

@@ -69,6 +69,9 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
         expect(notifications).toEqual([]);
         expect((yield* repo.mailbox("factory", "inbox"))).toHaveLength(1);
         expect((yield* repo.artifactIds("factory", "artifacts"))).toEqual(["artifact"]);
+        const purge = (canvas: string) => sql`INSERT INTO content_purges (canvas_name, node_id, record_id, purged_at) VALUES (${canvas}, 'inbox', 'mail-inbox', '2026-10-07')`;
+        yield* purge("factory");
+        yield* purge("elsewhere");
         yield* sql.withTransaction(dependents.removeNodes("factory", ["inbox", "tasks"]));
         expect(notifications.splice(0)).toEqual([
           { canvasName: "factory", nodeId: "artifacts", kind: "work" },
@@ -78,7 +81,9 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
         expect((yield* repo.artifactIds("factory", "artifacts"))).toEqual([]);
         expect((yield* repo.mailbox("factory", "inbox"))).toEqual([]);
         expect((yield* repo.mailbox("factory", "other"))).toHaveLength(1);
+        expect(yield* sql`SELECT canvas_name FROM content_purges ORDER BY canvas_name`).toEqual([{ canvas_name: "elsewhere" }, { canvas_name: "factory" }]);
         yield* sql.withTransaction(dependents.removeCanvas("factory"));
+        expect(yield* sql`SELECT canvas_name FROM content_purges`).toEqual([{ canvas_name: "elsewhere" }]);
         expect(notifications.splice(0)).toEqual([
           { canvasName: "factory", nodeId: "other", kind: "mail" },
         ]);

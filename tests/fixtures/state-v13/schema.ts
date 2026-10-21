@@ -240,3 +240,9 @@ export const STATE_SCHEMA_V41_SQL = stepped(
   STATE_SCHEMA_V40_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 41)!.migrate,
 );
+
+// Version 42 kept the page comments whose shot was purged (41 -> 42).
+export const STATE_SCHEMA_V42_SQL = stepped(
+  STATE_SCHEMA_V41_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 42)!.migrate,
+);

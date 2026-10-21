@@ -12,6 +12,7 @@ import {
 } from "../model/state-schema";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
+import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -533,7 +534,17 @@ export const STATE_SCHEMA_V41_IDENTITY = {
     "1bb64b2cd2d95ffecead64ec52f3604d0623afcb06ac28c722a7ccf0d96889f8",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 41;
+/**
+ * Version 42 keeps the page comments whose shot the operator purged
+ * (`content_purges`), so the shot reads removed and is never pulled again.
+ * Expand-only.
+ */
+export const STATE_SCHEMA_V42_IDENTITY = {
+  actualSchemaSha256:
+    "c6176345e0494e39022b76c11a0ebc7dd5ad98f7b7d92b12b989621272dd78ea",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 42;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -541,7 +552,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 41;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V41_IDENTITY;
+  STATE_SCHEMA_V42_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -843,6 +854,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V40_IDENTITY,
     migrate: (database) => {
       database.exec(TASK_SEAT_RELEASES_SQL);
+    },
+  },
+  {
+    fromVersion: 41,
+    toVersion: 42,
+    name: "keep the page comments whose shot was purged",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V41_IDENTITY,
+    migrate: (database) => {
+      database.exec(SHOT_PURGES_SQL);
     },
   },
 ];

@@ -6,21 +6,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V40_IDENTITY,
   STATE_SCHEMA_V41_IDENTITY,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V40_SQL, STATE_SCHEMA_V41_SQL } from "./fixtures/state-v13/schema";
 
 describe("state step 40 to 41: the tasks a seat delete released", () => {
-  it("starts from the version-40 witness and ends at the version-41 one, which is the head", () => {
+  it("starts from the version-40 witness and ends at the version-41 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V40_SQL)).toEqual(STATE_SCHEMA_V40_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V41_SQL)).toEqual(STATE_SCHEMA_V41_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V41_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V41_IDENTITY);
   });
 
   it("adds the release table, keyed by canvas, seat and task, and nothing else", () => {
