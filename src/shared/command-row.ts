@@ -100,6 +100,7 @@ export type RulingResult = RulingAppliedResult | RulingRefusedResult;
 /** Fixed words per reason, so a refusal row carries no text a seat or a domain wrote. */
 const REFUSAL_WORDS: { readonly [R in RefusalReason]: string } = {
   not_in_reach: "The resource is not in this actor's reach",
+  not_permitted: "A rule above reach withholds this from this actor",
   unknown_target: "The resource does not exist",
   invalid_input: "The command is not one this resource takes",
   invalid_transition: "The resource is not in a state that allows this",
