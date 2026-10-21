@@ -218,9 +218,9 @@ export const handleAutomationOp = (
         if (trigger === undefined || then === undefined) return yield* Effect.die("a create resolves its trigger and actions");
         return yield* ports.submit(command(caller, input.opId, node.id, input.automationId, {
           kind: "create",
+          enabled: input.enabled,
           definition: {
             name: input.name,
-            enabled: input.enabled,
             trigger,
             ...(parts.when === undefined ? {} : { when: parts.when }),
             then,

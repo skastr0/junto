@@ -35,7 +35,6 @@ const operator: ResourceActor = { kind: "operator" };
 
 const definition = (to: NodeId = A, over: Partial<AutomationDefinition> = {}): AutomationDefinition => ({
   name: "Standup",
-  enabled: true,
   trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
   when: [{ kind: "seat", seat: { kind: "seat", nodeId: to }, becomes: "idle", holds: true }],
   then: [{ kind: "mail", to: { kind: "seat", nodeId: to }, text: "Plan?" }],
@@ -65,7 +64,7 @@ const ruled = (state: AutomationState, op: AutomationOp, actor?: ResourceActor):
   return verdict.facts.reduce<AutomationState>((next, fact: AutomationFact) => applyAutomationFact(next, fact), state);
 };
 
-const created = () => ruled(emptyAutomationState(), { kind: "create", automationId: ID, definition: definition() });
+const created = () => ruled(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition() });
 
 describe("create", () => {
   it("stores version 1 with the ruled actor as author", () => {
@@ -74,23 +73,23 @@ describe("create", () => {
   });
 
   it("refuses a target outside the author's reach", () => {
-    const verdict = rule(emptyAutomationState(), { kind: "create", automationId: ID, definition: definition(SIBLING) });
+    const verdict = rule(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition(SIBLING) });
     expect(verdict).toMatchObject({ kind: "refuse", refusal: { reason: "not_in_reach" } });
-    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, definition: definition(SIBLING) }, operator).kind).toBe(
+    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition(SIBLING) }, operator).kind).toBe(
       "apply",
     );
   });
 
   it("refuses a webhook, a duplicate id and an automation author", () => {
     const hook = definition(A, { trigger: { kind: "webhook", endpointId: "ep" } });
-    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, definition: hook })).toMatchObject({
+    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: hook })).toMatchObject({
       refusal: { reason: "not_available" },
     });
-    expect(rule(created(), { kind: "create", automationId: ID, definition: definition() })).toMatchObject({
+    expect(rule(created(), { kind: "create", automationId: ID, enabled: true, definition: definition() })).toMatchObject({
       refusal: { reason: "invalid_input" },
     });
     const robot: ResourceActor = { kind: "automation", nodeId: NODE, automationId: ID };
-    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, definition: definition() }, robot)).toMatchObject({
+    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition() }, robot)).toMatchObject({
       refusal: { reason: "invalid_input" },
     });
   });
@@ -117,7 +116,34 @@ describe("edit", () => {
   });
 });
 
+describe("edit by another writer", () => {
+  // agent-a reaches only agent-a; the operator reaches agent-a and the sibling.
+  const operatorMade = () => ruled(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition(SIBLING) }, operator);
+
+  it("refuses a child-region seat that edits an operator automation to act outside its own reach", () => {
+    const verdict = rule(operatorMade(), { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition(SIBLING, { name: "Mine" }) });
+    expect(verdict).toMatchObject({ kind: "refuse", refusal: { reason: "not_in_reach" } });
+  });
+
+  it("lets that seat edit it inside its own reach, and the author stays the operator", () => {
+    const next = ruled(operatorMade(), { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition(A) });
+    expect(automationsOnNode(next, NODE)[0]).toMatchObject({ author: { kind: "operator" }, version: 2 });
+  });
+
+  it("keeps an operator's disable through a seat's edit based before it", () => {
+    const off = ruled(operatorMade(), { kind: "set-enabled", enabled: false }, operator);
+    const edited = ruled(off, { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition(A) });
+    expect(automationsOnNode(edited, NODE)[0]).toMatchObject({ enabled: false, version: 2 });
+  });
+});
+
 describe("toggle, archive, run", () => {
+  it("never re-enables through an edit based before the toggle", () => {
+    const off = ruled(created(), { kind: "set-enabled", enabled: false });
+    const edited = ruled(off, { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition() });
+    expect(automationsOnNode(edited, NODE)[0]).toMatchObject({ enabled: false, version: 2 });
+  });
+
   it("toggles with no base, so a toggle never goes stale", () => {
     const edited = ruled(created(), { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition() });
     const off = ruled(edited, { kind: "set-enabled", enabled: false });

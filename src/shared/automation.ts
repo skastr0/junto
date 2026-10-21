@@ -176,10 +176,13 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     Schema.Struct({ kind: Schema.Literal("comment"), on: commentable, anchor: Schema.optionalKey(Anchor), text: Body }),
   ]);
 
-  /** Everything a writer says; identity, author and version sit beside it. */
+  /**
+   * Everything an edit replaces. Identity, author, version and `enabled` sit
+   * beside it: on and off is its own baseless op, so no edit can re-enable
+   * an automation someone just turned off.
+   */
   const Definition = Schema.Struct({
     name: Name,
-    enabled: Schema.Boolean,
     trigger: Trigger,
     when: Schema.optionalKey(Schema.Array(Condition).pipe(Schema.check(Schema.isMaxLength(AUTOMATION_STEPS_MAX)))),
     then: Schema.Array(Action).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(AUTOMATION_STEPS_MAX))),
@@ -223,6 +226,7 @@ export const Automation = Schema.Struct({
   nodeId: NodeId,
   author: AutomationAuthor,
   version: AutomationVersion,
+  enabled: Schema.Boolean,
   ...stored.Definition.fields,
 });
 export type Automation = typeof Automation.Type;
@@ -237,15 +241,21 @@ export const decodeAutomation = Schema.decodeUnknownResult(Automation, { onExces
  * is `{ kind: "automation", nodeId, itemId }`. Closed: a new verb is a new
  * member, and every ruling match breaks until it is handled.
  *
- * - `create` mints the item at version 1; main sets the author from the
- *   ruled actor.
- * - `edit` replaces the whole definition; a moved head refuses it `stale`
- *   with `expected` the head.
- * - `set-enabled` carries no base: a toggle never goes stale.
+ * - `create` mints the item at version 1, on or off; main sets the author
+ *   from the ruled actor.
+ * - `edit` replaces the whole definition and never touches `enabled`; a moved
+ *   head refuses it `stale` with `expected` the head.
+ * - `set-enabled` carries no base: a toggle never goes stale, and never makes
+ *   an edit stale.
  * - `run` is `junto automation run`: one firing now, recorded with cause run.
  */
 export const AutomationOp = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("create"), automationId: AutomationId, definition: AutomationDefinition }),
+  Schema.Struct({
+    kind: Schema.Literal("create"),
+    automationId: AutomationId,
+    enabled: Schema.Boolean,
+    definition: AutomationDefinition,
+  }),
   Schema.Struct({ kind: Schema.Literal("edit"), baseVersion: AutomationVersion, definition: AutomationDefinition }),
   Schema.Struct({ kind: Schema.Literal("set-enabled"), enabled: Schema.Boolean }),
   Schema.Struct({ kind: Schema.Literal("archive") }),

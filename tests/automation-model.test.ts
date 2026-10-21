@@ -113,11 +113,11 @@ describe("Automation schema", () => {
 
 describe("AutomationOp", () => {
   const decode = Schema.decodeUnknownResult(AutomationOp, { onExcessProperty: "error" });
-  const { automationId, nodeId, author, version, ...definition } = base();
+  const { automationId, nodeId, author, version, enabled, ...definition } = base();
 
   it("decodes every verb", () => {
     for (const op of [
-      { kind: "create", automationId, definition },
+      { kind: "create", automationId, enabled, definition },
       { kind: "edit", baseVersion: 1, definition },
       { kind: "set-enabled", enabled: false },
       { kind: "archive" },
@@ -128,11 +128,16 @@ describe("AutomationOp", () => {
     expect([nodeId, author, version]).toHaveLength(3);
   });
 
+  it("refuses enablement inside a definition: on and off is its own op", () => {
+    expect(Result.isFailure(decode({ kind: "edit", baseVersion: 1, definition: { ...definition, enabled: true } }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "create", automationId, definition }))).toBe(true);
+  });
+
   it("refuses an edit without a base, a toggle with one, and an author in any op", () => {
     expect(Result.isFailure(decode({ kind: "edit", definition }))).toBe(true);
     expect(Result.isFailure(decode({ kind: "edit", baseVersion: 0, definition }))).toBe(true);
     expect(Result.isFailure(decode({ kind: "set-enabled", enabled: true, baseVersion: 1 }))).toBe(true);
-    expect(Result.isFailure(decode({ kind: "create", automationId, definition: { ...definition, author } }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "create", automationId, enabled, definition: { ...definition, author } }))).toBe(true);
   });
 });
 
@@ -152,7 +157,6 @@ describe("automationShape", () => {
     const input = automationShape(Schema.String, Schema.String, Schema.String);
     const decoded = Schema.decodeUnknownResult(input.Definition)({
       name: "Ping",
-      enabled: true,
       trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS },
       then: [{ kind: "mail", to: "@product-feed", text: "ping" }],
       limits: DEFAULT_AUTOMATION_LIMITS,

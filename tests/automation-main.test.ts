@@ -100,9 +100,9 @@ describe("automation verbs in main", () => {
     expect(command!.actor).toMatchObject({ kind: "seat", nodeId: "S2" });
     expect(command!.op).toEqual({
       kind: "create",
+      enabled: true,
       definition: {
         name: "remind",
-        enabled: true,
         trigger: create.trigger,
         then: [
           { kind: "mail", to: { kind: "seat", nodeId: "S1" }, text: "standup" },

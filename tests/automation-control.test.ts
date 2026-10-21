@@ -186,7 +186,7 @@ describe("resolveTargets", () => {
     if (!out.ok || out.value.trigger === undefined || out.value.then === undefined) throw new Error("unresolved");
     const definition = definitionOf(wire, { trigger: out.value.trigger, then: out.value.then });
     expect(definition).not.toHaveProperty("when");
-    expect(definition.enabled).toBe(true);
+    expect(definition).not.toHaveProperty("enabled");
   });
 });
 

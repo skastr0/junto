@@ -8,9 +8,11 @@
  *   the operator as the operator. An automation never writes automations, so
  *   no automation can make or change another (loop safety).
  * - A definition may name only nodes among `automationTargets` for its node
- *   and author, checked here at write time and again at fire time.
+ *   and author, checked here at write time and again at fire time. A seat's
+ *   edit must also fit the editing seat's own targets.
  * - An edit replaces the whole definition against its base; a moved head
- *   refuses it `stale` with the head. A toggle carries no base.
+ *   refuses it `stale` with the head. It never touches `enabled`: a toggle
+ *   carries no base and is the only way on or off.
  * - 0.10 refuses webhook triggers `not_available`.
  */
 import { Schema } from "effect";
@@ -91,12 +93,14 @@ export const authorOf = (actor: ResourceActor): AutomationAuthor | undefined => 
 const definitionRefusal = (
   automation: Automation,
   targetsOf: TargetsOf,
+  editor: AutomationAuthor = automation.author,
 ): Refusal | undefined => {
   if (triggerRefusal(automation.trigger) !== undefined) {
     return { reason: "not_available", message: "webhook triggers are not available in this version" };
   }
-  const targets = targetsOf(automation.nodeId, automation.author);
-  const outside = targetNodeIds(automation).filter((id) => !targets.has(id));
+  const allowed = targetsOf(automation.nodeId, automation.author);
+  const own = editor.kind === "seat" ? targetsOf(automation.nodeId, editor) : allowed;
+  const outside = targetNodeIds(automation).filter((id) => !allowed.has(id) || !own.has(id));
   if (outside.length > 0) {
     return {
       reason: "not_in_reach",
@@ -107,12 +111,13 @@ const definitionRefusal = (
   return undefined;
 };
 
-/** A whole-definition replace: a field the new definition leaves out (`when`) is gone. */
+/** A whole-definition replace: a field the new definition leaves out (`when`) is gone; `enabled` stays. */
 const replaced = (automation: Automation, definition: AutomationDefinition, version: AutomationVersion): Automation => ({
   automationId: automation.automationId,
   nodeId: automation.nodeId,
   author: automation.author,
   version,
+  enabled: automation.enabled,
   ...definition,
 });
 
@@ -153,6 +158,7 @@ export const ruleAutomationCommand = (
       nodeId: target.nodeId,
       author,
       version: FIRST_AUTOMATION_VERSION,
+      enabled: op.enabled,
       ...op.definition,
     };
     const refusal = definitionRefusal(automation, targetsOf);
@@ -182,9 +188,10 @@ export const ruleAutomationCommand = (
           next_step: READ_HEAD,
         });
       }
-      // The author stays the one who created it: an edit never widens reach.
+      // The creator stays the author, and a seat's edit must also fit its own
+      // targets: the definition sits inside both, so an edit widens no one.
       const edited = replaced(entry.automation, op.definition, AutomationVersion.make(head + 1));
-      const refusal = definitionRefusal(edited, targetsOf);
+      const refusal = definitionRefusal(edited, targetsOf, author);
       if (refusal !== undefined) return refuse(refusal);
       return apply({ fact: "automation.edited", automationId, version: edited.version, definition: op.definition, at });
     }

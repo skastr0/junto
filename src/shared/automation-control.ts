@@ -234,7 +234,7 @@ export type AutomationEdit = Partial<Pick<AutomationDefinition, "name" | "trigge
  * Proposed for canvas's automation.ts, whose ruler rules it.
  */
 export type AutomationCommandOp =
-  | { readonly kind: "create"; readonly definition: AutomationDefinition }
+  | { readonly kind: "create"; readonly enabled: boolean; readonly definition: AutomationDefinition }
   | { readonly kind: "edit"; readonly baseVersion: AutomationVersion; readonly change: AutomationEdit }
   | { readonly kind: "enable" }
   | { readonly kind: "disable" }
@@ -396,13 +396,12 @@ export const resolveTargets = (
   }
 };
 
-/** The stored definition a create rules on, with every target resolved. */
+/** The stored definition a create rules on, with every target resolved. On or off travels beside it. */
 export const definitionOf = (
   args: AutomationCreateArgs,
   resolved: Required<Pick<ResolvedParts, "trigger" | "then">> & Pick<ResolvedParts, "when">,
 ): AutomationDefinition => ({
   name: args.name,
-  enabled: args.enabled,
   trigger: resolved.trigger,
   ...(resolved.when === undefined ? {} : { when: resolved.when }),
   then: resolved.then,
