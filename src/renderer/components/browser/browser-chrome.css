@@ -160,7 +160,7 @@
 
 /* More tabs than room: the strip scrolls, and its far edge fades instead of cutting a word. */
 .tab-strip__list[data-overflow="true"] {
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, var(--color-ink) calc(100% - 24px), transparent);
 }
 
 /* Tabs share the width: each shrinks evenly toward the floor, then the strip scrolls. */
@@ -295,13 +295,13 @@
   min-width: 0;
   margin-left: 84px;
   min-height: 28px;
-  padding: 0 9px;
+  padding: 5px 9px;
   overflow: hidden;
   border: 1px dashed var(--color-stroke);
   border-radius: var(--radius-md);
   color: var(--color-ink);
   font-size: var(--text-body);
-  line-height: 26px;
+  line-height: var(--leading-body);
   text-overflow: ellipsis;
   white-space: pre;
 }
@@ -317,7 +317,7 @@
 }
 
 .browser-chrome__status[data-alert="true"] {
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }
 
 /* Who drives, and the one control over it, in one piece. */
