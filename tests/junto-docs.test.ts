@@ -45,10 +45,37 @@ describe("junto docs catalog", () => {
   it("doctrine doc includes the injected body plus expansions", () => {
     const doc = buildDoctrineDoc();
     expect(doc).toContain("Junto — full doctrine");
-    expect(doc).toContain("### Why edges are permissions");
+    expect(doc).toContain("### Why reach is where you sit");
     expect(doc).toContain("### Why identity is a seat credential");
     expect(doc).toContain("### Why the CLI is the tool surface");
     expect(doc).toContain("junto onboard");
+  });
+
+  it("doctrine says reach for resources and edges for seats", () => {
+    const doc = buildDoctrineDoc();
+    expect(doc).toContain("**Your region is your reach**");
+    expect(doc).toContain("**Edges join seats**");
+    expect(doc).not.toContain("edges are your permissions");
+    expect(doc).not.toContain("Reach** is edges + ports");
+    expect(doc).not.toContain("fix edges, not the code");
+    expect(doc).toContain("`out_of_reach` or `not_in_reach`");
+  });
+
+  it("doctrine teaches junto since, automation reads, signal paging and Stale", () => {
+    const doc = buildDoctrineDoc();
+    expect(doc).toContain("`junto since`");
+    expect(doc).toContain("`junto since --all`");
+    expect(doc).toContain("`junto automation list`");
+    expect(doc).toContain("only the operator and overseers write them");
+    expect(doc).toContain("`junto signal list --since <ISO time or signal id>`");
+    expect(doc).toContain("- `Stale` — ");
+    expect(doc).not.toContain("·");
+  });
+
+  it("the automations kind page says seats read and do not write", () => {
+    const doc = buildNodeKindDoc("automations")!;
+    expect(doc).toContain("only the operator and overseers write them");
+    expect(doc).not.toContain("No native node schema.");
   });
 
   it("concepts doc covers seats, grants, ladder", () => {

@@ -134,11 +134,13 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
   relay: "Canvas-node scheduler: fires when an agent triggers the relay.trigger port.",
   watcher: "Stat watcher: threshold crossing projection (product-dormant in v1).",
   timer: "Timer scheduler: durable interval scheduling.",
+  automations: "Automations node: each automation has a schedule, poll or change trigger, conditions in `when` and actions in `then`, and is created off unless enabled. Firings are kept as history, each with its actions' rulings or why it was skipped.",
 };
 
 const KIND_NOTE: Readonly<Record<string, string>> = {
-  agent: "The actor role: pulls work through edges, holds a mailbox, runs a harness.",
-  task: "The pull queue: submitted tasks are claimed by connected actor seats.",
+  agent: "The actor role: takes work from its reach and its mail, holds a mailbox, runs a harness.",
+  task: "The pull queue: submitted tasks are claimed by seats that reach the board.",
+  automations: "Automations: triggers, conditions and actions the editing machine runs. A seat reads the ones in its reach with `junto automation list`, `show` and `history`; only the operator and overseers write them.",
   requests: "The operator's request queue. Seats no longer file requests; they raise agent signals (junto escalate, blocked, feedback) instead.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
@@ -178,7 +180,7 @@ export const buildNodesCatalogDoc = (): string => {
   const lines = [
     "# Node kinds",
     "",
-    "Every node kind on the canvas, its role, and the ports it offers on an edge.",
+    "Every node kind on the canvas, its role, and the ports it offers.",
     "",
     "| kind | role | offers |",
     "|---|---|---|",
@@ -190,7 +192,7 @@ export const buildNodesCatalogDoc = (): string => {
   }
   lines.push(
     "",
-    "Ports on an edge are the seat's capability set — no edge, no grant.",
+    "A seat holds a resource's ports while the resource is in its reach, and a seat's ports over an edge to it.",
     "",
     "Get one node kind in depth: `junto docs node <kind>`",
   );
@@ -206,7 +208,7 @@ export const buildNodeKindDoc = (kind: string): string | undefined => {
     `**Role:** ${doc.role}`,
     doc.note ? `\n${doc.note}` : "",
     "",
-    "## Ports offered on an edge",
+    "## Ports offered",
     ...(doc.offers.length > 0
       ? doc.offers.map((p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p as Port] ?? "—"}`)
       : ["- (none — access family only in v1)"]),
@@ -223,7 +225,7 @@ export const buildNodeKindDoc = (kind: string): string | undefined => {
     "",
     "## Contract",
     "",
-    "`junto onboard` compiles the commands a seat holds on its edge to this kind. The full contract:",
+    "`junto onboard` compiles the commands a seat holds on this kind. The full contract:",
     "",
   ];
   const contracts = buildEdgeContracts([{
@@ -267,10 +269,12 @@ export const buildDoctrineDoc = (): string => {
     "",
     "## Expansions",
     "",
-    "### Why edges are permissions",
-    "Authorization is topology: a seat acts only on edge-connected nodes, holding",
-    "exactly the ports that node offers. There is no permission file to drift; the",
-    "canvas drawing is the ACL. `ScopeError` names the missing edge and the fix.",
+    "### Why reach is where you sit",
+    "Authorization is the drawing: a seat uses the resources its region reaches",
+    "and mails the seats its edges join. Reach is read from the rectangles on",
+    "every call, never stored, so there is no permission file to drift, and moving",
+    "a node changes reach on the next command. `ScopeError` names what is out of",
+    "reach, or which edge is missing.",
     "",
     ...(TASKS_ENABLED
       ? [
@@ -332,15 +336,16 @@ export const buildDoctrineDoc = (): string => {
 const FACTORY_CONCEPT = TASKS_ENABLED
   ? [
     "## The task queue",
-    "Tasks are a pull queue. The canvas (edges + live state) decides what is",
+    "Tasks are a pull queue. The canvas (reach + live state) decides what is",
     "available; seats claim and work. Claims are atomic and delivered as a",
     "complete CLI task briefing. Idle seats wait — they do not invent backlog.",
   ]
   : [
     "## Seats and edges",
     "There is no claim queue in this build. Work reaches a seat from the",
-    "operator, its region briefing, and mail over its edges. Edges remain the",
-    "permission surface; idle seats wait and do not invent backlog.",
+    "operator, its region briefing, and mail over its edges. The resources in its",
+    "region are in its reach; edges join it to the seats it mails. Idle seats",
+    "wait and do not invent backlog.",
   ];
 
 /** Completion verdicts are task-shaped; without tasks, honest reporting. */
@@ -367,7 +372,7 @@ export const buildConceptsDoc = (): string =>
     ...FACTORY_CONCEPT,
     "",
     "## Grants and ports",
-    `Every edge hands the seat the ports the node offers. The port set:`,
+    `A resource in reach, and an edge to a seat, hand the seat the ports that node offers. The port set:`,
     ...ALL_PORTS.filter((port) => productPortEnabled(port)).map(
       (p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p]}`,
     ),

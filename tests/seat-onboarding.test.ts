@@ -286,18 +286,19 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
       { id: "peer-3", kind: "agent", ports: peerPorts },
     ]);
     expect(rest).toEqual([]);
-    expect(contract).toContain("### Edge contract — messages (targets: `peer-2`, `peer-3`)");
+    expect(contract).toContain("### Contract — messages (targets: `peer-2`, `peer-3`)");
     expect(contract).toContain("Mail is never refused and never needs a retry");
     expect(contract).toContain("mail from <seat>");
     expect(contract).toContain("adds a pointer to `junto onboard` when the recipient has not onboarded yet");
     expect(contract).toContain("`notice`, `prompt`, and `receipt`");
     expect(contract).toContain("Inspect delivered, read and reply facts with `junto msg sent`");
-    expect(contract).not.toContain("### Edge contract — tasks");
+    expect(contract).not.toContain("### Contract — tasks");
   });
 
   it("an isolated seat's body promises no edge contracts but still teaches the hand raise", () => {
     const body = buildDoctrineBody([]);
-    expect(body).not.toContain("### Edge contract");
+    expect(body).not.toContain("### Contract — ");
+    expect(body).not.toContain("### Command contracts");
     expect(body).toContain('junto blocked "..."');
     expect(body).toContain("## Worked examples");
   });
