@@ -43,7 +43,11 @@ export const WorkModelDependentsLive = Layer.effect(ModelDependents, Effect.gen(
       yield* sql.unsafe(`DELETE FROM ${table} WHERE canvas_name=?${nodeClause}`, bindings);
     yield* sql.unsafe(`DELETE FROM work_delivery_receipts WHERE delivered_canvas_name=?
       ${receiptClause}`, bindings);
-    if (ids === undefined) yield* sql`DELETE FROM work_canvas_revisions WHERE canvas_name=${canvas}`;
+    if (ids === undefined) {
+      yield* sql`DELETE FROM work_canvas_revisions WHERE canvas_name=${canvas}`;
+      // What the canvas's seat deletes released goes with it (seat-release.ts).
+      yield* sql`DELETE FROM task_seat_releases WHERE canvas_name=${canvas}`;
+    }
     yield* afterSqlCommit(sql, () => {
       for (const sink of affected)
         changes.notify({ canvasName: sink.canvas_name, nodeId: sink.node_id }, sink.kind);

@@ -70,8 +70,6 @@ export const commandReleasingSeats = (command: Command, source: "operator" | "ov
         const canvasName = command.canvas;
         const before = seatsMove ? yield* model.canvas(canvasName) : undefined;
         const result = yield* model.command(command, source);
-        // A removed canvas takes what its seat deletes released with it.
-        if (command._tag === "RemoveCanvas") yield* sql`DELETE FROM task_seat_releases WHERE canvas_name = ${canvasName}`;
         if (!seatsMove || before === undefined) return result satisfies ReleasingCommandResult;
         const after = yield* model.canvas(canvasName);
         const had = agentIds(before);
