@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { BROWSER_MAX_COMMENT_TEXT_BYTES } from "../../src/shared/browser-control";
+import { BROWSER_ENABLED } from "../../src/shared/features";
 import { makeBrowserCapabilityRegistry } from "../../src/main/junto/browser/capabilities";
 import { startBrowserControlServer } from "../../src/main/junto/browser/control";
 import { makeEdgeGrantService } from "../../src/main/junto/browser/edge-grant";
@@ -156,6 +157,8 @@ export const browserArea: AcceptanceArea = {
         granted,
       ),
       pending("a seat with a live grant posts, and the comment reads back in the page's thread with a PageBoxAnchor", ON),
+      // A page offers browser.automate only when the core loads with the browser on (physics kinds.ts).
+      check("the core runs with the browser on, so a page offers browser.automate", BROWSER_ENABLED, granted),
     ];
   },
 };

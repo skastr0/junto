@@ -15,7 +15,7 @@ import { ModelService } from "../src/main/junto/model/service";
  *
  *   JUNTO_FEATURE_PROFILE=all-on bun run cli:build
  *   bun build scripts/work-cli-acceptance.ts --target=node --format=cjs --packages=external --outfile=node_modules/.cache/work-cli-acceptance.cjs
- *   JUNTO_TASKS=1 JUNTO_ARTIFACTS=1 node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
+ *   JUNTO_TASKS=1 JUNTO_ARTIFACTS=1 JUNTO_BROWSER=1 node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { createConnection } from "node:net";
@@ -521,31 +521,6 @@ export const runWorkCliAcceptance = async () => {
     authoringSink: taskSink,
   });
   const repository = await runtime.runPromise(WorkRepository);
-  for (const [id, messageId, brief] of [
-    ["t1", "m0", "ship it"],
-    ["t2", "m1", "also this"],
-  ] as const) {
-    await runtime.runPromise(
-      repository.createTask({
-        sink: taskSink,
-        basis,
-        dependencyScope,
-        task: {
-          id,
-          state: "submitted",
-          history: [
-            {
-              messageId,
-              role: "user",
-              parts: [{ kind: "text", text: brief }],
-              contextId: CANVAS,
-              taskId: id,
-            },
-          ],
-        },
-      }),
-    );
-  }
   // Admission is the generation credential.
   const credentials = makeSeatCredentialRegistry();
   const mint = mintSeatCredential();
@@ -676,7 +651,6 @@ export const runWorkCliAcceptance = async () => {
     log(
       "canvas after",
       JSON.stringify({
-        tasks: (await runtime.runPromise(repository.taskLane(CANVAS, TASKS))).map((task) => ({ id: task.id, state: task.state })),
         artifacts: (await runtime.runPromise(repository.artifactLane(CANVAS, ARTS))).map((artifact) => ({ id: artifact.artifactId, name: artifact.name })),
       }, null, 2),
     );

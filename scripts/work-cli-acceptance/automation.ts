@@ -109,9 +109,8 @@ export const automationArea: AcceptanceArea = {
       // Later areas see the canvas, and this core's atlas, as they were.
       await sql(`UPDATE canvases SET editor_installation_id = ${restore} WHERE canvas_name = '${canvas}'`);
       await sql(`DELETE FROM machine_peers WHERE machine_name = '${EDITOR.machine}'`);
-      // Asserted none below; any there would hold known_installations by its RESTRICT key.
-      await sql(`DELETE ${naming}`);
-      await sql(`DELETE FROM known_installations WHERE installation_id = '${EDITOR.installation}'`);
+      // A sequence naming atlas holds its installation by a RESTRICT key; the case below fails on it.
+      if (leftover === 0) await sql(`DELETE FROM known_installations WHERE installation_id = '${EDITOR.installation}'`);
     }
     log("overseer automation create off the editing machine", offEditor.stdout || offEditor.stderr);
     const off = envelopeOf(offEditor);
