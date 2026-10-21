@@ -8,8 +8,19 @@ import { FOCUSABLE_SELECTOR, openerBorrowedKeyboard, returnKeyboardFrom, topModa
 // would re-run the placement layout effect every render and never settle.
 const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
 
-/** Every open popover's anchor, so one can tell a popover is open inside it. */
-const openAnchors = new Set<HTMLElement>();
+/** Every open popover, panel to anchor, so one can tell a popover is open inside it. */
+const openPopovers = new Map<HTMLElement, HTMLElement>();
+
+/** The anchor a popover hangs from in the page: through the panels of any popovers it opened from. */
+const rootAnchorOf = (anchor: HTMLElement): HTMLElement => {
+  let root = anchor;
+  for (let outer = root.closest<HTMLElement>(".junto-popover"); outer; outer = root.closest<HTMLElement>(".junto-popover")) {
+    const next = openPopovers.get(outer);
+    if (!next) break;
+    root = next;
+  }
+  return root;
+};
 
 const tabStopsIn = (panel: HTMLElement): HTMLElement[] =>
   Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((stop) => stop.getClientRects().length > 0);
@@ -109,12 +120,14 @@ export function Popover({
       }
       if (event.key !== "Escape") return;
       // A modal opened above this popover (a confirm it asked for) is the
-      // topmost thing: the key is that modal's.
+      // topmost thing: the key is that modal's. A popover opened from inside
+      // another reads where the outer one hangs, since its own anchor sits in
+      // a panel portaled outside every modal.
       const above = topModal()?.container();
-      if (above && !above.contains(anchor)) return;
+      if (above && !above.contains(rootAnchorOf(anchor))) return;
       // A popover opened inside this one is above it: the key is that one's.
       const panel = panelRef.current;
-      for (const other of openAnchors) if (other !== anchor && panel?.contains(other)) return;
+      for (const [other, otherAnchor] of openPopovers) if (other !== panel && panel?.contains(otherAnchor)) return;
       // Esc belongs to the popover while it is open; the surface under it
       // (a focus modal, a PTY) must not also act on it.
       event.preventDefault();
@@ -133,9 +146,10 @@ export function Popover({
     // focus-law: Escape closes an open popover and Tab walks into and out of it, never a typing shortcut.
     window.addEventListener("keydown", onKeyDown, { capture: true });
     document.addEventListener("pointerdown", onPointerDown, { capture: true });
-    openAnchors.add(anchor);
+    const panel = panelRef.current;
+    if (panel) openPopovers.set(panel, anchor);
     return () => {
-      openAnchors.delete(anchor);
+      if (panel) openPopovers.delete(panel);
       window.removeEventListener("keydown", onKeyDown, { capture: true });
       document.removeEventListener("pointerdown", onPointerDown, { capture: true });
     };

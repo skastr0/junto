@@ -10,6 +10,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Popover } from "../src/renderer/components/ui/Popover";
+import { pushModal } from "../src/renderer/lib/modal-stack";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -38,6 +39,10 @@ let anchor: HTMLButtonElement;
 let root: Root;
 
 const byTestId = (id: string) => document.querySelector(`[data-testid='${id}']`);
+const escape = () =>
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  });
 const press = (target: Element) =>
   act(() => {
     target.dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }));
@@ -78,10 +83,6 @@ describe("a popover opened inside a popover", () => {
   });
 
   it("closes only the inner one on Escape, then the outer one on the next", () => {
-    const escape = () =>
-      act(() => {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-      });
     escape();
     expect(byTestId("inner")).toBeNull();
     expect(byTestId("outer")).not.toBeNull();
@@ -93,5 +94,24 @@ describe("a popover opened inside a popover", () => {
     press(document.body);
     expect(byTestId("inner")).toBeNull();
     expect(byTestId("outer")).toBeNull();
+  });
+
+  it("closes only the inner one on Escape when the outer one hangs from a modal", () => {
+    // As in the app: the details popover's anchor is in the seat modal, and
+    // the signal popover's anchor is in the details panel, outside the modal.
+    const modal = document.createElement("div");
+    document.body.appendChild(modal);
+    act(() => root.unmount());
+    modal.appendChild(anchor);
+    const { leave } = pushModal({ layer: "working", container: () => modal, trap: false, onEscape: () => false, onClose: () => undefined });
+    root = createRoot(host);
+    act(() => root.render(<Outer anchor={anchor} />));
+    escape();
+    expect(byTestId("inner")).toBeNull();
+    expect(byTestId("outer")).not.toBeNull();
+    escape();
+    expect(byTestId("outer")).toBeNull();
+    leave();
+    modal.remove();
   });
 });
