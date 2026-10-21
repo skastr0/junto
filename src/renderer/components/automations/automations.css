@@ -118,7 +118,7 @@
 .automation-editor__problem {
   margin: 0;
   font-size: var(--text-label);
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }
 
 .automation-editor__foot {
