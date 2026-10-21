@@ -11,7 +11,11 @@ import { CHUNK_UNITS } from "../src/main/junto/term/seat-attach";
 import { TerminalRouter } from "../src/main/junto/term/router";
 import { seatExitMessage } from "../src/shared/spawn-failure";
 import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
-import { makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
+import { linkSeatViewTransport, makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
+import { Effect } from "effect";
+import { LinkBuildMismatch } from "../src/main/junto/link/types";
+import { MachineLink } from "../src/main/junto/link/service";
+import { HostsService } from "../src/main/junto/hosts/service";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -144,6 +148,23 @@ describe("a linked seat's view through the router", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     expect(refused).toBe(false);
     expect(await window.router.write(second.lease, "y", "mini")).toBe(true);
+  });
+
+  it("a seat whose machine runs another build reads as the typed mismatch, never wrapped", async () => {
+    const cores = await twoCores({ cleanups });
+    const mismatch = LinkBuildMismatch.of({ build: "old", installationId: "inst-mini" as never, machineName: "mini" }, "new");
+    // The production transport, over a link whose connect refuses the mini's hello.
+    const run = ((effect: Effect.Effect<unknown, unknown, never>) => Effect.runPromise(effect.pipe(
+      Effect.provideService(HostsService, { get: () => Effect.succeed({ id: "mini" }) } as never),
+      Effect.provideService(MachineLink, { connect: () => Effect.fail(mismatch) } as never),
+    ) as Effect.Effect<unknown>)) as never;
+    const router = new TerminalRouter(cores.book.host);
+    router.setSeatViews(makeSeatViews({
+      ...linkSeatViewTransport(run),
+      locate: async () => ({ machine: "mini", canvas, seatId: miniSeat.id, harness: miniSeat.harness }),
+    }));
+    cleanups.push(async () => { router.setSeatViews(undefined); router.beginShutdown(); });
+    await expect(router.get(miniSeat.bindingId, "mini")).rejects.toBe(mismatch);
   });
 
   it("a seat the views do not know falls through to the term-control route", async () => {
