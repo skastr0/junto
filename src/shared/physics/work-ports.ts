@@ -20,33 +20,41 @@ export type TargetWorkOpName = Exclude<
   | ArtifactControlOp
   // Nor are tasks (plan 04): a task node in reach admits.
   | TaskControlOp
+  | TaskReachOp
 >;
 
 /**
- * Writes of the old task store that still check their ports: the overseer's
- * claim and update and WorkService's own. They are no socket op; the task
- * ops admit by reach (plan 04). Gone when canvas deletes that store.
+ * Writes of the old task store: the overseer's claim and update and
+ * WorkService's own. They are no socket op. Gone when canvas deletes that store.
  */
 export type OldTaskStoreOp = "task.claim" | "task.update";
+
+/**
+ * Task ops that keep their 0.9 handlers (rules, checks, wait, rulings and a
+ * task's content; plan 04 leaves their behavior as it is) and the old store's
+ * writes. A task node in the caller's reach admits them, as it does the task
+ * verbs; content is admitted by the reach of the task node it reads. No port.
+ */
+export const TASK_REACH_OPS = [
+  "task.wait",
+  "task.rules",
+  "task.check",
+  "rulings",
+  "content.path",
+  "content.stat",
+  "content.materialize",
+  "task.claim",
+  "task.update",
+] as const;
+export type TaskReachOp = (typeof TASK_REACH_OPS)[number];
+
+export const isTaskReachOp = (op: string): op is TaskReachOp => (TASK_REACH_OPS as ReadonlyArray<string>).includes(op);
 
 /**
  * One port per target work op. Adding a WorkOpName requires a row here
  * (`satisfies` fails closed).
  */
 export const PortForWorkOp = {
-  "task.wait": "tasks.list",
-  "task.claim": "tasks.claim",
-  "task.update": "tasks.update",
-  // Task path reads ride the Tasks node's existing read grant; checks submit
-  // through the same grant that moves the task, so no new capability appears.
-  "task.rules": "tasks.list",
-  "rulings": "tasks.list",
-  "task.check": "tasks.update",
-  // Content access is task-scoped read/materialization and reuses the task
-  // sink's existing read grant; it never creates a second storage capability.
-  "content.path": "tasks.list",
-  "content.stat": "tasks.list",
-  "content.materialize": "tasks.list",
   "msg.list": "msg.list",
   "msg.send": "msg.send",
   "msg.prompt": "msg.prompt",
@@ -57,23 +65,16 @@ export const PortForWorkOp = {
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
   "msg.react": "msg.list",
-} as const satisfies Record<TargetWorkOpName | OldTaskStoreOp, Port>;
+} as const satisfies Record<TargetWorkOpName, Port>;
 
 export type PortForWorkOp = typeof PortForWorkOp;
 
-export const portForWorkOp = (op: TargetWorkOpName | OldTaskStoreOp): Port => PortForWorkOp[op];
+export const portForWorkOp = (op: TargetWorkOpName): Port => PortForWorkOp[op];
 
-export const isTargetWorkOp = (op: WorkOpName | OldTaskStoreOp): op is TargetWorkOpName | OldTaskStoreOp =>
+export const isTargetWorkOp = (op: WorkOpName | OldTaskStoreOp): op is TargetWorkOpName =>
   op in PortForWorkOp;
 
 export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
-  "task.wait",
-  "task.rules",
-  "task.check",
-  "rulings",
-  "content.path",
-  "content.stat",
-  "content.materialize",
   "msg.list",
   "msg.send",
   "msg.prompt",
@@ -97,14 +98,8 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
  * driven by the browser plane, not a work-control call.
  */
 export const OPS_BY_SINK = {
+  // The task ops admit by reach (TASK_REACH_OPS); a task node keeps its thread.
   task: [
-    "task.wait",
-    "task.rules",
-    "task.check",
-    "rulings",
-    "content.path",
-    "content.stat",
-    "content.materialize",
     "msg.list",
     "msg.send",
     "msg.read",

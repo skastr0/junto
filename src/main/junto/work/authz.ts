@@ -15,6 +15,7 @@ import {
   admitPure,
   asNodeId,
   isTargetWorkOp,
+  isTaskReachOp,
   opsForSink,
   portForWorkOp,
   resolveSpec,
@@ -29,7 +30,7 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
-import { resourcesInReach, seatsInReach } from "@shared/region-reach";
+import { reaches, resourcesInReach, seatsInReach } from "@shared/region-reach";
 import { linkTypedMentions } from "@shared/typed-mentions";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
@@ -315,7 +316,7 @@ export const admitOverseerWorkTarget = (
       featureDisabledError("overseer", targetId, overseerTargetKind, op),
     );
   }
-  if (requiresConnection(op) && isTargetWorkOp(op) && !kindAllowsOp(nodeKind(target), op)) {
+  if ((isTaskReachOp(op) || (requiresConnection(op) && isTargetWorkOp(op))) && !kindAllowsOp(nodeKind(target), op)) {
     return Result.fail(
       scopeError("overseer", targetId, "wrong_kind", {
         kind: nodeKind(target),
@@ -395,7 +396,8 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "task.stamp-policy":
     case "task.stamp":
     case "task.comment":
-      return false;
+    // The task ops that keep their 0.9 handlers, and the old store's writes,
+    // admit by reach too (admitTaskReach); a task's content by its node's.
     case "task.claim":
     case "task.update":
     case "task.wait":
@@ -405,6 +407,7 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "content.path":
     case "content.stat":
     case "content.materialize":
+      return false;
     case "msg.list":
     case "msg.send":
     case "msg.prompt":
@@ -454,8 +457,8 @@ export const opsForKind = (kind: string | undefined): ReadonlyArray<WorkOpName> 
 };
 
 export const kindAllowsOp = (kind: string | undefined, op: WorkOpName | OldTaskStoreOp): boolean =>
-  // The old store's writes go wherever its tasks are.
-  op === "task.claim" || op === "task.update" ? kind === "task" : opsForKind(kind).includes(op);
+  // The reach-admitted task ops go wherever tasks are.
+  isTaskReachOp(op) ? kind === "task" && productNodeKindEnabled(kind) : opsForKind(kind).includes(op);
 
 export const scopeError = (
   callerId: string,
@@ -569,6 +572,38 @@ const callerMachine = (doc: Canvas, callerId: string): string => {
 };
 
 /**
+ * A reach-admitted task op (TASK_REACH_OPS): the target is a task node in the
+ * caller's reach, or the operator's. No edge and no port; plan 04.
+ */
+const admitTaskReach = (
+  doc: Canvas,
+  callerId: string,
+  target: Node,
+  op: WorkOpName | OldTaskStoreOp,
+): Result.Result<{ readonly node: Node }, WorkErrorBody> => {
+  const kind = nodeKind(target);
+  if (kind === "task" && !productNodeKindEnabled(kind)) {
+    return Result.fail(featureDisabledError(callerId, target.id, kind, op));
+  }
+  if (kind !== "task") return Result.fail(scopeError(callerId, target.id, "wrong_kind", { kind, op }));
+  if (callerId === OPERATOR_SEAT_ID || reaches(doc, asNodeId(callerId), asNodeId(target.id))) {
+    return Result.succeed({ node: target });
+  }
+  return Result.fail({
+    type: "ScopeError",
+    message: `task node "${target.id}" is out of reach of "${callerId}"`,
+    details: {
+      target: target.id,
+      caller: callerId,
+      reason: "out_of_reach",
+      hint: "a seat reaches the resources in its own region, the regions inside it and the regions around it; no edge changes that",
+      next_step: "pick a resource in reach, or ask the operator to move this seat or the resource on the canvas",
+      retryable: false,
+    },
+  });
+};
+
+/**
  * Admit a target-scoped work op via canvas physics (edge + role law + port).
  * Missing target still uses visibility-aware UnknownTarget / invisible.
  */
@@ -591,6 +626,8 @@ export const admitWorkTarget = (
     });
   }
 
+  if (isTaskReachOp(op)) return admitTaskReach(doc, callerId, target, op);
+
   if (!requiresConnection(op) || !isTargetWorkOp(op)) {
     return Result.succeed({ node: target });
   }
@@ -610,7 +647,7 @@ export const admitWorkTarget = (
     view,
     asNodeId(callerId),
     asNodeId(targetId),
-    portForWorkOp(op as TargetWorkOpName | OldTaskStoreOp),
+    portForWorkOp(op as TargetWorkOpName),
   );
   if (Result.isFailure(result)) {
     return Result.fail(

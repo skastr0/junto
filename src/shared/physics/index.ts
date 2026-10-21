@@ -88,11 +88,13 @@ export {
   OPS_BY_SINK,
   PortForWorkOp,
   TARGET_WORK_OPS,
+  TASK_REACH_OPS,
   isTargetWorkOp,
+  isTaskReachOp,
   opsForSink,
   portForWorkOp,
 } from "./work-ports";
-export type { OldTaskStoreOp, TargetWorkOpName } from "./work-ports";
+export type { OldTaskStoreOp, TargetWorkOpName, TaskReachOp } from "./work-ports";
 
 export { canvasToCapabilityView } from "./view";
 export type { CapabilityViewOptions, VerbCapabilityView } from "./view";
