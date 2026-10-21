@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { clearServiceWorkersAtStart } from "../src/main/junto/browser/composition";
+import { partitionNameForProfile } from "../src/shared/browser";
 
 describe("browser startup recovery gate", () => {
   const root = join(import.meta.dirname, "..");
@@ -27,6 +29,26 @@ describe("browser startup recovery gate", () => {
     expect(ready.indexOf("registerBrowserAgentIpc(")).toBe(-1);
     expect(window).toBeGreaterThan(browserIpc);
     expect(ready.slice(composition, window)).not.toContain("session.fromPartition");
+  });
+
+  it("clears every profile's service workers before the browser activates", async () => {
+    const compositionSrc = readFileSync(join(root, "src/main/junto/browser/composition.ts"), "utf8");
+    const start = compositionSrc.slice(compositionSrc.indexOf("export const startBrowserComposition"));
+    const clear = start.indexOf("await clearServiceWorkersAtStart(");
+    expect(clear).toBeGreaterThan(start.indexOf("await runClosedBrowserEffect(profiles.recoverPendingWipe)"));
+    // Activation opens IPC and control, the only ways a view opens.
+    expect(start.indexOf("await activate(composition)")).toBeGreaterThan(clear);
+
+    const cleared: string[] = [];
+    await clearServiceWorkersAtStart(["default", "work"], async (partition) => {
+      cleared.push(partition);
+    });
+    expect(cleared).toEqual([partitionNameForProfile("default"), partitionNameForProfile("work")]);
+    await expect(
+      clearServiceWorkersAtStart(["default"], async () => {
+        throw new Error("disk");
+      }),
+    ).rejects.toThrow("disk");
   });
 
   it("passes this machine's name into the production edge grant", () => {

@@ -319,6 +319,9 @@ Web content is untrusted. Managed pages are sandboxed, have no Node integration
 or privileged app preload, and cannot become the trusted app renderer through
 navigation. Browser commands require a live local seat and the relevant edge
 to that page; access to one page does not grant other pages or profile deletion.
+While the operator holds a page, a seat sees the timing of the hold, never its
+content. A service worker never outlives a run: every profile starts with none,
+and one registered in an origin a seat touched is removed as it registers.
 The machines feature carries no browser control or browser credentials.
 
 The phone companion keeps its separate restricted forced-command keys, device

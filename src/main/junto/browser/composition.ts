@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
-import { isAllowedBrowserUrl } from "@shared/browser";
+import { isAllowedBrowserUrl, partitionNameForProfile } from "@shared/browser";
 import { runClosedBrowserEffect } from "./run-closed";
 import {
   makeBrowserCapabilityRegistry,
@@ -446,7 +446,21 @@ export interface BrowserCompositionRuntime {
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
   ) => BrowserProfileStorageLifecycle;
+  /** Unregisters every service worker in one profile partition. */
+  readonly clearServiceWorkers?: (partition: string) => Promise<void>;
 }
+
+/**
+ * Every profile starts each run with no service worker, so one a seat left in
+ * a touched origin never outlives the run, crash or not. Runs before the first
+ * view can open; a profile that cannot be cleared stops the browser starting.
+ */
+export const clearServiceWorkersAtStart = async (
+  profileIds: ReadonlyArray<string>,
+  clear: (partition: string) => Promise<void>,
+): Promise<void> => {
+  await Promise.all(profileIds.map((id) => clear(partitionNameForProfile(id))));
+};
 
 /** The one row the machine list marks as its own, read on every admission. */
 const thisMachineName = (): string | undefined =>
@@ -553,6 +567,11 @@ export const startBrowserComposition = async (
     });
     // recoverPendingWipe is R=never on the injected profiles API.
     await runClosedBrowserEffect(profiles.recoverPendingWipe);
+    const clearServiceWorkers =
+      runtime.clearServiceWorkers ??
+      (await import("./profile-storage-electron")).clearElectronPartitionServiceWorkers;
+    const known = await runClosedBrowserEffect(profiles.listProfiles);
+    await clearServiceWorkersAtStart(known.map((profile) => profile.id), clearServiceWorkers);
     await activate(composition);
     return composition;
   } catch (error) {
