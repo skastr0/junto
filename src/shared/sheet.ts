@@ -176,15 +176,16 @@ export const sheetColumnLetter = (index: number): string => {
 /**
  * One cell as markdown table text. Backslash first so the pipe escape it
  * adds is not escaped again; a line break stays a break as `<br>`, since a
- * raw newline would end the row, and a typed `<br>` is written `&lt;br>` so
- * the two never read the same. The row and column caps keep every label
- * inside the `cells` anchor's pattern.
+ * raw newline would end the row. A typed `<br>`, in any case or as `<br/>`,
+ * is written `&lt;` plus what was typed, so the two never read the same.
+ * The row and column caps keep every label inside the `cells` anchor's
+ * pattern.
  */
 export const escapeSheetCell = (value: string): string =>
   value
     .replace(/\\/gu, "\\\\")
     .replace(/\|/gu, "\\|")
-    .replace(/<br>/giu, "&lt;br>")
+    .replace(/<(br\s*\/?)>/giu, "&lt;$1>")
     .replace(/\r\n|\r|\n/gu, "<br>");
 
 const tableRow = (cells: ReadonlyArray<string>): string => `| ${cells.join(" | ")} |`;

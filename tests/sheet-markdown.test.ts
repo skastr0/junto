@@ -40,6 +40,7 @@ describe("escapeSheetCell", () => {
     expect(escapeSheetCell("a\\|b")).toBe("a\\\\\\|b");
     expect(escapeSheetCell("one\ntwo\r\nthree\rfour")).toBe("one<br>two<br>three<br>four");
     expect(escapeSheetCell("a<br>b\nc")).toBe("a&lt;br>b<br>c");
+    expect(escapeSheetCell("<BR> <br/> <br />")).toBe("&lt;BR> &lt;br/> &lt;br />");
   });
 });
 
