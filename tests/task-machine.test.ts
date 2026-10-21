@@ -33,6 +33,8 @@ import {
   type TaskState,
 } from "../src/shared/task-model";
 import { ItemId } from "../src/shared/work-ids";
+import type { CompletionEvidence, Rule } from "../src/shared/work-model";
+import { evaluateRules, type RuleInForce } from "../src/shared/rules";
 
 const ada = seatNodeId(asNodeId("seat-ada"));
 const bo = seatNodeId(asNodeId("seat-bo"));
@@ -436,6 +438,47 @@ describe("flows: finishing sends the task on", () => {
     const ruled = ok(one(inReview, seat(bo), { kind: "stamp", verdict: "approve" }, context));
     expect(ruled.task).toMatchObject({ state: "backlog", node: ship });
     expect(ruled.effects.map((effect) => effect.kind)).toEqual(["sent-on"]);
+  });
+});
+
+describe("finish against the rules in force", () => {
+  // Board rules in force on the build node, judged by the real evaluator, as main's env does.
+  const inForce = (...rules: ReadonlyArray<Rule>): ReadonlyArray<RuleInForce> =>
+    rules.map((rule) => ({ rule, provenance: { kind: "board", boardId: build } }));
+  const rulesOn = (rules: ReadonlyArray<RuleInForce>) =>
+    env({
+      rulesUnmet: (node, _taskId, evidence) => {
+        const failure = node === build ? evaluateRules({ rules, evidence }) : undefined;
+        return failure === undefined
+          ? undefined
+          : {
+            missing: failure.missing,
+            message: failure.message,
+            nextStep: failure.next_step,
+            ...(failure.ruleId === undefined ? {} : { ruleId: failure.ruleId }),
+          };
+      },
+    });
+  const statement = rulesOn(inForce({ id: "r1", text: "tests pass" }));
+  const working = record({ state: "working", assignee: ada });
+
+  it("refuses rules-unmet when the evidence leaves a statement rule unanswered", () => {
+    expect(refused(one(working, seat(ada), { kind: "finish" }, statement))).toMatchObject({
+      kind: "rules-unmet",
+      missing: "claims",
+      ruleId: "r1",
+    });
+  });
+
+  it("finishes when a claim answers it", () => {
+    const evidence: CompletionEvidence = { artifacts: [], claims: [{ ruleId: "r1", text: "they pass" }] };
+    expect(ok(one(working, seat(ada), { kind: "finish", evidence }, statement)).task.state).toBe("done");
+  });
+
+  it("leaves a requires-review rule to the stamps", () => {
+    const review = rulesOn(inForce({ id: "r2", text: "a second pair of eyes", kind: "requires-review" }));
+    const reviewed = record({ ...working, reviewers: [asSeat(bo)], stampPolicy: { required: 1 } });
+    expect(ok(one(reviewed, seat(ada), { kind: "finish" }, review)).task.state).toBe("in-review");
   });
 });
 

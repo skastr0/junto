@@ -1,4 +1,5 @@
 import type { NodeId } from "./model/base";
+import type { CompletionEvidence } from "./work-model";
 import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
 import {
   ASSIGNEE_ONLY,
@@ -66,6 +67,20 @@ export type TaskDomainEnv = {
    * 01): all it may act on. Absent, an automation reaches nothing.
    */
   readonly automationReaches?: (automation: NodeId, node: TaskNodeId) => boolean;
+  /**
+   * The first rule in force at a task node that a finish's evidence leaves
+   * unanswered (`rulesInForce`, `evaluateRules`), if any; `taskId` finds
+   * task-level rules. Without it no rule is checked, as in a preview.
+   */
+  readonly rulesUnmet?: (node: TaskNodeId, taskId: TaskId, evidence: CompletionEvidence | undefined) => RulesUnmet | undefined;
+};
+
+/** A rule a finish's evidence leaves unanswered, as `rules-unmet` reports it. */
+export type RulesUnmet = {
+  readonly missing: string;
+  readonly message: string;
+  readonly nextStep: string;
+  readonly ruleId?: string;
 };
 
 /** One ruled write: the task as it stands after it, and what the ruling owes. */
@@ -151,6 +166,8 @@ export type TaskContext = {
   readonly stampDefaultOf: (node: TaskNodeId) => StampPolicy;
   /** Region reach (01) of a seat to this task's node: who may be a reviewer or an assignee. */
   readonly seatReaches: (seat: SeatNodeId) => boolean;
+  /** The first rule in force on this task's node a finish's evidence leaves unanswered; absent, none is checked. */
+  readonly rulesUnmet?: (evidence: CompletionEvidence | undefined) => RulesUnmet | undefined;
 };
 
 /** A ruling on one task that keeps whatever else the task carries. */
@@ -288,6 +305,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       if (task.state !== "working") return illegal(task, command);
       const next = resolveNext(ctx.downstream, command.next);
       if (!next.ok) return refuse(next.detail);
+      // Statement rules need claims; a requires-review rule is left to the stamps.
+      const unmet = ctx.rulesUnmet?.(command.evidence);
+      if (unmet !== undefined) return refuse({ kind: "rules-unmet", ...unmet });
       const finished: T = { ...without(task, "next"), ...(next.next ? { next: next.next } : {}), state: "in-review" };
       if (stampsMet(finished)) return complete(finished);
       const stamped = new Set(currentStamps(finished).map((stamp) => reviewerKey(stamp.reviewer)));
@@ -370,6 +390,7 @@ export const taskContextOf = (state: TaskBoardState, task: Pick<TaskRecord, "id"
   downstream: env.downstream(task.node),
   stampDefaultOf: env.stampDefaultOf,
   seatReaches: (seat) => env.seatReaches(seat, task.node),
+  ...(env.rulesUnmet === undefined ? {} : { rulesUnmet: (evidence) => env.rulesUnmet!(task.node, task.id, evidence) }),
 });
 
 /**
