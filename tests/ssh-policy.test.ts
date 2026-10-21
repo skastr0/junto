@@ -5,6 +5,12 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseHermesProfileName } from "../src/main/junto/hermes/domain";
+import {
+  HermesTransport,
+  HermesTransportLive,
+  resolveHermesRemoteHost,
+} from "../src/main/junto/hermes/transport";
 import { setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
@@ -278,7 +284,7 @@ describe("SSH policy surface", () => {
         label: "studio",
         isThisMachine: false,
         sshEndpoint: "studio",
-        capabilities: ["terminal"],
+        capabilities: ["hermes"],
       },
     ]);
     const calls: Command.StandardCommand[] = [];
@@ -310,20 +316,21 @@ describe("SSH policy surface", () => {
     expect(acp).toContain("ControlPath=none");
   });
 
-  it("resolves a Hermes agent key's machine by host id only", () => {
+  it("admits only the canonical hermesId when it differs from the product host id", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument("macbook").hosts,
       {
         id: "studio",
+        hermesId: "fleet-a",
         label: "studio",
         isThisMachine: false,
         sshEndpoint: "studio",
-        capabilities: ["terminal"],
+        capabilities: ["hermes"],
       },
     ]);
 
-    expect(resolveHermesRemoteHost("studio")?.id).toBe("studio");
-    expect(resolveHermesRemoteHost("fleet-a")).toBeUndefined();
+    expect(resolveHermesRemoteHost("fleet-a")?.id).toBe("studio");
+    expect(resolveHermesRemoteHost("studio")).toBeUndefined();
   });
 
   it("creates Unix forwarding through a dedicated owned mux generation", async () => {

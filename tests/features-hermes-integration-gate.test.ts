@@ -9,6 +9,7 @@ import {
   HARNESS_OMP_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
   HERMES_INTEGRATION_ENABLED,
+  productHostCapabilities,
 } from "../src/shared/features";
 import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import {
@@ -75,14 +76,18 @@ describe("Hermes integration product gate", () => {
           host: THIS_MACHINE,
         }).harness,
       ).toBe("claude");
-      expect(THIS_MACHINE_CAPABILITIES).not.toContain("hermes");
+      expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
+      expect(productHostCapabilities(["terminal", "hermes"])).toEqual([
+        "terminal",
+      ]);
       const choices = actorHostChoicesFromEnrollment(
           [
             {
               id: "station-a",
               label: "Station A",
               isThisMachine: false,
-              capabilities: ["terminal"],
+              capabilities: ["terminal", "hermes"],
+              hermesId: "hermes-a",
             },
           ],
           { id: THIS_MACHINE, agentHost: THIS_MACHINE, label: "this machine" },
@@ -92,7 +97,18 @@ describe("Hermes integration product gate", () => {
         agentHost: "station-a",
       });
 
+      const preload = readFileSync("src/preload/index.ts", "utf8");
+      const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
       const terminalIpc = readFileSync("src/main/junto/term/seat-control.ts", "utf8");
+      expect(preload).toContain(
+        "...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {})",
+      );
+      expect(preload).toContain("...chatApi,");
+      expect(ipc).toContain(
+        "if (HERMES_INTEGRATION_ENABLED) {\n    privilegedIpc.handle(IPC_CHANNELS.agentMessage",
+      );
+      expect(ipc).toContain("void registerChatIpc(");
+      expect(ipc).toContain("AppRuntime.runPromise(ChatServiceContext),");
       expect(terminalIpc).toMatch(
         /if \(!managedHarnessEnabled\(node\.harness\)\)\s+return yield\* new HarnessDisabled\(/u,
       );
@@ -106,7 +122,7 @@ describe("Hermes integration product gate", () => {
         "hermes",
       );
       expect(managedHarnessEnabled("hermes")).toBe(true);
-      expect(THIS_MACHINE_CAPABILITIES).not.toContain("hermes");
+      expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
     },
   );
 });
