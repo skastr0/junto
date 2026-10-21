@@ -6,7 +6,10 @@ Draft for 0.10, written from landed commits and kept current by product-releases
 
 Known limits in 0.10: opening a very large file preview reads the whole file
 into memory, with no size cap yet. File artifacts can be made from the CLI
-only.
+only. Tasks canceled at upgrade because their boards were gone open by id but
+not by number, and their old history is not shown, though it is kept. A database
+older than version 13 is refused, and the refusal does not say to upgrade
+through an older release first.
 
 - Tasks, Artifacts and the Browser are on in 0.10. Earlier builds kept them
   off. They are the headline of this release.
@@ -45,7 +48,7 @@ only.
   is refused as stale and names the winner, and a seat on another machine
   queues its commands and sees their state.
 - Upgrade a canvas with tasks without losing any. Open tasks whose task board
-  no longer exists are canceled but stay readable with their history, and
+  no longer exists are canceled and stay in the database, and
   tasks sent on fold into their heads. Wires, seats and regions are unchanged.
 - Start agent seats in a working folder. Junto refuses to start an agent seat
   in the home folder, from Add item, the CLI or a remote machine, because the

@@ -31,21 +31,24 @@ Run on a copy of `~/.junto/junto.db`, never the live file.
       v48 on 2026-10-21, confirm at the cut).
       Receipt: migration chain v25 to v48 green, canvas-verifier (per product-lead; the head is v48, not 47).
 - [x] `PRAGMA integrity_check` is `ok` and `PRAGMA foreign_key_check` is empty.
-      Open: ask canvas-verifier whether the green chain run covered this line and the next four; I need their receipt.
       Receipt: quick_check ok and foreign_key_check empty, canvas-verifier on a .backup of live ~/.junto, v25 to v48 (canvas-lead mail 01M5FPD0PX6NV9Z3VA06CEC5J6). Note: quick_check, not the full integrity_check.
-- [ ] Counts unchanged: wires, seats and regions match the live canvas (444,
+- [x] Counts unchanged: wires, seats and regions match the live canvas (444,
       127 and 80 at v40). Tasks kept (358 at v40), open tasks on deleted
       boards canceled and readable (13 at v32).
-      Partial: all 451 wires kept byte for byte, 146 content_refs kept (same run). Seats, regions, tasks and the cancelled-task count are with canvas-verifier. The 444 figure was v40; the live copy now has 451 wires.
-- [ ] No node of a removed kind remains: requests, board, pad, sheet, cron,
+      Receipt: canvas-verifier at 67970e10f, on copies only (relayed by canvas-lead via product-lead): seats 127, regions 80, 358 tasks plus 5 layers all mapped, 451 wires and 218 nodes kept, only the request-lane rows dropped; 13 open tasks on gone boards canceled and readable by id. The 444 wires figure was v40.
+- [x] No node of a removed kind remains: requests, board, pad, sheet, cron,
       relay, watcher, timer.
+      Receipt: canvas-verifier at 67970e10f, on copies only (relayed by canvas-lead via product-lead).
 - [x] `bun run schema:identity` matches the head identity.
       Receipt: identity 34452160 equals STATE_SCHEMA_V48_IDENTITY, same run.
-- [ ] The oldest openable database is v13 (`from-legacy-row` is gone): a
+- [x] The oldest openable database is v13 (`from-legacy-row` is gone): a
       database below it is refused with a plain message, not a crash.
-- [ ] A backup of the pre-upgrade file exists (`state/backup.ts`) and opens
+      Receipt: canvas-verifier at 67970e10f, on copies only (relayed by canvas-lead via product-lead): a pre-v13 database is refused as StateEngineError, exit 1, no crash, files unchanged. Known issue: the refusal does not say to upgrade through an older release first.
+- [x] A backup of the pre-upgrade file exists (`state/backup.ts`) and opens
       on the previous release.
-- [ ] Relaunch on the migrated copy: no second migration, canvas loads.
+      Receipt: canvas-verifier at 67970e10f, on copies only (relayed by canvas-lead via product-lead): written before any step, opens on 0.9.2 at v25 with its identity.
+- [x] Relaunch on the migrated copy: no second migration, canvas loads.
+      Receipt: canvas-verifier at 67970e10f, on copies only (relayed by canvas-lead via product-lead): a second open runs no step and makes no backup.
 
 ## 3. Builds
 
