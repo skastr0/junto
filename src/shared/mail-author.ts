@@ -5,7 +5,8 @@ import { OPERATOR_SEAT_ID, WorkNodeId, operatorActorRef, type ActorRef } from ".
 /**
  * Who wrote a mail, by kind (docs/machines.md, rule 4). Each kind has one
  * machine it may be written on: a seat's mail on the machine that seat lives
- * on, the operator's and an automation's on the machine that edits the canvas.
+ * on, the operator's and an automation's on the machine that edits the canvas,
+ * a resource's notice on the machine of the seat whose mailbox it is in.
  * The union is closed: a new kind fails `tsc` in every admission until that
  * admission says where the kind is written.
  *
@@ -18,6 +19,13 @@ import { OPERATOR_SEAT_ID, WorkNodeId, operatorActorRef, type ActorRef } from ".
  * automation's own node says which automation wrote.
  */
 export const AUTOMATION_SEAT_ID = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
+
+/**
+ * Stable non-executable identity a resource writes a notice under: a refusal
+ * of a seat's command, told from the refused resource's node. Main writes it,
+ * from the ruling, only into that seat's own mailbox; no caller names it.
+ */
+export const NOTICE_SEAT_ID = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"e".repeat(64)}`);
 
 const OPERATOR_NODE_ID = operatorActorRef("").nodeId;
 
@@ -39,20 +47,38 @@ export const automationActorRef = (canvasName: string, nodeId: AutomationNodeId)
   nodeId,
 });
 
+/** The author of a notice from a resource node: never the operator, never a seat. */
+export const noticeActorRef = (canvasName: string, nodeId: string): ActorRef => ({
+  seatId: NOTICE_SEAT_ID,
+  canvasName,
+  nodeId,
+});
+
 export type MailAuthor =
   | { readonly kind: "seat"; readonly seatId: ActorSeatId; readonly nodeId: string }
   | { readonly kind: "operator" }
   | { readonly kind: "automation"; readonly nodeId: AutomationNodeId }
-  /** The operator's or an automation's identity on a node that is not its own: no machine writes it. */
+  /** A resource's notice into one seat's mailbox: `nodeId` is the resource, `mailbox` the seat's node. */
+  | { readonly kind: "notice"; readonly nodeId: string; readonly mailbox: string }
+  /** A fixed identity on a node that is not its own, or a notice outside a mailbox: no machine writes it. */
   | { readonly kind: "malformed" };
 
 export type MailAuthorKind = MailAuthor["kind"];
 
-/** The author an actor reference names, read from its identity and node together. */
-export const mailAuthorOf = (actor: Pick<ActorRef, "seatId" | "nodeId">): MailAuthor => {
+/**
+ * The author an actor reference names, read from its identity and node
+ * together. `mailbox` is the node of the mailbox the row is in, for mail; a
+ * notice anywhere else, or into its own node, is malformed.
+ */
+export const mailAuthorOf = (actor: Pick<ActorRef, "seatId" | "nodeId">, mailbox?: string): MailAuthor => {
   const operatorNode = actor.nodeId === OPERATOR_NODE_ID;
   if (actor.seatId === OPERATOR_SEAT_ID) return operatorNode ? { kind: "operator" } : { kind: "malformed" };
   if (operatorNode) return { kind: "malformed" };
+  if (actor.seatId === NOTICE_SEAT_ID) {
+    return mailbox !== undefined && mailbox !== actor.nodeId
+      ? { kind: "notice", nodeId: actor.nodeId, mailbox }
+      : { kind: "malformed" };
+  }
   if (actor.seatId === AUTOMATION_SEAT_ID) {
     const nodeId = decodeAutomationNodeId(actor.nodeId);
     return Option.isSome(nodeId) ? { kind: "automation", nodeId: nodeId.value } : { kind: "malformed" };

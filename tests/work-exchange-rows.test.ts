@@ -9,11 +9,12 @@ import {
   decodeExchangeFrame,
   editorTakesFromNoPeer,
   entitledTo,
+  judgedAt,
   peerMayPassOn,
   writtenByItsAuthor,
   type CanvasPlacement,
 } from "../src/shared/work-exchange";
-import { AutomationNodeId, automationActorRef } from "../src/shared/mail-author";
+import { AutomationNodeId, automationActorRef, noticeActorRef } from "../src/shared/mail-author";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { operatorActorRef } from "../src/shared/work-reference";
 
@@ -299,6 +300,27 @@ describe("who may hand a row over, and who wrote it", () => {
     expect(writtenByItsAuthor(decode(mail(editor, { seatId: automation.seatId, nodeId: "operator" }, "peer")), placement)).toBe(false);
     // An automation writes no receipt.
     expect(writtenByItsAuthor(decode(receipt(editor, automation)), placement)).toBe(false);
+  });
+
+  it("holds a resource's notice to the machine of the seat whose mailbox it is in", () => {
+    const notice = noticeActorRef("factory", "board");
+    expect(writtenByItsAuthor(decode(mail(mini, notice, "peer")), placement)).toBe(true);
+    // Into a seat on another machine, or written by the editing machine for the mini's seat.
+    expect(writtenByItsAuthor(decode(mail(mini, notice, "far")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(mail(editor, notice, "peer")), placement)).toBe(false);
+    // From a seat's node, into its own node, or as a receipt: no one's.
+    expect(writtenByItsAuthor(decode(mail(mini, noticeActorRef("factory", "lead"), "peer")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(mail(mini, noticeActorRef("factory", "peer"), "peer")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(receipt(mini, notice)), placement)).toBe(false);
+  });
+
+  it("has the editing machine judge a notice by its mailbox seat, and nothing else by none", () => {
+    const notice = noticeActorRef("factory", "board");
+    expect(editorTakesFromNoPeer(decode(mail(mini, notice, "peer")))).toBe(false);
+    expect(judgedAt(decode(mail(mini, notice, "peer")), placement)).toEqual({ nodeId: "peer" });
+    expect(judgedAt(decode(mail(mini, noticeActorRef("factory", "lead"), "peer")), placement)).toBeUndefined();
+    expect(judgedAt(decode(mail(mini, peer, "lead")), placement)).toEqual({ nodeId: "peer", seatId: peer.seatId });
+    expect(judgedAt(decode(mail(editor, operatorActorRef("factory"), "peer")), placement)).toBeUndefined();
   });
 
   it("has the editing machine take the operator's and an automation's rows from no peer", () => {

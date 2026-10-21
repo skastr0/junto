@@ -261,8 +261,11 @@ author and subject, and the recipient's entitlement. A machine writes for its
 own seats. Operator mail, an automation's mail and signal answers or
 dismissals come from the canvas's editing machine, where automations run; the
 editing machine takes them from no peer. A mail author is one of a closed set
-of kinds (seat, operator, automation), each admitted from one machine; an
-identity on a node that is not its own is no author. A command's actor is
+of kinds (seat, operator, automation, notice), each admitted from one
+machine; an identity on a node that is not its own is no author. A notice is
+a resource's word to one seat, in that seat's own mailbox, written by that
+seat's machine: its sender is the resource node, stamped from the author like
+every sender, never taken from a row's metadata. A command's actor is
 judged the same way: a seat's command row is valid only from the machine
 placement says that seat was on when it was written, and an operator's or an
 automation's command is written on the editing machine and taken from no

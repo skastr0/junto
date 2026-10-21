@@ -220,17 +220,6 @@ export const signalStatedTo = (
 };
 
 /**
- * The seat identity a row names: the receiving seat of a receipt, the sender
- * of mail, the seat a command is from. Only for a row `rowAuthorOf` calls a
- * seat's; every admission asks `rowAuthorOf` first.
- */
-export const authorOf = (fact: ExchangeFact): { readonly seatId: ActorSeatId; readonly nodeId: string } => {
-  const author = rowAuthorOf(fact);
-  if (author.kind !== "seat") throw new Error("a row with no seat author");
-  return author;
-};
-
-/**
  * May this peer hand over rows written by this writer for this canvas? Only a
  * machine that holds the canvas, and then only the writer itself or the
  * machine that edits that exact canvas.
@@ -251,7 +240,7 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
   const { body } = fact;
   switch (body.operation) {
     case "message.append":
-      return mailAuthorOf(body.sentBy);
+      return mailAuthorOf(body.sentBy, fact.item.sink.nodeId);
     case "delivery.accepted": {
       const author = mailAuthorOf(body.receipt.actor);
       return author.kind === "seat" ? author : { kind: "malformed" };
@@ -287,7 +276,8 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
  * The one machine this author writes on, or none. A seat writes on the
  * machine it lives on, under that seat's own identity. The operator and an
  * automation write only on the machine that edits the canvas: automations run
- * there and nowhere else, and never on a seat's node.
+ * there and nowhere else, and never on a seat's node. A resource's notice is
+ * written by the machine of the seat it is for, into that seat's mailbox.
  */
 export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): InstallationId | undefined => {
   switch (author.kind) {
@@ -300,6 +290,9 @@ export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): 
     case "automation":
       // Never under a seat's node: a mail would name that seat as its sender.
       return placement.seatOf(author.nodeId) === undefined ? placement.editor : undefined;
+    case "notice":
+      // Written by the machine of the seat whose mailbox it is in, from a node that is no seat's.
+      return placement.seatOf(author.nodeId) === undefined ? placement.seatOf(author.mailbox)?.machine : undefined;
     case "malformed":
       return undefined;
     default: {
@@ -321,18 +314,46 @@ export const writtenByItsAuthor = (
 /**
  * Does the machine that edits the canvas refuse this row from every peer? It
  * does for an author only it writes for (the operator, an automation) and for
- * one no machine writes for. A seat's row it judges against where that seat
- * was at the canvas count the row states.
+ * one no machine writes for. A seat's row, and a notice, it judges against
+ * where a seat was at the canvas count the row states (`judgedAt`).
  */
 export const editorTakesFromNoPeer = (fact: ExchangeFact): boolean => {
   const author = rowAuthorOf(fact);
   switch (author.kind) {
     case "seat":
+    case "notice":
       return false;
     case "operator":
     case "automation":
     case "malformed":
       return true;
+    default: {
+      const unreachable: never = author;
+      return unreachable;
+    }
+  }
+};
+
+/**
+ * The seat whose placement the editing machine judges a row by: the author
+ * seat itself, under its own identity, or for a notice the seat whose mailbox
+ * it is in, by node, when the notice's own node holds no seat. None for an
+ * author only the editing machine writes, or no machine does.
+ */
+export const judgedAt = (
+  fact: ExchangeFact,
+  placement: CanvasPlacement,
+): { readonly nodeId: string; readonly seatId?: ActorSeatId } | undefined => {
+  const author = rowAuthorOf(fact);
+  switch (author.kind) {
+    case "seat":
+      return { nodeId: author.nodeId, seatId: author.seatId };
+    case "notice":
+      return placement.seatOf(author.nodeId) === undefined ? { nodeId: author.mailbox } : undefined;
+    case "operator":
+    case "automation":
+    case "malformed":
+      return undefined;
     default: {
       const unreachable: never = author;
       return unreachable;

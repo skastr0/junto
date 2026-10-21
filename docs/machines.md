@@ -79,7 +79,11 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    nothing. A machine writes only for its own seats: mail from a seat, and a
    receipt or signal for a seat, are valid only from the machine that seat is
    on; mail from the operator or an automation, and an answer to a signal,
-   only from the machine that edits the canvas. A
+   only from the machine that edits the canvas. A resource's notice (the
+   refusal of a seat's command, from the refused node, under a fixed
+   identity no caller names) is valid only in that seat's own mailbox, only
+   from a node that holds no seat, and only from the machine that seat was on
+   at the canvas count the row states. A
    row that breaks this, or that arrives twice with different content, closes
    the link. The exchange has its own closed list and admits nothing else:
    mail, receipts, signals, session facts, `command.queued` rows and the

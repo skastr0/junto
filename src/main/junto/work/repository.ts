@@ -6,10 +6,10 @@ import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/w
 import { workProjectionChanges } from "./projection-changes";
 import {
   ExchangeFact,
-  authorOf,
   compareSequence,
   editorTakesFromNoPeer,
   entitledTo,
+  judgedAt,
   peerMayPassOn,
   writtenByItsAuthor,
   type CanvasPlacement,
@@ -4502,17 +4502,20 @@ const exchangeCursorOf = Effect.fn("work.exchangeCursorOf")(function* (
 });
 
 /**
- * On the machine that edits a canvas: was the author of this row a seat on the
- * row's writer at the canvas count the row states, and is that a count this
- * machine sent that writer? A writer cannot state a count it was never sent,
- * and a count cannot put a seat where it was not.
+ * On the machine that edits a canvas: was the seat this row is judged by
+ * (`judgedAt`: its author, or for a notice the seat whose mailbox it is in) on
+ * the row's writer at the canvas count the row states, and is that a count
+ * this machine sent that writer? A writer cannot state a count it was never
+ * sent, and a count cannot put a seat where it was not.
  */
 const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function* (
   reader: SqlClient.SqlClient,
   fact: ExchangeFact,
+  placement: CanvasPlacement,
 ): Effect.fn.Return<boolean, WorkSqlFailure> {
   if (fact.basis.kind !== "canvas") return false;
-  const author = authorOf(fact);
+  const seat = judgedAt(fact, placement);
+  if (seat === undefined) return false;
   const writer = fact.id.route.eventHome;
   const rows = yield* reader.unsafe<{ found: number }>(
     `
@@ -4520,7 +4523,7 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
       FROM canvas_placements AS placed
       WHERE placed.canvas_name = ?
         AND placed.node_id = ?
-        AND placed.seat_id = ?
+        AND (? IS NULL OR placed.seat_id = ?)
         AND placed.machine = ?
         AND placed.from_seq <= ?
         AND (placed.until_seq IS NULL OR ? < placed.until_seq)
@@ -4532,8 +4535,9 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
     `,
     [
       fact.item.sink.canvasName,
-      author.nodeId,
-      author.seatId,
+      seat.nodeId,
+      seat.seatId ?? null,
+      seat.seatId ?? null,
       writer,
       fact.basis.seq,
       fact.basis.seq,
@@ -7557,7 +7561,7 @@ export const WorkRepositoryLive = Layer.effect(
               }
               const authored =
                 placement.editor === self
-                  ? !editorTakesFromNoPeer(fact) && (yield* exchangeAuthorWasThere(writer, fact))
+                  ? !editorTakesFromNoPeer(fact) && (yield* exchangeAuthorWasThere(writer, fact, placement))
                   : peer === placement.editor || writtenByItsAuthor(fact, placement);
               if (!authored) {
                 return yield* Effect.fail(refuseExchange("a row was not written where its author lives"));
