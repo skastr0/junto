@@ -4,6 +4,9 @@ export { ListRow } from "./ListRow";
 export { Eyebrow } from "./Eyebrow";
 export { StatusDot, type StatusTone } from "./StatusDot";
 export { Chip, type ChipTone } from "./Chip";
+export { ResourceChip } from "./ResourceChip";
+export { TaskStateMark, StampTally } from "./TaskStateMark";
+export { TwoPane, PaneHeader, PaneEmpty } from "./TwoPane";
 export {
   Input,
   Textarea,

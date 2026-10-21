@@ -29,6 +29,7 @@ export function ListRow({
   title,
   meta,
   selected = false,
+  pending = false,
   type = "button",
   ...rest
 }: {
@@ -38,12 +39,18 @@ export function ListRow({
   /** Right aligned beside the title. Digits do not shift as they change. */
   readonly meta?: ReactNode;
   readonly selected?: boolean;
+  /** A queued command the editing machine has not ruled yet (02): a dashed edge, read aloud as "queued". */
+  readonly pending?: boolean;
 } & Omit<ComponentPropsWithRef<"button">, "title" | "className" | "aria-current" | "children">) {
-  const row = "flex h-7 w-full shrink-0 items-center gap-2 rounded-sm px-2.5 text-left";
+  const row =
+    "flex h-7 w-full shrink-0 items-center gap-2 rounded-sm px-2.5 text-left data-[pending=true]:outline data-[pending=true]:outline-1 data-[pending=true]:-outline-offset-1 data-[pending=true]:outline-dashed data-[pending=true]:outline-stroke-hi";
   const content = (
     <>
       {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}
-      <span className="min-w-0 flex-1 truncate text-body leading-compact font-medium text-ink">{title}</span>
+      <span className="min-w-0 flex-1 truncate text-body leading-compact font-medium text-ink">
+        {title}
+        {pending ? <span className="sr-only">, queued</span> : null}
+      </span>
       {meta ? <span className="shrink-0 text-label leading-compact text-dim tabular-nums">{meta}</span> : null}
     </>
   );
@@ -55,6 +62,7 @@ export function ListRow({
         ref={ref as ComponentPropsWithRef<"div">["ref"]}
         aria-current={undefined}
         data-selected={selected ? "true" : undefined}
+        data-pending={pending ? "true" : undefined}
         className={`${row} data-[selected=true]:bg-overlay-2`}
       >
         {content}
@@ -67,6 +75,7 @@ export function ListRow({
       {...rest}
       aria-current={selected ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
+      data-pending={pending ? "true" : undefined}
       className={[
         row,
         "outline-none transition-colors select-none",
