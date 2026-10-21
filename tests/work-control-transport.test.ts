@@ -394,6 +394,22 @@ describe("work control transport", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("refuses a seat's automation write as not permitted and points it at the read", async () => {
+    const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => ({
+      ok: true, operation: request.operation, data: {},
+    }));
+    const { server } = await startTestServer({ onOverseer: execute });
+    const write = { token: token(), op: "overseer", args: { operation: "automation.run", args: {} } };
+    expect(await call(server.socketPath, write)).toMatchObject({
+      ok: false,
+      error: {
+        type: "ScopeError",
+        details: { reason: "not_permitted", next_step: expect.stringContaining("junto automation show") },
+      },
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("admits only human-enabled overseers through the paused, no-edge administrative route", async () => {
     const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request, caller) => ({
       ok: true, operation: request.operation, data: { caller },

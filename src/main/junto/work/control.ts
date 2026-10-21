@@ -132,7 +132,7 @@ import {
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
-import { isAutomationReadOp } from "@shared/automation-control";
+import { isAutomationReadOp, isAutomationWriteOp } from "@shared/automation-control";
 import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
 import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
 import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
@@ -3162,6 +3162,20 @@ export const startWorkControlServer = async (
           if (req.op === "overseer") {
             const node = callerResolved.caller.node;
             if (node.kind !== "agent" || node.overseer !== true) {
+              const operation = (req.args as { readonly operation?: unknown } | null | undefined)?.operation;
+              // Seats read automations; only the operator and overseers write them (plan 07).
+              if (typeof operation === "string" && isAutomationWriteOp(operation)) {
+                return Result.fail<WorkErrorBody>({
+                  type: "ScopeError",
+                  message: "only the operator and overseers write automations; seats read them",
+                  details: {
+                    reason: "not_permitted",
+                    retryable: false,
+                    caller: caller.nodeId,
+                    next_step: "junto automation show reads it; ask the operator or an overseer to change it",
+                  },
+                });
+              }
               return Result.fail<WorkErrorBody>({
                 type: "ScopeError",
                 message: "only a human-enabled overseer seat may administer the canvas",
