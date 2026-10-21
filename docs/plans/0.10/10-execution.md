@@ -131,6 +131,11 @@ everyone else reports by mail and on the needs-you feed.
 | cli L1 contracts | cli-protocol, review cli-lead | started |
 | cli L2 `junto task` | cli-performance, review cli-identity | started |
 | cli L3 `junto artifact` | cli-identity, review cli-performance | started |
+| Artifacts main side: read ops, repository, version table, ruler's artifact ops | cli-identity (L3), on product-shell's `artifact.ts`, migration slot from canvas C3 | started |
+| Tasks main side: ops and ruler integration | canvas C4 if it covers them, else cli-performance (L2); cli-lead and canvas-lead settle | open |
+| Region reach contract | canvas, 945dc0d1c | landed |
+| Ids: `work-ids.ts` owns `ItemId` and `OpId`; others import | cli-protocol | decided, landing |
+| Listbox ARIA model | product-accessibility, a07e90e17 | landed |
 | cli L4 `junto automation` | cli-external, review cli-overseer | started |
 | cli L5 `junto browser` port | cli-overseer, review cli-external | started |
 | cli L6 onboard output | cli-skill, review cli-protocol | started |
