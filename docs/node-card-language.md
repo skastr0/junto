@@ -67,7 +67,7 @@ instead of a wash. Measure it; if it costs raster at hundreds of nodes, use
 
 | Kind | Chip | Spine and line | Status |
 |---|---|---|---|
-| Tasks | list glyph (green), name, count | meta "1 backlog, 0 open, 0 done"; rows `#n title` with a state glyph (backlog dashed circle, blocked, needs you), needs-you and blocked first | Blocked, Needs you |
+| Tasks | list glyph (green), name, count | meta "1 backlog, 0 open, 0 done"; rows `#n title` with a state glyph (backlog dashed circle, blocked, needs you), needs-you and blocked first | Blocked when a seat waits on input; Needs you when the operator owes a stamp (a task in review that lists the operator as a reviewer with no current operator stamp) |
 | Artifacts | package glyph (violet), name, count | meta "N artifacts"; rows type glyph and title | none |
 | Automations | workflow glyph (amber), name, count | meta "N on, N off"; rows on dot or off hollow, name, trigger in words (weekdays 09:00 UTC) | Failed when the last firing failed (blocked tone), Off when all are off |
 | Page | globe (indigo), host | line "browser page, <profile>" | Working while a seat drives it |
@@ -93,6 +93,27 @@ and do not join the seat ring-room solve; clusters stay seats only.
   also takes its tone as the border, 2 screen px. This replaces
   `border-color: transparent !important` in `canvas-lod.css`.
 - Notes keep a 10 by 26 screen-px amber tick; labels floor at 13 screen px.
+
+## Names, focus and keys
+
+The focusable element is the React Flow wrapper (`.react-flow__node`, tabindex
+0), which now takes in the chip, the spine and the rows. The wrapper keeps
+`outline: none`; `.react-flow__node:focus-visible` draws the ring instead.
+- The ring is on the head chip only: `outline: calc(2px * var(--s)) solid
+  var(--color-cyan)`, offset `calc(3px * var(--s))`. `--s` is defined at near
+  too (1 at 100 percent), so the ring is the same in screen pixels at every zoom.
+- Note and label have no chip: the ring goes around the text block, radius
+  `--radius-sm`, same width and offset.
+- At far the ring follows the disc (round) and sits outside the 2 screen-px
+  blocked or needs-you border, so focus never hides the status tone.
+- The task enqueue plus is a real tab stop inside the node (Tab goes node,
+  plus, next node): `aria-label` "Add a task to <name>", its own cyan
+  focus-visible ring, and full opacity on focus-visible, not only on hover.
+- Spine rows are not tab stops and take no keys in 0.10; do not add per-row
+  buttons. Cmd or Ctrl+Enter on the node opens it, as now. Tab order stays the
+  DOM order of nodes.
+- Selection (main ring, 1px) and focus (cyan outline, offset) stay distinct.
+  The cyan Working tag is a pill beside the chip, never an outline.
 
 ## Names and access
 
