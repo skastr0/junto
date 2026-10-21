@@ -452,10 +452,13 @@ describe("physics across machines", () => {
     if (Result.isFailure(page)) expect(page.failure.reason).toBe("no_port");
   });
 
-  it.runIf(reachKindsOn)("a resource node is reached whichever machine edits the canvas: the write travels there", () => {
+  it("a resource node is reached whichever machine edits the canvas: the write travels there", () => {
     const doc = canvasOf([agent("worker"), taskBoard("board", { x: 200 })]);
     for (const editingMachine of [THIS_MACHINE, OTHER_MACHINE]) {
-      expect(Result.isSuccess(admits(doc, "worker", "board", "tasks.claim", editingMachine)), editingMachine).toBe(true);
+      // Where the build gates the kind off (ship), it is refused from every machine.
+      const result = admits(doc, "worker", "board", "tasks.claim", editingMachine);
+      expect(Result.isSuccess(result), editingMachine).toBe(reachKindsOn);
+      if (!reachKindsOn && Result.isFailure(result)) expect(result.failure.reason, editingMachine).not.toBe("other_machine");
     }
   });
 
