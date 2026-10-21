@@ -12,6 +12,11 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { useTwoClickArm } from "../../lib/two-click-arm";
 import { Button, OverlayHeader } from "../ui";
+import { BrowserChrome } from "../browser/BrowserChrome";
+import { browserChromeApi, runChromeCommand, useBrowserChromeState } from "../../lib/browser-chrome-source";
+import { titleOf } from "@shared/model/title";
+import { nodeAt } from "../../lib/use-model";
+import { state$ } from "../../lib/state";
 
 type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
@@ -38,6 +43,14 @@ export function BrowserSurfaceSlot({
   const session = use$(browser$.sessionByRef[pageRef]);
   const opError = use$(dock$.opErrorByRef[pageRef]);
   const sessionId = session?.sessionId;
+  const chrome = browserChromeApi();
+  const chromeState = useBrowserChromeState(chrome, sessionId);
+  const canvasName = use$(state$.canvasName);
+  const now = useNow(chromeState === undefined ? null : 1_000);
+  const seatName = (id: string): string | undefined => {
+    const found = nodeAt(canvasName, id);
+    return found === undefined ? undefined : titleOf(found);
+  };
   const sessionState = session?.state;
   const bodyRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("attaching…");
@@ -199,6 +212,35 @@ export function BrowserSurfaceSlot({
     if (candidate && !alerts.includes(candidate)) alerts.push(candidate);
   }
 
+  const pageActions = (
+    <>
+      <Button
+        size="xs"
+        variant={stopArm.armed ? "danger" : "chrome"}
+        className={stopArm.armed ? "ring-1 ring-crimson/60" : undefined}
+        title={stopArm.armed ? "Click again to stop the page session" : "Stop the page session"}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          stopArm.arm();
+        }}
+      >
+        {stopArm.armed ? "Confirm" : "Stop Page"}
+      </Button>
+      <Button
+        size="xs"
+        variant="primary"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeDockBrowser(pageRef);
+        }}
+      >
+        Close
+      </Button>
+    </>
+  );
+
   return (
     <section
       className="dock-slot workbench-surface nokey"
@@ -215,6 +257,15 @@ export function BrowserSurfaceSlot({
     >
       {visible ? (
         <>
+          {chrome && chromeState ? (
+            <BrowserChrome
+              state={chromeState}
+              now={now}
+              seatName={seatName}
+              onCommand={(command) => runChromeCommand(chrome, sessionId!, command)}
+              trailing={pageActions}
+            />
+          ) : (
           <OverlayHeader
             eyebrow={`page - ${payload.browser.profile}`}
             title={session?.title ?? payload.title}
@@ -225,35 +276,9 @@ export function BrowserSurfaceSlot({
                 {stateLabel}
               </>
             }
-            actions={
-              <>
-                <Button
-                  size="xs"
-                  variant={stopArm.armed ? "danger" : "chrome"}
-                  className={stopArm.armed ? "ring-1 ring-crimson/60" : undefined}
-                  title={stopArm.armed ? "Click again to stop the page session" : "Stop the page session"}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    stopArm.arm();
-                  }}
-                >
-                  {stopArm.armed ? "Confirm" : "Stop Page"}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="primary"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    closeDockBrowser(pageRef);
-                  }}
-                >
-                  Close
-                </Button>
-              </>
-            }
+            actions={pageActions}
           />
+          )}
           {endedStory ? (
             <div
               className="shrink-0 border-b border-stroke px-3.5 py-1.5 text-[11px] leading-snug text-dim"
@@ -276,3 +301,14 @@ export function BrowserSurfaceSlot({
     </section>
   );
 }
+
+/** The time, ticking every `everyMs`, so a driver mark ages out; null does not tick. */
+const useNow = (everyMs: number | null): number => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (everyMs === null) return;
+    const id = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(id);
+  }, [everyMs]);
+  return now;
+};

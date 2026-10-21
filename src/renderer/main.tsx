@@ -60,6 +60,12 @@ const TasksNodeGallery = lazy(() =>
   import("./components/gallery/TasksNodeGallery").then((m) => ({ default: m.TasksNodeGallery })),
 );
 
+// Dev gallery for the page chrome (`#/gallery/browser-chrome`).
+const BROWSER_CHROME_GALLERY = "#/gallery/browser-chrome";
+const BrowserChromeGallery = lazy(() =>
+  import("./components/gallery/BrowserChromeGallery").then((m) => ({ default: m.BrowserChromeGallery })),
+);
+
 function AppRoot() {
   const api = window.junto;
 
@@ -81,6 +87,14 @@ function AppRoot() {
     return (
       <Suspense fallback={null}>
         <CodeViewGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(BROWSER_CHROME_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <BrowserChromeGallery />
       </Suspense>
     );
   }
