@@ -542,6 +542,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     quiet: Effect.suspend(() => Effect.forEach([...links.values()], (state) => state.quiet.await, { discard: true })),
     /** Is a link open to that machine right now. */
     linked: (peer: InstallationId): boolean => links.has(peer),
+    /** Where the seats of a canvas live, and which machine edits it; absent when this machine does not hold it. */
+    placement: (canvasName: string): Effect.Effect<CanvasPlacement | undefined> => deps.placement(canvasName),
     /**
      * Does mail for that seat of another machine leave on an open link: one to
      * the seat's machine, or to the machine that edits the canvas and passes

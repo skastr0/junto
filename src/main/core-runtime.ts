@@ -23,6 +23,9 @@ import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/l
 import type { RowExchange } from "./junto/work/exchange/session";
 import { messageDelivery } from "./junto/work/message-delivery";
 import { ContentService } from "./junto/content/service";
+import { ContentPullFailed, makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "./junto/content/pull";
+import type { ContentPullRefused, ResourceReached } from "@shared/content-pull";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { makeMachineFiles, pushFileToMachine } from "./junto/content/machine-files";
 import { SshTransport } from "./junto/ssh";
 import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
@@ -71,6 +74,13 @@ export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
 export class MachineCoreRows extends Context.Service<MachineCoreRows, {
   readonly exchange: RowExchange;
   readonly handler: LinkChannelHandler;
+  /** The link's content channel: this machine serves the bodies of the canvases it edits. */
+  readonly content: LinkChannelHandler;
+  /**
+   * Bring a resource body here from the machine that edits its canvas and keep
+   * it under `owner`. The resource must be in reach of who asked: `reached`.
+   */
+  readonly pullBody: (input: { readonly ref: ContentRef; readonly owner: PulledOwner; readonly reached: ResourceReached }) => Effect.Effect<void, ContentPullRefused | ContentPullFailed>;
   readonly onSignalTaken: (notify: (signal: AgentSignal) => void) => void;
 }>()("@junto/MachineCoreRows") {}
 
@@ -152,6 +162,31 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   messageDelivery.followLinks((canvas, nodeId) => Effect.runPromiseWith(context)(exchange.routed(canvas, nodeId)));
   const files = makeMachineFiles((machine, ref) => Effect.runPromiseWith(fileContext)(pushFileToMachine(machine, ref)));
   messageDelivery.followFiles(files.push);
+  const store = yield* ContentService;
+  const self = yield* machines.installationId;
+  const content = makeContentChannel({
+    root: store.root,
+    canvas: (canvasName, peer) => exchange.placement(canvasName).pipe(Effect.map((placement) => ({ edits: placement?.editor === self, peerLinked: placement?.holds(peer) ?? false }))),
+    verified: (ref) => store.heldVerified(ref),
+    owners: (sha256) => store.listRefs(sha256).pipe(Effect.map((rows) => rows.map((row) => ({ kind: row.owner.kind, canvasName: row.owner.canvasName })))),
+  });
+  const pulls = makeContentPulls();
+  const pullBody: MachineCoreRows["Service"]["pullBody"] = ({ ref, owner, reached }) => Effect.gen(function* () {
+    const failed = (message: string) => new ContentPullFailed({ sha256: ref.sha256, byteLength: ref.byteLength, message });
+    const placement = yield* exchange.placement(owner.canvasName);
+    if (placement === undefined) return yield* Effect.fail(failed("this machine does not hold the canvas"));
+    // The editing machine holds every body of its canvases already.
+    if (placement.editor === self) return;
+    const editor = (yield* machines.peers.pipe(Effect.orElseSucceed(() => []))).find((peer) => peer.installationId === placement.editor);
+    if (editor === undefined) return yield* Effect.fail(failed("the machine that edits the canvas is not set up here"));
+    const pull = pullContent({
+      root: store.root,
+      ask: (request) => links.request(editor.machineName, "content", request),
+      keep: (kept, keptOwner) => store.keepPublished({ ref: kept, owner: keptOwner }),
+    }, { ref, owner, reached });
+    const exit = yield* Effect.promise(() => pulls.pull(ref, () => Effect.runPromiseExit(pull)));
+    return yield* exit;
+  });
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {
     stopFollowing();
@@ -160,7 +195,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     messageDelivery.followFiles(undefined);
     files.stop();
   }));
-  return { exchange, handler: makeRowsChannel(exchange), onSignalTaken: notify => { notifySignal = notify; } };
+  return { exchange, handler: makeRowsChannel(exchange), content, pullBody, onSignalTaken: notify => { notifySignal = notify; } };
 }));
 
 export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {

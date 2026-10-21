@@ -171,7 +171,7 @@ export const pullContent = (deps: ContentPullDeps, input: { readonly ref: Conten
  * link's requests in flight. A second ask for an object joins the first.
  */
 export const makeContentPulls = () => {
-  const inFlight = new Map<string, Promise<void>>();
+  const inFlight = new Map<string, Promise<unknown>>();
   const queue: Array<() => void> = [];
   let running = 0;
   const slot = () =>
@@ -186,9 +186,9 @@ export const makeContentPulls = () => {
     queue.shift()?.();
   };
   return {
-    pull: (ref: ContentRef, run: () => Promise<void>): Promise<void> => {
+    pull: <T>(ref: ContentRef, run: () => Promise<T>): Promise<T> => {
       const known = inFlight.get(ref.sha256);
-      if (known !== undefined) return known;
+      if (known !== undefined) return known as Promise<T>;
       const started = slot().then(() => run().finally(release)).finally(() => inFlight.delete(ref.sha256));
       inFlight.set(ref.sha256, started);
       return started;

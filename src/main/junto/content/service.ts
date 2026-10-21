@@ -111,6 +111,19 @@ export type ContentServiceShape = {
   readonly listRefs: (
     sha256: string,
   ) => Effect.Effect<ReadonlyArray<ContentRefRow>, ContentManifestError>;
+  /** The manifest's receipt that this object was verified here, at that length. */
+  readonly heldVerified: (ref: {
+    readonly sha256: string;
+    readonly byteLength: number;
+  }) => Effect.Effect<boolean, ContentManifestError>;
+  /**
+   * Keep an object the store has already published, verified whole against
+   * its digest (a pulled body, src/main/junto/content/pull.ts), under an owner.
+   */
+  readonly keepPublished: (input: {
+    readonly ref: ContentRef;
+    readonly owner: ContentOwner;
+  }) => Effect.Effect<void, ContentManifestError | SqlError.SqlError>;
   /**
    * Release every reference an owner holds (a closed signal's attachments).
    * The bytes go at the next garbage collection that finds them unreferenced.
@@ -297,6 +310,20 @@ const makeContentService = (
   localPath: (ref) => Effect.sync(() => projectContentLocalPath(root, ref)),
 
   listRefs: (sha256) => manifest.listContentRefsForObject(sha256),
+
+  heldVerified: (ref) =>
+    manifest.getContentObject(ref.sha256).pipe(Effect.map((row) => row?.byteLength === ref.byteLength)),
+
+  keepPublished: ({ ref, owner }) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        yield* manifest.recordContentObject({ sha256: ref.sha256, byteLength: ref.byteLength, verifiedAt: new Date().toISOString() });
+        // Once per owner: a body pulled again is the same keeping.
+        const held = yield* manifest.listContentRefsForObject(ref.sha256);
+        const same = held.some((row) => row.owner.kind === owner.kind && row.owner.canvasName === owner.canvasName && row.owner.nodeId === owner.nodeId && row.owner.recordId === owner.recordId);
+        if (!same) yield* manifest.recordContentRef({ ref, owner });
+      }),
+    ),
 
   releaseOwner: (owner) =>
     sql

@@ -1519,7 +1519,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       const inventory = await AppRuntime.runPromise(makeInventoryChannel());
       const nativeConfig = await AppRuntime.runPromise(makeNativeConfigChannel());
       const settings = await AppRuntime.runPromise(makeSettingsChannel());
-      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, seats: seats.handler, inventory, settings, "native-config": nativeConfig }));
+      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig }));
       machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
       if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
     } catch (error) {
