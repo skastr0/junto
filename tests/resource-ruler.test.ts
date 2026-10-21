@@ -21,6 +21,7 @@ import { InstallationId } from "../src/shared/installation-id";
 import { OpId } from "../src/shared/work-ids";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { canvasOf, seat, taskBoard } from "./support/model-nodes";
+import { TASKS_ENABLED } from "../src/shared/features";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const SELF = id("macbook");
@@ -115,7 +116,7 @@ afterAll(async () => {
 });
 
 describe("the editing machine's ruler", () => {
-  it("rules a backlog held before this machine edited the canvas, once it does, each writer's in order", async () => {
+  it.runIf(TASKS_ENABLED)("rules a backlog held before this machine edited the canvas, once it does, each writer's in order", async () => {
     await setEditor(OTHER);
     const first = op();
     const second = op();
@@ -135,7 +136,7 @@ describe("the editing machine's ruler", () => {
     expect(ruled).toEqual([first, second]);
   });
 
-  it("rules what a ruler started after it was queued finds held", async () => {
+  it.runIf(TASKS_ENABLED)("rules what a ruler started after it was queued finds held", async () => {
     const held = op();
     await queue(command(held));
     const ruled: Array<OpId> = [];
@@ -143,19 +144,37 @@ describe("the editing machine's ruler", () => {
     expect(ruled).toEqual([held]);
   });
 
-  it("keeps queued a kind with no ruler, and every command that builds on it", async () => {
-    const artifact = op();
+  it.runIf(TASKS_ENABLED)("refuses not_available a kind with no ruler, and what builds on it depends_on_refused in the same sweep", async () => {
+    const thread = op();
     const built = op();
-    await queue(command(artifact, { target: { kind: "thread", nodeId: "board-1" } as never }));
-    await queue(command(built, { after: [artifact] }));
+    await queue(command(thread, { target: { kind: "thread", nodeId: "board-1" } as never }));
+    await queue(command(built, { after: [thread] }));
     const ruled: Array<OpId> = [];
     await runtime.runPromise((await rulerOver(ruled)).sweep("factory"));
     expect(ruled).toEqual([]);
-    expect(await stateOf(artifact)).toEqual({ kind: "queued" });
-    expect(await stateOf(built)).toEqual({ kind: "queued" });
+    const refused = await stateOf(thread);
+    expect(refused.kind === "refused" && refused.ruling.reason).toBe("not_available");
+    const after = await stateOf(built);
+    expect(after.kind === "refused" && { reason: after.ruling.reason, root: after.ruling.root }).toEqual({ reason: "depends_on_refused", root: thread });
   });
 
-  it("refuses what the domain cannot rule, and what builds on a refusal names its root", async () => {
+  it.runIf(!TASKS_ENABLED)("refuses not_available a peer's task command in a tasks-off build, never leaving it queued", async () => {
+    const task = op();
+    const built = op();
+    await queue(command(task));
+    await queue(command(built, { after: [task] }));
+    const ruled: Array<OpId> = [];
+    await runtime.runPromise((await rulerOver(ruled)).sweep("factory"));
+    // The task domain is there; the build turns its product off. A task command
+    // that builds on it is itself of a kind this build turns off.
+    expect(ruled).toEqual([]);
+    for (const opId of [task, built]) {
+      const refused = await stateOf(opId);
+      expect(refused.kind === "refused" && refused.ruling.reason).toBe("not_available");
+    }
+  });
+
+  it.runIf(TASKS_ENABLED)("refuses what the domain cannot rule, and what builds on a refusal names its root", async () => {
     const bad = op();
     const built = op();
     await queue(command(bad, { op: { kind: "bad" } }));

@@ -293,6 +293,17 @@ export const overseerOperationEnabled = (operation: string): boolean => {
 };
 
 /**
+ * Whether this build runs a resource kind's commands. A command of a kind
+ * that is off is refused whole on every way in: the work socket, the
+ * renderer's resource IPC and a peer's queued command.
+ */
+export const productResourceKindEnabled = (kind: string): boolean => {
+  if (kind === "task") return TASKS_ENABLED;
+  if (kind === "artifact") return ARTIFACTS_ENABLED;
+  return true;
+};
+
+/**
  * The build features a harness template may name as its authoring gate, and
  * whether each is on. The template declares which one is its own.
  */

@@ -11,9 +11,10 @@
  * commit and its wake-up, or a change of editor, loses no command.
  *
  * A ruling is final, so only what can never apply is refused here: a target
- * that names no node of its kind, an op its domain cannot decode, or a
- * command built on a refused one. A command whose domain has no ruler in this
- * build, or whose `after` names a command not ruled yet, stays queued.
+ * that names no node of its kind, a kind this build turns off or rules no
+ * domain for (refused not_available, so the writer's machine hears of it), an
+ * op its domain cannot decode, or a command built on a refused one. A command
+ * whose `after` names a command not ruled yet stays queued.
  */
 import { Context, Effect, Layer, Option, Result, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -21,6 +22,7 @@ import { ArtifactOp } from "@shared/artifact";
 import { TARGET_NODE_KINDS, type OpState, type QueuedCommand } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import type { Canvas } from "@shared/model";
+import { productResourceKindEnabled } from "@shared/features";
 import { refusalError, type Refusal, type ResourceKind } from "@shared/resource-command";
 import { rulingContextOf } from "@shared/ruling-context";
 import { taskRefusalMessage } from "@shared/task-machine";
@@ -128,6 +130,18 @@ export const makeResourceRuler = (ports: RulerPorts) =>
             );
             continue;
           }
+          // Before the after chain, so what builds on it is refused depends_on_refused in this sweep.
+          const kind = command.target.kind;
+          const domain = productResourceKindEnabled(kind) ? ports.domains[kind] : undefined;
+          if (domain === undefined) {
+            yield* ports.record(
+              refused(canvasName, writer, command, {
+                reason: "not_available",
+                message: productResourceKindEnabled(kind) ? `This Junto build rules no ${kind} commands` : `${kind} is turned off in this Junto build`,
+              }, command.opId),
+            );
+            continue;
+          }
           const after = yield* afterOf(ports, canvasName, writer, command);
           if (after.kind === "wait") continue;
           if (after.kind === "refused") {
@@ -140,8 +154,6 @@ export const makeResourceRuler = (ports: RulerPorts) =>
             );
             continue;
           }
-          const domain = ports.domains[command.target.kind];
-          if (domain === undefined) continue;
           const verdict = yield* domain(writer, command, canvas);
           if (verdict.kind === "refuse") yield* ports.record(refused(canvasName, writer, command, verdict.refusal, command.opId));
         }

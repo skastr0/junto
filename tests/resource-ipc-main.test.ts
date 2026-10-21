@@ -28,6 +28,7 @@ import {
 } from "../src/main/junto/work/resource-ipc";
 import { artifacts, canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model";
+import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 
 const board = canvasOf(
   [
@@ -321,7 +322,21 @@ describe("change notices", () => {
     expect(notices).toEqual([["artifact", "factory"]]);
   });
 
-  it("reach the windows for the domains this build has, and the handlers are registered the same way", async () => {
+  it.runIf(!TASKS_ENABLED && !ARTIFACTS_ENABLED)("in a build with tasks and artifacts off, registers no channel even when asked to", () => {
+    const handlers = new Map<string, unknown>();
+    const stop = registerResourceIpc(
+      { handle: (channel: string, listener: unknown) => handlers.set(channel, listener) } as never,
+      (effect) => Effect.runPromise(effect as Effect.Effect<never>),
+      portsOf().ports,
+      () => undefined,
+      { task: true, artifact: true },
+      { task: (operation) => operation(), artifact: (operation) => operation() },
+    );
+    stop();
+    expect([...handlers.keys()]).toEqual([]);
+  });
+
+  it.runIf(TASKS_ENABLED)("reach the windows for the domains this build has, and the handlers are registered the same way", async () => {
     const handlers = new Map<string, (event: unknown, input: unknown) => unknown>();
     const sent: Array<[string, unknown]> = [];
     const authored: string[] = [];

@@ -5,6 +5,7 @@
 // builds the command and turns what the ruler made into an outcome.
 
 import type { IpcMain } from "electron";
+import { productResourceKindEnabled } from "@shared/features";
 import { Effect, Option, Result, Schema } from "effect";
 import { decodeArtifactOp, type ArtifactBody, type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
 import type { Canvas } from "@shared/model";
@@ -347,8 +348,10 @@ export const registerResourceIpc = (
       const operation = () => run(Effect.flatMap(decoded(schema, input), handle).pipe(Effect.mapError(asError)));
       return authored === undefined ? operation() : authored(operation);
     });
+  // A product this build turns off registers nothing, whatever the caller asks.
+  const live = { task: enabled.task && productResourceKindEnabled("task"), artifact: enabled.artifact && productResourceKindEnabled("artifact") };
   const task = RESOURCE_IPC_CHANNELS.task;
-  if (enabled.task) {
+  if (live.task) {
     on(task.list, TaskListInput, (input) => listTasks(ports, input.canvasName, input.nodeId));
     on(task.all, TaskAllInput, (input) => allTasks(ports, input.canvasName));
     on(task.context, TaskContextInput, (input) => taskContext(ports, input.canvasName));
@@ -357,7 +360,7 @@ export const registerResourceIpc = (
     on(task.pending, TaskPendingInput, (input) => pendingTasks(ports, input.canvasName, input.nodeId));
   }
   const artifact = RESOURCE_IPC_CHANNELS.artifact;
-  if (enabled.artifact) {
+  if (live.artifact) {
     on(artifact.list, ArtifactListInput, (input) => listArtifacts(ports, input.canvasName, input.nodeId));
     on(artifact.history, ArtifactHistoryInput, (input) => artifactHistory(ports, input.canvasName, input.artifactId));
     on(artifact.body, ArtifactBodyInput, (input) => artifactBody(ports, input.canvasName, input.artifactId, input.version));
@@ -366,6 +369,6 @@ export const registerResourceIpc = (
     on(artifact.pending, ArtifactPendingInput, (input) => pendingArtifacts(ports, input.canvasName, input.nodeId));
   }
   return onResourceChanged((domain, canvasName) => {
-    if (enabled[domain]) broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });
+    if (live[domain]) broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });
   });
 };
