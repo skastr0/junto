@@ -28,6 +28,8 @@ const nodes: Node[] = [
   planner,
   builder,
   decode({ kind: "task", id: "board", name: "Ship 0.10", ...at(340, 40, 320, 220) }),
+  decode({ kind: "task", id: "intake", name: "Intake", ...at(1260, 130, 220, 150) }),
+  decode({ kind: "page", id: "bad", url: "https://127.0.0.1:1/", profile: "personal", onRemove: "detach", ...at(620, 200, 240, 80) }),
   decode({ kind: "artifacts", id: "shelf", label: "Shelf", ...at(700, 40, 240, 120) }),
   decode({ kind: "automations", id: "auto", label: "Automations", ...at(980, 40, 260, 120) }),
   decode({ kind: "page", id: "docs", url: "https://example.com/docs", profile: "personal", onRemove: "detach", ...at(340, 300, 240, 80) }),
@@ -94,6 +96,22 @@ test("every node kind beside a seat, near and far, dark and bright", async () =>
       { canvas: CANVAS, node: taskNodeId(asNodeId("board")), id: taskId, opId: mintOpId() },
     );
     expect(tasks.kind).toBe("applied");
+    // Needs you: a task in review that lists the operator as a reviewer with no stamp.
+    const reviewId = mintItemId();
+    const reviewOps = [
+      { kind: "create", taskId: reviewId, title: "Pick the icon set" },
+      { kind: "assign", seat: "planner" },
+      { kind: "start" },
+      { kind: "reviewer-add", reviewer: { kind: "operator" } },
+      { kind: "finish" },
+    ] as const;
+    for (const op of reviewOps) {
+      const result = await page.evaluate(
+        ({ canvas, node, id, opId, op }) => window.junto!.resource!.task!.apply(canvas, node, id, opId, op as never),
+        { canvas: CANVAS, node: taskNodeId(asNodeId("intake")), id: reviewId, opId: mintOpId(), op },
+      );
+      console.log(`intake ${op.kind}: ${result.kind}`);
+    }
     const artifactId = mintItemId();
     await page.evaluate(
       ({ canvas, node, id, opId }) => window.junto!.resource!.artifact!.apply(canvas, node, id, opId, { op: "create", title: "Wire spec notes", body: { type: "document", markdown: "# notes" } }),
@@ -131,7 +149,7 @@ test("every node kind beside a seat, near and far, dark and bright", async () =>
       { bindingId: "local:nr-builder", epoch: "e2e", state: "idle", reason: "rule:empty_prompt_idle", confidence: "high", at: Date.now() + 1 },
     ]);
 
-    const ids = ["planner", "builder", "remote", "board", "shelf", "auto", "docs", "dev-server", "repo", "pkg", "ref", "note", "label", "stub-git", "stub-page"];
+    const ids = ["planner", "builder", "remote", "board", "intake", "shelf", "auto", "docs", "bad", "dev-server", "repo", "pkg", "ref", "note", "label", "stub-git", "stub-page"];
     for (const theme of ["dark", "bright"] as const) {
       await setTheme(page, theme);
       await page.getByRole("button", { name: /fit all/i }).first().click();
@@ -158,6 +176,18 @@ test("every node kind beside a seat, near and far, dark and bright", async () =>
       await page.locator('.react-flow__node[data-id="board"]').dblclick();
       await page.waitForTimeout(1_200);
       await page.screenshot({ path: join(SHOTS, `${theme}-modal-task.png`) });
+      const field = page.getByLabel("Comment on this task");
+      if (await field.count()) {
+        await field.click();
+        await field.pressSequentially("Looks right, @pla");
+        const option = page.getByRole("option", { name: /planner/ }).first();
+        if (await option.count()) {
+          await option.click();
+          await field.press("Enter");
+          await page.waitForTimeout(800);
+        }
+        await page.screenshot({ path: join(SHOTS, `${theme}-modal-task-mention.png`) });
+      }
       await page.keyboard.press("Escape");
       await page.waitForTimeout(500);
     }
