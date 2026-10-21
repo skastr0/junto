@@ -8,7 +8,7 @@ import { casesFor, type AcceptanceArea, type AcceptanceSeat } from "./area";
 import { envelopeOf } from "./envelope";
 import type { WorkCliCommandResult } from "../work-cli-acceptance";
 
-const { check, pass, pending } = casesFor("task");
+const { check } = casesFor("task");
 
 /** One inbox row as msg list prints it: text in parts, the thread and notice kind in metadata. */
 type InboxItem = {
@@ -24,6 +24,10 @@ export const inboxOf = async (cli: (args: ReadonlyArray<string>, as?: Acceptance
 };
 
 const textOf = (item: InboxItem): string => (item.parts ?? []).map((part) => part.text ?? "").join("");
+
+/** The node ids a refusal offers in details.candidates. */
+const candidateIds = (refusal: any): ReadonlyArray<string> =>
+  Array.isArray(refusal?.error?.details?.candidates) ? refusal.error.details.candidates.map((candidate: { nodeId?: string }) => candidate.nodeId) : [];
 
 export const taskArea: AcceptanceArea = {
   name: "task",
@@ -94,14 +98,14 @@ export const taskArea: AcceptanceArea = {
       check("rules of a node", rulesOfNode.data?.node === nodes.tasks && Array.isArray(rulesOfNode.data?.rules), rulesOfNode.result),
       check("comment", linked.data?.disposition === "applied" && linked.data?.threadId !== undefined, linked.result),
       check("mention link reaches the seat", inThread(peerMail.items, "mention", "please look at the link"), peerMail.listed),
-      // Main will rewrite @name to its mention link against the seats in reach; cli-protocol builds it.
-      atName.data?.disposition === "applied" && inThread(peerMail.items, "mention", "please look at the name")
-        ? pass("@name mention reaches the seat")
-        : pending("@name mention reaches the seat", "cli-protocol"),
+      // Main rewrites @name to its mention link against the seats in reach (a50a1a912): the seat in reach is told.
+      check("@name mention reaches the seat", atName.data?.disposition === "applied" && inThread(peerMail.items, "mention", "please look at the name"), atName.result),
       check("mention out of reach refused", refused?.ok === false && refused.error?.type === "ScopeError" && refused.error?.details?.reason === "not_in_reach", outOfReach.result),
+      // The refusal names the seats this comment can mention: the one in reach, never the one out of it.
       check(
         "@name out of reach is unknown",
-        nameRefused?.ok === false && nameRefused.error?.type === "UnknownTarget" && nameRefused.error?.details?.path === "text" && nameRefused.error?.details?.target === "@outsider",
+        nameRefused?.ok === false && nameRefused.error?.type === "UnknownTarget" && nameRefused.error?.details?.path === "text" && nameRefused.error?.details?.target === "@outsider"
+          && candidateIds(nameRefused).includes(peer.nodeId) && !candidateIds(nameRefused).includes(outsider.nodeId),
         nameOutOfReach.result,
       ),
       // Out of reach, the task is not there to name (task-control.ts findTask).
