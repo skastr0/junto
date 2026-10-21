@@ -28,7 +28,9 @@ import type {
   BrowserProfileWipeReceipt,
   BrowserSessionState,
   BrowserStopReceipt,
+  BrowserTraverseStep,
 } from "./browser";
+import type { BrowserChromeState } from "./browser-chrome";
 export type {
   BrowserProfileWipeInput,
   BrowserProfileWipeReceipt,
@@ -329,6 +331,18 @@ export const IPC_CHANNELS = {
   browserSessionList: "junto:browser-session-list",
   browserSetBounds: "junto:browser-set-bounds",
   browserSurfaceConfig: "junto:browser-surface-config",
+  /** Renderer → main: the page chrome's reads and the operator's commands on a page. */
+  browserPageState: "junto:browser-page-state",
+  browserTakeOver: "junto:browser-take-over",
+  browserRelease: "junto:browser-release",
+  browserGoto: "junto:browser-goto",
+  browserTraverse: "junto:browser-traverse",
+  browserOpenTab: "junto:browser-open-tab",
+  browserCloseTab: "junto:browser-close-tab",
+  browserActivateTab: "junto:browser-activate-tab",
+  browserFocusPage: "junto:browser-focus-page",
+  /** Main → renderer: a page's tabs or driving changed; the payload is its shown tab's session. */
+  browserPageChanged: "junto:browser-page-changed",
   // demo/scripting engine (--junto-demo only; inert otherwise)
   demoState: "junto:demo-state",
   demoWriteEdl: "junto:demo-write-edl",
@@ -1504,4 +1518,24 @@ export interface JuntoBrowserApi {
   readonly onBrowserSessionChanged: (
     listener: (session: BrowserSessionInfo) => void,
   ) => () => void;
+  /** The page's tabs and who drives it; any tab's session names the page. */
+  readonly browserPageState: (sessionId: string) => Promise<BrowserOpResult<BrowserChromeState>>;
+  readonly browserTakeOver: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserRelease: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  /** Go on the named tab, or the shown one. */
+  readonly browserGoto: (
+    sessionId: string,
+    url: string,
+    tab?: string,
+  ) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserTraverse: (
+    sessionId: string,
+    step: BrowserTraverseStep,
+  ) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserOpenTab: (sessionId: string, url?: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserCloseTab: (sessionId: string, tab: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserActivateTab: (sessionId: string, tab: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  readonly browserFocusPage: (sessionId: string) => Promise<BrowserOpResult<boolean>>;
+  /** Hears the shown tab's session of a page whose tabs or driving changed. */
+  readonly onBrowserPageChanged: (listener: (sessionId: string) => void) => () => void;
 }

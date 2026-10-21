@@ -90,6 +90,40 @@ describe("browser IPC bounds ingress", () => {
     });
   });
 
+  it.each([
+    ["page state", IPC_CHANNELS.browserPageState, ["session-1", "surplus"]],
+    ["take over", IPC_CHANNELS.browserTakeOver, ["../bad"]],
+    ["release", IPC_CHANNELS.browserRelease, []],
+    ["goto with no url", IPC_CHANNELS.browserGoto, ["session-1"]],
+    ["goto with an unbounded url", IPC_CHANNELS.browserGoto, ["session-1", "x".repeat(20_000)]],
+    ["goto on a bad tab", IPC_CHANNELS.browserGoto, ["session-1", "https://example.com/", "../t1"]],
+    ["an unknown step", IPC_CHANNELS.browserTraverse, ["session-1", "jump"]],
+    ["open tab with a bad url", IPC_CHANNELS.browserOpenTab, ["session-1", 42]],
+    ["close tab with no tab", IPC_CHANNELS.browserCloseTab, ["session-1"]],
+    ["activate a bad tab", IPC_CHANNELS.browserActivateTab, ["session-1", ""]],
+    ["focus with surplus", IPC_CHANNELS.browserFocusPage, ["session-1", true]],
+  ])("refuses %s before reaching the page", async (_name, channel, args) => {
+    const touched = [
+      vi.spyOn(browserSessions, "pageState"),
+      vi.spyOn(browserSessions, "takeOver"),
+      vi.spyOn(browserSessions, "release"),
+      vi.spyOn(browserSessions, "goto"),
+      vi.spyOn(browserSessions, "traverse"),
+      vi.spyOn(browserSessions, "openTab"),
+      vi.spyOn(browserSessions, "closeTab"),
+      vi.spyOn(browserSessions, "activateTab"),
+      vi.spyOn(browserSessions, "focusPage"),
+    ];
+    expect(await invoke(channel, ...args)).toMatchObject({ ok: false, code: "invalid" });
+    for (const spy of touched) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("answers the chrome for a page it does not have", async () => {
+    expect(await invoke(IPC_CHANNELS.browserPageState, "session-1")).toMatchObject({ ok: false, code: "not_found" });
+    expect(await invoke(IPC_CHANNELS.browserTraverse, "session-1", "stop")).toMatchObject({ ok: false, code: "not_found" });
+    expect(await invoke(IPC_CHANNELS.browserFocusPage, "session-1")).toEqual({ ok: true, data: false });
+  });
+
   it("rejects surplus profile arguments before reading profile state", async () => {
     const listProfiles = vi.spyOn(browserSessions, "listProfiles");
 

@@ -11,6 +11,7 @@ import {
 } from "./lib/performance/perf-harness";
 import { startThemeMode } from "./lib/theme-mode";
 import { installIpcAutomationsSource } from "./lib/automations-ipc-source";
+import { installIpcBrowserChrome } from "./lib/browser-chrome-ipc";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -35,6 +36,8 @@ document.documentElement.dataset.juntoPlatform = window.junto?.platform ?? "unkn
 
 // The Automations node reads and writes through main once main serves it.
 installIpcAutomationsSource(window.junto);
+// The page chrome reads and drives pages through main, where the browser is in the build.
+installIpcBrowserChrome(window.junto);
 
 // Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.
 const MARK_GALLERY = "#/gallery/marks";

@@ -85,6 +85,8 @@ export interface BrowserViewHandle {
   readViewport?(): Promise<unknown>;
   /** Unregisters every service worker of `origin` in the view's profile. */
   clearServiceWorkers?(origin: string): Promise<void>;
+  /** Moves keyboard focus into the page; false when it is not shown. */
+  focus?(): boolean;
 }
 
 export interface BrowserViewEvents {
@@ -1158,6 +1160,17 @@ export class BrowserSessionService {
   drivingFor(sessionId: string): PageDriving | undefined {
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
     return entry === undefined ? undefined : this.drivingOf(entry);
+  }
+
+  /** Keyboard focus into the operator's shown view; false when it is detached or hidden. */
+  focusPage(sessionId: string): boolean {
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    if (entry === undefined || !entry.attached) return false;
+    try {
+      return entry.view.focus?.() ?? false;
+    } catch {
+      return false;
+    }
   }
 
   /** Said whenever a page's tabs, views or driving change, with its ref. */
@@ -2457,6 +2470,17 @@ export class BrowserSessionService {
     }
     const held = this.guestRefusal(entry, owner);
     if (held !== undefined) return held;
+    // Stopping a load starts nothing: it runs while the page is busy, and the
+    // stopped load ends as the page's own failed one.
+    if (step === "stop") {
+      try {
+        view.traverse("stop");
+      } catch (error) {
+        return err("failed", error instanceof Error ? error.message : String(error));
+      }
+      entry.lastActiveAt = this.now();
+      return { ok: true, data: this.info(entry) };
+    }
     if (this.navigationBusy(entry)) {
       return err("invalid", "a top-level navigation is already in flight");
     }

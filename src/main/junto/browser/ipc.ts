@@ -10,9 +10,11 @@ import {
   type BrowserOpenInput,
   type BrowserProfileWipeInput,
 } from "@shared/ipc";
-import { isValidProfileId } from "@shared/browser";
+import { isValidProfileId, type BrowserTraverseStep } from "@shared/browser";
+import { isValidBrowserTabId, type BrowserTabId } from "@shared/browser-tab";
 import {
   BROWSER_MAX_REF_BYTES,
+  BROWSER_MAX_URL_BYTES,
   isUtf8WithinLimit,
   parseBrowserSessionId,
   parseBrowserSurfaceBounds,
@@ -50,6 +52,16 @@ const isBrowserOpenInput = (input: unknown): input is BrowserOpenInput =>
   typeof input.ref === "string" &&
   input.ref.length > 0 &&
   isUtf8WithinLimit(input.ref, BROWSER_MAX_REF_BYTES);
+
+const TRAVERSE_STEPS: ReadonlySet<string> = new Set<BrowserTraverseStep>(["back", "forward", "reload", "stop"]);
+
+const isBrowserUrlArg = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && isUtf8WithinLimit(value, BROWSER_MAX_URL_BYTES);
+
+const tabArg = (value: unknown) =>
+  isValidBrowserTabId(value)
+    ? { ok: true as const, value: value as BrowserTabId }
+    : invalidArguments("tab must be one of the page's tab ids");
 
 const isBrowserProfileWipeInput = (input: unknown): input is BrowserProfileWipeInput =>
   typeof input === "object" &&
@@ -125,6 +137,69 @@ export const registerBrowserIpc = (
       contents.send(IPC_CHANNELS.browserSessionChanged, session);
     }
   });
+  // The chrome hears a page by its shown tab's session, as the surface does.
+  browserSessions.subscribePages((ref) => {
+    const sessionId = browserSessions.sessionIdForRef(ref);
+    if (sessionId === undefined) return;
+    for (const contents of webContentsGetter()) {
+      contents.send(IPC_CHANNELS.browserPageChanged, sessionId);
+    }
+  });
+
+  /** One session id, then exactly the arguments `rest` reads. */
+  const onPage = (
+    channel: string,
+    arity: ReadonlyArray<number>,
+    run: (sessionId: string, rest: ReadonlyArray<unknown>) => unknown,
+  ): void => {
+    ipcMain.handle(channel, (_e, ...args: ReadonlyArray<unknown>) => {
+      if (!arity.includes(args.length)) return invalidArguments();
+      const parsed = parseBrowserSessionId(args[0]);
+      return parsed.ok ? run(parsed.value, args.slice(1)) : parsed;
+    });
+  };
+
+  onPage(IPC_CHANNELS.browserPageState, [1], (sessionId) => {
+    const state = browserSessions.pageState(sessionId);
+    return state === undefined
+      ? { ok: false as const, code: "not_found" as const, message: `no session for ${sessionId}` }
+      : { ok: true as const, data: state };
+  });
+  onPage(IPC_CHANNELS.browserTakeOver, [1], (sessionId) => browserSessions.takeOver(sessionId));
+  onPage(IPC_CHANNELS.browserRelease, [1], (sessionId) => browserSessions.release(sessionId));
+  onPage(IPC_CHANNELS.browserGoto, [2, 3], (sessionId, [url, tab]) => {
+    if (!isBrowserUrlArg(url)) return invalidArguments("bounded url required");
+    let target = sessionId;
+    if (tab !== undefined) {
+      const parsedTab = tabArg(tab);
+      if (!parsedTab.ok) return parsedTab;
+      const named = browserSessions.tabSessionId(sessionId, parsedTab.value);
+      if (!named.ok) return named;
+      target = named.data;
+    }
+    return browserSessions.goto(target, url);
+  });
+  onPage(IPC_CHANNELS.browserTraverse, [2], (sessionId, [step]) =>
+    typeof step === "string" && TRAVERSE_STEPS.has(step)
+      ? browserSessions.traverse(sessionId, step as BrowserTraverseStep)
+      : invalidArguments("step must be back, forward, reload or stop"),
+  );
+  onPage(IPC_CHANNELS.browserOpenTab, [1, 2], (sessionId, [url]) => {
+    if (url !== undefined && !isBrowserUrlArg(url)) return invalidArguments("bounded url required");
+    return browserSessions.openTab(sessionId, url);
+  });
+  onPage(IPC_CHANNELS.browserCloseTab, [2], (sessionId, [tab]) => {
+    const parsedTab = tabArg(tab);
+    return parsedTab.ok ? browserSessions.closeTab(sessionId, parsedTab.value) : parsedTab;
+  });
+  onPage(IPC_CHANNELS.browserActivateTab, [2], (sessionId, [tab]) => {
+    const parsedTab = tabArg(tab);
+    return parsedTab.ok ? browserSessions.activateTab(sessionId, parsedTab.value) : parsedTab;
+  });
+  onPage(IPC_CHANNELS.browserFocusPage, [1], (sessionId) => ({
+    ok: true as const,
+    data: browserSessions.focusPage(sessionId),
+  }));
 
   ipcMain.handle(IPC_CHANNELS.browserProfiles, (_e, ...args: ReadonlyArray<unknown>) =>
     args.length === 0 ? browserSessions.listProfiles() : invalidArguments(),

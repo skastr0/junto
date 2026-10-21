@@ -107,8 +107,8 @@ export const reduceBrowserSession = (
   }
 };
 
-/** A step through a page's own history, or a reload of where it is. */
-export type BrowserTraverseStep = "back" | "forward" | "reload";
+/** A step through a page's own history, a reload of where it is, or a stop of its load. */
+export type BrowserTraverseStep = "back" | "forward" | "reload" | "stop";
 
 /** Whether the page has somewhere to step to, read from its view. */
 export interface BrowserHistory {

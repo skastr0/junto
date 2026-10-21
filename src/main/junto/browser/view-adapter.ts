@@ -658,6 +658,13 @@ const makeElectronViewAdapter = (
     stopLoading: () => {
       if (!view.webContents.isDestroyed()) view.webContents.stop();
     },
+    focus: () => {
+      if (view.webContents.isDestroyed() || !logicallyAttached || parked || attachedWindow === undefined) {
+        return false;
+      }
+      view.webContents.focus();
+      return true;
+    },
     destroy: () => {
       // Runtime teardown only — the persist: partition (cookies) is on disk.
       if (terminationExpected) return;
@@ -703,6 +710,9 @@ const makeElectronViewAdapter = (
           return;
         case "reload":
           view.webContents.reload();
+          return;
+        case "stop":
+          view.webContents.stop();
           return;
         default: {
           const unknown: never = step;

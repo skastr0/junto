@@ -1400,6 +1400,18 @@ describe("BrowserSessionService", () => {
     expect(service.stateForOwner("job-a", second.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
   });
 
+  it("stops a loading page without a step mark, and focuses only a shown view", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("stoppable"));
+    if (!opened.ok) throw new Error("open failed");
+    // Still loading: a stop runs where a goto or step would be refused.
+    expect(service.traverse(opened.data.sessionId, "stop")).toMatchObject({ ok: true });
+    expect(views[0]?.calls).toContain("traverse:stop");
+    views[0]?.events.onLoadOk(opened.data.sessionId);
+    expect(service.goto(opened.data.sessionId, "https://stoppable.example.com/2")).toMatchObject({ ok: true });
+    expect(service.focusPage(opened.data.sessionId)).toBe(false);
+  });
+
   it("takes over every tab of a page at once", async () => {
     const { service, views } = makeDefaultService();
     const page = target("tabs-held");

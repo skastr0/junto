@@ -747,6 +747,22 @@ const browserApi: JuntoBrowserApi = {
     invoke(IPC_CHANNELS.browserSetBounds, IPC_TIMEOUT_MS, sessionId, bounds),
   onBrowserSessionChanged: (listener) =>
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
+  browserPageState: (sessionId) => invoke(IPC_CHANNELS.browserPageState, IPC_TIMEOUT_MS, sessionId),
+  browserTakeOver: (sessionId) => invoke(IPC_CHANNELS.browserTakeOver, IPC_TIMEOUT_MS, sessionId),
+  browserRelease: (sessionId) => invoke(IPC_CHANNELS.browserRelease, IPC_TIMEOUT_MS, sessionId),
+  browserGoto: (sessionId, url, tab) =>
+    tab === undefined
+      ? invoke(IPC_CHANNELS.browserGoto, IPC_TIMEOUT_MS, sessionId, url)
+      : invoke(IPC_CHANNELS.browserGoto, IPC_TIMEOUT_MS, sessionId, url, tab),
+  browserTraverse: (sessionId, step) => invoke(IPC_CHANNELS.browserTraverse, IPC_TIMEOUT_MS, sessionId, step),
+  browserOpenTab: (sessionId, url) =>
+    url === undefined
+      ? invoke(IPC_CHANNELS.browserOpenTab, IPC_TIMEOUT_MS, sessionId)
+      : invoke(IPC_CHANNELS.browserOpenTab, IPC_TIMEOUT_MS, sessionId, url),
+  browserCloseTab: (sessionId, tab) => invoke(IPC_CHANNELS.browserCloseTab, IPC_TIMEOUT_MS, sessionId, tab),
+  browserActivateTab: (sessionId, tab) => invoke(IPC_CHANNELS.browserActivateTab, IPC_TIMEOUT_MS, sessionId, tab),
+  browserFocusPage: (sessionId) => invoke(IPC_CHANNELS.browserFocusPage, IPC_TIMEOUT_MS, sessionId),
+  onBrowserPageChanged: (listener) => subscribe<string>(IPC_CHANNELS.browserPageChanged, listener),
 };
 
 const terminalApi: JuntoTerminalApi = {
