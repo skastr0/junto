@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Draft for 0.10, written from landed commits and kept current by product-releases.
+## 0.10.0 — 2026-10-21
 
 Known limits in 0.10: opening a very large file preview reads the whole file
 into memory, with no size cap yet. File artifacts can be made from the CLI
