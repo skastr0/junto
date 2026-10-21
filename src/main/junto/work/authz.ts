@@ -29,7 +29,8 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
-import { resourcesInReach } from "@shared/region-reach";
+import { resourcesInReach, seatsInReach } from "@shared/region-reach";
+import { linkTypedMentions } from "@shared/typed-mentions";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
@@ -814,6 +815,51 @@ export const resolveWorkTarget = (
     },
   });
 };
+
+/** Who a mention in a seat's mail can name: the seats wired to it (03 section 3). */
+export const mailMentionCandidates = (doc: Canvas, callerId: string): ReadonlyArray<TargetCandidate> =>
+  wiredNodes(doc, callerId).filter((node) => node.kind === "agent").map(candidateOf);
+
+/** Who a mention in a resource's comments can name: the seats in reach of the resource (03 section 3). */
+export const resourceMentionCandidates = (doc: Canvas, nodeId: string): ReadonlyArray<TargetCandidate> =>
+  seatsInReach(doc, asNodeId(nodeId))
+    .map((reached) => findNode(doc, reached.id))
+    .filter((node): node is Node => node?.kind === "agent")
+    .map(candidateOf);
+
+/**
+ * The text with each `@name` rewritten to its seat's mention link (03,
+ * "Writing from the CLI"), every name resolved by `resolveWorkTarget` among
+ * `candidates`. A name nothing matches is refused UnknownTarget, a name two
+ * seats share InputError with the candidates, each naming the token.
+ */
+export const linkSeatMentions = (
+  doc: Canvas,
+  canvasName: string,
+  callerId: string,
+  text: string,
+  candidates: ReadonlyArray<TargetCandidate>,
+): Result.Result<string, WorkErrorBody> =>
+  linkTypedMentions(text, canvasName, (name) => {
+    const token = `@${name}`;
+    const refused = (error: WorkErrorBody): WorkErrorBody => ({
+      ...error,
+      message: `${token}: ${error.message}`,
+      details: { ...error.details, path: "text", target: token, retryable: false },
+    });
+    const resolved = resolveWorkTarget(doc, callerId, name, "msg.send", () => candidates);
+    if (Result.isFailure(resolved)) return Result.fail(refused(resolved.failure));
+    // An id resolves to any node it names; a mention names only a seat it may.
+    const seat = candidates.find((candidate) => candidate.itemId === undefined && candidate.nodeId === resolved.success.nodeId);
+    if (seat === undefined) {
+      return Result.fail(refused({
+        type: "UnknownTarget",
+        message: `no seat you can mention here is ${name}`,
+        details: { candidates, next_step: "mention one of these seats by its name" },
+      }));
+    }
+    return Result.succeed({ ref: { kind: "seat", nodeId: seat.nodeId }, label: `@${seat.name}` });
+  });
 
 /** Every node a wire joins to the caller, either way, once each. */
 const wiredNodes = (doc: Canvas, callerId: string): ReadonlyArray<Node> => {

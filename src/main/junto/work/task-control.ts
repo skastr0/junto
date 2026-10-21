@@ -46,6 +46,7 @@ import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { ResourceSubmit } from "./resource-submit";
 import { MachineRepository } from "../machines/repository";
+import { linkSeatMentions, resourceMentionCandidates } from "./authz";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged } from "./resource-changes";
 import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
@@ -485,9 +486,12 @@ export const handleTaskOp = (
         const input = yield* decode(TASK_ARGS[op], args);
         // A comment admits by reach alone (03): the assignee exemption is for moves.
         const task = yield* findTask(caller, ports, input.task, "task", false);
+        // Each @name becomes its mention link: a seat in reach of the task (03).
+        const text = linkSeatMentions(caller.canvas, caller.canvasName, caller.actor.nodeId, input.text, resourceMentionCandidates(caller.canvas, task.current.node));
+        if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
         const sent = yield* ports.comment({
           subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
-          text: input.text,
+          text: text.success,
           actor: caller.actor,
           opId: input.opId,
         }, { canvas: caller.canvas, canvasName: caller.canvasName, people: taskPeopleOf(task.current) }).pipe(

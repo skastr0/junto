@@ -220,8 +220,11 @@ import {
   nodeKind,
   nodeTitle,
   regionStackFor,
+  linkSeatMentions,
+  mailMentionCandidates,
   regionVisibility,
   resolveWorkTarget,
+  resourceMentionCandidates,
   summarizeNode,
 } from "./authz";
 import { resolveTaskAdmission } from "@shared/work-model";
@@ -1865,8 +1868,8 @@ const dispatchOp = (
       const recipient = recipientOf(board, named.success);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const text = decoded.success.text.trim();
-      if (!text) {
+      const typed = decoded.success.text.trim();
+      if (!typed) {
         return yield* Effect.fail({
           type: "InputError" as const,
           message: "text must be non-empty",
@@ -1894,6 +1897,12 @@ const dispatchOp = (
           });
         }
       }
+      // Each @name becomes its mention link: a seat in reach of the task, or wired to this one (03).
+      const linked = linkSeatMentions(board, caller.canvasName, caller.nodeId, typed, taskThread === undefined
+        ? mailMentionCandidates(board, caller.nodeId)
+        : resourceMentionCandidates(board, taskThread.subject.nodeId));
+      if (Result.isFailure(linked)) return yield* Effect.fail(linked.failure);
+      const text = linked.success;
       // A comment on a 0.10 task posts on the one comment path (03).
       if (taskThread !== undefined && taskThread.subject.kind === "task") {
         const posted = yield* postSubjectComment(
@@ -2063,8 +2072,8 @@ const dispatchOp = (
         if ("type" in gate) return yield* Effect.fail(gate);
       }
       const decoded = { success: { ...asked.success, target } };
-      const text = decoded.success.text.trim();
-      if (!text) {
+      const typed = decoded.success.text.trim();
+      if (!typed) {
         return yield* Effect.fail({
           type: "InputError" as const,
           message: "text must be non-empty",
@@ -2133,6 +2142,12 @@ const dispatchOp = (
           });
         }
       }
+      // Each @name becomes its mention link: a seat in reach of the subject, or wired to this one (03).
+      const linked = linkSeatMentions(board, caller.canvasName, caller.nodeId, typed, subject === undefined
+        ? mailMentionCandidates(board, caller.nodeId)
+        : resourceMentionCandidates(board, subject.nodeId));
+      if (Result.isFailure(linked)) return yield* Effect.fail(linked.failure);
+      const text = linked.success;
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,

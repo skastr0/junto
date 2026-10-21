@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
+import { mentionLink } from "../src/shared/mention";
+import { asNodeId } from "../src/shared/physics/schema";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -241,5 +243,40 @@ describe("every surface that lists peers names them", () => {
           : [expect.objectContaining({ id: "solo-seat", name: "solo", regions: [JUNTO], shared_region: JUNTO })],
       );
     }
+  });
+});
+
+describe("an @name in mail text is written as its mention link", () => {
+  const textOf = (message: Message): string => message.parts.flatMap((part) => ("text" in part ? [part.text as string] : [])).join("");
+  const leadLink = mentionLink({ kind: "seat", nodeId: asNodeId("lead") }, "@cli-lead", CANVAS);
+
+  it("msg send links a wired seat, and leaves code and emails alone", async () => {
+    const sent = await call("agent", "msg.send", { target: "cli-lead", text: "@CLI-Lead see `@solo`, ops@junto.dev" });
+    expect(sent.ok).toBe(true);
+    expect((await mailbox("lead")).map(textOf)).toEqual([`${leadLink} see \`@solo\`, ops@junto.dev`]);
+  });
+
+  it("msg reply links it too", async () => {
+    const asked = await call("lead", "msg.send", { target: "worker", text: "status?" });
+    const replied = await call("agent", "msg.reply", { target: "cli-lead", text: "green, thanks @cli-lead", inReplyTo: asked.data.messageId });
+    expect(replied.ok).toBe(true);
+    const reply = (await mailbox("lead")).find((message) => message.messageId === replied.data.messageId);
+    expect(reply === undefined ? "" : textOf(reply)).toContain(`green, thanks ${leadLink}`);
+  });
+
+  it("refuses a seat it is not wired to, naming the token, and sends nothing", async () => {
+    const refused = await call("agent", "msg.send", { target: "cli-lead", text: "ask @solo" });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("UnknownTarget");
+    expect(refused.error.details).toMatchObject({ path: "text", target: "@solo" });
+    expect(await mailbox("lead")).toEqual([]);
+  });
+
+  it("refuses a name two wired seats share, with both candidates", async () => {
+    const refused = await call("agent", "msg.send", { target: "cli-lead", text: "ask @reviewer" });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("InputError");
+    expect(refused.error.details.target).toBe("@reviewer");
+    expect(refused.error.details.candidates.map((candidate: { nodeId: string }) => candidate.nodeId)).toEqual(["rev-a", "rev-b"]);
   });
 });

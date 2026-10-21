@@ -59,6 +59,7 @@ import { BodyPuller } from "../content/body-puller";
 import type { PulledOwner } from "../content/pull";
 import { ArtifactRepository, type ArtifactBodyRead } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
+import { linkSeatMentions, resourceMentionCandidates } from "./authz";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 
 /** What the verbs need from the artifact store and the ruler. */
@@ -560,13 +561,16 @@ export const handleArtifactOp = (
         if (anchor?.kind === "lines") {
           return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
         }
+        // Each @name becomes its mention link: a seat in reach of the artifact (03).
+        const text = linkSeatMentions(caller.canvas, caller.canvasName, caller.actor.nodeId, input.text, resourceMentionCandidates(caller.canvas, head.artifact.nodeId));
+        if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
         const author = head.artifact.createdBy;
         const posted = yield* ports
           .comment(
             {
               subject: { kind: "artifact", nodeId: head.artifact.nodeId, artifactId: input.artifact },
               ...(anchor === undefined ? {} : { anchor }),
-              text: input.text,
+              text: text.success,
               actor: caller.actor,
               opId: input.opId,
             },

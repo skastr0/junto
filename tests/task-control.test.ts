@@ -30,6 +30,7 @@ import type { ResourceCommand } from "../src/shared/resource-command";
 import type { MailMessageId } from "../src/shared/crew";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId, OpId, TaskNumber } from "../src/shared/work-ids";
+import { mentionLink } from "../src/shared/mention";
 import {
   handleTaskOp,
   taskCanvasEnv,
@@ -312,6 +313,16 @@ describe("task verbs", () => {
     expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, threadId: "t1", messageId: "m1" }));
     expect(commented).toEqual([{ subject: { kind: "task", nodeId: "tasks-1", taskId: ID }, text: "Looks right", actor: caller.actor, opId: OP }]);
     expect(people).toEqual([[]]);
+  });
+
+  it("writes each @name in a comment as its mention link, and refuses a seat out of the task's reach", async () => {
+    commented.length = 0;
+    const exit = await run("task.comment", { opId: OP, task: "#42", text: "@beta see `@gamma`" }, portsWith(applied()));
+    expect(Exit.isSuccess(exit)).toBe(true);
+    const beta = mentionLink({ kind: "seat", nodeId: asNodeId("seat-b") }, "@beta", "factory");
+    expect(commented.map((comment) => comment.text)).toEqual([`${beta} see \`@gamma\``]);
+    const refused = failure(await run("task.comment", { opId: OP, task: "#42", text: "@gamma look" }, portsWith(applied())));
+    expect(refused).toMatchObject({ type: "UnknownTarget", details: { path: "text", target: "@gamma", opId: OP } });
   });
 
   it("lists the task nodes in reach and says when there are more", async () => {
