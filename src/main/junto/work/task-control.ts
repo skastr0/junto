@@ -31,6 +31,7 @@ import {
   formatTaskNumber,
   parseTaskId,
   parseTaskNumber,
+  reviewerKey,
   seatNodeId,
   TASK_FLOW_VERB,
   taskNodeId,
@@ -46,6 +47,7 @@ import {
   type TaskState,
   type TaskView,
 } from "@shared/task-model";
+import { currentStamps } from "@shared/task-machine";
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
 import { taskPeopleOf } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
@@ -616,15 +618,27 @@ export const handleTaskOp = (
         const assignee = input.assignee === undefined
           ? undefined
           : yield* findSeat(caller, caller.actor.nodeId, input.assignee, "assignee");
-        if (nodes.length === 0) return { tasks: [], more: false };
-        // An assignee filter reads past the limit, so a page is still full.
+        const reviewer = input.reviewer === undefined
+          ? undefined
+          : reviewerKey({ kind: "seat", seat: yield* findSeat(caller, caller.actor.nodeId, input.reviewer, "reviewer") });
+        // A review is owed only in review, so a reviewer filter reads that state alone.
+        const states = reviewer === undefined ? input.state : (input.state ?? ["in-review"]).filter((state) => state === "in-review");
+        if (nodes.length === 0 || states?.length === 0) return { tasks: [], more: false };
+        // A filter reads past the limit, so a page is still full.
+        const filtered = assignee !== undefined || reviewer !== undefined;
         const listed = yield* ports.list(caller.canvasName, {
           nodeIds: nodes.map((node) => taskNodeId(node.id)),
-          limit: assignee === undefined ? limit : NUMBER_SCAN_LIMIT,
-          ...(input.state === undefined ? {} : { states: input.state }),
+          limit: filtered ? NUMBER_SCAN_LIMIT : limit,
+          ...(states === undefined ? {} : { states }),
         });
-        const tasks = assignee === undefined ? listed.tasks : listed.tasks.filter((task) => task.current.assignee === assignee);
-        return { tasks: tasks.slice(0, limit), more: listed.more || tasks.length > limit };
+        const owed = (task: TaskView) =>
+          task.current.reviewers.some((named) => reviewerKey(named) === reviewer) &&
+          !currentStamps(task.current).some((stamp) => reviewerKey(stamp.reviewer) === reviewer);
+        const tasks = listed.tasks.filter((task) =>
+          (assignee === undefined || task.current.assignee === assignee) && (reviewer === undefined || owed(task)));
+        // Reviews owed read longest waiting first.
+        const ordered = reviewer === undefined ? tasks : [...tasks].sort((a, b) => a.stateSince - b.stateSince);
+        return { tasks: ordered.slice(0, limit), more: listed.more || tasks.length > limit };
       }
       case "task.show": {
         const input = yield* decode(TASK_ARGS[op], args);

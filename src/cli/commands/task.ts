@@ -65,7 +65,7 @@ const present = (fields: Record<string, Option.Option<unknown>>): Record<string,
   Object.fromEntries(Object.entries(fields).flatMap(([key, value]) => (Option.isSome(value) ? [[key, value.value]] : [])));
 
 const DESCRIPTIONS = {
-  list: "Tasks on every task node in this seat's reach, or on the one named by --node, newest change first.",
+  list: "Tasks on every task node in this seat's reach, or on the one named by --node, newest change first. --reviewer lists the reviews a seat owes, longest waiting first.",
   show: "One task with its layers: earlier nodes show their assignee, reviewers and stamps.",
   create: "Create a task in backlog on the task node in reach, or the one --node names.",
   edit: "Change a task's title or body.",
@@ -101,12 +101,16 @@ const listCommand = Command.make(
     node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("A task node: its id, its name or a junto:// ref")),
     state: stateFlag,
     assignee: Flag.string("assignee").pipe(Flag.optional, Flag.withDescription("Only tasks assigned to this seat, or me")),
+    reviewer: Flag.string("reviewer").pipe(
+      Flag.optional,
+      Flag.withDescription("Only reviews this seat, or me, owes: in review, naming it, with no stamp from it at the current epoch, longest waiting first"),
+    ),
     limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${TASK_LIST_LIMIT_MAX}, default 50)`)),
     timeout: timeoutFlag,
   },
-  ({ node, state, assignee, limit, timeout }) =>
+  ({ node, state, assignee, reviewer, limit, timeout }) =>
     run("list", "task.list", {
-      ...present({ node, assignee, limit }),
+      ...present({ node, assignee, reviewer, limit }),
       ...(state.length === 0 ? {} : { state }),
     }, Option.none(), timeout),
 ).pipe(Command.withDescription(DESCRIPTIONS.list));
@@ -386,6 +390,9 @@ const example = (verb: Verb, name: string, description: string, args: ReadonlyAr
 
 export const taskExamples: ReadonlyArray<CommandExample> = [
   example("list", "my open tasks", "Every task node in reach, assigned to this seat.", ["--assignee", "me"], { assignee: "me" }),
+  example("list", "reviews I owe", "In review, naming this seat, with no stamp from it at the current epoch; longest waiting first.", ["--reviewer", "me"], {
+    reviewer: "me",
+  }),
   example("create", "add a task", "Lands in backlog on the one task node in reach.", ["Ship the task CLI", "--stamps", "1"], {
     title: "Ship the task CLI",
     stamps: 1,

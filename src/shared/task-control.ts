@@ -55,6 +55,8 @@ export const TaskListArgs = Schema.Struct({
   state: Schema.optionalKey(Schema.Array(TaskStateWire).pipe(Schema.check(Schema.isMinLength(1)))),
   /** A seat, or `me`. */
   assignee: Schema.optionalKey(SeatRefText),
+  /** A seat, or `me`: in-review tasks naming it a reviewer with no stamp from it at the current epoch. */
+  reviewer: Schema.optionalKey(SeatRefText),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: TASK_LIST_LIMIT_MAX }))),
 }).annotate(strict);
 export type TaskListArgs = typeof TaskListArgs.Type;

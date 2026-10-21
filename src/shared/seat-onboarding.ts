@@ -72,6 +72,7 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     rows: [
       { intent: "list queue", command: (t) => `junto task list --node ${t}` },
       { intent: "my tasks", command: () => "junto task list --assignee me" },
+      { intent: "reviews I owe", command: () => "junto task list --reviewer me" },
       { intent: "read a task and its layers", command: () => "junto task show #<n>" },
       {
         intent: "wait for task state",

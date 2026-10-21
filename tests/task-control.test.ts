@@ -400,6 +400,45 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
     const exit = await run("task.list", { assignee: "@alpha" }, portsWith(applied()));
     expect(exit).toEqual(Exit.succeed({ tasks: [], more: false }));
   });
+
+  describe("by reviewer", () => {
+    const alpha = { kind: "seat", seat: seatNodeId(asNodeId("seat-a")) } as const;
+    const beta = { kind: "seat", seat: seatNodeId(asNodeId("seat-b")) } as const;
+    const id = (n: number) => ItemId.make(`01M5ESMQ2ZT55QZ073EWPH10${n}`);
+    const review = (n: number, since: number, current: Partial<TaskView["current"]>): TaskView => ({
+      ...view(id(n), n, tnode, { state: "in-review", epoch: 1, ...current }),
+      stateSince: since,
+    });
+    const reviews = [
+      review(50, 1, { reviewers: [alpha], stamps: [{ reviewer: alpha, verdict: "approve", epoch: 1, at: 3 }] }),
+      review(51, 5, { reviewers: [alpha, beta], stamps: [{ reviewer: alpha, verdict: "approve", epoch: 0, at: 2 }] }),
+      review(52, 1, { reviewers: [beta] }),
+      review(53, 2, { reviewers: [alpha] }),
+      review(54, 1, { state: "working", reviewers: [alpha] }),
+    ];
+    const ports: TaskPorts = {
+      ...portsWith(applied()),
+      list: (_, query) => {
+        const on = reviews.filter((task) => query.nodeIds.includes(task.current.node) && (query.states?.includes(task.current.state) ?? true));
+        return Effect.succeed({ tasks: on.slice(0, query.limit), more: on.length > query.limit });
+      },
+    };
+    const numbers = (exit: Exit.Exit<unknown, WorkErrorBody>) =>
+      Exit.isSuccess(exit) ? (exit.value as { tasks: ReadonlyArray<TaskView> }).tasks.map((task) => task.number) : exit;
+
+    it("lists the reviews this seat owes, longest waiting first, past an earlier epoch's stamp", async () => {
+      expect(numbers(await run("task.list", { reviewer: "me" }, ports))).toEqual([53, 51]);
+    });
+
+    it("drops a review once stamped at the current epoch, and shows no other seat's", async () => {
+      expect(numbers(await run("task.list", { reviewer: "@beta" }, ports))).toEqual([52, 51]);
+      expect(numbers(await run("task.list", { reviewer: "me", state: ["working"] }, ports))).toEqual([]);
+    });
+
+    it("names a reviewer by the same reach as an assignee", async () => {
+      expect(failure(await run("task.list", { reviewer: "@gamma" }, ports))).toMatchObject({ type: "UnknownTarget", details: { path: "reviewer" } });
+    });
+  });
 });
 
 describe.runIf(TASKS_ENABLED)("task rules and wait", () => {
