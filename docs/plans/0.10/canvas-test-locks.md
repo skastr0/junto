@@ -7,23 +7,24 @@ of the new law. A lock is never deleted bare, skipped, or weakened to an
 assertion that holds under both laws. Review refuses any canvas commit that
 leaves one of these red, skipped, or asserting nothing.
 
-Review gate (operator, 2026-10-21): `bun run typecheck`, the unit tests the
-commit touches, and the diff. Full verify and real-app runs are batched per
-milestone. The reach law is also locked in types: `region-reach.ts` carries a
+Review gate (operator, 2026-10-21): a small-tsconfig `tsc` over the
+commit's files, the unit tests it touches, and the diff, run in the shared
+checkout. Full verify and real-app runs are batched per milestone. The reach law is also locked in types: `region-reach.ts` carries a
 type-level test where misuse of a ref or a path fails `tsc` (an expect-error).
 
 ## Locks that must flip with C1 (reach)
 
-All six flip in canvas-edges' C1 commit.
+All six flip with canvas-edges' C1 work. Flipped means the lock now asserts the
+new law.
 
-| Lock | Old law it asserts | New assertion |
-|---|---|---|
-| `tests/physics/physics.test.ts:107` | region co-members get `not_connected`, through `view.regionPeers` | Keep for the page (06: page automation stays edge-bound). Add beside it: co-member, ancestor and descendant seats admitted on a task, artifact and automation node with no edge; a sibling and a cousin refused. |
-| `tests/physics/physics.test.ts:133` | no edge and no co-membership gives `invisible` | Holds for seats and pages. For a resource node, the refusal names reach, not a missing edge. |
-| `tests/physics/physics.test.ts:342` | a task board on another editing machine refuses `tasks.claim` with `other_machine` | Resource ports skip the same machine check (01 Admission); the write is ruled on the editing machine (02). The lock asserts the ruling, not the refusal. |
-| `tests/work-control-protocol.test.ts:224` | `ScopeError` always "names the missing edge" | Seat targets keep it. Resource targets name reach and say how to list what is in reach. |
-| `tests/git-review.test.ts:194` | "never outsiders": a seat outside every region is not a candidate | Decided (canvas-lead): candidates are `seatsInReach(anchor)`, one availability rule (03). A loose seat reaches everything (rule 2), so it is a candidate; a sibling region's seat is not. |
-| `tests/work-task-policy-store.test.ts:36` | dependency scope by edge topology and innermost region | `task-dep-scope` uses reach (01 Reshaped). Add region cases: an ancestor's and a descendant's tasks in scope, a sibling's not. |
+| Lock | Old law it asserts | New assertion | State |
+|---|---|---|---|
+| `tests/physics/physics.test.ts:107` | region co-members get `not_connected`, through `view.regionPeers` | Keep for the page (06: page automation stays edge-bound). Add beside it: co-member, ancestor and descendant seats admitted on a task, artifact and automation node with no edge; a sibling and a cousin refused. | flipped, 73bf05d6d |
+| `tests/physics/physics.test.ts:133` | no edge and no co-membership gives `invisible` | Holds for seats and pages. For a resource node, the refusal names reach, not a missing edge. | flipped, 73bf05d6d |
+| `tests/physics/physics.test.ts:342` | a task board on another editing machine refuses `tasks.claim` with `other_machine` | Resource ports skip the same machine check (01 Admission); the write is ruled on the editing machine (02). The lock asserts the ruling, not the refusal. | flipped, 73bf05d6d |
+| `tests/work-control-protocol.test.ts:224` | `ScopeError` always "names the missing edge" | Seat targets keep it. Resource targets name reach and say how to list what is in reach. | flipped, 73bf05d6d |
+| `tests/git-review.test.ts:194` | "never outsiders": a seat outside every region is not a candidate | Decided (canvas-lead): candidates are `seatsInReach(anchor)`, one availability rule (03). A loose seat reaches everything (rule 2), so it is a candidate; a sibling region's seat is not. | open |
+| `tests/work-task-policy-store.test.ts:36` | dependency scope by edge topology and innermost region | `task-dep-scope` uses reach (01 Reshaped). Add region cases: an ancestor's and a descendant's tasks in scope, a sibling's not. | open |
 
 ## Doctrine text that must change with the C1 doc rewrite
 
@@ -51,3 +52,8 @@ are deleted with the code they cover, not kept green by stubs. Largest first:
 matrix snapshot), `tests/main-authoring-gate.test.ts`. A test that only uses
 a deleted verb as a fixture moves to a surviving verb (`messages`,
 `navigates`, the task to task verb).
+
+The v26 deletions step keeps `reviews` in the `wires.verb` CHECK until the
+reviewer list replaces the `reviews` edge (canvas-edges with canvas-writers).
+It does not enter the chain while `reviews` is kept;
+`tests/canvas-deletions-migration.test.ts` then asserts reviews wires go.
