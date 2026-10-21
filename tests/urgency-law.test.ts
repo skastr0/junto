@@ -165,6 +165,7 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/shared/observability.ts", name: "OBSERVABILITY_LEVEL_RANK", rule: "table", reason: `log levels; ${NOT_URGENCY}` },
   { file: "src/shared/cosmetics/draw.ts", name: "DETAIL_RANK", rule: "table", reason: `cosmetic detail levels; ${NOT_URGENCY}` },
   { file: "src/shared/machine-figure/draw.ts", name: "RANK", rule: "table", reason: `machine figure detail levels; ${NOT_URGENCY}` },
+  { file: "src/shared/scheduler-effects.ts", name: "mergePageLoadStatus.rank", rule: "table", reason: `page load statuses; ${NOT_URGENCY}` },
   { file: "src/main/junto/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.groupRank", rule: "table", reason: `usage quota groups; ${NOT_URGENCY}` },
   { file: "src/main/junto/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.kindRank", rule: "table", reason: `usage quota kinds; ${NOT_URGENCY}` },
   { file: "src/renderer/components/pad/pad-editor-model.ts", name: "layerRank", rule: "table", reason: `pad element layers; ${NOT_URGENCY}` },

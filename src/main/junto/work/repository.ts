@@ -2518,6 +2518,35 @@ const readMailBetween = Effect.fn("work.mail.between")(function* (
   return yield* mailRowsWithReceipts(reader, canvasName, rows);
 });
 
+/** Rows per receipt lookup: three stamps each, well under SQLite's bound on parameters. */
+const RECEIPT_LOOKUP_ROWS = 1_000;
+
+/**
+ * Every mail one seat wrote into the other mailboxes on a canvas, in no order.
+ * A seat's mail sits in its recipient's mailbox, so this is a scan of the
+ * canvas's mail for the sender's stamp: one statement, read in SQLite.
+ */
+const readMailSentBy = Effect.fn("work.mail.sent-by")(function* (
+  reader: SqlClient.SqlClient,
+  canvasName: string,
+  sender: string,
+): Effect.fn.Return<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkSqlFailure> {
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: Schema.Struct({ ...MessageRowSchema.fields, node_id: Schema.String }),
+    execute: (bindings) => reader.unsafe(`SELECT node_id,message_id,role,parts_json,
+      task_id,context_id,reference_task_ids_json,metadata_json
+      FROM work_messages
+      WHERE canvas_name=? AND node_id<>? AND json_extract(metadata_json,'$.senderNodeId')=?
+      ORDER BY node_id,position`, bindings),
+  })([canvasName, sender, sender]);
+  const read: Array<{ readonly nodeId: string; readonly message: MessageValue }> = [];
+  for (let at = 0; at < rows.length; at += RECEIPT_LOOKUP_ROWS) {
+    read.push(...(yield* mailRowsWithReceipts(reader, canvasName, rows.slice(at, at + RECEIPT_LOOKUP_ROWS))));
+  }
+  return read;
+});
+
 /** Mail rows from several mailboxes, each with its delivery, read and ack stamps. */
 const mailRowsWithReceipts = Effect.fn("work.mail.receipts")(function* (
   reader: SqlClient.SqlClient,
@@ -4591,6 +4620,8 @@ export interface WorkRepositoryShape {
   readonly companionMail: (canvasName: string, nodeId: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkRepositoryError>;
   /** The newest mail seats `a` and `b` sent each other, both ways; `nodeId` is the mailbox it sits in. */
   readonly mailBetween: (canvasName: string, a: string, b: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkRepositoryError>;
+  /** Every mail `sender` wrote into another mailbox on the canvas, with its receipts; `nodeId` is the mailbox it sits in. */
+  readonly mailSentBy: (canvasName: string, sender: string) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkRepositoryError>;
   readonly mailMessage: (canvasName: string, nodeId: string, messageId: string) => Effect.Effect<MessageValue | undefined, WorkRepositoryError>;
   readonly recentOpsForSeat: (input: {
     readonly canvasName: string;
@@ -8004,6 +8035,10 @@ export const WorkRepositoryLive = Layer.effect(
       mailBetween: Effect.fn("WorkRepository.mailBetween")((canvasName: string, a: string, b: string, limit: number) =>
         withSqlRead(sql, readMailBetween(sql, canvasName, a, b, limit)).pipe(
           Effect.mapError((error) => toRepositoryError("work.mail.between", error)),
+        )),
+      mailSentBy: Effect.fn("WorkRepository.mailSentBy")((canvasName: string, sender: string) =>
+        withSqlRead(sql, readMailSentBy(sql, canvasName, sender)).pipe(
+          Effect.mapError((error) => toRepositoryError("work.mail.sent-by", error)),
         )),
       mailMessage: Effect.fn("WorkRepository.mailMessage")((canvasName: string, nodeId: string, messageId: string) =>
         withSqlRead(sql, readWorkMailPage(sql, { canvasName, nodeId, limit: 1 }, messageId)).pipe(

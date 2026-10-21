@@ -37,7 +37,7 @@ export function nodeSurfaceKind(node: Node): NodeSurfaceKind | null {
   if (node.kind === "terminal" || node.kind === "agent") return "terminal";
   if (productNodeKindEnabled(node.kind) &&
     (node.kind === "task" || node.kind === "requests" || node.kind === "artifacts" ||
-     node.kind === "automations" || node.kind === "board" || node.kind === "git")) return "work";
+     node.kind === "board" || node.kind === "git")) return "work";
   if (BROWSER_ENABLED && node.kind === "page") return "page";
   if (node.kind === "note") return "note";
   return null;

@@ -43,8 +43,6 @@ import { SeatCard } from "./SeatCard";
 import {
   ArtifactsCard,
   ArtifactsDetail,
-  AutomationsCard,
-  AutomationsDetail,
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
@@ -106,7 +104,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const isWorkSurface =
     entityKind === "task" ||
     entityKind === "artifacts" ||
-    entityKind === "automations" ||
     entityKind === "git";
   // A feature-gated sink keeps its historical card and rename behavior but
   // cannot open a work detail surface in a build whose gate is off.
@@ -296,9 +293,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "automations" ? (
-        <AutomationsDetail nodeId={id} onClose={() => setWorkDetail(false)} />
-      ) : null}
       {isLabel ? (
         editing ? (
           <textarea
@@ -423,8 +417,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             <TasksCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "artifacts" ? (
             <ArtifactsCard nodeId={id} />
-          ) : entityKind === "automations" ? (
-            <AutomationsCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "git" ? (
             <WithNode canvas={canvasName} id={id} kind="git">
               {(node) => <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}

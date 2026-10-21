@@ -1,15 +1,45 @@
 /**
- * Since your last session, read for onboard and `junto since`: every agent
- * seat's mailbox on the canvas (sent mail lives in each recipient's), this
- * seat's signals, and the previous session's start, projected by the pure
- * `seatSince`. Nothing here writes, and nothing is stored.
+ * Since your last session, read for onboard and `junto since`: the seat's own
+ * mailbox and the mail it sent into other seats' (sent mail lives in each
+ * recipient's), this seat's signals, and the previous session's start,
+ * projected by the pure `seatSince`. Nothing here writes, and nothing is
+ * stored.
  */
 import { Clock, Effect, Option } from "effect";
+import type { HeldMailbox } from "@shared/mail-threads";
 import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { SINCE_PER_SECTION, seatSince, type Since } from "@shared/seat-since";
+import type { Message } from "@shared/work-model";
 import { AgentSignalRepository } from "../signals/repository";
 import { WorkService } from "./service";
+
+/**
+ * The mail `seatSince` reads for one seat: its own mailbox, and what it wrote
+ * into the other seats' mailboxes, each row in the mailbox it sits in. The
+ * projection only ever uses mail the seat wrote or was written, so this is
+ * every mailbox on the canvas with the rest left out. Mail held at a node
+ * that is not a seat (a subject comment at its task) stays out, as it does
+ * when every seat's mailbox is read.
+ */
+export const seatMailboxes = (
+  nodeId: string,
+  seats: ReadonlySet<string>,
+  own: ReadonlyArray<Message>,
+  sent: ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>,
+): ReadonlyArray<HeldMailbox> => {
+  const held = new Map<string, Message[]>();
+  for (const row of sent) {
+    if (!seats.has(row.nodeId) || row.nodeId === nodeId) continue;
+    const messages = held.get(row.nodeId);
+    if (messages === undefined) held.set(row.nodeId, [row.message]);
+    else messages.push(row.message);
+  }
+  return [
+    ...(seats.has(nodeId) ? [{ nodeId, messages: own }] : []),
+    ...[...held].map(([holder, messages]) => ({ nodeId: holder, messages })),
+  ];
+};
 
 export const readSeatSince = (
   board: Canvas,
@@ -22,8 +52,11 @@ export const readSeatSince = (
   Effect.gen(function* () {
     const work = yield* WorkService;
     const seats = [...board.nodes.values()].filter((node) => node.kind === "agent");
-    const mailboxes = yield* Effect.forEach(seats, (seat) =>
-      work.readMailbox(canvasName, seat.id).pipe(Effect.map((messages) => ({ nodeId: seat.id as string, messages }))),
+    const mailboxes = seatMailboxes(
+      nodeId,
+      new Set(seats.map((seat) => seat.id as string)),
+      yield* work.readMailbox(canvasName, nodeId),
+      yield* work.readMailSentBy(canvasName, nodeId),
     );
     const names = new Map(seats.map((seat) => [seat.id as string, titleOf(seat)]));
     const store = yield* Effect.serviceOption(AgentSignalRepository);

@@ -1,10 +1,9 @@
 import { useTaskItems } from "../../lib/use-work-sink";
 import { useNodeArtifacts } from "../../lib/artifacts-source";
-import { useAutomations } from "../../lib/automations-source";
 import { useWorkMail } from "../../lib/use-work-mail";
 import { type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ListChecks, Package, Plus, Workflow } from "lucide-react";
+import { ListChecks, Package, Plus } from "lucide-react";
 import type { Part, TaskState } from "@shared/work-model";
 import { TASKS_ENABLED } from "@shared/features";
 import {
@@ -25,8 +24,6 @@ import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactsNode } from "../artifacts/ArtifactsNode";
-import { AutomationsPane } from "../automations/AutomationsPane";
-import { FocusSurface } from "../FocusSurface";
 import { asNodeId } from "@shared/physics/schema";
 import "./work-ledger.css";
 
@@ -277,51 +274,6 @@ export function ArtifactsCard({ nodeId }: { readonly nodeId: string }) {
   );
 }
 
-/** An Automations node on the canvas: how many it holds, and the first few by name. */
-export function AutomationsCard({
-  nodeId,
-  renaming,
-  onRenameDone,
-}: {
-  readonly nodeId: string;
-  readonly renaming: boolean;
-  readonly onRenameDone: () => void;
-}) {
-  const automations = useAutomations(use$(state$.canvasName) || "", asNodeId(nodeId));
-  return (
-    <div className="factory-glance factory-glance--automations flex h-full w-full flex-col overflow-hidden" data-testid="automations-card">
-      <SinkGlanceHead
-        nodeId={nodeId}
-        fallback="automations"
-        decal={<Workflow size={15} />}
-        renaming={renaming}
-        onRenameDone={onRenameDone}
-        trailing={
-          <span className="text-caption tabular-nums" style={{ color: DIM }}>
-            {automations.length}
-          </span>
-        }
-      />
-      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {automations.slice(0, 4).map((automation) => (
-          <div
-            key={automation.automationId}
-            className="factory-glance__row truncate text-label"
-            style={{ color: automation.enabled ? INK : DIM }}
-          >
-            {automation.name}
-          </div>
-        ))}
-        {automations.length === 0 ? (
-          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
-            none yet
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 // --- Detail surfaces -------------------------------------------------------
 
 export function TasksDetail({
@@ -347,24 +299,6 @@ export function ArtifactsDetail({
   const canvasName = use$(state$.canvasName) || "";
   return <ArtifactsNode canvasName={canvasName} nodeId={asNodeId(nodeId)} onClose={onClose} />;
 }
-
-/** The operator's Automations pane. Main sets the stored author from the actor. */
-export function AutomationsDetail({
-  nodeId,
-  onClose,
-}: {
-  readonly nodeId: string;
-  readonly onClose: () => void;
-}) {
-  const canvasName = use$(state$.canvasName) || "";
-  return (
-    <FocusSurface measure="workspace" height="immersive" label="Automations" onClose={onClose}>
-      <AutomationsPane canvasName={canvasName} nodeId={asNodeId(nodeId)} author={OPERATOR} />
-    </FocusSurface>
-  );
-}
-
-const OPERATOR = { kind: "operator" } as const;
 
 export function AgentMessagesPane({ nodeId }: { readonly nodeId: string }) {
   const canvas = use$(state$.canvasName) || "";

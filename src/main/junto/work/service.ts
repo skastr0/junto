@@ -556,6 +556,8 @@ export interface WorkServiceShape {
     readonly readMailMessage: (canvas: string, nodeId: string, messageId: string) => Effect.Effect<Message | undefined, WorkServiceError>;
     /** The newest mail seats `a` and `b` sent each other, both ways; `nodeId` is the mailbox it sits in. */
     readonly readMailBetween: (canvas: string, a: string, b: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
+    /** Every mail `sender` wrote into another mailbox on the canvas, with its receipts; `nodeId` is the mailbox it sits in. */
+    readonly readMailSentBy: (canvas: string, sender: string) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkServiceError>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
@@ -1259,6 +1261,7 @@ export const WorkLive = Layer.effect(
       readMailbox: (canvas, nodeId) => repository.mailbox(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readMailMessage: (canvas, nodeId, messageId) => repository.mailMessage(canvas, nodeId, messageId).pipe(Effect.mapError(toWorkServiceError)),
       readMailBetween: (canvas, a, b, limit) => repository.mailBetween(canvas, a, b, limit).pipe(Effect.mapError(toWorkServiceError)),
+      readMailSentBy: (canvas, sender) => repository.mailSentBy(canvas, sender).pipe(Effect.mapError(toWorkServiceError)),
       workVerdictPost: (canvas, target, input, reviewer) =>
         asResult(
           Effect.gen(function* () {

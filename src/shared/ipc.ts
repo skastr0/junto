@@ -280,6 +280,7 @@ export const IPC_CHANNELS = {
   factoryPauseState: "junto:factory-pause-state",
   factoryPauseSet: "junto:factory-pause-set",
   /** Operator Fire now — apply scheduler output-edge effects immediately. */
+  schedulerFire: "junto:scheduler-fire",
   /**
    * Put image bytes into the local content store; returns a ContentRef.
    * Canvas notes and image file nodes author through this — never inline Base64
@@ -496,6 +497,13 @@ export interface DigestResult {
 }
 
 // --- kernel state types (wire) -----------------------------------------------
+
+/** Gone from the wire; kept until the kernel stops composing it (canvas-services). */
+export interface WatcherRuntimeState {
+  readonly status: "satisfied" | "pending" | "unknown";
+  readonly detail: string;
+  readonly lastFiredAt?: number;
+}
 
 /** Blocked seats and why, projected from the kernel cycle. */
 export type ExecutionSnapshot = ExecutionGraphSnapshot;
