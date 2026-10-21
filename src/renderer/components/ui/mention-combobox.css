@@ -57,6 +57,11 @@
   padding: 4px;
 }
 
+/* With no matches the list stays for its id, but takes no room above the No matches line. */
+.mention-combobox__list:empty {
+  padding: 0;
+}
+
 .mention-combobox__option {
   display: flex;
   align-items: center;
