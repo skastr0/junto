@@ -461,8 +461,8 @@ const command = (caller: TaskCaller, opId: OpId, node: NodeId, taskId: TaskId, o
   canvasName: caller.canvasName,
   actor: caller.actor,
   target: { kind: "task", nodeId: node, itemId: taskId },
-  // Basis and the after chain come with remote's pending overlay (R2).
   basis: null,
+  // Off the editing machine, ResourceSubmit adds the unruled commands this one builds on.
   after: [],
   op,
 });

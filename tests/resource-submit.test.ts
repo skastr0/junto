@@ -101,7 +101,7 @@ beforeAll(async () => {
         Effect.gen(function* () {
           yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${SELF}, ${at})`;
           yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${SELF}, ${at})`;
-          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("s1", { y: 0 }), taskBoard("board-1", { y: 200 })] }]]) });
+          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("s1", { y: 0 }), taskBoard("board-1", { y: 200 }), taskBoard("board-2", { y: 400 })] }]]) });
           yield* sql`UPDATE canvases SET editor_installation_id = ${EDITOR} WHERE canvas_name = 'factory'`;
         }),
       );
@@ -181,5 +181,32 @@ describe("a seat's write on a canvas another machine edits", () => {
     const applied = { operation: "ruling.applied", writer: SELF, opId, actor: { kind: "seat", seatId, nodeId: "s1" }, kind: "task", facts: [{ kind: "task", task, effects: [] }] };
     expect(Exit.isSuccess(await runtime.runPromiseExit(rulingArrives(opId, "2", applied)))).toBe(true);
     expect(await show()).toMatchObject({ op: { state: "applied", opId } });
+  });
+
+  it("builds a command on this machine's unruled commands on the same item, and on no other item's", async () => {
+    linked = false;
+    const onItem = (opId: OpId, itemId: string) =>
+      ({ ...command(opId), target: { kind: "task", nodeId: "board-2", itemId } }) as unknown as QueuedCommand;
+    const [first, second, elsewhere] = [op(), op(), op()];
+    for (const [opId, itemId] of [[first, "01M5F4A000000000000000000X"], [second, "01M5F4A000000000000000000X"], [elsewhere, "01M5F4A000000000000000000Y"]] as const) {
+      expect(await runtime.runPromise(submit.queue(onItem(opId, itemId), EDITOR))).toEqual({ kind: "queued" });
+    }
+    const held = new Map((await runtime.runPromise(work.unruledCommands("factory"))).map(({ command: queued }) => [queued.opId, queued.after]));
+    expect(held.get(first)).toEqual([]);
+    expect(held.get(second)).toEqual([first]);
+    expect(held.get(elsewhere)).toEqual([]);
+  });
+
+  it("gives writes queued at once on one item one chain: each builds on every earlier one", async () => {
+    linked = false;
+    const itemId = "01M5F4A000000000000000000Z";
+    const opIds = Array.from({ length: 10 }, () => op());
+    const onItem = (opId: OpId) => ({ ...command(opId), target: { kind: "task", nodeId: "board-2", itemId } }) as unknown as QueuedCommand;
+    await Promise.all(opIds.map((opId) => runtime.runPromise(submit.queue(onItem(opId), EDITOR))));
+    const lengths = (await runtime.runPromise(work.unruledCommands("factory")))
+      .filter(({ command: queued }) => opIds.includes(queued.opId))
+      .map(({ command: queued }) => queued.after.length)
+      .sort((x, y) => x - y);
+    expect(lengths).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 });

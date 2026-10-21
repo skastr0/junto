@@ -7,11 +7,11 @@
  * with none open it does not wait. It then answers applied, refused, or
  * queued with the opId; queued is a success, and `junto op show` reads it later.
  */
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { CommandQueueFull, CommandTargetUnknown, type QueuedCommand, type RulingAppliedResult } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
-import { RULING_WAIT_MS, refusalError } from "@shared/resource-command";
+import { RULING_WAIT_MS, afterOf, refusalError } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
 import { WorkRepository } from "./repository";
@@ -62,6 +62,8 @@ export const makeResourceSubmitLayer = (
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const work = yield* WorkRepository;
+      // Reading the queue and adding to it is one step: two writes from this machine never both see an empty chain.
+      const enqueue = yield* Semaphore.make(1);
 
       const canvasRow = (canvasName: string) =>
         sql<{ editor: string | null; seq: number; self: string | null }>`
@@ -95,9 +97,16 @@ export const makeResourceSubmitLayer = (
           const row = yield* canvasRow(command.canvasName);
           if (row === undefined || row.self === null) return yield* Effect.fail(storeFailed("this machine has no installation id yet"));
           const self = row.self as InstallationId;
-          yield* work
-            .queueCommand({ command, basis: { kind: "canvas", canvasName: command.canvasName, seq: row.seq } as never })
-            .pipe(Effect.mapError(queueRefusal));
+          yield* Effect.gen(function* () {
+            // A command builds on this machine's unruled commands on the same item, so a refused
+            // one refuses it too (depends_on_refused) instead of it applying on another's write.
+            const unruled = yield* work.unruledCommands(command.canvasName).pipe(Effect.mapError((error) => storeFailed(error.message)));
+            const pending = unruled.filter((held) => held.writer === self).map((held) => held.command);
+            const after = [...new Set([...command.after, ...afterOf(pending, command.target)])];
+            yield* work
+              .queueCommand({ command: { ...command, after }, basis: { kind: "canvas", canvasName: command.canvasName, seq: row.seq } as never })
+              .pipe(Effect.mapError(queueRefusal));
+          }).pipe(enqueue.withPermits(1));
           const deadline = Date.now() + RULING_WAIT_MS;
           while (linked(editor) && Date.now() < deadline) {
             const state = yield* work.commandState(command.canvasName, self, command.opId).pipe(Effect.mapError((error) => storeFailed(error.message)));
