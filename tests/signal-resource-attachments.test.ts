@@ -95,6 +95,16 @@ describe("a signal's task and artifact attachments, claimed", () => {
   });
 });
 
+describe("a task or an artifact claimed with no canvas", () => {
+  it("is refused, never admitted unjudged", async () => {
+    const content = { releaseOwner: () => Effect.void } as never;
+    const refused = await Effect.runPromise(
+      Effect.flip(claimSignalAttachments(content, { signalId: "sig-1", canvasName: "factory", nodeId: "S" }, [{ kind: "task", ref: ref("T", T) }], undefined)),
+    );
+    expect(refused).toEqual({ path: "attach[0]", message: "a task came without the canvas to judge it by" });
+  });
+});
+
 describe("task and artifact attachments on the wire", () => {
   const taskId = Schema.decodeSync(ItemId)(T);
   const task = { kind: "task", nodeId: asNodeId("T"), taskId } as const;

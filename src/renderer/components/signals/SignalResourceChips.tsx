@@ -1,4 +1,5 @@
 import { isResourceAttachment, type AgentSignalAttachment, type AgentSignalResourceAttachment } from "@shared/agent-signals";
+import { asNodeId } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { useCanvas } from "../../lib/use-model";
@@ -31,7 +32,7 @@ export function SignalResourceChips({
   return (
     <ul className="flex flex-wrap gap-1.5" aria-label="Tasks and artifacts this is about" data-testid="signal-resource-chips">
       {resources.map((attachment, index) => {
-        const node = nodes.get(attachment.nodeId);
+        const node = nodes.get(asNodeId(attachment.nodeId));
         const item = attachment.kind === "task" ? attachment.taskId : attachment.artifactId;
         return (
           <li key={`${index}:${attachment.kind}:${attachment.nodeId}:${item}`}>

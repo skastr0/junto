@@ -124,6 +124,9 @@ describe("main authoring architecture", () => {
       "src/main/junto/kernel/service.ts",
       // Closed administrative dispatch is still process-bound and gated.
       "src/main/junto/overseer/work.ts",
+      // The copies of an answer to the seats it mentions, written only from
+      // answerAgentSignal in operator.ts, after the answer stands.
+      "src/main/junto/signals/answer-mentions.ts",
       // An operator's signal answer is mail, reached only through the
       // classified ipc.work.signal-answer handler in ipc.ts.
       "src/main/junto/signals/operator.ts",

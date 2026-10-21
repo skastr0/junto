@@ -1,6 +1,4 @@
 import { Schema } from "effect";
-import { NodeId } from "../physics/schema";
-import { ItemId } from "../work-ids";
 import { ContentRef } from "./content-ref";
 
 /**
@@ -106,14 +104,22 @@ export const AgentSignalLinkAttachment = Schema.Struct({
 });
 export type AgentSignalLinkAttachment = typeof AgentSignalLinkAttachment.Type;
 
+/** A canvas node, as the wire carries it (the app brands it NodeId). */
+const WireNodeId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256));
+/**
+ * A task's or an artifact's id: a ULID. Said here, not imported, so the wire
+ * keeps its closure of `effect` alone; the app brands it ItemId.
+ */
+const WireItemId = Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/u));
+
 /**
  * A task the signal is about, on its board: a stamp request carries its task
  * this way (0.10 plan 03 section 6). Main admitted it in the seat's reach.
  */
 export const AgentSignalTaskAttachment = Schema.Struct({
   kind: Schema.Literal("task"),
-  nodeId: NodeId,
-  taskId: ItemId,
+  nodeId: WireNodeId,
+  taskId: WireItemId,
   caption,
 });
 export type AgentSignalTaskAttachment = typeof AgentSignalTaskAttachment.Type;
@@ -121,8 +127,8 @@ export type AgentSignalTaskAttachment = typeof AgentSignalTaskAttachment.Type;
 /** An artifact the signal is about, in its Artifacts node. Main admitted it in the seat's reach. */
 export const AgentSignalArtifactAttachment = Schema.Struct({
   kind: Schema.Literal("artifact"),
-  nodeId: NodeId,
-  artifactId: ItemId,
+  nodeId: WireNodeId,
+  artifactId: WireItemId,
   caption,
 });
 export type AgentSignalArtifactAttachment = typeof AgentSignalArtifactAttachment.Type;
