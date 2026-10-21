@@ -91,10 +91,13 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    valid only from the machine placement says that seat was on when it was
    written; an operator's or an automation's command, and every ruling, only
    from the machine that edits the canvas, which takes them from no peer.
-   Every row a machine writes is at most 64 KiB, refused where it is minted;
-   larger text travels as a file. A row taken from a peer is held to the
-   256 KiB record bound, and a page of rows is cut by bytes as well as
-   count, so it always fits one frame.
+   The resource facts a ruling applies ride inside its `ruling.applied` row,
+   written in the ruling's transaction and carrying its opId, so every row
+   still stands alone and none names a predecessor. Every row a machine
+   writes is at most 64 KiB, refused where it is minted; larger text travels
+   as a file. A row taken from a peer is held to the 256 KiB record bound,
+   and a page of rows is cut by bytes as well as count, so it always fits
+   one frame.
    The editing machine remembers which machine each seat was on and when, so
    mail written before a seat moved or was removed is still judged against
    where the seat was.

@@ -37,10 +37,9 @@ most 64 KiB; rulings keyed by writer and opId. Writer rules landed with
 Every-row cap and byte paging landed with `a194abcc2` and `1dd8fdddd`.
 Design change `387564472`: resource facts ride inside `ruling.applied`, so
 rows still stand alone and no predecessor crosses; the rule 4 sentence for
-it lands when the code carries facts in the ruling (today it carries fact
-seqs). Stated in rule 4 but not yet built: "rules it against region reach
-on its own canvas" (from `c0eecdae4`) describes the ruler, not on main yet.
-Still held: that sentence, the ruler, seat occupancy, and the queue bound
+it landed with `197c1f674`. Stated in rule 4 but not yet built: "rules it
+against region reach on its own canvas" (from `c0eecdae4`) describes the ruler, not on main yet.
+Still held: the ruler, seat occupancy, and the queue bound
 with `queue_full`.
 
 `docs/machines.md:71-72`. Replace
