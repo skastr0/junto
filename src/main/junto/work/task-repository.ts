@@ -206,8 +206,12 @@ const viewOf = (row: HeadRow, task: TaskRecord, layers: ReadonlyArray<ClosedTask
   };
 };
 
-const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError) =>
-  TaskPersistenceError.make({ operation, message: error.message, cause: error });
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | TaskPersistenceError) =>
+  error instanceof TaskPersistenceError ? error : TaskPersistenceError.make({ operation, message: error.message, cause: error });
+
+/** A stored row the ruler cannot read: the write fails rather than rule around it. */
+const unreadable = (what: string, taskId: string) =>
+  TaskPersistenceError.make({ operation: "submit", message: `${what} ${taskId} does not decode`, cause: taskId });
 
 // ── the repository ─────────────────────────────────────────────────────────
 
@@ -288,8 +292,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Effect.gen(function* () {
         const tasks = new Map<TaskId, TaskRecord>();
         for (const row of yield* canvasRows({ canvas })) {
+          // Fail closed: a row left out would escape the one-open-task check and be overwritten by a create.
           const task = taskOfRow(row);
-          if (task !== undefined) tasks.set(task.id, task);
+          if (task === undefined) return yield* Effect.fail(unreadable("task", row.task_id));
+          tasks.set(task.id, task);
         }
         const stored = yield* nextNumberRow({ canvas });
         const nextNumber = taskNumber(Option.isSome(stored) ? stored.value.next_number : 1) ?? taskNumber(1)!;
@@ -390,10 +396,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
             };
           }
           const task = yield* readTask(canvas, stored.success.taskId as TaskId);
-          if (Option.isSome(task)) {
-            return { kind: "applied" as const, opId: command.opId, task: task.value, effects: [], replay: true };
-          }
+          if (Option.isNone(task)) return yield* Effect.fail(unreadable("the task of applied ruling", command.opId));
+          return { kind: "applied" as const, opId: command.opId, task: task.value, effects: [], replay: true };
         }
+        return yield* Effect.fail(unreadable("ruling", command.opId));
       }
       const at = Date.now();
       const state = yield* readBoard(canvas);

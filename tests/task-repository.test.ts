@@ -160,6 +160,22 @@ describe("task repository", () => {
     ]);
   });
 
+  it("fails a write rather than rule around a row that does not decode", async () => {
+    const { taskId } = await create("one");
+    database.prepare("UPDATE task_heads SET reviewers_json = '{\"not\":\"a list\"}' WHERE task_id = ?").run(taskId);
+    await expect(submit(command({ kind: "create", taskId: mintItemId(), title: "two" }, undefined))).rejects.toThrow(
+      /does not decode/,
+    );
+  });
+
+  it("fails a replay whose applied task no longer reads", async () => {
+    const { taskId } = await create("one");
+    const opId = mintOpId();
+    applied(await submit(command({ kind: "cancel" }, taskId, { opId })));
+    database.prepare("UPDATE task_heads SET stamps_json = '1' WHERE task_id = ?").run(taskId);
+    await expect(submit(command({ kind: "cancel" }, taskId, { opId }))).rejects.toThrow(/does not decode/);
+  });
+
   it("lists by state, archived left out by default", async () => {
     const { taskId } = await create("one");
     applied(await submit(command({ kind: "cancel" }, taskId)));
