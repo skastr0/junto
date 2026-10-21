@@ -6,7 +6,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { DRIVER_RECENT_MS, initialPageDriving, reducePageDriving } from "../src/shared/page-driver";
-import { applyPageDriving, pageDriving$ } from "../src/renderer/lib/page-driving";
+import type { BrowserChromeState } from "../src/shared/browser-chrome";
+import type { BrowserSessionInfo } from "../src/shared/ipc";
+import { initialPageTabs } from "../src/shared/page-tabs";
+import { browser$ } from "../src/renderer/lib/browser-state";
+import { applyPageDriving, pageDriving$, refreshPageDriving, subscribePageDriving } from "../src/renderer/lib/page-driving";
 
 const REF = "junto://canvas/work?node=p1";
 const seat = asNodeId("scout");
@@ -32,7 +36,8 @@ describe("the page chip's Working flag", () => {
     expect(working()).toBe(true);
     vi.advanceTimersByTime(DRIVER_RECENT_MS - 1);
     expect(working()).toBe(true);
-    vi.advanceTimersByTime(1);
+    // The timer lands one past the window's end, so it never wakes early to a zero wait.
+    vi.advanceTimersByTime(2);
     expect(working()).toBe(false);
   });
 
@@ -59,5 +64,62 @@ describe("the page chip's Working flag", () => {
     applyPageDriving(REF, again);
     vi.advanceTimersByTime(DRIVER_RECENT_MS * 2);
     expect(working()).toBe(true);
+  });
+});
+
+describe("reading a page's driving from main", () => {
+  const seatRuns = reducePageDriving(initialPageDriving, { kind: "seat-start", nodeId: seat, at: Date.now() });
+  const stateOf = (driving: typeof seatRuns): BrowserChromeState => ({ tabs: initialPageTabs("https://example.com/"), driving });
+  const session = (sessionId: string, state: BrowserSessionInfo["state"] = "ready"): BrowserSessionInfo => ({
+    ref: REF, sessionId, nodeId: "p1", url: "https://example.com/", profile: "personal", state, attached: true,
+  });
+  let answers: Array<(state: BrowserChromeState) => void>;
+  let pageChanged: ((sessionId: string) => void) | undefined;
+  beforeEach(() => {
+    answers = [];
+    (globalThis as unknown as { window: unknown }).window = {
+      junto: {
+        browserPageState: () => new Promise((resolve) => answers.push((data) => resolve({ ok: true, data }))),
+        onBrowserPageChanged: (listener: (sessionId: string) => void) => {
+          pageChanged = listener;
+          return () => undefined;
+        },
+      },
+    };
+  });
+  afterEach(() => {
+    browser$.sessionByRef.set({});
+    delete (globalThis as { window?: unknown }).window;
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("lets the newer read win when two answer out of order, and a no-session read outranks one in flight", async () => {
+    browser$.sessionByRef[REF].set(session("s1"));
+    const older = refreshPageDriving(REF);
+    const newer = refreshPageDriving(REF);
+    answers[1]!(stateOf(initialPageDriving));
+    answers[0]!(stateOf(seatRuns));
+    await Promise.all([older, newer]);
+    expect(pageDriving$.workingByRef[REF].peek()).toBe(false);
+
+    const inFlight = refreshPageDriving(REF);
+    browser$.sessionByRef[REF].delete();
+    await refreshPageDriving(REF);
+    answers[2]!(stateOf(seatRuns));
+    await inFlight;
+    expect(pageDriving$.workingByRef[REF].peek() ?? false).toBe(false);
+  });
+
+  it("replays a page event that came before its session mapped, and forgets the page once it is destroyed", async () => {
+    subscribePageDriving();
+    pageChanged!("s2");
+    expect(answers).toHaveLength(0);
+    browser$.sessionByRef[REF].set(session("s2"));
+    expect(answers).toHaveLength(1);
+    answers[0]!(stateOf(seatRuns));
+    await settle();
+    expect(pageDriving$.workingByRef[REF].peek()).toBe(true);
+    browser$.sessionByRef[REF].set(session("s2", "destroyed"));
+    expect(REF in pageDriving$.workingByRef.peek()).toBe(false);
   });
 });
