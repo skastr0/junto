@@ -1,4 +1,5 @@
 import { countRender } from "../../lib/performance/surface-commits";
+import { NodeIdContext } from "../../lib/node-status";
 import {
   useEffect,
   type CSSProperties,
@@ -459,6 +460,7 @@ export function NodeShell({
   const multiSelectCapture = useShiftMultiSelectDominance(id);
   // Pulse wash for derived seat stoppage.
   return (
+    <NodeIdContext.Provider value={id}>
     <div
       className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${look === "spine" ? "" : bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
       data-look={look === "spine" ? "spine" : undefined}
@@ -535,5 +537,6 @@ export function NodeShell({
       )}
       {overlay}
     </div>
+    </NodeIdContext.Provider>
   );
 }

@@ -12,8 +12,8 @@ import { browser$ } from "../../lib/browser-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
-import { DIM, HUE, INK } from "../../lib/theme";
 import { NodeShell } from "./NodeShell";
+import { SpineCard } from "./SpineCard";
 import { BROWSER_ENABLED } from "@shared/features";
 
 export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
@@ -81,21 +81,9 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
 
   const host = hostOf(url) || "retired link";
   return (
-    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked}>
-      <div className="flex h-full w-full items-start gap-2 opacity-55">
-        <Link2 size={15} className="mt-0.5 shrink-0" style={{ color: HUE.cyan }} />
-        <div className="min-w-0">
-          <div
-            className="truncate font-mono text-[12px] font-semibold"
-            style={{ color: INK }}
-            title={url}
-          >
-            {host}
-          </div>
-          <div className="truncate font-mono text-[10px]" style={{ color: DIM }}>
-            retired - delete to remove
-          </div>
-        </div>
+    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} look="spine">
+      <div title={url}>
+        <SpineCard glyph={<Link2 />} hue="cyan" name={host} status="retired" dashed body={{ kind: "leaf", line: url || host }} />
       </div>
     </NodeShell>
   );

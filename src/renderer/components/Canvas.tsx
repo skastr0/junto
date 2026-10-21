@@ -62,6 +62,7 @@ import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
 import { spokenNodeName } from "../lib/flow-nodes";
+import { nodeStatus$ } from "../lib/node-status";
 import { seatTasks$ } from "../lib/seat-tasks";
 import { endReachPreview, startReachPreview, updateReachPreview } from "../lib/reach-preview";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
@@ -132,7 +133,12 @@ const flowNodeClass = (node: FlowNode, impactClass: string | undefined): string 
  * is where a reader hears it.
  */
 const flowNodeLabel = (node: FlowNode, selected: boolean): string => {
-  const spoken = spokenNodeName(titleAt(node.data.canvas, node.id), node.data.kind, node.data.blocked);
+  const spoken = spokenNodeName(
+    titleAt(node.data.canvas, node.id),
+    node.data.kind,
+    node.data.blocked,
+    nodeStatus$[node.id].peek(),
+  );
   return selected ? `${spoken}, selected` : spoken;
 };
 
@@ -415,6 +421,8 @@ function useCanvasDocument(
       state$.selectedNodeIds.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
       state$.connectionFocusNodeId.onChange(syncSelection),
+      // A card's status tag changes its spoken name.
+      nodeStatus$.onChange(syncSelection),
     ];
     return () => {
       for (const off of offs) off();

@@ -10,12 +10,18 @@ import { FileText, X } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { imageContentRefFromFile } from "../../lib/image-content";
 import { state$ } from "../../lib/state";
-import { DIM, INK } from "../../lib/theme";
 import { useNodeFieldOf } from "../../lib/use-model";
 import { ContentMedia } from "../work/ContentMedia";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
 import { NodeShell } from "./NodeShell";
+import { SpineCard } from "./SpineCard";
+
+/** The folders a path sits in, the nearest last: what the leaf line names. */
+const pathTail = (path: string): string => {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length > 1 ? parts.slice(-3, -1).join("/") : "retired, delete to remove";
+};
 
 export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   const canvasName = use$(state$.canvasName);
@@ -112,21 +118,9 @@ export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   // Legacy plain path furniture — decode-admits-history only.
   const base = path.split("/").filter(Boolean).pop() ?? (path || "retired file");
   return (
-    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked}>
-      <div className="flex h-full w-full items-start gap-2 opacity-55">
-        <FileText size={15} className="mt-0.5 shrink-0" style={{ color: DIM }} />
-        <div className="min-w-0">
-          <div
-            className="truncate font-mono text-[12px] font-semibold"
-            style={{ color: INK }}
-            title={path}
-          >
-            {base}
-          </div>
-          <div className="truncate font-mono text-[10px]" style={{ color: DIM }}>
-            retired - delete to remove
-          </div>
-        </div>
+    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} look="spine">
+      <div title={path}>
+        <SpineCard glyph={<FileText />} hue="dim" name={base} status="retired" dashed body={{ kind: "leaf", line: pathTail(path) }} />
       </div>
     </NodeShell>
   );

@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { Node, NodeKind, Region } from "@shared/model";
 import { regionStack, type Canvas } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
+import { NODE_STATUS_WORD, type NodeStatus } from "./node-status";
 import { INSTRUMENT_KINDS, INSTRUMENT_RING_PX, renderedNodeSize, SEAT_RING_PX } from "./node-geometry";
 import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
@@ -65,11 +66,12 @@ const SPOKEN_KIND: { readonly [K in NodeKind]: string | undefined } = {
   stub: "stub",
 };
 
-/** A node's spoken name: its name, its kind, and blocked when it is. */
-export const spokenNodeName = (name: string, kind: NodeKind, blocked: boolean): string => {
+/** A node's spoken name: its name, its kind, and the status its tag shows (else blocked when it is). */
+export const spokenNodeName = (name: string, kind: NodeKind, blocked: boolean, status?: NodeStatus): string => {
   const noun = SPOKEN_KIND[kind];
   if (noun === undefined) return name;
-  return blocked ? `${name}, ${noun}, blocked` : `${name}, ${noun}`;
+  const said = status !== undefined ? NODE_STATUS_WORD[status].toLowerCase() : blocked ? "blocked" : undefined;
+  return said === undefined ? `${name}, ${noun}` : `${name}, ${noun}, ${said}`;
 };
 
 /** Which React Flow component draws a kind (components/nodes/index.ts). */

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SPINE_STATUS, SpineCard, type SpineStatus } from "../src/renderer/components/nodes/SpineCard";
 import { nodeScale } from "../src/renderer/lib/canvas-tier";
 import { spokenNodeName } from "../src/renderer/lib/flow-nodes";
+import { NodeIdContext, nodeStatus$ } from "../src/renderer/lib/node-status";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -97,5 +98,18 @@ describe("spoken name", () => {
     expect(spokenNodeName("Board", "task", true)).toBe("Board, tasks, blocked");
     expect(spokenNodeName("lead", "agent", true)).toBe("lead");
     expect(spokenNodeName("Junto", "region", false)).toBe("Junto");
+    expect(spokenNodeName("example.com", "page", false, "working")).toBe("example.com, page, working");
+    expect(spokenNodeName("Board", "task", true, "needs-you")).toBe("Board, tasks, needs you");
+  });
+
+  it("is published by the card drawn in a node, and cleared when it goes", () => {
+    render(
+      <NodeIdContext.Provider value="n1">
+        <SpineCard glyph={glyph} hue="green" name="Board" status="failed" />
+      </NodeIdContext.Provider>,
+    );
+    expect(nodeStatus$.n1.peek()).toBe("failed");
+    render(<NodeIdContext.Provider value="n1"><SpineCard glyph={glyph} hue="green" name="Board" /></NodeIdContext.Provider>);
+    expect(nodeStatus$.n1.peek()).toBeUndefined();
   });
 });
