@@ -43,9 +43,7 @@ export const Port = Schema.Literals(["tasks.list", "tasks.create",
 "board.list",
 "board.create_topic",
 "board.post",
-"board.mark_read",
-/** Actor → relay: admit trigger (ocap path for agent-fired automation). */
-"relay.trigger",]);
+"board.mark_read",]);
 export type Port = typeof Port.Type;
 
 export const ALL_PORTS: ReadonlyArray<Port> = [
@@ -65,7 +63,6 @@ export const ALL_PORTS: ReadonlyArray<Port> = [
   "board.create_topic",
   "board.post",
   "board.mark_read",
-  "relay.trigger",
 ];
 
 export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>

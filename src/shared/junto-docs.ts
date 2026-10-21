@@ -47,7 +47,6 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "board.create_topic": "Create a board topic (does not notify agents).",
   "board.post": "Post a note under a topic.",
   "board.mark_read": "Mark a topic read without replying.",
-  "relay.trigger": "Fire a connected scheduler run now.",
 };
 
 // ── Per-kind data models (generated from the real schemas) ─────────────────

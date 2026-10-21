@@ -41,6 +41,7 @@ import {
   CANVAS_DELETIONS_RETIRED_COLUMNS,
   migrateCanvasDeletions,
 } from "./migrate-canvas-deletions";
+import { RELAY_TRIGGER_PORT_REPLACED_TABLES, migrateRelayTriggerPort } from "./migrate-relay-trigger-port";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   actualStateSchemaSha256,
@@ -414,7 +415,17 @@ export const STATE_SCHEMA_V34_IDENTITY = {
     "cbe4024d72a8dd25b14a9b1575225f0084fe043c5c8d9312523dcf8b61c01cd9",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 34;
+/**
+ * Version 35 takes the retired `relay.trigger` port out of every stored wire
+ * mask, so the port can leave the closed list masks decode against. The
+ * schema text does not move. Consolidate.
+ */
+export const STATE_SCHEMA_V35_IDENTITY = {
+  actualSchemaSha256:
+    "cbe4024d72a8dd25b14a9b1575225f0084fe043c5c8d9312523dcf8b61c01cd9",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 35;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -422,7 +433,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 34;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V34_IDENTITY;
+  STATE_SCHEMA_V35_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -655,6 +666,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(AUTOMATION_NODE_ARCHIVES_SQL);
     },
+  },
+  {
+    fromVersion: 34,
+    toVersion: 35,
+    name: "take relay.trigger out of every wire mask",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V34_IDENTITY,
+    replacesTables: [...RELAY_TRIGGER_PORT_REPLACED_TABLES],
+    migrate: migrateRelayTriggerPort,
   },
 ];
 

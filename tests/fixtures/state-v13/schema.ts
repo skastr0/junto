@@ -198,3 +198,9 @@ export const STATE_SCHEMA_V34_SQL = stepped(
   STATE_SCHEMA_V33_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 34)!.migrate,
 );
+
+// Version 35 took relay.trigger out of every wire mask (34 -> 35).
+export const STATE_SCHEMA_V35_SQL = stepped(
+  STATE_SCHEMA_V34_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 35)!.migrate,
+);
