@@ -19,7 +19,7 @@ const profile = SURFACES.every((key) => BUILD_FEATURES[key] === false)
     : "mixed";
 
 /** Families a ship build does not have: their surfaces are off in the ship catalog. */
-const SHIP_GATED_FAMILIES = ["tasks", "content", "request", "artifact", "board", "page"];
+const SHIP_GATED_FAMILIES = ["task", "content", "request", "artifact", "board", "page"];
 
 const SHIP_OPERATIONS = [
   "status",
