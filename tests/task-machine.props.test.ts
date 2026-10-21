@@ -205,15 +205,20 @@ describe("task machine properties", () => {
     return out;
   }));
 
-  it("raises the epoch only when changes are asked, by one, and files that as a move back to working", forall((seed) => {
+  it("raises the epoch only when changes are asked or the task is sent on, by one each, and a sent-on layer starts clean", forall((seed) => {
     const out: string[] = [];
     walk(seed, (before, _, step, applied, record) => {
       if (!applied || record === undefined) return;
       const prior = before.tasks.get(record.id);
       if (prior === undefined) return;
+      const sentOn = record.node !== prior.node;
+      const changesAsked = step.command.kind === "stamp" && step.command.verdict === "changes" && record.state === "working";
       if (record.epoch < prior.epoch) out.push(`epoch fell on ${step.command.kind}`);
-      if (record.epoch > prior.epoch && !(step.command.kind === "stamp" && step.command.verdict === "changes" && record.epoch === prior.epoch + 1 && record.state === "working")) {
-        out.push(`epoch rose on ${step.command.kind}`);
+      if (record.epoch !== prior.epoch + (sentOn || changesAsked ? 1 : 0)) {
+        out.push(`epoch ${prior.epoch} -> ${record.epoch} on ${step.command.kind} (sentOn ${sentOn}, changesAsked ${changesAsked})`);
+      }
+      if (sentOn && (record.stamps.length !== 0 || record.state !== "backlog" || record.assignee !== undefined || record.reviewers.length !== 0)) {
+        out.push(`sent-on layer is not clean: ${record.state}, ${record.stamps.length} stamps`);
       }
     });
     return out;
@@ -327,6 +332,43 @@ describe("approvals across a change of assignee", () => {
     // bo is now the assignee; its approval of the earlier work must not count toward this task.
     expect(current.assignee).toBe(bo);
     expect(currentApprovals({ ...current, reviewers: current.reviewers })).toBe(0);
+  });
+});
+
+describe("a task that returns to a node it already passed", () => {
+  it("inherits none of that node's old approvals", () => {
+    const [ada] = SEATS;
+    const [a, b] = NODES;
+    const id = ULIDS[0]!;
+    const op: TaskActor = { kind: "operator" };
+    const seatOf: TaskActor = { kind: "seat", seat: ada! };
+    let flows = new Map([[a!, [b!]]]);
+    const env: TaskDomainEnv = { ...envOf(0), downstream: (node) => flows.get(node) ?? [], stampDefaultOf: () => ({ required: 1 }) };
+    const apply = (board: TaskBoardState, actor: TaskActor, command: TaskCommand, node: (typeof NODES)[number]) => {
+      const ruling = ruleTaskBoardCommand(board, { node, taskId: id }, actor, command, env);
+      if (!ruling.ok) throw new Error(`${command.kind} refused: ${JSON.stringify(ruling.refusal.detail)}`);
+      return { tasks: new Map(board.tasks).set(id, ruling.task), nextNumber: board.nextNumber } as TaskBoardState;
+    };
+    const through = (board: TaskBoardState, node: (typeof NODES)[number]) => {
+      let next = apply(board, op, { kind: "assign", seat: ada! }, node);
+      next = apply(next, seatOf, { kind: "start" }, node);
+      next = apply(next, seatOf, { kind: "finish" }, node);
+      expect(next.tasks.get(id)!.state).toBe("in-review");
+      return apply(next, op, { kind: "stamp", verdict: "approve" }, node);
+    };
+    let board = apply(emptyTaskBoard(), op, { kind: "create", taskId: id, title: "t" }, a!);
+    board = through(board, a!);
+    const atB = board.tasks.get(id)!;
+    expect([atB.node, atB.state, atB.stamps.length]).toEqual([b, "backlog", 0]);
+    flows = new Map([[b!, [a!]]]);
+    board = through(board, b!);
+    const back = board.tasks.get(id)!;
+    expect([back.node, back.state, back.stamps.length]).toEqual([a, "backlog", 0]);
+    expect(back.epoch).toBe(2);
+    expect(currentApprovals(back)).toBe(0);
+    // Even a stamp left over from the first pass, at the first pass's epoch, counts for nothing.
+    const stale = { ...back, stamps: [{ reviewer: { kind: "operator" as const }, verdict: "approve" as const, epoch: 0, at: 1 }] };
+    expect(currentApprovals(stale)).toBe(0);
   });
 });
 
