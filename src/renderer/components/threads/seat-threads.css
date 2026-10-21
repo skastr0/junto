@@ -156,6 +156,11 @@
   color: var(--color-ink);
 }
 
+/* A subject chip keeps its own weight, openable or not. */
+.seat-threads__chat-title .resource-chip {
+  font-weight: 400;
+}
+
 .seat-threads__chat-meta {
   display: flex;
   flex-wrap: wrap;
@@ -207,6 +212,11 @@
   line-height: var(--leading-body);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A mention chip is taller than the line: it bleeds into the leading so the line keeps its rhythm. */
+.seat-threads__bubble .resource-chip {
+  margin-block: -2px;
 }
 
 .seat-threads__message[data-mine="true"] .seat-threads__bubble {
