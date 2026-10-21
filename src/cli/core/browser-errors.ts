@@ -13,8 +13,14 @@ interface Mapped {
  * ControlErrorTag, so a new tag fails tsc until it is mapped here.
  */
 const BY_TAG = {
-  unauthorized: { type: "AuthError", retryable: false, next_step: "run junto browser from a seat with a navigates edge to the page" },
-  forbidden: { type: "AuthError", retryable: false },
+  unauthorized: {
+    type: "AuthError",
+    retryable: false,
+    next_step: "run junto browser from a seat Junto started: the CLI sends its JUNTO_WORK_TOKEN, and a missing or stale one is refused",
+  },
+  // A paused canvas, a page out of reach, no edge, off the editing machine:
+  // scope facts about the seat, not a broken credential.
+  forbidden: { type: "ScopeError", retryable: false },
   bad_request: { type: "InputError", retryable: false, next_step: "junto schema show <browser command> lists the fields" },
   invalid: { type: "InputError", retryable: false },
   not_found: { type: "UnknownTarget", retryable: false, next_step: "junto browser pages and junto browser sessions list what exists; junto browser open <ref> --tab <tab> joins a tab" },

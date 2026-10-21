@@ -32,6 +32,12 @@ describe("browser errors as work errors", () => {
     expect(browserErrorBody(controlError("not_found", "x")).type).toBe("UnknownTarget");
     expect(browserErrorBody(controlError("bad_request", "x")).type).toBe("InputError");
     expect(browserErrorBody(controlError("unauthorized", "x")).type).toBe("AuthError");
+    expect(browserErrorBody(controlError("unauthorized", "x")).details?.next_step).toContain("JUNTO_WORK_TOKEN");
+    expect(browserErrorBody(controlError("forbidden", "This canvas is paused"))).toMatchObject({
+      type: "ScopeError",
+      message: "This canvas is paused",
+      details: { reason: "forbidden", retryable: false },
+    });
     expect(browserErrorBody(controlError("timeout", "x"))).toMatchObject({
       type: "Timeout",
       details: { retryable: true },
