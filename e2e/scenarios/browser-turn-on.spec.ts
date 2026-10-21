@@ -116,6 +116,12 @@ test("[fake-tui] a seat acts on its page, the operator takes over and is told, a
     expect(held.envelope.ok, "the seat is refused while the operator holds").toBe(false);
     await notice.getByRole("button", { name: "Reload" }).click();
     await expect(notice).toHaveCount(0, { timeout: 20_000 });
+    // The notice clears when the new document commits; the load runs on after it.
+    await expect.poll(
+      () => app.evaluate(({ webContents }, url) =>
+        webContents.getAllWebContents().some((contents) => contents.getURL().startsWith(url) && !contents.isLoading()), PAGE_URL),
+      { timeout: 30_000 },
+    ).toBe(true);
     await shot(app, page, "3-reloaded");
 
     // Handed back, the seat comments on a box of the page as itself.
