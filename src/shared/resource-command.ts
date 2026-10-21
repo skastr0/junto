@@ -167,6 +167,9 @@ export type DomainVerdict<Fact> =
  * Reach (01) is checked here, before `rule`, through the context, unless
  * `reachExempt` says something else admits the command: a task's assignee
  * keeps moving its own open task after it leaves the task's region (01 rule 6).
+ * `reachExempt` may read only state that ruled facts made: the overlay replays
+ * every seat's unruled commands, so an exemption that read another seat's
+ * pending change would tell a caller about writes outside its reach.
  */
 export type ResourceDomain<State, Op, Fact> = {
   readonly kind: ResourceKind;
