@@ -405,7 +405,7 @@ describe("reviews owed", () => {
       { text: `lead's task #${older.number} "${older.title}" is in review and waits on your stamp`, ref: taskRef(older) },
       { text: `lead's task #${newer.number} "${newer.title}" is in review and waits on your stamp`, ref: taskRef(newer) },
     ]);
-    expect(out.reviewsOwed.command).toBe("junto since --all");
+    expect(out.reviewsOwed.command).toBe("junto task list --reviewer me");
   });
 
   it("is settled by a stamp at the current epoch, either verdict, and owed again at a new epoch", () => {

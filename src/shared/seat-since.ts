@@ -99,8 +99,7 @@ export const SINCE_COMMANDS: Readonly<Record<SinceSectionKey, string>> = {
   // it would miss one raised before the bound and answered after it.
   answersSince: "junto since --all",
   yourTasks: "junto task list --assignee me",
-  // `task list` has no reviewer filter, so the uncapped projection lists them.
-  reviewsOwed: "junto since --all",
+  reviewsOwed: "junto task list --reviewer me",
 };
 
 const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
