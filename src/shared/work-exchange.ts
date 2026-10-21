@@ -23,7 +23,7 @@ import {
 import { CanvasCopy } from "./canvas-copy";
 import { commandRowEntitled } from "./command-row";
 import { InstallationId } from "./installation-id";
-import { mailAuthorOf, type MailAuthor } from "./mail-author";
+import { AUTOMATION_SEAT_ID, mailAuthorOf, type MailAuthor } from "./mail-author";
 import { Seq } from "./model";
 import { WorkCanvasName } from "./work-reference";
 import { WorkFact } from "./work-protocol";
@@ -219,11 +219,15 @@ export const signalStatedTo = (
   return undefined;
 };
 
-/** Who a row says wrote it: the receiving seat of a receipt, the sender of mail. */
+/**
+ * The seat identity a row names: the receiving seat of a receipt, the sender
+ * of mail, the seat a command is from. Only for a row `rowAuthorOf` calls a
+ * seat's; every admission asks `rowAuthorOf` first.
+ */
 export const authorOf = (fact: ExchangeFact): { readonly seatId: ActorSeatId; readonly nodeId: string } => {
-  if (fact.body.operation === "delivery.accepted") return fact.body.receipt.actor;
-  if (fact.body.operation !== "message.append") throw new Error("not an exchanged row");
-  return fact.body.sentBy;
+  const author = rowAuthorOf(fact);
+  if (author.kind !== "seat") throw new Error("a row with no seat author");
+  return author;
 };
 
 /**
@@ -238,12 +242,45 @@ export const peerMayPassOn = (
 ): boolean => placement.holds(peer) && (peer === writer || peer === placement.editor);
 
 /**
- * Who wrote this row, by kind. Only mail has an operator or an automation
- * author; a receipt under either identity is malformed.
+ * Who wrote this row, by kind. Mail and a command may have an operator or an
+ * automation author; a receipt under either identity is malformed. A ruling
+ * is the editing machine's own row and has no author here: its writer is
+ * checked before any author is.
  */
 export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
-  const author = mailAuthorOf(authorOf(fact));
-  return author.kind === "seat" || fact.body.operation === "message.append" ? author : { kind: "malformed" };
+  const { body } = fact;
+  switch (body.operation) {
+    case "message.append":
+      return mailAuthorOf(body.sentBy);
+    case "delivery.accepted": {
+      const author = mailAuthorOf(body.receipt.actor);
+      return author.kind === "seat" ? author : { kind: "malformed" };
+    }
+    case "command.queued": {
+      // A command names its actor's kind outright, so no identity stands in for it.
+      const { actor } = body.command;
+      switch (actor.kind) {
+        case "seat":
+          return mailAuthorOf(actor).kind === "seat"
+            ? { kind: "seat", seatId: actor.seatId, nodeId: actor.nodeId }
+            : { kind: "malformed" };
+        case "operator":
+          return { kind: "operator" };
+        case "automation":
+          // Under the identity automation mail carries, so its node is checked the same way.
+          return mailAuthorOf({ seatId: AUTOMATION_SEAT_ID, nodeId: actor.nodeId });
+        default: {
+          const unreachable: never = actor;
+          return unreachable;
+        }
+      }
+    }
+    case "ruling.applied":
+    case "ruling.refused":
+      return { kind: "malformed" };
+    default:
+      return { kind: "malformed" };
+  }
 };
 
 /**
