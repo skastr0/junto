@@ -3,7 +3,7 @@ import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
 import type { WorkAttentionSnapshot } from "./work-attention";
-import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
+import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
@@ -41,7 +41,7 @@ import type { ExecutionGraphSnapshot } from "./execution-graph";
 import type { RemoteHost } from "./remote-hosts";
 import type { OperatorRequestEnvelope, OperatorResponseEnvelope } from "./operator-control";
 import type { MachineCommandProgress } from "./machine-progress";
-import type { WorkMetadata, Task, Part, TaskState, FinishCriteria, CompletionEvidence, TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
+import type { Task } from "./work-model";
 import type {
   SeatCollaborationAskResult,
   SeatCollaborationDraft,
@@ -299,12 +299,6 @@ export const IPC_CHANNELS = {
    */
   contentPutImage: "junto:content-put-image",
   // work plane (serialized canvas mutations)
-  workTaskCreate: "junto:work-task-create",
-  workTaskDescribe: "junto:work-task-describe",
-  workTaskTransition: "junto:work-task-transition",
-  workTaskPromote: "junto:work-task-promote",
-  workTaskComment: "junto:work-task-comment",
-  workTaskRespond: "junto:work-task-respond",
   workArtifactArchive: "junto:work-artifact-archive",
   workArtifactDelete: "junto:work-artifact-delete",
   workSeatRecentOps: "junto:work-seat-recent-ops",
@@ -312,7 +306,6 @@ export const IPC_CHANNELS = {
   workItem: "junto:work-item",
   workActorPage: "junto:work-actor-page",
   workAttention: "junto:work-attention",
-  workTaskPolicy: "junto:work-task-policy",
   workSinkPage: "junto:work-sink-page",
   workSinkChanged: "junto:work-sink-changed",
   // The Automations node (0.10/07): reads, the operator's writes, and a change after each.
@@ -478,13 +471,6 @@ export const IPC_CHANNELS = {
   /** Main → renderer: ring was cleared. */
   observabilityCleared: "junto:observability-cleared",
 } as const;
-
-/** Operator-authored per-task admission and wait overlay on the create surface. */
-export type TaskCreateOptions = {
-  readonly admission: TaskAdmission;
-  /** Explicit task wait before the first claim, in ms; wins over the board default. */
-  readonly waitForMs?: number;
-};
 
 export interface ChassisApi {
   readonly doctor: () => Promise<DoctorReport>;
@@ -844,58 +830,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   >;
   // work plane — repository-native SQLite mutations; canvas reads provide
   // topology and runtime projection only.
-  readonly workTaskCreate: (
-    canvas: string,
-    nodeId: string,
-    brief: string,
-    metadata?: WorkMetadata,
-    reason?: string,
-    /** First-class task media (raw image parts) authored into the task thread. */
-    media?: ReadonlyArray<Part>,
-    /** Same-sink hard prerequisites (task ids). */
-    dependsOn?: ReadonlyArray<string>,
-    finishCriteria?: FinishCriteria,
-    /** Board-addressed rules; set at creation, immutable on generic transitions. */
-    rules?: ReadonlyArray<TaskRule>,
-    /** Per-task admission overlay and optional wait before the first claim. */
-    options?: TaskCreateOptions,
-  ) => Promise<WorkOpResult<Task>>;
-  readonly workTaskDescribe: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    brief: string,
-  ) => Promise<WorkOpResult<Task>>;
-  readonly workTaskTransition: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    state: TaskState,
-    note?: string,
-    completionEvidence?: CompletionEvidence,
-    path?: TaskPathArm,
-  ) => Promise<WorkOpResult<Task>>;
-  /** Operator approval of an approval-admission task for its current epoch. */
-  readonly workTaskPromote: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    note?: string,
-  ) => Promise<WorkOpResult<Task>>;
-  /** Append an operator-authored comment through the canonical task message channel. */
-  readonly workTaskComment: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    text: string,
-  ) => Promise<WorkOpResult<Task["history"][number]>>;
-  readonly workTaskRespond: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    responseText: string,
-    disposition: "working" | "rejected",
-  ) => Promise<WorkOpResult<Task>>;
   readonly workArtifactArchive: (
     canvas: string,
     nodeId: string,
@@ -910,7 +844,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly workItem: (query: WorkItemQuery) => Promise<Task | undefined>;
   readonly workActorPage: (query: WorkActorQuery) => Promise<WorkActorPage>;
   readonly workAttention: (query: WorkAttentionQuery) => Promise<WorkAttentionSnapshot>;
-  readonly workTaskPolicy: (query: WorkAttentionQuery) => Promise<ReadonlyArray<WorkLaneRow>>;
   readonly workSinkPage: (query: WorkSinkQuery) => Promise<WorkSinkPage>;
   readonly onWorkSinkChanged: (listener: (event: WorkSinkChanged) => void) => () => void;
   readonly automationList: (canvas: string, request: AutomationListRequest) => Promise<AutomationListResponse>;

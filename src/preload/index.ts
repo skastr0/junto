@@ -396,12 +396,6 @@ const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
  */
 type WorkFeatureApiKey =
   | "resource"
-  | "workTaskCreate"
-  | "workTaskDescribe"
-  | "workTaskTransition"
-  | "workTaskPromote"
-  | "workTaskComment"
-  | "workTaskRespond"
   | "workArtifactArchive"
   | "workArtifactDelete";
 
@@ -497,7 +491,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   workItem: (query) => invoke(IPC_CHANNELS.workItem, IPC_TIMEOUT_MS, query),
   workActorPage: (query) => invoke(IPC_CHANNELS.workActorPage, IPC_TIMEOUT_MS, query),
   workAttention: (query) => invoke(IPC_CHANNELS.workAttention, IPC_TIMEOUT_MS, query),
-  workTaskPolicy: (query) => invoke(IPC_CHANNELS.workTaskPolicy, IPC_TIMEOUT_MS, query),
   workSinkPage: (query) => invoke(IPC_CHANNELS.workSinkPage, IPC_TIMEOUT_MS, query),
   onWorkSinkChanged: (listener) => subscribe<WorkSinkChanged>(IPC_CHANNELS.workSinkChanged, listener),
   automationList: (canvas, request) => invoke(IPC_CHANNELS.automationList, IPC_TIMEOUT_MS, canvas, request),
@@ -603,75 +596,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<{ newestId: number; total: number; dropped: number }>(
       IPC_CHANNELS.observabilityCleared,
       listener,
-    ),
-};
-
-const taskWorkApi: Pick<
-  JuntoApi,
-  | "workTaskCreate"
-  | "workTaskDescribe"
-  | "workTaskTransition"
-  | "workTaskPromote"
-  | "workTaskComment"
-  | "workTaskRespond"
-> = {
-  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options) =>
-    invoke(
-      IPC_CHANNELS.workTaskCreate,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      brief,
-      metadata,
-      reason,
-      media,
-      dependsOn,
-      finishCriteria,
-      rules,
-      options,
-    ),
-  workTaskDescribe: (canvas, nodeId, taskId, brief) =>
-    invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
-  workTaskTransition: (
-    canvas,
-    nodeId,
-    taskId,
-    state,
-    note,
-    completionEvidence,
-    path,
-  ) =>
-    invoke(
-      IPC_CHANNELS.workTaskTransition,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      state,
-      note,
-      completionEvidence,
-      path,
-    ),
-  workTaskPromote: (canvas, nodeId, taskId, note) =>
-    invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId, note),
-  workTaskComment: (canvas, nodeId, taskId, text) =>
-    invoke(
-      IPC_CHANNELS.workTaskComment,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      text,
-    ),
-  workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
-    invoke(
-      IPC_CHANNELS.workTaskRespond,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      responseText,
-      disposition,
     ),
 };
 
@@ -888,7 +812,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("chassis", chassisApi);
   contextBridge.exposeInMainWorld("junto", {
     ...juntoApi,
-    ...(TASKS_ENABLED ? taskWorkApi : {}),
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
     ...(TASKS_ENABLED || ARTIFACTS_ENABLED
       ? {

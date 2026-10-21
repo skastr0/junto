@@ -160,7 +160,6 @@ import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
-import type { WorkMetadata, Part, TaskState } from "@shared/work-model";
 import { makeUserMessage } from "@shared/task";
 import {
   collaborationRequestMetadata,
@@ -957,161 +956,6 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskCreate,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      brief: string,
-      metadata?: WorkMetadata,
-      reason?: string,
-      media?: ReadonlyArray<Part>,
-      dependsOn?: ReadonlyArray<string>,
-      finishCriteria?: import("@shared/work-model").FinishCriteria,
-      rules?: ReadonlyArray<import("@shared/work-model").TaskRule>,
-      options?: import("@shared/ipc").TaskCreateOptions,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-create",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workTaskCreate(
-              canvas,
-              nodeId,
-              brief,
-              metadata,
-              reason,
-              media,
-              dependsOn,
-              finishCriteria,
-              rules,
-              options,
-            );
-          }),
-        ),
-      ),
-  );
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskDescribe,
-    (_event, canvas: string, nodeId: string, taskId: string, brief: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-describe",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workTaskDescribe(canvas, nodeId, taskId, brief);
-          }),
-        ),
-      ),
-  );
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskTransition,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      taskId: string,
-      state: TaskState,
-      note?: string,
-      completionEvidence?: import("@shared/work-model").CompletionEvidence,
-      path?: import("@shared/work-model").TaskPathArm,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-transition",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workTaskTransition(
-              canvas,
-              nodeId,
-              taskId,
-              state,
-              note,
-              completionEvidence,
-              path,
-            );
-          }),
-        ),
-      ),
-  );
-  // Operator approval of a task waiting at an Approval board.
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskPromote,
-    (_event, canvas: string, nodeId: string, taskId: string, note?: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-promote",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workTaskPromote(canvas, nodeId, taskId, note);
-          }),
-        ),
-      ),
-  );
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskComment,
-    (_event, canvas: string, nodeId: string, taskId: string, text: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-comment",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const body = text.trim();
-            if (!body) {
-              return {
-                ok: false as const,
-                code: "invalid" as const,
-                message: "Task comment must be non-empty.",
-              };
-            }
-            const work = yield* WorkService;
-            return yield* work.workTaskComment(
-              canvas,
-              nodeId,
-              taskId,
-              makeUserMessage({
-                messageId: ulid(),
-                text: body,
-                contextId: canvas,
-                taskId,
-                metadata: {
-                  taskComment: true,
-                  fromSeat: "operator",
-                  "junto.taskThread.kind": "comment",
-                },
-              }),
-            );
-          }),
-        ),
-      ),
-  );
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskRespond,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      taskId: string,
-      responseText: string,
-      disposition: "working" | "rejected",
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-respond",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const work = yield* WorkService;
-            return yield* work.workTaskRespond(
-              canvas,
-              nodeId,
-              taskId,
-              responseText,
-              disposition,
-            );
-          }),
-        ),
-      ),
-  );
   if (ARTIFACTS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workArtifactArchive,
     (
@@ -1172,13 +1016,6 @@ export const registerJuntoIpc = (): void => {
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, { onExcessProperty: "error" })(input);
       return yield* (yield* WorkRepository).attentionSnapshot(query);
-    })),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.workTaskPolicy, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, { onExcessProperty: "error" })(input);
-      return yield* (yield* WorkRepository).taskPolicy(query);
     })),
   );
 

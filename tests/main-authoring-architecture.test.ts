@@ -73,12 +73,6 @@ describe("main authoring architecture", () => {
       // mail to that seat's mailbox.
       "ipc.work.collaboration-ask",
       "ipc.work.message-append",
-      "ipc.work.task-comment",
-      "ipc.work.task-create",
-      "ipc.work.task-describe",
-      "ipc.work.task-promote",
-      "ipc.work.task-respond",
-      "ipc.work.task-transition",
       // Mail threads: the operator writes in a seat's thread, mentions included.
       "ipc.work.thread-send",
       "review.checkout",

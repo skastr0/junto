@@ -35,7 +35,6 @@ let oldApi: typeof window.junto;
 let counter = 0;
 let tasks: ReadonlyArray<Task>;
 let artifacts: ReadonlyArray<Artifact>;
-let create: ReturnType<typeof vi.fn>;
 let releaseCanvas: (() => void) | undefined;
 const decodeNode = Schema.decodeUnknownSync(Node);
 const decodeWire = Schema.decodeUnknownSync(Wire);
@@ -76,15 +75,12 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   canvas = `native-work-${++counter}`;
   tasks = []; artifacts = [];
-  create = vi.fn(async () => ({ ok: true, data: {} }));
   oldApi = window.junto;
   (window as unknown as { junto: unknown }).junto = {
     onWorkSinkChanged: () => () => {},
     workSinkPage: async (query: WorkSinkQuery) => ({
       kind: query.kind, items: query.kind === "artifacts" ? artifacts : tasks,
     }),
-    workTaskPolicy: async () => [],
-    workTaskCreate: create,
   };
   state$.settings.set(EMPTY_SETTINGS);
   state$.canvasName.set(canvas);
