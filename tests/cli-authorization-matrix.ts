@@ -73,6 +73,7 @@ export type CliCoverageLane =
   | "discovery"
   | "overseer-plane"
   | "browser-plane"
+  | "reach"
   | "retired";
 
 const SEAT_LOCAL_COMMANDS = new Set([
@@ -116,6 +117,8 @@ export const classifyCliCommand = (commandId: string): CliCoverageLane | undefin
   // Human delegation, not edge capability, admits this separate plane.
   if (commandId.startsWith("overseer.")) return "overseer-plane";
   if (commandId.startsWith("browser.")) return "browser-plane";
+  // Region reach, not an edge, admits a seat to automations (plan 01).
+  if (commandId.startsWith("automation.")) return "reach";
   // Pad CLI projections: the surface is switched off, its source kept.
   if (commandId.startsWith("pad.")) return "retired";
   return undefined;

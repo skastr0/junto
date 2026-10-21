@@ -34,6 +34,7 @@ const commands: readonly Entry[] = [
   { name: "sheet", enabled: SHEET_ENABLED, load: async () => (await import("./commands/sheet")).sheetCommand },
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/work")).artifactCommand },
   { name: "overseer", load: async () => (await import("./commands/overseer")).overseerCommand },
+  { name: "automation", load: async () => (await import("./commands/automation")).automationCommand },
 ];
 
 /** Full discovery for root help/errors; a known invocation loads only its family. */

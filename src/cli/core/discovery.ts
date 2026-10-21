@@ -61,6 +61,7 @@ import { envReportCapability, envReportExamples, envReportSchema } from "../comm
 import { logsReadCapability, logsReadExamples, logsReadSchema } from "../commands/logs";
 import { referencesCapabilities, referencesExamples, referencesSchemas } from "../commands/references";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
+import { automationCapabilities, automationExamples, automationSchemas } from "../commands/automation";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
   FEW_SHOT_CLAIM,
@@ -660,6 +661,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   ...referencesSchemas,
   contentStageSchema,
   ...overseerSchemas,
+  ...automationSchemas,
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
     ? [
@@ -1459,6 +1461,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   ...logsReadExamples,
   ...referencesExamples,
   ...overseerExamples,
+  ...automationExamples,
 ];
 
 /** Examples follow their command: a disabled surface has no runnable recipe. */
@@ -1947,6 +1950,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   logsReadCapability,
   ...referencesCapabilities,
   ...overseerCapabilities,
+  ...automationCapabilities,
 ];
 
 /** Capability rows follow their command: a disabled surface is not discoverable. */

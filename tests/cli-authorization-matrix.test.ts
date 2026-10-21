@@ -13,6 +13,7 @@ describe("CLI authorization matrix", () => {
     expect(manifest.filter(({ lane }) => lane === undefined)).toEqual([]);
     expect(manifest).toContainEqual({ commandId: "msg.send", lane: "target-matrix" });
     expect(manifest).toContainEqual({ commandId: "doctor", lane: "seat-local" });
+    expect(manifest).toContainEqual({ commandId: "automation.create", lane: "reach" });
     expect(manifest).toContainEqual({ commandId: "overseer.skill", lane: "discovery" });
     expect(manifest).toContainEqual({ commandId: "overseer.status", lane: "overseer-plane" });
     expect(manifest).toContainEqual({ commandId: "overseer.msg.send", lane: "overseer-plane" });
