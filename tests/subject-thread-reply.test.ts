@@ -340,6 +340,15 @@ describe("subject threads", () => {
     expect(refused.error.type).toBe("ScopeError");
   });
 
+  it.skipIf(!TASKS_ENABLED)("a reply to a comment read from a task's thread points to task comment", async () => {
+    const taskId = await createTask();
+    const sent = await call("agent", "msg.send", { target: BOARD, taskId, text: "starting" });
+    expect(sent.ok, JSON.stringify(sent)).toBe(true);
+    const refused = await call("peer", "msg.reply", { target: BOARD, inReplyTo: sent.data.messageId, text: "seen" });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.details.next_step).toContain("junto task comment");
+  });
+
   it.skipIf(!TASKS_ENABLED)("a refusal takes no reply", async () => {
     const taskId = await createTask();
     const noticeId = await notice(taskId, "refusal");
