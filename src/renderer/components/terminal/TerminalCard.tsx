@@ -33,7 +33,6 @@ import { InstrumentSeat } from "../nodes/InstrumentSeat";
  * not show. The hover itself renders into the node shell's overlay slot: this
  * body is clipped, so a hover mounted here is painted away.
  */
-const NO_REASONS: ReadonlyArray<string> = [];
 
 export function TerminalCard({
   canvas,
@@ -137,8 +136,6 @@ export function TerminalCard({
     needsLook: needsLook === true,
     session,
     graphBlocked,
-    // A plain terminal holds no agent and no work, so nothing asks for it.
-    attentionReasons: NO_REASONS,
   });
   if (status === undefined)
     return <div className="text-body text-dim">unbound terminal</div>;

@@ -65,7 +65,6 @@ export const seatCardStatus = (input: {
   readonly needsLook: boolean | undefined;
   readonly session: TerminalSessionSummary | undefined;
   readonly graphBlocked: boolean;
-  readonly attentionReasons: ReadonlyArray<string>;
 }): SeatCardStatus | undefined => {
   const { face, seatEvent, session } = input;
   if (face === undefined) return undefined;
@@ -89,7 +88,6 @@ export const seatCardStatus = (input: {
       session,
       needsLook: input.needsLook === true,
       graphBlocked: input.graphBlocked,
-      attentionReasons: input.attentionReasons,
       managedSeat,
     }),
   );

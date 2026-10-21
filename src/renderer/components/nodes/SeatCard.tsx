@@ -7,7 +7,6 @@ import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { machineLabel, onThisMachine, useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
-import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { cardMark, notifyItem, seatFactsForNode } from "../../lib/seat-projections";
 import { useSeatCacheWindow, useSeatFreshNext } from "../../lib/seat-next-launch";
 import { SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
@@ -51,7 +50,6 @@ export function SeatCard({
   const bindingId = useNodeFieldOf(canvas, id, "agent", (seat) => seat.bindingId);
   const hostId = useNodeFieldOf(canvas, id, "agent", (seat) => seat.host);
   const overseer = useNodeFieldOf(canvas, id, "agent", (seat) => seat.overseer) === true;
-  const agentKey = useNodeFieldOf(canvas, id, "agent", (seat) => seat.agentKey);
 
   const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? NO_BINDING]);
   const needsLook = use$(agentSeat$.needsLookByBindingId[bindingId ?? NO_BINDING]);
@@ -80,7 +78,6 @@ export function SeatCard({
     );
     return off;
   }, [bindingId, hostId]);
-  const attentionReasons = useSeatAttentionReasons(agentKey);
   const machineLine = useSeatMachineLine(hostId, harness);
   // A seat on another machine is answered once the link to it is up.
   const reachable = use$(() => (hostId === undefined ? undefined : state$.machineFacts[hostId].reachable.get()));
@@ -94,7 +91,6 @@ export function SeatCard({
     session,
     needsLook: needsLook === true,
     graphBlocked,
-    attentionReasons,
     managedSeat: true,
   });
   const mark = cardMark(facts);

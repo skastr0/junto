@@ -6,11 +6,9 @@ import type { Seat } from "@shared/model";
 import type { ActivitySpec } from "../lib/activity";
 import { RING_HOLE_R } from "../lib/activity-rings";
 import { agentSeat$ } from "../lib/agent-seat-state";
-import type { AgentChatCoarse } from "../lib/chat-state";
 import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-state";
 import { kernel$ } from "../lib/kernel-view";
-import { attentionCoarse$, useSeatAttentionReasons } from "../lib/occupancy-feed";
-import { attentionReasonsForSeat, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
+import { cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
 import { Palette, type ViewGroup } from "@shared/wire/urgency";
 import { seatLevel, seatLevelSince } from "@shared/wire/seat-level";
 import { seatUrgency, type SeatGroup } from "../lib/seat-line";
@@ -53,7 +51,6 @@ const seatControlOf = (
       session,
       needsLook: reads.needsLook,
       graphBlocked: reads.graphBlocked,
-      attentionReasons: reads.attentionReasons,
       managedSeat: harness !== undefined,
     }),
   );
@@ -67,16 +64,15 @@ const seatControlOf = (
   };
 };
 
-/** A native seat's live facts, subscribed by its binding and agent key. */
+/** A native seat's live facts, subscribed by its binding. */
 export function useSeatGlanceOf(seat: Seat): SeatGlance {
   const seatEvent = use$(agentSeat$.byBindingId[seat.bindingId]);
   const needsLook = use$(() => agentSeat$.needsLookByBindingId[seat.bindingId].get() === true);
   const session = use$(terminal$.sessionByBindingId[seat.bindingId]);
   const graphBlocked = use$(() => kernel$.execution.get()?.blocked.includes(seat.id) === true);
-  const attentionReasons = useSeatAttentionReasons(seat.agentKey);
   const signal = useSeatSignalRollup(use$(state$.canvasName), seat.id);
   const health = useThreadHealthMark(seat.bindingId, signal?.kind);
-  return { ...seatControlOf(seat.id, seat.harness, { seatEvent, needsLook, session, graphBlocked, attentionReasons }), health, signal };
+  return { ...seatControlOf(seat.id, seat.harness, { seatEvent, needsLook, session, graphBlocked }), health, signal };
 }
 
 type Readable<T> = { get(): T; peek(): T };
@@ -84,14 +80,12 @@ type Readable<T> = { get(): T; peek(): T };
 /** The seat's control facts and open signal, tracked (`get`) or not (`peek`). */
 const seatReadOf = (seat: Seat, tracked: boolean) => {
   const read = <T,>(source: Readable<T>): T => (tracked ? source.get() : source.peek());
-  const coarse = read(attentionCoarse$(seat.agentKey)) as AgentChatCoarse | undefined;
   const seatEvent = read(agentSeat$.byBindingId[seat.bindingId]);
   const control = seatControlOf(seat.id, seat.harness, {
     seatEvent,
     needsLook: read(agentSeat$.needsLookByBindingId[seat.bindingId]) === true,
     session: read(terminal$.sessionByBindingId[seat.bindingId]),
     graphBlocked: read(kernel$.execution)?.blocked.includes(seat.id) === true,
-    attentionReasons: attentionReasonsForSeat(seat.agentKey, coarse),
   });
   const rollup = read(seatSignalRollups$)[seat.id];
   return { control, seatEvent, rollup, doneAt: read(agentSeat$.doneAtByBindingId[seat.bindingId]) };

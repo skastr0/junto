@@ -15,7 +15,6 @@
 import type { ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { Node } from "@shared/model";
-import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { agentSeat$, seatNeedsLook } from "../../lib/agent-seat-state";
 import { seatCardStatus } from "../../lib/seat-card-status";
 import { seatAwareness$ } from "../../lib/seat-awareness";
@@ -42,18 +41,15 @@ export function SeatAwarenessHoverForNode({
   const name = useNodeValue(canvas, id, (node) => (seated(node)?.label ?? "").split("\n")[0]?.trim() ?? "");
   const launch = useNodeValue(canvas, id, (node) => seated(node)?.launch);
   const harness = useNodeValue(canvas, id, (node) => (node?.kind === "agent" ? node.harness : undefined));
-  const agentKey = useNodeValue(canvas, id, (node) => (node?.kind === "agent" ? node.agentKey : undefined));
   const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? ""]);
   const session = use$(terminal$.sessionByBindingId[bindingId ?? ""]);
   const awarenessAssessment = use$(seatAwareness$.byBindingId[bindingId ?? ""]);
-  const attentionReasons = useSeatAttentionReasons(agentKey);
   const status = seatCardStatus({
     face: bindingId === undefined ? undefined : { id, name, bindingId, harness, launch },
     seatEvent,
     needsLook: seatNeedsLook(bindingId ?? ""),
     session,
     graphBlocked,
-    attentionReasons,
   });
   if (status === undefined) return null;
   return (
