@@ -21,6 +21,7 @@ import {
   ResourceKind,
   type CommandKey,
   type ResourceCommand,
+  type ResourceRuling,
   commandKey,
   refusalError,
   resourceCommandSchema,
@@ -206,3 +207,34 @@ export type OpState =
   | { readonly kind: "queued" }
   | { readonly kind: "applied"; readonly ruling: RulingAppliedResult }
   | { readonly kind: "refused"; readonly ruling: RulingRefusedResult; readonly error: WorkErrorBody };
+
+const isRefusalReason = Schema.is(RefusalReason);
+const EXPECTED_TOKEN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+/**
+ * The row a ruling becomes. A refusal keeps only its closed reason, the head
+ * it lost to when that is a token, and its root: the error's words and any
+ * other detail stay where the ruling was made. An error with no known reason
+ * is recorded as `invalid_input`.
+ */
+export const rulingRowOf = <Fact extends typeof QueuedOp.Type>(
+  writer: InstallationId,
+  command: Pick<ResourceCommand<unknown>, "opId" | "actor">,
+  kind: ResourceKind,
+  ruling: ResourceRuling<Fact>,
+): RulingResult => {
+  if (ruling.kind === "applied") {
+    return { operation: "ruling.applied", writer, opId: command.opId, actor: command.actor, kind, facts: ruling.facts };
+  }
+  const details = ruling.error.details;
+  const expected = typeof details?.expected === "number" ? String(details.expected) : details?.expected;
+  return {
+    operation: "ruling.refused",
+    writer,
+    opId: command.opId,
+    actor: command.actor,
+    reason: isRefusalReason(details?.reason) ? details.reason : "invalid_input",
+    ...(typeof expected === "string" && EXPECTED_TOKEN.test(expected) ? { expected } : {}),
+    root: ruling.root,
+  };
+};

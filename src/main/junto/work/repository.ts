@@ -23,10 +23,14 @@ import {
   isCommandRowBody,
   queueAdmits,
   refusalErrorOf,
+  rulingRowOf,
   type OpState,
   type QueueLoad,
   type QueuedCommand,
+  type RulingResult,
 } from "@shared/command-row";
+import type { ResourceCommand, ResourceKind, ResourceRuling } from "@shared/resource-command";
+import { writeRuling, type RulingRecord } from "./resource-rulings";
 import type { OpId } from "@shared/work-ids";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
@@ -942,6 +946,19 @@ export type QueueCommandInput = {
   readonly basis: IntentFactBasisValue;
   readonly originAt?: string;
   readonly receivedAt?: string;
+};
+
+/** A ruling the editing machine made, to record beside the facts it applied. */
+export type RecordRulingInput = {
+  readonly canvasName: string;
+  /** The machine whose command this rules. */
+  readonly writer: InstallationId;
+  readonly command: Pick<ResourceCommand<unknown>, "opId" | "actor" | "target">;
+  readonly kind: ResourceKind;
+  /** What the domain stores of the ruling, to answer a replay. */
+  readonly record: RulingRecord;
+  readonly ruling: ResourceRuling<typeof Schema.Json.Type>;
+  readonly at?: string;
 };
 
 export type LocalFactResult<A> = {
@@ -4718,6 +4735,15 @@ export interface WorkRepositoryShape {
   readonly queueCommand: (
     input: QueueCommandInput,
   ) => Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull>;
+  /**
+   * Record a ruling on the machine that edits the canvas: its row in
+   * `resource_rulings` and its `ruling.*` fact for every machine, in the
+   * caller's transaction with the facts it applied. Refused on any other
+   * machine.
+   */
+  readonly recordRuling: (
+    input: RecordRulingInput,
+  ) => Effect.Effect<LocalFactResult<RulingResult>, RepositoryFailure>;
   /** This machine's unruled commands for a canvas: rows and bytes. */
   readonly commandQueueLoad: (canvasName: string) => Effect.Effect<QueueLoad, WorkRepositoryError>;
   /** What became of one command of one writer, from the rows this machine holds. */
@@ -7767,7 +7793,43 @@ export const WorkRepositoryLive = Layer.effect(
         }),
       ).pipe(Effect.mapError((error) => toRepositoryError("work.command.state", error)));
 
+    const recordRuling = (
+      input: RecordRulingInput,
+    ): Effect.Effect<LocalFactResult<RulingResult>, RepositoryFailure> => {
+      const { command } = input;
+      const sink = { canvasName: input.canvasName, nodeId: command.target.nodeId };
+      const body = rulingRowOf(input.writer, command, input.kind, input.ruling);
+      return transaction("work.ruling.record", sink, (writer: SqlClient.SqlClient) =>
+        Effect.gen(function* () {
+          const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+          const canvas = yield* writer.unsafe<{ seq: number; editor: string | null }>(
+            "SELECT seq, editor_installation_id AS editor FROM canvases WHERE canvas_name = ?",
+            [input.canvasName],
+          );
+          if (canvas[0] === undefined || canvas[0].editor !== self) {
+            return yield* Effect.fail(
+              authorityError("authority-mismatch", "only the machine that edits a canvas rules its commands"),
+            );
+          }
+          yield* writeRuling(writer, { canvas: input.canvasName, writer: input.writer, command, record: input.record });
+          return yield* commitLocalFact(writer, {
+            localInstallationId: self,
+            sink,
+            basis: { kind: "canvas", canvasName: input.canvasName, seq: canvas[0].seq },
+            item: item("ruling", command.opId, sink),
+            operation: body.operation,
+            predecessor: null,
+            body,
+            value: body,
+            originAt: timestamp(input.at),
+            receivedAt: timestamp(input.at),
+          });
+        }),
+      );
+    };
+
     return WorkRepository.of({
+      recordRuling,
       queueCommand,
       commandQueueLoad,
       commandState,

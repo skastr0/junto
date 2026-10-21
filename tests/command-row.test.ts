@@ -6,6 +6,7 @@ import {
   commandRowWriter,
   queueAdmits,
   refusalErrorOf,
+  rulingRowOf,
   rulingKeyOf,
   type RulingRefusedResult,
 } from "../src/shared/command-row";
@@ -181,5 +182,42 @@ describe("the queue bound", () => {
     expect(queueAdmits({ rows: QUEUE_MAX_ROWS, bytes: 0 }, 100)).toBe(false);
     expect(queueAdmits({ rows: 1, bytes: QUEUE_MAX_BYTES - 100 }, 100)).toBe(true);
     expect(queueAdmits({ rows: 1, bytes: QUEUE_MAX_BYTES - 99 }, 100)).toBe(false);
+  });
+});
+
+describe("the row a ruling becomes", () => {
+  const actor = command.actor as never;
+
+  it("carries an applied ruling's facts and its domain", () => {
+    const facts = [{ fact: "artifact.created", artifactId: "a" }] as const;
+    expect(rulingRowOf(mini, { opId, actor }, "artifact", { kind: "applied", opId, facts })).toEqual({
+      operation: "ruling.applied",
+      writer: mini,
+      opId,
+      actor,
+      kind: "artifact",
+      facts,
+    });
+  });
+
+  it("keeps of a refusal only its reason, a token head and its root", () => {
+    const row = rulingRowOf(mini, { opId: laterOpId, actor }, "task", {
+      kind: "refused",
+      opId: laterOpId,
+      root: opId,
+      error: { type: "Stale", message: "written against v6, the op said: secret", details: { reason: "stale", expected: 7, hint: "secret" } },
+    });
+    expect(row).toEqual({ operation: "ruling.refused", writer: mini, opId: laterOpId, actor, reason: "stale", expected: "7", root: opId });
+    expect(crosses({ ...refused, item: { ...refused.item, itemId: laterOpId }, body: row })).toBe(true);
+  });
+
+  it("drops a head that is words, and records an unknown reason as invalid_input", () => {
+    const row = rulingRowOf(mini, { opId, actor }, "task", {
+      kind: "refused",
+      opId,
+      root: opId,
+      error: { type: "InternalError", message: "boom", details: { reason: "made_up", expected: "lost to bo's text" } },
+    });
+    expect(row).toEqual({ operation: "ruling.refused", writer: mini, opId, actor, reason: "invalid_input", root: opId });
   });
 });
