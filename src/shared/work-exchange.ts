@@ -337,19 +337,22 @@ export const editorTakesFromNoPeer = (fact: ExchangeFact): boolean => {
 /**
  * The seat whose placement the editing machine judges a row by: the author
  * seat itself, under its own identity, or for a notice the seat whose mailbox
- * it is in, by node, when the notice's own node holds no seat. None for an
- * author only the editing machine writes, or no machine does.
+ * it is in, by node. A notice's own node must hold no seat now nor at the
+ * stated count (`seatless`). None for an author only the editing machine
+ * writes, or no machine does.
  */
 export const judgedAt = (
   fact: ExchangeFact,
   placement: CanvasPlacement,
-): { readonly nodeId: string; readonly seatId?: ActorSeatId } | undefined => {
+): { readonly nodeId: string; readonly seatId?: ActorSeatId; readonly seatless?: string } | undefined => {
   const author = rowAuthorOf(fact);
   switch (author.kind) {
     case "seat":
       return { nodeId: author.nodeId, seatId: author.seatId };
     case "notice":
-      return placement.seatOf(author.nodeId) === undefined ? { nodeId: author.mailbox } : undefined;
+      return placement.seatOf(author.nodeId) === undefined
+        ? { nodeId: author.mailbox, seatless: author.nodeId }
+        : undefined;
     case "operator":
     case "automation":
     case "malformed":

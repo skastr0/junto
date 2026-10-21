@@ -31,11 +31,15 @@ const OTHER = id("other-mini");
 const at = "2026-10-21T12:00:00.000Z";
 const seatIdOf = (digit: string) => Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`);
 
-/** `stays` is on the mini throughout; `moves` is on the mini until count 3, then on the far machine; `far` is always there. */
-const SEATS = { stays: seatIdOf("1"), moves: seatIdOf("2"), far: seatIdOf("4") } as const;
+/**
+ * `stays` is on the mini throughout; `moves` is on the mini until count 3,
+ * then on the far machine; `goes` is on the mini until count 3, then removed;
+ * `far` is always there.
+ */
+const SEATS = { stays: seatIdOf("1"), moves: seatIdOf("2"), goes: seatIdOf("3"), far: seatIdOf("4") } as const;
 type SeatNode = keyof typeof SEATS;
-const before: Record<SeatNode, InstallationId> = { stays: MINI, moves: MINI, far: OTHER };
-const after: Record<SeatNode, InstallationId> = { stays: MINI, moves: OTHER, far: OTHER };
+const before: Partial<Record<SeatNode, InstallationId>> = { stays: MINI, moves: MINI, goes: MINI, far: OTHER };
+const after: Partial<Record<SeatNode, InstallationId>> = { stays: MINI, moves: OTHER, far: OTHER };
 
 const placement: CanvasPlacement = {
   canvasId: "canvas-factory",
@@ -107,8 +111,8 @@ beforeAll(async () => {
         }),
       );
       const repository = yield* WorkRepository;
-      const seatsAt = (where: Record<SeatNode, InstallationId>) =>
-        (Object.keys(where) as SeatNode[]).map((nodeId) => ({ nodeId, seatId: SEATS[nodeId], machine: where[nodeId] }));
+      const seatsAt = (where: Partial<Record<SeatNode, InstallationId>>) =>
+        (Object.keys(where) as SeatNode[]).map((nodeId) => ({ nodeId, seatId: SEATS[nodeId], machine: where[nodeId]! }));
       for (const seq of [1, 2]) {
         yield* repository.recordCanvasCopySent({ canvasName: "factory", target: MINI, seq, seats: seatsAt(before), sentAt: at });
       }
@@ -127,6 +131,8 @@ describe("a resource's notice from the mini, on the machine that edits the canva
   const table: ReadonlyArray<readonly [string, () => ExchangeFact, boolean]> = [
     // In the order the mini writes them: a writer's stated count never goes backwards.
     ["into a seat that moved away after the count the row states", () => mailRow(board, "moves", 2), true],
+    ["from a node that held a seat at the count the row states, though none now", () => mailRow(noticeActorRef("factory", "goes"), "stays", 2), false],
+    ["from a node whose seat was removed before the count the row states", () => mailRow(noticeActorRef("factory", "goes"), "stays", 3), true],
     ["into its own seat's mailbox, where that seat is", () => mailRow(board, "stays", 3), true],
     ["into a seat that moved away before the count the row states", () => mailRow(board, "moves", 3), false],
     ["into a seat on another machine", () => mailRow(board, "far", 3), false],

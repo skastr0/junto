@@ -317,7 +317,7 @@ describe("who may hand a row over, and who wrote it", () => {
   it("has the editing machine judge a notice by its mailbox seat, and nothing else by none", () => {
     const notice = noticeActorRef("factory", "board");
     expect(editorTakesFromNoPeer(decode(mail(mini, notice, "peer")))).toBe(false);
-    expect(judgedAt(decode(mail(mini, notice, "peer")), placement)).toEqual({ nodeId: "peer" });
+    expect(judgedAt(decode(mail(mini, notice, "peer")), placement)).toEqual({ nodeId: "peer", seatless: "board" });
     expect(judgedAt(decode(mail(mini, noticeActorRef("factory", "lead"), "peer")), placement)).toBeUndefined();
     expect(judgedAt(decode(mail(mini, peer, "lead")), placement)).toEqual({ nodeId: "peer", seatId: peer.seatId });
     expect(judgedAt(decode(mail(editor, operatorActorRef("factory"), "peer")), placement)).toBeUndefined();

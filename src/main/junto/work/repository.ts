@@ -4554,7 +4554,8 @@ const exchangeCursorOf = Effect.fn("work.exchangeCursorOf")(function* (
  * (`judgedAt`: its author, or for a notice the seat whose mailbox it is in) on
  * the row's writer at the canvas count the row states, and is that a count
  * this machine sent that writer? A writer cannot state a count it was never
- * sent, and a count cannot put a seat where it was not.
+ * sent, and a count cannot put a seat where it was not. A notice's own node
+ * held no seat at that count either.
  */
 const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function* (
   reader: SqlClient.SqlClient,
@@ -4575,6 +4576,13 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
         AND placed.machine = ?
         AND placed.from_seq <= ?
         AND (placed.until_seq IS NULL OR ? < placed.until_seq)
+        AND (? IS NULL OR NOT EXISTS (
+          SELECT 1 FROM canvas_placements AS held
+          WHERE held.canvas_name = placed.canvas_name
+            AND held.node_id = ?
+            AND held.from_seq <= ?
+            AND (held.until_seq IS NULL OR ? < held.until_seq)
+        ))
         AND EXISTS (
           SELECT 1 FROM canvas_copies_sent AS sent
           WHERE sent.canvas_name = placed.canvas_name AND sent.target = ? AND sent.seq = ?
@@ -4587,6 +4595,10 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
       seat.seatId ?? null,
       seat.seatId ?? null,
       writer,
+      fact.basis.seq,
+      fact.basis.seq,
+      seat.seatless ?? null,
+      seat.seatless ?? null,
       fact.basis.seq,
       fact.basis.seq,
       writer,
