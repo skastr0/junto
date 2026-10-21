@@ -485,16 +485,20 @@ still open.
 The private index method, from the repository root. Never a bare
 `git commit`, `git commit -a` or `git add -A`.
 
+Run it as one shell command, so the index never outlives it:
+
 ```text
 PATHS=(path/to/one.ts path/to/two.ts)
 MSG='type(scope): subject'
 
 BRANCH=$(git symbolic-ref HEAD)
 PARENT=$(git rev-parse HEAD)
-IDX=$(mktemp -u "${TMPDIR:-/tmp}/idx.XXXXXX")
+IDX=$(mktemp -u "${TMPDIR:-/tmp}/<your-seat>-idx.XXXXXX")
+trap 'rm -f "$IDX"' EXIT
 
 GIT_INDEX_FILE=$IDX git read-tree "$PARENT"
 GIT_INDEX_FILE=$IDX git add -- "${PATHS[@]}"
+GIT_INDEX_FILE=$IDX git diff --cached --stat "$PARENT"   # read it: every line yours
 TREE=$(GIT_INDEX_FILE=$IDX git write-tree)
 NEW=$(printf '%s\n' "$MSG" | git commit-tree "$TREE" -p "$PARENT")
 
@@ -503,7 +507,13 @@ git reset -q HEAD -- "${PATHS[@]}"
 git show --stat --oneline HEAD
 ```
 
-- Remove the temporary index file afterwards.
+- The index is yours alone: named for your seat, held in `$IDX`, removed on
+  exit. Never find an index by listing or globbing a directory, and never
+  remove one you did not create in that command.
+- `git add` takes the working file as it is at that instant, including
+  another seat's hunks or deletion made since you looked. A path that shows
+  as deleted when you deleted nothing, or a line that is not yours, stops
+  the commit.
 - For a deletion, name the deleted paths or their directory.
 - For only your lines of a shared file: write a patch with just your hunks
   and use `git apply --cached` on the private index in place of `git add`.
@@ -512,7 +522,9 @@ git show --stat --oneline HEAD
 - If `update-ref` fails, main moved: run again from the `PARENT=` line. Never
   force.
 - The `git reset` line is not optional: it brings the shared index up to date
-  for those paths without touching working files.
+  for those paths without touching working files. Nobody stages into the
+  shared index, so it never discards anyone's work; if a path you commit is
+  staged there with content that is not yours, stop and find its owner.
 - The last line must list your files and only yours.
 
 ## Progress
