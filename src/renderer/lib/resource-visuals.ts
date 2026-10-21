@@ -11,13 +11,14 @@
  * state does. Shape differs from state to state, never colour alone.
  */
 
+import type { ArtifactType } from "@shared/artifact";
+
 /** The four things a mention can name (03, `MentionRef`). */
 export const RESOURCE_KINDS = ["seat", "task", "artifact", "page"] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
-/** The five artifact types (05). A link is the base every other type adds to. */
-export const ARTIFACT_TYPES = ["link", "document", "pad", "sheet", "file"] as const;
-export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+/** The artifact types (05) come from the artifact contract, the one list; the noun table below is total over it. */
+export type { ArtifactType };
 
 /** A mark hue. Each is a theme token, so a mode change moves it with the ground. */
 export const MARK_TONES = ["amber", "cyan", "green", "violet", "indigo", "steel", "crimson", "dim", "faint"] as const;

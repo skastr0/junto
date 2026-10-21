@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { ARTIFACT_TYPES } from "../src/shared/artifact";
 import {
-  ARTIFACT_TYPES,
+  ARTIFACT_TYPE_NOUN,
   MARK_TONES,
   RESOURCE_KINDS,
   RESOURCE_KIND_VISUAL,
@@ -24,6 +25,10 @@ describe("the visual tables are total over their closed unions", () => {
     expect(Object.keys(RESOURCE_KIND_VISUAL).sort()).toEqual([...RESOURCE_KINDS].sort());
     const tones = RESOURCE_KINDS.map((kind) => RESOURCE_KIND_VISUAL[kind].tone);
     expect(new Set(tones).size).toBe(RESOURCE_KINDS.length);
+  });
+
+  it("names every artifact type of the contract", () => {
+    expect(Object.keys(ARTIFACT_TYPE_NOUN).sort()).toEqual([...ARTIFACT_TYPES].sort());
   });
 
   it("draws every task state", () => {
