@@ -101,8 +101,10 @@ edit by one overseer still fits the targets of both.
 - Change triggers read task changes from the applied task rulings
   (`resource_rulings`, 02) since a per-canvas cursor
   (`automation_ruling_cursors`), one change per ruling in the order rulings
-  landed, so open to working to done between two passes fires both. Seat
-  state comes from the existing runtime.
+  landed, so assigned to working to done between two passes fires both. A
+  ruling records only the state it left its task in: a finish that sends a
+  task on lands it in backlog on the next node, so "node A becomes done"
+  never fires for a task sent on. Seat state comes from the existing runtime.
 - **Seat states are not stable raw** (pty-lead): working to idle holds only
   700 ms for the rings (`src/main/junto/term/agent-state/seat-state-machine.ts:47-55`),
   attention republishes every 800 ms, a fifth state `unknown` exists
@@ -136,6 +138,10 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 - The provider's delivery id is the idempotency key.
 - A payload size cap; the payload reaches actions as text, never as code.
 - 0.10 refuses `webhook` triggers with `not_available`.
+- `ownerInstallation` on the endpoint names the machine holding its secret.
+  When webhooks are built, main sets it to the editing machine and never
+  takes it from a writer's definition (remote-security's condition on
+  145a86e9a).
 
 ## Kept, reshaped, deleted
 
