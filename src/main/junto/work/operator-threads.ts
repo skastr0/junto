@@ -205,7 +205,10 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
         ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo as MailMessageId }),
       };
       // The seat whose thread the operator wrote in is told, beside the resource's people.
-      const context = { canvas, canvasName, people: [asNodeId(nodeId), ...(yield* subjectPeopleAt(canvas, canvasName, subject))] };
+      // A task the board no longer holds takes no comment.
+      const people = yield* Effect.result(subjectPeopleAt(canvas, canvasName, subject));
+      if (people._tag === "Failure") return refused("not-found", "That task is no longer on its board.");
+      const context = { canvas, canvasName, people: [asNodeId(nodeId), ...people.success] };
       const posted = yield* Effect.result(postSubjectComment(
         subject.kind === "task"
           ? { ...base, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } }

@@ -22,11 +22,11 @@ import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { linesAnchorOf } from "../src/shared/thread-subject";
-import { page as pageNode, region, seat as seatNode, wire } from "./support/model-nodes";
+import { page as pageNode, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { mentionLink } from "../src/shared/mention";
 import { ModelService } from "../src/main/junto/model/service";
-import { OpId } from "../src/shared/work-ids";
+import { ItemId, OpId } from "../src/shared/work-ids";
 import type { MailMessageId } from "../src/shared/crew";
 import { asNodeId } from "../src/shared/physics/schema";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
@@ -470,6 +470,17 @@ describe("operator threads", () => {
     const sent = await send({ nodeId: "agent", threadId: root.threadId, text: `${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)} see this` });
     expect(sent, JSON.stringify(sent)).toMatchObject({ threadId: root.threadId, comment: true });
     expect((await mailbox("loner")).filter((message) => message.metadata?.subjectNotice === "mention")).toHaveLength(1);
+  });
+
+  it("refuses the operator's reply in a task thread whose task the board does not hold, writing nothing", async () => {
+    await runtime.runPromise(seedCanvas(CANVAS, [taskBoard("board", { x: 600, y: 40, width: 200, height: 120 })], []));
+    const root = await runtime.runPromise(postSubjectComment(
+      { subject: { kind: "task", nodeId: asNodeId("board"), taskId: ItemId.make(ulid()) }, text: "about this task", actor: { kind: "operator" }, opId: OpId.make(ulid()) },
+      { canvas: await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(CANVAS))), canvasName: CANVAS, people: [asNodeId("agent")] },
+    ) as Effect.Effect<{ threadId: MailMessageId; messageId: string }, unknown, never>);
+    const sent = await send({ nodeId: "agent", threadId: root.threadId, text: "still on it?" });
+    expect(sent).toEqual({ ok: false, reason: "not-found", message: "That task is no longer on its board." });
+    expect((await mailbox("board")).map((message) => message.messageId)).toEqual([root.messageId]);
   });
 
   it("refuses a mention of a seat not wired to the seat, writing nothing", async () => {
