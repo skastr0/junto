@@ -73,6 +73,8 @@ export const AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE = "Acknowledged, no note";
  * text, so main writes this in its place, and the files ride by reference.
  */
 export const AGENT_SIGNAL_FILES_RESPONSE = "Files attached, no note";
+/** What an answer's mail says when its words went as a file (`mail-text-bound.ts`). */
+export const AGENT_SIGNAL_TEXT_FILE_RESPONSE = "The answer is attached as message.md";
 
 /**
  * The operator's answer as the seat reads it: typed into the seat as operator

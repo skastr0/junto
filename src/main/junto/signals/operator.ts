@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import {
   AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE,
   AGENT_SIGNAL_FILES_RESPONSE,
+  AGENT_SIGNAL_TEXT_FILE_RESPONSE,
   AGENT_SIGNAL_MAX_RESPONSE_LENGTH,
   composeSignalAnswerMail,
   type AgentSignal,
@@ -14,6 +15,7 @@ import { operatorActorRef } from "@shared/work-reference";
 import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
 import { WorkService } from "../work/service";
+import { writeMailCarryingText } from "../content/mail-text-file";
 import { planAnswerCopies, sendAnswerCopies } from "./answer-mentions";
 import { releaseSignalAttachments } from "./attachments";
 import { AgentSignalRepository } from "./repository";
@@ -63,15 +65,15 @@ export const answerAgentSignal = (
 
     // The mail's id names where its files are held, mailed or not.
     const id = ulid();
+    const owner = operatorMailOwner(signal.canvasName, signal.nodeId, id);
+    const content = yield* Effect.serviceOption(ContentService);
+    // Every file the mail holds goes with it: those claimed, and its own text's if it went as one.
+    const releaseFiles: Effect.Effect<void> = Option.isNone(content) ? Effect.void : content.value.releaseOwner(owner).pipe(Effect.ignore);
     let refs: ReadonlyArray<ContentRef> = [];
-    let releaseFiles: Effect.Effect<void> = Effect.void;
     if (files.length > 0) {
-      const content = yield* Effect.serviceOption(ContentService);
       if (Option.isNone(content)) return refused("files cannot be attached: the content store is unavailable");
-      const owner = operatorMailOwner(signal.canvasName, signal.nodeId, id);
       const claimed = yield* Effect.result(claimOperatorAttachments(content.value, signal.canvasName, files, owner));
       if (claimed._tag === "Failure") return refused(claimed.failure.message);
-      releaseFiles = content.value.releaseOwner(owner).pipe(Effect.ignore);
       refs = claimed.success;
     }
     const text = typed || (refs.length > 0 ? AGENT_SIGNAL_FILES_RESPONSE : AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
@@ -80,19 +82,19 @@ export const answerAgentSignal = (
     if (!silent) {
       const sender = operatorActorRef(signal.canvasName);
       const work = yield* WorkService;
-      const appended = yield* work.workSystemMailboxNotify(
+      const write = (said: string, held: ReadonlyArray<ContentRef>) => work.workSystemMailboxNotify(
         signal.canvasName,
         signal.nodeId,
         makeUserMessage({
           messageId: id,
-          text: composeSignalAnswerMail(signal, text),
+          text: composeSignalAnswerMail(signal, said),
           contextId: signal.canvasName,
           metadata: {
             factoryMail: true,
             agentSignalId: signal.signalId,
             // As thread mail carries them: delivery lists each file with its
             // path, and a thread reads them back from here.
-            ...(refs.length > 0 ? { attachments: refs } : {}),
+            ...(held.length > 0 ? { attachments: held } : {}),
             ...mailExtensionMetadata({
               mailKind: "prompt",
               fromSeat: sender.seatId,
@@ -104,6 +106,10 @@ export const answerAgentSignal = (
           },
         }),
       );
+      // A row main will not write goes again with the answer's words as a file.
+      const mailed = yield* writeMailCarryingText(write, { text, attachments: refs, owner, filesText: AGENT_SIGNAL_TEXT_FILE_RESPONSE });
+      const appended = mailed.written;
+      refs = mailed.attachments;
       if (!appended.ok) {
         yield* releaseFiles;
         return refused(appended.message);

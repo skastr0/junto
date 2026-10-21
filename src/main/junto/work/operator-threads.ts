@@ -32,6 +32,7 @@ import { ModelService } from "../model/service";
 import type { ContentOwner } from "../content/manifest";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { messageDelivery } from "./message-delivery";
+import { writeMailCarryingText } from "../content/mail-text-file";
 import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
 import { heldMailbox } from "./mailbox-cache";
@@ -83,6 +84,9 @@ const mentionableIn = (canvas: Canvas, nodeId: string): ReadonlyArray<Mentionabl
     .filter((seat) => wired.has(seat.id))
     .map((seat) => ({ nodeId: seat.id as string, name: titleOf(seat) }));
 };
+
+/** What a thread mail says when its text went as a file. */
+const THREAD_TEXT_FILE_NOTE = "The text is attached as message.md";
 
 /** A mail that was not written lets go of the files it had claimed. */
 const releaseMailFiles = (owner: ContentOwner) =>
@@ -147,20 +151,21 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
     // The files the operator staged are claimed for this mail, and the mail
     // names them as main recorded them, never as the caller spelled them.
     const owner = operatorMailOwner(canvasName, nodeId, messageId);
-    let attachments: ReadonlyArray<ContentRef> = [];
+    let claimedFiles: ReadonlyArray<ContentRef> = [];
     if (files.length > 0) {
       const content = yield* Effect.serviceOption(ContentService);
       if (Option.isNone(content)) return refused("failed", "The content store is unavailable.");
       const claimed = yield* Effect.result(claimOperatorAttachments(content.value, canvasName, files, owner));
       if (claimed._tag === "Failure") return refused("invalid", claimed.failure.message);
-      attachments = claimed.success;
+      claimedFiles = claimed.success;
     }
-    const result = yield* (yield* WorkService).workSystemMailboxNotify(
+    const work = yield* WorkService;
+    const write = (said: string, attachments: ReadonlyArray<ContentRef>) => work.workSystemMailboxNotify(
       canvasName,
       nodeId,
       makeUserMessage({
         messageId,
-        text,
+        text: said,
         contextId: canvasName,
         metadata: {
           factoryMail: true,
@@ -180,10 +185,13 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
         },
       }),
     );
+    // A row main will not write goes again with the text as a file.
+    const mailed = yield* writeMailCarryingText(write, { text, attachments: claimedFiles, owner, filesText: THREAD_TEXT_FILE_NOTE });
+    const result = mailed.written;
     // The store's message is not passed on: it is not the operator's to read,
     // and nothing may carry the mail's text out of the mailbox.
     if (!result.ok) {
-      if (attachments.length > 0) yield* releaseMailFiles(owner);
+      if (mailed.attachments.length > 0) yield* releaseMailFiles(owner);
       return refused("failed", "The mail could not be written.");
     }
     return { messageId: result.data.messageId, threadId: threadId ?? result.data.messageId };
