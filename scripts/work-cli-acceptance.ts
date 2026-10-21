@@ -5,9 +5,11 @@ import { ModelService } from "../src/main/junto/model/service";
  *
  * Boots the real NDJSON work control daemon (WorkService + ModelService)
  * against a sandboxed work home, then drives the compiled CLI from a cwd
- * outside the repo. Proves doctor/onboard/capabilities/claim/batch/scope/
- * artifact/request + 0600 socket + wrong-token AuthError without fighting
- * Electron's single-instance lock.
+ * outside the repo, area by area (scripts/work-cli-acceptance/, run in
+ * index.ts order, one file per owning seat), then the transport: the 0600
+ * socket and a wrong-token AuthError. Each case is a pass, a fail, or
+ * pending on the cli seat building its verb; any fail fails the run. No
+ * fight with Electron's single-instance lock.
  *
  * The daemon uses node:sqlite, so run it under Node, not Bun:
  *
@@ -15,12 +17,7 @@ import { ModelService } from "../src/main/junto/model/service";
  *   bun build scripts/work-cli-acceptance.ts --target=node --format=cjs --packages=external --outfile=node_modules/.cache/work-cli-acceptance.cjs
  *   node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { createConnection } from "node:net";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -62,6 +59,8 @@ import {
 } from "../src/main/junto/settings/service";
 import { WORK_MAX_FRAME_BYTES, WORK_TOKEN_ENV } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
+import type { AcceptanceContext, AcceptanceSeat, CaseVerdict } from "./work-cli-acceptance/area";
+import { AREAS } from "./work-cli-acceptance/index";
 
 const REPO = process.cwd();
 const CLI = join(REPO, "dist/junto");
@@ -391,8 +390,6 @@ export const runWorkCliAcceptance = async () => {
   const outside = join(root, "outside");
   mkdirSync(workHome, { recursive: true });
   mkdirSync(outside, { recursive: true });
-  const artifactPath = join(outside, "report.txt");
-  writeFileSync(artifactPath, "acceptance artifact body\n");
 
   const previousWorkHome = process.env.JUNTO_WORK_HOME;
   process.env.JUNTO_WORK_HOME = workHome;
@@ -509,94 +506,51 @@ export const runWorkCliAcceptance = async () => {
       }),
     );
 
-    const doctor = await runCli(processPlane, ["doctor"], env, outside);
-    log("doctor", doctor.stdout || doctor.stderr);
-
-    const onboard = await runCli(processPlane, ["onboard"], env, outside);
-    log("onboard", onboard.stdout || onboard.stderr);
-
-    const caps = await runCli(processPlane, ["capabilities"], env, outside);
-    log("capabilities", caps.stdout || caps.stderr);
-
-    const claim = await runCli(
-      processPlane,
-      ["task", "claim", JSON.stringify({ target: TASKS, task: "t1" })],
-      env,
+    const cliAs = (args: ReadonlyArray<string>, as?: AcceptanceSeat) =>
+      runCli(processPlane, [...args], as === undefined ? env : { ...env, [WORK_TOKEN_ENV]: seatTokens.get(as.agentKey) }, outside);
+    const seatTokens = new Map<string, string>([["local:default", mint.credential]]);
+    const addSeat = async (nodeId: string, at: { readonly x: number; readonly y: number }): Promise<AcceptanceSeat> => {
+      const agentKey = `local:${nodeId}`;
+      await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({
+        _tag: "Add",
+        canvas: CANVAS,
+        nodes: [{ kind: "agent", id: nodeId, x: at.x, y: at.y, width: 140, height: 56, z: 10,
+          label: nodeId, agentKey, host: "acceptance", overseer: false, bindingId: `work-acceptance-${nodeId}`, harness: "claude" }],
+        wires: [],
+      }), "operator"));
+      const seatMint = mintSeatCredential();
+      if (!credentials.publish(seatMint, { agentKey })) throw new Error(`acceptance credential publish failed for ${nodeId}`);
+      seatTokens.set(agentKey, seatMint.credential);
+      return { nodeId, agentKey };
+    };
+    const context: AcceptanceContext = {
+      canvas: CANVAS,
+      nodes: { agent: AGENT, tasks: TASKS, requests: REQS, artifacts: ARTS, region: "region" },
+      cli: cliAs,
+      addSeat,
+      runtime: runtime as never,
+      log,
       outside,
-    );
-    log("task claim", claim.stdout || claim.stderr);
-
-    const batch = await runCli(
-      processPlane,
-      [
-        "task",
-        "update",
-        JSON.stringify([
-          { target: TASKS, task: "t1", state: "completed", note: "done" },
-          { target: TASKS, task: "missing", state: "completed" },
-        ]),
-        "--concurrency",
-        "2",
-      ],
-      env,
-      outside,
-    );
-    log(`task update batch exit=${batch.code}`, batch.stdout || batch.stderr);
-
-    // Raising a hand needs no edge: blocked, then read it back, then withdraw.
-    const raised = await runCli(
-      processPlane,
-      ["blocked", "Approve the acceptance artifact to ship?", "--detail", "Acceptance run is otherwise green."],
-      env,
-      outside,
-    );
-    log("blocked", raised.stdout || raised.stderr);
-    const raisedBody = JSON.parse(raised.stdout || "{}");
-    const signalId = raisedBody?.ok === true ? raisedBody.data?.signal?.signalId : undefined;
-    const signalOk =
-      raised.code === 0 &&
-      typeof signalId === "string" &&
-      raisedBody.data?.signal?.state === "open";
-    let signalClearedOk = false;
-    if (signalId) {
-      const listed = await runCli(processPlane, ["signal", "list"], env, outside);
-      log("signal list", listed.stdout || listed.stderr);
-      const cleared = await runCli(processPlane, ["signal", "clear", signalId], env, outside);
-      log("signal clear", cleared.stdout || cleared.stderr);
-      const clearedBody = JSON.parse(cleared.stdout || "{}");
-      signalClearedOk =
-        cleared.code === 0 &&
-        clearedBody.data?.signals?.[0]?.state === "withdrawn";
+    };
+    const verdicts: CaseVerdict[] = [];
+    for (const area of AREAS) {
+      try {
+        verdicts.push(...(await area.run(context)));
+      } catch (error) {
+        verdicts.push({ area: area.name, name: "area threw", status: "fail", detail: String(error) });
+      }
     }
-
-    const art = await runCli(
-      processPlane,
-      [
-        "artifact",
-        "create",
-        "report",
-        "--type",
-        "document",
-        "--node",
-        ARTS,
-        "--markdown",
-        readFileSync(artifactPath, "utf8"),
-      ],
-      env,
-      outside,
-    );
-    log("artifact create", art.stdout || art.stderr);
-
-    const scope = await runCli(
-      processPlane,
-      ["task", "list", JSON.stringify({ target: "no-such-node" })],
-      env,
-      outside,
-    );
-    log("scope error", scope.stdout || scope.stderr);
 
     const wrongTok = await readWrongTokenReceipt(server.socketPath);
     log("A3 wrong token", wrongTok);
+    verdicts.push(
+      wrongTok.includes("AuthError")
+        ? { area: "transport", name: "wrong token", status: "pass" }
+        : { area: "transport", name: "wrong token", status: "fail", detail: wrongTok },
+      sockMode === 0o600
+        ? { area: "transport", name: "socket 0600", status: "pass" }
+        : { area: "transport", name: "socket 0600", status: "fail", detail: sockMode.toString(8) },
+    );
 
     log(
       "canvas after",
@@ -607,55 +561,13 @@ export const runWorkCliAcceptance = async () => {
       }, null, 2),
     );
 
-    const claimOk = (() => {
-      try {
-        const j = JSON.parse(claim.stdout);
-        return j.ok === true && j.data?.outcome === "succeeded";
-      } catch {
-        return false;
-      }
-    })();
-    const batchOk = (() => {
-      try {
-        const j = JSON.parse(batch.stdout);
-        return j.ok === true && j.data?.outcome === "partial_failure" && batch.code === 1;
-      } catch {
-        return false;
-      }
-    })();
-    const scopeOk = (scope.stderr || scope.stdout).includes("ScopeError");
-    const authOk = wrongTok.includes("AuthError");
-    const artOk = (() => {
-      try {
-        const j = JSON.parse(art.stdout);
-        return j.ok === true && j.data?.outcome === "succeeded";
-      } catch {
-        return false;
-      }
-    })();
-    const doctorOk = doctor.stdout.includes("protocol_version");
-
     console.log("\n=== verdict ===");
-    console.log(
-      JSON.stringify(
-        {
-          doctor: doctorOk,
-          claim: claimOk,
-          batch_partial: batchOk,
-          signal: signalOk,
-          signal_clear: signalClearedOk,
-          scope: scopeOk,
-          artifact: artOk,
-          auth: authOk,
-          socket_0600: sockMode === 0o600,
-        },
-        null,
-        2,
-      ),
-    );
-
-    if (!doctorOk || !claimOk || !batchOk || !signalOk || !signalClearedOk || !scopeOk || !authOk || !artOk || sockMode !== 0o600) {
-      throw new Error("work CLI acceptance verdict failed");
+    console.log(JSON.stringify(verdicts, null, 2));
+    const failed = verdicts.filter((verdict) => verdict.status === "fail");
+    const pending = verdicts.filter((verdict) => verdict.status === "pending");
+    console.log(`${String(verdicts.length - failed.length - pending.length)} pass, ${String(failed.length)} fail, ${String(pending.length)} pending`);
+    if (failed.length > 0) {
+      throw new Error(`work CLI acceptance verdict failed: ${failed.map((verdict) => `${verdict.area}/${verdict.name}`).join(", ")}`);
     }
   } catch (error) {
     primaryFailed = true;
