@@ -41,8 +41,8 @@ function resolveSurfaceBody(
     );
   }
   if (surface.kind === "task-create") {
-    // A tasks-off build exposes no workTaskCreate API; hide the pane body so a
-    // stale dock entry cannot render a form that can only fail on submit.
+    // A tasks-off build serves no tasks API; hide the pane body so a stale
+    // dock entry cannot render a form that can only fail on submit.
     if (!TASKS_ENABLED) return null;
     return (
       <TaskEnqueueSurface
