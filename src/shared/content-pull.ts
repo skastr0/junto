@@ -1,0 +1,127 @@
+/**
+ * A resource body pulled on demand from the machine that edits its canvas
+ * (docs/plans/0.10/02-universal-resources.md, Contracts: bytes move on demand).
+ *
+ * A fact names a body by ContentRef; the bytes stay on the editing machine
+ * until a machine that needs them asks. It asks over the link, one piece at
+ * a time, and takes each piece into its own store from where its partial
+ * ends, so a cut link resumes. The editing machine serves only an object it
+ * holds verified, and only under an owner of a pullable kind on a canvas the
+ * asker is linked for. The asker publishes the object only once the whole of
+ * it matches its sha256, so no peer makes it keep a wrong body.
+ *
+ * A refusal says what the asker does next, and carries the digest, the size
+ * and the reason only: never bytes or a store path.
+ */
+import { Schema } from "effect";
+import { resourcesInReach, type ReachCanvas } from "./region-reach";
+import type { NodeId } from "./model/base";
+import { WorkCanvasName } from "./work-reference";
+
+/** One piece's bytes: as base64 with its envelope, well inside one 1 MiB link frame. */
+export const CONTENT_PULL_PIECE_BYTES = 512 * 1024;
+
+/** Pulls one machine runs at once, well inside the link's 32 requests in flight. */
+export const CONTENT_PULL_MAX_CONCURRENT = 4;
+
+/** The owners whose bodies a peer may pull. Thread attachments add "message". */
+export const PULLABLE_OWNER_KINDS = ["artifact"] as const;
+export type PullableOwnerKind = (typeof PULLABLE_OWNER_KINDS)[number];
+export const isPullableOwnerKind = (kind: string): kind is PullableOwnerKind =>
+  (PULLABLE_OWNER_KINDS as ReadonlyArray<string>).includes(kind);
+
+const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
+const Bytes = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)), Schema.check(Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)));
+
+/** Ask for the piece of one object that starts at `offset`. */
+export const ContentPullRequest = Schema.Struct({
+  canvasName: WorkCanvasName,
+  sha256: Sha256,
+  byteLength: Bytes,
+  offset: Bytes,
+});
+export type ContentPullRequest = typeof ContentPullRequest.Type;
+
+const BASE64_PIECE_CHARS = Math.ceil(CONTENT_PULL_PIECE_BYTES / 3) * 4;
+
+/** One piece, from `offset`; the last piece of an object is shorter. */
+export const ContentPullPiece = Schema.Struct({
+  offset: Bytes,
+  bytes: Schema.String.pipe(Schema.check(Schema.isMaxLength(BASE64_PIECE_CHARS)), Schema.check(Schema.isPattern(/^[A-Za-z0-9+/]*={0,2}$/))),
+});
+export type ContentPullPiece = typeof ContentPullPiece.Type;
+
+/**
+ * Why the editing machine would not serve a piece, by what the asker does next:
+ * - `not-editor`: this machine does not edit the canvas; ask the one that does.
+ * - `not-held`: nothing to serve to this machine for this canvas, the body or
+ *   its owner is not there or the asker is not linked for the canvas; stop
+ *   until a new fact names the body.
+ * - `range`: the piece is outside the object; read the own partial and ask again from it.
+ */
+export const ContentPullReason = Schema.Literals(["not-editor", "not-held", "range"]);
+export type ContentPullReason = typeof ContentPullReason.Type;
+
+export class ContentPullRefused extends Schema.TaggedError<ContentPullRefused>()("ContentPullRefused", {
+  reason: ContentPullReason,
+  sha256: Sha256,
+  byteLength: Bytes,
+  message: Schema.String,
+}) {}
+
+const SENTENCE: Record<ContentPullReason, string> = {
+  "not-editor": "the machine asked does not edit this canvas",
+  "not-held": "the machine that edits this canvas holds no body by that digest for this machine",
+  range: "the piece asked for is outside the object",
+};
+
+export const contentPullRefused = (reason: ContentPullReason, ref: { readonly sha256: string; readonly byteLength: number }): ContentPullRefused =>
+  new ContentPullRefused({ reason, sha256: ref.sha256, byteLength: ref.byteLength, message: SENTENCE[reason] });
+
+/** What the editing machine knows when a piece is asked for. */
+export type ContentPullFacts = {
+  /** This machine edits the canvas named. */
+  readonly edits: boolean;
+  /** The asking machine is linked for that canvas. */
+  readonly peerLinked: boolean;
+  /** The object is in this machine's store, verified, at that length. */
+  readonly heldVerified: boolean;
+  /** Who holds a ref to the object, by owner kind and canvas. */
+  readonly owners: ReadonlyArray<{ readonly kind: string; readonly canvasName: string }>;
+};
+
+/** Serve the piece, or the one reason not to. Pure. */
+export const admitContentPull = (request: ContentPullRequest, facts: ContentPullFacts): ContentPullReason | undefined => {
+  if (!facts.edits) return "not-editor";
+  const shared = facts.owners.some((owner) => isPullableOwnerKind(owner.kind) && owner.canvasName === request.canvasName);
+  if (!facts.peerLinked || !facts.heldVerified || !shared) return "not-held";
+  const inside = request.byteLength === 0 ? request.offset === 0 : request.offset < request.byteLength;
+  return inside ? undefined : "range";
+};
+
+/** The bytes of the piece that starts at `offset`. */
+export const contentPullPieceLength = (byteLength: number, offset: number): number =>
+  Math.max(0, Math.min(CONTENT_PULL_PIECE_BYTES, byteLength - offset));
+
+declare const reachBrand: unique symbol;
+
+/**
+ * The asker's word that the resource whose body it pulls is in reach of who
+ * asked: minted only by the checks below, so a pull cannot be written without one.
+ */
+export type ResourceReached = { readonly canvasName: string; readonly resourceId: NodeId; readonly [reachBrand]: true };
+
+/** A seat asks: the resource must be in its reach (src/shared/region-reach.ts). */
+export const seatReachesResource = (
+  canvasName: string,
+  canvas: ReachCanvas,
+  seatId: NodeId,
+  resourceId: NodeId,
+): ResourceReached | undefined =>
+  resourcesInReach(canvas, seatId).some((node) => node.id === resourceId)
+    ? ({ canvasName, resourceId } as ResourceReached)
+    : undefined;
+
+/** The operator asks: every resource of a canvas is in the operator's reach. */
+export const operatorReachesResource = (canvasName: string, resourceId: NodeId): ResourceReached =>
+  ({ canvasName, resourceId }) as ResourceReached;
