@@ -80,3 +80,12 @@
   font-size: var(--text-body);
   line-height: var(--leading-body);
 }
+
+.task-reviewers__refused {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-crimson);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}

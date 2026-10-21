@@ -12,18 +12,22 @@ import {
 import { Button, Dropdown, type ButtonVariant } from "../ui";
 import {
   assignChoices,
+  nextChoices,
   offeredVerbs,
   verbLabel,
+  type CommandOutcome,
   type SeatChoice,
   type TaskVerb,
 } from "../../lib/task-ui";
+import type { TaskContext } from "@shared/task-machine";
 import type {
   SeatNodeId,
   TaskActor,
   TaskCommand,
-  TaskContext,
   TaskCore,
-} from "@shared/task-machine";
+  TaskId,
+  TaskNodeId,
+} from "@shared/task-model";
 import "./task-verbs.css";
 
 const VERB_ICON: Record<TaskVerb, typeof Play> = {
@@ -60,6 +64,7 @@ export function TaskVerbBar({
   ctx,
   seats,
   numberOf,
+  nodeName = (node) => node,
   pending = false,
   onCommand,
 }: {
@@ -69,20 +74,37 @@ export function TaskVerbBar({
   /** Seats in reach of the task's node. */
   readonly seats: ReadonlyArray<SeatChoice>;
   /** `#42` for a task id, to say which task keeps a seat busy. */
-  readonly numberOf: (taskId: string) => string | undefined;
+  readonly numberOf: (taskId: TaskId) => string | undefined;
+  /** Name of a task node, for the send-on picker. */
+  readonly nodeName?: (node: TaskNodeId) => string;
   readonly pending?: boolean;
-  readonly onCommand: (command: TaskCommand) => void;
+  /** Rules the command; answers why it was refused, or nothing when it was ruled. */
+  readonly onCommand: (command: TaskCommand) => CommandOutcome;
 }) {
   const verbs = offeredVerbs(task, actor, ctx);
   const [seat, setSeat] = useState("");
+  const [next, setNext] = useState("");
+  const [refused, setRefused] = useState<string | undefined>();
+  const downstream = nextChoices(ctx);
+  const needsNext = downstream.length > 1;
   if (verbs.length === 0) return null;
+
+  const send = async (command: TaskCommand) => {
+    setRefused(undefined);
+    const outcome = await onCommand(command);
+    if (typeof outcome === "string") setRefused(outcome);
+  };
 
   const run = (verb: TaskVerb) => {
     if (verb === "assign") {
-      if (seat !== "") onCommand({ kind: "assign", seat: seat as SeatNodeId });
+      if (seat !== "") void send({ kind: "assign", seat: seat as SeatNodeId });
       return;
     }
-    onCommand({ kind: verb });
+    if (verb === "finish") {
+      void send(next === "" ? { kind: "finish" } : { kind: "finish", next: next as TaskNodeId });
+      return;
+    }
+    void send({ kind: verb });
   };
 
   return (
@@ -96,13 +118,23 @@ export function TaskVerbBar({
             label: choice.name,
             disabled: choice.refusal !== undefined,
             detail:
-              choice.refusal?.reason === "seat-busy"
+              choice.refusal?.kind === "seat-busy"
                 ? `holds ${numberOf(choice.refusal.taskId) ?? "a task"}`
                 : undefined,
           }))}
           onChange={setSeat}
           placeholder="Assign to…"
           emptyLabel="no seats in reach"
+          disabled={pending}
+        />
+      ) : null}
+      {verbs.includes("finish") && needsNext ? (
+        <Dropdown
+          aria-label="Send on to"
+          value={next}
+          options={downstream.map((node) => ({ value: node, label: nodeName(node) }))}
+          onChange={setNext}
+          placeholder="Send on to…"
           disabled={pending}
         />
       ) : null}
@@ -113,7 +145,11 @@ export function TaskVerbBar({
             key={verb}
             size="xs"
             variant={VERB_VARIANT[verb]}
-            disabled={pending || (verb === "assign" && seat === "")}
+            disabled={
+              pending ||
+              (verb === "assign" && seat === "") ||
+              (verb === "finish" && needsNext && next === "")
+            }
             data-testid={`task-verb-${verb}`}
             onClick={() => run(verb)}
           >
@@ -122,6 +158,11 @@ export function TaskVerbBar({
           </Button>
         );
       })}
+      {refused === undefined ? null : (
+        <p className="task-verbs__refused" role="alert" data-testid="task-verbs-refused">
+          {refused}
+        </p>
+      )}
     </div>
   );
 }

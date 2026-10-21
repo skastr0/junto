@@ -1,16 +1,25 @@
 import { useState } from "react";
-import { Minus, Plus, ShieldCheck, X } from "lucide-react";
+import { Check, Minus, Plus, ShieldCheck, X } from "lucide-react";
 import { Button, Chip, Dropdown, IconButton, StampTally, type ChipTone } from "../ui";
-import { reviewerChoices, stampOf, type SeatChoice } from "../../lib/task-ui";
-import { stampTally } from "../../lib/resource-visuals";
-import type {
-  SeatNodeId,
-  Stamp,
-  TaskActor,
-  TaskCommand,
-  TaskContext,
-  TaskCore,
-} from "@shared/task-machine";
+import {
+  offeredStamps,
+  operatorMayReview,
+  reviewTally,
+  reviewerChoices,
+  stampOf,
+  type CommandOutcome,
+  type SeatChoice,
+} from "../../lib/task-ui";
+import type { TaskContext } from "@shared/task-machine";
+import {
+  reviewerKey,
+  type Reviewer,
+  type SeatNodeId,
+  type Stamp,
+  type TaskActor,
+  type TaskCommand,
+  type TaskCore,
+} from "@shared/task-model";
 import "./task-reviewers.css";
 
 const stampTone = (stamp: Stamp | undefined): ChipTone =>
@@ -25,12 +34,14 @@ const stampWord = (stamp: Stamp | undefined, waiting: boolean): string =>
       ? "approved"
       : "asked for changes";
 
+const OPERATOR_ADD = "operator";
+
 /**
- * Reviewers and stamps (plan 04 "Review stamps"). Replaces the single
- * "requires review" switch: a task asks for `required` approvals, names its
- * reviewers, and each reviewer's current stamp shows beside them. Stamps come
- * from reviewing seats (the ruler refuses the operator), so they are shown,
- * never authored, here; the operator edits the list and the count.
+ * Reviewers and stamps (plan 04 "Review stamps"). A task asks for `required`
+ * approvals, names its reviewers (seats in reach, and the operator, whose
+ * approval counts listed or not), and each reviewer's current stamp shows
+ * beside them. The operator edits the list and the count and, while the task
+ * is in review, stamps it from here. What shows is the ruler's answer.
  */
 export function TaskReviewers({
   task,
@@ -46,17 +57,41 @@ export function TaskReviewers({
   /** Seats in reach, named. Reviewer names resolve through this. */
   readonly seats: ReadonlyArray<SeatChoice>;
   readonly pending?: boolean;
-  readonly onCommand: (command: TaskCommand) => void;
+  /** Rules the command; answers why it was refused, or nothing when it was ruled. */
+  readonly onCommand: (command: TaskCommand) => CommandOutcome;
 }) {
   const [adding, setAdding] = useState("");
-  const tally = stampTally(task.stampPolicy.required, task.stamps, task.epoch);
+  const [refused, setRefused] = useState<string | undefined>();
+  const tally = reviewTally(task);
   const closed =
     task.state === "done" || task.state === "canceled" || task.state === "archived";
-  const nameOf = (seat: SeatNodeId): string =>
-    seats.find((choice) => choice.node === seat)?.name ?? seat;
+  const nameOf = (reviewer: Reviewer): string =>
+    reviewer.kind === "operator"
+      ? "You"
+      : (seats.find((choice) => choice.node === reviewer.seat)?.name ?? reviewer.seat);
   const candidates = closed ? [] : reviewerChoices(task, actor, ctx, seats);
+  const addOptions = [
+    ...(!closed && operatorMayReview(task, ctx)
+      ? [{ value: OPERATOR_ADD, label: "Me (operator)" }]
+      : []),
+    ...candidates.map((seat) => ({ value: seat.node as string, label: seat.name })),
+  ];
+  const stamps = closed ? [] : offeredStamps(task, actor, ctx);
   const inReview = task.state === "in-review";
   const required = task.stampPolicy.required;
+
+  const send = async (command: TaskCommand) => {
+    setRefused(undefined);
+    const outcome = await onCommand(command);
+    if (typeof outcome === "string") setRefused(outcome);
+  };
+
+  const addReviewer = () => {
+    const reviewer: Reviewer =
+      adding === OPERATOR_ADD ? { kind: "operator" } : { kind: "seat", seat: adding as SeatNodeId };
+    void send({ kind: "reviewer-add", reviewer });
+    setAdding("");
+  };
 
   return (
     <section
@@ -77,7 +112,7 @@ export function TaskReviewers({
                 aria-label="Require one fewer approval"
                 title="Require one fewer approval"
                 disabled={pending || required <= 0}
-                onClick={() => onCommand({ kind: "stamp-policy", required: required - 1 })}
+                onClick={() => void send({ kind: "stamp-policy", required: required - 1 })}
               >
                 <Minus size={12} />
               </IconButton>
@@ -88,7 +123,7 @@ export function TaskReviewers({
                 aria-label="Require one more approval"
                 title="Require one more approval"
                 disabled={pending}
-                onClick={() => onCommand({ kind: "stamp-policy", required: required + 1 })}
+                onClick={() => void send({ kind: "stamp-policy", required: required + 1 })}
               >
                 <Plus size={12} />
               </IconButton>
@@ -98,7 +133,7 @@ export function TaskReviewers({
         </div>
       </header>
 
-      {required > 0 && (inReview || tally.approved + tally.changes > 0) ? (
+      {required > 0 && (inReview || tally.slots.length > required) ? (
         <div className="task-reviewers__tally">
           <StampTally tally={tally} />
         </div>
@@ -116,9 +151,9 @@ export function TaskReviewers({
             const stamp = stampOf(task, reviewer);
             return (
               <li
-                key={reviewer}
+                key={reviewerKey(reviewer)}
                 data-testid="task-reviewer"
-                data-reviewer={reviewer}
+                data-reviewer={reviewerKey(reviewer)}
                 data-verdict={stamp?.verdict}
               >
                 <strong>{nameOf(reviewer)}</strong>
@@ -129,7 +164,7 @@ export function TaskReviewers({
                     aria-label={`Remove ${nameOf(reviewer)} as reviewer`}
                     title="Remove reviewer"
                     disabled={pending}
-                    onClick={() => onCommand({ kind: "reviewer-remove", seat: reviewer })}
+                    onClick={() => void send({ kind: "reviewer-remove", reviewer })}
                   >
                     <X size={12} />
                   </IconButton>
@@ -140,30 +175,53 @@ export function TaskReviewers({
         </ul>
       )}
 
-      {candidates.length > 0 ? (
+      {addOptions.length > 0 ? (
         <div className="task-reviewers__add">
           <Dropdown
             aria-label="Add reviewer"
             value={adding}
-            options={candidates.map((seat) => ({ value: seat.node, label: seat.name }))}
+            options={addOptions}
             onChange={setAdding}
             placeholder="Add reviewer…"
             disabled={pending}
           />
-          <Button
-            size="xs"
-            variant="chrome"
-            disabled={pending || adding === ""}
-            onClick={() => {
-              onCommand({ kind: "reviewer-add", seat: adding as SeatNodeId });
-              setAdding("");
-            }}
-          >
+          <Button size="xs" variant="chrome" disabled={pending || adding === ""} onClick={addReviewer}>
             <Plus size={12} aria-hidden />
             Add
           </Button>
         </div>
       ) : null}
+
+      {stamps.length > 0 ? (
+        <div className="task-reviewers__stamp" role="group" aria-label="Your stamp">
+          <Button
+            size="xs"
+            variant="primary"
+            disabled={pending}
+            data-testid="task-stamp-approve"
+            onClick={() => void send({ kind: "stamp", verdict: "approve" })}
+          >
+            <Check size={12} aria-hidden />
+            Approve
+          </Button>
+          <Button
+            size="xs"
+            variant="danger"
+            disabled={pending}
+            data-testid="task-stamp-changes"
+            onClick={() => void send({ kind: "stamp", verdict: "changes" })}
+          >
+            <X size={12} aria-hidden />
+            Ask for changes
+          </Button>
+        </div>
+      ) : null}
+
+      {refused === undefined ? null : (
+        <p className="task-reviewers__refused" role="alert" data-testid="task-reviewers-refused">
+          {refused}
+        </p>
+      )}
     </section>
   );
 }

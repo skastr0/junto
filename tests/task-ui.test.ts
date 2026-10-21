@@ -1,33 +1,45 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { asNodeId } from "../src/shared/model";
+import type { TaskContext } from "../src/shared/task-machine";
 import {
-  assignChoices,
-  offeredVerbs,
-  refusalText,
-  reviewerChoices,
-  stateLabel,
-  taskNumberLabel,
-  verbLabel,
+  seatNodeId,
+  taskNodeId,
+  type Reviewer,
+  type Stamp,
+  type TaskActor,
+  type TaskCommandKind,
+  type TaskCore,
+} from "../src/shared/task-model";
+import { ItemId } from "../src/shared/work-ids";
+import {
   TASK_VERBS,
+  assignChoices,
+  nextChoices,
+  offeredStamps,
+  offeredVerbs,
+  operatorMayReview,
+  reviewTally,
+  reviewerChoices,
+  stampOf,
+  stateLabel,
+  verbLabel,
   type SeatChoice,
   type TaskVerb,
 } from "../src/renderer/lib/task-ui";
-import {
-  TASK_STATES,
-  seatNodeId,
-  taskNodeId,
-  type Stamp,
-  type TaskActor,
-  type TaskContext,
-  type TaskCore,
-  type TaskCommandKind,
-} from "../src/shared/task-machine";
+import { TASK_STATES } from "../src/shared/task-model";
 
-const ada = seatNodeId("seat-ada");
-const bo = seatNodeId("seat-bo");
-const cy = seatNodeId("seat-cy");
-const build = taskNodeId("tasks-build");
+const ada = seatNodeId(asNodeId("seat-ada"));
+const bo = seatNodeId(asNodeId("seat-bo"));
+const cy = seatNodeId(asNodeId("seat-cy"));
+const build = taskNodeId(asNodeId("tasks-build"));
+const qa = taskNodeId(asNodeId("tasks-qa"));
+const ship = taskNodeId(asNodeId("tasks-ship"));
+const T1 = ItemId.make("01JZ0000000000000000000001");
+const T9 = ItemId.make("01JZ0000000000000000000009");
+
 const operator: TaskActor = { kind: "operator" };
-const seat = (s: typeof ada): TaskActor => ({ kind: "seat", seat: s, inReach: true });
+const seat = (s: typeof ada): TaskActor => ({ kind: "seat", seat: s });
+const asSeat = (s: typeof ada): Reviewer => ({ kind: "seat", seat: s });
 
 const core = (over: Partial<TaskCore> = {}): TaskCore => ({
   state: "backlog",
@@ -39,11 +51,12 @@ const core = (over: Partial<TaskCore> = {}): TaskCore => ({
   ...over,
 });
 const ctx = (over: Partial<TaskContext> = {}): TaskContext => ({
-  taskId: "task-1",
+  taskId: T1,
   at: 1,
   openTaskOf: () => undefined,
   downstream: [],
   stampDefaultOf: () => ({ required: 0 }),
+  seatReaches: () => true,
   ...over,
 });
 const seats: ReadonlyArray<SeatChoice> = [
@@ -51,7 +64,7 @@ const seats: ReadonlyArray<SeatChoice> = [
   { node: bo, name: "Bo" },
   { node: cy, name: "Cy" },
 ];
-const approve = (reviewer: typeof ada, epoch = 0): Stamp => ({ reviewer, verdict: "approve", epoch, at: 1 });
+const approve = (reviewer: Reviewer, epoch = 0, at = 1): Stamp => ({ reviewer, verdict: "approve", epoch, at });
 
 describe("verbs are the ruler's answer", () => {
   it("is a subset of the command kinds", () => {
@@ -88,49 +101,105 @@ describe("verbs are the ruler's answer", () => {
   });
 
   it("still offers finish when several nodes are downstream and the assignee must choose", () => {
-    const many = ctx({ downstream: [taskNodeId("a"), taskNodeId("b")] });
+    const many = ctx({ downstream: [qa, ship] });
     expect(offeredVerbs(core({ state: "working", assignee: ada }), seat(ada), many)).toContain("finish");
+    expect(nextChoices(many)).toEqual([qa, ship]);
   });
 
-  it("offers archive on done and canceled, cancel on done too, and nothing on archived", () => {
-    expect(offeredVerbs(core({ state: "done" }), operator, ctx())).toEqual(["cancel", "archive"]);
+  it("offers cancel on backlog and open states, archive on done and canceled, nothing on archived", () => {
+    expect(offeredVerbs(core({ state: "done" }), operator, ctx())).toEqual(["archive"]);
     expect(offeredVerbs(core({ state: "canceled" }), operator, ctx())).toEqual(["archive"]);
     expect(offeredVerbs(core({ state: "archived" }), operator, ctx())).toEqual([]);
   });
 
-  it("is not blocked by the seat the probe stands for being busy", () => {
-    const busy = ctx({ openTaskOf: () => "other" });
-    expect(offeredVerbs(core(), operator, busy)).toContain("assign");
+  it("is not blocked by the probe seat standing for a busy seat", () => {
+    expect(offeredVerbs(core(), operator, ctx({ openTaskOf: () => T9 }))).toContain("assign");
   });
 });
 
 describe("assign and reviewer choices", () => {
   it("marks a seat that holds another open task with the task it holds", () => {
-    const busy = ctx({ openTaskOf: (s) => (s === bo ? "task-9" : undefined) });
+    const busy = ctx({ openTaskOf: (s) => (s === bo ? T9 : undefined) });
     const choices = assignChoices(core(), operator, busy, seats);
-    expect(choices.map((c) => [c.name, c.refusal?.reason])).toEqual([
+    expect(choices.map((c) => [c.name, c.refusal?.kind])).toEqual([
       ["Ada", undefined],
       ["Bo", "seat-busy"],
       ["Cy", undefined],
     ]);
   });
 
-  it("offers every seat but the assignee and current reviewers as reviewers", () => {
-    const task = core({ state: "working", assignee: ada, reviewers: [bo] });
+  it("offers every seat in reach but the assignee and current reviewers as reviewers", () => {
+    const task = core({ state: "working", assignee: ada, reviewers: [asSeat(bo)] });
     expect(reviewerChoices(task, operator, ctx(), seats).map((s) => s.name)).toEqual(["Cy"]);
+    const far = ctx({ seatReaches: (s) => s !== cy });
+    expect(reviewerChoices(core({ state: "working", assignee: ada }), operator, far, seats).map((s) => s.name)).toEqual([
+      "Bo",
+    ]);
+  });
+
+  it("lets the operator list itself once, while the task is open", () => {
+    expect(operatorMayReview(core({ state: "working", assignee: ada }), ctx())).toBe(true);
+    expect(operatorMayReview(core({ reviewers: [{ kind: "operator" }] }), ctx())).toBe(false);
+    expect(operatorMayReview(core({ state: "done" }), ctx())).toBe(false);
+  });
+});
+
+describe("stamps", () => {
+  const inReview = core({
+    state: "in-review",
+    assignee: ada,
+    reviewers: [asSeat(bo)],
+    stampPolicy: { required: 1 },
+  });
+
+  it("lets the operator stamp a task in review, listed or not, and only then", () => {
+    expect(offeredStamps(inReview, operator, ctx())).toEqual(["approve", "changes"]);
+    expect(offeredStamps(core({ state: "working", assignee: ada }), operator, ctx())).toEqual([]);
+  });
+
+  it("lets a listed seat stamp and refuses the assignee", () => {
+    expect(offeredStamps(inReview, seat(bo), ctx())).toEqual(["approve", "changes"]);
+    expect(offeredStamps(inReview, seat(ada), ctx())).toEqual([]);
+    expect(offeredStamps(inReview, seat(cy), ctx())).toEqual([]);
+  });
+
+  it("counts what the ruler counts: the operator unlisted, a removed seat not, the latest stamp once", () => {
+    const task = core({
+      ...inReview,
+      stampPolicy: { required: 2 },
+      stamps: [
+        approve(asSeat(bo), 0, 1),
+        approve(asSeat(bo), 0, 2),
+        approve({ kind: "operator" }, 0, 3),
+        approve(asSeat(cy), 0, 4),
+      ],
+    });
+    const tally = reviewTally(task);
+    expect(tally.approved).toBe(2);
+    expect(tally.met).toBe(true);
+    expect(tally.slots).toEqual(["approved", "approved"]);
+  });
+
+  it("draws earlier rounds as stale and a missing approval as waiting", () => {
+    const task = core({
+      ...inReview,
+      epoch: 1,
+      stampPolicy: { required: 2 },
+      stamps: [approve(asSeat(bo), 0)],
+    });
+    expect(reviewTally(task)).toMatchObject({ approved: 0, met: false, slots: ["waiting", "waiting", "stale"] });
+  });
+
+  it("finds a reviewer's stamp at the current epoch only", () => {
+    const task = core({ ...inReview, epoch: 1, stamps: [approve(asSeat(bo), 0)] });
+    expect(stampOf(task, asSeat(bo))).toBeUndefined();
+    expect(stampOf({ ...task, epoch: 0 }, asSeat(bo))?.verdict).toBe("approve");
   });
 });
 
 describe("words", () => {
-  it("names every state, verb and refusal", () => {
+  it("names every state and verb", () => {
     for (const state of TASK_STATES) expect(stateLabel(state)).not.toBe("");
     for (const verb of TASK_VERBS) expect(verbLabel(verb)).not.toBe("");
-    expect(taskNumberLabel({ number: 42 })).toBe("#42");
-    const name = (s: typeof ada) => (s === ada ? "Ada" : "Bo");
-    expect(refusalText({ reason: "seat-busy", seat: bo, taskId: "t" }, name, () => "#4")).toBe("Bo holds #4.");
-    expect(refusalText({ reason: "own-task", seat: ada }, name, () => undefined)).toBe(
-      "Ada cannot review its own task.",
-    );
-    expect(refusalText({ reason: "operator-cannot-stamp" }, name, () => undefined)).toContain("reviewing seats");
   });
 });

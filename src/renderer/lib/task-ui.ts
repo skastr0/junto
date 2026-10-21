@@ -3,36 +3,33 @@
  * every offer is asked of canvas's ruler (`ruleTaskCommand`), so the UI can
  * only offer what the editing machine would admit. Pure: no I/O.
  *
- * The operator is not a seat, so the ruler gives it assign, unassign, cancel,
- * archive, the reviewer list and the stamp count; start, pause, resume and
- * finish are the assignee's, and stamps are a reviewing seat's.
+ * The operator is not a seat. The ruler gives it assign, unassign, cancel,
+ * archive, the reviewer list, the stamp count and, in review, its own stamp
+ * (it reviews through the feed, listed or not). Start, pause, resume and
+ * finish are the assignee's.
  */
+import { asNodeId } from "@shared/model";
+import type { StampSlot, StampTally as StampTallyData } from "./resource-visuals";
 import {
+  currentApprovals,
   currentStamps,
   ruleTaskCommand,
+  type TaskContext,
+} from "@shared/task-machine";
+import {
+  reviewerKey,
   seatNodeId,
+  type Reviewer,
   type SeatNodeId,
   type Stamp,
+  type StampVerdict,
   type TaskActor,
   type TaskCommand,
-  type TaskContext,
   type TaskCore,
-  type TaskRefusal,
+  type TaskNodeId,
+  type TaskRefusalDetail,
   type TaskState,
-} from "@shared/task-machine";
-
-/** A task as the board draws it: the machine's core plus what people read. */
-export type TaskView = {
-  readonly id: string;
-  /** `#42`, per canvas, minted by the editing machine. */
-  readonly number: number;
-  readonly title: string;
-  readonly core: TaskCore;
-  /** Layers closed earlier, oldest first; the current one is `core`. */
-  readonly layers: ReadonlyArray<TaskCore>;
-};
-
-export const taskNumberLabel = (task: Pick<TaskView, "number">): string => `#${task.number}`;
+} from "@shared/task-model";
 
 /** The transition verbs drawn as buttons, in drawing order. */
 export const TASK_VERBS = [
@@ -47,7 +44,7 @@ export const TASK_VERBS = [
 ] as const;
 export type TaskVerb = (typeof TASK_VERBS)[number];
 
-const PROBE_SEAT = seatNodeId("probe-seat");
+const PROBE_SEAT = seatNodeId(asNodeId("probe-seat"));
 
 /** Closed by the type: a verb that is not a command kind fails tsc. */
 const probe = (verb: TaskVerb): TaskCommand =>
@@ -68,14 +65,27 @@ export const offeredVerbs = (
       ...ctx,
       openTaskOf: () => undefined,
     });
-    return ruling.ok || ruling.refusal.reason === "next-required";
+    return ruling.ok || ruling.refusal.detail.kind === "next-required";
   });
+
+/** Where finishing can lead: the nodes the task's node flows into. More than one needs a choice. */
+export const nextChoices = (ctx: TaskContext): ReadonlyArray<TaskNodeId> => ctx.downstream;
+
+/** The stamps the actor may write on this task now. */
+export const offeredStamps = (
+  task: TaskCore,
+  actor: TaskActor,
+  ctx: TaskContext,
+): ReadonlyArray<StampVerdict> =>
+  (["approve", "changes"] as const).filter(
+    (verdict) => ruleTaskCommand(task, actor, { kind: "stamp", verdict }, ctx).ok,
+  );
 
 export type SeatChoice = { readonly node: SeatNodeId; readonly name: string };
 
 export type AssignChoice = SeatChoice & {
   /** The ruler's reason this seat cannot take the task now. */
-  readonly refusal?: TaskRefusal;
+  readonly refusal?: TaskRefusalDetail;
 };
 
 /** Each seat in reach with the ruler's answer to assigning it this task. */
@@ -87,25 +97,62 @@ export const assignChoices = (
 ): ReadonlyArray<AssignChoice> =>
   seats.map((seat) => {
     const ruling = ruleTaskCommand(task, actor, { kind: "assign", seat: seat.node }, ctx);
-    return ruling.ok ? seat : { ...seat, refusal: ruling.refusal };
+    return ruling.ok ? seat : { ...seat, refusal: ruling.refusal.detail };
   });
 
-/** Seats that can still be added as reviewers (the ruler refuses the assignee). */
+/** Seats that can still be added as reviewers (the ruler refuses the assignee and seats out of reach). */
 export const reviewerChoices = (
   task: TaskCore,
   actor: TaskActor,
   ctx: TaskContext,
   seats: ReadonlyArray<SeatChoice>,
-): ReadonlyArray<SeatChoice> =>
-  seats.filter(
+): ReadonlyArray<SeatChoice> => {
+  const listed = new Set(task.reviewers.map(reviewerKey));
+  return seats.filter(
     (seat) =>
-      !task.reviewers.includes(seat.node) &&
-      ruleTaskCommand(task, actor, { kind: "reviewer-add", seat: seat.node }, ctx).ok,
+      !listed.has(reviewerKey({ kind: "seat", seat: seat.node })) &&
+      ruleTaskCommand(
+        task,
+        actor,
+        { kind: "reviewer-add", reviewer: { kind: "seat", seat: seat.node } },
+        ctx,
+      ).ok,
   );
+};
+
+/** Whether the operator can still put itself on the reviewer list. */
+export const operatorMayReview = (task: TaskCore, ctx: TaskContext): boolean =>
+  !task.reviewers.some((reviewer) => reviewer.kind === "operator") &&
+  ruleTaskCommand(
+    task,
+    { kind: "operator" },
+    { kind: "reviewer-add", reviewer: { kind: "operator" } },
+    ctx,
+  ).ok;
 
 /** A reviewer's stamp at the current epoch, if any. */
-export const stampOf = (task: TaskCore, reviewer: SeatNodeId): Stamp | undefined =>
-  currentStamps(task).find((stamp) => stamp.reviewer === reviewer);
+export const stampOf = (task: TaskCore, reviewer: Reviewer): Stamp | undefined =>
+  currentStamps(task).find((stamp) => reviewerKey(stamp.reviewer) === reviewerKey(reviewer));
+
+/**
+ * The tally the ruler counts (`currentApprovals`): once per reviewer at the
+ * current epoch, a seat's only while listed, the operator's always. Shaped
+ * for the shared StampTally mark; earlier rounds draw as stale caps.
+ */
+export const reviewTally = (task: TaskCore): StampTallyData => {
+  const required = task.stampPolicy.required;
+  const approved = currentApprovals(task);
+  const changes = currentStamps(task).filter((stamp) => stamp.verdict === "changes").length;
+  const stale = task.stamps.filter((stamp) => stamp.epoch !== task.epoch).length;
+  const waiting = Math.max(0, required - approved);
+  const slots: StampSlot[] = [
+    ...Array<StampSlot>(approved).fill("approved"),
+    ...Array<StampSlot>(changes).fill("changes"),
+    ...Array<StampSlot>(waiting).fill("waiting"),
+    ...Array<StampSlot>(stale).fill("stale"),
+  ];
+  return { required, slots, approved, pending: 0, changes, stale, met: approved >= required };
+};
 
 export const stateLabel = (state: TaskState): string => {
   switch (state) {
@@ -149,36 +196,5 @@ export const verbLabel = (verb: TaskVerb): string => {
   }
 };
 
-/** Plain words for a refusal the UI shows. Exhaustive over the ruler's reasons. */
-export const refusalText = (
-  refusal: TaskRefusal,
-  nameOf: (seat: SeatNodeId) => string,
-  numberOf: (taskId: string) => string | undefined,
-): string => {
-  switch (refusal.reason) {
-    case "illegal-transition":
-      return `A ${stateLabel(refusal.from).toLowerCase()} task cannot ${refusal.command}.`;
-    case "out-of-reach":
-      return "Out of reach of this task.";
-    case "not-assignee":
-      return refusal.assignee
-        ? `Only ${nameOf(refusal.assignee)} can do that.`
-        : "Only the assignee can do that.";
-    case "already-assigned":
-      return `Already assigned to ${nameOf(refusal.assignee)}.`;
-    case "seat-busy":
-      return `${nameOf(refusal.seat)} holds ${numberOf(refusal.taskId) ?? "another task"}.`;
-    case "not-reviewer":
-      return `${nameOf(refusal.seat)} is not a reviewer.`;
-    case "own-task":
-      return `${nameOf(refusal.seat)} cannot review its own task.`;
-    case "operator-cannot-stamp":
-      return "Stamps come from reviewing seats.";
-    case "next-required":
-      return "Name the next node.";
-    case "next-not-downstream":
-      return "That node is not downstream.";
-    case "invalid-policy":
-      return "Approvals required must be zero or more.";
-  }
-};
+/** What a component's command handler answers: nothing when ruled, or why it was refused. */
+export type CommandOutcome = void | string | undefined | Promise<void | string | undefined>;
