@@ -4,6 +4,7 @@
 // ResourceCommand (02). Storage reaches this file through `ArtifactPorts`, so
 // the verbs are tested without a database and the store can move under them.
 
+import { noteResourceChanged } from "./resource-changes";
 import { Effect, Option, Result, Schema } from "effect";
 import {
   type ArtifactBody,
@@ -125,6 +126,12 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
           if (Option.isNone(writer)) return yield* Effect.fail({ message: "this machine has no installation id yet" });
           return yield* repo.submit(writer.value, command, context);
         }),
+      ).pipe(
+        // A resend answered from the stored ruling made nothing.
+        Effect.tap((outcome) =>
+          Effect.sync(() => {
+            if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName);
+          })),
       ),
     comment: postSubjectComment,
     pull: (input) =>

@@ -341,7 +341,8 @@ export const registerJuntoIpc = (): void => {
   registerResourceIpc(
     privilegedIpc,
     (effect) => AppRuntime.runPromise(effect),
-    liveResourceIpcPorts(broadcast),
+    liveResourceIpcPorts(),
+    broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED },
     {
       task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),

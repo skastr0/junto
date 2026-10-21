@@ -68,7 +68,12 @@ export type ResourceApplyOutcome<Applied extends object = {}> =
   | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody }
   | { readonly kind: "queued"; readonly opId: OpId };
 
-export type TaskApplyOutcome = ResourceApplyOutcome;
+/**
+ * `deliveryError`: the write was ruled and stands, but the mail it owes (an
+ * assignment, a stamp request) did not go. A resend is answered as a replay
+ * and sends nothing, so the pane says so instead of retrying.
+ */
+export type TaskApplyOutcome = ResourceApplyOutcome<{ readonly deliveryError?: WorkErrorBody }>;
 /** `facts` is empty when a resend is answered from the stored ruling: nothing changed again. */
 export type ArtifactApplyOutcome = ResourceApplyOutcome<{ readonly facts: ReadonlyArray<ArtifactFact> }>;
 

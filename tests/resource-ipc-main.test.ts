@@ -2,11 +2,17 @@ import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ArtifactBody, ArtifactOp } from "../src/shared/artifact";
 import type { ResourceCommand } from "../src/shared/resource-command";
-import { taskRefusalOf } from "../src/shared/resource-ipc";
+import { RESOURCE_IPC_CHANNELS, taskRefusalOf } from "../src/shared/resource-ipc";
 import type { TaskRecord } from "../src/shared/task-machine";
 import type { TaskCommand, TaskView } from "../src/shared/task-model";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId, OpId } from "../src/shared/work-ids";
+import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
+import { liveArtifactPorts } from "../src/main/junto/work/artifact-control";
+import { MachineRepository } from "../src/main/junto/machines/repository";
+import { noteResourceChanged, onResourceChanged } from "../src/main/junto/work/resource-changes";
+import { liveTaskPorts } from "../src/main/junto/work/task-control";
+import { TaskRepository } from "../src/main/junto/work/task-repository";
 import {
   allTasks,
   applyArtifact,
@@ -14,6 +20,7 @@ import {
   artifactHistory,
   listArtifacts,
   listTasks,
+  registerResourceIpc,
   taskContext,
   type ResourceIpcPorts,
 } from "../src/main/junto/work/resource-ipc";
@@ -41,7 +48,6 @@ const body = (text: string) => ({ text }) as unknown as ArtifactBody;
 type Calls = {
   submitted: Array<ResourceCommand<unknown>>;
   delivered: number;
-  changed: Array<[string, string]>;
   listed: Array<unknown>;
 };
 
@@ -49,7 +55,7 @@ const portsOf = (over: {
   readonly taskSubmit?: ResourceIpcPorts["tasks"]["submit"];
   readonly artifactSubmit?: ResourceIpcPorts["artifacts"]["submit"];
 } = {}) => {
-  const calls: Calls = { submitted: [], delivered: 0, changed: [], listed: [] };
+  const calls: Calls = { submitted: [], delivered: 0, listed: [] };
   const ports: ResourceIpcPorts = {
     topology: () => Effect.succeed(board),
     tasks: {
@@ -90,9 +96,6 @@ const portsOf = (over: {
           Effect.succeed({ kind: "applied", opId: command.opId, artifactId: ART, version: 1, facts: [{ fact: "x" }] } as never);
       },
     },
-    changed: (domain, canvasName) => {
-      calls.changed.push([domain, canvasName]);
-    },
   };
   return { ports, calls };
 };
@@ -115,7 +118,7 @@ describe("tasks over IPC", () => {
     expect(facts.seatReach).toEqual({ S: ["T", "T2"] });
   });
 
-  it("submits the operator's command with the caller's opId, delivers its mail and says it changed", async () => {
+  it("submits the operator's command with the caller's opId and delivers its mail", async () => {
     const { ports, calls } = portsOf();
     const start: TaskCommand = { kind: "start" };
     expect(await run(applyTask(ports, "factory", asNodeId("T"), TASK, OP, start))).toEqual({ kind: "applied", opId: OP });
@@ -131,7 +134,6 @@ describe("tasks over IPC", () => {
       },
     ]);
     expect(calls.delivered).toBe(1);
-    expect(calls.changed).toEqual([["task", "factory"]]);
   });
 
   it("refuses a seat that is not an agent before the ruler, in the domain's words", async () => {
@@ -144,13 +146,12 @@ describe("tasks over IPC", () => {
     expect(calls.submitted).toEqual([]);
   });
 
-  it("answers a resend from the stored ruling without mail or a change, and a store failure as refused", async () => {
+  it("answers a resend from the stored ruling without mail, and a store failure as refused", async () => {
     const replay = portsOf({
       taskSubmit: (command) => Effect.succeed({ kind: "applied", opId: command.opId, task: {} as TaskRecord, effects: [], replay: true }),
     });
     expect(await run(applyTask(replay.ports, "factory", asNodeId("T"), TASK, OP, { kind: "start" }))).toEqual({ kind: "applied", opId: OP });
     expect(replay.calls.delivered).toBe(0);
-    expect(replay.calls.changed).toEqual([]);
     const down: WorkErrorBody = { type: "InternalError", message: "the task store is down", details: { retryable: true } };
     const failing = portsOf({ taskSubmit: () => Effect.fail(down) });
     expect(await run(applyTask(failing.ports, "factory", asNodeId("T"), TASK, OP, { kind: "start" }))).toEqual({
@@ -158,6 +159,30 @@ describe("tasks over IPC", () => {
       opId: OP,
       error: down,
     });
+  });
+});
+
+describe("what a write may name", () => {
+  it("keeps an applied write applied when its mail fails, reporting the failure beside it", async () => {
+    const { ports } = portsOf();
+    const down: WorkErrorBody = { type: "RuntimeDown", message: "mail is not running", details: { retryable: true } };
+    const failing = { ...ports, tasks: { ...ports.tasks, deliver: () => Effect.fail(down) } };
+    expect(await run(applyTask(failing, "factory", asNodeId("T"), TASK, OP, { kind: "start" }))).toEqual({
+      kind: "applied",
+      opId: OP,
+      deliveryError: down,
+    });
+  });
+
+  it("refuses a task on a node that is not a task node, or an artifact on one that is not an Artifacts node", async () => {
+    const { ports, calls } = portsOf();
+    const onSeat = await run(applyTask(ports, "factory", asNodeId("S"), TASK, OP, { kind: "create", taskId: TASK, title: "Import" }));
+    expect(onSeat).toMatchObject({ kind: "refused", error: { details: { reason: "invalid_input" } } });
+    const nowhere = await run(applyTask(ports, "factory", asNodeId("GONE"), TASK, OP, { kind: "start" }));
+    expect(nowhere).toMatchObject({ kind: "refused", error: { details: { reason: "unknown_target" } } });
+    const onBoard = await run(applyArtifact(ports, "factory", asNodeId("T"), ART, OP, { op: "archive" } as unknown as ArtifactOp));
+    expect(onBoard).toMatchObject({ kind: "refused", error: { details: { reason: "invalid_input" } } });
+    expect(calls.submitted).toEqual([]);
   });
 });
 
@@ -175,17 +200,91 @@ describe("artifacts over IPC", () => {
     ]);
   });
 
-  it("submits the operator's op and says it changed only when facts were made", async () => {
+  it("submits the operator's op", async () => {
     const op = { op: "archive" } as unknown as ArtifactOp;
     const { ports, calls } = portsOf();
     const outcome = await run(applyArtifact(ports, "factory", asNodeId("A"), ART, OP, op));
     expect(outcome).toMatchObject({ kind: "applied", opId: OP, facts: [{ fact: "x" }] });
     expect(calls.submitted[0]).toMatchObject({ actor: { kind: "operator" }, target: { kind: "artifact", nodeId: "A", itemId: ART }, opId: OP });
-    expect(calls.changed).toEqual([["artifact", "factory"]]);
-    const replay = portsOf({
-      artifactSubmit: (command) => Effect.succeed({ kind: "applied", opId: command.opId, artifactId: ART, version: 1, facts: [] } as never),
+  });
+});
+
+describe("change notices", () => {
+  const taskCommand = (opId = OP): ResourceCommand<TaskCommand> => ({
+    opId,
+    canvasName: "factory",
+    actor: { kind: "operator" },
+    target: { kind: "task", nodeId: asNodeId("T"), itemId: TASK },
+    basis: null,
+    after: [],
+    op: { kind: "start" },
+  });
+  const heard = () => {
+    const notices: Array<[string, string]> = [];
+    const stop = onResourceChanged((domain, canvasName) => notices.push([domain, canvasName]));
+    return { notices, stop };
+  };
+
+  it("are said by the task store port for every applied write but a replay, whoever wrote", async () => {
+    const { notices, stop } = heard();
+    const repo = (replay: boolean) =>
+      ({ submit: (_writer: unknown, command: ResourceCommand<TaskCommand>) => Effect.succeed({ kind: "applied", opId: command.opId, task: {}, effects: [], replay }) }) as never;
+    const submit = (replay: boolean) =>
+      run(
+        liveTaskPorts.submit(taskCommand(), { inReach: () => true }, {} as never).pipe(
+          Effect.provideService(TaskRepository, repo(replay)),
+          Effect.provideService(MachineRepository, { installationId: Effect.succeed("w") } as never),
+        ),
+      );
+    await submit(false);
+    await submit(true);
+    stop();
+    await submit(false);
+    expect(notices).toEqual([["task", "factory"]]);
+  });
+
+  it("are said by the artifact store port only when the ruling made facts", async () => {
+    const { notices, stop } = heard();
+    const repo = (facts: ReadonlyArray<unknown>) =>
+      ({
+        localWriter: () => Effect.succeed(Option.some("w")),
+        submit: (_writer: unknown, command: ResourceCommand<ArtifactOp>) =>
+          Effect.succeed({ kind: "applied", opId: command.opId, artifactId: ART, version: 1, facts }),
+      }) as never;
+    const command = { ...taskCommand(), target: { kind: "artifact", nodeId: asNodeId("A"), itemId: ART }, op: {} } as never;
+    for (const facts of [[{ fact: "x" }], []]) {
+      await run(liveArtifactPorts.submit(command, { inReach: () => true }).pipe(Effect.provideService(ArtifactRepository, repo(facts))));
+    }
+    stop();
+    expect(notices).toEqual([["artifact", "factory"]]);
+  });
+
+  it("reach the windows for the domains this build has, and the handlers are registered the same way", async () => {
+    const handlers = new Map<string, (event: unknown, input: unknown) => unknown>();
+    const sent: Array<[string, unknown]> = [];
+    const authored: string[] = [];
+    const { ports } = portsOf();
+    const stop = registerResourceIpc(
+      { handle: (channel: string, listener: (event: unknown, input: unknown) => unknown) => handlers.set(channel, listener) } as never,
+      (effect) => Effect.runPromise(effect as Effect.Effect<never>),
+      ports,
+      (channel, payload) => sent.push([channel, payload]),
+      { task: true, artifact: false },
+      { task: (operation) => (authored.push("task"), operation()), artifact: (operation) => operation() },
+    );
+    expect([...handlers.keys()].sort()).toEqual(Object.values(RESOURCE_IPC_CHANNELS.task).filter((channel) => !channel.endsWith("changed")).sort());
+    noteResourceChanged("task", "factory");
+    noteResourceChanged("artifact", "factory");
+    stop();
+    noteResourceChanged("task", "factory");
+    expect(sent).toEqual([[RESOURCE_IPC_CHANNELS.task.changed, { canvasName: "factory" }]]);
+    const apply = handlers.get(RESOURCE_IPC_CHANNELS.task.apply)!;
+    expect(await apply(undefined, { canvasName: "factory", nodeId: "T", taskId: TASK, opId: OP, command: { kind: "start" } })).toEqual({
+      kind: "applied",
+      opId: OP,
     });
-    await run(applyArtifact(replay.ports, "factory", asNodeId("A"), ART, OP, op));
-    expect(replay.calls.changed).toEqual([]);
+    expect(authored).toEqual(["task"]);
+    await expect(apply(undefined, { canvasName: "factory", nodeId: "T", taskId: TASK, opId: OP, command: { kind: "start" }, actor: {} }))
+      .rejects.toThrow();
   });
 });

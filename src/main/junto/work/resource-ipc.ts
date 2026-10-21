@@ -10,6 +10,7 @@ import type { ArtifactBody, ArtifactOp, ArtifactVersion, ArtifactVersionRecord }
 import type { Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
 import { refusalError, type ResourceCommand } from "@shared/resource-command";
+import { rulingContextOf } from "@shared/ruling-context";
 import {
   ARTIFACT_HISTORY_PAGE,
   ArtifactApplyInput,
@@ -25,7 +26,6 @@ import {
   type ResourceChanged,
   type ArtifactApplyOutcome,
   type ArtifactHead,
-  type ResourceIpcDomain,
   type TaskApplyOutcome,
   type TaskCanvasFacts,
 } from "@shared/resource-ipc";
@@ -42,6 +42,7 @@ import {
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { liveArtifactPorts, type ArtifactPorts } from "./artifact-control";
+import { onResourceChanged } from "./resource-changes";
 import { WorkService } from "./service";
 import { liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
 
@@ -50,8 +51,6 @@ export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   readonly tasks: Pick<TaskPorts, "list" | "submit" | "deliver">;
   readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit">;
-  /** Told after every applied write, so windows read again. */
-  readonly changed: (domain: ResourceIpcDomain, canvasName: string) => void;
 };
 
 const SCAN_LIMIT = 10_000;
@@ -75,6 +74,19 @@ const commandOf = <Op>(
 });
 
 const byCreated = (a: TaskView, b: TaskView): number => a.createdAt - b.createdAt;
+
+/**
+ * The node a write names holds that domain's items: a task on a task node,
+ * an artifact on an Artifacts node. The ruler's reach only asks that the
+ * canvas holds the node.
+ */
+const targetRefusal = (canvas: Canvas, nodeId: NodeId, kind: "task" | "artifacts"): WorkErrorBody | undefined => {
+  const node = canvas.nodes.get(nodeId);
+  if (node === undefined) return refusalError({ reason: "unknown_target", message: `no node ${nodeId} on this canvas` });
+  return node.kind === kind
+    ? undefined
+    : refusalError({ reason: "invalid_input", message: `${nodeId} is not ${kind === "task" ? "a task node" : "an Artifacts node"}` });
+};
 
 // ── tasks ──────────────────────────────────────────────────────────────────
 
@@ -107,8 +119,10 @@ export const taskContext = (ports: ResourceIpcPorts, canvasName: string): Effect
 
 /**
  * One operator command, ruled as the CLI's are, its mail delivered once. The
- * wire command is narrowed against the canvas first (`checkTaskCommand`): a
- * seat it names is an agent and a next node a task node, or it is refused.
+ * target must be a task node, and the wire command is narrowed against the
+ * canvas (`checkTaskCommand`): a seat it names is an agent and a next node a
+ * task node, or it is refused. Once ruled applied it stays applied: a mail
+ * that fails to go is reported beside it, never as a refusal.
  */
 export const applyTask = (
   ports: ResourceIpcPorts,
@@ -120,6 +134,8 @@ export const applyTask = (
 ): Effect.Effect<TaskApplyOutcome> =>
   Effect.gen(function* () {
     const canvas = yield* ports.topology(canvasName);
+    const wrongTarget = targetRefusal(canvas, nodeId, "task");
+    if (wrongTarget !== undefined) return { kind: "refused" as const, opId, error: wrongTarget };
     const checked = checkTaskCommand(wire, (id) => canvas.nodes.get(id)?.kind);
     if (!checked.ok) {
       const { reason, detail } = checked.refusal;
@@ -128,11 +144,14 @@ export const applyTask = (
     const command = commandOf(canvasName, "task", nodeId, taskId, opId, checked.command);
     const outcome = yield* ports.tasks.submit(command, taskRulingContext(canvas), taskCanvasEnv(canvas));
     if (outcome.kind === "refused") return { kind: "refused" as const, opId, error: outcome.error };
-    if (!outcome.replay) {
-      yield* ports.tasks.deliver({ canvas, canvasName, actor: operator, opId, task: outcome.task, effects: outcome.effects });
-      ports.changed("task", canvasName);
-    }
-    return { kind: "applied" as const, opId };
+    // The store port says it changed (resource-changes.ts), for every writer alike.
+    if (outcome.replay) return { kind: "applied" as const, opId };
+    const delivered = yield* Effect.result(
+      ports.tasks.deliver({ canvas, canvasName, actor: operator, opId, task: outcome.task, effects: outcome.effects }),
+    );
+    return delivered._tag === "Failure"
+      ? { kind: "applied" as const, opId, deliveryError: delivered.failure }
+      : { kind: "applied" as const, opId };
   }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
 
 // ── artifacts ──────────────────────────────────────────────────────────────
@@ -155,10 +174,10 @@ export const artifactHistory = (ports: ResourceIpcPorts, canvasName: string, art
   Effect.gen(function* () {
     const { versions } = yield* ports.artifacts.history(canvasName, artifactId, { limit: ARTIFACT_HISTORY_PAGE });
     const records = yield* Effect.forEach(versions, (version) =>
-      Effect.map(ports.artifacts.body(canvasName, artifactId, version.version), (body) =>
-        Option.isNone(body)
+      Effect.map(ports.artifacts.body(canvasName, artifactId, version.version), (read) =>
+        Option.isNone(read) || read.value.body === null
           ? []
-          : [{ artifactId, version: version.version, author: version.author, at: version.at, body: body.value.body }],
+          : [{ artifactId, version: version.version, author: version.author, at: version.at, body: read.value.body }],
       ),
     );
     return records.flat() as ReadonlyArray<ArtifactVersionRecord>;
@@ -182,11 +201,12 @@ export const applyArtifact = (
 ): Effect.Effect<ArtifactApplyOutcome> =>
   Effect.gen(function* () {
     const canvas = yield* ports.topology(canvasName);
+    const wrongTarget = targetRefusal(canvas, nodeId, "artifacts");
+    if (wrongTarget !== undefined) return { kind: "refused" as const, opId, error: wrongTarget };
     const command = commandOf(canvasName, "artifact", nodeId, artifactId, opId, op);
-    const outcome = yield* ports.artifacts.submit(command, taskRulingContext(canvas));
+    // The operator writes no automation, so no automation author is known.
+    const outcome = yield* ports.artifacts.submit(command, rulingContextOf(canvas, () => undefined));
     if (outcome.kind === "refused") return { kind: "refused" as const, opId, error: outcome.error };
-    // A retry is answered from the stored ruling with no facts: nothing changed.
-    if (outcome.facts.length > 0) ports.changed("artifact", canvasName);
     return { kind: "applied" as const, opId, facts: outcome.facts };
   }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
 
@@ -196,7 +216,7 @@ export const applyArtifact = (
 export type ResourceIpcRun = <A, E>(effect: Effect.Effect<A, E, WorkService>) => Promise<A>;
 
 /** The running core's ports: the CLI verbs' own, and the canvas as the work plane reads it. */
-export const liveResourceIpcPorts = (broadcast: (channel: string, payload: ResourceChanged) => void): ResourceIpcPorts => ({
+export const liveResourceIpcPorts = (): ResourceIpcPorts => ({
   topology: (canvasName) =>
     Effect.flatMap(WorkService, (work) => work.readTopology(canvasName)).pipe(
       Effect.map((read) => read.canvas),
@@ -204,7 +224,6 @@ export const liveResourceIpcPorts = (broadcast: (channel: string, payload: Resou
     ) as Effect.Effect<Canvas, WorkErrorBody>,
   tasks: liveTaskPorts,
   artifacts: liveArtifactPorts,
-  changed: (domain, canvasName) => broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName }),
 });
 
 const decoded = <S extends Schema.Top>(schema: S, input: unknown) =>
@@ -220,14 +239,17 @@ export type ResourceAuthoring = <A>(operation: () => Promise<A>) => Promise<A>;
  * The handlers on their channels, each domain behind its feature. Every
  * payload is decoded strictly. A write runs under its authoring label and
  * answers refused rather than rejecting, except when the app is closing.
+ * Every applied write, whoever made it, is told to the windows as
+ * `<domain>-changed`. Returns the unsubscribe from those notices.
  */
 export const registerResourceIpc = (
   ipc: Pick<IpcMain, "handle">,
   run: ResourceIpcRun,
   ports: ResourceIpcPorts,
+  broadcast: (channel: string, payload: ResourceChanged) => void,
   enabled: { readonly task: boolean; readonly artifact: boolean },
   authoring: { readonly task: ResourceAuthoring; readonly artifact: ResourceAuthoring },
-): void => {
+): (() => void) => {
   const on = <S extends Schema.Top, A>(
     channel: string,
     schema: S,
@@ -254,4 +276,7 @@ export const registerResourceIpc = (
     on(artifact.apply, ArtifactApplyInput, (input) =>
       applyArtifact(ports, input.canvasName, input.nodeId, input.artifactId, input.opId, input.op), authoring.artifact);
   }
+  return onResourceChanged((domain, canvasName) => {
+    if (enabled[domain]) broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });
+  });
 };

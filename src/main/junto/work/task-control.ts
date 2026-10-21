@@ -41,6 +41,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
 import { MachineRepository } from "../machines/repository";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
+import { noteResourceChanged } from "./resource-changes";
 import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
 
@@ -122,7 +123,12 @@ export const liveTaskPorts: TaskPorts = (() => {
         Option.isNone(machines)
           ? Effect.fail(notBuilt("this machine's installation id"))
           : withRepo((repo) =>
-            Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env)))),
+            Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env)))).pipe(
+          Effect.tap((outcome) =>
+            Effect.sync(() => {
+              if (outcome.kind === "applied" && !outcome.replay) noteResourceChanged("task", command.canvasName);
+            })),
+        ),
     deliver: deliverTaskEffects,
     comment: postSubjectComment,
   };
