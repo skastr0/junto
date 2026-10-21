@@ -18,7 +18,9 @@ import { nameThisMachine } from "./support/name-this-machine";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { executeOverseer } from "../src/main/junto/overseer/dispatch";
+import { executeOverseer, type OverseerRuntime } from "../src/main/junto/overseer/dispatch";
+import { WorkService } from "../src/main/junto/work/service";
+import { ReferenceRefused, ReferencesRepository } from "../src/main/junto/references/repository";
 import { setOverseerNativeDeleteHooks } from "../src/main/junto/overseer/canvas";
 import { makeOverseerNativeLive, workDetails } from "../src/main/junto/overseer/native";
 import { LinkBuildMismatch } from "../src/main/junto/link/types";
@@ -26,14 +28,15 @@ import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import type { OverseerRequest } from "../src/shared/overseer-control";
 import { unwrapOverseerSocketData } from "../src/cli/commands/overseer";
-import { canvasOf, seat } from "./support/model-nodes";
+import { canvasOf, seat, taskBoard } from "./support/model-nodes";
+import { TaskPersistenceError, TaskRepository } from "../src/main/junto/work/task-repository";
 import { NoTasksLive } from "./support/no-tasks";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const caller = { canvasName: "origin", nodeId: "boss" };
-const layers = (root: string) => {
+const layers = (root: string, tasks: Layer.Layer<TaskRepository>) => {
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    CrewRepositoryLive, WorkRepositoryLive, MachineRepositoryLive, NoTasksLive,
+    CrewRepositoryLive, WorkRepositoryLive, MachineRepositoryLive, tasks,
     SettingsLive, makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(
     makeStateEngineLive(join(root, "state.db")),
@@ -41,7 +44,7 @@ const layers = (root: string) => {
   ));
   return Layer.provideMerge(WorkLive, Layer.provideMerge(ModelStoresLive, repositories));
 };
-const makeRuntime = (root: string) => ManagedRuntime.make(layers(root));
+const makeRuntime = (root: string, tasks: Layer.Layer<TaskRepository> = NoTasksLive) => ManagedRuntime.make(layers(root, tasks));
 let root: string | undefined;
 let runtime: ReturnType<typeof makeRuntime> | undefined;
 
@@ -75,11 +78,11 @@ const stale = (): never => {
 };
 
 /** What the CLI decodes for one overseer request: its data, or the WireError it fails with. */
-const boot = async (remote: () => never = stale) => {
+const boot = async (remote: () => never = stale, tasks?: Layer.Layer<TaskRepository>) => {
   root = await mkdtemp(join(tmpdir(), "overseer-needs-update-"));
-  runtime = makeRuntime(root);
+  runtime = makeRuntime(root, tasks);
   await runtime.runPromise(nameThisMachine);
-  await runtime.runPromise(seedCanvas("origin", [seat("boss", { label: "Boss" }), agent("doomed", THIS_MACHINE)]));
+  await runtime.runPromise(seedCanvas("origin", [seat("boss", { label: "Boss" }), agent("doomed", THIS_MACHINE), taskBoard("board", { x: 600, y: 600 })]));
   await runtime.runPromise(grantOverseer(caller.canvasName, caller.nodeId, true));
   const board = canvasOf([agent("here", THIS_MACHINE), agent("there", OTHER_MACHINE)]);
   const native = makeOverseerNativeLive({
@@ -91,14 +94,98 @@ const boot = async (remote: () => never = stale) => {
   });
   setOverseerNativeDeleteHooks(native);
   const held = runtime;
-  return async (request: OverseerRequest) => {
-    const result = await held.runPromise(executeOverseer(caller, request, { native: native.execute }));
+  return async (
+    request: OverseerRequest,
+    seams: Partial<OverseerRuntime> & { readonly provide?: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R> } = {},
+  ) => {
+    const { provide = (effect) => effect, ...rest } = seams;
+    const result = await held.runPromise(provide(executeOverseer(caller, request, { native: native.execute, ...rest })));
     return Effect.runPromise(unwrapOverseerSocketData(JSON.parse(JSON.stringify(result))).pipe(Effect.result));
   };
 };
 
 const SECRET = "ghp_seatsecret123";
 const leaked = (failure: unknown): boolean => JSON.stringify(failure).includes(SECRET);
+
+describe("a store failure on a canvas read, as the seat reads it", () => {
+  /** A task store whose every list fails with text carrying a secret. */
+  const failingTasks = Layer.succeed(TaskRepository, TaskRepository.of({
+    list: () => Effect.fail(new TaskPersistenceError({
+      operation: "list", message: `store failed, Authorization: Bearer ${SECRET}`, cause: undefined,
+    })),
+    get: () => Effect.die(new Error("not read")),
+    submit: () => Effect.die(new Error("not ruled")),
+    precheck: () => Effect.die(new Error("not checked")),
+    overlay: () => Effect.succeed([]),
+  }));
+
+  it.each(["canvas.digest", "canvas.render"] as const)("%s answers the store failure scrubbed", async (operation) => {
+    const cli = await boot(stale, failingTasks);
+    const read = await cli({ operation, args: { canvas: "origin" } });
+    expect(read._tag).toBe("Failure");
+    if (read._tag !== "Failure") return;
+    expect(read.failure.message).toMatch(/store failed/);
+    expect(leaked(read)).toBe(false);
+  });
+});
+
+describe("every overseer family's refusal, as the seat reads it", () => {
+  const bearer = `Authorization: Bearer ${SECRET}`;
+  /** A service whose every call fails with that text. */
+  const failing = (error: () => unknown) => new Proxy({}, { get: () => () => Effect.fail(error()) }) as never;
+
+  it("work: a topology read that fails with a secret is scrubbed", async () => {
+    const cli = await boot();
+    const read = await cli({ operation: "msg.list", args: {} }, {
+      provide: (effect) => effect.pipe(Effect.provideService(WorkService, failing(() => ({ code: "internal", message: `topology failed, ${bearer}` })))),
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/^topology failed/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("secret: a store that refuses with a secret is scrubbed", async () => {
+    const cli = await boot();
+    const read = await cli({ operation: "secret.put", args: { value: "v" } }, {
+      secrets: () => ({
+        backend: "test",
+        save: () => ({ ok: false, message: `save failed, ${bearer}` }),
+        remove: () => ({ ok: true }),
+        list: () => [],
+      }) as never,
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/^save failed/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("offboard: a rules patch that refuses with a secret is scrubbed", async () => {
+    const cli = await boot();
+    const read = await cli({ operation: "agent.offboard-configure", args: { cacheMode: "manual" } }, {
+      offboard: { patchRules: () => ({ ok: false, message: `patch failed, ${bearer}` }) } as never,
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/patch failed/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("references: a store that refuses with a secret is scrubbed", async () => {
+    const cli = await boot();
+    const read = await cli({ operation: "briefing.read", args: {} }, {
+      provide: (effect) => effect.pipe(Effect.provideService(ReferencesRepository, failing(() => new ReferenceRefused({ message: `briefing refused, ${bearer}` })))),
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/^briefing refused/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("a ClaimConflict keeps its holder as data, its hint scrubbed", async () => {
+    const cli = await boot();
+    const read = await cli({ operation: "agent.list", args: {} }, {
+      native: () => Effect.fail({ type: "ClaimConflict", message: `held, ${bearer}`, details: { holder: "agent-holder", hint: bearer, retryable: false } }),
+    });
+    expect(read._tag).toBe("Failure");
+    if (read._tag !== "Failure") return;
+    expect(read.failure).toMatchObject({ type: "Conflict", details: { holder: "agent-holder", retryable: false } });
+    expect(leaked(read)).toBe(false);
+  });
+});
 
 describe("a node delete's failure, as the seat reads it", () => {
   const deleteWith = async (hooks: Parameters<typeof setOverseerNativeDeleteHooks>[0]) => {

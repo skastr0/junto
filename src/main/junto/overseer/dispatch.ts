@@ -7,6 +7,7 @@ import {
   OVERSEER_MAX_RESULT_BYTES,
   type OverseerArgsFor,
   type OverseerCaller,
+  type OverseerErrorBody,
   type OverseerErrorType,
   type OverseerRequest,
   type OverseerResult,
@@ -14,6 +15,7 @@ import {
 import { narrowEnvironmentReport } from "@shared/overseer-env";
 import type { InstallationId } from "@shared/installation-id";
 import type { WorkErrorBody } from "@shared/work-control";
+import { scrubMessage } from "../credentials/scrub";
 import { admitOverseer, watchOverseerRevocation } from "./admission";
 import { asNodeId } from "@shared/model";
 import { modelCanvas, type OverseerStores } from "./portfolio";
@@ -95,16 +97,35 @@ const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
   }
 };
 
+/**
+ * A refusal as the seat reads it. Every overseer answer leaves through here,
+ * so its message and a hint are scrubbed once, whatever route built them;
+ * typed detail keys such as holder, expected, candidates and opId stay data.
+ */
+const scrubbedError = (error: OverseerErrorBody): OverseerErrorBody => {
+  const { details } = error;
+  const scrubbedDetails = typeof details === "string"
+    ? scrubMessage(details)
+    : typeof details === "object" && details !== null && !Array.isArray(details) && typeof (details as { hint?: unknown }).hint === "string"
+      ? { ...details, hint: scrubMessage((details as { hint: string }).hint) }
+      : details;
+  return {
+    type: error.type,
+    // Leave room for a replacement character if truncation splits UTF-8.
+    message: Buffer.from(scrubMessage(error.message) || "overseer command failed", "utf8")
+      .subarray(0, OVERSEER_MAX_ERROR_BYTES - 3).toString("utf8"),
+    ...(scrubbedDetails === undefined ? {} : { details: scrubbedDetails }),
+  };
+};
+
 const failed = (request: OverseerRequest, error: WorkErrorBody): OverseerResult => ({
   ok: false,
   operation: request.operation,
-  error: {
+  error: scrubbedError({
     type: errorType(error.type),
-    // Leave room for a replacement character if truncation splits UTF-8.
-    message: Buffer.from(error.message || "overseer command failed", "utf8")
-      .subarray(0, OVERSEER_MAX_ERROR_BYTES - 3).toString("utf8"),
+    message: error.message,
     ...(error.details === undefined ? {} : { details: error.details }),
-  },
+  }),
 });
 
 /** Shared CC/Remote dispatcher; caller and source are never command arguments. */
@@ -246,10 +267,12 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
           : runtime.native(caller, request);
     return { ok: true, operation, data } satisfies OverseerResult;
   });
-  const result = yield* Effect.raceFirst(
+  const answered = yield* Effect.raceFirst(
     watchOverseerRevocation(caller, authority.actor, sourceInstallationId),
     run,
   ).pipe(Effect.catch((error) => Effect.succeed(failed(request, error))));
+  // The secret, offboard and references families answer their own refusals.
+  const result: OverseerResult = answered.ok ? answered : { ...answered, error: scrubbedError(answered.error) };
   const bytes = yield* Effect.try({
     try: () => Buffer.byteLength(JSON.stringify(result), "utf8"),
     catch: (): WorkErrorBody => ({ type: "InternalError", message: "overseer result is not serializable" }),
