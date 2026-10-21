@@ -66,8 +66,6 @@ import { TASKS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged, onResourceChanged } from "./resource-changes";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
-import { WorkService } from "./service";
-import { threadSubjectOf } from "@shared/thread-subject";
 
 /** How a task is named once its text is read. */
 export type TaskLookup =
@@ -98,7 +96,7 @@ export type TaskPorts = {
     input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
     context: SubjectCommentContext,
   ) => Effect.Effect<SubjectCommented, WorkErrorBody>;
-  /** How many rows the task's thread holds at its node. Absent, show names the thread without a count. */
+  /** How many rows the task's thread holds at its node, read by the work socket. Absent, show names the thread without a count. */
   readonly threadCount?: (canvasName: string, task: TaskView) => Effect.Effect<number, WorkErrorBody>;
   /** Told each time a canvas's tasks change: what a wait wakes on. */
   readonly changes: (listener: (canvasName: string) => void) => () => void;
@@ -230,14 +228,6 @@ export const liveTaskPorts: TaskPorts = (() => {
         );
       }),
     comment: postSubjectComment,
-    threadCount: (canvasName, task) =>
-      Effect.serviceOption(WorkService).pipe(
-        Effect.flatMap((work) => Option.isNone(work) ? Effect.fail(notBuilt("the work service")) : work.value.readMailbox(canvasName, task.current.node).pipe(Effect.mapError(storeError))),
-        Effect.map((rows) => rows.filter((row) => {
-          const on = threadSubjectOf(row);
-          return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
-        }).length),
-      ),
   };
 })();
 

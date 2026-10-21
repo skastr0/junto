@@ -2144,7 +2144,16 @@ const dispatchOp = (
         canvas: board,
         canvasName: caller.canvasName,
         actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
-      }, { ...liveTaskPorts, pending: pendingMarksOf("task") });
+      }, {
+        ...liveTaskPorts,
+        pending: pendingMarksOf("task"),
+        // task show counts the task's thread, held in its node's mailbox (03).
+        threadCount: (_canvasName, task) =>
+          Effect.map(mailboxOf(task.current.node), (rows) => rows.filter((row) => {
+            const on = threadSubjectOf(row);
+            return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
+          }).length),
+      });
     }
 
     if (isArtifactOp(op)) {
