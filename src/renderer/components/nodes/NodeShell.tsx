@@ -50,11 +50,10 @@ import {
 } from "../../lib/multi-select-gesture";
 import { IconButton, ToolbarPill } from "../ui";
 import type { NodeKind } from "@shared/model";
-import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind } from "../../lib/model-kind";
+import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind, taskCounts } from "../../lib/model-kind";
 import { canvasOfState } from "../../lib/model-store";
 import { modelStore, useNodeValue } from "../../lib/use-model";
-import { useSinkAttention } from "../../lib/use-work-sink";
-import { seatTasks$ } from "../../lib/seat-tasks";
+import { canvasTasks$, seatTasks$ } from "../../lib/seat-tasks";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 
@@ -401,9 +400,14 @@ export function NodeShell({
     needsLook: needsLook === true,
   });
   const preamble = use$(() => preambleByNodeId$[id].get());
-  // Fire/ice glance. A card that holds work reads its counts from the work
-  // store by node id; every other card asks for nothing.
-  const glance = useSinkAttention(canvas, id, holdsWork(kind));
+  // Fire/ice glance. A card that holds work reads its counts from the tasks
+  // on it; every other card asks for nothing. Each count is read alone, so a
+  // task change elsewhere on the canvas does not repaint this card.
+  const works = holdsWork(kind);
+  const count = use$(() => (works ? taskCounts(canvasTasks$.byNode[id].get()).count : 0));
+  const needsHuman = use$(() => works && taskCounts(canvasTasks$.byNode[id].get()).needsHuman);
+  const allTerminal = use$(() => works && taskCounts(canvasTasks$.byNode[id].get()).allTerminal);
+  const glance = { count, needsHuman, allTerminal };
   const attention = kind === undefined ? "idle" : nodeAttention(kind, glance, blocked);
   // Actor / managed seats: SeatFacts owns attention wash. Occupancy is vacancy.
   const liveSeatAttention = isActorSeat

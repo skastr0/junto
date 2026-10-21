@@ -1,5 +1,6 @@
 import type { AttentionSignal } from "@shared/attention";
 import type { NodeKind } from "@shared/model";
+import { blocksAssignee, isClosedTaskState, type TaskView } from "@shared/task-model";
 import { resolveSpec, roleOf, seatMayBeBlocked } from "@shared/physics";
 
 // What a node's kind means to the parts of the window that are not about any
@@ -39,6 +40,13 @@ export type SinkCounts = {
   /** Every item is finished. */
   readonly allTerminal: boolean;
 };
+
+/** A node's counts from the 0.10 tasks on it (canvasTasks$.byNode). */
+export const taskCounts = (tasks: ReadonlyArray<TaskView> | undefined): SinkCounts => ({
+  count: tasks?.length ?? 0,
+  needsHuman: tasks?.some((task) => blocksAssignee(task.current.state)) ?? false,
+  allTerminal: tasks !== undefined && tasks.length > 0 && tasks.every((task) => isClosedTaskState(task.current.state)),
+});
 
 /**
  * A card's glance (`data-attention`). A task board: empty with nothing on it,

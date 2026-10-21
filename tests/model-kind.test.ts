@@ -1,7 +1,8 @@
 /** A card's glance reads the separately queried work counts. */
 import { describe, expect, it } from "vitest";
 import { asCanvasName, NODE_KINDS } from "../src/shared/model";
-import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind, type SinkCounts } from "../src/renderer/lib/model-kind";
+import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind, taskCounts, type SinkCounts } from "../src/renderer/lib/model-kind";
+import type { TaskState, TaskView } from "../src/shared/task-model";
 import { canvasOfState } from "../src/renderer/lib/model-store";
 import { note } from "./support/model-nodes";
 
@@ -71,5 +72,18 @@ describe("the canvas the window holds, as shared logic reads it", () => {
     expect(canvas.seq).toBe(9);
     expect(canvas.nodes.get(node.id)).toBe(node);
     expect(canvas.wires.size).toBe(0);
+  });
+});
+
+describe("taskCounts", () => {
+  const on = (...states: ReadonlyArray<TaskState>) =>
+    states.map((state) => ({ current: { state } }) as unknown as TaskView);
+  it("counts the tasks on a node and how they stand", () => {
+    expect(taskCounts(undefined)).toEqual({ count: 0, needsHuman: false, allTerminal: false });
+    expect(taskCounts(on("working", "input-required"))).toEqual({ count: 2, needsHuman: true, allTerminal: false });
+    expect(taskCounts(on("done", "canceled"))).toEqual({ count: 2, needsHuman: false, allTerminal: true });
+    expect(nodeAttention("task", taskCounts(on("input-required")), false)).toBe("fire");
+    expect(nodeAttention("task", taskCounts(on("done")), false)).toBe("ice");
+    expect(nodeAttention("task", taskCounts(undefined), false)).toBe("empty");
   });
 });

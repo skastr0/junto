@@ -1,4 +1,4 @@
-import { useActorPage, useAttentionRows } from "../../lib/use-actor-work";
+import { useActorPage } from "../../lib/use-actor-work";
 import { WorkPageControls } from "../work/WorkPageControls";
 import { useCanvas } from "../../lib/use-model";
 import { useWorkMail } from "../../lib/use-work-mail";
@@ -159,7 +159,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
     () => seatIdForActorNode(actorRefs, node.id),
     [actorRefs, node.id],
   );
-  const attentionRows = useAttentionRows(live ? canvas : "");
   const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
   const seatTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
   const claim = live ? seatTask : undefined;
