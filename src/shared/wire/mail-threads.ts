@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ContentRef } from "./content-ref";
+import { ResourceSubject } from "../thread-subject";
 
 /**
  * Mail threads as the desktop and the phone read them: the mail that hangs
@@ -30,6 +31,8 @@ export const MailThreadMessage = Schema.Struct({
   attachments: Schema.optionalKey(Schema.Array(ContentRef)),
   /** Seats the mail names as a reference; they are not sent it. */
   mentions: Schema.optionalKey(Schema.Array(Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String, name: Schema.String }))),
+  /** The resource the thread is about; absent for a seat's mailbox thread. */
+  subject: Schema.optionalKey(ResourceSubject),
 });
 export type MailThreadMessage = typeof MailThreadMessage.Type;
 
@@ -45,6 +48,8 @@ export const MailThreadSummary = Schema.Struct({
   messageCount: Schema.Number,
   /** The operator sent mail in it, or mail in it is addressed to the operator. */
   canReply: Schema.Boolean,
+  /** The resource the thread is about, as its mail names it; absent for a mailbox thread. */
+  subject: Schema.optionalKey(ResourceSubject),
 });
 export type MailThreadSummary = typeof MailThreadSummary.Type;
 

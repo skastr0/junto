@@ -48,7 +48,7 @@ export const taskSubjectOf = (task: Pick<NoticedTask, "node" | "taskId">): Resou
 /** The task's one thread. */
 export const taskThreadOf = (task: Pick<NoticedTask, "taskId">): MailMessageId => task.taskId as string as MailMessageId;
 
-/** `T-42 fix tabs`, or the title alone while the task has no number. */
+/** `#42 fix tabs` (formatTaskNumber), or the title alone while the task has no number. */
 export const taskName = (task: Pick<NoticedTask, "number" | "title">): string =>
   task.number === undefined ? task.title : `${formatTaskNumber(task.number)} ${task.title}`;
 

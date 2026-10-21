@@ -5,6 +5,7 @@ import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
 import { OperatorAttachments } from "./operator-attachments";
 import { ContentRef } from "./wire/content-ref";
 import { messageIdTimeMs } from "./message-delivery";
+import { threadSubjectOf } from "./thread-subject";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
 import type {
@@ -87,10 +88,12 @@ const mentionsOf = (row: Message, seat: (nodeId: string) => SeatParty): Readonly
 
 /**
  * One mailbox row as thread mail, or undefined when it is not conversation:
- * task comments, receipts, Junto's own prompts, and a seat's private notes.
+ * receipts, Junto's own prompts, and a seat's private notes. A row in a
+ * subject thread, a task comment or a notice on a resource, is thread mail
+ * and carries its subject.
  */
 const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatParty): Entry | undefined => {
-  if (row.metadata?.factoryMail !== true || row.taskId !== undefined) return undefined;
+  if (row.metadata?.factoryMail !== true) return undefined;
   if (stringField(row, "mailKind") === "receipt") return undefined;
   const fromSeat = stringField(row, "fromSeat");
   const senderName = stringField(row, "senderName");
@@ -114,6 +117,7 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
   const mentions = mentionsOf(row, seat);
   // Files only on the operator's mail: a seat's metadata never names a digest.
   const attachments = from.kind === "operator" ? attachmentsOf(row) : [];
+  const subject = threadSubjectOf(row);
   return {
     messageId: row.messageId,
     threadId: mailThreadOf(row),
@@ -125,6 +129,7 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
     at: messageIdTimeMs(row.messageId) ?? 0,
     ...(attachments.length === 0 ? {} : { attachments }),
     ...(mentions.length === 0 ? {} : { mentions }),
+    ...(subject === undefined ? {} : { subject }),
   };
 };
 
@@ -149,6 +154,7 @@ const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadS
   const first = entries[0]!;
   const last = entries[entries.length - 1]!;
   const root = entries.find((entry) => entry.messageId === threadId) ?? first;
+  const subject = entries.find((entry) => entry.subject !== undefined)?.subject;
   const participants = new Map<string, MailParty>();
   for (const entry of entries) {
     for (const party of [entry.from, ...entry.to]) {
@@ -164,6 +170,7 @@ const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadS
     last,
     messageCount: entries.length,
     canReply: entries.some((entry) => entry.mine || entry.to.some((party) => party.kind === "operator")),
+    ...(subject === undefined ? {} : { subject }),
   };
 };
 

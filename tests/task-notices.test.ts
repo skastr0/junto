@@ -7,7 +7,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { MailSenderStamp } from "../src/shared/crew";
 import { asNodeId } from "../src/shared/physics/schema";
 import { subjectNoticeId, subjectNoticeRow } from "../src/shared/subject-notice";
-import { seatNodeId, taskNodeId, taskRefusal, type TaskEffect } from "../src/shared/task-model";
+import { formatTaskNumber, seatNodeId, taskNodeId, taskRefusal, type TaskEffect } from "../src/shared/task-model";
 import {
   taskName,
   taskRefusalLostTo,
@@ -27,6 +27,7 @@ const WORKER = seatNodeId(asNodeId("agent-worker"));
 const REVIEWER = seatNodeId(asNodeId("agent-reviewer"));
 const names: Record<string, string> = { [LEAD]: "pty-lead", [WORKER]: "pty-mail", [REVIEWER]: "pty-inject" };
 const nameOf = (seat: string): string => names[seat] ?? seat;
+const T42 = formatTaskNumber(TaskNumber.make(42));
 
 const sender: MailSenderStamp = {
   fromSeat: "seat_lead" as MailSenderStamp["fromSeat"],
@@ -56,8 +57,8 @@ describe("task ruling notices", () => {
       { kind: "stamp-request", reviewer: { kind: "operator" } },
     ]));
     expect(notices.map((notice) => [notice.kind, notice.recipient, notice.text])).toEqual([
-      ["assignment", WORKER, "pty-lead assigned you T-42 fix tabs"],
-      ["stamp-request", REVIEWER, "pty-lead asks for your stamp on T-42 fix tabs"],
+      ["assignment", WORKER, `pty-lead assigned you ${T42} fix tabs`],
+      ["stamp-request", REVIEWER, `pty-lead asks for your stamp on ${T42} fix tabs`],
     ]);
     for (const notice of notices) {
       const row = subjectNoticeRow(notice);
@@ -73,7 +74,7 @@ describe("task ruling notices", () => {
       [{ kind: "defect", epoch: 3, by: { kind: "seat", seat: REVIEWER }, text: "the cap is off by one" }],
       { actor: REVIEWER },
     ));
-    expect(defect).toMatchObject({ kind: "defect", recipient: WORKER, text: "pty-inject asked for changes on T-42 fix tabs\nthe cap is off by one" });
+    expect(defect).toMatchObject({ kind: "defect", recipient: WORKER, text: `pty-inject asked for changes on ${T42} fix tabs\nthe cap is off by one` });
   });
 
   it("never tells the actor about its own act, and owes nothing for records", () => {
@@ -98,14 +99,14 @@ describe("task refusal notice", () => {
       refusal: taskRefusal({ kind: "already-assigned", assignee: REVIEWER }),
       actor: LEAD,
       nodeName: "Tasks",
-      nextStep: "run junto task show T-42",
+      nextStep: `run junto task show ${T42}`,
       nameOf,
     });
     expect(notice).toMatchObject({ kind: "refusal", recipient: LEAD, from: { nodeId: NODE, name: "Tasks" } });
     expect(notice.text).toBe([
-      "task assign on T-42 fix tabs was refused: already_held (ClaimConflict)",
+      `task assign on ${T42} fix tabs was refused: already_held (ClaimConflict)`,
       "lost to: pty-inject already holds the task",
-      "next step: run junto task show T-42",
+      `next step: run junto task show ${T42}`,
     ].join("\n"));
   });
 
