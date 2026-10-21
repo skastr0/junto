@@ -36,6 +36,7 @@ import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { useSeatsInReach } from "../../lib/mention-sources";
+import { MentionedIn } from "../threads/MentionedIn";
 import { newPostOpId, subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
@@ -350,7 +351,7 @@ function SelectedArtifact({
     }
   })();
 
-  const rail = (
+  const comments = (
     <ArtifactComments
       canvasName={canvasName}
       mentionable={mentionable}
@@ -370,6 +371,18 @@ function SelectedArtifact({
       onReply={(threadId, text) => comment(text, undefined, threadId)}
       onClearAnchor={() => setDraftAnchor(undefined)}
     />
+  );
+  const rail = (
+    <>
+      {comments}
+      <MentionedIn
+        canvasName={canvasName}
+        target={{ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
+        now={now}
+        nameOf={(place) => (place.kind === "task" ? tasks.find((task) => task.taskId === place.taskId)?.title : undefined)}
+        beforeOpen={onClose}
+      />
+    </>
   );
 
   return (

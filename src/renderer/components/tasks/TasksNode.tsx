@@ -3,6 +3,7 @@ import { Plus, Search, Settings2 } from "lucide-react";
 import { mintItemId } from "@shared/resource-command";
 import type { TaskPendingWrite } from "@shared/resource-ipc";
 import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-model";
+import { MentionedIn } from "../threads/MentionedIn";
 import { tasksSource, useCanvasTasks, useNodePending, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
 import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
@@ -352,6 +353,12 @@ export function SelectedTask({
       <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} nameOf={seatName} onCommand={apply} />
       <TaskEvidence canvasName={canvasName} evidence={current.evidence} handoff={current.handoff} />
       <TaskThread canvasName={canvasName} node={current.node} taskId={view.taskId} all={all} now={now} seatName={(id) => seatName(id)} />
+      <MentionedIn
+        canvasName={canvasName}
+        target={{ kind: "task", nodeId: current.node, taskId: view.taskId }}
+        now={now}
+        nameOf={(place) => (place.kind === "task" ? all.find((task) => task.taskId === place.taskId)?.title : undefined)}
+      />
       <TaskLayers canvasName={canvasName} layers={view.layers} nodeName={nodeName} seats={seats} nameOf={seatName} now={now} />
     </div>
   );
