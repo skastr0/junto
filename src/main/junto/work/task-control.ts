@@ -28,18 +28,17 @@ import {
   type Reviewer,
   type SeatNodeId,
   type TaskCommand,
-  type TaskEffect,
   type TaskId,
   type TaskNodeId,
   type TaskNumber,
   type TaskState,
   type TaskView,
 } from "@shared/task-model";
-import type { TaskRecord } from "@shared/task-machine";
 import type { ThreadSubject } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
 import { MachineRepository } from "../machines/repository";
+import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
 
 /** How a task is named once its text is read. */
@@ -61,7 +60,7 @@ export type TaskPorts = {
   readonly find: (canvas: Canvas, canvasName: string, lookup: TaskLookup) => Effect.Effect<TaskView | undefined, WorkErrorBody>;
   readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskSubmitOutcome, WorkErrorBody>;
   /** Mail the ruling owes: assignment notices, stamp requests, defects, sent on (pty P4). */
-  readonly deliver: (canvasName: string, task: TaskRecord, effects: ReadonlyArray<TaskEffect>) => Effect.Effect<void, WorkErrorBody>;
+  readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, WorkErrorBody>;
   /** Mail in the task's thread (03). */
   readonly comment: (input: {
     readonly canvasName: string;
@@ -124,8 +123,7 @@ export const liveTaskPorts: TaskPorts = (() => {
           ? Effect.fail(notBuilt("this machine's installation id"))
           : withRepo((repo) =>
             Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env)))),
-    // Delivery of task mail is pty's (P4): until it lands a ruling owes nothing it can send.
-    deliver: () => Effect.void,
+    deliver: deliverTaskEffects,
     comment: () => Effect.fail(notBuilt("task threads")),
   };
 })();
@@ -359,7 +357,16 @@ const commandOf = (
 const submitted = (caller: TaskCaller, ports: TaskPorts, written: ResourceCommand<TaskCommand>) =>
   Effect.gen(function* () {
     const outcome = yield* ports.submit(written, taskRulingContext(caller.canvas), taskCanvasEnv(caller.canvas));
-    if (outcome.kind === "applied" && !outcome.replay) yield* ports.deliver(caller.canvasName, outcome.task, outcome.effects);
+    if (outcome.kind === "applied" && !outcome.replay) {
+      yield* ports.deliver({
+        canvas: caller.canvas,
+        canvasName: caller.canvasName,
+        actor: written.actor,
+        opId: written.opId,
+        task: outcome.task,
+        effects: outcome.effects,
+      });
+    }
     return yield* writeResultOf(outcome, written.opId);
   });
 

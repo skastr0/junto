@@ -249,6 +249,20 @@ describe("task verbs", () => {
     expect(failure(await run("task.finish", { opId: OP, task: "#42", next: "CLI tasks" }, portsWith(applied()))).type).toBe("UnknownTarget");
   });
 
+  it("delivers a fresh ruling's mail as the actor's, and a replay's never", async () => {
+    for (const replay of [false, true]) {
+      const delivered: Array<Parameters<TaskPorts["deliver"]>[0]> = [];
+      const ports = { ...portsWith({ kind: "applied", opId: OP, task: record(), effects: [{ kind: "number-minted", number: TaskNumber.make(42) }], replay }), deliver: (d: Parameters<TaskPorts["deliver"]>[0]) => {
+        delivered.push(d);
+        return Effect.void;
+      } };
+      await run("task.start", { opId: OP, task: "#42" }, ports);
+      expect(delivered.map((d) => [d.opId, d.actor, d.canvasName, d.task.id, d.effects.length])).toEqual(
+        replay ? [] : [[OP, caller.actor, "factory", ID, 1]],
+      );
+    }
+  });
+
   it("names the operator as a reviewer", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
     await run("task.reviewer-add", { opId: OP, task: "#42", reviewer: "operator" }, portsWith(applied(), submitted));
