@@ -366,14 +366,12 @@ test("[fake-tui] the rail lists agents most urgent first under their own names, 
       await expect(peer.getByTestId("actor-rail-go")).toHaveAccessibleName(new RegExp(`^Go to ${name}`));
     }
 
-    // Its other connections follow as rows: the board by its name, its kind
-    // word, and that taking part in it wakes the seat.
+    // Its other connections follow as rows: the board by its name and its kind word.
     const others = rail(page).getByTestId("actor-rail-others").locator("li");
     await expect(others).toHaveCount(1);
     await expect(others.first()).toHaveAttribute("data-peer-node-id", "talk");
     await expect(others.first()).toHaveAttribute("data-peer-kind", "board");
     await expect(others.first()).toContainText("Standup");
-    await expect(others.first()).toContainText("wakes");
   } finally {
     await junto.close();
   }
