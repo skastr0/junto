@@ -62,6 +62,7 @@ import { ConnectEditor } from "./ConnectEditor";
 import { EdgeCommandCard } from "./RtsControls";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
+import { claimFocus } from "../../lib/focus-ownership";
 import { nameable } from "../../lib/model-edits";
 import { NameField } from "./NameField";
 import { AccentColorSwatches } from "./AccentColorPicker";
@@ -78,6 +79,7 @@ function CmdKey({
   disabled,
   style,
   keepFocus,
+  buttonRef,
   onClick,
   children,
 }: {
@@ -89,11 +91,13 @@ function CmdKey({
   readonly style?: React.CSSProperties;
   /** Pressing the key leaves focus where it is, so an open field is not blurred into a commit. */
   readonly keepFocus?: boolean;
+  readonly buttonRef?: React.Ref<HTMLButtonElement>;
   readonly onClick?: () => void;
   readonly children: ReactNode;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       className={`rts-key${active ? " is-active" : ""}${danger ? " is-danger" : ""}`}
       aria-label={label}
@@ -111,18 +115,41 @@ function CmdKey({
 
 const ICON = 12;
 
-/** Opens the selected node's name for typing in the card; pressed again, keeps the old name. */
-function RenameKey({ renaming, onToggle }: { readonly renaming: boolean; readonly onToggle: () => void }) {
-  return (
+/**
+ * The selected node's name, open for typing in the card while the Rename key
+ * is pressed; pressing it again keeps the old name. A field closed by a key
+ * hands focus back to the Rename key.
+ */
+function useRename(nodeId: string) {
+  const [renaming, setRenaming] = useState(false);
+  const keyRef = useRef<HTMLButtonElement>(null);
+  const [returnFocus, setReturnFocus] = useState(false);
+  useEffect(() => {
+    setRenaming(false);
+  }, [nodeId]);
+  // Claimed once the field is gone: focus never leaves a field while it types.
+  useEffect(() => {
+    if (renaming || !returnFocus) return;
+    setReturnFocus(false);
+    claimFocus(keyRef.current, "gesture", { preventScroll: true });
+  }, [renaming, returnFocus]);
+  const done = (key?: React.KeyboardEvent) => {
+    setReturnFocus(key !== undefined);
+    setRenaming(false);
+  };
+  const key = (
     <CmdKey
-      label={renaming ? "Cancel rename" : "Rename"}
+      label="Rename"
+      title={renaming ? "Cancel rename" : "Rename"}
       active={renaming}
       keepFocus
-      onClick={onToggle}
+      buttonRef={keyRef}
+      onClick={() => setRenaming((open) => !open)}
     >
       <TextCursorInput size={ICON} />
     </CmdKey>
   );
+  return { renaming, done, key };
 }
 
 function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
@@ -213,11 +240,7 @@ function RegionCommandCard({
   const slot = use$(() => hotbarSlotIndexOf(state$.hotbarSlots.get(), node.id));
   const primary = primaryCommandActions("region");
   const title = regionRollup.label || "unnamed region";
-  const [renaming, setRenaming] = useState(false);
-
-  useEffect(() => {
-    setRenaming(false);
-  }, [node.id]);
+  const rename = useRename(node.id);
 
   const primaryKey = (action: PrimaryCommandAction) => {
     switch (action) {
@@ -264,13 +287,13 @@ function RegionCommandCard({
       <div className="rts-panel__body rts-cmd-shell rts-cmd-shell--region">
         <div className="rts-cmd-region-main">
           <div className="rts-cmd-head">
-            {renaming ? (
+            {rename.renaming ? (
               <NameField
                 initial={regionRollup.label}
                 ariaLabel="Region name"
                 maxLength={REGION_NAME_MAX}
                 onCommit={(name) => renameGroup(node.id, name)}
-                onDone={() => setRenaming(false)}
+                onDone={rename.done}
               />
             ) : (
               <div className="rts-cmd__title" title={title}>{title}</div>
@@ -281,7 +304,7 @@ function RegionCommandCard({
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           {primary.map(primaryKey)}
-          <RenameKey renaming={renaming} onToggle={() => setRenaming((open) => !open)} />
+          {rename.key}
           <CmdKey label="Delete region" danger onClick={() => deleteNode(node.id)}>
             <Trash2 size={ICON} />
           </CmdKey>
@@ -303,7 +326,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const node = useRtsNodes(canvasName, [nodeId])[0];
   const modelKind = use$(() => modelStore.node$(canvasName, nodeId).kind.get());
   const [connectOpen, setConnectOpen] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  const rename = useRename(nodeId);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
   const copyRequest = useRef(0);
@@ -314,7 +337,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     setCopyStatus("idle");
     setCopyDetail("");
     setConnectOpen(false);
-    setRenaming(false);
   }, [canvasName, nodeId]);
 
   const blockerCause = useRtsValue(() => {
@@ -419,12 +441,12 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-main">
           <div className="rts-cmd-head">
-            {renaming ? (
+            {rename.renaming ? (
               <NameField
                 initial={titleOf(node)}
                 ariaLabel={`${entityKind[0]!.toUpperCase()}${entityKind.slice(1)} name`}
                 onCommit={(name) => renameNode(nodeId, name)}
-                onDone={() => setRenaming(false)}
+                onDone={rename.done}
               />
             ) : (
               <div className="rts-cmd__title" title={titleOf(node)}>{titleOf(node)}</div>
@@ -467,7 +489,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
               <Crosshair size={ICON} />
             </CmdKey>
             {nameable(entityKind) ? (
-              <RenameKey renaming={renaming} onToggle={() => setRenaming((open) => !open)} />
+              rename.key
             ) : null}
             {EDITS_MORE_THAN_NAME.has(entityKind) ? (
               <CmdKey label="Edit" onClick={() => state$.editNodeId.set(nodeId)}>

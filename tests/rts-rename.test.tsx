@@ -106,6 +106,8 @@ it("renames a region from its card, and clears the name when emptied", async () 
 it("keeps the old name on Escape, and a seat keeps its name when emptied", async () => {
   await mount(seat);
   await act(async () => { renameKey()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); await flush(); });
+  expect(renameKey()!.getAttribute("aria-pressed")).toBe("true");
+  expect(renameKey()!.title).toBe("Cancel rename");
   const input = document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Changed");
@@ -113,6 +115,9 @@ it("keeps the old name on Escape, and a seat keeps its name when emptied", async
   });
   await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await flush(); });
   expect(named()).toMatchObject({ label: "Worker" });
+  // A key closed the field, so focus goes back to the Rename key, which keeps its name.
+  expect(document.activeElement).toBe(renameKey());
+  expect(renameKey()!.getAttribute("aria-pressed")).toBe("false");
   await rename("Agent name", "");
   expect(named()).toMatchObject({ label: "Worker" });
 });
