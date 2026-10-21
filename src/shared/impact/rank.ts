@@ -1,6 +1,4 @@
-import type { Task } from "../work-model";
-import { taskBrief } from "../task";
-import { holdsAssignee, type ExecutionGraph, type WorkItemsOf } from "../execution-graph";
+import type { BlockedReason, ExecutionGraph } from "../execution-graph";
 import type { Canvas } from "../model/canvas";
 import type { Node } from "../model/kinds";
 import { titleOf } from "../model/title";
@@ -8,8 +6,8 @@ import type { OccupancySpectrumName } from "../occupancy";
 import { holdingTaskNodeIds, impactCone, type ImpactCone } from "./cone";
 
 // Rank stoppage seeds (task nodes whose waiting tasks hold seats) by
-// blast-radius cone size. Pure: canvas + ExecutionGraph + work items (+
-// optional occupancy for lead staffing). UI / digest format the
+// blast-radius cone size. Pure: canvas + ExecutionGraph (+ optional occupancy
+// for lead staffing). UI / digest format the
 // RankedStoppage rows.
 
 export type LeadStaffing = "staffed" | "unstaffed" | "unknown";
@@ -36,28 +34,17 @@ export const collectStoppageSeedIds = (
   return [...canvas.nodes.keys()].filter((id) => ids.has(id));
 };
 
-/** Tasks on a seed that actually hold a seat: waiting for input, assigned. */
-const stallingItems = (items: ReadonlyArray<Task>): ReadonlyArray<Task> => items.filter(holdsAssignee);
-
-const seedBriefOf = (node: Node | undefined, items: ReadonlyArray<Task>): string => {
+const seedBriefOf = (node: Node | undefined, cone: ImpactCone): string => {
   if (!node) return "stoppage";
   if (node.kind === "task") {
-    const n = stallingItems(items).length;
+    const n = cone.seedReasons.length;
     return n === 1 ? "1 task" : `${n} tasks`;
   }
   return titleOf(node);
 };
 
-const clearActionOf = (
-  node: Node | undefined,
-  items: ReadonlyArray<Task>,
-  cone: ImpactCone,
-): string => {
-  if (node?.kind === "task") {
-    const stalling = stallingItems(items);
-    if (stalling[0]) return `settle: ${taskBrief(stalling[0])}`;
-  }
-  const first = cone.seedReasons[0];
+const clearActionOf = (cone: ImpactCone): string => {
+  const first: BlockedReason | undefined = cone.seedReasons[0];
   if (first?.detail) return `clear: ${first.detail}`;
   return "clear: stoppage";
 };
@@ -69,7 +56,6 @@ const clearActionOf = (
 export const rankStoppageSeeds = (
   canvas: Canvas,
   graph: ExecutionGraph,
-  itemsOf: WorkItemsOf,
 ): ReadonlyArray<RankedStoppage> => {
   const ranked: RankedStoppage[] = [];
 
@@ -77,13 +63,12 @@ export const rankStoppageSeeds = (
     const cone = impactCone(canvas, graph, seedNodeId);
     if (cone.nodeIds.size === 0) continue;
     const node = canvas.nodes.get(seedNodeId as Node["id"]);
-    const items = itemsOf(seedNodeId);
     ranked.push({
       seedNodeId,
-      seedBrief: seedBriefOf(node, items),
+      seedBrief: seedBriefOf(node, cone),
       stops: cone.nodeIds.size,
       attentionLeadIds: [...cone.attentionLeadIds].sort(),
-      clearAction: clearActionOf(node, items, cone),
+      clearAction: clearActionOf(cone),
       cone,
     });
   }

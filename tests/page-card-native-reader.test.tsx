@@ -23,7 +23,7 @@ it("draws a page from the store with the window document empty", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    const flow = toFlowOfCanvas(modelStore.canvasOf(canvas), { canvasName: canvas, resolveActorRef: () => undefined, itemsOf: () => [] });
+    const flow = toFlowOfCanvas(modelStore.canvasOf(canvas), { canvasName: canvas, resolveActorRef: () => undefined, heldBy: {} });
     await act(async () => root.render(<ReactFlowProvider><ReactFlow nodes={flow.nodes} edges={[]} nodeTypes={{ link: LinkNode }} /></ReactFlowProvider>));
     expect(host.textContent).toContain("native.example.com");
   } finally {

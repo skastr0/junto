@@ -1,66 +1,49 @@
 /**
  * A stop reason says when the stop began: the kernel cycle projects it from
- * the work items' stateSince, so the operator's "blocked since" is the true
- * time and not when a window first saw it.
+ * the held task's `since`, so the operator's "blocked since" is the true time
+ * and not when a window first saw it.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Task } from "../src/shared/work-model";
-import { executionGraphContextFromActorRefs } from "../src/shared/graph";
-import { deriveExecutionGraph, earliestStateSince } from "../src/shared/execution-graph";
+import { earliestStateSince } from "../src/shared/execution-graph";
 import {
   __resetKernelMemoryForTest,
   __setWorldsForTest,
   getExecutionByCanvas,
   runEvaluationCycle,
-  setActorRefResolver,
 } from "../src/main/junto/kernel/cycle";
-import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 import { canvasOf, seat, taskBoard, worldOf } from "./support/model-nodes";
+import { heldTask } from "./support/seat-tasks";
 
 const CANVAS = "stops";
 const FIRST = "2026-08-12T12:03:00.000Z";
 const LATER = "2026-08-12T12:40:00.000Z";
-const seatId = actorRefFixture("atlas", CANVAS).seatId;
-
-const waiting = (id: string, stateSince?: string): Task => ({
-  id,
-  state: "input-required",
-  claimedBy: seatId,
-  history: [],
-  ...(stateSince === undefined ? {} : { stateSince }),
-});
 
 const canvas = canvasOf(
   [seat("atlas"), taskBoard("board", { x: 400 })],
   [],
   CANVAS,
 );
-const context = (items: ReadonlyArray<Task>) =>
-  executionGraphContextFromActorRefs(CANVAS, [actorRefFixture("atlas", CANVAS)], (nodeId) =>
-    nodeId === "board" ? items : [],
-  );
 
 describe("stop reasons carry when the stop began", () => {
   beforeEach(() => __resetKernelMemoryForTest());
   afterEach(() => __resetKernelMemoryForTest());
 
-  it("the kernel cycle projects each waiting task's time onto the blocked seat", async () => {
-    const items = [waiting("t-later", LATER), waiting("t-first", FIRST)];
-    setActorRefResolver(context(items).resolveActorRef);
-    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, { tasks: new Map([["board", items]]) })]]));
+  it("the kernel cycle projects the held task's time onto the blocked seat", async () => {
+    const held = heldTask("board", { since: Date.parse(FIRST) });
+    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, {}, { atlas: held })]]));
     await runEvaluationCycle();
     const execution = getExecutionByCanvas().get(CANVAS);
     expect(execution?.blocked).toEqual(["atlas"]);
     expect(execution?.reasonsByNodeId.atlas).toEqual([
-      expect.objectContaining({ kind: "task", taskNodeId: "board", taskId: "t-later", since: Date.parse(LATER) }),
-      expect.objectContaining({ kind: "task", taskNodeId: "board", taskId: "t-first", since: Date.parse(FIRST) }),
+      expect.objectContaining({ kind: "task", taskNodeId: "board", taskId: held.taskId, since: Date.parse(FIRST) }),
     ]);
   });
 
-  it("a waiting item with no recorded time yields a reason with no time", () => {
-    const graph = deriveExecutionGraph(canvas, context([waiting("t-unstamped")]));
-    const [reason] = graph.reasonsByNodeId.get("atlas") ?? [];
-    expect(reason).toMatchObject({ kind: "task", taskNodeId: "board", taskId: "t-unstamped" });
+  it("a held task with no recorded time yields a reason with no time", async () => {
+    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, {}, { atlas: heldTask("board") })]]));
+    await runEvaluationCycle();
+    const [reason] = getExecutionByCanvas().get(CANVAS)?.reasonsByNodeId.atlas ?? [];
+    expect(reason).toMatchObject({ kind: "task", taskNodeId: "board" });
     expect(reason && "since" in reason).toBe(false);
   });
 

@@ -7,7 +7,7 @@ import { kernel$ } from "../lib/kernel-view";
 import { executionGraphForImpact } from "../lib/impact-mode";
 import { HUE, HUE_TEXT } from "../lib/theme";
 import { useCanvas } from "../lib/use-model";
-import { useCanvasWorkItems } from "../lib/use-work-sink";
+import { seatTasks$ } from "../lib/seat-tasks";
 
 /**
  * Inspector "Waiting on…" — walks from the selected blocked seat to the task
@@ -18,20 +18,20 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
-  const itemsOf = useCanvasWorkItems(canvasName);
+  const heldBy = use$(seatTasks$.bySeat);
   const canvas = useCanvas(canvasName);
 
   const path = useMemo(() => {
     const context = executionGraphContextFromActorRefs(
       canvasName,
       actorRefs,
-      itemsOf,
+      heldBy,
     );
     const graph = executionGraphForImpact(canvas, execution, context);
     // Blocked seats and the task nodes holding them; empty for the rest.
     return waitingOnPath(canvas, graph, nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorRefs, canvasName, canvas, execution, executionRev, nodeId, itemsOf]);
+  }, [actorRefs, canvasName, canvas, execution, executionRev, nodeId, heldBy]);
 
   if (!path || path.hops.length === 0) return null;
 

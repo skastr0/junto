@@ -19,11 +19,12 @@ import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipt
 import { canvasReceiptBasis, recordDeliveryReceiptRefusal, stampMailboxDeliveryReceipt } from "../src/main/junto/work/delivery-receipts";
 import { observabilityRing } from "../src/main/junto/observability/ring";
 import { THIS_MACHINE } from "./support/machines";
+import { NoTasksLive } from "./support/no-tasks";
 
 it("a delivered mail commits its receipt against the live canvas sequence and survives replay", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-mail-receipt-"));
   const modelLive = Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), makeStateEngineLive(join(root, "junto.db")));
-  let runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, modelLive));
+  let runtime = ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(WorkRepositoryLive, NoTasksLive), modelLive));
   const delivery = new MessageDeliveryService(() => THIS_MACHINE);
   try {
     const sql = await runtime.runPromise(SqlClient.SqlClient);
@@ -85,7 +86,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
     expect((await runtime.runPromise(repo.mailMessage("factory", "inbox", "delivered-mail")))?.metadata?.deliveredAt).toBeTypeOf("number");
     delivery.resetForTest();
     await runtime.dispose();
-    runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, modelLive));
+    runtime = ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(WorkRepositoryLive, NoTasksLive), modelLive));
     repo = await runtime.runPromise(WorkRepository);
     const restarted = new MessageDeliveryService(() => THIS_MACHINE);
     const wakes: string[] = [];

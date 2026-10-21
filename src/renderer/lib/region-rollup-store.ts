@@ -12,12 +12,15 @@ import {
   type SeatNeedTier,
 } from "@shared/region-rollup";
 import type { WorkSurfaceActivity } from "@shared/terminal";
+import type { SeatTask } from "@shared/seat-task-index";
 import { keepUnchanged, type createModelStore } from "./model-store";
 
 export type RegionRollupSources = {
   readonly model: ReturnType<typeof createModelStore>;
   readonly actorRefs: () => ReadonlyArray<ActorRef>;
   readonly items: (canvas: string, nodeId: string) => ReadonlyArray<Task>;
+  /** The open task a seat holds (`seatTasks$`): what blocks it. */
+  readonly heldTask: (seatNodeId: string) => SeatTask | undefined;
   readonly surface: (bindingId: string) => WorkSurfaceActivity | undefined;
   /** The seat's tier from its needs; undefined falls back to `surface`. */
   readonly seatTier?: (bindingId: string) => SeatNeedTier | undefined;
@@ -66,12 +69,15 @@ export const createRegionRollupStore = (
       const wires = new Map<Wire["id"], Wire>();
       const terminalStatusByNodeId = new Map<string, WorkSurfaceActivity>();
       const seatTierByNodeId = new Map<string, SeatNeedTier>();
+      const heldBy: Record<string, SeatTask> = {};
       const refs: ActorRef[] = [];
       for (const id of membership.members[regionId].get() ?? []) {
         const node = readNode(id);
         if (!node) continue;
         nodes.set(node.id, node);
         if (node.kind === "agent" || node.kind === "terminal") {
+          const held = sources.heldTask(id);
+          if (held) heldBy[id] = held;
           const bindingId = (model.nodes[id] as unknown as { bindingId: { get(): string } }).bindingId.get();
           const surface = sources.surface(bindingId);
           if (surface) terminalStatusByNodeId.set(id, surface);
@@ -101,6 +107,7 @@ export const createRegionRollupStore = (
         canvasName,
         resolveActorRef: actorRefResolverFromProjection(refs),
         itemsOf: (id) => sources.items(canvasName, id),
+        heldBy,
         terminalStatusByNodeId,
         seatTierByNodeId,
       })[0];

@@ -53,7 +53,8 @@ import type { ActorRef } from "@shared/work-protocol";
 import { ModelActorRefs } from "../model/actor-refs";
 import { readModelDigest } from "../model/digest";
 import { ModelService } from "../model/service";
-import { WorkRepository } from "../work/repository";
+import { TaskRepository } from "../work/task-repository";
+import { readSeatTaskIndex } from "../work/seat-task-read";
 import {
   editCanvases,
   fromModelError,
@@ -472,9 +473,8 @@ const handleRender = (
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
-    // The picture marks boards by their rows; a read, never a work command.
-    const work = yield* WorkRepository;
-    const rows = yield* work.kernelWork(canvas.name).pipe(
+    // The picture marks a seat blocked by the task it holds; a read, never a work command.
+    const heldBy = yield* readSeatTaskIndex(yield* TaskRepository, canvas).pipe(
       Effect.mapError((error): WorkErrorBody => fail("InternalError", error.message)),
     );
     return {
@@ -483,7 +483,7 @@ const handleRender = (
         resolveActorRef: actorRefResolverFromProjection(
           yield* actorRefsOf(canvas.name),
         ),
-        itemsOf: (nodeId) => rows.tasks.get(nodeId) ?? [],
+        heldBy,
       }),
     };
   });

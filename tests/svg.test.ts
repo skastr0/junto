@@ -9,7 +9,7 @@ const renderCanvasSvg = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> 
   return renderCanvasSvgWithContext(canvas, {
     canvasName: canvas.name,
     resolveActorRef: () => undefined,
-    itemsOf: () => [],
+    heldBy: {},
   });
 };
 

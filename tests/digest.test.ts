@@ -7,8 +7,9 @@ import {
 import { executionContextForCanvas } from "./helpers/actor-ref-fixtures";
 import { canvasOf, note, page, region, seat } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
+import { heldTask } from "./support/seat-tasks";
 
-type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef" | "itemsOf">;
+type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef" | "itemsOf" | "heldBy">;
 
 const digestCanvas = (
   name: string,
@@ -18,6 +19,7 @@ const digestCanvas = (
   digestCanvasWithActorRefs(canvas, {
     ...live,
     itemsOf: () => [],
+    heldBy: {},
     resolveActorRef: executionContextForCanvas(canvas, name).resolveActorRef,
   });
 
@@ -169,14 +171,14 @@ it("reads explicit Work waits and authored verbs from model rows", async () => {
   const next = Schema.decodeUnknownSync(Node)({ kind: "task", id: "next", name: "Next", x: 400, y: 0, width: 100, height: 50, z: 2 });
   const id = asWireId("path");
   const canvas = { name: asCanvasName("factory"), seq: 7, nodes: new Map([worker, queue, next].map((node) => [node.id, node])), wires: new Map([[id, { id, from: queue.id, to: next.id, verb: "flows" as const }]]) };
-  const live: DigestLiveViews = { resolveActorRef: (ref) => ref.nodeId === worker.id ? { canvasName: "factory", nodeId: worker.id, seatId } : undefined, itemsOf: (nodeId) => nodeId === queue.id ? [{ id: "waiting", state: "input-required", claimedBy: seatId, history: [] }] : [] };
+  const live: DigestLiveViews = { resolveActorRef: (ref) => ref.nodeId === worker.id ? { canvasName: "factory", nodeId: worker.id, seatId } : undefined, itemsOf: (nodeId) => nodeId === queue.id ? [{ id: "waiting", state: "input-required", claimedBy: seatId, history: [] }] : [], heldBy: { [worker.id]: heldTask(queue.id, { title: "waiting" }) } };
   const text = digestCanvasWithActorRefs(canvas, live);
   expect(text).toContain("edges :: 1");
   expect(text).toContain("Queue :: task");
   expect(text).toContain("blockers");
   expect(text).toContain("Queue --flows--> Next");
-  expect(text).toContain("Worker - needs input - waiting");
-  const idle = digestCanvasWithActorRefs(canvas, { ...live, itemsOf: () => [] });
+  expect(text).toContain("Worker - needs input - #1 waiting");
+  const idle = digestCanvasWithActorRefs(canvas, { ...live, itemsOf: () => [], heldBy: {} });
   expect(idle).toContain("Queue --flows--> Next");
   expect(idle).not.toContain("blockers");
 });

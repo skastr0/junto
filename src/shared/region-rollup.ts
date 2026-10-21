@@ -10,7 +10,7 @@ import {
 } from "./execution-graph";
 import { resolveSpec } from "./physics";
 import type { WorkSurfaceActivity } from "./terminal";
-import type { WorkItemsOf } from "./execution-graph";
+import type { SeatTaskIndex, WorkItemsOf } from "./execution-graph";
 
 // Region severity rollups: the operational tier of the bottom-bar information
 // ladder (minimap strategic / region bar operational / selection tactical).
@@ -96,6 +96,8 @@ export type RegionRollup = typeof RegionRollup.Type;
 export interface RegionRollupInput extends LiveTrustViews {
   readonly canvas: Canvas;
   readonly itemsOf: WorkItemsOf;
+  /** The open task each seat holds: what blocks a seat (`deriveExecutionGraph`). */
+  readonly heldBy: SeatTaskIndex;
   /** Canvas scope and compiled actor identity are mandatory graph inputs. */
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
@@ -221,6 +223,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
   const {
     canvas,
     itemsOf,
+    heldBy,
     canvasName,
     resolveActorRef,
     stamps,
@@ -232,7 +235,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
   const graph = deriveExecutionGraph(canvas, {
     canvasName,
     resolveActorRef,
-    itemsOf,
+    heldBy,
     ...(stamps ? { stamps } : {}),
     ...(approvals ? { approvals } : {}),
   });

@@ -1,6 +1,6 @@
 // The kernel evaluation cycle: each canvas's stoppage (the blocked seats and
-// why, from task assignees), derived every cycle and never mirrored back into
-// the document.
+// why, from the open task each seat holds), derived every cycle and never
+// mirrored back into the document.
 
 import {
   deriveExecutionGraph,
@@ -8,7 +8,7 @@ import {
   type ExecutionGraphSnapshot,
 } from "@shared/execution-graph";
 import type { ActorRefResolver } from "@shared/attention";
-import { workOf, type World } from "./world";
+import type { World } from "./world";
 
 /** Serializable per-canvas execution graph for renderer projection. */
 export type ExecutionSnapshot = ExecutionGraphSnapshot;
@@ -45,7 +45,7 @@ const snapshotFromGraph = (
   const graph = deriveExecutionGraph(world.canvas, {
     canvasName,
     resolveActorRef,
-    itemsOf: workOf(world).itemsOf,
+    heldBy: world.seatTasks,
   });
   const reasonsByNodeId: Record<string, ReadonlyArray<BlockedReason>> = {};
   for (const [id, reasons] of graph.reasonsByNodeId) reasonsByNodeId[id] = reasons;

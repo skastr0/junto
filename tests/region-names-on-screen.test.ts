@@ -51,6 +51,7 @@ describe("an unnamed region on the operator's screen", () => {
   it("the digest names it and keeps its id on the line for the overseer", () => {
     const text = digestCanvas(canvas, {
       itemsOf: () => [],
+      heldBy: {},
       resolveActorRef: () => undefined,
     });
     expect(text).toContain("unnamed region (g-unnamed)");

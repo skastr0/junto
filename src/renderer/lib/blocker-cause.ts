@@ -7,12 +7,11 @@
  * detail surface, pre-selected on that task.
  */
 
-import type { ExecutionGraph, WorkItemsOf } from "@shared/execution-graph";
+import type { ExecutionGraph } from "@shared/execution-graph";
 import { formatWaitingOnLines, waitingOnPath } from "@shared/impact";
 import type { NodeId } from "@shared/model/base";
 import type { Canvas } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
-import { taskBrief } from "@shared/task";
 import { openWorkDetail } from "./work-detail-open";
 import { selectNode, state$ } from "./state";
 
@@ -38,7 +37,6 @@ export const resolveBlockerCause = (
   canvas: Canvas,
   graph: ExecutionGraph,
   nodeId: string,
-  itemsOf: WorkItemsOf,
 ): BlockerCause | null => {
   if (!canvas.nodes.has(nodeId as NodeId)) return null;
   const path = waitingOnPath(canvas, graph, nodeId);
@@ -51,8 +49,7 @@ export const resolveBlockerCause = (
   const reason = (graph.reasonsByNodeId.get(nodeId) ?? []).find(
     (candidate) => candidate.taskNodeId === terminal.nodeId,
   );
-  const task = reason === undefined ? undefined : itemsOf(reason.taskNodeId).find((item) => item.id === reason.taskId);
-  const brief = task === undefined ? "" : taskBrief(task).trim();
+  const brief = reason?.detail.trim() ?? "";
   return {
     causeNodeId: terminal.nodeId,
     isSelf: terminal.nodeId === nodeId,

@@ -16,7 +16,6 @@ import {
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBeforeDelete, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import type { Task } from "@shared/work-model";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
@@ -62,7 +61,8 @@ import { findOpenPosition, syncPositions } from "../lib/geometry";
 import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
-import { useCanvasWorkItems, workAttentionStore } from "../lib/use-work-sink";
+import { workAttentionStore } from "../lib/use-work-sink";
+import { seatTasks$ } from "../lib/seat-tasks";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { thisMachineName } from "../lib/machines";
 import "../styles/factory-grammar.css";
@@ -176,19 +176,11 @@ const withEdgeImpact = (
 const selectedOn = (canvas: Canvas, ids: ReadonlySet<string>): ReadonlyArray<ModelNode> =>
   inPaintOrder(canvas).filter((node) => ids.has(node.id));
 
-const NO_WORK_ITEMS: ReadonlyArray<Task> = [];
-
-/** The claim rows of each work sink on a canvas, from the work store, as they stand now. */
-const workItemsNow = (canvasName: string) => {
-  const items = workAttentionStore.state(canvasName).itemsByNodeId.peek();
-  return (nodeId: string): ReadonlyArray<Task> => items[nodeId] ?? NO_WORK_ITEMS;
-};
-
 const currentExecutionGraphContext = () =>
   executionGraphContextFromActorRefs(
     state$.canvasName.peek(),
     state$.actorRefs.peek(),
-    workItemsNow(state$.canvasName.peek()),
+    seatTasks$.bySeat.peek(),
   );
 
 const selectionForCanvas = (
@@ -1428,11 +1420,11 @@ function ImpactSeedChip() {
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
   const canvas = useCanvas(canvasName);
-  const itemsOf = useCanvasWorkItems(canvasName);
+  const heldBy = use$(seatTasks$.bySeat);
   const impact = useMemo(() => {
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, heldBy);
     return selectionForCanvas(selectedNodeId, context);
-  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, canvas, executionRev, itemsOf]);
+  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, canvas, executionRev, heldBy]);
   if (!impact.active) return null;
   return (
     <Panel position="top-left" className="impact-hud-panel">

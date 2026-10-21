@@ -5,6 +5,8 @@ import type { Task } from "@shared/work-model";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import { withSqlRead } from "../state/sql-read";
 import { WorkRepository } from "../work/repository";
+import { TaskRepository } from "../work/task-repository";
+import { readSeatTaskIndex } from "../work/seat-task-read";
 import { ModelService } from "./service";
 import { ModelActorRefs } from "./actor-refs";
 
@@ -15,6 +17,7 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
   const model = yield* ModelService;
   const actors = yield* ModelActorRefs;
   const work = yield* WorkRepository;
+  const tasks = yield* TaskRepository;
   const sql = yield* SqlClient.SqlClient;
   return yield* withSqlRead(sql, Effect.gen(function* () {
     const canvas = yield* model.canvas(name);
@@ -32,7 +35,8 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
           break;
       }
     }
-    const live: DigestLiveViews = { resolveActorRef: actorRefResolverFromProjection(refs), itemsOf: (id) => items.get(id) ?? [], artifactCounts };
+    const heldBy = yield* readSeatTaskIndex(tasks, canvas);
+    const live: DigestLiveViews = { resolveActorRef: actorRefResolverFromProjection(refs), itemsOf: (id) => items.get(id) ?? [], heldBy, artifactCounts };
     return digestCanvas(canvas, live);
   }));
 });

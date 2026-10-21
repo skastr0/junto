@@ -1,7 +1,7 @@
 import type { ActorRefResolver } from "./attention";
 import type {
   ExecutionGraphContext,
-  WorkItemsOf,
+  SeatTaskIndex,
   LiveTrustViews,
 } from "./execution-graph";
 import type { ActorRef } from "./work-protocol";
@@ -48,12 +48,12 @@ export const actorRefResolverFromProjection = (
 export const executionGraphContextFromActorRefs = (
   canvasName: string,
   actorRefs: ReadonlyArray<ActorRef>,
-  itemsOf: WorkItemsOf,
+  heldBy: SeatTaskIndex,
   trust: LiveTrustViews = {},
 ): ExecutionGraphContext => ({
   canvasName,
   resolveActorRef: actorRefResolverFromProjection(actorRefs),
-  itemsOf,
+  heldBy,
   ...trust,
 });
 

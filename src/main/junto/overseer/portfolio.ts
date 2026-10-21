@@ -8,6 +8,7 @@ import type { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
 import { StateTransactionOperation } from "../state/service";
 import type { WorkRepository } from "../work/repository";
+import type { TaskRepository } from "../work/task-repository";
 
 // How the overseer reads and changes canvases: as the model holds them, by
 // model commands sent with source "overseer". The model is the authority that
@@ -18,7 +19,8 @@ export type OverseerStores =
   | ModelService
   | ModelActorRefs
   | SqlClient.SqlClient
-  | WorkRepository;
+  | WorkRepository
+  | TaskRepository;
 
 export const fromModelError = (error: ModelError): WorkErrorBody => {
   if (error instanceof ModelNotFound) {

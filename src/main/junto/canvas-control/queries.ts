@@ -5,6 +5,7 @@ import { ModelActorRefs } from "../model/actor-refs";
 import { readModelDigest } from "../model/digest";
 import { withSqlRead } from "../state/sql-read";
 import { WorkRepository } from "../work/repository";
+import { TaskRepository } from "../work/task-repository";
 import type { CanvasControlListData, CanvasControlReadData } from "./protocol";
 
 export class CanvasControlQueryError extends Schema.TaggedError<CanvasControlQueryError>()("CanvasControlQueryError", { message: Schema.String, cause: Schema.Unknown }) {}
@@ -17,7 +18,7 @@ export class CanvasControlQueries extends Context.Service<CanvasControlQueries>(
     const model = yield* ModelService;
     const actors = yield* ModelActorRefs;
     const sql = yield* SqlClient.SqlClient;
-    const context = yield* Effect.context<ModelService | ModelActorRefs | WorkRepository | SqlClient.SqlClient>();
+    const context = yield* Effect.context<ModelService | ModelActorRefs | WorkRepository | TaskRepository | SqlClient.SqlClient>();
     const list = Effect.fn("CanvasControlQueries.list")(function* () {
       return yield* withSqlRead(sql, Effect.gen(function* () {
         const out: Array<CanvasControlListData[number]> = [];

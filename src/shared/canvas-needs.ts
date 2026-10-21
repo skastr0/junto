@@ -70,11 +70,7 @@ export const feedCanvasModelNeeds = (input: {
     });
   };
 
-  for (const stoppage of rankStoppageSeeds(
-    canvas,
-    graph,
-    itemsOf,
-  )) {
+  for (const stoppage of rankStoppageSeeds(canvas, graph)) {
     add(stoppage.seedNodeId, "stoppage", "blocked", holdsUp(Math.max(0, stoppage.stops - 1)), causeSince.get(stoppage.seedNodeId));
   }
   for (const node of nodes) {

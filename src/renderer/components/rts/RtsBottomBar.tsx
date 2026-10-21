@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { Region } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
+import { seatTasks$ } from "../../lib/seat-tasks";
 import { compareSeverity, type MemberSeverity, type RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { REGION_NAME_MAX } from "@shared/region-bounds";
@@ -343,11 +344,10 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     const canvas = modelStore.canvasOf(canvasName);
     if (!canvas.nodes.has(nodeId as import("@shared/model").NodeId)) return null;
     const actorRefs = state$.actorRefs.get();
-    const itemsOf = (id: string) => (workAttentionStore.state(canvasName).itemsByNodeId[id].get() ?? []) as ReadonlyArray<import("@shared/work-model").Task>;
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, seatTasks$.bySeat.get());
     const graph = executionGraphForImpact(canvas, execution, context);
     if (!graph.blocked.has(nodeId)) return null;
-    return resolveBlockerCause(canvas, graph, nodeId, itemsOf);
+    return resolveBlockerCause(canvas, graph, nodeId);
   });
 
   if (!node || !modelKind) {

@@ -8,6 +8,7 @@ import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { mailboxRows } from "../src/renderer/lib/actor-ledger";
 import type { Task } from "../src/shared/work-model";
 import { THIS_MACHINE } from "./support/machines";
+import { heldTask } from "./support/seat-tasks";
 
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"d".repeat(64)}`);
 const decode = Schema.decodeUnknownSync(Node);
@@ -27,7 +28,11 @@ it("companion seats carry canonical identity, harness and region from model kind
 it("companion canvas needs use separately queried Work waits and their real start time", () => {
   const items: Task[] = [{ id: "waiting", state: "input-required", claimedBy: seatId, stateSince: "2026-10-07T10:00:00.000Z", history: [] }];
   const itemsOf = (nodeId: string) => nodeId === task.id ? items : [];
-  const graph = deriveExecutionGraph(canvas, { canvasName: "factory", itemsOf, resolveActorRef: (ref) => ref.nodeId === seat.id ? { canvasName: "factory", nodeId: seat.id, seatId } : undefined });
+  const graph = deriveExecutionGraph(canvas, {
+    canvasName: "factory",
+    heldBy: { [seat.id]: heldTask(task.id, { since: Date.parse("2026-10-07T10:00:00.000Z") }) },
+    resolveActorRef: (ref) => ref.nodeId === seat.id ? { canvasName: "factory", nodeId: seat.id, seatId } : undefined,
+  });
   const needs = feedCanvasModelNeeds({ canvasName: "factory", canvas, graph, itemsOf });
   expect(needs.find((need) => need.seat.nodeId === task.id)).toMatchObject({ seat: { name: "Queue" }, region: { label: "Ops" }, since: Date.parse("2026-10-07T10:00:00.000Z") });
   expect(needs.find((need) => need.seat.nodeId === seat.id)?.kind).toBe("blocked");

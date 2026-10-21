@@ -168,6 +168,7 @@ const todayRollup = (scenario: Scenario): string | undefined => {
     canvas,
     canvasName: "main",
     itemsOf: () => [],
+    heldBy: {},
     resolveActorRef: () => undefined,
     ...(surface ? { terminalStatusByNodeId: new Map([["a", surface]]) } : {}),
   });

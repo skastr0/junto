@@ -8,12 +8,14 @@ import { state$ } from "./state";
 import { modelStore } from "./use-model";
 import { workAttentionStore } from "./use-work-sink";
 import { createRegionRollupStore } from "./region-rollup-store";
+import { seatTasks$ } from "./seat-tasks";
 
 const emptyItems: ReadonlyArray<import("@shared/work-model").Task> = [];
 export const regionRollupStore = createRegionRollupStore({
   model: modelStore,
   actorRefs: () => state$.actorRefs.get(),
   items: (canvas, id) => (workAttentionStore.state(canvas).itemsByNodeId[id].get() as typeof emptyItems | undefined) ?? emptyItems,
+  heldTask: (seatNodeId) => seatTasks$.bySeat[seatNodeId].get(),
   surface: (bindingId) => {
     agentSeat$.byBindingId[bindingId].state.get();
     return workSurfaceFromSeat(

@@ -21,6 +21,7 @@ import {
 } from "../src/main/junto/work/repository";
 import { WorkService } from "../src/main/junto/work/service";
 import { THIS_MACHINE } from "./support/machines";
+import { NoTasksLive } from "./support/no-tasks";
 
 // The kernel service against the real model and work stores: it holds every
 // canvas the model lists, follows canvases that come and go, and reads a
@@ -62,6 +63,7 @@ it("holds the model's canvases and follows their work", async () => {
       machineName: Effect.succeed(THIS_MACHINE),
     } as never),
     Layer.succeed(ActorSeatOccupy, {} as never),
+    NoTasksLive,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(

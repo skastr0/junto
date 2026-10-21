@@ -5,6 +5,7 @@ import type { Canvas, Node } from "@shared/model";
 import type { AgentSignal } from "@shared/agent-signals";
 import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
+import { seatTasks$ } from "./seat-tasks";
 import {
   buildOperatorFeed,
   feedSectionsInRegion,
@@ -98,6 +99,7 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const canvasName = use$(state$.canvasName);
   const canvas = useCanvas(canvasName);
   const itemsOf = useCanvasWorkItems(canvasName);
+  const heldBy = use$(seatTasks$.bySeat);
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
@@ -106,7 +108,7 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
     const context = executionGraphContextFromActorRefs(
       canvasName,
       actorRefs,
-      itemsOf,
+      heldBy,
     );
     return feedCanvasModelNeeds({
       canvasName,
@@ -117,7 +119,7 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
     });
     // Kernel execution and seat state mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvas, canvasName, actorRefs, execution, executionRev, seatRev, itemsOf]);
+  }, [canvas, canvasName, actorRefs, execution, executionRev, seatRev, itemsOf, heldBy]);
 };
 
 /** The live feed for the open canvas. */

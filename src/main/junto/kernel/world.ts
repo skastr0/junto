@@ -1,15 +1,17 @@
 import type { Canvas } from "@shared/model/canvas";
+import type { SeatTaskIndex } from "@shared/execution-graph";
 import type { Task } from "@shared/work-model";
 import type { KernelWork } from "@shared/work-kernel";
 import type { WatchRead, WorkRead } from "@shared/work-read";
 
 // What the kernel holds of one canvas: what is on it and how it is joined,
-// and beside it the work the work service answers for it. A canvas holds no
-// work.
+// and beside it the work the work service answers for it and the open task
+// each seat holds (`readSeatTaskIndex`). A canvas holds no work.
 
 export type World = {
   readonly canvas: Canvas;
   readonly work: KernelWork;
+  readonly seatTasks: SeatTaskIndex;
 };
 
 const NO_TASKS: ReadonlyArray<Task> = [];

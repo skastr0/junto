@@ -17,7 +17,7 @@ type Fixture = { readonly nodes: ReadonlyArray<Node>; readonly edges: ReadonlyAr
 
 type RegionRollupFixtureInput = Omit<
   RegionRollupInput,
-  "canvasName" | "resolveActorRef" | "canvas" | "itemsOf"
+  "canvasName" | "resolveActorRef" | "canvas" | "itemsOf" | "heldBy"
 > & { readonly doc: Fixture };
 
 const deriveRegionRollups = (input: RegionRollupFixtureInput) => {
@@ -30,6 +30,7 @@ const deriveRegionRollups = (input: RegionRollupFixtureInput) => {
     canvas: canvasOf(doc.nodes, doc.edges),
     // No canvas here holds work.
     itemsOf: () => [],
+    heldBy: {},
     canvasName: "factory",
     resolveActorRef: (ref) => refs.get(ref.nodeId),
   });

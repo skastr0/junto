@@ -4,6 +4,7 @@ import type { ActorRefResolver } from "./attention";
 import {
   deriveExecutionGraph,
   type LiveTrustViews,
+  type SeatTaskIndex,
   type WorkItemsOf,
 } from "./execution-graph";
 import {
@@ -41,6 +42,8 @@ const titleOf = (node: Node): string => node.kind === "region" && !node.label?.t
 export type DigestLiveViews = LiveTrustViews & {
   /** Exact current Work rows supplied separately from the spatial model. */
   readonly itemsOf: WorkItemsOf;
+  /** The open task each seat holds: what blocks a seat. */
+  readonly heldBy: SeatTaskIndex;
   readonly artifactCounts?: ReadonlyMap<string, number>;
   /** Exact resolver compiled from execution references. */
   readonly resolveActorRef: ActorRefResolver;
@@ -69,7 +72,7 @@ export const digestCanvas = (
   const graph = deriveExecutionGraph(canvas, {
     canvasName: name,
     resolveActorRef: live.resolveActorRef,
-    itemsOf,
+    heldBy: live.heldBy,
     ...trust,
   });
 
@@ -101,6 +104,7 @@ export const digestCanvas = (
     for (const rollup of deriveRegionRollups({
       canvas,
       itemsOf,
+      heldBy: live.heldBy,
       canvasName: name,
       resolveActorRef: live.resolveActorRef,
       ...trust,
@@ -253,7 +257,7 @@ export const digestCanvas = (
   // impact — stoppage seeds ranked by blast-radius cone size (S7).
   // seed - stops - leads - clear-action. No occupancy in headless digest
   // (live plane); empty lead seats are not marked unstaffed here.
-  const rankedStoppages = rankStoppageSeeds(canvas, graph, itemsOf);
+  const rankedStoppages = rankStoppageSeeds(canvas, graph);
   if (rankedStoppages.length > 0) {
     const impactLines = ["impact"];
     for (const ranked of rankedStoppages) {

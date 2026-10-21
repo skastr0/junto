@@ -9,7 +9,7 @@ import { createFlowIdentityCache, toFlowOfCanvas } from "../src/renderer/lib/con
 const emptyContext = {
   canvasName: "test",
   resolveActorRef: () => undefined,
-  itemsOf: () => [],
+  heldBy: {},
 };
 
 const region = (

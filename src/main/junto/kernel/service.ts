@@ -32,6 +32,9 @@ import { ModelService } from "../model/service";
 import { PausePlane } from "../pause-plane";
 import { MachineRepository } from "../machines/repository";
 import { WorkService } from "../work/service";
+import { TaskRepository } from "../work/task-repository";
+import { readSeatTaskIndex } from "../work/seat-task-read";
+import { onResourceChanged } from "../work/resource-changes";
 import {
   ensureManagedSeatRunning,
   isManagedSeatRuntimeLocal,
@@ -263,6 +266,7 @@ type ActorRefsShape = Context.Service.Shape<typeof ModelActorRefs>;
 type PauseShape = Context.Service.Shape<typeof PausePlane>;
 type MachinesShape = Context.Service.Shape<typeof MachineRepository>;
 type WorkShape = Context.Service.Shape<typeof WorkService>;
+type TasksShape = Context.Service.Shape<typeof TaskRepository>;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
 
 /**
@@ -371,9 +375,10 @@ const makeKernelService = (
   machines: MachinesShape,
   work: WorkShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
+  tasks: TasksShape,
 ): KernelServiceShape => {
   // What the cycle reads: each canvas as the model holds it, and beside it
-  // the work the work service answers for it.
+  // the work the work service answers for it and the task each seat holds.
   const worlds = new Map<string, World>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
@@ -595,7 +600,11 @@ const makeKernelService = (
         Effect.all({
           canvas: model.canvas(name),
           work: work.readKernelWork(name),
-        }),
+        }).pipe(
+          Effect.flatMap((held) =>
+            Effect.map(readSeatTaskIndex(tasks, held.canvas), (seatTasks): World => ({ ...held, seatTasks })),
+          ),
+        ),
       );
       if (result._tag === "Success" && generationIsActive(generation)) {
         worlds.set(name, result.success);
@@ -670,6 +679,10 @@ const makeKernelService = (
         work.subscribeWorkChanges((canvasName) => {
           if (canvasName !== undefined) scheduleResync(canvasName);
           else for (const name of worlds.keys()) scheduleResync(name);
+        }),
+        // A task write moves what a seat holds, and so its blocked mark.
+        onResourceChanged((domain, canvasName) => {
+          if (domain === "task") scheduleResync(canvasName);
         }),
         // Play/pause is an authoritative runtime transition. Resume must
         // claim immediately; pause must promptly cause the next cycle to
@@ -758,6 +771,7 @@ export const KernelLive = Layer.effect(
     const machines = yield* MachineRepository;
     const work = yield* WorkService;
     const actorSeatOccupy = yield* ActorSeatOccupy;
+    const tasks = yield* TaskRepository;
     // No Runtime capture (V4-KERNEL / V4-PROGRAM / migration/runtime.md).
     // Domain Effects exit only after start(host) binds AppRuntime / RemoteRuntime.
     return makeKernelService(
@@ -767,6 +781,7 @@ export const KernelLive = Layer.effect(
       machines,
       work,
       actorSeatOccupy,
+      tasks,
     );
   }),
 );

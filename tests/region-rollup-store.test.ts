@@ -10,6 +10,8 @@ import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 import { createModelStore } from "../src/renderer/lib/model-store";
 import { createRegionRollupStore } from "../src/renderer/lib/region-rollup-store";
 import { THIS_MACHINE } from "./support/machines";
+import type { SeatTask } from "../src/shared/seat-task-index";
+import { heldTask } from "./support/seat-tasks";
 
 const name = asCanvasName("regions");
 const placed = { x: 10, y: 10, width: 40, height: 40, z: 0 };
@@ -35,9 +37,11 @@ const harness = async (nodes: Node[], wires: Wire[] = []) => {
   const refs = observable([actorRefFixture("seat", name)]);
   const items = observable<Record<string, Task[]>>({});
   const surfaces = observable<Record<string, WorkSurfaceActivity>>({});
+  const held = observable<Record<string, SeatTask | undefined>>({});
   const derive = vi.fn(deriveRegionRollups);
   const store = createRegionRollupStore({
     model, actorRefs: () => refs.get(), items: (_canvas, id) => items[id].get() ?? [],
+    heldTask: (seatNodeId) => held[seatNodeId].get(),
     surface: (binding) => surfaces[binding].get(),
   }, derive);
   const release = store.retain(name);
@@ -45,7 +49,7 @@ const harness = async (nodes: Node[], wires: Wire[] = []) => {
   const byId = (id: string) => state.byRegionId[id].peek() as RegionRollup;
   const computed = () => derive.mock.calls.map(([input]) => [...input.canvas.nodes.values()].find((n) => n.kind === "region")?.id);
   const change = (rows: Partial<Changed>) => notify?.({ canvas: name, seq: ++seq, nodes: [], wires: [], removedNodes: [], removedWires: [], ...rows } as Changed);
-  return { model, state, byId, items, refs, surfaces, derive, computed, change, dispose: () => { release(); close(); } };
+  return { model, state, byId, items, refs, surfaces, held, derive, computed, change, dispose: () => { release(); close(); } };
 };
 
 describe("local per-region rollups", () => {
@@ -98,23 +102,22 @@ describe("local per-region rollups", () => {
     } finally { h.dispose(); }
   });
 
-  it("keeps a seat blocked by exact external Work rows without a main rollup", async () => {
-    const h = await harness([region("left", 0), region("right", 300), agent("seat"), note("other", 310), node({ kind: "task", id: "tasks", x: 700 })], [wire("w", "seat", "tasks")]);
-    const wait = Schema.decodeUnknownSync(Task)({ id: "wait", state: "input-required", history: [{ messageId: "brief", role: "user", parts: [{ kind: "text", text: "approve delivery" }] }], claimedBy: actorRefFixture("seat", name).seatId });
+  it("keeps a seat blocked by the task it holds, without a main rollup", async () => {
+    const h = await harness([region("left", 0), region("right", 300), agent("seat"), agent("elsewhere", 700), note("other", 310), node({ kind: "task", id: "tasks", x: 900 })]);
     try {
       h.derive.mockClear();
-      h.items.tasks.set([wait]);
+      h.held.seat.set(heldTask("tasks"));
       expect(h.byId("left")).toMatchObject({ severity: "blocked", counts: { blocked: 1 } });
-      expect(h.byId("left").members[0]?.reasons).toEqual(["task:needs input - approve delivery"]);
+      expect(h.byId("left").members[0]?.reasons).toEqual(["task:needs input - #1 approve delivery"]);
       expect(h.computed()).toEqual(["left"]);
       h.derive.mockClear();
-      h.items.unrelated.set([wait]);
+      h.held.elsewhere.set(heldTask("tasks"));
       expect(h.derive).not.toHaveBeenCalled();
-      h.refs.set([actorRefFixture("seat", name), actorRefFixture("seat", name)]);
-      expect(h.byId("left").severity).toBe("idle"); // ambiguous identity fails closed
-      h.refs.set([actorRefFixture("seat", name)]);
+      h.held.seat.set(heldTask("tasks", { state: "in-review" }));
+      expect(h.byId("left").severity).toBe("idle");
+      h.held.seat.set(heldTask("tasks"));
       expect(h.byId("left").severity).toBe("blocked");
-      h.items.tasks.set([]);
+      h.held.seat.delete();
       expect(h.byId("left").severity).toBe("idle");
       h.surfaces["binding-seat"].set({ session: "running", harness: "working", source: "native" });
       expect(h.byId("left").severity).toBe("working");

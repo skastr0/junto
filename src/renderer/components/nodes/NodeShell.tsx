@@ -53,7 +53,8 @@ import type { NodeKind } from "@shared/model";
 import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind } from "../../lib/model-kind";
 import { canvasOfState } from "../../lib/model-store";
 import { modelStore, useNodeValue } from "../../lib/use-model";
-import { useCanvasWorkItems, useSinkAttention } from "../../lib/use-work-sink";
+import { useSinkAttention } from "../../lib/use-work-sink";
+import { seatTasks$ } from "../../lib/seat-tasks";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 
@@ -203,7 +204,6 @@ function NodeActions({
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
   // The work the blocker walk reads, held only while this card can show a cause.
   const walking = selected && shellBlocked;
-  const itemsOf = useCanvasWorkItems(walking ? canvas : "");
 
   // Only resolve the waiting-on path while selected + blocked. One selector:
   // Legend State tracks only what a selector actually reads, so an
@@ -215,9 +215,9 @@ function NodeActions({
     kernel$.executionRev.get(); // kernel-tick dep: execution identity can stay stable while blocked/reasons flip
     const actorRefs = state$.actorRefs.get();
     const model = canvasOfState(canvas, modelStore.canvas$(canvas).get());
-    const context = executionGraphContextFromActorRefs(canvas, actorRefs, itemsOf);
+    const context = executionGraphContextFromActorRefs(canvas, actorRefs, seatTasks$.bySeat.get());
     const graph = executionGraphForImpact(model, execution, context);
-    return resolveBlockerCause(model, graph, id, itemsOf);
+    return resolveBlockerCause(model, graph, id);
   });
 
   if (!selected || multiSelect) return null;

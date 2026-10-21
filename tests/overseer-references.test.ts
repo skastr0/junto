@@ -34,11 +34,12 @@ import {
 } from "../src/shared/overseer-control";
 import type { ReferencesChangedEvent } from "../src/shared/references";
 import { region as regionNode, seat } from "./support/model-nodes";
+import { NoTasksLive } from "./support/no-tasks";
 
 const caller = { canvasName: "origin", nodeId: "boss" };
 const layers = (root: string, withStore: boolean) => {
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    CrewRepositoryLive, WorkRepositoryLive, MachineRepositoryLive,
+    CrewRepositoryLive, WorkRepositoryLive, MachineRepositoryLive, NoTasksLive,
     ...(withStore ? [ReferencesRepositoryLive] : []),
     SettingsLive, makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(

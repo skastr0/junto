@@ -9,6 +9,7 @@ import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { asNodeId, type NodeOf } from "../src/shared/model";
 import { seatParts } from "../src/shared/model/seat-parts";
 import { seat } from "./support/model-nodes";
+import { NoTasksLive } from "./support/no-tasks";
 import type { OverseerCaller } from "../src/shared/overseer-control";
 import { InstallationId } from "../src/shared/installation-id";
 import {
@@ -64,6 +65,7 @@ describe("overseer composition canvas hook with live grant", () => {
         WorkRepositoryLive,
         CrewRepositoryLive,
         MachineRepositoryLive,
+        NoTasksLive,
         SettingsLive,
         makeContentServiceLive({
           root: contentRoot,
