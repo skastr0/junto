@@ -191,7 +191,6 @@ const baseSession = (
   sessionId,
   nodeId,
   url: "https://example.com",
-  hostId: THIS_MACHINE,
   profile: "personal",
   state: "loading",
   attached: false,
