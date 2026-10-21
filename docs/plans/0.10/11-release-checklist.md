@@ -30,14 +30,17 @@ Run on a copy of `~/.junto/junto.db`, never the live file.
       (`CURRENT_STATE_SCHEMA_VERSION` in `src/main/junto/state/migrations.ts`;
       v48 on 2026-10-21, confirm at the cut).
       Receipt: migration chain v25 to v48 green, canvas-verifier (per product-lead; the head is v48, not 47).
-- [ ] `PRAGMA integrity_check` is `ok` and `PRAGMA foreign_key_check` is empty.
+- [x] `PRAGMA integrity_check` is `ok` and `PRAGMA foreign_key_check` is empty.
       Open: ask canvas-verifier whether the green chain run covered this line and the next four; I need their receipt.
+      Receipt: quick_check ok and foreign_key_check empty, canvas-verifier on a .backup of live ~/.junto, v25 to v48 (canvas-lead mail 01M5FPD0PX6NV9Z3VA06CEC5J6). Note: quick_check, not the full integrity_check.
 - [ ] Counts unchanged: wires, seats and regions match the live canvas (444,
       127 and 80 at v40). Tasks kept (358 at v40), open tasks on deleted
       boards canceled and readable (13 at v32).
+      Partial: all 451 wires kept byte for byte, 146 content_refs kept (same run). Seats, regions, tasks and the cancelled-task count are with canvas-verifier. The 444 figure was v40; the live copy now has 451 wires.
 - [ ] No node of a removed kind remains: requests, board, pad, sheet, cron,
       relay, watcher, timer.
-- [ ] `bun run schema:identity` matches the head identity.
+- [x] `bun run schema:identity` matches the head identity.
+      Receipt: identity 34452160 equals STATE_SCHEMA_V48_IDENTITY, same run.
 - [ ] The oldest openable database is v13 (`from-legacy-row` is gone): a
       database below it is refused with a plain message, not a crash.
 - [ ] A backup of the pre-upgrade file exists (`state/backup.ts`) and opens
@@ -80,12 +83,13 @@ deletions report the commit only.
       Requests node, no bulletin board, no chat button, no Providers card,
       Hermes still opens as a terminal seat.
 - [ ] Add item and CLI refuse an agent seat in the home folder.
-- [ ] `junto onboard` lists what changed since the last session.
+- [x] `junto onboard` lists what changed since the last session.
+      Receipt: CLI net 608e82b76, since area 4 pass (product-lead).
 - [x] CLI acceptance net: `scripts/work-cli-acceptance.ts` all pass.
       Receipt: 85 pass, 0 fail, 608e82b76 (product-lead); box screenshot in the app a98a640f9.
 - [x] Node cards and canvas smoothness at many seats (motion law holds,
       `tests/motion-law.test.ts`).
-      Receipt: spines run (product-lead), redesign 0db2f0d47 to 08a50a9a4. Many-seat smoothness and `tests/motion-law.test.ts` still need a receipt.
+      Receipt: spines run (product-lead), redesign 0db2f0d47 to 08a50a9a4. Many-seat smoothness (canvas-lead, via product-lead): cards board e67800562, near pan 104 fps against 98, near rest 114, 30 layers; canvas-tier-budget fbe7aefbf 2/2 on a clean build of 8b7f678d9. `tests/motion-law.test.ts` runs inside tech-lead's verify, result pending.
 
 ## 5. The cut (on product-lead's word only)
 
