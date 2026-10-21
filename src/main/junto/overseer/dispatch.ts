@@ -17,6 +17,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import { admitOverseer, watchOverseerRevocation } from "./admission";
 import { asNodeId } from "@shared/model";
 import { modelCanvas, type OverseerStores } from "./portfolio";
+import { executeOverseerAutomation } from "./automation";
 import { executeOverseerCanvas } from "./canvas";
 import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
 import { executeOverseerOffboard } from "./offboard";
@@ -120,12 +121,14 @@ const inFamily = (operation: string, families: ReadonlyArray<string>): boolean =
  * adapter, which refuses it; the catalog walk in the tests holds this list to
  * the catalog so that cannot happen unseen.
  */
-export const overseerRouteOf = (operation: string): "canvas" | "work" | "native" =>
+export const overseerRouteOf = (operation: string): "canvas" | "work" | "automation" | "native" =>
   operation !== "canvas.screenshot" && inFamily(operation, CANVAS_FAMILIES)
     ? "canvas"
     : inFamily(operation, WORK_FAMILIES)
       ? "work"
-      : "native";
+      : inFamily(operation, ["automation"])
+        ? "automation"
+        : "native";
 
 export const executeOverseer = Effect.fn("overseer.execute")(function* (
   caller: OverseerCaller,
@@ -237,7 +240,9 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
       ? executeOverseerCanvas(caller, request)
       : route === "work"
         ? executeOverseerWork(caller, request, { kind: "overseer", actor: authority.actor })
-        : runtime.native(caller, request);
+        : route === "automation"
+          ? executeOverseerAutomation(caller, request, authority.actor)
+          : runtime.native(caller, request);
     return { ok: true, operation, data } satisfies OverseerResult;
   });
   const result = yield* Effect.raceFirst(

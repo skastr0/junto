@@ -35,6 +35,7 @@ const SHIP_OPERATIONS = [
   "agent.offboard", "agent.offboard-status", "agent.offboard-rules", "agent.offboard-configure",
   "references.list", "references.read", "references.write", "references.delete",
   "briefing.read", "briefing.write",
+  "automation.create", "automation.edit", "automation.enable", "automation.disable", "automation.archive", "automation.run",
 ];
 
 const familyOf = (operation: string): string => operation.split(".", 1)[0] ?? operation;

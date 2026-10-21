@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Exit } from "effect";
-import type { AutomationCommandOp, AutomationView } from "../src/shared/automation-control";
+import { AutomationVersion, type Automation, type AutomationOp } from "../src/shared/automation";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import type { ResourceCommand } from "../src/shared/resource-command";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId } from "../src/shared/work-ids";
 import {
-  handleAutomationOp,
+  handleAutomationRead,
+  handleAutomationWrite,
   liveAutomationPorts,
   type AutomationCaller,
   type AutomationPorts,
+  type AutomationWriter,
 } from "../src/main/junto/work/automation-control";
 import { automationTargetResolver } from "../src/main/junto/work/automation-targets";
+import { emptyAutomationState, ruleAutomationCommand } from "../src/shared/automation-domain";
+import { automationTargets } from "../src/shared/region-reach";
 
 const at = (id: string, kind: string, x: number, y: number, extra: Record<string, unknown> = {}, width = 50, height = 50) =>
   ({ id: asNodeId(id), kind, x, y, width, height, ...extra }) as unknown as Node;
@@ -43,7 +47,10 @@ const caller = (nodeId: string): AutomationCaller => ({
   actor: { kind: "seat", seatId: ActorSeatId.make(`seat_${"a".repeat(64)}`), nodeId: asNodeId(nodeId) },
 });
 
-const stored: AutomationView = {
+/** An overseer seat writes as itself; the domain checks its toggle when it rules. */
+const writer = (nodeId: string): AutomationWriter => caller(nodeId);
+
+const stored: Automation = {
   automationId: EXISTING,
   nodeId: asNodeId("AU"),
   author: { kind: "seat", seat: asNodeId("S1") },
@@ -52,10 +59,10 @@ const stored: AutomationView = {
   trigger: { kind: "poll", everyMs: 60_000 },
   then: [{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("S1") }, text: "hi" }],
   limits: { minIntervalMs: 0, maxPerHour: 1 },
-  version: "v1" as AutomationView["version"],
+  version: AutomationVersion.make(1),
 };
 
-const fakePorts = (submitted: Array<ResourceCommand<AutomationCommandOp>>): AutomationPorts => ({
+const fakePorts = (submitted: Array<ResourceCommand<AutomationOp>>): AutomationPorts => ({
   nodes: (c) => [...c.nodes.values()].filter((node) => node.id === "AU"),
   automations: () => Effect.succeed([stored]),
   firings: () => Effect.succeed([]),
@@ -65,8 +72,11 @@ const fakePorts = (submitted: Array<ResourceCommand<AutomationCommandOp>>): Auto
   },
 });
 
-const run = (op: Parameters<typeof handleAutomationOp>[0], args: unknown, who = "S2", ports?: AutomationPorts) =>
-  Effect.runSyncExit(handleAutomationOp(op, args, caller(who), ports ?? fakePorts([])));
+const run = (op: Parameters<typeof handleAutomationWrite>[0], args: unknown, who = "S2", ports?: AutomationPorts) =>
+  Effect.runSyncExit(handleAutomationWrite(op, args, writer(who), ports ?? fakePorts([])));
+
+const read = (op: Parameters<typeof handleAutomationRead>[0], args: unknown, who = "S2", ports?: AutomationPorts) =>
+  Effect.runSyncExit(handleAutomationRead(op, args, caller(who), ports ?? fakePorts([])));
 
 const failure = (exit: Exit.Exit<unknown, WorkErrorBody>): WorkErrorBody => {
   if (Exit.isSuccess(exit)) throw new Error("expected a refusal");
@@ -91,8 +101,8 @@ const create = {
 
 describe("automation verbs in main", () => {
   it("turns a create into one resource command with every target resolved", () => {
-    const submitted: Array<ResourceCommand<AutomationCommandOp>> = [];
-    const exit = Effect.runSyncExit(handleAutomationOp("automation.create", create, caller("S2"), fakePorts(submitted)));
+    const submitted: Array<ResourceCommand<AutomationOp>> = [];
+    const exit = Effect.runSyncExit(handleAutomationWrite("automation.create", create, writer("S2"), fakePorts(submitted)));
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(submitted).toHaveLength(1);
     const [command] = submitted;
@@ -100,6 +110,7 @@ describe("automation verbs in main", () => {
     expect(command!.actor).toMatchObject({ kind: "seat", nodeId: "S2" });
     expect(command!.op).toEqual({
       kind: "create",
+      automationId: NEW,
       enabled: true,
       definition: {
         name: "remind",
@@ -110,6 +121,21 @@ describe("automation verbs in main", () => {
         ],
         limits: create.limits,
       },
+    });
+  });
+
+  it("is applied for an overseer and refused not_permitted for any other seat when the domain rules it", () => {
+    const submitted: Array<ResourceCommand<AutomationOp>> = [];
+    Effect.runSync(handleAutomationWrite("automation.create", create, writer("S2"), fakePorts(submitted)));
+    const env = (overseer: boolean) => ({
+      targetsOf: (nodeId: Parameters<typeof automationTargets>[1], author: Parameters<typeof automationTargets>[2]) =>
+        new Set(automationTargets(canvas, nodeId, author).map((target) => target.id)),
+      isOverseer: () => overseer,
+    });
+    expect(ruleAutomationCommand(emptyAutomationState(), submitted[0]!, 0, env(true))).toMatchObject({ kind: "apply" });
+    expect(ruleAutomationCommand(emptyAutomationState(), submitted[0]!, 0, env(false))).toMatchObject({
+      kind: "refuse",
+      refusal: { reason: "not_permitted" },
     });
   });
 
@@ -133,19 +159,44 @@ describe("automation verbs in main", () => {
     expect(failure(run("automation.create", numbered))).toMatchObject({ details: { reason: "not_available", path: "then[0].task" } });
   });
 
-  it("refuses an Automations node out of the caller's reach", () => {
-    expect(failure(run("automation.create", create, "SP"))).toMatchObject({ type: "ScopeError", details: { path: "target" } });
+  it("refuses a seat a read of an Automations node out of its reach", () => {
+    expect(failure(read("automation.show", { target: "Automations", automation: "nightly review" }, "SP"))).toMatchObject({
+      type: "ScopeError",
+      details: { path: "target" },
+    });
   });
 
-  it("finds an automation by name or id for edit, enable and run", () => {
-    const submitted: Array<ResourceCommand<AutomationCommandOp>> = [];
+  it("keeps an overseer's targets inside its own reach", () => {
+    expect(failure(run("automation.create", create, "SP"))).toMatchObject({ type: "UnknownTarget", details: { path: "then[0].to" } });
+  });
+
+  it("stores an edit as the whole definition, merged onto the head it names", () => {
+    const submitted: Array<ResourceCommand<AutomationOp>> = [];
+    Effect.runSync(handleAutomationWrite("automation.edit", {
+      target: "AU", automation: "nightly review", opId: OP, baseVersion: 1, change: { name: "weekly", when: [] },
+    }, writer("S2"), fakePorts(submitted)));
+    expect(submitted[0]!.op).toEqual({
+      kind: "edit",
+      baseVersion: 1,
+      definition: { name: "weekly", trigger: stored.trigger, then: stored.then, limits: stored.limits },
+    });
+  });
+
+  it("refuses an edit written on an older head as Stale, naming the head", () => {
+    const edit = { target: "AU", automation: "nightly review", opId: OP, baseVersion: 2, change: { name: "x" } };
+    expect(failure(run("automation.edit", edit))).toMatchObject({ type: "Stale", details: { expected: 1, retryable: true } });
+  });
+
+  it("turns enable, disable, archive and run into the domain's ops on the named automation", () => {
+    const submitted: Array<ResourceCommand<AutomationOp>> = [];
     const ports = fakePorts(submitted);
-    Effect.runSync(handleAutomationOp("automation.edit", {
-      target: "AU", automation: "nightly review", opId: OP, baseVersion: "v1", change: { name: "weekly", when: [] },
-    }, caller("S2"), ports));
-    Effect.runSync(handleAutomationOp("automation.run", { target: "Automations", automation: EXISTING, opId: OP }, caller("S2"), ports));
+    for (const op of ["automation.enable", "automation.disable", "automation.archive", "automation.run"] as const) {
+      Effect.runSync(handleAutomationWrite(op, { target: "Automations", automation: EXISTING, opId: OP }, writer("S2"), ports));
+    }
     expect(submitted.map((command) => command.op)).toEqual([
-      { kind: "edit", baseVersion: "v1", change: { name: "weekly", when: [] } },
+      { kind: "set-enabled", enabled: true },
+      { kind: "set-enabled", enabled: false },
+      { kind: "archive" },
       { kind: "run" },
     ]);
     expect(submitted.every((command) => command.target.itemId === EXISTING)).toBe(true);
@@ -156,14 +207,14 @@ describe("automation verbs in main", () => {
   });
 
   it("lists every Automations node in reach when none is named", () => {
-    expect(Effect.runSync(handleAutomationOp("automation.list", {}, caller("S2"), fakePorts([])))).toEqual({ automations: [stored] });
-    expect(Effect.runSync(handleAutomationOp("automation.list", {}, caller("SP"), fakePorts([])))).toEqual({ automations: [] });
+    expect(Effect.runSync(handleAutomationRead("automation.list", {}, caller("S2"), fakePorts([])))).toEqual({ automations: [stored] });
+    expect(Effect.runSync(handleAutomationRead("automation.list", {}, caller("SP"), fakePorts([])))).toEqual({ automations: [] });
   });
 
   it("refuses an edit without its base version, and one that changes nothing", () => {
     const edit = { target: "AU", automation: "nightly review", opId: OP, change: { name: "x" } };
     expect(failure(run("automation.edit", edit))).toMatchObject({ type: "InputError", details: { path: "args" } });
-    expect(failure(run("automation.edit", { ...edit, baseVersion: "v1", change: {} }))).toMatchObject({
+    expect(failure(run("automation.edit", { ...edit, baseVersion: 1, change: {} }))).toMatchObject({
       type: "InputError",
       details: { path: "change" },
     });
@@ -172,8 +223,8 @@ describe("automation verbs in main", () => {
 
 describe("before the Automations kind lands", () => {
   it("lists nothing and names no node", () => {
-    expect(Effect.runSync(handleAutomationOp("automation.list", {}, caller("S2"), liveAutomationPorts))).toEqual({ automations: [] });
-    expect(failure(run("automation.show", { target: "Automations", automation: "x" }, "S2", liveAutomationPorts))).toMatchObject({
+    expect(Effect.runSync(handleAutomationRead("automation.list", {}, caller("S2"), liveAutomationPorts))).toEqual({ automations: [] });
+    expect(failure(read("automation.show", { target: "Automations", automation: "x" }, "S2", liveAutomationPorts))).toMatchObject({
       type: "UnknownTarget",
       details: { hint: "this canvas has no Automations node" },
     });

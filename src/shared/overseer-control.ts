@@ -1,4 +1,5 @@
 import { Result, Schema, Struct } from "effect";
+import { AutomationCreateArgs, AutomationEditArgs, AutomationOneArgs } from "./automation-control";
 import { overseerOperationEnabled } from "./features";
 import { EnvSource } from "./model/region";
 import { ContentIdentity, ContentRef } from "./content";
@@ -152,6 +153,13 @@ export const OVERSEER_OPERATION_NAMES = [
   "references.delete",
   "briefing.read",
   "briefing.write",
+  // Only the operator and overseers write automations (operator ruling, 07).
+  "automation.create",
+  "automation.edit",
+  "automation.enable",
+  "automation.disable",
+  "automation.archive",
+  "automation.run",
 ] as const;
 
 /**
@@ -809,6 +817,12 @@ export const OverseerArgsSchemas = {
   "references.delete": Schema.Struct(ReferenceNamed),
   "briefing.read": EmptyArgs,
   "briefing.write": BriefingWrite,
+  "automation.create": AutomationCreateArgs,
+  "automation.edit": AutomationEditArgs,
+  "automation.enable": AutomationOneArgs,
+  "automation.disable": AutomationOneArgs,
+  "automation.archive": AutomationOneArgs,
+  "automation.run": AutomationOneArgs,
 } as const satisfies Record<OverseerOperation, Schema.Top>;
 
 export type OverseerArgsFor<Operation extends OverseerOperation> =

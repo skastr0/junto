@@ -3,7 +3,11 @@
  * verb takes, the result it returns, and the pure steps main runs on a
  * definition before it becomes a resource command.
  *
- * A seat writes targets as text: `@name`, `#42` or a `junto://` ref. Main
+ * Seats read automations (list, show, history) on the work socket. Only the
+ * operator and overseers write them (operator ruling, 07), so the writes are
+ * closed overseer ops: `junto overseer automation create` and the rest.
+ *
+ * Targets are written as text: `@name`, `#42` or a `junto://` ref. Main
  * resolves each through one resolver into the stored form, so the CLI stays a
  * thin socket client and never decides what a name means. Pure: effect only.
  */
@@ -11,6 +15,7 @@ import { Schema } from "effect";
 import {
   AutomationId,
   AutomationLimits,
+  AutomationVersion,
   automationShape,
   triggerRefusal,
   type Action,
@@ -25,17 +30,7 @@ import type { NodeId } from "./physics/schema";
 import type { WorkErrorBody, WorkOpName } from "./work-control";
 import { OpId } from "./work-ids";
 
-export { OpId };
-
-// ---------------------------------------------------------------------------
-// Versions
-
-/** The head an edit was written against; a stale one is refused `Stale`. */
-export const AutomationVersion = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
-  Schema.brand("AutomationVersion"),
-);
-export type AutomationVersion = typeof AutomationVersion.Type;
+export { AutomationVersion, OpId };
 
 // ---------------------------------------------------------------------------
 // Target text
@@ -107,7 +102,7 @@ const createFields = {
 export const AutomationCreateCliArgs = Schema.Struct({
   ...createFields,
   enabled: Schema.optionalKey(Schema.Boolean).annotate({
-    description: "Created off unless true; `junto automation enable` turns it on",
+    description: "Created off unless true; `junto overseer automation enable` turns it on",
   }),
   limits: Schema.optionalKey(AutomationLimits),
 }).annotate(strict);
@@ -149,7 +144,7 @@ export type AutomationEditArgs = typeof AutomationEditArgs.Type;
 
 const oneFields = { target: AutomationsNode, automation: AutomationName };
 
-/** enable, disable and run name one automation. */
+/** enable, disable, archive and run name one automation. */
 export const AutomationOneCliArgs = Schema.Struct(oneFields).annotate(strict);
 export type AutomationOneCliArgs = typeof AutomationOneCliArgs.Type;
 
@@ -172,31 +167,24 @@ export type AutomationHistoryArgs = typeof AutomationHistoryArgs.Type;
 // ---------------------------------------------------------------------------
 // Ops and results
 
-export const AUTOMATION_OPS = [
-  "automation.list",
-  "automation.show",
-  "automation.create",
-  "automation.edit",
-  "automation.enable",
-  "automation.disable",
-  "automation.run",
-  "automation.history",
-] as const;
-export type AutomationOp = (typeof AUTOMATION_OPS)[number];
-// Every automation op is a work op the socket carries.
-AUTOMATION_OPS satisfies ReadonlyArray<WorkOpName>;
+/** What a seat reads on the work socket: the Automations nodes in its reach. */
+export const AUTOMATION_READ_OPS = ["automation.list", "automation.show", "automation.history"] as const;
+export type AutomationReadOp = (typeof AUTOMATION_READ_OPS)[number];
+AUTOMATION_READ_OPS satisfies ReadonlyArray<WorkOpName>;
 
+export const isAutomationReadOp = (op: string): op is AutomationReadOp =>
+  (AUTOMATION_READ_OPS as ReadonlyArray<string>).includes(op);
+
+/** What only the operator and overseers write: closed overseer operations. */
 export const AUTOMATION_WRITE_OPS = [
   "automation.create",
   "automation.edit",
   "automation.enable",
   "automation.disable",
+  "automation.archive",
   "automation.run",
-] as const satisfies ReadonlyArray<AutomationOp>;
+] as const;
 export type AutomationWriteOp = (typeof AUTOMATION_WRITE_OPS)[number];
-
-export const isAutomationOp = (op: string): op is AutomationOp =>
-  (AUTOMATION_OPS as ReadonlyArray<string>).includes(op);
 
 export const isAutomationWriteOp = (op: string): op is AutomationWriteOp =>
   (AUTOMATION_WRITE_OPS as ReadonlyArray<string>).includes(op);
@@ -221,24 +209,6 @@ export type AutomationWriteResult =
     };
 
 export type AutomationDisposition = AutomationWriteResult["disposition"];
-
-/** An automation as reads return it: the stored record and the version an edit names. */
-export type AutomationView = Automation & { readonly version: AutomationVersion };
-
-/** The fields an edit replaces, resolved. */
-export type AutomationEdit = Partial<Pick<AutomationDefinition, "name" | "trigger" | "when" | "then" | "limits">>;
-
-/**
- * The automation domain's op on a `ResourceCommand` (02). The command's
- * target names the Automations node and, but for a create's own, the item.
- * Proposed for canvas's automation.ts, whose ruler rules it.
- */
-export type AutomationCommandOp =
-  | { readonly kind: "create"; readonly enabled: boolean; readonly definition: AutomationDefinition }
-  | { readonly kind: "edit"; readonly baseVersion: AutomationVersion; readonly change: AutomationEdit }
-  | { readonly kind: "enable" }
-  | { readonly kind: "disable" }
-  | { readonly kind: "run" };
 
 // ---------------------------------------------------------------------------
 // Pure steps main runs on a definition
@@ -394,6 +364,37 @@ export const resolveTargets = (
     if (cause instanceof Refused) return { ok: false, error: cause.error };
     throw cause;
   }
+};
+
+/** The refusal for an edit written against a version that is no longer the head. */
+export const staleRefusal = (head: AutomationVersion, base: AutomationVersion): WorkErrorBody => ({
+  type: "Stale",
+  message: `this automation is at version ${head}, not ${base}`,
+  details: {
+    path: "baseVersion",
+    expected: head,
+    retryable: true,
+    next_step: "read it with junto automation show, then edit against that version",
+  },
+});
+
+/**
+ * The whole definition an edit stores: each field the change names replaces
+ * the head's, `when: []` clears the conditions, and every other field stays.
+ */
+export const editedDefinition = (
+  head: Automation,
+  change: Pick<AutomationChange, "name" | "limits">,
+  resolved: ResolvedParts,
+): AutomationDefinition => {
+  const when = resolved.when ?? head.when;
+  return {
+    name: change.name ?? head.name,
+    trigger: resolved.trigger ?? head.trigger,
+    ...(when === undefined || when.length === 0 ? {} : { when }),
+    then: resolved.then ?? head.then,
+    limits: change.limits ?? head.limits,
+  };
 };
 
 /** The stored definition a create rules on, with every target resolved. On or off travels beside it. */

@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { Result, Schema } from "effect";
 import {
-  AUTOMATION_OPS,
+  AUTOMATION_READ_OPS,
   AUTOMATION_WRITE_OPS,
   AutomationCreateArgs,
   AutomationCreateCliArgs,
@@ -13,6 +13,8 @@ import {
   OpId,
   TargetText,
   definitionOf,
+  editedDefinition,
+  isAutomationReadOp,
   isAutomationWriteOp,
   reservedTriggerRefusal,
   resolveTargets,
@@ -100,7 +102,9 @@ describe("automation input", () => {
   it("makes an edit carry its base version", () => {
     const edit = { target: "Automations", automation: "nightly review", change: { name: "weekly review" } };
     expect(refused(AutomationEditCliArgs, edit)).toBe(true);
-    expect(refused(AutomationEditCliArgs, { ...edit, baseVersion: "v3" })).toBe(false);
+    expect(refused(AutomationEditCliArgs, { ...edit, baseVersion: 3 })).toBe(false);
+    expect(refused(AutomationEditCliArgs, { ...edit, baseVersion: 0 })).toBe(true);
+    expect(refused(AutomationEditCliArgs, { ...edit, baseVersion: "3" })).toBe(true);
   });
 
   it("bounds history pages and lets list name no node", () => {
@@ -191,20 +195,46 @@ describe("resolveTargets", () => {
 });
 
 describe("automation ops", () => {
-  it("names every write op among the ops, and nothing else as a write", () => {
-    expect(AUTOMATION_WRITE_OPS.every((op) => AUTOMATION_OPS.includes(op))).toBe(true);
-    expect(isAutomationWriteOp("automation.history")).toBe(false);
-    expect(isAutomationWriteOp("automation.run")).toBe(true);
+  it("lets seats read and leaves every write to the overseer plane", () => {
+    expect(AUTOMATION_READ_OPS.some((op) => isAutomationWriteOp(op))).toBe(false);
+    expect(AUTOMATION_WRITE_OPS.some((op) => isAutomationReadOp(op))).toBe(false);
+    expect(isAutomationWriteOp("automation.archive")).toBe(true);
+    expect(isAutomationReadOp("automation.history")).toBe(true);
+  });
+});
+
+describe("editedDefinition", () => {
+  const head = {
+    automationId: AutomationId.make(ID),
+    nodeId: asNodeId("AU"),
+    author: { kind: "operator" as const },
+    version: AutomationVersion.make(2),
+    enabled: true,
+    name: "nightly",
+    trigger: { kind: "poll" as const, everyMs: POLL_MIN_EVERY_MS },
+    when: [{ kind: "seat" as const, seat: seat("S1"), becomes: "idle" as const, holds: true as const }],
+    then: [{ kind: "mail" as const, to: seat("S1"), text: "hi" }],
+    limits: { minIntervalMs: 0, maxPerHour: 1 },
+  };
+
+  it("replaces what the change names and keeps the rest", () => {
+    expect(editedDefinition(head, { name: "weekly" }, {})).toEqual({
+      name: "weekly", trigger: head.trigger, when: head.when, then: head.then, limits: head.limits,
+    });
+  });
+
+  it("clears the conditions on when: []", () => {
+    expect(editedDefinition(head, {}, { when: [] })).not.toHaveProperty("when");
   });
 });
 
 describe("automation types", () => {
-  it("never takes a bare string for a minted id or a version", () => {
+  it("never takes a bare string for a minted id, nor a bare number for a version", () => {
     expectTypeOf<string>().not.toMatchTypeOf<OpId>();
     expectTypeOf<string>().not.toMatchTypeOf<AutomationId>();
-    expectTypeOf<string>().not.toMatchTypeOf<AutomationVersion>();
+    expectTypeOf<number>().not.toMatchTypeOf<AutomationVersion>();
     // @ts-expect-error an edit's base version is branded
-    const bad: typeof AutomationEditCliArgs.Type = { target: "a", automation: "b", baseVersion: "v1", change: {} };
+    const bad: typeof AutomationEditCliArgs.Type = { target: "a", automation: "b", baseVersion: 1, change: {} };
     void bad;
   });
 

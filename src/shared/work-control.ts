@@ -134,14 +134,9 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.post",
 "board.mark_read",
 "board.tags",
-/** Automations in reach (plan 07): no edge, no port; region reach admits. */
+/** Automations in reach (plan 07): no edge, no port; region reach admits. Seats only read. */
 "automation.list",
 "automation.show",
-"automation.create",
-"automation.edit",
-"automation.enable",
-"automation.disable",
-"automation.run",
 "automation.history",
 /** Artifacts in reach (plan 05): no edge, no port; region reach admits. */
 "artifact.list",

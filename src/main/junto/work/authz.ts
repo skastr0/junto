@@ -363,11 +363,6 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     // Automations are reached through regions, not edges (plan 01).
     case "automation.list":
     case "automation.show":
-    case "automation.create":
-    case "automation.edit":
-    case "automation.enable":
-    case "automation.disable":
-    case "automation.run":
     case "automation.history":
     // Artifacts too: an Artifacts node in reach admits (plan 05).
     case "artifact.list":

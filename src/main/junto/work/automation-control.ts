@@ -1,12 +1,14 @@
 // `junto automation` in main (plan 07, cli L4): decode each verb, find the
 // Automations node and the automation, resolve every target against
 // `automationTargets`, and hand each write to the ruler as a ResourceCommand
-// (02). The store, the ruler and the runner are canvas's (C5) and remote's
-// (R2); they reach this file through `AutomationPorts`, so the verbs are whole
-// before those land and switch over without changing here.
+// (02). Seats read on the work socket; only the operator and overseers write,
+// through the overseer plane, and the domain refuses any other seat. The
+// store, the ruler and the runner are canvas's (C5) and remote's (R2); they
+// reach this file through `AutomationPorts`, so the verbs are whole before
+// those land and switch over without changing here.
 
 import { Effect, Result, Schema } from "effect";
-import type { Firing } from "@shared/automation";
+import type { Automation, AutomationAuthor, AutomationOp, Firing } from "@shared/automation";
 import {
   AutomationCreateArgs,
   AutomationEditArgs,
@@ -14,11 +16,12 @@ import {
   AutomationListArgs,
   AutomationOneArgs,
   AutomationShowArgs,
+  editedDefinition,
   reservedTriggerRefusal,
   resolveTargets,
-  type AutomationCommandOp,
-  type AutomationOp,
-  type AutomationView,
+  staleRefusal,
+  type AutomationReadOp,
+  type AutomationWriteOp,
   type AutomationWriteResult,
   type TriggerInput,
 } from "@shared/automation-control";
@@ -42,16 +45,24 @@ export type HistoryQuery = {
 export type AutomationPorts = {
   /** The canvas's Automations nodes. */
   readonly nodes: (canvas: Canvas) => ReadonlyArray<Node>;
-  readonly automations: (canvasName: string, nodeId: NodeId) => Effect.Effect<ReadonlyArray<AutomationView>, WorkErrorBody>;
+  readonly automations: (canvasName: string, nodeId: NodeId) => Effect.Effect<ReadonlyArray<Automation>, WorkErrorBody>;
   /** Newest first. */
   readonly firings: (canvasName: string, nodeId: NodeId, query: HistoryQuery) => Effect.Effect<ReadonlyArray<Firing>, WorkErrorBody>;
-  readonly submit: (command: ResourceCommand<AutomationCommandOp>) => Effect.Effect<AutomationWriteResult, WorkErrorBody>;
+  readonly submit: (command: ResourceCommand<AutomationOp>) => Effect.Effect<AutomationWriteResult, WorkErrorBody>;
 };
 
+/** A seat reading the Automations nodes in its reach. */
 export type AutomationCaller = {
   readonly canvas: Canvas;
   readonly canvasName: string;
   readonly actor: Extract<ResourceActor, { readonly kind: "seat" }>;
+};
+
+/** The operator, or an overseer seat writing with the operator's authority. */
+export type AutomationWriter = {
+  readonly canvas: Canvas;
+  readonly canvasName: string;
+  readonly actor: Extract<ResourceActor, { readonly kind: "seat" | "operator" }>;
 };
 
 const HISTORY_DEFAULT_LIMIT = 50;
@@ -87,7 +98,13 @@ const decode = <S extends Schema.Top>(schema: S, args: unknown): Effect.Effect<S
 
 const namesOf = (names: ReadonlyArray<string>): string => names.slice(0, 12).join(", ");
 
-const findNode = (caller: AutomationCaller, ports: AutomationPorts, text: string): Effect.Effect<Node, WorkErrorBody> => {
+/** The named Automations node; a seat reading it must also reach it. */
+const findNode = (
+  caller: { readonly canvas: Canvas },
+  ports: AutomationPorts,
+  text: string,
+  reader?: NodeId,
+): Effect.Effect<Node, WorkErrorBody> => {
   const nodes = ports.nodes(caller.canvas);
   const link = text.startsWith("junto://") ? parseMentionHref(text) : undefined;
   const named = link !== undefined
@@ -110,7 +127,7 @@ const findNode = (caller: AutomationCaller, ports: AutomationPorts, text: string
     });
   }
   const node = named[0]!;
-  return reaches(caller.canvas, caller.actor.nodeId, node.id)
+  return reader === undefined || reaches(caller.canvas, reader, node.id)
     ? Effect.succeed(node)
     : Effect.fail({
         type: "ScopeError",
@@ -120,9 +137,9 @@ const findNode = (caller: AutomationCaller, ports: AutomationPorts, text: string
 };
 
 const findAutomation = (
-  views: ReadonlyArray<AutomationView>,
+  views: ReadonlyArray<Automation>,
   text: string,
-): Effect.Effect<AutomationView, WorkErrorBody> => {
+): Effect.Effect<Automation, WorkErrorBody> => {
   const named = isItemId(text)
     ? views.filter((view) => view.automationId === text)
     : views.filter((view) => view.name === text);
@@ -143,12 +160,12 @@ const findAutomation = (
 };
 
 const command = (
-  caller: AutomationCaller,
+  caller: AutomationWriter,
   opId: OpId,
   nodeId: NodeId,
   automationId: ItemId,
-  op: AutomationCommandOp,
-): ResourceCommand<AutomationCommandOp> => ({
+  op: AutomationOp,
+): ResourceCommand<AutomationOp> => ({
   opId,
   canvasName: caller.canvasName,
   actor: caller.actor,
@@ -159,8 +176,11 @@ const command = (
   op,
 });
 
-const resolveIn = (caller: AutomationCaller, node: Node) =>
-  automationTargetResolver(caller.canvas, node.id, { kind: "seat", seat: caller.actor.nodeId });
+const authorOf = (writer: AutomationWriter): AutomationAuthor =>
+  writer.actor.kind === "seat" ? { kind: "seat", seat: writer.actor.nodeId } : { kind: "operator" };
+
+const resolveIn = (writer: AutomationWriter, node: Node) =>
+  automationTargetResolver(writer.canvas, node.id, authorOf(writer));
 
 const resolved = <A>(out: { readonly ok: true; readonly value: A } | { readonly ok: false; readonly error: WorkErrorBody }) =>
   out.ok ? Effect.succeed(out.value) : Effect.fail(out.error);
@@ -172,9 +192,9 @@ const refuseReserved = (trigger: TriggerInput | undefined) => {
   return refusal === undefined ? Effect.void : Effect.fail(refusal);
 };
 
-/** One automation verb, for a seat the work socket admitted. */
-export const handleAutomationOp = (
-  op: AutomationOp,
+/** One automation read, for a seat the work socket admitted. */
+export const handleAutomationRead = (
+  op: AutomationReadOp,
   args: unknown,
   caller: AutomationCaller,
   ports: AutomationPorts,
@@ -185,20 +205,20 @@ export const handleAutomationOp = (
         const input = yield* decode(AutomationListArgs, args);
         const nodes = input.target === undefined
           ? ports.nodes(caller.canvas).filter((node) => reaches(caller.canvas, caller.actor.nodeId, node.id))
-          : [yield* findNode(caller, ports, input.target)];
-        const automations: Array<AutomationView> = [];
+          : [yield* findNode(caller, ports, input.target, caller.actor.nodeId)];
+        const automations: Array<Automation> = [];
         for (const node of nodes) automations.push(...(yield* ports.automations(caller.canvasName, node.id)));
         return { automations };
       }
       case "automation.show": {
         const input = yield* decode(AutomationShowArgs, args);
-        const node = yield* findNode(caller, ports, input.target);
+        const node = yield* findNode(caller, ports, input.target, caller.actor.nodeId);
         const automation = yield* findAutomation(yield* ports.automations(caller.canvasName, node.id), input.automation);
         return { automation };
       }
       case "automation.history": {
         const input = yield* decode(AutomationHistoryArgs, args);
-        const node = yield* findNode(caller, ports, input.target);
+        const node = yield* findNode(caller, ports, input.target, caller.actor.nodeId);
         const automationId = input.automation === undefined
           ? undefined
           : (yield* findAutomation(yield* ports.automations(caller.canvasName, node.id), input.automation)).automationId;
@@ -209,15 +229,31 @@ export const handleAutomationOp = (
         });
         return { firings };
       }
+    }
+  });
+
+/**
+ * One automation write, for the operator or an admitted overseer. The domain
+ * rules it again: an overseer's targets must also be in its own reach.
+ */
+export const handleAutomationWrite = (
+  op: AutomationWriteOp,
+  args: unknown,
+  writer: AutomationWriter,
+  ports: AutomationPorts,
+): Effect.Effect<AutomationWriteResult, WorkErrorBody> =>
+  Effect.gen(function* () {
+    switch (op) {
       case "automation.create": {
         const input = yield* decode(AutomationCreateArgs, args);
         yield* refuseReserved(input.trigger);
-        const node = yield* findNode(caller, ports, input.target);
-        const parts = yield* resolved(resolveTargets(input, resolveIn(caller, node)));
+        const node = yield* findNode(writer, ports, input.target);
+        const parts = yield* resolved(resolveTargets(input, resolveIn(writer, node)));
         const { trigger, then } = parts;
         if (trigger === undefined || then === undefined) return yield* Effect.die("a create resolves its trigger and actions");
-        return yield* ports.submit(command(caller, input.opId, node.id, input.automationId, {
+        return yield* ports.submit(command(writer, input.opId, node.id, input.automationId, {
           kind: "create",
+          automationId: input.automationId,
           enabled: input.enabled,
           definition: {
             name: input.name,
@@ -237,29 +273,33 @@ export const handleAutomationOp = (
             details: { path: "change", retryable: false },
           });
         }
-        const node = yield* findNode(caller, ports, input.target);
-        const automation = yield* findAutomation(yield* ports.automations(caller.canvasName, node.id), input.automation);
+        const node = yield* findNode(writer, ports, input.target);
+        const head = yield* findAutomation(yield* ports.automations(writer.canvasName, node.id), input.automation);
+        // The change is merged onto the head, so it must be the head it was written on.
+        if (head.version !== input.baseVersion) return yield* Effect.fail(staleRefusal(head.version, input.baseVersion));
         yield* refuseReserved(input.change.trigger);
-        const parts = yield* resolved(resolveTargets(input.change, resolveIn(caller, node)));
-        const { name, limits } = input.change;
-        return yield* ports.submit(command(caller, input.opId, node.id, automation.automationId, {
+        const parts = yield* resolved(resolveTargets(input.change, resolveIn(writer, node)));
+        return yield* ports.submit(command(writer, input.opId, node.id, head.automationId, {
           kind: "edit",
           baseVersion: input.baseVersion,
-          change: {
-            ...(name === undefined ? {} : { name }),
-            ...(limits === undefined ? {} : { limits }),
-            ...parts,
-          },
+          definition: editedDefinition(head, input.change, parts),
         }));
       }
       case "automation.enable":
       case "automation.disable":
+      case "automation.archive":
       case "automation.run": {
         const input = yield* decode(AutomationOneArgs, args);
-        const node = yield* findNode(caller, ports, input.target);
-        const automation = yield* findAutomation(yield* ports.automations(caller.canvasName, node.id), input.automation);
-        const kind = op === "automation.enable" ? "enable" : op === "automation.disable" ? "disable" : "run";
-        return yield* ports.submit(command(caller, input.opId, node.id, automation.automationId, { kind }));
+        const node = yield* findNode(writer, ports, input.target);
+        const automation = yield* findAutomation(yield* ports.automations(writer.canvasName, node.id), input.automation);
+        const ruled: AutomationOp = op === "automation.enable"
+          ? { kind: "set-enabled", enabled: true }
+          : op === "automation.disable"
+            ? { kind: "set-enabled", enabled: false }
+            : op === "automation.archive"
+              ? { kind: "archive" }
+              : { kind: "run" };
+        return yield* ports.submit(command(writer, input.opId, node.id, automation.automationId, ruled));
       }
     }
   });

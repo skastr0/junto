@@ -151,8 +151,8 @@ import {
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
-import { AUTOMATION_WRITE_OPS, isAutomationOp } from "@shared/automation-control";
-import { handleAutomationOp, liveAutomationPorts } from "./automation-control";
+import { isAutomationReadOp } from "@shared/automation-control";
+import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
 import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
 import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
 import { liveSeatObservation } from "./seat-observation-live";
@@ -226,7 +226,6 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "board.create_topic",
   "board.post",
   "board.mark_read",
-  ...AUTOMATION_WRITE_OPS,
   ...ARTIFACT_WRITE_OPS,
   // Agent signals stay open while paused: raising a hand to the operator is
   // not a factory act, and a paused seat may need to say it is stuck.
@@ -2543,10 +2542,10 @@ const dispatchOp = (
       return yield* handleContentStage({ canvasName: caller.canvasName, nodeId: caller.nodeId }, args);
     }
 
-    if (isAutomationOp(op)) {
+    if (isAutomationReadOp(op)) {
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      return yield* handleAutomationOp(op, args, {
+      return yield* handleAutomationRead(op, args, {
         canvas: board,
         canvasName: caller.canvasName,
         actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },

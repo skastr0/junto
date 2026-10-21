@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
+import { isAutomationWriteOp } from "../src/shared/automation-control";
+import { AUTOMATION_WRITE_CLI_SCHEMAS } from "../src/cli/commands/overseer-automation";
 import {
   OVERSEER_CATALOG,
   OVERSEER_OPERATION_NAMES,
@@ -188,9 +190,12 @@ describe("overseer catalog wiring", () => {
       const operation = example.command_id.replace(/^overseer\./, "") as (typeof OVERSEER_OPERATION_NAMES)[number];
       // `secret put` takes its value from stdin, so its example is the
       // command's argument, not the wire args.
+      // An automation write's example is what the command takes; the ids are minted.
       const decoded = operation === "secret.put"
         ? Schema.decodeUnknownResult(OverseerSecretPutInput, { onExcessProperty: "error" })(example.input)
-        : decodeOverseerArgs(operation, example.input);
+        : isAutomationWriteOp(operation)
+          ? Schema.decodeUnknownResult(AUTOMATION_WRITE_CLI_SCHEMAS[operation] as never, { onExcessProperty: "error" })(example.input)
+          : decodeOverseerArgs(operation, example.input);
       expect(Result.isSuccess(decoded)).toBe(true);
     }
     for (const entry of OVERSEER_CATALOG.filter(({ family }) => family === "env" || family === "secret")) {

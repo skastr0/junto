@@ -31,6 +31,14 @@ import { loadJsonInput } from "../core/json";
 import { executeJsonCommand, executeJsonCommandWithVerdict } from "../core/output";
 import { decodeSecretPutInput, readSecretValue } from "../core/secret-input";
 import { WorkSocket } from "../core/socket";
+import { isAutomationWriteOp, type AutomationWriteOp } from "../../shared/automation-control";
+import { opIdFlag } from "../core/op-id";
+import {
+  AUTOMATION_WRITE_CLI_SCHEMAS,
+  AUTOMATION_WRITE_DESCRIPTIONS,
+  automationWriteArgs,
+  overseerAutomationExamples,
+} from "./overseer-automation";
 import { retiredOverseerError, retiredOverseerOperation } from "./overseer-retired";
 import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
 
@@ -232,6 +240,7 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   secret: "Junto's own secret store on this machine: put (value on stdin), delete, list",
   references: "The operator's named references, app-wide or one region's: list, read, write (body from --body), delete",
   briefing: "The app briefing every seat gets at onboard: read, write (body from --body)",
+  automation: "Automations, written by the operator and overseers only: create, edit, enable, disable, archive, run",
 };
 
 const describeEntry = (entry: OverseerCatalogEntry): string =>
@@ -392,8 +401,26 @@ const makeBodyWriteCommand = (
       ),
   ).pipe(Command.withDescription(spec.description));
 
+/** An automation write mints its opId, or resends one with --op-id. */
+const makeAutomationWriteCommand = (entry: OverseerCatalogEntry, operation: AutomationWriteOp) =>
+  Command.make(
+    entry.verb,
+    { input: optionalJsonInputArg, opId: opIdFlag, timeout: timeoutOption },
+    ({ input, opId, timeout }) =>
+      executeJsonCommand(
+        commandNameFor(entry),
+        Effect.gen(function* () {
+          const raw = Option.getOrElse(input, () => "{}");
+          const args = yield* automationWriteArgs(operation, raw, opId);
+          return yield* callOverseer(entry.operation, args, toUndefined(timeout));
+        }),
+      ),
+  ).pipe(Command.withDescription(AUTOMATION_WRITE_DESCRIPTIONS[operation]));
+
 const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
-  BODY_WRITE[entry.operation] !== undefined
+  isAutomationWriteOp(entry.operation)
+    ? makeAutomationWriteCommand(entry, entry.operation)
+    : BODY_WRITE[entry.operation] !== undefined
     ? makeBodyWriteCommand(entry, BODY_WRITE[entry.operation]!)
     : entry.operation === "secret.put"
     ? makeSecretPutCommand(entry)
@@ -613,10 +640,15 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
     command_id: commandIdFor(entry.operation),
     command: commandNameFor(entry),
     schema_id: `overseer.${entry.operation}.input/v1`,
-    description: `${describeEntry(entry)}. Overseer; edges not required.`,
+    description: isAutomationWriteOp(entry.operation)
+      ? `${AUTOMATION_WRITE_DESCRIPTIONS[entry.operation]}. Overseer; edges not required. Returns applied with the new version, or queued with the opId while the editing machine is away.`
+      : `${describeEntry(entry)}. Overseer; edges not required.`,
     // `secret put` documents what the command takes, which is not what the
     // wire carries: the value never is an argument.
-    schema: entry.operation === "secret.put"
+    // An automation write documents what the command takes: the ids are minted here.
+    schema: isAutomationWriteOp(entry.operation)
+      ? AUTOMATION_WRITE_CLI_SCHEMAS[entry.operation]
+      : entry.operation === "secret.put"
       ? OverseerSecretPutInput
       // The body may come from --body, so the argument need not carry it.
       : entry.operation === "references.write"
@@ -1040,7 +1072,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
 
 /** Examples follow their operation: a disabled family has no recipe. */
 export const overseerExamples: ReadonlyArray<CommandExample> =
-  declaredOverseerExamples.filter((example) =>
+  [...declaredOverseerExamples, ...overseerAutomationExamples].filter((example) =>
     overseerOperationEnabled(example.command_id.replace(/^overseer\./, "")),
   );
 

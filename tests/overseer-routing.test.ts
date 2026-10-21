@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { overseerRouteOf } from "../src/main/junto/overseer/dispatch";
 import { OVERSEER_OPERATION_NAMES, OVERSEER_RETIRED_OPERATIONS } from "../src/shared/overseer-control";
+import { isAutomationWriteOp } from "../src/shared/automation-control";
 
 // Where each overseer operation goes once it is admitted. A family renamed in
 // the catalog and not in the dispatcher's list is sent to the native adapter,
@@ -37,6 +38,11 @@ describe("overseer operation routing", () => {
     const unanswered: string[] = [];
     for (const operation of OVERSEER_OPERATION_NAMES) {
       const route = overseerRouteOf(operation);
+      // The automation handler answers exactly the automation writes.
+      if (route === "automation") {
+        if (!isAutomationWriteOp(operation)) unanswered.push(`${operation} -> ${route}`);
+        continue;
+      }
       const source = route === "canvas" ? canvasSource : route === "work" ? workSource : nativeSource;
       if (!answers(source, operation)) unanswered.push(`${operation} -> ${route}`);
     }
