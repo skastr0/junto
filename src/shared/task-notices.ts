@@ -20,9 +20,10 @@ import { isItemId, type OpId } from "./work-ids";
 
 /**
  * The mail a ruled task command owes (`TaskEffect`, task-model.ts), as
- * subject notices in the task's thread. The actor's own machine runs this
- * when its cursor covers the applied ruling and appends each row; a refused
- * command gets one refusal notice in the actor seat's own mailbox. Pure.
+ * subject notices in the task's thread. Each recipient seat's own machine
+ * writes its notice as it commits or folds the applied ruling
+ * (`ruling-notices.ts`); a refused command gets one refusal notice in the
+ * actor seat's own mailbox. Pure.
  *
  * A task has one thread, and its id is the task's: a task id is a ULID, so
  * every comment and notice on the task groups under it with no lookup, on
@@ -66,8 +67,10 @@ export type AppliedTaskRuling = {
   readonly installationId: string;
   readonly opId: OpId;
   readonly task: NoticedTask;
-  /** The seat or operator who sent the command, stamped as the notices' sender. */
+  /** The notices' sender stamp: the task node's, as a resource's notice. */
   readonly sender: MailSenderStamp;
+  /** Who acted, as the text names them; the sender's name when absent. */
+  readonly by?: string;
   /** The actor's node, which is never told about its own act. Absent for the operator and automations. */
   readonly actor?: SeatNodeId;
   readonly effects: ReadonlyArray<TaskEffect>;
@@ -85,7 +88,7 @@ const mailOf = (
   effect: TaskEffect,
   ruling: AppliedTaskRuling,
 ): { readonly kind: OpNotice["kind"]; readonly to: SeatNodeId; readonly text: string } | undefined => {
-  const by = ruling.sender.senderName ?? "a seat";
+  const by = ruling.by ?? ruling.sender.senderName ?? "a seat";
   const name = taskName(ruling.task);
   switch (effect.kind) {
     case "assignment-notice":

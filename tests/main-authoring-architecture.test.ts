@@ -148,7 +148,6 @@ describe("main authoring architecture", () => {
       // and the window's resource thread post.
       "src/main/junto/work/subject-comment.ts",
       // A ruling's notices go out as the actor's mail, only from the ruled task command.
-      "src/main/junto/work/task-delivery.ts",
     ]);
 
     const companion = source("src/main/junto/companion/operator-actions.ts");

@@ -14,8 +14,8 @@ import type { ItemId, OpId } from "./work-ids";
  * thread, and has an id derived from what caused it, so writing it twice
  * writes one row: the second append meets `identity-conflict` at the sink.
  *
- * The actor's machine writes these from the applied ruling, for its own seats
- * only (docs/security-doctrine.md:245). Pure: no I/O, no clock.
+ * A ruling's notices are written by each recipient seat's own machine, into
+ * that seat's own mailbox (`ruling-notices.ts`). Pure: no I/O, no clock.
  */
 
 /** Why a seat got the notice. Closed: delivery and the header match on it. */

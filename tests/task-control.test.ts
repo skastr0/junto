@@ -195,7 +195,6 @@ const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<
     submitted.push(command);
     return Effect.succeed(outcome);
   },
-  deliver: () => Effect.void,
   changes: () => () => undefined,
   now: () => 0,
   comment: (input, context) => {
@@ -333,27 +332,6 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
       expect(submitted[0]?.op).toEqual({ kind: "finish", evidence, ...(next === undefined ? {} : { next: "tasks-3" }) });
     }
     expect(refused(TaskFinishArgs, { opId: OP, task: "#42", evidence: { claims: [] } })).toBe(true);
-  });
-
-  it("delivers a fresh ruling's mail as the actor's, and a replay's never", async () => {
-    for (const replay of [false, true]) {
-      const delivered: Array<Parameters<TaskPorts["deliver"]>[0]> = [];
-      const ports = { ...portsWith({ kind: "applied", opId: OP, task: record(), effects: [{ kind: "number-minted", number: TaskNumber.make(42) }], replay }), deliver: (d: Parameters<TaskPorts["deliver"]>[0]) => {
-        delivered.push(d);
-        return Effect.void;
-      } };
-      await run("task.start", { opId: OP, task: "#42" }, ports);
-      expect(delivered.map((d) => [d.opId, d.actor, d.canvasName, d.task.id, d.effects.length])).toEqual(
-        replay ? [] : [[OP, caller.actor, "factory", ID, 1]],
-      );
-    }
-  });
-
-  it("answers applied, with the delivery error, when the ruling's mail cannot go out", async () => {
-    const down: WorkErrorBody = { type: "RuntimeDown", message: "no work service" };
-    const ports = { ...portsWith(applied()), deliver: () => Effect.fail(down) };
-    const exit = await run("task.start", { opId: OP, task: "#42" }, ports);
-    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, number: 42, state: "assigned", deliveryError: down }));
   });
 
   it("puts the opId on a refused comment", async () => {

@@ -72,7 +72,6 @@ const portsOf = (work: WorkServiceShape): ResourceIpcPorts => ({
   tasks: {
     list: () => Effect.die("unused"),
     submit: () => Effect.die("unused"),
-    deliver: () => Effect.die("unused"),
     find: (_canvas, _name, lookup) =>
       Effect.succeed(
         lookup.kind === "id" && lookup.taskId === TASK

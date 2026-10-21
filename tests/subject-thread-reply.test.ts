@@ -26,11 +26,8 @@ import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { automations, canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { AUTOMATION_SEAT_ID } from "../src/shared/mail-author";
-import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
-import { deliverTaskEffects } from "../src/main/junto/work/task-delivery";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { mentionLink } from "../src/shared/mention";
-import { seatNodeId, taskNodeId } from "../src/shared/task-model";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
@@ -212,37 +209,6 @@ describe("subject threads", () => {
     expect(held === undefined ? undefined : threadSubjectOf(held)).toEqual({ kind: "task", nodeId: BOARD, taskId });
   });
 
-  it("a ruling's notices are delivered as the actor's mail, once however often it is delivered", async () => {
-    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCX");
-    const agentSeat = `seat_${"f".repeat(64)}` as ActorSeatId;
-    const delivery = {
-      canvas: canvasOf(NODES, WIRES, CANVAS),
-      canvasName: CANVAS,
-      actor: { kind: "seat", seatId: agentSeat, nodeId: asNodeId("agent") },
-      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3P"),
-      task: {
-        id: taskId,
-        number: 3 as never,
-        title: "fix tabs",
-        dependsOn: [],
-        state: "assigned",
-        node: taskNodeId(asNodeId(BOARD)),
-        assignee: seatNodeId(asNodeId("peer")),
-        epoch: 1,
-        stampPolicy: { required: 0 },
-        reviewers: [],
-        stamps: [],
-      },
-      effects: [{ kind: "assignment-notice", seat: seatNodeId(asNodeId("peer")) }, { kind: "number-minted", number: 3 as never }],
-    } as const;
-    await runtime.runPromise(deliverTaskEffects(delivery) as Effect.Effect<void>);
-    await runtime.runPromise(deliverTaskEffects(delivery) as Effect.Effect<void>);
-    const told = (await mailbox("peer")).filter((message) => threadSubjectOf(message) !== undefined);
-    expect(told).toHaveLength(1);
-    expect(told[0]?.metadata).toMatchObject({ fromSeat: agentSeat, senderNodeId: "agent", subjectNotice: "assignment", threadId: taskId });
-    expect((await mailbox("agent")).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
-  });
-
   it.skipIf(!TASKS_ENABLED)("a comment's own row is held at the task node, and earlier posters are told of the next", async () => {
     const taskId = await createTask();
     const first = await call("agent", "msg.send", { target: BOARD, taskId, text: "starting" });
@@ -282,35 +248,6 @@ describe("subject threads", () => {
     expect(b.messageId).toBe(a.messageId);
     expect((await mailbox(BOARD)).filter((message) => message.messageId === a.messageId)).toHaveLength(1);
     expect((await mailbox("agent")).filter((message) => message.metadata?.subjectNotice === "comment")).toHaveLength(1);
-  });
-
-  it("an automation's and the operator's ruling notices go out as the automation's node and as operator mail", async () => {
-    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCZ");
-    const task = {
-      id: taskId,
-      number: 4 as never,
-      title: "rotate keys",
-      dependsOn: [],
-      state: "assigned",
-      node: taskNodeId(asNodeId(BOARD)),
-      assignee: seatNodeId(asNodeId("peer")),
-      epoch: 1,
-      stampPolicy: { required: 0 },
-      reviewers: [],
-      stamps: [],
-    } as const;
-    const base = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, task, effects: [{ kind: "assignment-notice", seat: seatNodeId(asNodeId("peer")) }] } as const;
-    await runtime.runPromise(deliverTaskEffects({
-      ...base,
-      actor: { kind: "automation", nodeId: asNodeId("auto"), automationId: ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD0") },
-      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3R"),
-    }) as Effect.Effect<void>);
-    await runtime.runPromise(deliverTaskEffects({ ...base, actor: { kind: "operator" }, opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3S") }) as Effect.Effect<void>);
-    const told = (await mailbox("peer")).filter((message) => message.metadata?.threadId === taskId);
-    expect(told.map((message) => message.metadata)).toEqual([
-      expect.objectContaining({ fromSeat: AUTOMATION_SEAT_ID, senderNodeId: "auto", subjectNotice: "assignment" }),
-      expect.objectContaining({ fromSeat: OPERATOR_SEAT_ID, senderName: "operator", subjectNotice: "assignment" }),
-    ]);
   });
 
   it.skipIf(!TASKS_ENABLED)("a far live overseer comments on a task and is told of the next comment; with the flag off it is refused", async () => {

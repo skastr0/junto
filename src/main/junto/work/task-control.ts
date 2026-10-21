@@ -64,7 +64,6 @@ import { linkMentionsAt } from "./mention-links";
 import { TASKS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged, onResourceChanged } from "./resource-changes";
-import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
 
 /** How a task is named once its text is read. */
@@ -86,8 +85,6 @@ export type TaskPorts = {
   readonly find: (canvas: Canvas, canvasName: string, lookup: TaskLookup) => Effect.Effect<TaskView | undefined, WorkErrorBody>;
   /** Rule a command here when this machine edits the canvas; otherwise queue it for the machine that does. */
   readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskWriteOutcome, WorkErrorBody>;
-  /** Mail the ruling owes: assignment notices, stamp requests, defects, sent on (pty P4). */
-  readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, WorkErrorBody>;
   /** A comment in the task's thread: pty's one write path, `postSubjectComment` (03). */
   readonly comment: (
     input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
@@ -217,7 +214,6 @@ export const liveTaskPorts: TaskPorts = (() => {
             })),
         );
       }),
-    deliver: deliverTaskEffects,
     comment: postSubjectComment,
   };
 })();
@@ -598,23 +594,9 @@ const commandOf = (
 
 const submitted = (caller: TaskCaller, ports: TaskPorts, written: ResourceCommand<TaskCommand>) =>
   Effect.gen(function* () {
+    // The mail a ruling owes is written with it, by each recipient's own machine (ruling-notices.ts).
     const outcome = yield* ports.submit(written, taskRulingContext(caller.canvas), taskCanvasEnv(caller.canvas));
-    const result = yield* writeResultOf(outcome, written);
-    if (outcome.kind !== "applied" || outcome.replay) return result;
-    // The ruling is committed: a lost notice must not turn an applied write
-    // into a retry, whose replay owes no mail and would never send it. The
-    // write stands, and the seat is told its mail did not go.
-    const delivered = yield* Effect.result(ports.deliver({
-      canvas: caller.canvas,
-      canvasName: caller.canvasName,
-      actor: written.actor,
-      opId: written.opId,
-      task: outcome.task,
-      effects: outcome.effects,
-    }));
-    if (Result.isSuccess(delivered)) return result;
-    yield* Effect.logWarning("task notices were not delivered", { opId: written.opId, error: delivered.failure });
-    return { ...result, deliveryError: delivered.failure };
+    return yield* writeResultOf(outcome, written);
   });
 
 /** One task verb, for a seat the work socket admitted. */

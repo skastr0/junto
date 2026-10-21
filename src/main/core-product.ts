@@ -64,15 +64,15 @@ export const makeCoreProductLayer = (home: string) => {
       OpRepositoryLive,
       // The automation store, and the recorder its ruler records each ruling through.
       makeAutomationRepositoryLive(),
-      Layer.provide(RulingRecorderLive, WorkRepositoryLive),
+      Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
       // The artifact store puts each version's bytes in the content store.
       // Each ruling is recorded once, for every machine, through the work store.
       Layer.provideMerge(
-        Layer.provide(ArtifactRepositoryLive, Layer.provide(RulingRecorderLive, WorkRepositoryLive)),
+        Layer.provide(ArtifactRepositoryLive, Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive))),
         makeContentServiceLive({ home }),
       ),
       // The task ruler records its rulings the same way.
-      Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, WorkRepositoryLive)),
+      Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive))),
     ),
     Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(state, installOps)),
   );

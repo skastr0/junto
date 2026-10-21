@@ -51,7 +51,6 @@ const body = (text: string) => ({ text }) as unknown as ArtifactBody;
 type Calls = {
   pulled: Array<unknown>;
   submitted: Array<ResourceCommand<unknown>>;
-  delivered: number;
   listed: Array<unknown>;
 };
 
@@ -60,7 +59,7 @@ const portsOf = (over: {
   readonly artifactSubmit?: ResourceIpcPorts["artifacts"]["submit"];
   readonly queue?: ResourceIpcPorts["queue"];
 } = {}) => {
-  const calls: Calls = { pulled: [], submitted: [], delivered: 0, listed: [] };
+  const calls: Calls = { pulled: [], submitted: [], listed: [] };
   const ports: ResourceIpcPorts = {
     topology: () => Effect.succeed(board),
     tasks: {
@@ -73,10 +72,6 @@ const portsOf = (over: {
         return over.taskSubmit?.(command, context, env) ??
           Effect.succeed({ kind: "applied", opId: command.opId, task: {} as TaskRecord, effects: [], replay: false });
       },
-      deliver: () =>
-        Effect.sync(() => {
-          calls.delivered += 1;
-        }),
       find: () => Effect.succeed(undefined),
       comment: () => Effect.die("no comment in this suite"),
     },
@@ -144,7 +139,6 @@ describe("tasks over IPC", () => {
         op: start,
       },
     ]);
-    expect(calls.delivered).toBe(1);
   });
 
   it("refuses a seat that is not an agent before the ruler, in the domain's words", async () => {
@@ -157,12 +151,11 @@ describe("tasks over IPC", () => {
     expect(calls.submitted).toEqual([]);
   });
 
-  it("answers a resend from the stored ruling without mail, and a store failure as refused", async () => {
+  it("answers a resend from the stored ruling, and a store failure as refused", async () => {
     const replay = portsOf({
       taskSubmit: (command) => Effect.succeed({ kind: "applied", opId: command.opId, task: {} as TaskRecord, effects: [], replay: true }),
     });
     expect(await run(applyTask(replay.ports, "factory", asNodeId("T"), TASK, OP, { kind: "start" }))).toEqual({ kind: "applied", opId: OP });
-    expect(replay.calls.delivered).toBe(0);
     const down: WorkErrorBody = { type: "InternalError", message: "the task store is down", details: { retryable: true } };
     const failing = portsOf({ taskSubmit: () => Effect.fail(down) });
     expect(await run(applyTask(failing.ports, "factory", asNodeId("T"), TASK, OP, { kind: "start" }))).toEqual({
@@ -174,17 +167,6 @@ describe("tasks over IPC", () => {
 });
 
 describe("what a write may name", () => {
-  it("keeps an applied write applied when its mail fails, reporting the failure beside it", async () => {
-    const { ports } = portsOf();
-    const down: WorkErrorBody = { type: "RuntimeDown", message: "mail is not running", details: { retryable: true } };
-    const failing = { ...ports, tasks: { ...ports.tasks, deliver: () => Effect.fail(down) } };
-    expect(await run(applyTask(failing, "factory", asNodeId("T"), TASK, OP, { kind: "start" }))).toEqual({
-      kind: "applied",
-      opId: OP,
-      deliveryError: down,
-    });
-  });
-
   it("refuses a task on a node that is not a task node, or an artifact on one that is not an Artifacts node", async () => {
     const { ports, calls } = portsOf();
     const onSeat = await run(applyTask(ports, "factory", asNodeId("S"), TASK, OP, { kind: "create", taskId: TASK, title: "Import" }));

@@ -36,7 +36,6 @@ import { WorkRepository, type RecordRulingInput, type UnruledCommand } from "./r
 import { RulingRecorder } from "./ruling-recorder";
 import { taskCanvasEnv } from "./task-control";
 import { noteResourceChanged } from "./resource-changes";
-import { deliverTaskEffects } from "./task-delivery";
 import { TaskRepository } from "./task-repository";
 
 export class ResourceRulerError extends Schema.TaggedError<ResourceRulerError>()("ResourceRulerError", {
@@ -218,21 +217,8 @@ export const taskRuler = (repo: TaskRepository["Service"]): DomainRuler => (writ
     const outcome = yield* repo
       .submit(writer, { ...command, op: checked.command }, rulingContextOf(canvas, noAutomationAuthor), taskCanvasEnv(canvas))
       .pipe(Effect.mapError(failed("the task ruler could not rule")));
-    if (outcome.kind === "applied" && !outcome.replay) {
-      // Committed: the panes on this machine read the task again.
-      noteResourceChanged("task", command.canvasName);
-      yield* deliverTaskEffects({
-        canvas,
-        canvasName: command.canvasName,
-        actor: command.actor,
-        opId: command.opId,
-        task: outcome.task,
-        effects: outcome.effects,
-      }).pipe(
-        // The ruling is committed: a lost notice never turns it into a retry.
-        Effect.catch((error) => Effect.logWarning("task notices were not delivered", { opId: command.opId, error })),
-      );
-    }
+    // Committed, with the notices it owed this machine's seats: the panes on this machine read the task again.
+    if (outcome.kind === "applied" && !outcome.replay) noteResourceChanged("task", command.canvasName);
     return { kind: "ruled" } as const;
   });
 

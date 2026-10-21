@@ -74,7 +74,7 @@ import { commentOnTask, liveTaskPorts, taskCanvasEnv, taskRulingContext, type Ta
 /** What the handlers read and write through. Live: the CLI's own ports and the work topology. */
 export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
-  readonly tasks: Pick<TaskPorts, "list" | "submit" | "deliver" | "find" | "comment">;
+  readonly tasks: Pick<TaskPorts, "list" | "submit" | "find" | "comment">;
   readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull" | "comment">;
   /** The rows a node's mailbox holds: a task's or an artifact's comments are held at its node. */
   readonly mailbox: (canvasName: string, nodeId: NodeId) => Effect.Effect<ReadonlyArray<Message>, WorkErrorBody>;
@@ -147,11 +147,10 @@ export const taskContext = (ports: ResourceIpcPorts, canvasName: string): Effect
   });
 
 /**
- * One operator command, ruled as the CLI's are, its mail delivered once. The
+ * One operator command, ruled as the CLI's are, with the mail it owes. The
  * target must be a task node, and the wire command is narrowed against the
  * canvas (`checkTaskCommand`): a seat it names is an agent and a next node a
- * task node, or it is refused. Once ruled applied it stays applied: a mail
- * that fails to go is reported beside it, never as a refusal.
+ * task node, or it is refused.
  */
 export const applyTask = (
   ports: ResourceIpcPorts,
@@ -175,14 +174,9 @@ export const applyTask = (
     if (outcome.kind === "refused") return { kind: "refused" as const, opId, error: outcome.error };
     // Queued for the machine that edits the canvas: `junto op show` reads what became of it.
     if (outcome.kind === "queued") return { kind: "queued" as const, opId };
-    // The store port says it changed (resource-changes.ts), for every writer alike.
-    if (outcome.replay) return { kind: "applied" as const, opId };
-    const delivered = yield* Effect.result(
-      ports.tasks.deliver({ canvas, canvasName, actor: operator, opId, task: outcome.task, effects: outcome.effects }),
-    );
-    return delivered._tag === "Failure"
-      ? { kind: "applied" as const, opId, deliveryError: delivered.failure }
-      : { kind: "applied" as const, opId };
+    // The store port says it changed (resource-changes.ts), for every writer alike; the
+    // mail the ruling owes was written with it, by each recipient's own machine.
+    return { kind: "applied" as const, opId };
   }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
 
 // ── artifacts ──────────────────────────────────────────────────────────────

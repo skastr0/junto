@@ -37,6 +37,7 @@ import type { ResourceCommand, ResourceKind, ResourceRuling } from "@shared/reso
 import { writeRuling, type RulingRecord } from "./resource-rulings";
 import { keepShotPurge, shotPurgedHere, type PurgedComment } from "./shot-purge";
 import { refusalNoticeWrite, refusedKindOf } from "./refusal-notice";
+import { rulingNoticesHere, type RulingNoticeWrite } from "@shared/ruling-notices";
 import type { OpId } from "@shared/work-ids";
 import { RulingFoldRefused, foldRuling } from "./ruling-projection";
 import { KIND_TABLES } from "../model/state-schema";
@@ -853,7 +854,12 @@ export type RecordRulingInput = {
   readonly record: RulingRecord;
   readonly ruling: ResourceRuling<typeof Schema.Json.Type>;
   readonly at?: string;
+  /** The canvas as this machine holds it: an applied ruling's notices to this machine's own seats are written with it. */
+  readonly placement?: CanvasPlacement;
 };
+
+/** A recorded ruling, and the notices it owed this machine's seats, for delivery once the caller commits. */
+export type RecordedRuling = LocalFactResult<RulingResult> & { readonly notices: ReadonlyArray<RulingNoticeWrite> };
 
 export type LocalFactResult<A> = {
   readonly value: A;
@@ -4150,6 +4156,48 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
   return rows.length > 0;
 });
 
+/**
+ * Write the notices an applied ruling owes this machine's own seats
+ * (`rulingNoticesHere`), in the caller's transaction, each once: a ruling
+ * committed or folded again writes nothing. The editing machine calls this as
+ * it records the ruling, every other machine as it folds it.
+ */
+const writeRulingNotices = Effect.fn("work.writeRulingNotices")(function* (
+  writer: SqlClient.SqlClient,
+  self: InstallationId,
+  canvasName: string,
+  ruling: RulingAppliedResult,
+  placement: CanvasPlacement,
+  at: DisplayTimestampValue,
+) {
+  const written: RulingNoticeWrite[] = [];
+  const owed = rulingNoticesHere({ self, canvasName, ruling, placement });
+  if (owed.length === 0) return written;
+  const canvas = yield* writer.unsafe<{ seq: number }>("SELECT seq FROM canvases WHERE canvas_name = ?", [canvasName]);
+  const basis = { kind: "canvas" as const, canvasName, seq: canvas[0]?.seq ?? 0 };
+  for (const notice of owed) {
+    const held = yield* writer.unsafe<{ found: number }>(
+      "SELECT 1 AS found FROM work_messages WHERE canvas_name = ? AND node_id = ? AND message_id = ? LIMIT 1",
+      [canvasName, notice.sink.nodeId, notice.message.messageId],
+    );
+    if (held.length > 0) continue;
+    yield* commitLocalFact(writer, {
+      localInstallationId: self,
+      sink: notice.sink,
+      basis,
+      item: item("message", notice.message.messageId, notice.sink),
+      operation: "message.append",
+      predecessor: null,
+      body: { operation: "message.append", message: notice.message, sentBy: notice.sentBy, destination: { kind: "mailbox" } },
+      value: notice.message,
+      originAt: at,
+      receivedAt: at,
+    });
+    written.push(notice);
+  }
+  return written;
+});
+
 const refuseExchange = (message: string): WorkAuthorityError =>
   authorityError("authority-mismatch", message);
 
@@ -4295,7 +4343,7 @@ export interface WorkRepositoryShape {
    */
   readonly recordRuling: (
     input: RecordRulingInput,
-  ) => Effect.Effect<LocalFactResult<RulingResult>, RepositoryFailure>;
+  ) => Effect.Effect<RecordedRuling, RepositoryFailure>;
   /**
    * The operator purges a page box comment's shot, on the machine that edits
    * the canvas only (plan 06, B7). In one transaction: the purge is kept, the
@@ -6673,6 +6721,10 @@ export const WorkRepositoryLive = Layer.effect(
                     ),
                   );
                   changed.add(fact.body.kind);
+                  // Every machine takes every ruling: this one tells its own seats what the ruling owes them.
+                  for (const notice of yield* writeRulingNotices(writer, self, frame.canvasName, fact.body, placement, receivedAt)) {
+                    mail.push({ canvasName: notice.sink.canvasName, nodeId: notice.sink.nodeId, message: notice.message });
+                  }
                 } else if (fact.body.operation === "shot.purged") {
                   // The operator purged a comment's shot: this machine's copy and claims go, and it stays removed.
                   yield* keepShotPurge(writer, { canvasName: frame.canvasName, nodeId: fact.item.sink.nodeId, messageId: fact.body.messageId }, receivedAt);
@@ -6873,7 +6925,7 @@ export const WorkRepositoryLive = Layer.effect(
 
     const recordRuling = (
       input: RecordRulingInput,
-    ): Effect.Effect<LocalFactResult<RulingResult>, RepositoryFailure> => {
+    ): Effect.Effect<RecordedRuling, RepositoryFailure> => {
       const { command } = input;
       const sink = { canvasName: input.canvasName, nodeId: command.target.nodeId };
       const body = rulingRowOf(input.writer, command, input.kind, input.ruling);
@@ -6891,7 +6943,7 @@ export const WorkRepositoryLive = Layer.effect(
             );
           }
           yield* writeRuling(writer, { canvas: input.canvasName, writer: input.writer, command, record: input.record });
-          return yield* commitLocalFact(writer, {
+          const recorded = yield* commitLocalFact(writer, {
             localInstallationId: self,
             sink,
             basis: { kind: "canvas", canvasName: input.canvasName, seq: canvas[0].seq },
@@ -6903,6 +6955,11 @@ export const WorkRepositoryLive = Layer.effect(
             originAt: timestamp(input.at),
             receivedAt: timestamp(input.at),
           });
+          // The editing machine's own seats are told here, with the ruling; every other machine's as it folds it.
+          const notices = body.operation === "ruling.applied" && input.placement !== undefined
+            ? yield* writeRulingNotices(writer, self, input.canvasName, body, input.placement, timestamp(input.at))
+            : [];
+          return { ...recorded, notices };
         }),
       );
     };

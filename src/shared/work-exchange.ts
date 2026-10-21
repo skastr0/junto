@@ -196,6 +196,8 @@ export type CanvasPlacement = {
   readonly seatOf: (
     nodeId: string,
   ) => { readonly seatId: ActorSeatId; readonly machine: InstallationId } | undefined;
+  /** A node's name as this machine's copy of the canvas gives it, for the words of a notice written here. */
+  readonly nameOf?: (nodeId: string) => string | undefined;
 };
 
 /**

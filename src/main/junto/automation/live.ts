@@ -49,7 +49,6 @@ import { onAgentSignalChanged } from "../signals/changes";
 import type { AgentSignal } from "@shared/wire/agent-signals";
 import { threadSubjectOf } from "@shared/thread-subject";
 import { taskCanvasEnv } from "../work/task-control";
-import { deliverTaskEffects, type TaskDelivery } from "../work/task-delivery";
 import { TaskRepository } from "../work/task-repository";
 import { ArtifactRepository } from "../work/artifact-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
@@ -232,11 +231,10 @@ const refusalReasonOf = (error: WorkErrorBody): RefusalReason => {
   return error.type === "UnknownTarget" ? "unknown_target" : "invalid_input";
 };
 
-/** What a task action needs: the task store, this machine as the writer, and the notices a ruling owes. */
+/** What a task action needs: the task store and this machine as the writer. The notices a ruling owes are written with it. */
 export type TaskPort = {
   readonly repository: TaskRepository["Service"];
   readonly writer: Effect.Effect<InstallationId, unknown>;
-  readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, unknown>;
 };
 
 type TaskWrite = { readonly opId: OpId; readonly nodeId: NodeId; readonly taskId: ItemId; readonly wire: TaskCommandWire };
@@ -267,13 +265,7 @@ const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automati
       taskCanvasEnv(canvas, author),
     );
     if (outcome.kind === "refused") return refusalReasonOf(outcome.error);
-    if (!outcome.replay) {
-      noteResourceChanged("task", canvasName);
-      // The ruling is committed: a lost notice never turns it into a refusal.
-      yield* port.deliver({ canvas, canvasName, actor, opId: write.opId, task: outcome.task, effects: outcome.effects }).pipe(
-        Effect.catchCause((cause) => Effect.logWarning("automation task notices were not delivered", cause)),
-      );
-    }
+    if (!outcome.replay) noteResourceChanged("task", canvasName);
     return undefined as RefusalReason | undefined;
   });
 
@@ -439,11 +431,6 @@ export const AutomationRunnerLive = Layer.effect(
       ? Option.some({
           repository: taskStore.value,
           writer: machines.value.installationId,
-          deliver: (delivery) =>
-            deliverTaskEffects(delivery).pipe(
-              Effect.provideService(MachineRepository, machines.value),
-              Option.isSome(work) ? Effect.provideService(WorkService, work.value) : (effect) => effect,
-            ),
         })
       : Option.none();
     // The canvas as it stood when this pass began; the ports read it synchronously.

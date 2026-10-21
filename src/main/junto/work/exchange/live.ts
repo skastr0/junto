@@ -12,10 +12,9 @@
  * keeps them where its own are kept, so a seat reads them the one way.
  */
 import { Effect } from "effect";
-import type { ActorSeatId } from "@shared/actor-seat";
 import { exportCanvasCopy, type CanvasCopy, type CopiedReference } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
-import { asCanvasName, type Node, type Seat } from "@shared/model";
+import { asCanvasName, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { CanvasPlacement, ExchangeSignal } from "@shared/work-exchange";
@@ -34,6 +33,7 @@ import { onAgentSignalChanged } from "../../signals/changes";
 import { raisedHands } from "../../signals/raised-hands";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository } from "../repository";
+import { canvasPlacement, machineInstallations } from "../canvas-placement";
 import { makeRowExchange, type CopyInstalled, type ExchangeChange, type RowExchange } from "./session";
 import { encodeFailure } from "../../failure-encode";
 import { logMachine } from "../../observability/logger";
@@ -66,8 +66,6 @@ const stated = (signal: AgentSignal): ExchangeSignal => ({
         : { closing: { state: "answered" as const, closedAt: signal.closedAt, response: signal.response } }
       : { closing: { state: signal.state, closedAt: signal.closedAt } }),
 });
-
-type Home = { readonly seatId: ActorSeatId; readonly machine: InstallationId };
 
 const copied = (reference: StoredReference, regionId?: string): CopiedReference => ({
   ...(regionId === undefined ? {} : { regionId: regionId as NonNullable<CopiedReference["regionId"]> }),
@@ -104,43 +102,13 @@ export const makeLiveRowExchange = (
     const signals = yield* AgentSignalRepository;
     const self = yield* machines.installationId;
 
-    /** The installation behind a machine name, as this machine knows it now. */
-    const installations = Effect.gen(function* () {
-      const byName = new Map<string, InstallationId>();
-      for (const peer of yield* machines.peers) byName.set(peer.machineName, peer.installationId);
-      byName.set(yield* machines.machineName, self);
-      return byName;
-    });
-
-    /** Where each seat of a canvas lives: this machine's seats, and the peers of a copy. */
-    const homesOf = (nodes: ReadonlyArray<Node>, byName: ReadonlyMap<string, InstallationId>) => {
-      const homes = new Map<string, Home>();
-      for (const node of nodes) {
-        if (node.kind !== "agent" && node.kind !== "peer") continue;
-        const machine = byName.get(node.host);
-        if (machine === undefined) continue;
-        homes.set(node.id, {
-          machine,
-          seatId: node.kind === "peer" ? node.seatId : deriveActorSeatId(machine, node.bindingId),
-        });
-      }
-      return homes;
-    };
+    const installations = machineInstallations.pipe(Effect.provideService(MachineRepository, machines));
 
     const placement = (canvasName: string): Effect.Effect<CanvasPlacement | undefined, unknown> =>
-      Effect.gen(function* () {
-        const header = yield* records.getCanvas(canvasName);
-        if (header === undefined) return undefined;
-        const editor = ((yield* records.canvasEditor(canvasName)) ?? self) as InstallationId;
-        const homes = homesOf(yield* records.listNodes(canvasName), yield* installations);
-        const holders = new Set<InstallationId>([editor, ...[...homes.values()].map((home) => home.machine)]);
-        return {
-          canvasId: header.canvas_id,
-          editor,
-          holds: (machine) => holders.has(machine),
-          seatOf: (nodeId) => homes.get(nodeId),
-        };
-      });
+      canvasPlacement(canvasName).pipe(
+        Effect.provideService(MachineRepository, machines),
+        Effect.provideService(ModelRecords, records),
+      );
 
     /**
      * This machine's canvas, cut for that machine. Absent when this machine

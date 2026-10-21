@@ -239,10 +239,16 @@ is ruled:
 
 - **Mail derived from a resource command:** mention mail, assignment
   notices, stamp requests and comment delivery to a resource's people. The
-  applied ruling names the recipients. The actor's own machine then writes
-  that mail when its cursor covers the ruling, so mail is still written by
-  the machine of the seat it is from (`docs/security-doctrine.md:245`), and a
-  refused command never leaves delivered mail behind. Plain seat-to-seat
+  applied ruling names the recipients, and every machine takes every ruling.
+  Each recipient seat's own machine writes that seat's notice into its own
+  mailbox, from the resource's node (`noticeActorRef`), in the transaction
+  that commits the ruling (the editing machine, for its own seats) or folds it
+  (every other machine). One rule names that machine: `authorWritesOn` for a
+  notice author (`src/shared/work-exchange.ts`); the builder is
+  `src/shared/ruling-notices.ts`. A notice's id is derived from the ruling's
+  writer, opId, kind and seat, so it is the same on every machine and written
+  once. A refused command never leaves delivered mail behind. Comment
+  delivery moves to the same rule with item (1). Plain seat-to-seat
   mail on a `messages` edge is not a resource command and works as today.
 - **Derived transitions:** stamps met moves the task to `done`, a task sent
   on arrives at the next node, an unassign returns the task to `backlog`.
