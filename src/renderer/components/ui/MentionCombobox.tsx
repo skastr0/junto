@@ -33,7 +33,7 @@ import {
 } from "../../lib/mention-draft";
 import { RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
 import { Textarea } from "./Field";
-import { ResourceGlyphMark } from "./ResourceChip";
+import { ResourceGlyphMark, mentionMark } from "./ResourceChip";
 import "./mention-combobox.css";
 
 const NODE_KIND_OF_MENTION: Readonly<Record<MentionKind, NodeKind>> = Object.fromEntries(
@@ -344,7 +344,7 @@ export function MentionCombobox({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => pick(candidate)}
                 >
-                  <ResourceGlyphMark kind={candidate.ref.kind} />
+                  <ResourceGlyphMark {...mentionMark(candidate.ref)} />
                   <span className="mention-combobox__label">{candidate.label}</span>
                   {candidate.detail ? <span className="mention-combobox__detail">{candidate.detail}</span> : null}
                   <span className="mention-combobox__kind">{visual.noun}</span>

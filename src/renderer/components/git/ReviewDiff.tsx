@@ -34,7 +34,7 @@ import { modKeyGlyph } from "../../lib/platform";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { withRegionDetail } from "../../lib/mention-sources";
 import { state$ } from "../../lib/state";
-import { Button, DiffView, IconButton, StatusDot, type DiffLineAnnotation } from "../ui";
+import { Button, DiffView, IconButton, ResourceChip, StatusDot, type DiffLineAnnotation } from "../ui";
 import { MentionCombobox } from "../ui/MentionCombobox";
 
 type Draft = {
@@ -166,7 +166,10 @@ function Composer({
       <div className="git-review__actions">
         {goesTo.length > 0 ? (
           <span className="git-review__to">
-            Goes to {candidates.filter((candidate) => goesTo.includes(candidate.nodeId)).map((candidate) => candidate.name).join(", ")}
+            Goes to{" "}
+            {candidates
+              .filter((candidate) => goesTo.includes(candidate.nodeId))
+              .map((candidate) => <ResourceChip key={candidate.nodeId} kind="seat" seat={candidate.nodeId} label={candidate.name} />)}
           </span>
         ) : null}
         <Button size="md" variant="chrome" onClick={onCancel}>

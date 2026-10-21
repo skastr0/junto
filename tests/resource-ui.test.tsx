@@ -40,7 +40,7 @@ describe("ResourceChip", () => {
   });
 
   it("is a plain span, not a focus stop, when it only names", () => {
-    render(<ResourceChip kind="seat" label="product-feed" />);
+    render(<ResourceChip kind="seat" seat="agent-01" label="product-feed" />);
     expect(host.querySelector("button")).toBeNull();
     expect(host.querySelector("span.resource-chip")?.textContent).toContain("@product-feed");
   });

@@ -153,7 +153,9 @@ test("[fake-tui] a review reaches its seat as one thread, and a mentioned seat g
     await expect(detail.getByTestId("mention-option")).toContainText("@Brook");
     await page.keyboard.press("Enter");
     await expect(composer.locator("textarea")).toHaveValue("Brook should check this @Brook ");
-    await expect(composer.locator(".git-review__actions .git-review__to")).toHaveText("Goes to Brook");
+    await expect(composer.locator(".git-review__actions .git-review__to")).toContainText("Goes to");
+    await expect(composer.locator(".git-review__actions .git-review__to .resource-chip__label")).toHaveText("@Brook");
+    await expect(composer.locator(".git-review__actions .git-review__to [data-testid=seat-portrait-mark]")).toHaveCount(1);
     await composer.getByRole("button", { name: "Add comment" }).click();
     await expect(detail.getByTestId("git-review-comment")).toHaveCount(2);
     await detail.getByLabel("Overall note for the review").fill("Good direction, two small things.");

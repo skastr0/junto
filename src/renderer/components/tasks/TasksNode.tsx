@@ -314,7 +314,7 @@ export function SelectedTask({
         {current.assignee === undefined ? (
           <span className="task-facts__none">No assignee</span>
         ) : (
-          <ResourceChip kind="seat" label={seatName(current.assignee)} />
+          <ResourceChip kind="seat" seat={current.assignee} label={seatName(current.assignee)} />
         )}
         <span className="task-facts__meta">on {nodeName(current.node)}, updated {agoLabel(view.updatedAt, now)}</span>
       </div>

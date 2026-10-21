@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check, Minus, Plus, ShieldCheck, X } from "lucide-react";
-import { Button, Chip, Dropdown, IconButton, StampTally, type ChipTone } from "../ui";
+import { Button, Chip, Dropdown, IconButton, ResourceChip, StampTally, type ChipTone } from "../ui";
 import {
   earlierStampOf,
   offeredStamps,
@@ -165,7 +165,11 @@ export function TaskReviewers({
                 data-verdict={(stamp ?? earlier)?.verdict}
                 data-round={stamp === undefined && earlier !== undefined ? "earlier" : undefined}
               >
-                <strong>{nameOf(reviewer)}</strong>
+                {reviewer.kind === "seat" ? (
+                  <ResourceChip kind="seat" seat={reviewer.seat} label={nameOf(reviewer)} />
+                ) : (
+                  <strong>{nameOf(reviewer)}</strong>
+                )}
                 <Chip tone={chip.tone}>{chip.word}</Chip>
                 {closed ? null : (
                   <IconButton

@@ -20,7 +20,7 @@ import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
-import { ResourceChip, ResourceGlyphMark } from "../ui/ResourceChip";
+import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
 import "./seat-threads.css";
@@ -211,14 +211,15 @@ export function SeatThreadsPopup({
 
 /** One mention or subject, drawn as a chip; opening it leaves the threads first. */
 function MentionChipView({ chip, onLeave, testId }: { readonly chip: MentionChip; readonly onLeave: () => void; readonly testId: string }) {
-  const { ref, kind, ...drawn } = chip;
+  const { ref, kind, label, number } = chip;
   // A gone seat or page: its link cannot say which, so it is its words, struck.
-  if (kind === undefined) return <del data-testid={testId} data-missing="true">{drawn.label}</del>;
+  if (kind === undefined) return <del data-testid={testId} data-missing="true">{label}</del>;
   const open = ref === undefined ? undefined : () => {
     onLeave();
     openMention(ref);
   };
-  return <ResourceChip {...drawn} kind={kind} missing={ref === undefined} {...(open === undefined ? {} : { onOpen: open })} data-testid={testId} />;
+  const mark = ref !== undefined ? mentionMark(ref) : { kind };
+  return <ResourceChip {...mark} label={label} number={number} missing={ref === undefined} {...(open === undefined ? {} : { onOpen: open })} data-testid={testId} />;
 }
 
 function ThreadChat({

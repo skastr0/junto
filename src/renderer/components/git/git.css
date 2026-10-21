@@ -264,6 +264,10 @@
 }
 
 .git-review__actions .git-review__to {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
   margin-right: auto;
 }
 

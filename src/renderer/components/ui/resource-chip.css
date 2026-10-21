@@ -25,6 +25,16 @@
   color: var(--mark);
 }
 
+/* A seat's portrait in the glyph slot, concentric with the 20px chip. */
+.resource-chip[data-kind="seat"] {
+  padding-left: 3px;
+}
+
+.resource-chip__portrait {
+  display: inline-flex;
+  flex: none;
+}
+
 .resource-chip__number {
   flex: none;
   color: var(--color-dim);
@@ -69,6 +79,10 @@ button.resource-chip:focus-visible {
 
 .resource-chip[data-missing="true"] .resource-chip__glyph {
   color: var(--color-faint);
+}
+
+.resource-chip[data-missing="true"] .resource-chip__portrait {
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {

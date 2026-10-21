@@ -26,26 +26,29 @@ export type MarkTone = (typeof MARK_TONES)[number];
 
 export const markColor = (tone: MarkTone): string => `var(--color-${tone})`;
 
-export type ResourceGlyph = "seat" | "task" | "artifact" | "page";
+/**
+ * The kinds drawn with a glyph. A seat is never a glyph: it is always its
+ * portrait (AGENTS.md, Seat portrait law), so no glyph is named for it.
+ */
+export type GlyphKind = Exclude<ResourceKind, "seat">;
 
 export type ResourceKindVisual = {
   readonly tone: MarkTone;
   /** Spoken and tooltip name of the kind. */
   readonly noun: string;
-  /** The key that picks the glyph. Components own the icon import. */
-  readonly glyph: ResourceGlyph;
 };
 
 /**
- * Seats keep the house amber. Task and artifact take different hues on
- * purpose: they sit side by side in one row of chips, and NodeKindMark's two
- * greens would read as one kind there.
+ * Seats keep the house amber where a hue is drawn at all (a composer's
+ * inline mention); their chip wears the portrait instead. Task and artifact
+ * take different hues on purpose: they sit side by side in one row of chips,
+ * and NodeKindMark's two greens would read as one kind there.
  */
 export const RESOURCE_KIND_VISUAL: Readonly<Record<ResourceKind, ResourceKindVisual>> = {
-  seat: { tone: "amber", noun: "Seat", glyph: "seat" },
-  task: { tone: "green", noun: "Task", glyph: "task" },
-  artifact: { tone: "violet", noun: "Artifact", glyph: "artifact" },
-  page: { tone: "indigo", noun: "Page", glyph: "page" },
+  seat: { tone: "amber", noun: "Seat" },
+  task: { tone: "green", noun: "Task" },
+  artifact: { tone: "violet", noun: "Artifact" },
+  page: { tone: "indigo", noun: "Page" },
 };
 
 export const ARTIFACT_TYPE_NOUN: Readonly<Record<ArtifactType, string>> = {
