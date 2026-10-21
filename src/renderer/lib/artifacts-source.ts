@@ -18,7 +18,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Anchor } from "@shared/thread-subject";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { canonicalJson } from "@shared/work-canonical-json";
 import type { ContentRef } from "@shared/content";
 import { type ArtifactBody, type ArtifactOp, ruleArtifactEdit, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
@@ -48,7 +48,7 @@ import {
   rule,
   type Ruled,
 } from "@shared/resource-command";
-import type { InstallationId } from "@shared/installation-id";
+import { InstallationId } from "@shared/installation-id";
 
 /** One post in an artifact comment thread. */
 export interface ArtifactPost {
@@ -90,7 +90,6 @@ export const applyArtifactOp = (
   op: ArtifactOp,
 ): Promise<ArtifactRuling> => artifactsSource().apply(canvasName, nodeId, artifactId, mintOpId(), op);
 
-const LOCAL_WRITER = "local" as InstallationId;
 
 /**
  * The stand-in's body ref: a 256-bit FNV-1a digest of the canonical body,
@@ -115,6 +114,12 @@ export const localBodyRef = (body: ArtifactBody): ContentRef => {
 export const makeLocalArtifactsSource = (
   actor: ResourceActor = { kind: "operator" },
   now: () => number = Date.now,
+  /**
+   * The command key's writer. The window never names a machine: in the app
+   * main's source rules under main's installation; the stand-in rules under
+   * an opaque id of its own, minted per source.
+   */
+  writer: InstallationId = Schema.decodeUnknownSync(InstallationId)(mintItemId()),
 ): ArtifactsSource => {
   const domain = artifactDomain({ now, bodyRef: localBodyRef });
   const ruled = new Map<string, Ruled<ArtifactState, ArtifactFact>>();
@@ -183,7 +188,7 @@ export const makeLocalArtifactsSource = (
       const result = rule(
         domain,
         ruledOf(canvasName),
-        LOCAL_WRITER,
+        writer,
         {
           opId,
           canvasName,
