@@ -174,7 +174,7 @@ everyone else reports by mail and on the needs-you feed.
 | Browser contracts: tabs, driver, box | product-attention 6af40a961, 5b35a2a9f; box crop claim with remote-security | landed |
 | Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
 | Typecheck toolchain | tsrs 0.18 cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; tech-lead swapping, performance-lead measuring | started |
-| Long mail text over 64 KiB | product-feed composers attach as file | assigned |
+| Long mail text over 64 KiB | product-feed 5a299a18e, bound in `mail-text-bound.ts` (48 KiB text); thread composer with product-keyboard; envelope bound confirming with remote-send | landed, confirming |
 | Renderer resource IPC (tasks and artifacts sources) | cli-overseer, one generic contract and main side through the ruler | started |
 | Box comment screenshots | remote-security: yes; main captures, grant holder only, claimed with the row, 2 MiB and 4096 px, read by reach, on-demand bytes | decided |
 | Feed attachments and mentions | product-feed 46408b918, 6ea3aff99, 68eca6caa, 87db4c3fe, 313bc5456 | landed |
@@ -189,7 +189,7 @@ everyone else reports by mail and on the needs-you feed.
 | Verification split | product-automation: deletions, reach, queued writes; product-verify: cli and product surfaces | started |
 | Flag removal | product-releases, after each deletion's last consumer | waiting on first deletion |
 | pty P1 delete lease | 478ad7409 | done |
-| pty P2 Hermes main side | c6b87b36c (-6,258 lines); chat IPC types, preload and flag left | mostly done |
+| pty P2 Hermes integration | cc98a66b8, 174e80998, c6b87b36c, 8f01e3e0a, 773e5b015; renderer product-attention e430f78ab; no reference left on main | done |
 | pty P3 seat since and onboard | 2420e2e80 to ec25735dd; L6 format with cli; onboard mailbox read cost unmeasured | done |
 | pty P4 subject threads | 74b442b98, dd4bdf621, d5c91f844, 0d14ddde6; mail-threads and control.ts drops next | started |
 | product, all seats | product | started |
