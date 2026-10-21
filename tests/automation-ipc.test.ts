@@ -42,7 +42,9 @@ const recorder = Layer.effect(
   ),
 );
 
-const run = async (test: (handlers: ReturnType<typeof automationIpcHandlers>, changed: AutomationsChanged[]) => Promise<void>) => {
+const run = async (
+  test: (handlers: ReturnType<typeof automationIpcHandlers>, changed: AutomationsChanged[], sql: (statement: string) => Promise<void>) => Promise<void>,
+) => {
   const home = await mkdtemp(join(tmpdir(), "junto-automation-ipc-"));
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(Layer.provide(ModelLive, ModelDependents.empty), makeAutomationRepositoryLive(), recorder).pipe(
@@ -67,7 +69,8 @@ const run = async (test: (handlers: ReturnType<typeof automationIpcHandlers>, ch
       }),
     );
     const changed: AutomationsChanged[] = [];
-    await test(automationIpcHandlers((effect) => runtime.runPromise(effect), (event) => changed.push(event)), changed);
+    const exec = (statement: string) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe(statement)).pipe(Effect.asVoid));
+    await test(automationIpcHandlers((effect) => runtime.runPromise(effect), (event) => changed.push(event)), changed, exec);
   } finally {
     await runtime.dispose();
     await rm(home, { recursive: true, force: true });
@@ -107,5 +110,15 @@ describe("automation IPC", () => {
     run(async (handlers) => {
       await expect(handlers.list("factory", { nodeId: NODE, extra: 1 })).rejects.toBeDefined();
       await expect(handlers.list("", { nodeId: NODE })).rejects.toBeDefined();
+    }));
+
+  it("refuses a write on a machine that holds the canvas as a copy", () =>
+    run(async (handlers, changed, sql) => {
+      await sql("INSERT INTO known_installations(installation_id,registered_at) VALUES ('studio','2026-10-21T00:00:00Z')");
+      await sql("UPDATE canvases SET editor_installation_id = 'studio' WHERE canvas_name = 'factory'");
+      const create = { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition } };
+      expect(await handlers.apply("factory", create)).toMatchObject({ kind: "refused", refusal: { reason: "not_available" } });
+      expect(changed).toEqual([]);
+      expect((await handlers.list("factory", { nodeId: NODE })).automations).toEqual([]);
     }));
 });

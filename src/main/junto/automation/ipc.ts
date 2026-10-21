@@ -1,8 +1,8 @@
 /**
  * The Automations pane's IPC (plan 0.10/07): list and firings read the store;
- * apply is the operator's write, ruled here, on the editing machine, as a
- * resource command from the operator. Every applied write is broadcast so
- * open panes reread.
+ * apply is the operator's write, ruled here as a resource command from the
+ * operator when this machine edits the canvas. Every applied write is
+ * broadcast so open panes reread.
  */
 import type { IpcMain } from "electron";
 import { Effect, Option, Schema } from "effect";
@@ -23,13 +23,14 @@ import type { Refusal, RefusalReason } from "@shared/resource-command";
 import { rulingContextOf } from "@shared/ruling-context";
 import type { WorkErrorBody } from "@shared/work-control";
 import { OpId } from "@shared/work-ids";
+import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import type { RulingRecorder } from "../work/ruling-recorder";
 import { AutomationRepository } from "./repository";
 import { automationEnvOf, submitAutomationCommand } from "./ruler";
 
 export type AutomationsRun = <A, E>(
-  effect: Effect.Effect<A, E, AutomationRepository | ModelService | RulingRecorder | SqlClient.SqlClient>,
+  effect: Effect.Effect<A, E, AutomationRepository | ModelRecords | ModelService | RulingRecorder | SqlClient.SqlClient>,
 ) => Promise<A>;
 
 const CanvasName = Schema.String.check(Schema.isMinLength(1));
@@ -76,6 +77,18 @@ export const automationIpcHandlers = (run: AutomationsRun, changed: (event: Auto
     run(Effect.gen(function* () {
       const name = yield* decode(CanvasName)(canvasName);
       const request = yield* decode(AutomationApplyRequest)(input);
+      // Automation writes are ruled on the editing machine (02, 07). Until the
+      // command channel carries them there, a copy refuses them.
+      if (!(yield* (yield* ModelRecords).editsCanvas(name))) {
+        return {
+          kind: "refused",
+          refusal: {
+            reason: "not_available",
+            message: "automations are written on the machine that edits this canvas",
+            next_step: "Open this canvas on its editing machine to change its automations",
+          },
+        } as const;
+      }
       const writer = yield* localWriter;
       if (Option.isNone(writer)) {
         return { kind: "refused", refusal: { reason: "not_available", message: "this machine has no installation id yet" } } as const;
