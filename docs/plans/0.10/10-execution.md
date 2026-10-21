@@ -208,3 +208,24 @@ everyone else reports by mail and on the needs-you feed.
 | pty P3 seat since and onboard | 2420e2e80 to ec25735dd; L6 format with cli; since read cut from 2.8 to 7.9 s to 115 ms median on the live db (b3508bb52); onboard stands when the since read dies (ddc9ae495) | done |
 | pty P4 subject threads | 74b442b98 to bb3b2c3b3 (postSubjectComment c80d34747, metadata.mentions gone bb3b2c3b3, operator threads list subjects 14f39705c); non-seat sender 146c2f5b5, f405ba2ba, b908c0fbe, c0cd6b9e1; automation actors ff6ce9c9a; seat mail thread mention stays a reference | done |
 | product, all seats | product | started |
+
+## Remaining after the audit of 2026-10-21
+
+Every plan, 01 to 09, checked against main cc5ee91c9 item by item. Open work:
+
+| Gap | Plan | Owner | State |
+|---|---|---|---|
+| Artifact comments kept in window memory, not main; no mentions in its composer | 05, 03 | product-shell, cli-overseer (one thread IPC) | started |
+| Task comments in the app (thread landed 03fb039b8 on a local source until the IPC lands) | 03, 04 | product-modals, cli-overseer | started |
+| Dependencies recorded but never enforced on finish | 04 | canvas-writers, cli-performance | started |
+| Handoff note and cited refs dropped on send-on | 04 | canvas-writers | started |
+| A changes stamp files no defect record | 04 | canvas-writers | started |
+| Task change triggers miss states between passes | 07 | canvas-automation | started |
+| Mentions: composers offer seats only; chips not clickable; CLI resolves @seat only; no backlinks; review comments as mail; subject not shown | 03 | product-feed, cli-lead, canvas-model | started |
+| Since: your task, reviews you owe | 08 | pty-contract | started |
+| Resource comments as universal facts; signal attachments crossing; pending in CLI output; local check before queueing | 02 | remote-lead | asked |
+| Reach change shown while dragging | 01 | canvas | asked |
+| Old task model, admission, promote, ports, legacy states, entity_home, migration 31 contract; leftovers | 04, 09 | canvas | started |
+| Seat tab open and close; driver spike | 06 | not assigned | operator call |
+| Box comment on file images; latest changes on the Artifacts card | 05 | product-shell | after comments |
+| Stale CLI help (automation, task, publish) | 07, 04 | cli-lead | started |
