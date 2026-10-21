@@ -12,7 +12,7 @@ import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { AgentPortrait } from "../AgentPortrait";
 import { FocusSurface } from "../FocusSurface";
-import { InspectorTabs } from "../chat/InspectorTabs";
+import { InspectorTabs } from "../ui/InspectorTabs";
 import { Button, IconButton, OverlayHeader } from "../ui";
 import { CharacterDraftProvider, isEmptyConfig, useCharacterDraft } from "./character-draft";
 import { randomLook } from "./LookSection";

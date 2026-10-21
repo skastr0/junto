@@ -21,7 +21,7 @@ import { titleOf } from "@shared/model/title";
 import { useCanvas } from "../../lib/use-model";
 import { reviewCandidates } from "@shared/review-candidates";
 import { state$ } from "../../lib/state";
-import { InspectorTabs } from "../chat/InspectorTabs";
+import { InspectorTabs } from "../ui/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
 import { ReviewDiff } from "./ReviewDiff";
