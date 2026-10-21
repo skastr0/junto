@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ArchiveRestore, History, Plus, Search } from "lucide-react";
 import {
   ARTIFACT_TYPES,
@@ -13,7 +13,10 @@ import type { ArtifactEntry } from "@shared/artifact-domain";
 import type { NodeId } from "@shared/physics/schema";
 import { type ItemId, mintItemId } from "@shared/resource-command";
 import type { Anchor } from "@shared/thread-subject";
+import { titleOf } from "@shared/model/title";
+import { nodeAt } from "../../lib/use-model";
 import {
+  type ArtifactRuling,
   artifactsSource,
   refusalLine,
   useArtifactHistory,
@@ -70,17 +73,17 @@ export function ArtifactsNode({
   const selected = entries.find((entry) => entry.artifact.artifactId === selectedId) ?? visible[0] ?? null;
   const archivedCount = entries.filter((entry) => entry.artifact.archived).length;
 
-  const apply = async (itemId: ItemId, op: ArtifactOp): Promise<string | null> => {
+  /** Rule one op. An edit's refusal is the editor's to show; any other op's shows on the node. */
+  const apply = async (itemId: ItemId, op: ArtifactOp): Promise<ArtifactRuling> => {
     const ruling = await artifactsSource().apply(canvasName, nodeId, itemId, op);
-    const line = refusalLine(ruling);
-    setError(line);
-    return line;
+    if (op.op !== "edit") setError(refusalLine(ruling));
+    return ruling;
   };
 
   const create = async (title: string, body: ArtifactBody): Promise<void> => {
     const itemId = mintItemId();
-    const refused = await apply(itemId, { op: "create", title, body });
-    if (refused === null) {
+    const ruling = await apply(itemId, { op: "create", title, body });
+    if (ruling.kind === "applied") {
       setSelectedId(itemId);
       setArchived(false);
       setCreating(null);
@@ -104,8 +107,7 @@ export function ArtifactsNode({
         }
       />
       {creating === "menu" ? (
-        <div className="artifacts-new" role="group" aria-aria-label="New artifact"
-            title="New artifact">
+        <div className="artifacts-new" role="group" aria-label="New artifact">
           {CREATABLE.map((kind) => (
             <ListRow
               key={kind}
@@ -149,7 +151,10 @@ export function ArtifactsNode({
             title={artifact.title}
             meta={ageLabel(artifact.updatedAt, now)}
             selected={artifact.artifactId === selected?.artifact.artifactId}
-            onClick={() => setSelectedId(artifact.artifactId)}
+            onClick={() => {
+              setSelectedId(artifact.artifactId);
+              setError(null);
+            }}
           />
         ))}
         {visible.length === 0 && entries.length > 0 ? <p className="artifacts-list__none">No artifact matches.</p> : null}
@@ -207,7 +212,7 @@ function SelectedArtifact({
   readonly sidebar: React.ReactNode;
   readonly now: number;
   readonly error: string | null;
-  readonly apply: (op: ArtifactOp) => Promise<string | null>;
+  readonly apply: (op: ArtifactOp) => Promise<ArtifactRuling>;
 }) {
   const { artifact, body } = entry;
   const [mode, setMode] = useState<"edit" | "history">("edit");
@@ -219,7 +224,22 @@ function SelectedArtifact({
 
   useEffect(() => setTitle(artifact.title), [artifact.title]);
 
-  const edit = (edit: ArtifactEdit): Promise<string | null> => apply({ op: "edit", edit });
+  /**
+   * The head an edit is written against, read when the write starts, not
+   * when it was queued: a landed edit moves it before the next queued write
+   * runs, even ahead of the re-render.
+   */
+  const headRef = useRef(artifact.version);
+  if (artifact.version > headRef.current) headRef.current = artifact.version;
+  const edit = async (make: (base: ArtifactVersion) => ArtifactEdit): Promise<string | null> => {
+    const ruling = await apply({ op: "edit", edit: make(headRef.current) });
+    if (ruling.kind === "applied") {
+      for (const fact of ruling.facts) {
+        if (fact.fact === "artifact.edited" && fact.version > headRef.current) headRef.current = fact.version;
+      }
+    }
+    return refusalLine(ruling);
+  };
   const comment = (text: string, anchor: Anchor | undefined, threadId?: string): void => {
     void artifactsSource().comment(canvasName, artifact.artifactId, {
       text,
@@ -248,7 +268,7 @@ function SelectedArtifact({
             body={body}
             version={base}
             readOnly={readOnly}
-            onPatch={(baseVersion, patches) => edit({ kind: "patch", type: "document", baseVersion, patches: [...patches] })}
+            onPatch={(baseVersion, patches) => edit(() => ({ kind: "patch", type: "document", baseVersion, patches: [...patches] }))}
             onCommentText={(quote, offset) => setDraftAnchor({ kind: "text", quote, offset })}
           />
         );
@@ -257,7 +277,7 @@ function SelectedArtifact({
           <ArtifactSheetEditor
             grid={body.grid}
             readOnly={readOnly}
-            onPatch={(patches) => edit({ kind: "patch", type: "sheet", baseVersion: base, patches: [...patches] })}
+            onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "sheet", baseVersion, patches: [...patches] }))}
             onCommentCells={(range) => setDraftAnchor({ kind: "cells", range })}
           />
         );
@@ -266,7 +286,7 @@ function SelectedArtifact({
           <ArtifactPadEditor
             pad={body.pad}
             readOnly={readOnly}
-            onPatch={(patches) => edit({ kind: "patch", type: "pad", baseVersion: base, patches: [...patches] })}
+            onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "pad", baseVersion, patches: [...patches] }))}
             onCommentBox={(box) => setDraftAnchor({ kind: "box", ...box })}
           />
         );
@@ -280,6 +300,10 @@ function SelectedArtifact({
   const rail = (
     <ArtifactComments
       threads={threads}
+      seatName={(id) => {
+        const node = nodeAt(canvasName, id);
+        return node === undefined ? undefined : titleOf(node);
+      }}
       draftAnchor={draftAnchor}
       now={now}
       onStart={(text, anchor) => comment(text, anchor)}
@@ -340,7 +364,7 @@ function SelectedArtifact({
             now={now}
             onClose={() => setMode("edit")}
             onRestore={(record) => {
-              void edit({ kind: "replace", baseVersion: base, body: record.body }).then((refused) => {
+              void edit((baseVersion) => ({ kind: "replace", baseVersion, body: record.body })).then((refused) => {
                 if (refused === null) setMode("edit");
               });
             }}

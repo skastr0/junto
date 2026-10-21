@@ -64,12 +64,12 @@ export interface ArtifactsSource {
   /** Rule one op. `itemId` is the artifact; on `create` the caller mints it. */
   readonly apply: (canvasName: string, nodeId: NodeId, itemId: ItemId, op: ArtifactOp) => Promise<ArtifactRuling>;
   readonly threads: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactThread>>;
-  /** Start a thread (no `threadId`) or reply in one. */
+  /** Start a thread (no `threadId`) or reply in one. A reply to a thread that is not there is refused: null. */
   readonly comment: (
     canvasName: string,
     artifactId: ItemId,
     post: { readonly text: string; readonly threadId?: string; readonly anchor?: Anchor; readonly version: ArtifactVersion },
-  ) => Promise<ArtifactThread>;
+  ) => Promise<ArtifactThread | null>;
   readonly resolve: (canvasName: string, threadId: string, resolved: boolean) => Promise<void>;
   /** Called after any change; returns the unsubscribe. */
   readonly subscribe: (listener: () => void) => () => void;
@@ -143,6 +143,7 @@ export const makeLocalArtifactsSource = (
       const at = now();
       const entry: ArtifactPost = { postId: mintItemId(), author: actor, text: post.text, at };
       const existing = post.threadId === undefined ? undefined : threads.get(`${canvasName}\u0000${post.threadId}`);
+      if (post.threadId !== undefined && existing === undefined) return null;
       const thread: ArtifactThread =
         existing === undefined
           ? {

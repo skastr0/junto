@@ -79,7 +79,8 @@ export function ArtifactPadEditor({
           return { ok: false, code: "invalid", message: "Drag to mark the area to comment on." };
         }
         comment(area);
-        return { ok: false, code: "invalid", message: "Commenting on the marked area." };
+        // Not a write: the pad stays as it was, so the drawn box falls away.
+        return { ok: true, pad: ackedRef.current };
       }
       const drawing = patches as ReadonlyArray<ArtifactPadPatch>;
       const next = applyPatches(ackedRef.current, drawing);

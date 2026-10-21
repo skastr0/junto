@@ -92,7 +92,7 @@ describe("local artifacts source", () => {
     const doc = mintItemId();
     let changes = 0;
     source.subscribe(() => (changes += 1));
-    const started = await source.comment("c", doc, { text: "first", anchor: { kind: "whole" }, version: 1 as never });
+    const started = (await source.comment("c", doc, { text: "first", anchor: { kind: "whole" }, version: 1 as never }))!;
     expect(started.anchor).toBeUndefined();
     await source.comment("c", doc, { text: "second", threadId: started.threadId, version: 1 as never });
     await source.resolve("c", started.threadId, true);
@@ -100,5 +100,6 @@ describe("local artifacts source", () => {
     expect(thread?.posts.map((post) => post.text)).toEqual(["first", "second"]);
     expect(thread?.resolved).toBe(true);
     expect(changes).toBe(3);
+    expect(await source.comment("c", doc, { text: "lost", threadId: "nope", version: 1 as never })).toBeNull();
   });
 });

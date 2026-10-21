@@ -19,8 +19,11 @@ export function ArtifactComments({
   onResolve,
   onClearAnchor,
   onFocusAnchor,
+  seatName,
 }: {
   readonly threads: ReadonlyArray<ArtifactThread>;
+  /** A seat's name by its node id, for post authors. */
+  readonly seatName?: (nodeId: string) => string | undefined;
   readonly draftAnchor: Anchor | undefined;
   readonly now: number;
   readonly onStart: (text: string, anchor: Anchor | undefined) => void;
@@ -93,6 +96,7 @@ export function ArtifactComments({
               key={thread.threadId}
               thread={thread}
               now={now}
+              seatName={seatName}
               onReply={(text) => onReply(thread.threadId, text)}
               onResolve={() => onResolve(thread.threadId, !thread.resolved)}
               onFocus={onFocusAnchor ? () => onFocusAnchor(thread.anchor) : undefined}
@@ -110,9 +114,11 @@ function ThreadView({
   onReply,
   onResolve,
   onFocus,
+  seatName,
 }: {
   readonly thread: ArtifactThread;
   readonly now: number;
+  readonly seatName?: (nodeId: string) => string | undefined;
   readonly onReply: (text: string) => void;
   readonly onResolve: () => void;
   readonly onFocus?: () => void;
@@ -140,7 +146,7 @@ function ThreadView({
       <ol className="artifact-thread__posts">
         {thread.posts.map((post) => (
           <li key={post.postId} className="artifact-thread__post">
-            <span className="artifact-thread__author">{actorLabel(post.author)}</span>
+            <span className="artifact-thread__author">{actorLabel(post.author, seatName)}</span>
             <span className="artifact-thread__age">{ageLabel(post.at, now)}</span>
             <p className="artifact-thread__text">{post.text}</p>
           </li>

@@ -36,37 +36,62 @@ export function DocumentEditor({
   const [selection, setSelection] = useState<{ readonly quote: string; readonly offset: number } | null>(null);
   /** The head the draft was last in step with: what a splice is computed from. */
   const synced = useRef({ markdown: body.markdown, version });
+  /** The newest head seen, which may be ahead of `synced` while the draft holds unsent text. */
+  const head = useRef({ markdown: body.markdown, version });
+  head.current = { markdown: body.markdown, version };
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Sends run one after another, each reading the base when it starts. */
+  const chain = useRef<Promise<void>>(Promise.resolve());
 
-  // A new head that is not our own write: take it when the draft has no unsent change.
+  // A head that is not our own write is taken only when nothing is unsent.
+  // With unsent text, `synced` stays on the old base, so the next send is
+  // refused stale and the operator chooses; it never silently overwrites.
   useEffect(() => {
     if (version === synced.current.version) return;
-    const unsent = draft !== synced.current.markdown;
+    if (draftRef.current !== synced.current.markdown) return;
     synced.current = { markdown: body.markdown, version };
-    if (!unsent) setDraft(body.markdown);
+    setDraft(body.markdown);
   }, [version, body.markdown]);
 
-  const send = async (text: string): Promise<void> => {
-    const patch = textSplice(synced.current.markdown, text);
-    if (patch === null) return;
-    const base = synced.current.version;
-    const refused = await onPatch(base, [patch]);
-    setRefusal(refused);
-    if (refused === null) synced.current = { markdown: text, version: (base + 1) as ArtifactVersion };
+  const send = (): Promise<void> => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    chain.current = chain.current.then(async () => {
+      const text = draftRef.current;
+      const patch = textSplice(synced.current.markdown, text);
+      if (patch === null) return;
+      const base = synced.current.version;
+      const refused = await onPatch(base, [patch]);
+      setRefusal(refused);
+      if (refused === null) synced.current = { markdown: text, version: (base + 1) as ArtifactVersion };
+    });
+    return chain.current;
   };
 
   const type = (text: string): void => {
     setDraft(text);
+    draftRef.current = text;
     if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void send(text), SAVE_REST_MS);
+    timer.current = setTimeout(() => void send(), SAVE_REST_MS);
   };
 
+  // Closing with typing still resting sends it rather than dropping it.
   useEffect(
     () => () => {
-      if (timer.current !== null) clearTimeout(timer.current);
+      if (timer.current !== null) void send();
     },
     [],
   );
+
+  /** Write the draft over the newest head, replacing what the other writer changed. */
+  const overwrite = (): void => {
+    synced.current = head.current;
+    void send();
+  };
 
   const select = (target: HTMLTextAreaElement): void => {
     const quote = target.value.slice(target.selectionStart, target.selectionEnd);
@@ -74,8 +99,9 @@ export function DocumentEditor({
   };
 
   const takeHead = (): void => {
-    synced.current = { markdown: body.markdown, version };
-    setDraft(body.markdown);
+    synced.current = head.current;
+    draftRef.current = head.current.markdown;
+    setDraft(head.current.markdown);
     setRefusal(null);
   };
 
@@ -111,8 +137,8 @@ export function DocumentEditor({
       {refusal ? (
         <div className="artifact-document__refusal" role="status">
           <span>{refusal}</span>
-          <Button size="sm" variant="subtle" onClick={() => void send(draft)}>
-            Send again
+          <Button size="sm" variant="danger" onClick={overwrite}>
+            Overwrite theirs
           </Button>
           <Button size="sm" variant="subtle" onClick={takeHead}>
             Take theirs
@@ -129,10 +155,7 @@ export function DocumentEditor({
             value={draft}
             onChange={(event) => type(event.target.value)}
             onSelect={(event) => select(event.currentTarget)}
-            onBlur={() => {
-              if (timer.current !== null) clearTimeout(timer.current);
-              void send(draft);
-            }}
+            onBlur={() => void send()}
           />
         ) : null}
         {view !== "write" ? (
