@@ -89,6 +89,8 @@ export const titleOf = (node: Node): string => {
       return compact(node.label) ?? node.agentKey;
     case "peer":
       return compact(node.label) ?? node.host;
+    case "stub":
+      return (node.of === "page" ? undefined : compact(node.label)) ?? node.of;
     case "region":
       return regionName(node);
     case "task":
@@ -109,9 +111,6 @@ export const titleOf = (node: Node): string => {
     case "artifacts":
     case "automations":
     case "board":
-    case "cron":
-    case "relay":
-    case "watcher":
       return compact(node.label) ?? node.kind;
   }
 };

@@ -57,7 +57,7 @@ export const canvasToCapabilityView = (
   for (const node of canvas.nodes.values()) {
     nodeMeta = HashMap.set(nodeMeta, node.id, metaOfNode(node));
     if (node.kind !== "region") kinds.set(node.id, node.kind === "peer" ? "agent" : node.kind);
-    machine = HashMap.set(machine, node.id, "host" in node ? node.host : options.editingMachine);
+    machine = HashMap.set(machine, node.id, ("host" in node ? node.host : undefined) ?? options.editingMachine);
   }
   const joins: Array<Join> = [];
   for (const wire of canvas.wires.values()) {

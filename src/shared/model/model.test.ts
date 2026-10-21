@@ -122,9 +122,9 @@ describe("commands", () => {
     expect(Exit.isFailure(run(decodeNode({ ...placed, kind: "pad" })))).toBe(true);
   });
 
-  it("has an edit for each authored kind and none for a read-only peer", () => {
+  it("has an edit for each authored kind and none for a read-only peer or stub", () => {
     const kinds = NodeEdit.members.map((member) => member.fields.kind.literal);
-    expect([...kinds].sort()).toEqual(NODE_KINDS.filter(kind => kind !== "peer").sort());
+    expect([...kinds].sort()).toEqual(NODE_KINDS.filter(kind => kind !== "peer" && kind !== "stub").sort());
   });
 
   it("has no command that carries a whole canvas", () => {

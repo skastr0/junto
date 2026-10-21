@@ -8,6 +8,7 @@ import {
   AUTOMATION_BOARDS_STATE_SCHEMA_SQL,
   CANVAS_EDITOR_COLUMN_SQL,
   PEERS_STATE_SCHEMA_SQL,
+  STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
 import { AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import {
@@ -344,7 +345,17 @@ export const STATE_SCHEMA_V29_IDENTITY = {
     "6ce1b20e80ade3b95a6a98919f6119d64a4500119b39e5d43853eb14bde05958",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 29;
+/**
+ * Version 30 adds stubs: the files, links, repositories and pages of a canvas
+ * another machine edits, as this machine's copy holds them, with no path or
+ * address. Expand only.
+ */
+export const STATE_SCHEMA_V30_IDENTITY = {
+  actualSchemaSha256:
+    "4ae32757b439425bcda3df39f07a8edcffca5af44b152ee6b40d24d60c17bc27",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 30;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -352,7 +363,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 29;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V29_IDENTITY;
+  STATE_SCHEMA_V30_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -535,6 +546,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     replacesTables: ["artifact_versions"],
     retiresColumns: { artifact_versions: ["body_json"] },
     migrate: (database) => migrateArtifactBodyRefs(database),
+  },
+  {
+    fromVersion: 29,
+    toVersion: 30,
+    name: "add stubs",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V29_IDENTITY,
+    migrate: (database) => {
+      database.exec(STUBS_STATE_SCHEMA_SQL);
+    },
   },
 ];
 

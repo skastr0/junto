@@ -557,7 +557,7 @@ export const scopeDenialToWorkError = (
  */
 const callerMachine = (doc: Canvas, callerId: string): string => {
   const caller = findNode(doc, callerId);
-  return caller !== undefined && "host" in caller ? caller.host : "";
+  return caller?.kind === "agent" ? caller.host : "";
 };
 
 /**

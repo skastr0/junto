@@ -130,7 +130,7 @@ export const admitBrowserPage = (
   // always beside it. Browser admission judges the machine in edge-grant
   // (admitsCallerOnThisMachine, editsCanvas).
   const caller = findNode(doc, callerId);
-  if (caller === undefined || !("host" in caller)) return false;
+  if (caller?.kind !== "agent") return false;
   const view = canvasToCapabilityView(doc, { editingMachine: caller.host });
   const result = admitPure(
     view,

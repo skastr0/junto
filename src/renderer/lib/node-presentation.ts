@@ -11,10 +11,10 @@ export const detailOf = (node: Node): string => {
     case "region": return node.instruction?.trim().split("\n")[0] ?? "Spatial region";
     case "agent": return node.agentKey;
     case "peer": return node.host;
+    case "stub": return node.host ?? "";
     case "terminal": return node.host;
     case "task": return node.contract?.instructions?.trim().split("\n")[0] ?? "";
-    case "cron": return node.expression ?? "";
-    case "requests": case "artifacts": case "automations": case "board": case "relay": case "watcher": return "";
+    case "requests": case "artifacts": case "automations": case "board": return "";
   }
 };
 

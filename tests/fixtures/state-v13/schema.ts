@@ -168,3 +168,9 @@ export const STATE_SCHEMA_V29_SQL = stepped(
   STATE_SCHEMA_V28_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 29)!.migrate,
 );
+
+// Version 30 added stubs (29 -> 30).
+export const STATE_SCHEMA_V30_SQL = stepped(
+  STATE_SCHEMA_V29_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 30)!.migrate,
+);

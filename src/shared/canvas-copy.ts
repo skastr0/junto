@@ -19,11 +19,12 @@ import {
   HostId,
   Label,
   NodeId,
-  OneLine,
   Peer,
   Region,
   Seat,
   Seq,
+  Stub,
+  type StubOf,
   TaskBoard,
   Terminal,
   Wire,
@@ -97,22 +98,6 @@ const CopiedTask = Schema.Struct({ kind: TaskBoard.fields.kind, ...geometry, nam
 const CopiedArtifacts = Schema.Struct({ kind: Artifacts.fields.kind, ...geometry, label: Artifacts.fields.label });
 /** Bare text on the map: the text is its label. */
 const CopiedLabel = Schema.Struct({ kind: Label.fields.kind, ...geometry, text: Label.fields.text });
-
-/** The kinds that cross as a stub: what they hold is a path, an address or a live page. */
-export const StubOf = Schema.Literals(["file", "link", "git"]);
-export type StubOf = typeof StubOf.Type;
-
-/**
- * A node whose own fields are body, as a machine holding a copy sees it: what
- * it is and where it sits, and a label only when the operator wrote one. No
- * part of a path or an address names it. A page also names the machine it
- * lives on, the editing machine, and has nothing to drive.
- */
-export const Stub = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("stub"), of: StubOf, ...geometry, label: Schema.optionalKey(OneLine) }),
-  Schema.Struct({ kind: Schema.Literal("stub"), of: Schema.Literal("page"), ...geometry, host: HostId }),
-]);
-export type Stub = typeof Stub.Type;
 
 const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, Stub]);
 export type CopiedResource = typeof CopiedResource.Type;
@@ -194,7 +179,7 @@ const placed = (node: Node) => ({
 });
 
 /** The kinds that cross: every kind a seat reaches, and the cards beside them. */
-type CrossingKind = ResourceKind | "label" | StubOf | "page";
+type CrossingKind = ResourceKind | "label" | StubOf;
 
 /** Takes only a kind that does not cross, so a crossing kind with no case fails to compile. */
 const staysHome = (_kind: Exclude<Node["kind"], CrossingKind>): undefined => undefined;

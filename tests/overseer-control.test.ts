@@ -148,11 +148,12 @@ describe("overseer command contract", () => {
     ]) {
       fails(decodeOverseerArgs("node.create", { node }));
     }
-    // Every kind an author can place has a draft, and only those. A peer is
-    // never placed: it exists only in a copy of a canvas held by another machine.
+    // Every kind an author can place has a draft, and only those. A peer and a
+    // stub are never placed: they exist only in a copy of a canvas held by
+    // another machine.
     const document = JSON.stringify(Schema.toJsonSchemaDocument(OverseerArgsSchemas["node.create"]));
     for (const kind of NODE_KINDS) {
-      if (kind === "peer") expect(document).not.toContain('"peer"');
+      if (kind === "peer" || kind === "stub") expect(document).not.toContain(`"${kind}"`);
       else expect(document).toContain(`"${kind}"`);
     }
     fails(decodeOverseerArgs("node.create", {

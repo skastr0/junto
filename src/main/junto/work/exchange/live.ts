@@ -263,14 +263,7 @@ export const makeLiveRowExchange = (
           canvasId: copy.canvasId,
           seq: copy.seq,
           editor: copy.editor,
-          // A stub has no row to be kept in yet: it waits for its own kind in the model.
-          nodes: [
-            ...copy.regions,
-            ...copy.seats,
-            ...copy.peers,
-            ...copy.terminals,
-            ...copy.resources.filter((resource) => resource.kind !== "stub"),
-          ],
+          nodes: [...copy.regions, ...copy.seats, ...copy.peers, ...copy.terminals, ...copy.resources],
           wires: copy.wires,
         });
         if (!("seq" in outcome) || outcome.seq === undefined) return { refused: "a-canvas-of-that-name" };

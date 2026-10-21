@@ -54,6 +54,7 @@ export const KIND_TABLES = {
   file: "file_cards",
   link: "link_cards",
   git: "git_repositories",
+  stub: "stubs",
 } as const;
 
 /**
@@ -71,6 +72,22 @@ export const PEERS_STATE_SCHEMA_SQL = table(
         AND substr(seat_id, 1, 5) = 'seat_'
         AND substr(seat_id, 6) NOT GLOB '*[^a-f0-9]*'
       )`,
+);
+
+/**
+ * Files, links, repositories and pages of other machines, held only in a copy
+ * of a canvas: what each is and where it sits, a label only when the operator
+ * wrote one, and for a page the machine it lives on. No path or address.
+ * Added by state migration 29 -> 30.
+ */
+export const STUBS_STATE_SCHEMA_SQL = table(
+  "stubs",
+  `
+    stub_of TEXT NOT NULL CHECK (stub_of IN ('file', 'link', 'git', 'page')),
+    label TEXT,
+    host TEXT,
+    CHECK ((stub_of = 'page') = (host IS NOT NULL)),
+    CHECK (stub_of <> 'page' OR label IS NULL)`,
 );
 
 /** Automations nodes (0.10/07). Added by state migration 27 -> 28. */
@@ -202,4 +219,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS wires_to ON wires(canvas_name, to_id, id);
 
   ${PEERS_STATE_SCHEMA_SQL}
+
+  ${STUBS_STATE_SCHEMA_SQL}
 `;

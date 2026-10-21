@@ -158,44 +158,6 @@ export const Board = Schema.Struct({
 });
 export type Board = typeof Board.Type;
 
-// ── Things that fire on their own ───────────────────────────────────────────
-//
-// Each fires on one machine, its `host`, the same as a seat runs on one.
-
-export const Cron = Schema.Struct({
-  kind: Schema.Literal("cron"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-  host: HostId,
-  /**
-   * Five fields: minute, hour, day of month, month, day of week. Absent on a
-   * cron that has not been given a schedule yet; it does not fire.
-   */
-  expression: Schema.optionalKey(NonEmpty),
-});
-export type Cron = typeof Cron.Type;
-
-export const Relay = Schema.Struct({
-  kind: Schema.Literal("relay"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-  host: HostId,
-});
-export type Relay = typeof Relay.Type;
-
-/** Fires when a numeric stat of a Hermes agent crosses a threshold. */
-export const Watcher = Schema.Struct({
-  kind: Schema.Literal("watcher"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-  host: HostId,
-  key: Schema.optionalKey(Schema.String),
-  stat: Schema.optionalKey(Schema.String),
-  op: Schema.optionalKey(Schema.Literals(["gt", "lt", "eq"])),
-  value: Schema.optionalKey(Schema.Finite),
-});
-export type Watcher = typeof Watcher.Type;
-
 // ── Things that only sit there ──────────────────────────────────────────────
 
 export const Note = Schema.Struct({
@@ -239,6 +201,31 @@ export const GitCard = Schema.Struct({
 });
 export type GitCard = typeof GitCard.Type;
 
+/** The kinds a stub stands for. */
+export const StubOf = Schema.Literals(["file", "link", "git", "page"]);
+export type StubOf = typeof StubOf.Type;
+
+/**
+ * A node of another machine's canvas whose own fields are body, as a machine
+ * holding a copy sees it: what it is and where it sits, and a label only when
+ * the operator wrote one. No part of a path or an address names it. A page
+ * names the machine it lives on, the editing machine, has no label and has
+ * nothing to drive. Like a peer, nothing authors one: it arrives with a copy.
+ */
+export const Stub = Schema.Struct({
+  kind: Schema.Literal("stub"),
+  ...placement,
+  of: StubOf,
+  label: Schema.optionalKey(OneLine),
+  host: Schema.optionalKey(HostId),
+}).check(
+  Schema.makeFilter(
+    (stub) => (stub.of === "page") === (stub.host !== undefined) || "a page stub names its machine, and only a page stub",
+  ),
+  Schema.makeFilter((stub) => stub.of !== "page" || stub.label === undefined || "a page stub has no label"),
+);
+export type Stub = typeof Stub.Type;
+
 // ── The closed set ──────────────────────────────────────────────────────────
 
 /**
@@ -255,14 +242,12 @@ export const Node = Schema.Union([
   Artifacts,
   Automations,
   Board,
-  Cron,
-  Relay,
-  Watcher,
   Note,
   Label,
   FileCard,
   LinkCard,
   GitCard,
+  Stub,
   Region,
 ]);
 export type Node = typeof Node.Type;
@@ -279,14 +264,12 @@ export const NODE_KINDS = [
   "artifacts",
   "automations",
   "board",
-  "cron",
-  "relay",
-  "watcher",
   "note",
   "label",
   "file",
   "link",
   "git",
+  "stub",
   "region",
 ] as const satisfies ReadonlyArray<NodeKind>;
 
