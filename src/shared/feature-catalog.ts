@@ -144,17 +144,6 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_REVIEWS",
     define: "__JUNTO_REVIEWS_ENABLED__",
   },
-  /**
-   * Pinning: the side dock beside the canvas, the pinned zone of the
-   * workbench, and every Pin and Unpin control. Off in every profile: session
-   * switching, the grid and the connections rail replaced it, and it is not
-   * tested or maintained. Off, no surface offers a pin, nothing can enter the
-   * pinned zone, and the dock is not built into the renderer.
-   */
-  pinning: {
-    env: "JUNTO_PINNING",
-    define: "__JUNTO_PINNING_ENABLED__",
-  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -238,7 +227,6 @@ export const SHIP_FEATURES: FeatureSet = {
   harnessOmp: true,
   harnessPrimeAgent: true,
   harnessSettings: true,
-  pinning: false,
 };
 
 export const ALL_FEATURES: FeatureSet = {
@@ -265,6 +253,4 @@ export const ALL_FEATURES: FeatureSet = {
   harnessOmp: true,
   harnessPrimeAgent: true,
   harnessSettings: true,
-  // Unsupported: off even in the all-on profile; JUNTO_PINNING=1 builds it.
-  pinning: false,
 };
