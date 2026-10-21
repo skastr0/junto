@@ -26,6 +26,7 @@ import {
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import "./artifact-sheet.css";
+import { releaseFocus } from "../../lib/focus-ownership";
 
 /** Typing settles into one `cell` patch after this pause, or on blur and Enter. */
 export const SHEET_CELL_DEBOUNCE_MS = 400;
@@ -292,7 +293,7 @@ export function ArtifactSheetEditor({
                       }
                       onBlur={commitColumnName}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Enter") releaseFocus(event.currentTarget, "gesture");
                         if (event.key === "Escape") setColumnDraft(null);
                       }}
                     />

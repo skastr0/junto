@@ -38,6 +38,7 @@ import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
 import { ageLabel, isLinkUrl, TYPE_NOUN, type TypeFilter, visibleArtifacts } from "./artifacts-pane-model";
 import { DocumentEditor } from "./DocumentEditor";
 import "./artifacts.css";
+import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 
 /** Ages in the list move on without a write; a minute is fine enough. */
 const CLOCK_MS = 60_000;
@@ -343,7 +344,7 @@ function SelectedArtifact({
           onChange={(event) => setTitle(event.target.value)}
           onBlur={retitle}
           onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Enter") releaseFocus(event.currentTarget, "gesture");
             if (event.key === "Escape") setTitle(artifact.title);
           }}
         />
@@ -436,7 +437,7 @@ function NewLinkForm({
         submit();
       }}
     >
-      <Input dense autoFocus aria-label="URL" placeholder="https://" value={url} onChange={(event) => setUrl(event.target.value)} />
+      <Input dense ref={claimFocusOnMount} aria-label="URL" placeholder="https://" value={url} onChange={(event) => setUrl(event.target.value)} />
       <Input dense aria-label="Title" placeholder="Title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
       <div className="artifacts-link-form__actions">
         <Button size="xs" variant="subtle" type="button" onClick={onCancel}>
