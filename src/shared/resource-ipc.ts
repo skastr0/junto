@@ -17,6 +17,7 @@
 import { Schema } from "effect";
 import { ArtifactOp, ArtifactVersion, type ArtifactBody, type ArtifactVersionRecord } from "./artifact";
 import type { ArtifactEntry, ArtifactFact } from "./artifact-domain";
+import type { OpOverlay } from "./op-control";
 import { NodeId } from "./physics/schema";
 import { RefusalReason } from "./resource-command";
 import type { TaskDomainEnv } from "./task-machine";
@@ -60,7 +61,30 @@ export type TaskApplyOutcome = ResourceApplyOutcome<{ readonly deliveryError?: W
 /** `facts` is empty when a resend is answered from the stored ruling: nothing changed again. */
 export type ArtifactApplyOutcome = ResourceApplyOutcome<{ readonly facts: ReadonlyArray<ArtifactFact> }>;
 
-/** Said to every window after a write to a canvas's tasks or artifacts, by anyone. */
+/**
+ * One of this machine's writes to a node's items that the editing machine
+ * has not ruled yet, in queue order: every seat's and the operator's, never
+ * another machine's. `overlay` is what `op list` reads of it over the ruled
+ * state (02 read-your-writes); absent when the build has no overlay reader
+ * for the domain, which today is every task write.
+ */
+export type ArtifactPendingWrite = {
+  readonly opId: OpId;
+  readonly artifactId: ItemId;
+  readonly op: ArtifactOp;
+  readonly overlay?: OpOverlay;
+};
+export type TaskPendingWrite = {
+  readonly opId: OpId;
+  readonly taskId: TaskId;
+  readonly command: TaskCommandWire;
+  readonly overlay?: OpOverlay;
+};
+
+/**
+ * Said to every window after a write to a canvas's tasks or artifacts, by
+ * anyone, and when one of this machine's queued writes is ruled.
+ */
 export type ResourceChanged = { readonly canvasName: string };
 
 const isTaskRefusalKind = (kind: unknown): kind is TaskRefusalDetail["kind"] =>
@@ -88,6 +112,7 @@ const strict = { parseOptions: { onExcessProperty: "error" as const } };
 export const TaskListInput = Schema.Struct({ canvasName: CanvasNameInput, nodeId: NodeId }).annotate(strict);
 export const TaskAllInput = Schema.Struct({ canvasName: CanvasNameInput }).annotate(strict);
 export const TaskContextInput = TaskAllInput;
+export const TaskPendingInput = TaskListInput;
 export const TaskApplyInput = Schema.Struct({
   canvasName: CanvasNameInput,
   nodeId: NodeId,
@@ -132,6 +157,7 @@ export const taskCanvasFactsOf = (
 // ── artifact inputs ────────────────────────────────────────────────────────
 
 export const ArtifactListInput = TaskListInput;
+export const ArtifactPendingInput = TaskListInput;
 export const ArtifactHistoryInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId }).annotate(strict);
 /** One version's body, for an entry whose body is not loaded. */
 export const ArtifactBodyInput = Schema.Struct({
@@ -169,6 +195,8 @@ export type TaskResourceApi = {
     opId: OpId,
     command: TaskCommand,
   ) => Promise<TaskApplyOutcome>;
+  /** This machine's unruled writes to the node's tasks, in queue order. */
+  readonly pending: (canvasName: string, nodeId: TaskNodeId) => Promise<ReadonlyArray<TaskPendingWrite>>;
   readonly onChanged: (listener: (changed: ResourceChanged) => void) => () => void;
 };
 
@@ -187,6 +215,8 @@ export type ArtifactResourceApi = {
     opId: OpId,
     op: ArtifactOp,
   ) => Promise<ArtifactApplyOutcome>;
+  /** This machine's unruled writes to the node's artifacts, in queue order. */
+  readonly pending: (canvasName: string, nodeId: NodeId) => Promise<ReadonlyArray<ArtifactPendingWrite>>;
   readonly onChanged: (listener: (changed: ResourceChanged) => void) => () => void;
 };
 

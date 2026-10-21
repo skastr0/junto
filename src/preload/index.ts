@@ -696,6 +696,7 @@ const taskResourceApi: ResourceIpcApi["task"] = {
   context: (canvasName) => invoke(RESOURCE_IPC_CHANNELS.task.context, IPC_TIMEOUT_MS, { canvasName }),
   apply: (canvasName, nodeId, taskId, opId, command) =>
     invoke(RESOURCE_IPC_CHANNELS.task.apply, IPC_TIMEOUT_MS, { canvasName, nodeId, taskId, opId, command }),
+  pending: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.task.pending, IPC_TIMEOUT_MS, { canvasName, nodeId }),
   onChanged: (listener) => subscribe<ResourceChanged>(RESOURCE_IPC_CHANNELS.task.changed, listener),
 };
 
@@ -707,6 +708,7 @@ const artifactResourceApi: ResourceIpcApi["artifact"] = {
     invoke(RESOURCE_IPC_CHANNELS.artifact.body, IPC_TIMEOUT_MS, { canvasName, artifactId, version }),
   apply: (canvasName, nodeId, artifactId, opId, op) =>
     invoke(RESOURCE_IPC_CHANNELS.artifact.apply, IPC_TIMEOUT_MS, { canvasName, nodeId, artifactId, opId, op }),
+  pending: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.artifact.pending, IPC_TIMEOUT_MS, { canvasName, nodeId }),
   onChanged: (listener) => subscribe<ResourceChanged>(RESOURCE_IPC_CHANNELS.artifact.changed, listener),
 };
 

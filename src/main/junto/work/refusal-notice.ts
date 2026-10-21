@@ -84,3 +84,30 @@ export const refusalNoticeWrite = Effect.fn("work.refusalNoticeWrite")(function*
     },
   } satisfies RefusalNoticeWrite;
 });
+
+/**
+ * The domain of one of this machine's own commands a refusal just ruled, read
+ * from its command row: its panes read their pending writes again. Undefined
+ * for another machine's command or a row this machine does not hold.
+ */
+export const refusedKindOf = Effect.fn("work.refusedKindOf")(function* (
+  reader: SqlClient.SqlClient,
+  self: string,
+  canvasName: string,
+  ruling: RulingRefusedResult,
+) {
+  if (ruling.writer !== self) return undefined;
+  const rows = yield* reader.unsafe<{ result_json: string }>(
+    `
+      SELECT fact.result_json
+      FROM work_events AS event
+      JOIN work_facts AS fact USING (event_home, entity_home, seq)
+      WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
+        AND event.item_kind = 'command' AND event.operation = 'command.queued' AND event.item_id = ?
+      LIMIT 1
+    `,
+    [self, self, canvasName, ruling.opId],
+  );
+  const held = rows[0] === undefined ? undefined : Option.getOrUndefined(decodeCommandRow(rows[0].result_json));
+  return held?.command.target.kind;
+});

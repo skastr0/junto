@@ -146,6 +146,8 @@ describe("a refusal of this machine's own command", () => {
     expect(threadSubjectOf(notice!)).toEqual({ kind: "task", nodeId: "board-1", taskId: TASK });
     // Told to delivery after the commit, like mail that arrived.
     expect(applied.mail.map((sent) => sent.message.messageId)).toEqual([noticeId(ROOT)]);
+    // Its queued writes were ruled, so the task panes read their pending writes again.
+    expect(applied.changed).toEqual(["task"]);
   });
 
   it("gives a dependent no notice of its own", async () => {

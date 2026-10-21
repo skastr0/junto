@@ -9,6 +9,7 @@ export const RESOURCE_IPC_CHANNELS = {
     all: "junto:resource-task-all",
     context: "junto:resource-task-context",
     apply: "junto:resource-task-apply",
+    pending: "junto:resource-task-pending",
     changed: "junto:resource-task-changed",
   },
   artifact: {
@@ -16,6 +17,7 @@ export const RESOURCE_IPC_CHANNELS = {
     history: "junto:resource-artifact-history",
     body: "junto:resource-artifact-body",
     apply: "junto:resource-artifact-apply",
+    pending: "junto:resource-artifact-pending",
     changed: "junto:resource-artifact-changed",
   },
 } as const;

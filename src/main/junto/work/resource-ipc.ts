@@ -5,11 +5,12 @@
 // builds the command and turns what the ruler made into an outcome.
 
 import type { IpcMain } from "electron";
-import { Effect, Option, Schema } from "effect";
-import type { ArtifactBody, ArtifactOp, ArtifactVersion, ArtifactVersionRecord } from "@shared/artifact";
+import { Effect, Option, Result, Schema } from "effect";
+import { decodeArtifactOp, type ArtifactBody, type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
 import type { Canvas } from "@shared/model";
 import type { ContentRef } from "@shared/content";
 import { operatorReachesResource } from "@shared/content-pull";
+import type { OpOverlay } from "@shared/op-control";
 import type { NodeId } from "@shared/physics/schema";
 import { refusalError, type ResourceCommand } from "@shared/resource-command";
 import { rulingContextOf } from "@shared/ruling-context";
@@ -19,17 +20,21 @@ import {
   ArtifactBodyInput,
   ArtifactHistoryInput,
   ArtifactListInput,
+  ArtifactPendingInput,
   RESOURCE_IPC_CHANNELS,
   TaskAllInput,
   TaskApplyInput,
   TaskContextInput,
   TaskListInput,
+  TaskPendingInput,
   taskCanvasFactsOf,
   type ResourceChanged,
   type ArtifactApplyOutcome,
   type ArtifactHead,
+  type ArtifactPendingWrite,
   type TaskApplyOutcome,
   type TaskCanvasFacts,
+  type TaskPendingWrite,
 } from "@shared/resource-ipc";
 import { taskRefusalMessage } from "@shared/task-machine";
 import {
@@ -37,13 +42,15 @@ import {
   seatNodeId,
   taskNodeId,
   TASK_STATES,
-  type TaskCommandWire,
+  TaskCommandWire,
   type TaskId,
   type TaskView,
 } from "@shared/task-model";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { liveArtifactPorts, type ArtifactPorts } from "./artifact-control";
+import { queuedOverlays, type QueuedOverlays } from "./op-control";
+import { OpRepository } from "./op-repository";
 import { onResourceChanged } from "./resource-changes";
 import { liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
 
@@ -52,6 +59,8 @@ export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   readonly tasks: Pick<TaskPorts, "list" | "submit" | "deliver">;
   readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull">;
+  /** This machine's unruled queue with its overlays: `op list`'s own read (`queuedOverlays`). */
+  readonly queue: (canvasName: string, canvas: Canvas) => Effect.Effect<QueuedOverlays | undefined, WorkErrorBody>;
 };
 
 const SCAN_LIMIT = 10_000;
@@ -254,6 +263,40 @@ export const applyArtifact = (
 /** Runs a handler in the app runtime, which holds the stores. */
 export type ResourceIpcRun = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
+const decodeTaskCommand = Schema.decodeUnknownResult(TaskCommandWire);
+
+/** The node's unruled writes of one domain, in queue order, each with its overlay when it has one. */
+const pendingOn = <W extends object>(
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  kind: "task" | "artifact",
+  nodeId: NodeId,
+  write: (opId: OpId, itemId: ItemId, op: unknown) => W | undefined,
+): Effect.Effect<ReadonlyArray<W & { readonly overlay?: OpOverlay }>, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const queued = yield* ports.queue(canvasName, yield* ports.topology(canvasName));
+    if (queued === undefined) return [];
+    return queued.commands.flatMap(({ opId, target, op }) => {
+      if (target.kind !== kind || target.nodeId !== nodeId || target.itemId === undefined) return [];
+      const pending = write(opId, target.itemId, op);
+      if (pending === undefined) return [];
+      const overlay = queued.overlays.get(opId);
+      return [overlay === undefined ? pending : { ...pending, overlay }];
+    });
+  });
+
+export const pendingArtifacts = (ports: ResourceIpcPorts, canvasName: string, nodeId: NodeId) =>
+  pendingOn(ports, canvasName, "artifact", nodeId, (opId, artifactId, op): ArtifactPendingWrite | undefined => {
+    const decoded = decodeArtifactOp(op);
+    return Result.isSuccess(decoded) ? { opId, artifactId, op: decoded.success } : undefined;
+  });
+
+export const pendingTasks = (ports: ResourceIpcPorts, canvasName: string, nodeId: NodeId) =>
+  pendingOn(ports, canvasName, "task", nodeId, (opId, taskId, op): TaskPendingWrite | undefined => {
+    const decoded = decodeTaskCommand(op);
+    return Result.isSuccess(decoded) ? { opId, taskId, command: decoded.success } : undefined;
+  });
+
 /**
  * The running core's ports: the CLI verbs' own, and the canvas as ipc.ts
  * reads it from the work plane (this file reaches no WorkService).
@@ -262,6 +305,12 @@ export const liveResourceIpcPorts = (topology: ResourceIpcPorts["topology"]): Re
   topology,
   tasks: liveTaskPorts,
   artifacts: liveArtifactPorts,
+  // A build without the record of resource writes queues nothing: no write waits.
+  queue: (canvasName, canvas) =>
+    Effect.flatMap(Effect.serviceOption(OpRepository), (repository) =>
+      Option.isNone(repository)
+        ? Effect.succeed(undefined)
+        : queuedOverlays(canvasName, canvas).pipe(Effect.provideService(OpRepository, repository.value))),
 });
 
 const decoded = <S extends Schema.Top>(schema: S, input: unknown) =>
@@ -305,6 +354,7 @@ export const registerResourceIpc = (
     on(task.context, TaskContextInput, (input) => taskContext(ports, input.canvasName));
     on(task.apply, TaskApplyInput, (input) =>
       applyTask(ports, input.canvasName, input.nodeId, input.taskId, input.opId, input.command), authoring.task);
+    on(task.pending, TaskPendingInput, (input) => pendingTasks(ports, input.canvasName, input.nodeId));
   }
   const artifact = RESOURCE_IPC_CHANNELS.artifact;
   if (enabled.artifact) {
@@ -313,6 +363,7 @@ export const registerResourceIpc = (
     on(artifact.body, ArtifactBodyInput, (input) => artifactBody(ports, input.canvasName, input.artifactId, input.version));
     on(artifact.apply, ArtifactApplyInput, (input) =>
       applyArtifact(ports, input.canvasName, input.nodeId, input.artifactId, input.opId, input.op), authoring.artifact);
+    on(artifact.pending, ArtifactPendingInput, (input) => pendingArtifacts(ports, input.canvasName, input.nodeId));
   }
   return onResourceChanged((domain, canvasName) => {
     if (enabled[domain]) broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });

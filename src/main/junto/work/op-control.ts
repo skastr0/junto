@@ -6,11 +6,13 @@
 import { Effect, Option, Result, Schema } from "effect";
 import { ArtifactOp } from "@shared/artifact";
 import { OP_LIST_MAX, OpListArgs, OpShowArgs, unknownOpError, type OpListResult, type OpOverlay, type OpView } from "@shared/op-control";
+import type { QueuedCommand } from "@shared/command-row";
 import type { ResourceCommand } from "@shared/resource-command";
 import type { ReachCanvas } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
 import type { NodeId } from "@shared/physics/schema";
 import type { WorkErrorBody } from "@shared/work-control";
+import type { OpId } from "@shared/work-ids";
 import { ArtifactRepository } from "./artifact-repository";
 import { OpRepository } from "./op-repository";
 
@@ -40,23 +42,29 @@ const unreadable = (message: string): WorkErrorBody => ({
 
 const decodeArtifactOp = Schema.decodeUnknownResult(ArtifactOp);
 
+/** This machine's unruled queue, in queue order, with the overlay of each write that has one. */
+export type QueuedOverlays = {
+  readonly commands: ReadonlyArray<QueuedCommand>;
+  readonly overlays: ReadonlyMap<OpId, OpOverlay>;
+};
+
 /**
- * Each queued write with what this machine reads of it over its ruled state
+ * What this machine reads of each queued write over its ruled state
  * (read-your-writes, 02), for the domains with an overlay reader: artifacts.
  * The whole queue of this machine is replayed, every seat's, in queue order,
- * since an earlier command changes what a later one meets.
+ * since an earlier command changes what a later one meets. `op show`, `op
+ * list` and the window's pending writes (resource-ipc.ts) all read this one
+ * computation. Undefined when this machine holds no queue for the canvas.
  */
-const withOverlay = (
+export const queuedOverlays = (
   canvasName: string,
   canvas: ReachCanvas,
-  views: ReadonlyArray<OpView>,
-): Effect.Effect<ReadonlyArray<OpView>, WorkErrorBody, OpRepository> =>
+): Effect.Effect<QueuedOverlays | undefined, WorkErrorBody, OpRepository> =>
   Effect.gen(function* () {
-    if (!views.some((view) => view.state === "queued")) return views;
-    const artifacts = yield* Effect.serviceOption(ArtifactRepository);
-    if (Option.isNone(artifacts)) return views;
     const queue = yield* (yield* OpRepository).unruled(canvasName).pipe(Effect.mapError((error) => unreadable(error.message)));
-    if (queue === undefined) return views;
+    if (queue === undefined) return undefined;
+    const artifacts = yield* Effect.serviceOption(ArtifactRepository);
+    if (Option.isNone(artifacts)) return { commands: queue.commands, overlays: new Map() };
     const commands = queue.commands.flatMap((command): ReadonlyArray<ResourceCommand<ArtifactOp>> => {
       if (command.target.kind !== "artifact") return [];
       const op = decodeArtifactOp(command.op);
@@ -66,9 +74,21 @@ const withOverlay = (
     // refused in the replay, so it changes nothing the caller reads.
     const context = rulingContextOf(canvas, () => undefined);
     const entries = yield* artifacts.value.overlay(canvasName, queue.writer, commands, context).pipe(Effect.mapError((error) => unreadable(error.message)));
-    const overlays = new Map(entries.map(({ opId, ...overlay }) => [opId, overlay as OpOverlay]));
+    return { commands: queue.commands, overlays: new Map(entries.map(({ opId, ...overlay }) => [opId, overlay as OpOverlay])) };
+  });
+
+/** Each queued view with its overlay, from `queuedOverlays`. */
+const withOverlay = (
+  canvasName: string,
+  canvas: ReachCanvas,
+  views: ReadonlyArray<OpView>,
+): Effect.Effect<ReadonlyArray<OpView>, WorkErrorBody, OpRepository> =>
+  Effect.gen(function* () {
+    if (!views.some((view) => view.state === "queued")) return views;
+    const queued = yield* queuedOverlays(canvasName, canvas);
+    if (queued === undefined) return views;
     return views.map((view) => {
-      const overlay = view.state === "queued" ? overlays.get(view.opId) : undefined;
+      const overlay = view.state === "queued" ? queued.overlays.get(view.opId) : undefined;
       return overlay === undefined ? view : { ...view, overlay };
     });
   });

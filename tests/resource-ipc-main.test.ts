@@ -20,6 +20,8 @@ import {
   artifactHistory,
   listArtifacts,
   listTasks,
+  pendingArtifacts,
+  pendingTasks,
   registerResourceIpc,
   taskContext,
   type ResourceIpcPorts,
@@ -55,6 +57,7 @@ type Calls = {
 const portsOf = (over: {
   readonly taskSubmit?: ResourceIpcPorts["tasks"]["submit"];
   readonly artifactSubmit?: ResourceIpcPorts["artifacts"]["submit"];
+  readonly queue?: ResourceIpcPorts["queue"];
 } = {}) => {
   const calls: Calls = { pulled: [], submitted: [], delivered: 0, listed: [] };
   const ports: ResourceIpcPorts = {
@@ -98,6 +101,7 @@ const portsOf = (over: {
           Effect.succeed({ kind: "applied", opId: command.opId, artifactId: ART, version: 1, facts: [{ fact: "x" }] } as never);
       },
     },
+    queue: over.queue ?? (() => Effect.succeed(undefined)),
   };
   return { ports, calls };
 };
@@ -213,6 +217,57 @@ describe("artifacts over IPC", () => {
     const outcome = await run(applyArtifact(ports, "factory", asNodeId("A"), ART, OP, op));
     expect(outcome).toMatchObject({ kind: "applied", opId: OP, facts: [{ fact: "x" }] });
     expect(calls.submitted[0]).toMatchObject({ actor: { kind: "operator" }, target: { kind: "artifact", nodeId: "A", itemId: ART }, opId: OP });
+  });
+});
+
+describe("pending writes over IPC", () => {
+  const queued = (opId: string, kind: "task" | "artifact", nodeId: string, itemId: string | undefined, op: unknown) => ({
+    opId: OpId.make(opId),
+    canvasName: "factory",
+    actor: { kind: "operator" },
+    target: { kind, nodeId: asNodeId(nodeId), ...(itemId === undefined ? {} : { itemId: ItemId.make(itemId) }) },
+    basis: null,
+    after: [],
+    op,
+  }) as never;
+  const retitle: ArtifactOp = { op: "retitle", title: "Notes" };
+  const A1 = "01M5F2A0000000000000000001";
+  const A2 = "01M5F2A0000000000000000002";
+  const A3 = "01M5F2A0000000000000000003";
+  const A4 = "01M5F2A0000000000000000004";
+  const A5 = "01M5F2A0000000000000000005";
+  const atRisk = { status: "at_risk", refusal: { reason: "stale", message: "moved" } } as const;
+  const queue: ResourceIpcPorts["queue"] = (canvasName, canvas) => {
+    expect([canvasName, canvas]).toEqual(["factory", board]);
+    return Effect.succeed({
+      commands: [
+        queued(A1, "artifact", "A", ART, retitle),
+        queued(A2, "task", "T", TASK, { kind: "start" }),
+        queued(A3, "artifact", "A", OLD, { op: "archive" }),
+        queued(A4, "artifact", "B", ART, { op: "archive" }),
+        queued(A5, "artifact", "A", ART, { op: "explode" }),
+      ],
+      overlays: new Map<string, object>([[OpId.make(A1), { status: "pending" }], [OpId.make(A3), atRisk]]) as never,
+    });
+  };
+
+  it("gives the node's unruled artifact writes in queue order, with op list's overlay, and only that node's", async () => {
+    const { ports } = portsOf({ queue });
+    expect(await run(pendingArtifacts(ports, "factory", asNodeId("A")))).toEqual([
+      { opId: A1, artifactId: ART, op: retitle, overlay: { status: "pending" } },
+      { opId: A3, artifactId: OLD, op: { op: "archive" }, overlay: atRisk },
+    ]);
+  });
+
+  it("gives the node's unruled task writes, with no overlay where the build has none", async () => {
+    const { ports } = portsOf({ queue });
+    expect(await run(pendingTasks(ports, "factory", asNodeId("T")))).toEqual([{ opId: A2, taskId: TASK, command: { kind: "start" } }]);
+    expect(await run(pendingTasks(ports, "factory", asNodeId("T2")))).toEqual([]);
+  });
+
+  it("is empty when this machine holds no queue", async () => {
+    const { ports } = portsOf();
+    expect(await run(pendingArtifacts(ports, "factory", asNodeId("A")))).toEqual([]);
   });
 });
 
