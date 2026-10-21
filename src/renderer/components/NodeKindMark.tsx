@@ -16,6 +16,7 @@ import {
   SquareTerminal,
   Table,
   Tag,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { Node } from "@shared/model";
@@ -27,6 +28,7 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   task: ListTodo,
   requests: Inbox,
   artifacts: Package,
+  automations: Workflow,
   board: Columns3,
   pad: PenLine,
   sheet: Table,
@@ -44,6 +46,7 @@ const KIND_HUES: Record<string, string> = {
   task: "var(--color-green)",
   requests: HUE.violet,
   artifacts: "var(--color-green)",
+  automations: HUE.indigo,
   board: HUE.violet,
   pad: HUE.orange,
   sheet: "var(--color-green)",
