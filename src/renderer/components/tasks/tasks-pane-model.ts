@@ -69,6 +69,19 @@ export const visibleTasks = (
     );
 };
 
+/**
+ * The sidebar rows with the open detail among them. The detail stays on what
+ * you acted on while it is on this node, so a task the filter now hides (you
+ * cancelled it) is still listed, first, and list and detail never disagree.
+ */
+export const listedTasks = (
+  visible: ReadonlyArray<TaskView>,
+  selected: TaskView | null,
+): ReadonlyArray<TaskView> =>
+  selected === null || visible.some((view) => view.taskId === selected.taskId)
+    ? visible
+    : [selected, ...visible];
+
 /** `#42`, or `queued` while the create waits for its ruling and has no number yet. */
 export const numberLabel = (view: Pick<TaskView, "number">): string =>
   view.number === undefined ? "queued" : formatTaskNumber(view.number);

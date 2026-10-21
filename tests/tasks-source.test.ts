@@ -5,6 +5,7 @@ import { seatNodeId, taskNodeId } from "../src/shared/task-model";
 import { makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
 import {
   layerSummary,
+  listedTasks,
   numberLabel,
   numberOfTask,
   openCount,
@@ -97,6 +98,21 @@ describe("local tasks source", () => {
     expect(visibleTasks(views, { state: "all", query: "#3" }).map((v) => v.title)).toEqual(["gamma"]);
     expect(visibleTasks(views, { state: "all", query: "ALP" }).map((v) => v.title)).toEqual(["alpha"]);
     expect(openCount(views)).toBe(1);
+  });
+
+  it("keeps the open detail in the list when the filter hides it, so list and detail agree", async () => {
+    const source = sourceWith();
+    const a = await create(source, "alpha");
+    await create(source, "beta");
+    await source.apply(CANVAS, build, a, { kind: "cancel" });
+    const views = await source.list(CANVAS, build);
+    const visible = visibleTasks(views, { state: "open", query: "" });
+    expect(visible).toEqual([]);
+    const canceled = views.find((view) => view.taskId === a)!;
+    expect(listedTasks(visible, canceled).map((view) => view.title)).toEqual(["alpha"]);
+    const backlog = visibleTasks(views, { state: "backlog", query: "" });
+    expect(listedTasks(backlog, backlog[0]!)).toBe(backlog);
+    expect(listedTasks(backlog, null)).toBe(backlog);
   });
 
   it("builds the ruler's context from the canvas's tasks", async () => {

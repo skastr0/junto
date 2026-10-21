@@ -24,6 +24,7 @@ import { TaskDependencies } from "./TaskDependencies";
 import { TaskLayers } from "./TaskLayers";
 import {
   agoLabel,
+  listedTasks,
   numberLabel,
   numberOfTask,
   openCount,
@@ -38,10 +39,10 @@ const OPERATOR = { kind: "operator" } as const;
 const CLOCK_MS = 60_000;
 
 const FILTERS: ReadonlyArray<{ readonly value: StateFilter; readonly label: string }> = [
+  { value: "all", label: "All" },
   { value: "open", label: "Open" },
   { value: "backlog", label: "Backlog" },
   { value: "closed", label: "Closed" },
-  { value: "all", label: "All" },
 ];
 
 /**
@@ -72,7 +73,7 @@ export function TasksNode({
   const tasks = useNodeTasks(canvasName, node);
   const all = useCanvasTasks(canvasName);
   const [selectedId, setSelectedId] = useState<string | null>(initialTaskId ?? null);
-  const [filter, setFilter] = useState<StateFilter>("open");
+  const [filter, setFilter] = useState<StateFilter>("all");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +81,7 @@ export function TasksNode({
 
   const visible = useMemo(() => visibleTasks(tasks, { state: filter, query }), [tasks, filter, query]);
   const selected = tasks.find((view) => view.taskId === selectedId) ?? visible[0] ?? null;
+  const listed = useMemo(() => listedTasks(visible, selected), [visible, selected]);
   const seatName = (id: string): string => seats.find((seat) => seat.node === id)?.name ?? id;
 
   const apply = async (taskId: TaskId, command: TaskCommand): Promise<string | undefined> => {
@@ -94,7 +96,7 @@ export function TasksNode({
     const refused = await apply(taskId, { kind: "create", taskId, title });
     if (refused === undefined) {
       setSelectedId(taskId);
-      setFilter("open");
+      setFilter("all");
       setCreating(false);
     }
   };
@@ -137,7 +139,7 @@ export function TasksNode({
         </div>
       </div>
       <div className="tasks-list" role="list" aria-label="Tasks">
-        {visible.map((view) => (
+        {listed.map((view) => (
           <ListRow
             key={view.taskId}
             leading={<TaskStateMark state={view.current.state} pending={view.pending !== undefined} />}
@@ -148,7 +150,7 @@ export function TasksNode({
             onClick={() => setSelectedId(view.taskId)}
           />
         ))}
-        {visible.length === 0 && tasks.length > 0 ? <p className="tasks-list__none">No task matches.</p> : null}
+        {listed.length === 0 && tasks.length > 0 ? <p className="tasks-list__none">No task matches.</p> : null}
       </div>
     </>
   );
