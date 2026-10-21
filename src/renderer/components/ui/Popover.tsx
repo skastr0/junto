@@ -155,6 +155,9 @@ export function Popover({
       tabIndex={-1}
       // A popover belongs to the layer of its anchor (styles/layers.css).
       data-layer={anchor.closest("[data-layer^='operator']") ? "operator-popover" : "popover"}
+      // Opened from inside another popover (a signal in a seat's details), it
+      // is a layer of that one: a press in it stays inside the outer panel.
+      data-popover-layer={anchor.closest(".junto-popover, [data-popover-layer]") ? "" : undefined}
       data-testid={testId}
       className={`junto-popover${className ? ` ${className}` : ""}`}
       style={{
