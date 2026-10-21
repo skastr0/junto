@@ -204,6 +204,7 @@ describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
           ["wire-feeds", "flows"],
           ["wire-messages", "messages"],
           ["wire-navigates", "navigates"],
+          ["wire-participates", "participates"],
           ["wire-reviews", "reviews"],
         ]);
         const kept = before.wires!.find((row) => row.id === "wire-messages");
@@ -229,7 +230,7 @@ describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
       for (const verb of ["feeds", "reads", "edits", "works", "fires", "chains"]) {
         expect(() => write(verb)).toThrow(/CHECK constraint failed/u);
       }
-      for (const verb of ["messages", "reviews", "navigates", "flows"]) expect(() => write(verb)).not.toThrow();
+      for (const verb of ["messages", "reviews", "participates", "navigates", "flows"]) expect(() => write(verb)).not.toThrow();
     } finally {
       database.close();
     }

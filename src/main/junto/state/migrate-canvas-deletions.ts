@@ -57,6 +57,8 @@ const KEPT_VERBS = {
   messages: "messages",
   reviews: "reviews",
   navigates: "navigates",
+  // Boards and request boards still exist; they and this verb go in a later step.
+  participates: "participates",
   feeds: "flows",
 } as const;
 
@@ -66,7 +68,7 @@ const WIRES_V26_SQL = `
     id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
     from_id TEXT NOT NULL,
     to_id TEXT NOT NULL,
-    verb TEXT NOT NULL CHECK (verb IN ('messages', 'reviews', 'navigates', 'flows')),
+    verb TEXT NOT NULL CHECK (verb IN ('messages', 'reviews', 'participates', 'navigates', 'flows')),
     from_side TEXT CHECK (from_side IN ('top', 'right', 'bottom', 'left')),
     to_side TEXT CHECK (to_side IN ('top', 'right', 'bottom', 'left')),
     mask_json TEXT CHECK (mask_json IS NULL OR json_valid(mask_json)),
