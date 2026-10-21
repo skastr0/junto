@@ -127,7 +127,7 @@ describe("per-connection instructions", () => {
   it("groups by held ports, not by the neighbor's kind", () => {
     const groups = commandGroupsFor([
       { id: "peer-2", kind: "agent", ports: peerPorts },
-      { id: "odd-one", kind: "board", ports: ["terminal.read"] },
+      { id: "odd-one", kind: "page", ports: ["terminal.read"] },
     ]);
     expect(groups.map((group) => [group.family, group.targets.map((t) => t.id)])).toEqual([
       ["msg", ["peer-2"]],
@@ -300,6 +300,14 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
     expect(body).not.toContain("### Command contracts");
     expect(body).toContain('junto blocked "..."');
     expect(body).toContain("## Worked examples");
+  });
+
+  it("teaches no command of the retired board CLI", () => {
+    for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
+      for (const row of COMMAND_FAMILIES[family].rows) {
+        expect(row.command("<node>"), `${family}: ${row.intent}`).not.toContain("junto board");
+      }
+    }
   });
 
   it("every command onboard can teach appears in its kind's junto docs node page", () => {

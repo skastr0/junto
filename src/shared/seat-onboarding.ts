@@ -35,7 +35,6 @@ export type CommandFamily =
   | "msg"
   | "reviews"
   | "artifacts"
-  | "board"
   | "browser";
 
 /** One command a held port allows, written against a target id. */
@@ -159,17 +158,6 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
         detail: "--task <taskId> links it to a task; link, pad, sheet and file are the other types",
       },
       { port: "artifact.publish", intent: "read, then edit", command: () => "junto artifact show <id>, junto artifact edit <id> --base <n> --markdown \"...\"" },
-    ],
-  },
-  board: {
-    label: "board",
-    docsKind: "board",
-    note: "Optional shared context, never a decision inbox. `read` is enough to clear attention.",
-    rows: [
-      { port: "board.list", intent: "list", command: (t) => `junto board list '{"target":"${t}"}'` },
-      { port: "board.create_topic", intent: "create topic", command: (t) => `junto board topic '{"target":"${t}","title":"...","body":"..."}'` },
-      { port: "board.post", intent: "post", command: (t) => `junto board post '{"target":"${t}","topicId":"<topicId>","text":"..."}'` },
-      { port: "board.mark_read", intent: "mark read", command: (t) => `junto board read '{"target":"${t}","topicId":"<topicId>"}'` },
     ],
   },
   browser: {
