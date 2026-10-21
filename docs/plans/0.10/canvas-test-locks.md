@@ -58,3 +58,9 @@ The deletions step keeps `reviews` in the `wires.verb` CHECK until the
 reviewer list replaces the `reviews` edge (canvas-edges with canvas-writers).
 It does not enter the chain while `reviews` is kept;
 `tests/canvas-deletions-migration.test.ts` then asserts reviews wires go.
+
+The step also stores `feeds` as `flows`, and its CHECK has no `feeds`. It
+does not enter the chain until physics writes `flows` (today `verbs.ts` still
+names `feeds`), or every task to task wire write fails the CHECK.
+`participates` stays in the CHECK while boards and request boards are live
+kinds (133f7adbf).
