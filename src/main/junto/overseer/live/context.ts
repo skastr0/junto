@@ -1,7 +1,6 @@
 import { inPaintOrder, titleOf, type Canvas, type Node } from "@shared/model";
 import type { LiveAttention } from "@shared/overseer-live";
-import { taskBrief } from "@shared/task";
-import type { Task, TaskState } from "@shared/work-model";
+import type { TaskState, TaskView } from "@shared/task-model";
 
 export const LIVE_CONTEXT_LIMITS = Object.freeze({
   bytes: 32_768,
@@ -13,9 +12,11 @@ export const LIVE_CONTEXT_LIMITS = Object.freeze({
 
 interface SemanticTask {
   readonly id: string;
+  readonly number?: number;
   readonly brief: string;
   readonly state: TaskState;
-  readonly claimedBy?: string;
+  /** The seat node the task is assigned to. */
+  readonly assignee?: string;
 }
 
 interface SemanticNode {
@@ -45,8 +46,8 @@ interface SemanticWire {
 export type LiveCanvasRead = {
   readonly name: string;
   readonly canvas: Canvas;
-  /** Task and request rows by the node that holds them. */
-  readonly tasks: ReadonlyMap<string, ReadonlyArray<Task>>;
+  /** Tasks by the task node each sits on now; archived tasks are left out. */
+  readonly tasks: ReadonlyMap<string, ReadonlyArray<TaskView>>;
   /** Artifact ids by the artifacts node that holds them. */
   readonly artifacts: ReadonlyMap<string, ReadonlyArray<string>>;
   /** The canvas sequence, as text. */
@@ -109,15 +110,15 @@ const semanticText = (text: string, maxBytes: number): string => clipBytes(text
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
   .replace(/\u00b7/g, ","), maxBytes);
 
-const NO_TASKS: ReadonlyArray<Task> = [];
+const NO_TASKS: ReadonlyArray<TaskView> = [];
 const NO_IDS: ReadonlyArray<string> = [];
 
-const taskPriority = (task: Task): number =>
-  task.state === "input-required" || task.state === "auth-required" ? 0 : task.state === "working" ? 1 : 2;
+const taskPriority = (task: TaskView): number =>
+  task.current.state === "input-required" ? 0 : task.current.state === "working" || task.current.state === "in-review" ? 1 : 2;
 
 const projectNode = (node: Node, read: LiveCanvasRead): SemanticNode => {
   const tasks = read.tasks.get(node.id) ?? NO_TASKS;
-  const shownTasks = [...tasks].sort((left, right) => taskPriority(left) - taskPriority(right) || left.id.localeCompare(right.id))
+  const shownTasks = [...tasks].sort((left, right) => taskPriority(left) - taskPriority(right) || left.taskId.localeCompare(right.taskId))
     .slice(0, LIVE_CONTEXT_LIMITS.tasksPerNode);
   const artifacts = read.artifacts.get(node.id) ?? NO_IDS;
   return {
@@ -128,8 +129,11 @@ const projectNode = (node: Node, read: LiveCanvasRead): SemanticNode => {
     ...("host" in node ? { host: node.host } : {}),
     overseer: node.kind === "agent" && node.overseer,
     tasks: shownTasks.map((task) => ({
-      id: task.id, brief: semanticText(taskBrief(task), 240), state: task.state,
-      ...(task.claimedBy === undefined ? {} : { claimedBy: task.claimedBy }),
+      id: task.taskId,
+      ...(task.number === undefined ? {} : { number: task.number }),
+      brief: semanticText(task.title, 240),
+      state: task.current.state,
+      ...(task.current.assignee === undefined ? {} : { assignee: task.current.assignee }),
     })),
     omittedTasks: tasks.length - shownTasks.length,
     artifactIds: artifacts.slice(0, 12),
@@ -168,9 +172,9 @@ export const buildLiveContext = (read: LiveCanvasRead, attention: LiveAttention)
       nodes, wires,
       counts: {
         nodes: held.length, wires: wired.length,
-        working: allTasks.filter((task) => task.state === "working").length,
-        blocked: allTasks.filter((task) => task.state === "input-required" || task.state === "auth-required").length,
-        completed: allTasks.filter((task) => task.state === "completed").length,
+        working: allTasks.filter((task) => task.current.state === "working").length,
+        blocked: allTasks.filter((task) => task.current.state === "input-required").length,
+        completed: allTasks.filter((task) => task.current.state === "done").length,
       },
       omittedNodes: held.length, omittedWires: wired.length,
     },
@@ -242,8 +246,8 @@ export const meaningfulLiveChanges = (previous: LiveSemanticContext, current: Li
     const priorTasks = new Map(prior.tasks.map((task) => [task.id, task.state]));
     for (const task of node.tasks) {
       if (!priorTasks.has(task.id) || priorTasks.get(task.id) === task.state) continue;
-      const kind = task.state === "input-required" || task.state === "auth-required" ? "task-blocked" :
-        task.state === "completed" ? "task-completed" : task.state === "failed" ? "task-failed" : undefined;
+      // 0.10 has no failed state: a canceled task raises no event.
+      const kind = task.state === "input-required" ? "task-blocked" : task.state === "done" ? "task-completed" : undefined;
       if (kind) events.push({ kind, canvasName: after.canvasName, nodeId: node.id, itemId: task.id, workRevision: after.workRevision });
     }
     // A truncated artifact list cannot prove a newly observed id was just published.

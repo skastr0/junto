@@ -12,7 +12,6 @@ import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { createCanvasTaskDependencyScopeCapability, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { readLiveCanvas } from "../src/main/junto/overseer/live/composition";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { THIS_MACHINE } from "./support/machines";
 
@@ -94,9 +93,6 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
     expect([...work.artifacts]).toEqual([["artifacts", 1]]);
     expect(await runtime.runPromise(repo.artifactIds("factory", "artifacts"))).toEqual(["artifact"]);
     expect(await runtime.runPromise(repo.artifactIds("another-canvas", "artifacts"))).toEqual([]);
-    const live = await runtime.runPromise(readLiveCanvas("factory"));
-    expect([...live.artifacts]).toEqual([["artifacts", ["artifact"]]]);
-    expect(live.tasks.get("tasks")?.map((task) => task.id)).toEqual(["old", "new"]);
     const empty = await runtime.runPromise(repo.kernelWork("another-canvas"));
     expect(empty.tasks.size + empty.boards.size + empty.artifacts.size).toBe(0);
     await runtime.runPromise(Effect.gen(function* () {

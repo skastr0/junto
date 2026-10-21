@@ -1,8 +1,7 @@
-import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { ActorSeatId } from "../src/shared/actor-seat";
 import type { Node, Wire } from "../src/shared/model";
-import type { Task, TaskState } from "../src/shared/work-model";
+import { seatNodeId, taskNodeId, type TaskId, type TaskState, type TaskView } from "../src/shared/task-model";
+import { asNodeId } from "../src/shared/model";
 import {
   buildLiveContext,
   coalesceLiveActivity,
@@ -13,11 +12,16 @@ import {
 } from "../src/main/junto/overseer/live/context";
 import { canvasOf, note, page, seat, taskBoard, wire } from "./support/model-nodes";
 
-const actor = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
-const task = (id = "investigation", state: TaskState = "working"): Task => ({
-  id, state,
-  ...(state === "submitted" ? {} : { claimedBy: actor }),
-  history: [{ messageId: "brief", role: "user", parts: [{ kind: "text", text: "Investigate authentication failures\nFull history should stay private" }] }],
+const assignee = seatNodeId(asNodeId("worker"));
+const task = (id = "investigation", state: TaskState = "working"): TaskView => ({
+  taskId: id as TaskId,
+  title: "Investigate authentication failures",
+  body: "Full history should stay private",
+  current: {
+    state, node: taskNodeId(asNodeId("queue")), epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [],
+    ...(state === "backlog" ? {} : { assignee }),
+  },
+  layers: [], dependsOn: [], createdAt: 1, updatedAt: 1, stateSince: 1,
 });
 const at = { x: 10, y: 20, width: 200, height: 100 };
 
@@ -25,7 +29,7 @@ const at = { x: 10, y: 20, width: 200, height: 100 };
 const reading = (
   nodes: ReadonlyArray<Node>,
   wires: ReadonlyArray<Wire> = [],
-  tasks: ReadonlyArray<readonly [string, ReadonlyArray<Task>]> = [],
+  tasks: ReadonlyArray<readonly [string, ReadonlyArray<TaskView>]> = [],
   workRevision = "1",
 ): LiveCanvasRead => ({
   name: "factory",
@@ -66,7 +70,7 @@ describe("Live semantic context", () => {
       wires: [{ id: "connection", from: "worker", to: "queue", verb: "messages" }],
     });
     expect(context.authoritative.nodes[0]?.id).toBe("worker");
-    expect(context.authoritative.nodes.find((item) => item.id === "queue")?.tasks[0]).toMatchObject({ state: "input-required", claimedBy: actor });
+    expect(context.authoritative.nodes.find((item) => item.id === "queue")?.tasks[0]).toMatchObject({ state: "input-required", assignee });
     expect(context.attention).toMatchObject({ source: "renderer", draft: { text: "Uncommitted edit", committed: false } });
     input.selectedNodeIds[0] = "queue";
     input.viewport.x = 900;
@@ -134,7 +138,7 @@ describe("Live semantic context", () => {
   it("derives completion and blockers from verified Work transitions, ignoring mere visibility", () => {
     const before = buildLiveContext(fixture(), attention);
     const blocked = buildLiveContext(fixture("input-required", "2"), attention);
-    const completed = buildLiveContext(fixture("completed", "3"), attention);
+    const completed = buildLiveContext(fixture("done", "3"), attention);
     expect(meaningfulLiveChanges(before, blocked)).toEqual([{
       kind: "task-blocked", canvasName: "factory", nodeId: "queue", itemId: "investigation", workRevision: "2",
     }]);
@@ -147,7 +151,7 @@ describe("Live semantic context", () => {
   it("coalesces a task's old blocker into its latest observed result", () => {
     const before = buildLiveContext(fixture(), attention);
     const blocked = buildLiveContext(fixture("input-required", "2"), attention);
-    const completed = buildLiveContext(fixture("completed", "3"), attention);
+    const completed = buildLiveContext(fixture("done", "3"), attention);
     const events = [...meaningfulLiveChanges(before, blocked), ...meaningfulLiveChanges(blocked, completed)];
     expect(coalesceLiveActivity(events)).toEqual([{
       kind: "task-completed", canvasName: "factory", nodeId: "queue", itemId: "investigation", workRevision: "3",

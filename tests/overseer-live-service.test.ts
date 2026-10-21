@@ -23,6 +23,8 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { nameThisMachine } from "./support/name-this-machine";
 import { WorkRevisions, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
 import { runOverseerTurn } from "../src/overseer-host/session";
 import { asNodeId, type Node } from "../src/shared/model";
 import { note, seat } from "./support/model-nodes";
@@ -51,6 +53,7 @@ const boot = async () => {
   const root = await mkdtemp(join(tmpdir(), "command-live-poc-"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, MachineRepositoryLive, SettingsLive,
+    Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, WorkRepositoryLive)),
     WorkRevisionsLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))));

@@ -3,6 +3,7 @@ import { isThisMachine } from "@shared/machine-identity";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { asNodeId, type Canvas, type Seat } from "@shared/model";
+import type { TaskView } from "@shared/task-model";
 import { ModelActorRefs } from "../../model/actor-refs";
 import { ModelService } from "../../model/service";
 import { SettingsService } from "../../settings/service";
@@ -10,6 +11,7 @@ import { StateEngine } from "../../state/service";
 import { withSqlRead } from "../../state/sql-read";
 import { MachineRepository } from "../../machines/repository";
 import { WorkRevisions, WorkRepository } from "../../work/repository";
+import { TaskRepository } from "../../work/task-repository";
 import { getSeatCredentialRegistry } from "../../work/seat-credentials";
 import { admitOverseer } from "../admission";
 import type { OverseerHostIdentity } from "./execution";
@@ -17,8 +19,11 @@ import { buildLiveContext, type LiveCanvasRead } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | MachineRepository | WorkRevisions | WorkRepository;
+type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | MachineRepository | WorkRevisions | WorkRepository | TaskRepository;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
+
+/** The most tasks a canvas's live read takes; the context shows a few per node. */
+const LIVE_TASKS_READ = 1_000;
 
 /** A canvas revision as the live journal keeps it: the sequence, as text. */
 export const revisionOf = (canvas: Canvas): string => String(canvas.seq);
@@ -32,16 +37,22 @@ export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName:
 
 /**
  * One canvas as the live context reads it: the model's structure, and beside
- * it the task, request and artifact rows the context summarises.
+ * it the tasks and artifact rows the context summarises.
  */
 export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasName: string) {
   const sql = yield* SqlClient.SqlClient;
   return yield* withSqlRead(sql, Effect.gen(function* () {
     const model = yield* ModelService;
     const work = yield* WorkRepository;
+    const taskStore = yield* TaskRepository;
     const revisions = yield* WorkRevisions;
     const canvas = yield* model.canvas(canvasName);
-    const rows = yield* work.kernelWork(canvasName);
+    const taskNodes = [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => node.id);
+    const tasks = new Map<string, TaskView[]>();
+    if (taskNodes.length > 0) {
+      const listed = yield* taskStore.list(canvasName, { nodeIds: taskNodes, limit: LIVE_TASKS_READ });
+      for (const task of listed.tasks) tasks.set(task.current.node, [...(tasks.get(task.current.node) ?? []), task]);
+    }
     const artifacts = new Map<string, ReadonlyArray<string>>();
     for (const node of canvas.nodes.values()) {
       if (node.kind !== "artifacts") continue;
@@ -53,7 +64,7 @@ export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasNam
     return {
       name: canvas.name,
       canvas,
-      tasks: rows.tasks,
+      tasks,
       artifacts,
       revision: revisionOf(canvas),
       workRevision: yield* revisions.revision(canvasName),
