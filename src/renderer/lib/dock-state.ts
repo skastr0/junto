@@ -38,7 +38,6 @@ import {
 import { getJuntoApi } from "./junto-api";
 import { nodeAt } from "./use-model";
 import { state$ } from "./state";
-import { titleOf } from "@shared/model/title";
 import { taskBoardTitle } from "@shared/model/title";
 import { dropTerminalView, terminal$ } from "./terminal-state";
 
@@ -55,12 +54,6 @@ export interface DockBrowserPayload {
   readonly nodeId: string;
   readonly browser: Pick<NodeOf<"page">, "profile"> & { readonly onDelete?: NodeOf<"page">["onRemove"] };
   readonly url: string;
-  readonly title: string;
-}
-
-export interface DockChatPayload {
-  readonly nodeId: string;
-  readonly agentKey: string;
   readonly title: string;
 }
 
@@ -91,16 +84,10 @@ export interface BrowserOpError {
 export const BROWSER_ZERO_BOUNDS = { x: 0, y: 0, width: 0, height: 0 } as const;
 
 const TERMINAL_SURFACE_PREFIX = "terminal:";
-const CHAT_SURFACE_PREFIX = "chat:";
 const TASK_CREATE_SURFACE_PREFIX = "task-create:";
 const NOTE_SURFACE_PREFIX = "note:";
 export const terminalSurfaceId = (nodeId: string): string => `${TERMINAL_SURFACE_PREFIX}${nodeId}`;
 export const parseTerminalSurfaceId = (id: string): string | null => id.startsWith(TERMINAL_SURFACE_PREFIX) && id.length > TERMINAL_SURFACE_PREFIX.length ? id.slice(TERMINAL_SURFACE_PREFIX.length) : null;
-export const chatSurfaceId = (nodeId: string): string => `${CHAT_SURFACE_PREFIX}${nodeId}`;
-export const parseChatSurfaceId = (id: string): string | null =>
-  id.startsWith(CHAT_SURFACE_PREFIX) && id.length > CHAT_SURFACE_PREFIX.length
-    ? id.slice(CHAT_SURFACE_PREFIX.length)
-    : null;
 export const taskCreateSurfaceId = (nodeId: string): string =>
   `${TASK_CREATE_SURFACE_PREFIX}${nodeId}`;
 export const parseTaskCreateSurfaceId = (id: string): string | null =>
@@ -118,8 +105,6 @@ export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
   /** canonical junto:// ref -> display payload for browser slots. */
   browserByRef: {} as Record<string, DockBrowserPayload>,
-  /** chat:<nodeId> -> ACP surface identity. ACP runtime state remains keyed by agentKey. */
-  chatById: {} as Record<string, DockChatPayload>,
   /** task-create:<nodeId> -> quick enqueue surface for a tasks sink. */
   taskCreateById: {} as Record<string, DockTaskCreatePayload>,
   /** note:<nodeId> -> focus-safe Note editor draft and durability baseline. */
@@ -131,7 +116,6 @@ export const dock$ = observable({
 /** The canvas node a surface is a view of, whatever its kind. */
 export const nodeIdForSurface = (surface: WorkSurface): string | null => {
   if (surface.kind === "terminal") return parseTerminalSurfaceId(surface.id);
-  if (surface.kind === "chat") return parseChatSurfaceId(surface.id);
   if (surface.kind === "note") return parseNoteSurfaceId(surface.id);
   if (surface.kind === "task-create") return parseTaskCreateSurfaceId(surface.id);
   if (surface.kind === "browser") return dock$.browserByRef[surface.id].peek()?.nodeId ?? null;
@@ -227,10 +211,6 @@ const applyTransition = (transition: WorkbenchTransition): void => {
     } else if (closed.kind === "terminal") {
       const nodeId = parseTerminalSurfaceId(closed.id);
       if (nodeId) dropTerminalView(nodeId);
-    } else if (closed.kind === "chat") {
-      // Closing a surface does not disconnect the ACP session. It only removes
-      // the operator's current view, matching browser detach semantics.
-      dock$.chatById[closed.id].delete();
     } else if (closed.kind === "task-create") {
       dock$.taskCreateById[closed.id].delete();
     } else if (closed.kind === "note") {
@@ -238,30 +218,6 @@ const applyTransition = (transition: WorkbenchTransition): void => {
     }
   }
 };
-
-/** Open an agent's ACP conversation in the shared focus/pinned workbench. */
-export function openAgentChatSurface(canvas: string, nodeId: string, zone?: WorkZone): void;
-/** The same for a caller that still holds a document node. Goes with its last caller. */
-export function openAgentChatSurface(node: { readonly id: string }, zone?: WorkZone): void;
-export function openAgentChatSurface(
-  first: string | { readonly id: string },
-  second?: string | WorkZone,
-  third?: WorkZone,
-): void {
-  const byId = typeof first === "string";
-  const canvas = byId ? first : state$.canvasName.peek();
-  const nodeId = byId ? ((second as string | undefined) ?? "") : first.id;
-  const zone: WorkZone = (byId ? third : (second as WorkZone | undefined)) ?? "focus";
-  const seat = nodeAt(canvas, nodeId);
-  if (seat?.kind !== "agent") return;
-  const id = chatSurfaceId(seat.id);
-  dock$.chatById[id].set({
-    nodeId: seat.id,
-    agentKey: seat.agentKey,
-    title: titleOf(seat),
-  });
-  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, admittedZone(zone)));
-}
 
 /**
  * Open (or re-focus) the quick task-enqueue surface for a tasks sink node.

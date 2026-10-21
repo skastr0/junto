@@ -17,7 +17,6 @@ import { BrowserSurfaceSlot } from "./BrowserSurfaceSlot";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { registerTerminalSlot } from "../../lib/terminal-state";
 import { Button } from "../ui";
-import { ChatSurface } from "../chat/ChatSurface";
 import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
 import { NoteSurface } from "./NoteSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
@@ -47,16 +46,6 @@ function resolveSurfaceBody(
         ref={(element) => registerTerminalSlot(nodeId, element)}
         className="dock-slot workbench-surface"
         onMouseDown={activateSurfaceOnMouseDown(onActivate)}
-      />
-    );
-  }
-  if (surface.kind === "chat") {
-    return (
-      <ChatSurface
-        surface={surface}
-        zone={zone}
-        visible={visible}
-        onActivate={onActivate}
       />
     );
   }

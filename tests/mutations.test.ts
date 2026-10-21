@@ -38,16 +38,11 @@ const browserStop = vi.fn(async (): Promise<{
   readonly message?: string;
 }> => ({ ok: true }));
 
-const chatClose = vi.fn(async (): Promise<{ ok: boolean; clean?: boolean }> => ({
-  ok: true,
-  clean: true,
-}));
 const runtimeWindow = {
   junto: {
     modelCommand: async () => ({ seq: 1 }),
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),
-    chatClose,
     // The base document's two nodes are real seats, and deleting a seat takes
     // a lease on its terminal first. These cases are not about that lease.
     terminalBeginNodeDelete: async () => ({ ok: true as const, leaseId: "terminal-lease" }),
@@ -91,11 +86,8 @@ describe("renderer graph mutations", () => {
     state$.error.set("");
     browserStop.mockReset();
     browserStop.mockResolvedValue({ ok: true });
-    chatClose.mockReset();
-    chatClose.mockResolvedValue({ ok: true, clean: true });
     browser$.sessionByRef.set({});
     dock$.registry.set(initialWorkbenchState());
-    dock$.chatById.set({});
     dock$.opErrorByRef.set({});
     clearGraphFilters();
     load([]);

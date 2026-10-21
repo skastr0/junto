@@ -9,7 +9,7 @@ import {
 
 const sessionOf = (ref: string) => browser$.sessionByRef[ref].peek();
 
-// --- window.junto mocked exactly like tests/chat-state.test.ts; one unique
+// --- window.junto mocked per test file; one unique
 // nodeId per test so browser$.sessionByRef never bleeds between cases. ---
 
 interface MockJunto {

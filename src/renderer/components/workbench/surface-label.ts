@@ -19,9 +19,6 @@ export function surfaceLabel(
     const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
     return node ? titleOf(node) : "terminal";
   }
-  if (surface.kind === "chat") {
-    return dock$.chatById[surface.id].peek()?.title ?? "ACP chat";
-  }
   if (surface.kind === "task-create") {
     const payload = dock$.taskCreateById[surface.id].peek();
     if (!payload) return "enqueue";

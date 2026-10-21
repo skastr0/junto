@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OccupancySpectrum, deriveOccupancy } from "../src/shared/occupancy";
 import { actorOccupancyAttr, occupancyChrome } from "../src/renderer/lib/occupancy-chrome";
-import { chatActivityFeedOf } from "../src/renderer/lib/occupancy-feed";
-import type { AgentChatCoarse } from "../src/renderer/lib/chat-state";
 
 
 const STATES = OccupancySpectrum.literals;
@@ -117,56 +115,5 @@ describe("actorOccupancyAttr — vacancy only on actor cards", () => {
     expect(actorOccupancyAttr("activity_blocked")).toBeUndefined();
     expect(actorOccupancyAttr("stalled")).toBeUndefined();
     expect(actorOccupancyAttr("idle")).toBeUndefined();
-  });
-});
-
-describe("I11 — occupancy is derived, never document truth", () => {
-  it("running occupancy derivation across a churn of live states never mutates the document", () => {
-    // What the feed is handed: the seats, by node id and agent key. seat-3 is
-    // a card that is no seat.
-    const seats = [
-      { id: "seat-1", agentKey: "local:agentA" },
-      { id: "seat-2", agentKey: "local:agentB" },
-    ];
-    const nodeIds = ["seat-1", "seat-2", "seat-3"];
-    const before = JSON.stringify(seats);
-
-    const churns: ReadonlyArray<Record<string, AgentChatCoarse>> = [
-      { "local:agentA": { status: "idle", turnBusy: false, hasBusyTools: false } },
-      { "local:agentA": { status: "live", turnBusy: false, hasBusyTools: false } },
-      {
-        "local:agentA": { status: "live", turnBusy: true, hasBusyTools: true },
-        "local:agentB": { status: "connecting", turnBusy: false, hasBusyTools: false },
-      },
-      {
-        "local:agentA": {
-          status: "live",
-          pendingPermissionId: "req-1",
-          turnBusy: false,
-          hasBusyTools: false,
-        },
-      },
-      { "local:agentB": { status: "error", turnBusy: false, hasBusyTools: false } },
-    ];
-
-    const now = 1_700_000_000_000;
-    for (const chat of churns) {
-      const feed = chatActivityFeedOf(seats, chat);
-      for (const id of nodeIds) {
-        const clue = feed.clueFor(id);
-        const state = deriveOccupancy({
-          hasOccupant: clue?.hasOccupant ?? false,
-          activity: clue?.activity,
-          lastSeenAtMs: clue?.lastSeenAtMs,
-          nowMs: now,
-        });
-        // Exercise the chrome mapping too — still must not touch the doc.
-        void occupancyChrome(state);
-      }
-    }
-
-    expect(JSON.stringify(seats)).toBe(before);
-    // No occupancy field of any kind was written onto a seat.
-    for (const seat of seats) expect(seat).not.toHaveProperty("occupancy");
   });
 });

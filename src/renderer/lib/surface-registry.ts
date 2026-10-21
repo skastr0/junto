@@ -13,7 +13,6 @@
 export type SurfaceKind =
   | "browser"
   | "terminal"
-  | "chat"
   | "task-create"
   | "note";
 export type WorkZone = "focus" | "pinned";
@@ -28,12 +27,11 @@ export interface WorkSurface {
 /**
  * Which focus-shell layout a remembered width applies to.
  * Must match WorkFocusShell's measure derivation so a narrow terminal resize
- * never poisons task-create / chat / workspace width (or the reverse).
+ * never poisons task-create / workspace width (or the reverse).
  */
 export type WorkFocusSizeKey =
   | "terminal"
   | "workspace"
-  | "chat"
   | "task-create"
   | "document";
 
@@ -290,7 +288,6 @@ export const workFocusSizeKeyForSurfaces = (
   if (focusSurfaces.every((s) => s.kind === "terminal")) {
     return "terminal";
   }
-  if (focusSurfaces.every((s) => s.kind === "chat")) return "chat";
   if (focusSurfaces.every((s) => s.kind === "task-create")) return "task-create";
   if (focusSurfaces.every((s) => s.kind === "note")) return "document";
   return "workspace";

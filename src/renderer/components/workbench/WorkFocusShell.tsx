@@ -56,7 +56,6 @@ const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
       return "terminal";
     case "document":
       return "document";
-    case "chat":
     case "task-create":
     case "workspace":
       return "workspace";
@@ -89,7 +88,6 @@ export function WorkFocusShell() {
   const hasFocus = focusSurfaceFingerprint !== "[]";
   const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
   const sizeKey = workFocusSizeKeyForSurfaces(focusSurfaces);
-  const onlyChats = sizeKey === "chat";
   const onlyTaskCreate = sizeKey === "task-create";
   const onlyNotes = sizeKey === "document";
   const measure = measureForSizeKey(sizeKey);
@@ -206,7 +204,7 @@ export function WorkFocusShell() {
       onClose={closeAllFocus}
       closeOnEscape={false}
       closeOnBackdrop
-      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}${onlyNotes ? " work-focus-shell__panel--note" : ""}${onlyBrowser ? " work-focus-shell__panel--browser" : ""}`}
+      panelClassName={`work-focus-shell__panel${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}${onlyNotes ? " work-focus-shell__panel--note" : ""}${onlyBrowser ? " work-focus-shell__panel--browser" : ""}`}
     >
       <div className="work-focus-shell">
         {showDockChrome ? (

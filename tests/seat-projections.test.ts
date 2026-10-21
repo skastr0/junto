@@ -1,4 +1,3 @@
-import { attentionReasonsForSeat } from "../src/renderer/lib/seat-projections";
 import { describe, expect, it } from "vitest";
 import {
   applyHotbarLeases,
@@ -19,14 +18,13 @@ const facts = (over: Partial<SeatFacts> & { readonly nodeId?: string }): SeatFac
 });
 
 describe("seatFactsForNode", () => {
-  it("joins node id, seat, session, and live reasons into one object", () => {
+  it("joins node id, seat, and session into one object", () => {
     expect(
       seatFactsForNode({
         nodeId: "a",
         seatEvent: { state: "working", reason: "turn" },
         session: { status: "running", processName: "grok" },
         graphBlocked: false,
-        attentionReasons: ["permission:pending"],
         managedSeat: true,
       }),
     ).toMatchObject({
@@ -36,7 +34,6 @@ describe("seatFactsForNode", () => {
       running: true,
       starting: false,
       processName: "grok",
-      attentionReasons: ["permission:pending"],
       managedSeat: true,
       graphBlocked: false,
     });
@@ -88,21 +85,12 @@ describe("cardMark", () => {
       label: "process — npm",
     });
   });
-
-  it("live reasons elevate the card to attention", () => {
-    expect(
-      cardMark(facts({ seatState: "working", attentionReasons: ["permission:pending"] })),
-    ).toMatchObject({ tone: "amber" });
-  });
 });
 
 describe("digitLease", () => {
-  it("leases working, seat attention, and elevated attention", () => {
+  it("leases working and attention", () => {
     expect(digitLease(facts({ seatState: "working" }))).toBe(true);
     expect(digitLease(facts({ seatState: "attention" }))).toBe(true);
-    expect(digitLease(facts({ attentionReasons: ["work:input-required"] }))).toBe(
-      true,
-    );
     expect(digitLease(facts({ seatState: "idle" }))).toBe(false);
     expect(digitLease(facts({ seatState: "unknown" }))).toBe(false);
     expect(digitLease(facts({ seatState: "gone" }))).toBe(false);
@@ -114,9 +102,6 @@ describe("notifyItem", () => {
   it("notifies only graph-blocked or attention", () => {
     expect(notifyItem(facts({ graphBlocked: true }))).toBe("blocked");
     expect(notifyItem(facts({ seatState: "attention" }))).toBe("attention");
-    expect(notifyItem(facts({ attentionReasons: ["permission:pending"] }))).toBe(
-      "attention",
-    );
     expect(notifyItem(facts({ seatState: "working" }))).toBeNull();
     expect(notifyItem(facts({ seatState: "idle" }))).toBeNull();
     expect(notifyItem(facts({ seatState: "unknown" }))).toBeNull();
@@ -127,11 +112,8 @@ describe("notifyItem", () => {
 });
 
 describe("one facts object drives card, digit, notify, and hue", () => {
-  it("live reasons elevate the same four projections", () => {
-    const f = facts({
-      seatState: "idle",
-      attentionReasons: ["permission:pending"],
-    });
+  it("attention: card amber, lease, notify attention, hue attention", () => {
+    const f = facts({ seatState: "attention" });
     expect(cardMark(f).tone).toBe("amber");
     expect(digitLease(f)).toBe(true);
     expect(notifyItem(f)).toBe("attention");
@@ -154,26 +136,12 @@ describe("one facts object drives card, digit, notify, and hue", () => {
     expect(digitHue(f)).toBe("working");
   });
 
-  it("attention+graphBlocked: card and hue blocked, lease still true", () => {
-    const f = facts({ graphBlocked: true, attentionReasons: ["permission:pending"] });
-    expect(cardMark(f).tone).toBe("crimson");
+  it("harness attention+graphBlocked: card amber, notify and hue blocked, lease still true", () => {
+    const f = facts({ graphBlocked: true, seatState: "attention" });
+    expect(cardMark(f).tone).toBe("amber");
     expect(digitLease(f)).toBe(true);
     expect(notifyItem(f)).toBe("blocked");
     expect(digitHue(f)).toBe("blocked");
-  });
-});
-
-describe("attentionReasonsForSeat — one seat, its own coarse slice", () => {
-  it("permission on the seat's own slice, with no map in sight", () => {
-    expect(attentionReasonsForSeat("local:pi", { pendingPermissionId: "p1" })).toEqual(["permission:pending"]);
-  });
-
-  it("no slice -> no permission reason", () => {
-    expect(attentionReasonsForSeat("local:pi")).toEqual([]);
-  });
-
-  it("a caller with no seat gets none, whatever the slice says", () => {
-    expect(attentionReasonsForSeat(undefined, { pendingPermissionId: "p1" })).toEqual([]);
   });
 });
 
@@ -197,13 +165,5 @@ describe("hotbar eviction from digitLease", () => {
       digitLease(idle) ? ["a"] : [],
     );
     expect(next[0]).toEqual({ kind: "evicted", nodeId: "a" });
-  });
-});
-
-describe("attention reasons of a seat named by its agent key", () => {
-  it("is a pending permission on the seat's own slice, and nothing for no seat", () => {
-    expect(attentionReasonsForSeat("local:pi", { pendingPermissionId: "p1" })).toEqual(["permission:pending"]);
-    expect(attentionReasonsForSeat("local:pi", {})).toEqual([]);
-    expect(attentionReasonsForSeat(undefined, { pendingPermissionId: "p1" })).toEqual([]);
   });
 });

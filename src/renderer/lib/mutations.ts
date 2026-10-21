@@ -571,15 +571,6 @@ const deleteNodesInternal = async (
       }),
     );
   }
-  if (agentNodes.length > 0) {
-    sideEffects.push(
-      import("./dock-state").then(({ chatSurfaceId, closeWorkbenchSurface }) => {
-        for (const node of agentNodes) {
-          closeWorkbenchSurface(chatSurfaceId(node.id));
-        }
-      }),
-    );
-  }
 
   const doomed = new Set(existingNodes.map((node) => node.id));
   removeNodesFromSelection(doomed);

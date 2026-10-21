@@ -21,8 +21,6 @@ export type SeatFacts = {
   readonly processName?: string | null;
   readonly exitReason?: "cli-missing" | "spawn_failed" | null;
   readonly exitMessage?: string | null;
-  /** Extra live attention (ACP permission, sink input-required). Not harness. */
-  readonly attentionReasons?: ReadonlyArray<string>;
 };
 
 export type NotifyKind = "blocked" | "attention";
@@ -38,27 +36,9 @@ export type SeatFactsInput = {
     "status" | "processName" | "title" | "exitReason" | "exitMessage"
   > | null;
   readonly graphBlocked?: boolean;
-  readonly attentionReasons?: ReadonlyArray<string>;
   readonly managedSeat?: boolean;
   readonly needsLook?: boolean;
 };
-
-const attentionElevated = (facts: SeatFacts): boolean =>
-  facts.seatState === "attention" ||
-  (facts.attentionReasons?.length ?? 0) > 0;
-
-/**
- * Live attention reasons for a seat named by its agent key, from **its own**
- * coarse chat slice, never the whole agent map. One agent's permission flip
- * is one key's write, so a caller keyed to that one slice pays nothing for
- * the others. A caller with no seat passes undefined and gets none.
- */
-export function attentionReasonsForSeat(
-  agentKey: string | undefined,
-  ownCoarse?: { readonly pendingPermissionId?: string },
-): ReadonlyArray<string> {
-  return agentKey && ownCoarse?.pendingPermissionId ? ["permission:pending"] : [];
-}
 
 /** Assemble one SeatFacts from the live planes a call site already holds. */
 export function seatFactsForNode(input: SeatFactsInput): SeatFacts {
@@ -78,17 +58,13 @@ export function seatFactsForNode(input: SeatFactsInput): SeatFacts {
       undefined,
     exitReason: input.session?.exitReason,
     exitMessage: input.session?.exitMessage,
-    attentionReasons: input.attentionReasons,
   };
 }
 
 /** What is this seat doing now? Idle seated = quiet steel. */
 export function cardMark(facts: SeatFacts): ActivitySpec {
-  const elevateToAttention =
-    facts.seatState === "attention" ||
-    (attentionElevated(facts) && facts.graphBlocked !== true);
   return terminalActivity({
-    seatState: elevateToAttention ? "attention" : facts.seatState,
+    seatState: facts.seatState,
     needsLook: facts.needsLook,
     seatReason: facts.seatReason,
     running: facts.running,
@@ -101,15 +77,15 @@ export function cardMark(facts: SeatFacts): ActivitySpec {
   });
 }
 
-/** Should 1–9 sticky-lease this actor? Working or attention, including elevated. */
+/** Should 1–9 sticky-lease this actor? Working or attention. */
 export function digitLease(facts: SeatFacts): boolean {
-  return facts.seatState === "working" || attentionElevated(facts);
+  return facts.seatState === "working" || facts.seatState === "attention";
 }
 
 /** Does this need the operator? Only graph-blocked or attention. Working is not notify. */
 export function notifyItem(facts: SeatFacts): NotifyKind | null {
   if (facts.graphBlocked) return "blocked";
-  if (attentionElevated(facts)) return "attention";
+  if (facts.seatState === "attention") return "attention";
   return null;
 }
 

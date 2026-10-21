@@ -30,7 +30,6 @@ import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { verbHandleId, verbsForDraw } from "../../lib/edge-mutations";
 import { deriveOccupancy } from "@shared/occupancy";
 import {
-  useSeatAttentionReasons,
   useSeatOccupancyClue,
 } from "../../lib/occupancy-feed";
 import { actorOccupancyAttr } from "../../lib/occupancy-chrome";
@@ -373,7 +372,7 @@ export function NodeShell({
   const shellBlocked = blocked && kind !== undefined && kindMayBeBlocked(kind);
   // Occupancy is vacancy (empty/gone/parked) on actor seats. Working /
   // attention wash comes from SeatFacts, not this spectrum.
-  const occupancyClue = useSeatOccupancyClue(agentKey, bindingId);
+  const occupancyClue = useSeatOccupancyClue(bindingId);
   const occupancyState = deriveOccupancy({
     hasOccupant: occupancyClue?.hasOccupant ?? false,
     activity: occupancyClue?.activity,
@@ -390,7 +389,6 @@ export function NodeShell({
   const session = use$(
     terminal$.sessionByBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );
-  const attentionReasons = useSeatAttentionReasons(agentKey);
   // A seat in the model always runs a managed harness.
   const managedSeat = kind === "agent";
   const isActorSeat = (kind !== undefined && roleOfKind(kind) === "actor") || managedSeat;
@@ -399,7 +397,6 @@ export function NodeShell({
     seatEvent,
     session,
     graphBlocked: blocked,
-    attentionReasons,
     managedSeat,
     needsLook: needsLook === true,
   });

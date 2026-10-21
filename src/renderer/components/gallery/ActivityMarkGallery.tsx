@@ -5,10 +5,8 @@ import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import {
   browserActivity,
-  chatActivity,
   terminalActivity,
   timerActivity,
-  toolActivity,
   watcherActivity,
   type ActivitySpec,
 } from "../../lib/activity";
@@ -60,8 +58,6 @@ const STATES: ReadonlyArray<Row> = [
   { name: "Unknown", note: "no event yet", spec: terminalActivity({ managedSeat: true, seatState: "unknown" }) },
   { name: "Gone", note: "process exited", spec: terminalActivity({ seatState: "gone" }) },
   { name: "Met", note: "watcher true", spec: watcherActivity("satisfied") },
-  { name: "Error", note: "chat error", spec: chatActivity({ status: "error" }) },
-  { name: "Tool done", note: "transcript row", spec: toolActivity("completed") },
 ];
 
 const pick = (name: string): ActivitySpec =>

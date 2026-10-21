@@ -131,7 +131,7 @@ export const refreshBrowserSession = async (ref: string): Promise<void> => {
 };
 
 // Singleton fan-out: window.junto.onBrowserSessionChanged -> sessionByRef,
-// following the subscribeChatEvents precedent (chat-state.ts). Safe to call
+// subscribing once for the window. Safe to call
 // from every PageCard mount; only the first call actually subscribes. Absent
 // the bridge method (IPC not landed yet) degrades to a no-op unsubscribe.
 let activeUnsubscribe: (() => void) | undefined;

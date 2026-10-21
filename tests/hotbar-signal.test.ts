@@ -97,7 +97,7 @@ describe("worseMemberSeverity", () => {
 describe("actor chip hue is digitHue, not hotbarNodeSeverity", () => {
   it("maps graph blocked / notify attention / working / idle", () => {
     expect(digitHue({ nodeId: "a", graphBlocked: true })).toBe("blocked");
-    expect(digitHue({ nodeId: "a", attentionReasons: ["permission:pending"] })).toBe("attention");
+    expect(digitHue({ nodeId: "a", seatState: "attention" })).toBe("attention");
     expect(digitHue({ nodeId: "a", seatState: "working" })).toBe("working");
     expect(digitHue({ nodeId: "a", seatState: "idle" })).toBe("idle");
   });

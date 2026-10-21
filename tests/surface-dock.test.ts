@@ -1,6 +1,3 @@
-import { Effect } from "effect";
-import { decodeNode } from "../src/shared/model";
-import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
@@ -14,13 +11,10 @@ import {
   setFocusSize,
   setLayout,
   visiblePanes,
-  workbenchBrowserSurfaces,
-  workbenchInteractiveSurface,
   workFocusSizeKeyForSurfaces,
   type WorkbenchState,
 } from "../src/renderer/lib/surface-registry";
 import {
-  chatSurfaceId,
   closeDockBrowser,
   closeFocusModalSurface,
   closeTerminalView,
@@ -28,7 +22,6 @@ import {
   dock$,
   focusWorkbenchSurface,
   noteSurfaceId,
-  openAgentChatSurface,
   openDockBrowser,
   openNoteSurface,
   openTerminalSurface,
@@ -47,8 +40,6 @@ import {
 } from "../src/renderer/components/workbench/NoteSurface";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { Schema } from "effect";
-import { Node } from "../src/shared/model";
 
 // --- pure registry ---------------------------------------------------------
 
@@ -123,9 +114,8 @@ describe("surface-registry (pure workbench)", () => {
     expect(focused.evicted).toEqual([]);
   });
 
-  it("classifies browser as non-interactive; chat/task-create as interactive", () => {
+  it("classifies browser as non-interactive; task-create and note as interactive", () => {
     expect(isInteractiveSurface("browser")).toBe(false);
-    expect(isInteractiveSurface("chat")).toBe(true);
     expect(isInteractiveSurface("task-create")).toBe(true);
     expect(isInteractiveSurface("note")).toBe(true);
   });
@@ -139,12 +129,6 @@ describe("surface-registry (pure workbench)", () => {
         { id: "task-create:x", kind: "task-create", zone: "focus" },
       ]),
     ).toBe("task-create");
-    expect(
-      workFocusSizeKeyForSurfaces([
-        { id: "c1", kind: "chat", zone: "focus" },
-        { id: "c2", kind: "chat", zone: "focus" },
-      ]),
-    ).toBe("chat");
     expect(
       workFocusSizeKeyForSurfaces([{ id: "note:n1", kind: "note", zone: "focus" }]),
     ).toBe("document");
@@ -251,7 +235,6 @@ function resetDock(): void {
   modelStore.canvas$(state$.canvasName.peek()).nodes.set({});
   dock$.registry.set(initialWorkbenchState());
   dock$.browserByRef.set({});
-  dock$.chatById.set({});
   dock$.taskCreateById.set({});
   dock$.noteById.set({});
   dock$.opErrorByRef.set({});
@@ -282,30 +265,6 @@ describe("dock-state", () => {
       sessionId: "session-1",
       state: "loading",
     });
-  });
-
-  it("opens agent chat as a focus surface and drops its payload on close", () => {
-    const node = Effect.runSync(decodeNode({
-      kind: "agent", id: "agent-1", label: "PROFILE-01", x: 0, y: 0, width: 240, height: 96, z: 0,
-      agentKey: "remote-a:profile-01", host: THIS_MACHINE, overseer: false,
-      bindingId: "binding-agent-1", harness: "claude",
-    }));
-    const release = holdCanvas("dock-test", [node]);
-    openAgentChatSurface("dock-test", node.id);
-    release();
-    const id = chatSurfaceId(node.id);
-    expect(dock$.registry.peek().surfaces).toEqual([
-      { id, kind: "chat", zone: "focus" },
-    ]);
-    expect(dock$.chatById[id].peek()).toEqual({
-      nodeId: "agent-1",
-      agentKey: "remote-a:profile-01",
-      title: "PROFILE-01",
-    });
-
-    closeWorkbenchSurface(id);
-    expect(dock$.registry.peek().surfaces).toEqual([]);
-    expect(dock$.chatById[id].peek()).toBeUndefined();
   });
 
   it("keeps a Note draft outside the canvas card across repeated opens", () => {
@@ -848,16 +807,10 @@ describe("dock-state", () => {
 
     it("with tab chrome visible (mixed kinds) close stays per-surface", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "focus");
-      const release = holdCanvas("dock-test", [Effect.runSync(decodeNode({
-        kind: "agent", id: "agent-1", label: "PROFILE-01", x: 0, y: 0, width: 240, height: 96, z: 0,
-        agentKey: "remote-a:profile-01", host: THIS_MACHINE, overseer: false,
-        bindingId: "binding-agent-1", harness: "claude",
-      }))]);
-      openAgentChatSurface("dock-test", "agent-1");
-      release();
+      openNoteSurface(modelNote("note-1", "Field notes", { width: 240, height: 160 }));
       closeFocusModalSurface(terminalSurfaceId("t1"));
       expect(dock$.registry.peek().surfaces).toEqual([
-        { id: chatSurfaceId("agent-1"), kind: "chat", zone: "focus" },
+        { id: noteSurfaceId("note-1"), kind: "note", zone: "focus" },
       ]);
     });
   });
