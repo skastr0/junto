@@ -12,6 +12,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { NodeId } from "@shared/physics/schema";
 import type { Anchor } from "@shared/thread-subject";
+import type { MailMessageId } from "@shared/crew";
+import type { ThreadPostAuthor, ThreadResourceApi } from "@shared/resource-ipc";
+import type { OpId } from "@shared/work-ids";
 import { mintItemId, mintOpId } from "@shared/resource-command";
 import type { ItemId } from "@shared/work-ids";
 
@@ -124,45 +127,11 @@ export const subjectThreadsSource = (): SubjectThreadsSource => source;
  */
 export const subjectThreadsLive = (): boolean => live;
 
-/**
- * The shape of main's thread channel (`window.junto.resource.thread`: list,
- * post, onChanged), as this source reads it. Structural, so the window does
- * not depend on main's types: the bridge is read at the edge (`threadApiOf`).
- */
-export type ThreadApiLike = {
-  readonly list: (
-    canvasName: string,
-    subject: ThreadSubjectRef,
-  ) => Promise<
-    ReadonlyArray<{
-      readonly threadId: string;
-      readonly anchor?: Anchor;
-      readonly posts: ReadonlyArray<{
-        readonly postId: string;
-        readonly author: { readonly kind: "operator" | "seat" | "automation"; readonly nodeId?: string; readonly name: string };
-        readonly text: string;
-        readonly at: number;
-      }>;
-    }>
-  >;
-  readonly post: (
-    canvasName: string,
-    subject: ThreadSubjectRef,
-    post: { readonly opId: string; readonly text: string; readonly threadId?: string; readonly anchor?: Anchor },
-  ) => Promise<
-    | { readonly kind: "applied"; readonly threadId: string; readonly postId: string }
-    | { readonly kind: "refused"; readonly error: { readonly message: string } }
-  >;
-  readonly onChanged: (listener: (changed: unknown) => void) => () => void;
-};
-
-const authorOf = (author: { readonly kind: "operator" | "seat" | "automation"; readonly nodeId?: string }): ThreadAuthor => {
-  if (author.kind === "operator" || author.nodeId === undefined) return { kind: "operator" };
-  return { kind: author.kind, nodeId: author.nodeId as NodeId };
-};
+const authorOf = (author: ThreadPostAuthor): ThreadAuthor =>
+  author.kind === "operator" ? { kind: "operator" } : { kind: author.kind, nodeId: author.nodeId };
 
 /** Main's threads over the resource IPC: the same list and post as `junto task comment`. */
-export const makeIpcSubjectThreads = (api: ThreadApiLike): SubjectThreadsSource => ({
+export const makeIpcSubjectThreads = (api: ThreadResourceApi): SubjectThreadsSource => ({
   threads: async (canvasName, subject) =>
     (await api.list(canvasName, subject)).map((thread) => ({
       threadId: thread.threadId,
@@ -177,9 +146,9 @@ export const makeIpcSubjectThreads = (api: ThreadApiLike): SubjectThreadsSource 
     })),
   post: async (canvasName, subject, post) => {
     const outcome = await api.post(canvasName, subject, {
-      opId: post.opId,
+      opId: post.opId as OpId,
       text: post.text,
-      ...(post.threadId === undefined ? {} : { threadId: post.threadId }),
+      ...(post.threadId === undefined ? {} : { threadId: post.threadId as MailMessageId }),
       ...(post.anchor === undefined ? {} : { anchor: post.anchor }),
     });
     return outcome.kind === "applied"
@@ -189,14 +158,10 @@ export const makeIpcSubjectThreads = (api: ThreadApiLike): SubjectThreadsSource 
   subscribe: (listener) => api.onChanged(() => listener()),
 });
 
-/** The thread channel off the bridge, if main serves it: absent in a build that leaves threads out. */
-export const threadApiOf = (resource: unknown): ThreadApiLike | undefined =>
-  (resource as { readonly thread?: ThreadApiLike } | undefined)?.thread;
-
 let installed = false;
 
 /** Point comments at main. Idempotent; without the bridge (a build that leaves threads out) nothing is set and comments stay unoffered. */
-export const installIpcSubjectThreads = (api: ThreadApiLike | undefined): boolean => {
+export const installIpcSubjectThreads = (api: ThreadResourceApi | undefined): boolean => {
   if (api === undefined) return false;
   if (!installed) {
     setSubjectThreadsSource(makeIpcSubjectThreads(api));
