@@ -86,6 +86,15 @@ import type {
 import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
+import type {
+  AutomationApplyRequest,
+  AutomationApplyResponse,
+  AutomationFiringsRequest,
+  AutomationFiringsResponse,
+  AutomationListRequest,
+  AutomationListResponse,
+  AutomationsChanged,
+} from "./automation";
 import type { MailWaitingFact } from "./mail-waiting";
 import type { AgentSignal } from "./agent-signals";
 import type { PreviewRequest, PreviewResult, PreviewPlayResult, PreviewRevealResult, PreviewSource } from "./preview";
@@ -304,6 +313,11 @@ export const IPC_CHANNELS = {
   workTaskPolicy: "junto:work-task-policy",
   workSinkPage: "junto:work-sink-page",
   workSinkChanged: "junto:work-sink-changed",
+  // The Automations node (0.10/07): reads, the operator's writes, and a change after each.
+  automationList: "junto:automation-list",
+  automationFirings: "junto:automation-firings",
+  automationApply: "junto:automation-apply",
+  automationsChanged: "junto:automations-changed",
   workMailChanged: "junto:work-mail-changed",
   workBoardList: "junto:work-board-list",
   workBoardCreateTopic: "junto:work-board-create-topic",
@@ -892,6 +906,10 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly workTaskPolicy: (query: WorkAttentionQuery) => Promise<ReadonlyArray<WorkLaneRow>>;
   readonly workSinkPage: (query: WorkSinkQuery) => Promise<WorkSinkPage>;
   readonly onWorkSinkChanged: (listener: (event: WorkSinkChanged) => void) => () => void;
+  readonly automationList: (canvas: string, request: AutomationListRequest) => Promise<AutomationListResponse>;
+  readonly automationFirings: (canvas: string, request: AutomationFiringsRequest) => Promise<AutomationFiringsResponse>;
+  readonly automationApply: (canvas: string, request: AutomationApplyRequest) => Promise<AutomationApplyResponse>;
+  readonly onAutomationsChanged: (listener: (event: AutomationsChanged) => void) => () => void;
   readonly workMailPage: (query: WorkMailQuery) => Promise<WorkMailPage>;
   readonly onWorkMailChanged: (listener: (event: WorkMailChanged) => void) => () => void;
   readonly workSeatRecentOps: (

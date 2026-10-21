@@ -53,6 +53,7 @@ import { registerSettingsIpc } from "./settings/ipc";
 import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
+import { registerAutomationIpc } from "./automation/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
@@ -335,6 +336,7 @@ export const registerJuntoIpc = (): void => {
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc);

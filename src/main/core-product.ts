@@ -13,6 +13,7 @@ import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
 import { RulingRecorderLive } from "./junto/work/ruling-recorder";
+import { makeAutomationRepositoryLive } from "./junto/automation/repository";
 import { ReferencesRepositoryLive } from "./junto/references/repository";
 import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
@@ -59,6 +60,9 @@ export const makeCoreProductLayer = (home: string) => {
       SchedulerRepositoryLive,
       MachineRepositoryLive,
       OpRepositoryLive,
+      // The automation store, and the recorder its ruler records each ruling through.
+      makeAutomationRepositoryLive(),
+      Layer.provide(RulingRecorderLive, WorkRepositoryLive),
       // The artifact store puts each version's bytes in the content store.
       // Each ruling is recorded once, for every machine, through the work store.
       Layer.provideMerge(

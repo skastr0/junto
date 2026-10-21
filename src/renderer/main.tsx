@@ -10,6 +10,7 @@ import {
   type ReactProfilerBuild,
 } from "./lib/performance/perf-harness";
 import { startThemeMode } from "./lib/theme-mode";
+import { installIpcAutomationsSource } from "./lib/automations-ipc-source";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -31,6 +32,9 @@ if (!root) {
 // Main owns platform-sensitive authority. This marker only selects renderer
 // geometry and copy; it never grants an OS capability.
 document.documentElement.dataset.juntoPlatform = window.junto?.platform ?? "unknown";
+
+// The Automations node reads and writes through main once main serves it.
+installIpcAutomationsSource(window.junto);
 
 // Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.
 const MARK_GALLERY = "#/gallery/marks";

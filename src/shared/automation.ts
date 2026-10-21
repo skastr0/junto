@@ -38,7 +38,7 @@ import { isValidCronExpression } from "./cron-expression";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
-import { RefusalReason } from "./resource-command";
+import { RefusalReason, type Refusal } from "./resource-command";
 import { TASK_STATES } from "./task-model";
 import { ItemId } from "./work-ids";
 
@@ -430,3 +430,18 @@ export const AutomationFiringsResponse = Schema.Struct({
   firings: Schema.Array(Firing).pipe(Schema.check(Schema.isMaxLength(FIRINGS_PAGE_MAX))),
 });
 export type AutomationFiringsResponse = typeof AutomationFiringsResponse.Type;
+
+// ── Writes (IPC) ───────────────────────────────────────────────────────────
+
+/** One op on one automation, from the operator's pane. `create` names its own id; every other op targets `automationId`. */
+export const AutomationApplyRequest = Schema.Struct({ nodeId: NodeId, automationId: AutomationId, op: AutomationOp });
+export type AutomationApplyRequest = typeof AutomationApplyRequest.Type;
+
+/** Applied (the head it left, absent once archived), queued for the editing machine, or refused with its reason. */
+export type AutomationApplyResponse =
+  | { readonly kind: "applied"; readonly automation?: Automation }
+  | { readonly kind: "queued" }
+  | { readonly kind: "refused"; readonly refusal: Refusal };
+
+/** Sent to every window after a committed change to a node's automations. */
+export type AutomationsChanged = { readonly canvasName: string; readonly nodeId: NodeId };

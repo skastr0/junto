@@ -32,6 +32,7 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { Task } from "@shared/work-model";
+import type { AutomationsChanged } from "@shared/automation";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
@@ -504,6 +505,10 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   workTaskPolicy: (query) => invoke(IPC_CHANNELS.workTaskPolicy, IPC_TIMEOUT_MS, query),
   workSinkPage: (query) => invoke(IPC_CHANNELS.workSinkPage, IPC_TIMEOUT_MS, query),
   onWorkSinkChanged: (listener) => subscribe<WorkSinkChanged>(IPC_CHANNELS.workSinkChanged, listener),
+  automationList: (canvas, request) => invoke(IPC_CHANNELS.automationList, IPC_TIMEOUT_MS, canvas, request),
+  automationFirings: (canvas, request) => invoke(IPC_CHANNELS.automationFirings, IPC_TIMEOUT_MS, canvas, request),
+  automationApply: (canvas, request) => invoke(IPC_CHANNELS.automationApply, IPC_TIMEOUT_MS, canvas, request),
+  onAutomationsChanged: (listener) => subscribe<AutomationsChanged>(IPC_CHANNELS.automationsChanged, listener),
   workMailPage: (query) => invoke(IPC_CHANNELS.workMailPage, IPC_TIMEOUT_MS, query),
   onWorkMailChanged: (listener) => subscribe<WorkMailChanged>(IPC_CHANNELS.workMailChanged, listener),
   workSeatRecentOps: (canvas, nodeId, limit) =>
