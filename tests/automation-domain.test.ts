@@ -74,10 +74,10 @@ describe("who writes", () => {
     const plain = seat("agent-plain");
     expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition() }, plain)).toMatchObject({
       kind: "refuse",
-      refusal: { reason: "invalid_input" },
+      refusal: { reason: "not_permitted" },
     });
     for (const op of [{ kind: "set-enabled", enabled: false }, { kind: "archive" }, { kind: "run" }] as const) {
-      expect(rule(created(), op, plain), op.kind).toMatchObject({ kind: "refuse" });
+      expect(rule(created(), op, plain), op.kind).toMatchObject({ kind: "refuse", refusal: { reason: "not_permitted" } });
     }
   });
 });

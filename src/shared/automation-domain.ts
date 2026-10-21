@@ -155,9 +155,8 @@ export const ruleAutomationCommand = (
     return refuse({ reason: "invalid_input", message: "an automation cannot write automations" });
   }
   if (author.kind === "seat" && !env.isOverseer(author.seat)) {
-    // TODO(remote-lead): `not_permitted` once it joins RefusalReason.
     return refuse({
-      reason: "invalid_input",
+      reason: "not_permitted",
       message: "only the operator and overseers write automations; seats read them",
       next_step: "Ask the operator, or read it with junto automation show",
     });
