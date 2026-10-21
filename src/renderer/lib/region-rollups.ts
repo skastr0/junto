@@ -5,19 +5,15 @@ import type { RegionRollup } from "@shared/region-rollup";
 import { projectNeeds, ROLLUP_FROM_NEED } from "@shared/need-surfaces";
 import { agentSeat$, seatNeedsOf, workSurfaceFromSeat } from "./agent-seat-state";
 import { state$ } from "./state";
-import { createChatChromeStore, type ChatChromeApi } from "./chat-chrome-store";
-import { getJuntoApi } from "./junto-api";
 import { modelStore } from "./use-model";
 import { workAttentionStore } from "./use-work-sink";
 import { createRegionRollupStore } from "./region-rollup-store";
 
 const emptyItems: ReadonlyArray<import("@shared/work-model").Task> = [];
-export const chatChromeStore = createChatChromeStore(() => getJuntoApi() as unknown as ChatChromeApi | undefined);
 export const regionRollupStore = createRegionRollupStore({
   model: modelStore,
   actorRefs: () => state$.actorRefs.get(),
   items: (canvas, id) => (workAttentionStore.state(canvas).itemsByNodeId[id].get() as typeof emptyItems | undefined) ?? emptyItems,
-  agentActivity: (key) => ({ permissionPending: chatChromeStore.state.byAgentKey[key].permissionPending.get() === true }),
   surface: (bindingId) => {
     agentSeat$.byBindingId[bindingId].state.get();
     return workSurfaceFromSeat(
@@ -51,11 +47,9 @@ export function useRegionRollups<T = ReadonlyArray<RegionRollup>>(
   const canvasName = use$(state$.canvasName);
   useEffect(() => {
     if (!canvasName) return;
-    // Hydrate permissions and subscribe independently of any ChatView mount.
-    const releaseChat = chatChromeStore.retain();
     const releaseAttention = workAttentionStore.retain(canvasName);
     const releaseRollups = regionRollupStore.retain(canvasName);
-    return () => { releaseRollups(); releaseAttention(); releaseChat(); };
+    return () => { releaseRollups(); releaseAttention(); };
   }, [canvasName]);
   return useRtsValue(() => select(readRegionRollups(canvasName)));
 }

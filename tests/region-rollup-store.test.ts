@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { Node, asCanvasName, type Changed, type Opened, type Wire } from "../src/shared/model";
 import { Task } from "../src/shared/work-model";
-import type { AgentActivity, RegionRollup } from "../src/shared/region-rollup";
+import type { RegionRollup } from "../src/shared/region-rollup";
 import { deriveRegionRollups } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
@@ -34,12 +34,10 @@ const harness = async (nodes: Node[], wires: Wire[] = []) => {
   await model.ready(name);
   const refs = observable([actorRefFixture("seat", name)]);
   const items = observable<Record<string, Task[]>>({});
-  const activity = observable<Record<string, AgentActivity>>({});
   const surfaces = observable<Record<string, WorkSurfaceActivity>>({});
   const derive = vi.fn(deriveRegionRollups);
   const store = createRegionRollupStore({
     model, actorRefs: () => refs.get(), items: (_canvas, id) => items[id].get() ?? [],
-    agentActivity: (key) => activity[key].get() ?? {},
     surface: (binding) => surfaces[binding].get(),
   }, derive);
   const release = store.retain(name);
@@ -47,7 +45,7 @@ const harness = async (nodes: Node[], wires: Wire[] = []) => {
   const byId = (id: string) => state.byRegionId[id].peek() as RegionRollup;
   const computed = () => derive.mock.calls.map(([input]) => [...input.canvas.nodes.values()].find((n) => n.kind === "region")?.id);
   const change = (rows: Partial<Changed>) => notify?.({ canvas: name, seq: ++seq, nodes: [], wires: [], removedNodes: [], removedWires: [], ...rows } as Changed);
-  return { model, state, byId, items, refs, activity, surfaces, derive, computed, change, dispose: () => { release(); close(); } };
+  return { model, state, byId, items, refs, surfaces, derive, computed, change, dispose: () => { release(); close(); } };
 };
 
 describe("local per-region rollups", () => {
@@ -118,9 +116,6 @@ describe("local per-region rollups", () => {
       expect(h.byId("left").severity).toBe("blocked");
       h.items.tasks.set([]);
       expect(h.byId("left").severity).toBe("idle");
-      h.activity["local:seat"].set({ permissionPending: true });
-      expect(h.byId("left").severity).toBe("attention");
-      h.activity["local:seat"].set({ permissionPending: false });
       h.surfaces["binding-seat"].set({ session: "running", harness: "working", source: "native" });
       expect(h.byId("left").severity).toBe("working");
       h.surfaces["binding-seat"].set({ session: "running", harness: "idle", ready: true, source: "native" });
@@ -133,7 +128,7 @@ describe("local per-region rollups", () => {
   it("disposes selectors with the last holder", async () => {
     const h = await harness([region("left", 0), agent("seat")]);
     h.dispose(); h.derive.mockClear();
-    h.activity["local:seat"].set({ permissionPending: true });
+    h.surfaces["binding-seat"].set({ session: "running", harness: "working", source: "native" });
     expect(h.derive).not.toHaveBeenCalled();
   });
 });

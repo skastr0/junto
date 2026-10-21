@@ -8,7 +8,6 @@ import { titleOf } from "@shared/model/title";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import {
   deriveRegionRollups,
-  type AgentActivity,
   type RegionRollup,
   type SeatNeedTier,
 } from "@shared/region-rollup";
@@ -19,7 +18,6 @@ export type RegionRollupSources = {
   readonly model: ReturnType<typeof createModelStore>;
   readonly actorRefs: () => ReadonlyArray<ActorRef>;
   readonly items: (canvas: string, nodeId: string) => ReadonlyArray<Task>;
-  readonly agentActivity: (agentKey: string) => AgentActivity;
   readonly surface: (bindingId: string) => WorkSurfaceActivity | undefined;
   /** The seat's tier from its needs; undefined falls back to `surface`. */
   readonly seatTier?: (bindingId: string) => SeatNeedTier | undefined;
@@ -66,7 +64,6 @@ export const createRegionRollupStore = (
       if (region?.kind !== "region") return;
       const nodes = new Map([[region.id, region]] as Array<[Node["id"], Node]>);
       const wires = new Map<Wire["id"], Wire>();
-      const agentActivity = new Map<string, AgentActivity>();
       const terminalStatusByNodeId = new Map<string, WorkSurfaceActivity>();
       const seatTierByNodeId = new Map<string, SeatNeedTier>();
       const refs: ActorRef[] = [];
@@ -82,8 +79,6 @@ export const createRegionRollupStore = (
           if (tier) seatTierByNodeId.set(id, tier);
         }
         if (node.kind === "agent") {
-          const agentKey = (model.nodes[id] as unknown as { agentKey: { get(): string } }).agentKey.get();
-          agentActivity.set(agentKey, sources.agentActivity(agentKey));
           const actor = actors[id].get();
           if (actor) refs.push(actor);
         }
@@ -106,7 +101,6 @@ export const createRegionRollupStore = (
         canvasName,
         resolveActorRef: actorRefResolverFromProjection(refs),
         itemsOf: (id) => sources.items(canvasName, id),
-        agentActivity,
         terminalStatusByNodeId,
         seatTierByNodeId,
       })[0];
