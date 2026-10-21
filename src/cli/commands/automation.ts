@@ -12,6 +12,7 @@ import type {
   CommandSchemaContract,
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
+import type { InputError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
@@ -38,22 +39,27 @@ const call = (op: AutomationReadOp, args: unknown, timeout: Option.Option<number
     return yield* socket.call(op, args, Option.getOrUndefined(timeout));
   });
 
+/** Automations are kept on the machine that edits the canvas, so a read anywhere else is refused. */
+const ON_EDITOR = " Answered only on the machine that edits the canvas; elsewhere it is refused not_available, naming that machine.";
+
 const DESCRIPTIONS = {
-  list: "The automations on every Automations node in this seat's reach, or on the one named by target.",
-  show: "One automation, with the version an edit names.",
-  history: "Firings of one automation, or of every automation on the node, newest first: fired with each action's ruling, interrupted, or skipped and why.",
+  list: `The automations on every Automations node in this seat's reach, or on the one named by target.${ON_EDITOR}`,
+  show: `One automation, with the version an edit names.${ON_EDITOR}`,
+  history: `Firings of one automation, or of every automation on the node, newest first: fired with each action's ruling, interrupted, or skipped and why.${ON_EDITOR}`,
 } as const satisfies Record<string, string>;
 
 type Verb = keyof typeof DESCRIPTIONS;
 
+/** One read as main answers it; a refusal comes back as main's error, next_step included. */
+export const automationRead = (verb: Verb, schema: Schema.Top, input: string, timeout: Option.Option<number>) =>
+  Effect.gen(function* () {
+    // Each schema here decodes without services; Schema.Top does not say so.
+    const args: unknown = yield* (loadJsonInput(schema, input) as Effect.Effect<unknown, InputError>);
+    return yield* call(`automation.${verb}`, args, timeout);
+  });
+
 const read = (verb: Verb, schema: Schema.Top, input: string, timeout: Option.Option<number>) =>
-  executeJsonCommand(
-    `automation ${verb}`,
-    Effect.gen(function* () {
-      const args = yield* loadJsonInput(schema, input);
-      return yield* call(`automation.${verb}`, args, timeout);
-    }),
-  );
+  executeJsonCommand(`automation ${verb}`, automationRead(verb, schema, input, timeout));
 
 const listCommand = Command.make(
   "list",
@@ -68,7 +74,7 @@ const readCommand = (verb: "show" | "history", schema: Schema.Top) =>
 
 export const automationCommand = Command.make("automation").pipe(
   Command.withDescription(
-    "Read the automations in this seat's reach; the operator and overseers write them",
+    "Read the automations in this seat's reach; the operator and overseers write them. Both work only on the machine that edits the canvas",
   ),
   Command.withSubcommands([
     listCommand,
@@ -79,20 +85,20 @@ export const automationCommand = Command.make("automation").pipe(
 
 // --- discovery ---------------------------------------------------------------
 
-const SCHEMAS: { readonly [V in Verb]: Schema.Top } = {
+export const AUTOMATION_READ_SCHEMAS: { readonly [V in Verb]: Schema.Top } = {
   list: AutomationListArgs,
   show: AutomationShowArgs,
   history: AutomationHistoryArgs,
 };
 
-const VERBS = Object.keys(SCHEMAS) as ReadonlyArray<Verb>;
+const VERBS = Object.keys(AUTOMATION_READ_SCHEMAS) as ReadonlyArray<Verb>;
 
 export const automationSchemas: ReadonlyArray<CommandSchemaContract> = VERBS.map((verb) => ({
   command_id: `automation.${verb}`,
   command: `automation ${verb}`,
   schema_id: `automation.${verb}.input/v1`,
   description: DESCRIPTIONS[verb],
-  schema: SCHEMAS[verb],
+  schema: AUTOMATION_READ_SCHEMAS[verb],
   input_modes: ["inline-json", "@file", "stdin"],
 }));
 

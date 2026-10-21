@@ -3,7 +3,10 @@ import { Effect, Option, Result, Schema } from "effect";
 import { AUTOMATION_READ_OPS, AUTOMATION_WRITE_OPS } from "../src/shared/automation-control";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import { allExamples, allSchemas, commandCapabilities, renderSchemaContract } from "../src/cli/core/discovery";
-import { automationExamples, automationSchemas } from "../src/cli/commands/automation";
+import { AUTOMATION_READ_SCHEMAS, automationExamples, automationRead, automationSchemas } from "../src/cli/commands/automation";
+import { WireError } from "../src/cli/core/errors";
+import { renderFailureEnvelope } from "../src/cli/core/output";
+import { WorkSocket } from "../src/cli/core/socket";
 import { overseerExamples, overseerSchemas } from "../src/cli/commands/overseer";
 import { automationWriteArgs } from "../src/cli/commands/overseer-automation";
 
@@ -35,7 +38,9 @@ describe("junto automation discovery", () => {
     for (const { command_id, description } of [...writes, ...commandCapabilities.filter((c) => c.command_id.startsWith("automation."))]) {
       expect(description, command_id).not.toMatch(/queued|until .* ships?|answers empty/i);
     }
-    for (const { command_id, description } of writes) expect(description, command_id).toContain("refused not_available");
+    for (const { command_id, description } of [...writes, ...automationSchemas]) {
+      expect(description, command_id).toContain("refused not_available");
+    }
   });
 
   it("has examples that decode under their own schema", () => {
@@ -45,6 +50,36 @@ describe("junto automation discovery", () => {
       const contract = [...automationSchemas, ...overseerSchemas].find((s) => s.command_id === example.command_id)!;
       expect(() => Schema.decodeUnknownSync(contract.schema as never, { onExcessProperty: "error" })(example.input), example.name).not.toThrow();
       expect(allExamples).toContainEqual(example);
+    }
+  });
+});
+
+describe("junto automation reads off the editing machine", () => {
+  // Main's refusal as the socket hands it over (c2f41fbd0).
+  const refusal = new WireError({
+    type: "InputError",
+    message: `automations on "factory" are kept on Studio Mac, the machine that edits it`,
+    details: { reason: "not_available", retryable: false, next_step: `Open "factory" on Studio Mac to read or change its automations` },
+  });
+  const socket = WorkSocket.of({ call: () => Effect.fail(refusal) });
+
+  it("print main's not_available refusal with its next_step, for list, show and history", () => {
+    for (const verb of ["list", "show", "history"] as const) {
+      const input = JSON.stringify(automationExamples.find((example) => example.command_id === `automation.${verb}`)!.input);
+      const exit = Effect.runSyncExit(automationRead(verb, AUTOMATION_READ_SCHEMAS[verb], input, Option.none()).pipe(
+        Effect.provideService(WorkSocket, socket),
+      ));
+      if (exit._tag !== "Failure") throw new Error(`${verb} succeeded`);
+      const failure = exit.cause.reasons.find((reason) => reason._tag === "Fail");
+      expect(JSON.parse(renderFailureEnvelope(`automation ${verb}`, failure?._tag === "Fail" ? failure.error : undefined)), verb).toEqual({
+        ok: false,
+        command: `automation ${verb}`,
+        error: {
+          type: "InputError",
+          message: refusal.message,
+          details: { reason: "not_available", retryable: false, next_step: `Open "factory" on Studio Mac to read or change its automations` },
+        },
+      });
     }
   });
 });
