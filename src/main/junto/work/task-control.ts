@@ -1,23 +1,22 @@
 // `junto task` in main (plan 04, cli L2): decode each verb, resolve its task,
 // seat and node refs in the caller's reach, and hand each write to the task
-// ruler as a ResourceCommand (02). The task store and the ruler are canvas's
-// (C4); they reach this file through `TaskPorts`, so the verbs are whole
-// before those land and switch over without changing here. A refusal comes
-// back in task terms and is mapped onto the work error family here.
+// ruler as a ResourceCommand (02). The store and the ruler are canvas's
+// (`TaskRepository`, C4) and reach this file through `TaskPorts`. The ruler
+// words its own refusals as work errors; this file adds the opId and turns
+// what it made into a disposition.
 
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { reaches, seatsInReach } from "@shared/region-reach";
-import { refusalError, type ResourceActor, type ResourceCommand } from "@shared/resource-command";
+import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
 import {
   TASK_ARGS,
   TASK_COMMAND_OPS,
   type TaskCommandOp,
   type TaskControlOp,
-  type TaskListArgs,
   type TaskWriteResult,
 } from "@shared/task-control";
 import {
@@ -29,43 +28,40 @@ import {
   type Reviewer,
   type SeatNodeId,
   type TaskCommand,
+  type TaskEffect,
   type TaskId,
   type TaskNodeId,
   type TaskNumber,
-  type TaskRefusal,
-  type TaskRefusalDetail,
+  type TaskState,
   type TaskView,
 } from "@shared/task-model";
+import type { TaskRecord } from "@shared/task-machine";
 import type { ThreadSubject } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
+import { MachineRepository } from "../machines/repository";
+import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
 
 /** How a task is named once its text is read. */
 export type TaskLookup =
   | { readonly kind: "number"; readonly number: TaskNumber }
   | { readonly kind: "id"; readonly taskId: TaskId };
 
-export type TaskQuery = {
-  readonly states?: TaskListArgs["state"];
-  readonly assignee?: SeatNodeId;
+export type TaskListPortQuery = {
+  readonly nodeIds: ReadonlyArray<TaskNodeId>;
+  readonly states?: ReadonlyArray<TaskState>;
   readonly limit: number;
 };
-
-/** What the ruler answers a command. A refusal stays in task terms until it is mapped here. */
-export type TaskSubmitOutcome =
-  | { readonly kind: "applied"; readonly task: TaskView }
-  | { readonly kind: "queued" }
-  | { readonly kind: "refused"; readonly refusal: TaskRefusal };
 
 /** What the verbs need from the task store, the ruler and the thread mail. */
 export type TaskPorts = {
   /** The canvas's task nodes. */
   readonly nodes: (canvas: Canvas) => ReadonlyArray<Node>;
-  readonly list: (canvasName: string, node: TaskNodeId, query: TaskQuery) => Effect.Effect<ReadonlyArray<TaskView>, WorkErrorBody>;
-  readonly find: (canvasName: string, lookup: TaskLookup) => Effect.Effect<TaskView | undefined, WorkErrorBody>;
-  /** The task with its layers, reviewers, stamps and dependencies, as the seat may see them. */
-  readonly show: (canvasName: string, task: TaskView) => Effect.Effect<unknown, WorkErrorBody>;
-  readonly submit: (command: ResourceCommand<TaskCommand>) => Effect.Effect<TaskSubmitOutcome, WorkErrorBody>;
+  readonly list: (canvasName: string, query: TaskListPortQuery) => Effect.Effect<{ readonly tasks: ReadonlyArray<TaskView>; readonly more: boolean }, WorkErrorBody>;
+  readonly find: (canvas: Canvas, canvasName: string, lookup: TaskLookup) => Effect.Effect<TaskView | undefined, WorkErrorBody>;
+  readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskSubmitOutcome, WorkErrorBody>;
+  /** Mail the ruling owes: assignment notices, stamp requests, defects, sent on (pty P4). */
+  readonly deliver: (canvasName: string, task: TaskRecord, effects: ReadonlyArray<TaskEffect>) => Effect.Effect<void, WorkErrorBody>;
   /** Mail in the task's thread (03). */
   readonly comment: (input: {
     readonly canvasName: string;
@@ -83,6 +79,16 @@ export type TaskCaller = {
 };
 
 const LIST_DEFAULT_LIMIT = 50;
+/** How far a number lookup reads before the store answers numbers itself. */
+const NUMBER_SCAN_LIMIT = 10_000;
+
+const taskNodes = (canvas: Canvas): ReadonlyArray<Node> => [...canvas.nodes.values()].filter((node) => node.kind === "task");
+
+const storeError = (error: { readonly message: string }): WorkErrorBody => ({
+  type: "InternalError",
+  message: error.message,
+  details: { retryable: true },
+});
 
 const notBuilt = (what: string): WorkErrorBody => ({
   type: "InputError",
@@ -90,18 +96,39 @@ const notBuilt = (what: string): WorkErrorBody => ({
   details: { reason: "not_available", retryable: false },
 });
 
-/**
- * Until canvas C4 lands the task store and its ruler, the task nodes are the
- * canvas's own and every read or write past them refuses as not built.
- */
-export const liveTaskPorts: TaskPorts = {
-  nodes: (canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "task"),
-  list: () => Effect.fail(notBuilt("the task store")),
-  find: () => Effect.fail(notBuilt("the task store")),
-  show: () => Effect.fail(notBuilt("the task store")),
-  submit: () => Effect.fail(notBuilt("the task ruler")),
-  comment: () => Effect.fail(notBuilt("task threads")),
-};
+/** Every port through the TaskRepository in the running core. */
+export const liveTaskPorts: TaskPorts = (() => {
+  const withRepo = <A>(use: (repo: TaskRepository["Service"]) => Effect.Effect<A, { readonly message: string }>) =>
+    Effect.serviceOption(TaskRepository).pipe(
+      Effect.flatMap((repo) =>
+        Option.isNone(repo) ? Effect.fail(notBuilt("the task store")) : use(repo.value).pipe(Effect.mapError(storeError))),
+    ) as Effect.Effect<A, WorkErrorBody>;
+  return {
+    nodes: taskNodes,
+    list: (canvasName, query) => withRepo((repo) => repo.list(canvasName, query)),
+    find: (canvas, canvasName, lookup) =>
+      withRepo((repo) =>
+        lookup.kind === "id"
+          ? Effect.map(repo.get(canvasName, lookup.taskId), Option.getOrUndefined)
+          : Effect.map(
+            repo.list(canvasName, {
+              nodeIds: taskNodes(canvas).map((node) => node.id),
+              states: ["backlog", "assigned", "working", "input-required", "in-review", "done", "canceled", "archived"],
+              limit: NUMBER_SCAN_LIMIT,
+            }),
+            ({ tasks }) => tasks.find((task) => task.number === lookup.number),
+          )),
+    submit: (command, context, env) =>
+      Effect.flatMap(Effect.serviceOption(MachineRepository), (machines) =>
+        Option.isNone(machines)
+          ? Effect.fail(notBuilt("this machine's installation id"))
+          : withRepo((repo) =>
+            Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env)))),
+    // Delivery of task mail is pty's (P4): until it lands a ruling owes nothing it can send.
+    deliver: () => Effect.void,
+    comment: () => Effect.fail(notBuilt("task threads")),
+  };
+})();
 
 const decode = <S extends Schema.Top>(schema: S, args: unknown): Effect.Effect<S["Type"], WorkErrorBody> => {
   const decoded = Schema.decodeUnknownResult(schema as never, { onExcessProperty: "error" })(args ?? {});
@@ -115,72 +142,50 @@ const decode = <S extends Schema.Top>(schema: S, args: unknown): Effect.Effect<S
 };
 
 // ---------------------------------------------------------------------------
-// Refusals
+// The ruler's answer
 
-const reviewerText = (reviewer: Reviewer): string => (reviewer.kind === "operator" ? "the operator" : reviewer.seat);
-
-/** The sentence and the next step for each task refusal. Exhaustive: a new detail fails tsc here. */
-export const describeTaskRefusal = (detail: TaskRefusalDetail): { readonly message: string; readonly next_step?: string; readonly expected?: unknown } => {
-  switch (detail.kind) {
-    case "illegal-transition":
-      return { message: `a task in ${detail.from} cannot ${detail.command}`, next_step: "junto task show <task> prints its state" };
-    case "not-assignee":
-      return detail.assignee === undefined
-        ? { message: "only the assignee moves this task, and it has none", next_step: "junto task assign <task> first" }
-        : { message: `only the assignee (${detail.assignee}) moves this task` };
-    case "already-assigned":
-      return { message: `the task is already assigned to ${detail.assignee}`, next_step: "junto task unassign <task> first" };
-    case "seat-busy":
-      return { message: `${detail.seat} already holds an open task (${detail.taskId})`, next_step: "finish, pause or unassign that one first" };
-    case "not-reviewer":
-      return { message: `${reviewerText(detail.reviewer)} is not a reviewer of this task`, next_step: "junto task reviewer add <task> first" };
-    case "own-task":
-      return { message: "the assignee cannot stamp its own task" };
-    case "stale-epoch":
-      return { message: "the task changed since that review subject", expected: detail.expected, next_step: "junto task show <task>, then stamp again" };
-    case "next-required":
-      return { message: "this node sends on to several nodes; name one", expected: detail.choices, next_step: "junto task finish <task> --next <node>" };
-    case "next-not-downstream":
-      return { message: `${detail.next} is not downstream of this node`, expected: detail.choices };
-    case "invalid-policy":
-      return { message: `${detail.required} is not a stamp count` };
-    case "dependency-cycle":
-      return { message: "that dependency would make a cycle", expected: detail.through };
-    case "unknown-task":
-      return { message: `no task ${detail.taskId}` };
-    case "task-exists":
-      return { message: `a task ${detail.taskId} already exists`, next_step: "resend with a new opId, or leave --op-id out" };
-    case "cannot-review":
-      return { message: `an ${detail.actor} does not review tasks; a seat or the operator does` };
-    case "target-mismatch":
-      return { message: `the command targets ${detail.target} but creates ${detail.taskId}` };
-    case "wrong-node":
-      return { message: `${detail.nodeId} is not ${detail.expected === "agent" ? "a seat" : "a task node"}` };
-  }
-};
-
-/** A ruler's refusal as the work error a caller reads, with the write's opId. */
-export const taskRefusalError = (refusal: TaskRefusal, opId: OpId): WorkErrorBody => {
-  const error = refusalError({ reason: refusal.reason, ...describeTaskRefusal(refusal.detail) });
-  return { ...error, details: { ...error.details, opId } };
-};
-
-export const writeResultOf = (outcome: TaskSubmitOutcome, opId: OpId, taskId: TaskId): Effect.Effect<TaskWriteResult, WorkErrorBody> => {
+/** What the ruling made, as the caller reads it; a refusal is the ruler's own error with the opId. */
+export const writeResultOf = (outcome: TaskSubmitOutcome, opId: OpId): Effect.Effect<TaskWriteResult, WorkErrorBody> => {
   switch (outcome.kind) {
     case "applied":
       return Effect.succeed({
         disposition: "applied",
         opId,
-        taskId: outcome.task.taskId,
-        ...(outcome.task.number === undefined ? {} : { number: outcome.task.number }),
-        state: outcome.task.current.state,
+        taskId: outcome.task.id,
+        number: outcome.task.number,
+        state: outcome.task.state,
       });
-    case "queued":
-      return Effect.succeed({ disposition: "queued", opId, taskId });
     case "refused":
-      return Effect.fail(taskRefusalError(outcome.refusal, opId));
+      return Effect.fail({ ...outcome.error, details: { ...outcome.error.details, opId } });
   }
 };
+
+/** The ruler's view of the canvas: flows downstream, stamp defaults and seat reach. */
+export const taskCanvasEnv = (canvas: Canvas): TaskCanvasEnv => ({
+  downstream: (node) =>
+    [...canvas.wires.values()]
+      // `feeds` becomes `flows` (TASK_FLOW_VERB) with canvas C4; this line fails tsc when it does.
+      .filter((wire) => wire.verb === "feeds" && wire.from === node)
+      .map((wire) => taskNodeId(wire.to)),
+  // Task nodes set no stamp default yet (04): none is required.
+  stampDefaultOf: () => ({ required: 0 }),
+  seatReaches: (seat, node) => reaches(canvas, seat, node),
+});
+
+/** Region reach for the ruler: a seat reaches what its region reaches; the operator, everything. */
+export const taskRulingContext = (canvas: Canvas): RulingContext => ({
+  inReach: (actor, target) => {
+    switch (actor.kind) {
+      case "seat":
+        return reaches(canvas, actor.nodeId, target.nodeId);
+      case "operator":
+        return true;
+      // An automation writes through its own path (07), never this socket.
+      case "automation":
+        return false;
+    }
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Refs
@@ -189,12 +194,6 @@ const unknown = (path: string, received: string, message: string, hint?: string)
   type: "UnknownTarget",
   message,
   details: { path, received, retryable: false, ...(hint === undefined ? {} : { hint }) },
-});
-
-const outOfReach = (path: string, what: string): WorkErrorBody => ({
-  type: "ScopeError",
-  message: `${what} is not in this seat's reach`,
-  details: { path, reason: "not_in_reach", retryable: false },
 });
 
 /** `#42` or `42`, a task id, or a `junto://` ref with its `&item`. */
@@ -207,6 +206,11 @@ export const taskLookupOf = (text: string): TaskLookup | undefined => {
   return link?.item === undefined ? undefined : { kind: "id", taskId: link.item };
 };
 
+/**
+ * A task this seat may act on: one in its reach, or its own open task (the
+ * assignee's moves need no reach, 01 rule 6). A task out of reach reads as
+ * missing, so a probe never learns what lies outside.
+ */
 const findTask = (caller: TaskCaller, ports: TaskPorts, text: string, path = "task"): Effect.Effect<TaskView, WorkErrorBody> =>
   Effect.gen(function* () {
     const lookup = taskLookupOf(text);
@@ -217,35 +221,38 @@ const findTask = (caller: TaskCaller, ports: TaskPorts, text: string, path = "ta
         details: { path, received: text, retryable: false, hint: "a task is #42, its id, or a junto:// ref" },
       });
     }
-    const task = yield* ports.find(caller.canvasName, lookup);
-    if (task === undefined) {
-      return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} on this canvas`));
+    const task = yield* ports.find(caller.canvas, caller.canvasName, lookup);
+    const visible = task !== undefined &&
+      (reaches(caller.canvas, caller.actor.nodeId, task.current.node) || task.current.assignee === caller.actor.nodeId);
+    if (!visible) {
+      return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`));
     }
     return task;
   });
 
-const findNode = (caller: TaskCaller, ports: TaskPorts, text: string, path: string): Effect.Effect<Node, WorkErrorBody> => {
-  const nodes = ports.nodes(caller.canvas);
+/** One of `nodes` by id, name or ref. Callers pass only what the seat may see. */
+const findNode = (nodes: ReadonlyArray<Node>, text: string, path: string, what: string): Effect.Effect<Node, WorkErrorBody> => {
   const link = text.startsWith("junto://") ? parseMentionHref(text) : undefined;
   const named = link !== undefined
     ? nodes.filter((node) => node.id === link.nodeId && link.item === undefined)
     : nodes.filter((node) => node.id === text || titleOf(node) === text);
   if (named.length === 1) return Effect.succeed(named[0]!);
-  const names = nodes.map(titleOf).slice(0, 12).join(", ");
   return Effect.fail(
     named.length === 0
-      ? unknown(path, text, `no task node ${text} on this canvas`, nodes.length === 0 ? "this canvas has no task node" : `task nodes: ${names}`)
-      : { type: "InputError", message: `${named.length} task nodes are named ${text}; name one by its id`, details: { path, received: text, retryable: false } },
+      ? unknown(path, text, `no ${what} ${text}`, nodes.length === 0 ? undefined : `${what}s: ${nodes.map(titleOf).slice(0, 12).join(", ")}`)
+      : { type: "InputError", message: `${named.length} ${what}s are named ${text}; name one by its id`, details: { path, received: text, retryable: false } },
   );
 };
 
+const nodesInReach = (caller: TaskCaller, ports: TaskPorts): ReadonlyArray<Node> =>
+  ports.nodes(caller.canvas).filter((node) => reaches(caller.canvas, caller.actor.nodeId, node.id));
+
 const nodeInReach = (caller: TaskCaller, ports: TaskPorts, text: string, path: string) =>
-  Effect.flatMap(findNode(caller, ports, text, path), (node) =>
-    reaches(caller.canvas, caller.actor.nodeId, node.id) ? Effect.succeed(node) : Effect.fail(outOfReach(path, titleOf(node))));
+  findNode(nodesInReach(caller, ports), text, path, "task node in reach");
 
 /** The one task node in reach when none is named. */
 const onlyNodeInReach = (caller: TaskCaller, ports: TaskPorts): Effect.Effect<Node, WorkErrorBody> => {
-  const inReach = ports.nodes(caller.canvas).filter((node) => reaches(caller.canvas, caller.actor.nodeId, node.id));
+  const inReach = nodesInReach(caller, ports);
   if (inReach.length === 1) return Effect.succeed(inReach[0]!);
   return Effect.fail({
     type: "InputError",
@@ -254,18 +261,22 @@ const onlyNodeInReach = (caller: TaskCaller, ports: TaskPorts): Effect.Effect<No
   });
 };
 
-/** A seat that reaches the task's node: `me`, `@name`, its name, its id or a ref. */
+/**
+ * A seat among those that reach `near`, and the caller itself: `me`, `@name`,
+ * its name, its id or a ref.
+ */
 const findSeat = (caller: TaskCaller, near: NodeId, text: string | undefined, path: string): Effect.Effect<SeatNodeId, WorkErrorBody> => {
   if (text === undefined || text === "me") return Effect.succeed(seatNodeId(caller.actor.nodeId));
   const wanted = text.startsWith("@") ? text.slice(1) : text;
   const link = wanted.startsWith("junto://") ? parseMentionHref(wanted) : undefined;
-  const seats = seatsInReach(caller.canvas, near);
+  const ids = new Set<NodeId>([caller.actor.nodeId, ...seatsInReach(caller.canvas, near).map((seat) => seat.id)]);
+  const seats = [...ids].flatMap((id) => caller.canvas.nodes.get(id) ?? []);
   const named = seats.filter((seat) =>
-    link !== undefined ? seat.id === link.nodeId : seat.id === wanted || titleOf(caller.canvas.nodes.get(seat.id)!) === wanted);
+    link !== undefined ? seat.id === link.nodeId : seat.id === wanted || titleOf(seat) === wanted);
   if (named.length === 1) return Effect.succeed(seatNodeId(named[0]!.id));
   return Effect.fail(
     named.length === 0
-      ? unknown(path, text, `no seat ${text} reaches this task`)
+      ? unknown(path, text, `no seat ${text} in reach`)
       : { type: "InputError", message: `${named.length} seats are named ${text}; name one by its id`, details: { path, received: text, retryable: false } },
   );
 };
@@ -319,8 +330,16 @@ const commandOf = (
       const next = input.next as string | undefined;
       return next === undefined
         ? Effect.succeed({ kind })
-        // Downstream need not be in reach: sending on hands the task over (04).
-        : Effect.map(findNode(caller, ports, next, "next"), (node) => ({ kind, next: taskNodeId(node.id) }));
+        // One of the nodes this one flows into; it need not be in reach, since sending on hands the task over (04).
+        : Effect.map(
+          findNode(
+            taskCanvasEnv(caller.canvas).downstream(task.current.node).flatMap((id) => caller.canvas.nodes.get(id) ?? []),
+            next,
+            "next",
+            "downstream task node",
+          ),
+          (node) => ({ kind, next: taskNodeId(node.id) }),
+        );
     }
     case "depend":
     case "undepend":
@@ -336,6 +355,13 @@ const commandOf = (
     }
   }
 };
+
+const submitted = (caller: TaskCaller, ports: TaskPorts, written: ResourceCommand<TaskCommand>) =>
+  Effect.gen(function* () {
+    const outcome = yield* ports.submit(written, taskRulingContext(caller.canvas), taskCanvasEnv(caller.canvas));
+    if (outcome.kind === "applied" && !outcome.replay) yield* ports.deliver(caller.canvasName, outcome.task, outcome.effects);
+    return yield* writeResultOf(outcome, written.opId);
+  });
 
 /** One task verb, for a seat the work socket admitted. */
 export const handleTaskOp = (
@@ -355,26 +381,24 @@ export const handleTaskOp = (
         const assignee = input.assignee === undefined
           ? undefined
           : yield* findSeat(caller, caller.actor.nodeId, input.assignee, "assignee");
-        const tasks: Array<TaskView> = [];
-        for (const node of nodes) {
-          tasks.push(...(yield* ports.list(caller.canvasName, taskNodeId(node.id), {
-            limit: limit + 1,
-            ...(input.state === undefined ? {} : { states: input.state }),
-            ...(assignee === undefined ? {} : { assignee }),
-          })));
-        }
-        return { tasks: tasks.slice(0, limit), more: tasks.length > limit };
+        if (nodes.length === 0) return { tasks: [], more: false };
+        // An assignee filter reads past the limit, so a page is still full.
+        const listed = yield* ports.list(caller.canvasName, {
+          nodeIds: nodes.map((node) => taskNodeId(node.id)),
+          limit: assignee === undefined ? limit : NUMBER_SCAN_LIMIT,
+          ...(input.state === undefined ? {} : { states: input.state }),
+        });
+        const tasks = assignee === undefined ? listed.tasks : listed.tasks.filter((task) => task.current.assignee === assignee);
+        return { tasks: tasks.slice(0, limit), more: listed.more || tasks.length > limit };
       }
       case "task.show": {
         const input = yield* decode(TASK_ARGS[op], args);
         const task = yield* findTask(caller, ports, input.task);
-        if (!reaches(caller.canvas, caller.actor.nodeId, task.current.node)) return yield* Effect.fail(outOfReach("task", formatRef(task)));
-        return yield* ports.show(caller.canvasName, task);
+        return { task };
       }
       case "task.comment": {
         const input = yield* decode(TASK_ARGS[op], args);
         const task = yield* findTask(caller, ports, input.task);
-        if (!reaches(caller.canvas, caller.actor.nodeId, task.current.node)) return yield* Effect.fail(outOfReach("task", formatRef(task)));
         const sent = yield* ports.comment({
           canvasName: caller.canvasName,
           actor: caller.actor,
@@ -387,24 +411,20 @@ export const handleTaskOp = (
       case "task.create": {
         const input = yield* decode(TASK_ARGS[op], args);
         const node = input.node === undefined ? yield* onlyNodeInReach(caller, ports) : yield* nodeInReach(caller, ports, input.node, "node");
-        const outcome = yield* ports.submit(command(caller, input.opId, node.id, input.taskId, {
+        return yield* submitted(caller, ports, command(caller, input.opId, node.id, input.taskId, {
           kind: "create",
           taskId: input.taskId,
           title: input.title,
           ...(input.body === undefined ? {} : { body: input.body }),
           ...(input.stamps === undefined ? {} : { stampPolicy: { required: input.stamps } }),
         }));
-        return yield* writeResultOf(outcome, input.opId, input.taskId);
       }
       default: {
         const input = (yield* decode(TASK_ARGS[op], args)) as { readonly opId: OpId; readonly task: string } & Record<string, unknown>;
         const task = yield* findTask(caller, ports, input.task);
-        const op_ = yield* commandOf(op, input, caller, ports, task);
+        const made = yield* commandOf(op, input, caller, ports, task);
         // Reach is the ruler's to check (01), with the assignee's own moves exempt.
-        const outcome = yield* ports.submit(command(caller, input.opId, task.current.node, task.taskId, op_));
-        return yield* writeResultOf(outcome, input.opId, task.taskId);
+        return yield* submitted(caller, ports, command(caller, input.opId, task.current.node, task.taskId, made));
       }
     }
   });
-
-const formatRef = (task: TaskView): string => (task.number === undefined ? task.taskId : formatTaskNumber(task.number));

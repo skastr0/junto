@@ -15,35 +15,33 @@ import {
 } from "../src/shared/task-control";
 import {
   STAMPS_REQUIRED_MAX,
-  TASK_REFUSAL_REASON,
   seatNodeId,
   taskNodeId,
-  taskRefusal,
   type TaskCommand,
   type TaskCommandKind,
-  type TaskRefusalDetail,
   type TaskView,
 } from "../src/shared/task-model";
+import type { TaskRecord } from "../src/shared/task-machine";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import type { ResourceCommand } from "../src/shared/resource-command";
-import { REFUSAL } from "../src/shared/resource-command";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId, OpId, TaskNumber } from "../src/shared/work-ids";
 import {
-  describeTaskRefusal,
   handleTaskOp,
+  taskCanvasEnv,
   taskLookupOf,
-  taskRefusalError,
+  taskRulingContext,
   type TaskCaller,
   type TaskPorts,
-  type TaskSubmitOutcome,
 } from "../src/main/junto/work/task-control";
+import type { TaskSubmitOutcome } from "../src/main/junto/work/task-repository";
 
 const OP = OpId.make("01M5ESM1XHCJ7JYJDBC37MREBZ");
 const ID = ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SG");
 const OTHER = ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SH");
+const HIDDEN = ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SJ");
 
 const refused = (schema: Schema.Top, value: unknown): boolean =>
   Result.isFailure(Schema.decodeUnknownResult(schema as never, { onExcessProperty: "error" })(value));
@@ -104,55 +102,9 @@ describe("task refs", () => {
   });
 });
 
-const seat = seatNodeId(asNodeId("seat-a"));
-const tnode = taskNodeId(asNodeId("tasks-1"));
-
-const details: ReadonlyArray<TaskRefusalDetail> = [
-  { kind: "illegal-transition", from: "done", command: "cancel" },
-  { kind: "not-assignee", assignee: seat },
-  { kind: "not-assignee" },
-  { kind: "already-assigned", assignee: seat },
-  { kind: "seat-busy", seat, taskId: ID },
-  { kind: "not-reviewer", reviewer: { kind: "operator" } },
-  { kind: "own-task", seat },
-  { kind: "stale-epoch", expected: 3 },
-  { kind: "next-required", choices: [tnode] },
-  { kind: "next-not-downstream", next: tnode, choices: [] },
-  { kind: "invalid-policy", required: -1 },
-  { kind: "dependency-cycle", through: [ID, OTHER] },
-  { kind: "unknown-task", taskId: ID },
-  { kind: "task-exists", taskId: ID },
-  { kind: "cannot-review", actor: "automation" },
-  { kind: "target-mismatch", target: ID, taskId: OTHER },
-  { kind: "wrong-node", nodeId: tnode, expected: "agent" },
-];
-
-describe("task refusals", () => {
-  it("covers every refusal kind", () => {
-    expect(new Set(details.map((detail) => detail.kind))).toEqual(new Set(Object.keys(TASK_REFUSAL_REASON)));
-  });
-
-  it("maps each onto the work error its reason names, with the opId", () => {
-    for (const detail of details) {
-      const refusal = taskRefusal(detail);
-      const error = taskRefusalError(refusal, OP);
-      expect(error.type).toBe(REFUSAL[refusal.reason].type);
-      expect(error.details?.reason).toBe(refusal.reason);
-      expect(error.details?.retryable).toBe(REFUSAL[refusal.reason].retryable);
-      expect(error.details?.opId).toBe(OP);
-      expect(describeTaskRefusal(detail).message.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("sends a stale stamp back as retryable with the current epoch", () => {
-    const error = taskRefusalError(taskRefusal({ kind: "stale-epoch", expected: 3 }), OP);
-    expect(error.details?.retryable).toBe(true);
-    expect(error.details?.expected).toBe(3);
-  });
-});
-
-// A canvas with region R holding seats a and b and task node tasks-1, and a
-// sibling region S holding seat c and task node tasks-2.
+// Region R holds seats alpha and beta and task nodes "CLI tasks" (tasks-1)
+// and "Review" (tasks-3); tasks-1 feeds tasks-3. Sibling region S holds seat
+// gamma and its own node also named "CLI tasks" (tasks-2).
 const box = (x: number, y: number, width = 50, height = 50) => ({ x, y, width, height });
 const canvas = {
   nodes: new Map(
@@ -163,9 +115,11 @@ const canvas = {
       { id: "seat-b", kind: "agent", label: "beta", agentKey: "b", ...box(100, 10) },
       { id: "seat-c", kind: "agent", label: "gamma", agentKey: "c", ...box(610, 10) },
       { id: "tasks-1", kind: "task", name: "CLI tasks", ...box(200, 200) },
-      { id: "tasks-2", kind: "task", name: "Other tasks", ...box(800, 200) },
+      { id: "tasks-3", kind: "task", name: "Review", ...box(300, 300) },
+      { id: "tasks-2", kind: "task", name: "CLI tasks", ...box(800, 200) },
     ].map((node) => [node.id, node]),
   ),
+  wires: new Map([["w1", { id: "w1", from: "tasks-1", to: "tasks-3", verb: "feeds" }]]),
 } as unknown as Canvas;
 
 const caller: TaskCaller = {
@@ -174,29 +128,57 @@ const caller: TaskCaller = {
   actor: { kind: "seat", seatId: "seat-generation-a" as ActorSeatId, nodeId: asNodeId("seat-a") },
 };
 
-const summary = (current: Partial<TaskView["current"]> = {}): TaskView => ({
-  taskId: ID,
-  number: TaskNumber.make(42),
+const tnode = taskNodeId(asNodeId("tasks-1"));
+
+const view = (taskId: ItemId, number: number, node = tnode, current: Partial<TaskView["current"]> = {}): TaskView => ({
+  taskId,
+  number: TaskNumber.make(number),
   title: "Ship it",
-  current: { state: "backlog", node: tnode, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [], ...current },
+  current: { state: "backlog", node, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [], ...current },
   layers: [],
   dependsOn: [],
   createdAt: 1,
   updatedAt: 1,
 });
 
-const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<TaskCommand>>): TaskPorts => ({
+// #42 and #43 sit on tasks-1, in reach; #44 sits on tasks-2, out of it.
+const tasks = [view(ID, 42), view(OTHER, 43), view(HIDDEN, 44, taskNodeId(asNodeId("tasks-2")))];
+
+const record = (overrides: Partial<TaskRecord> = {}): TaskRecord => ({
+  id: ID,
+  number: TaskNumber.make(42),
+  title: "Ship it",
+  dependsOn: [],
+  state: "assigned",
+  node: tnode,
+  epoch: 0,
+  stampPolicy: { required: 0 },
+  reviewers: [],
+  stamps: [],
+  ...overrides,
+});
+
+const applied = (overrides: Partial<TaskRecord> = {}): TaskSubmitOutcome => ({
+  kind: "applied",
+  opId: OP,
+  task: record(overrides),
+  effects: [],
+  replay: false,
+});
+
+const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<TaskCommand>> = []): TaskPorts => ({
   nodes: (c) => [...c.nodes.values()].filter((node) => node.kind === "task"),
-  list: () => Effect.succeed([summary()]),
-  find: (_, lookup) =>
-    Effect.succeed(
-      lookup.kind === "number" ? (lookup.number === 42 ? summary() : undefined) : lookup.taskId === ID ? summary() : undefined,
-    ),
-  show: (_, task) => Effect.succeed(task),
+  list: (_, query) => {
+    const on = tasks.filter((task) => query.nodeIds.includes(task.current.node));
+    return Effect.succeed({ tasks: on.slice(0, query.limit), more: on.length > query.limit });
+  },
+  find: (_c, _n, lookup) =>
+    Effect.succeed(tasks.find((task) => (lookup.kind === "number" ? task.number === lookup.number : task.taskId === lookup.taskId))),
   submit: (command) => {
     submitted.push(command);
     return Effect.succeed(outcome);
   },
+  deliver: () => Effect.void,
   comment: () => Effect.succeed({ messageId: "m1" }),
 });
 
@@ -212,83 +194,100 @@ const failure = (exit: Exit.Exit<unknown, WorkErrorBody>): WorkErrorBody => {
 describe("task verbs", () => {
   it("assigns to a seat named by @name in the task's reach", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
-    const exit = await run("task.assign", { opId: OP, task: "#42", seat: "@beta" }, portsWith({ kind: "applied", task: summary({ state: "assigned", assignee: seatNodeId(asNodeId("seat-b")) }) }, submitted));
+    const exit = await run("task.assign", { opId: OP, task: "#42", seat: "@beta" }, portsWith(applied({ assignee: seatNodeId(asNodeId("seat-b")) }), submitted));
     expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, number: 42, state: "assigned" }));
     expect(submitted[0]?.op).toEqual({ kind: "assign", seat: "seat-b" });
     expect(submitted[0]?.target).toEqual({ kind: "task", nodeId: "tasks-1", itemId: ID });
     expect(submitted[0]?.opId).toBe(OP);
   });
 
-  it("assigns to the caller when no seat is named", async () => {
-    const submitted: Array<ResourceCommand<TaskCommand>> = [];
-    await run("task.assign", { opId: OP, task: ID }, portsWith({ kind: "queued" }, submitted));
-    expect(submitted[0]?.op).toEqual({ kind: "assign", seat: "seat-a" });
+  it("assigns to the caller when no seat is named, or when it names itself", async () => {
+    for (const seat of [undefined, "@alpha", "seat-a"]) {
+      const submitted: Array<ResourceCommand<TaskCommand>> = [];
+      await run("task.assign", { opId: OP, task: ID, ...(seat === undefined ? {} : { seat }) }, portsWith(applied(), submitted));
+      expect(submitted[0]?.op).toEqual({ kind: "assign", seat: "seat-a" });
+    }
   });
 
   it("will not assign a seat in a sibling region", async () => {
-    const exit = await run("task.assign", { opId: OP, task: "#42", seat: "@gamma" }, portsWith({ kind: "queued" }, []));
+    const exit = await run("task.assign", { opId: OP, task: "#42", seat: "@gamma" }, portsWith(applied()));
     expect(failure(exit).type).toBe("UnknownTarget");
   });
 
-  it("returns queued with the opId while the editing machine is away", async () => {
-    const exit = await run("task.start", { opId: OP, task: "#42" }, portsWith({ kind: "queued" }, []));
-    expect(exit).toEqual(Exit.succeed({ disposition: "queued", opId: OP, taskId: ID }));
+  it("stamps the opId on a refusal from any stage of the ruler", async () => {
+    const error: WorkErrorBody = { type: "ScopeError", message: "The resource is not in this actor's reach", details: { reason: "not_in_reach", retryable: false } };
+    const exit = await run("task.cancel", { opId: OP, task: "#42" }, portsWith({ kind: "refused", opId: OP, error, root: OP }));
+    expect(failure(exit)).toEqual({ ...error, details: { ...error.details, opId: OP } });
   });
 
-  it("maps a ruler's refusal onto the work error family", async () => {
-    const exit = await run(
-      "task.cancel",
-      { opId: OP, task: "#42" },
-      portsWith({ kind: "refused", refusal: taskRefusal({ kind: "illegal-transition", from: "done", command: "cancel" }) }, []),
-    );
-    const error = failure(exit);
-    expect(error.type).toBe("InvalidTransition");
-    expect(error.details?.reason).toBe("invalid_transition");
-    expect(error.details?.opId).toBe(OP);
-  });
-
-  it("creates on the one task node in reach", async () => {
+  it("creates on the one task node in reach, though a sibling node shares its name", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
-    await run("task.create", { opId: OP, taskId: ID, title: "Ship it", stamps: 1 }, portsWith({ kind: "queued" }, submitted));
+    await run("task.create", { opId: OP, taskId: ID, title: "Ship it", stamps: 1, node: "CLI tasks" }, portsWith(applied(), submitted));
     expect(submitted[0]?.target.nodeId).toBe("tasks-1");
     expect(submitted[0]?.op).toEqual({ kind: "create", taskId: ID, title: "Ship it", stampPolicy: { required: 1 } });
   });
 
-  it("refuses to create on a task node out of reach", async () => {
-    const exit = await run("task.create", { opId: OP, taskId: ID, title: "x", node: "Other tasks" }, portsWith({ kind: "queued" }, []));
-    expect(failure(exit).details?.reason).toBe("not_in_reach");
+  it("reads a task out of reach as missing, the same as one that is not there", async () => {
+    const hidden = failure(await run("task.show", { task: "#44" }, portsWith(applied())));
+    const missing = failure(await run("task.show", { task: "#7" }, portsWith(applied())));
+    expect(hidden.type).toBe("UnknownTarget");
+    expect(missing.type).toBe("UnknownTarget");
+    expect(hidden.message).toBe("no task #44 in this seat's reach");
+  });
+
+  it("depends on another task by number, only within reach", async () => {
+    const submitted: Array<ResourceCommand<TaskCommand>> = [];
+    await run("task.depend", { opId: OP, task: "#42", on: "#43" }, portsWith(applied(), submitted));
+    expect(submitted[0]?.op).toEqual({ kind: "depend", on: OTHER });
+    expect(failure(await run("task.depend", { opId: OP, task: "#42", on: "#44" }, portsWith(applied()))).type).toBe("UnknownTarget");
+  });
+
+  it("finishes on to a downstream node, and nowhere else", async () => {
+    const submitted: Array<ResourceCommand<TaskCommand>> = [];
+    await run("task.finish", { opId: OP, task: "#42", next: "Review" }, portsWith(applied(), submitted));
+    expect(submitted[0]?.op).toEqual({ kind: "finish", next: "tasks-3" });
+    expect(failure(await run("task.finish", { opId: OP, task: "#42", next: "CLI tasks" }, portsWith(applied()))).type).toBe("UnknownTarget");
   });
 
   it("names the operator as a reviewer", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
-    await run("task.reviewer-add", { opId: OP, task: "#42", reviewer: "operator" }, portsWith({ kind: "queued" }, submitted));
+    await run("task.reviewer-add", { opId: OP, task: "#42", reviewer: "operator" }, portsWith(applied(), submitted));
     expect(submitted[0]?.op).toEqual({ kind: "reviewer-add", reviewer: { kind: "operator" } });
   });
 
-  it("depends on another task by number", async () => {
-    const submitted: Array<ResourceCommand<TaskCommand>> = [];
-    await run("task.depend", { opId: OP, task: ID, on: "#42" }, portsWith({ kind: "queued" }, submitted));
-    expect(submitted[0]?.op).toEqual({ kind: "depend", on: ID });
-  });
-
   it("refuses an edit that changes nothing", async () => {
-    const exit = await run("task.edit", { opId: OP, task: "#42" }, portsWith({ kind: "queued" }, []));
-    expect(failure(exit).type).toBe("InputError");
-  });
-
-  it("reports an unknown task number", async () => {
-    const exit = await run("task.start", { opId: OP, task: "#7" }, portsWith({ kind: "queued" }, []));
-    expect(failure(exit).message).toBe("no task #7 on this canvas");
+    expect(failure(await run("task.edit", { opId: OP, task: "#42" }, portsWith(applied()))).type).toBe("InputError");
   });
 
   it("comments in the task's thread", async () => {
-    const exit = await run("task.comment", { opId: OP, task: "#42", text: "Looks right" }, portsWith({ kind: "queued" }, []));
+    const exit = await run("task.comment", { opId: OP, task: "#42", text: "Looks right" }, portsWith(applied()));
     expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, messageId: "m1" }));
   });
 
-  it("lists every task node in reach, and says when there are more", async () => {
-    const exit = await run("task.list", { limit: 1 }, portsWith({ kind: "queued" }, []));
-    expect(exit).toEqual(Exit.succeed({ tasks: [summary()], more: false }));
+  it("lists the task nodes in reach and says when there are more", async () => {
+    expect(await run("task.list", { limit: 1 }, portsWith(applied()))).toEqual(Exit.succeed({ tasks: [tasks[0]], more: true }));
+    expect(await run("task.list", {}, portsWith(applied()))).toEqual(Exit.succeed({ tasks: tasks.slice(0, 2), more: false }));
+  });
+
+  it("lists by assignee, the caller's own name included", async () => {
+    const exit = await run("task.list", { assignee: "@alpha" }, portsWith(applied()));
+    expect(exit).toEqual(Exit.succeed({ tasks: [], more: false }));
+  });
+});
+
+describe("what the ruler reads of the canvas", () => {
+  it("sends on along feeds wires and checks seat reach", () => {
+    const env = taskCanvasEnv(canvas);
+    expect(env.downstream(tnode)).toEqual(["tasks-3"]);
+    expect(env.seatReaches(seatNodeId(asNodeId("seat-b")), tnode)).toBe(true);
+    expect(env.seatReaches(seatNodeId(asNodeId("seat-c")), tnode)).toBe(false);
+  });
+
+  it("puts a seat's reach and the operator's whole canvas in the ruling context", () => {
+    const context = taskRulingContext(canvas);
+    const target = { kind: "task" as const, nodeId: asNodeId("tasks-2") };
+    expect(context.inReach(caller.actor, target)).toBe(false);
+    expect(context.inReach({ kind: "operator" }, target)).toBe(true);
   });
 });
 
