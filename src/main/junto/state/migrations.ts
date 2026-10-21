@@ -10,7 +10,7 @@ import {
   PEERS_STATE_SCHEMA_SQL,
   STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
-import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
+import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
@@ -556,7 +556,17 @@ export const STATE_SCHEMA_V43_IDENTITY = {
     "5a62ee9a0a701a0e8f9cf38d1dd95e3c5becc65e98e1e06f6f42d2c2141c439b",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 43;
+/**
+ * Version 44 keeps how far the automation runner has read each canvas's task
+ * rulings (`automation_ruling_cursors`), so a change trigger fires once per
+ * ruling, in the order rulings landed. Expand-only.
+ */
+export const STATE_SCHEMA_V44_IDENTITY = {
+  actualSchemaSha256:
+    "74a76dd3699512f0967acb9ad3e0c9cb4c2d2305688c0dbb971bae103f78f656",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 44;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -564,7 +574,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 43;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V43_IDENTITY;
+  STATE_SCHEMA_V44_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -886,6 +896,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V42_IDENTITY,
     replacesTables: ["task_heads"],
     migrate: (database) => migrateTaskArchivedFrom(database),
+  },
+  {
+    fromVersion: 43,
+    toVersion: 44,
+    name: "keep how far automations have read each canvas's task rulings",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V43_IDENTITY,
+    migrate: (database) => {
+      database.exec(AUTOMATION_RULING_CURSORS_SQL);
+    },
   },
 ];
 

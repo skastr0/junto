@@ -4,6 +4,8 @@
  * - `automations`: each automation's ruled head, the encoded `Automation`.
  * - `automation_cursors`: the last schedule or poll slot the runner
  *   considered, per automation. Replaces `scheduler_interval_state`.
+ * - `automation_ruling_cursors`: how far change triggers have read each
+ *   canvas's task rulings.
  * - `automation_firings`: the claim slots, renamed from
  *   `scheduler_interval_firings` and keyed by automation, and the firing
  *   history in one row. The claim key is unique per automation and cause, so
@@ -32,6 +34,20 @@ export const AUTOMATION_NODE_ARCHIVES_SQL = `
     node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
     automation_id TEXT NOT NULL${ULID_CHECK("automation_id")},
     PRIMARY KEY (canvas_name, node_id, automation_id)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
+ * How far the runner has read each canvas's applied task rulings: the
+ * `work_events` seq of the last ruling it fired task changes from, in the
+ * order rulings landed on this machine. Local to the editing machine; added
+ * by a later state step than the store itself.
+ */
+export const AUTOMATION_RULING_CURSORS_SQL = `
+  CREATE TABLE IF NOT EXISTS automation_ruling_cursors (
+    canvas_name TEXT NOT NULL${CANVAS_NAME_CHECK},
+    seq TEXT NOT NULL CHECK (length(seq) BETWEEN 1 AND 32 AND seq NOT GLOB '*[^0-9]*'),
+    PRIMARY KEY (canvas_name)
   ) STRICT, WITHOUT ROWID;
 `;
 

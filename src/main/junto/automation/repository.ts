@@ -60,6 +60,19 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
       automationId: AutomationId,
       cursorEpochMs: number,
     ) => Effect.Effect<void, AutomationPersistenceError>;
+    /** How far change triggers have read this canvas's task rulings; undefined before the first pass. */
+    readonly rulingCursor: (canvasName: string) => Effect.Effect<string | undefined, AutomationPersistenceError>;
+    readonly setRulingCursor: (canvasName: string, seq: string) => Effect.Effect<void, AutomationPersistenceError>;
+    /**
+     * The applied task rulings that brought a task into a state, after `after`
+     * in the order they landed here, at most `limit`; `through` is the seq the
+     * next read starts after.
+     */
+    readonly taskRulingsSince: (
+      canvasName: string,
+      after: string,
+      limit: number,
+    ) => Effect.Effect<{ readonly rulings: ReadonlyArray<TaskRuling>; readonly through: string }, AutomationPersistenceError>;
     /** Record a considered firing once per claim key; a second claim is `Duplicate` and writes nothing. */
     readonly claimFiring: (canvasName: string, firing: FiringType) => Effect.Effect<ClaimResult, AutomationPersistenceError>;
     /** Replace a claimed firing's outcome once its actions are ruled. */
@@ -80,6 +93,27 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
       request: AutomationFiringsRequest,
     ) => Effect.Effect<ReadonlyArray<FiringType>, AutomationPersistenceError>;
   }>()("@junto/AutomationRepository") {}
+
+/** An applied task ruling that brought its task into a state, as a change trigger reads it. */
+export type TaskRuling = {
+  readonly opId: string;
+  readonly taskId: string;
+  readonly node: string;
+  readonly became: string;
+  /** Ruled on an automation's command: it never triggers an automation. */
+  readonly byAutomation: boolean;
+};
+
+const parseRecord = (json: string): { readonly taskId?: unknown; readonly node?: unknown; readonly became?: unknown } | undefined => {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+};
+
+/** The seq before every ruling: a cursor read from here fires each one. */
+export const RULINGS_START = "0";
 
 /** The claim key: a slot, a transition key, or a run's own firing id. */
 export const claimKeyOf = (firing: FiringType): string => {
@@ -230,6 +264,62 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         `.pipe(Effect.mapError(failure("set-cursor")));
       });
 
+      const rulingCursor = Effect.fn("AutomationRepository.rulingCursor")(function* (canvasName: string) {
+        const rows = yield* sql<{ readonly seq: string }>`
+          SELECT seq FROM automation_ruling_cursors WHERE canvas_name = ${canvasName}
+        `.pipe(Effect.mapError(failure("ruling-cursor")));
+        return rows[0]?.seq;
+      });
+
+      const setRulingCursor = Effect.fn("AutomationRepository.setRulingCursor")(function* (canvasName: string, seq: string) {
+        yield* sql`
+          INSERT INTO automation_ruling_cursors(canvas_name, seq) VALUES (${canvasName}, ${seq})
+          ON CONFLICT (canvas_name) DO UPDATE SET seq = excluded.seq
+        `.pipe(Effect.mapError(failure("set-ruling-cursor")));
+      });
+
+      // A ruling's `ruling.applied` fact commits with it (ruling-recorder.ts), so this
+      // machine's event seq is the order rulings landed; seqs order by length, then text.
+      const taskRulingsSince = Effect.fn("AutomationRepository.taskRulingsSince")(function* (
+        canvasName: string,
+        after: string,
+        limit: number,
+      ) {
+        return yield* transaction("task-rulings-since", Effect.gen(function* () {
+          // Read the newest seq first: a ruling that lands after it is past it, and read next time.
+          const newest = yield* sql<{ readonly seq: string }>`
+            SELECT seq FROM work_events
+            WHERE event_home = (SELECT installation_id FROM installation WHERE singleton = 1) AND entity_home = event_home
+            ORDER BY length(seq) DESC, seq DESC LIMIT 1
+          `;
+          const mark = newest[0]?.seq ?? RULINGS_START;
+          const rows = yield* sql<{
+            readonly seq: string;
+            readonly op_id: string;
+            readonly ruling_json: string;
+            readonly actor_kind: string;
+          }>`
+            SELECT e.seq AS seq, r.op_id AS op_id, r.ruling_json AS ruling_json, r.actor_kind AS actor_kind
+            FROM work_events AS e
+            JOIN resource_rulings AS r ON r.canvas_name = e.item_canvas_name AND r.op_id = e.item_id
+            WHERE e.event_home = (SELECT installation_id FROM installation WHERE singleton = 1) AND e.entity_home = e.event_home
+              AND e.item_kind = 'ruling' AND e.item_canvas_name = ${canvasName}
+              AND (length(e.seq) > ${after.length} OR (length(e.seq) = ${after.length} AND e.seq > ${after}))
+              AND (length(e.seq) < ${mark.length} OR (length(e.seq) = ${mark.length} AND e.seq <= ${mark}))
+              AND r.kind = 'applied' AND json_extract(r.ruling_json, '$.became') IS NOT NULL
+            ORDER BY length(e.seq), e.seq
+            LIMIT ${limit}
+          `;
+          const rulings = rows.flatMap((row): ReadonlyArray<TaskRuling> => {
+            const record = parseRecord(row.ruling_json);
+            if (record === undefined || typeof record.taskId !== "string" || typeof record.node !== "string" || typeof record.became !== "string") return [];
+            return [{ opId: row.op_id, taskId: record.taskId, node: record.node, became: record.became, byAutomation: row.actor_kind === "automation" }];
+          });
+          // A full page stops at its last row; a short one has read through the mark.
+          return { rulings, through: rows.length === limit ? rows[rows.length - 1]!.seq : mark };
+        }));
+      });
+
       const claimFiring = Effect.fn("AutomationRepository.claimFiring")(function* (canvasName: string, firing: FiringType) {
         return yield* transaction("claim-firing", Effect.gen(function* () {
           // Only the claim key may conflict: a CHECK failure or a firing id
@@ -316,6 +406,9 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         list,
         cursor,
         setCursor,
+        rulingCursor,
+        setRulingCursor,
+        taskRulingsSince,
         claimFiring,
         settleFiring,
         firedSince,

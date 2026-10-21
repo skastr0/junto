@@ -252,3 +252,9 @@ export const STATE_SCHEMA_V43_SQL = stepped(
   STATE_SCHEMA_V42_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 43)!.migrate,
 );
+
+// Version 44 kept how far automations have read each canvas's task rulings (43 -> 44).
+export const STATE_SCHEMA_V44_SQL = stepped(
+  STATE_SCHEMA_V43_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 44)!.migrate,
+);

@@ -12,7 +12,6 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V42_IDENTITY,
@@ -20,7 +19,6 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V42_SQL, STATE_SCHEMA_V43_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
@@ -63,11 +61,9 @@ const planTo = (version: number, currentSchemaSql: string) => ({
 });
 
 describe("state migration 42 -> 43 (archived from)", () => {
-  it("freezes the witnesses the step starts from and ends at, which is the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V42_SQL)).toEqual(STATE_SCHEMA_V42_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V43_SQL)).toEqual(STATE_SCHEMA_V43_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V43_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V43_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(

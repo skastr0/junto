@@ -8,7 +8,7 @@ import {
 } from "../license/state-schema";
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
-import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
+import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
@@ -100,6 +100,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   TASKS_STATE_SCHEMA_SQL,
   AUTOMATION_STATE_SCHEMA_SQL,
   AUTOMATION_NODE_ARCHIVES_SQL,
+  AUTOMATION_RULING_CURSORS_SQL,
   TASK_SEAT_RELEASES_SQL,
   SHOT_PURGES_SQL,
   LICENSE_STATE_V1_SCHEMA_SQL,

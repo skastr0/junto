@@ -18,8 +18,8 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { writeRuling } from "../src/main/junto/work/resource-rulings";
-import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
 import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
@@ -45,19 +45,8 @@ const definition: AutomationDefinition = {
   limits: { minIntervalMs: 60_000, maxPerHour: 12 },
 };
 
-// The real recorder also writes the exchange fact; this one writes the ruling row.
-const recorder = Layer.effect(
-  RulingRecorder,
-  Effect.map(SqlClient.SqlClient, (sql) =>
-    RulingRecorder.of({
-      record: (input) =>
-        writeRuling(sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record }).pipe(
-          Effect.asVoid,
-          Effect.orDie,
-        ),
-    }),
-  ),
-);
+// The real recorder: a ruling's row and its fact, whose seq is the order change triggers read rulings in.
+const recorder = Layer.provideMerge(RulingRecorderLive, WorkRepositoryLive);
 
 const run = async (
   test: (
@@ -216,19 +205,23 @@ describe("when conditions, read on the editing machine", () => {
 });
 
 describe("change triggers, woken by a task write", () => {
-  /** The operator files a task on the tasks node, as the CLI or the pane would. */
-  const operatorFiles = (taskId: string) =>
+  /** One task command, as the CLI or the pane would submit it. */
+  const submit = (
+    taskId: string,
+    opId: string,
+    wire: Parameters<typeof checkTaskCommand>[0],
+    actor: { readonly kind: "operator" } | { readonly kind: "seat"; readonly seatId: string; readonly nodeId: ReturnType<typeof asNodeId> } = { kind: "operator" },
+  ) =>
     Effect.gen(function* () {
       const canvas = yield* (yield* ModelService).canvas("factory");
-      const wire = { kind: "create", taskId: ItemId.make(taskId), title: "By hand" } as const;
       const checked = checkTaskCommand(wire, (id) => canvas.nodes.get(id)?.kind);
-      if (!checked.ok) throw new Error("the create does not check");
-      return yield* (yield* TaskRepository).submit(
+      if (!checked.ok) throw new Error(`the ${wire.kind} does not check`);
+      const outcome = yield* (yield* TaskRepository).submit(
         "mini" as never,
         {
-          opId: OpId.make(taskId),
+          opId: OpId.make(opId),
           canvasName: "factory",
-          actor: { kind: "operator" },
+          actor: actor as never,
           target: { kind: "task", nodeId: asNodeId(TASKS), itemId: ItemId.make(taskId) },
           basis: null,
           after: [],
@@ -237,7 +230,11 @@ describe("change triggers, woken by a task write", () => {
         rulingContextOf(canvas, () => undefined),
         taskCanvasEnv(canvas),
       );
+      if (outcome.kind !== "applied") throw new Error(`the ${wire.kind} was refused: ${JSON.stringify(outcome.error)}`);
+      return outcome;
     });
+  /** The operator files a task on the tasks node. */
+  const operatorFiles = (taskId: string) => submit(taskId, taskId, { kind: "create", taskId: ItemId.make(taskId), title: "By hand" });
   const wake = Effect.gen(function* () {
     yield* (yield* AutomationRunnerService).wake("factory");
   });
@@ -264,6 +261,29 @@ describe("change triggers, woken by a task write", () => {
         return yield* (yield* TaskRepository).list("factory", { nodeIds: [asNodeId(TASKS)], limit: 10 });
       }));
       expect(tasks.map((task) => task.title).sort()).toEqual(["By hand", "Plan the day"]);
+    }));
+
+  it("fires every state a task passed through between two passes, in order: working then done fires working", () =>
+    run(async (handlers, _changed, _sql, inApp) => {
+      const onWorking = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "task", task: { node: TASKS }, becomes: "working" } },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onWorking as never } });
+      const T = "01M5ESKJFC1A88R1MH1NEZWJ60";
+      const seatActor = { kind: "seat", seatId: `seat_${"a".repeat(64)}`, nodeId: asNodeId(SEAT) } as const;
+      await inApp(operatorFiles(T));
+      await inApp(submit(T, "01M5ESKJFC1A88R1MH1NEZWJ61", { kind: "assign", seat: SEAT as never }));
+      await inApp(wake); // the baseline: what came before the runner's first pass fires nothing
+
+      // Two writes inside one pass: the task is working, then finished, before the runner looks.
+      await inApp(submit(T, "01M5ESKJFC1A88R1MH1NEZWJ62", { kind: "start" }, seatActor));
+      const finished = await inApp(submit(T, "01M5ESKJFC1A88R1MH1NEZWJ63", { kind: "finish" }, seatActor));
+      expect(finished.task.state).not.toBe("working");
+      await inApp(wake);
+      await inApp(wake); // nothing new
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => f.cause)).toEqual([{ kind: "change", key: `task:${T}:working:01M5ESKJFC1A88R1MH1NEZWJ62` }]);
     }));
 });
 

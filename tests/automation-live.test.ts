@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { automationMailId, changesBetween, conditionHolds, performAction, signalChange, type ConditionView } from "../src/main/junto/automation/live";
+import { automationMailId, changesBetween, conditionHolds, performAction, signalChange, taskChangesOf, type ConditionView } from "../src/main/junto/automation/live";
 import { type Automation, AutomationId, AutomationVersion, FiringId } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -99,6 +99,22 @@ describe("conditionHolds", () => {
   });
 });
 
+describe("taskChangesOf", () => {
+  const T = "01M5ESKJFC1A88R1MH1NEZWJ50";
+  const ruling = (opId: string, became: string, byAutomation = false) => ({ opId, taskId: T, node: "tasks-1", became, byAutomation });
+
+  it("says one change per ruling, in order, keyed by its op, so working then done says both", () => {
+    expect(taskChangesOf([ruling("01M5ESKJFC1A88R1MH1NEZWJ60", "working"), ruling("01M5ESKJFC1A88R1MH1NEZWJ61", "done")])).toEqual([
+      { kind: "task", key: `task:${T}:working:01M5ESKJFC1A88R1MH1NEZWJ60`, nodeId: "tasks-1", taskId: T, becomes: "working", byAutomation: false },
+      { kind: "task", key: `task:${T}:done:01M5ESKJFC1A88R1MH1NEZWJ61`, nodeId: "tasks-1", taskId: T, becomes: "done", byAutomation: false },
+    ]);
+  });
+
+  it("marks a ruling on an automation's command, so no automation fires on it", () => {
+    expect(taskChangesOf([ruling("01M5ESKJFC1A88R1MH1NEZWJ60", "backlog", true)])).toMatchObject([{ byAutomation: true }]);
+  });
+});
+
 describe("changesBetween", () => {
   const view = (tasks: ConditionView["tasks"], seatTasks: ConditionView["seatTasks"] = {}, seats = ["agent-a"]): ConditionView => ({
     tasks,
@@ -106,42 +122,13 @@ describe("changesBetween", () => {
     seatOnCanvas: (seat) => seats.includes(seat),
     seats,
   });
-  const T = "01M5ESKJFC1A88R1MH1NEZWJ50";
-  const never = () => false;
-
   it("fires nothing on the first pass: it is the baseline", () => {
-    expect(changesBetween(undefined, view([{ taskId: T, node: "tasks-1", state: "backlog", since: 1 }]), never)).toEqual([]);
+    expect(changesBetween(undefined, view([], { "agent-a": { blocked: false, since: 7 } }))).toEqual([]);
   });
 
-  it("says a new task and a task that came into a state, once, keyed by when", () => {
-    const before = view([]);
-    const created = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 5 }]);
-    expect(changesBetween(before, created, never)).toEqual([
-      { kind: "task", key: `task:${T}:backlog:5`, nodeId: "tasks-1", taskId: T, becomes: "backlog", byAutomation: false },
-    ]);
-    expect(changesBetween(created, created, never)).toEqual([]);
-  });
-
-  it("marks a state an automation wrote, so no automation fires on it", () => {
-    const after = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 5 }]);
-    expect(changesBetween(view([]), after, (taskId, state, since) => taskId === T && state === "backlog" && since === 5)).toMatchObject([
-      { byAutomation: true },
-    ]);
-  });
-
-  it("does not mark a later change of a task an automation wrote: the mark is that state from that moment", () => {
-    // The automation assigned T at 5; a seat started it at 6 before the pass ran; a person reassigned it at 9.
-    const marks = new Map([[T, { state: "assigned", since: 5 }]]);
-    const wrote = (taskId: string, state: string, since: number) => {
-      const mark = marks.get(taskId);
-      marks.delete(taskId);
-      return mark !== undefined && mark.state === state && mark.since === since;
-    };
-    const assigned = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 1 }]);
-    const working = view([{ taskId: T, node: "tasks-1", state: "working", since: 6 }]);
-    const reassigned = view([{ taskId: T, node: "tasks-1", state: "assigned", since: 9 }]);
-    expect(changesBetween(assigned, working, wrote)).toMatchObject([{ becomes: "working", byAutomation: false }]);
-    expect(changesBetween(working, reassigned, wrote)).toMatchObject([{ becomes: "assigned", byAutomation: false }]);
+  it("says no task change: task changes are rulings, never a diff of two snapshots", () => {
+    const T = "01M5ESKJFC1A88R1MH1NEZWJ50";
+    expect(changesBetween(view([]), view([{ taskId: T, node: "tasks-1", state: "backlog", since: 5 }]))).toEqual([]);
   });
 
   it("says a seat that started working, waits, and left", () => {
@@ -149,13 +136,13 @@ describe("changesBetween", () => {
     const working = view([], { "agent-a": { blocked: false, since: 7 } });
     const waiting = view([], { "agent-a": { blocked: true, since: 9 } });
     const gone = view([], {}, []);
-    expect(changesBetween(idle, working, never)).toEqual([{ kind: "seat", key: "seat:agent-a:working:7", seat: "agent-a", becomes: "working" }]);
-    expect(changesBetween(working, waiting, never)).toMatchObject([{ becomes: "attention" }]);
-    expect(changesBetween(idle, gone, never)).toMatchObject([{ seat: "agent-a", becomes: "gone" }]);
+    expect(changesBetween(idle, working)).toEqual([{ kind: "seat", key: "seat:agent-a:working:7", seat: "agent-a", becomes: "working" }]);
+    expect(changesBetween(working, waiting)).toMatchObject([{ becomes: "attention" }]);
+    expect(changesBetween(idle, gone)).toMatchObject([{ seat: "agent-a", becomes: "gone" }]);
   });
 
   it("says no seat change when the runtime seat-state source says them", () => {
-    expect(changesBetween(view([]), view([], { "agent-a": { blocked: false, since: 7 } }), never, false)).toEqual([]);
+    expect(changesBetween(view([]), view([], { "agent-a": { blocked: false, since: 7 } }), false)).toEqual([]);
   });
 });
 
@@ -166,8 +153,8 @@ describe("changesBetween, artifacts", () => {
   it("says an edit when a known artifact's head moves, and nothing for a new one", () => {
     const one = view([{ artifactId: A, node: "artifacts-1", version: 1 }]);
     const two = view([{ artifactId: A, node: "artifacts-1", version: 2 }]);
-    expect(changesBetween(view([]), one, () => false)).toEqual([]);
-    expect(changesBetween(one, two, () => false)).toEqual([
+    expect(changesBetween(view([]), one)).toEqual([]);
+    expect(changesBetween(one, two)).toEqual([
       { kind: "artifact", key: `artifact:${A}:edited:2`, nodeId: "artifacts-1", artifactId: A, event: "edited", byAutomation: false },
     ]);
   });
@@ -189,13 +176,13 @@ describe("changesBetween, comments", () => {
   const fresh = { ...old, messageId: "01M5ESKJFC1A88R1MH1NEZWJ81" };
 
   it("says a comment the pass before did not hold, once, and none of the old ones", () => {
-    expect(changesBetween(view([old]), view([old, fresh]), () => false)).toEqual([
+    expect(changesBetween(view([old]), view([old, fresh]))).toEqual([
       { kind: "artifact", key: `artifact:${A}:commented:${fresh.messageId}`, nodeId: "artifacts-1", artifactId: A, event: "commented", byAutomation: false },
     ]);
-    expect(changesBetween(view([old, fresh]), view([old, fresh]), () => false)).toEqual([]);
+    expect(changesBetween(view([old, fresh]), view([old, fresh]))).toEqual([]);
   });
 
   it("marks a comment an automation posted, so no automation fires on it", () => {
-    expect(changesBetween(view([]), view([{ ...fresh, byAutomation: true }]), () => false)).toMatchObject([{ byAutomation: true }]);
+    expect(changesBetween(view([]), view([{ ...fresh, byAutomation: true }]))).toMatchObject([{ byAutomation: true }]);
   });
 });

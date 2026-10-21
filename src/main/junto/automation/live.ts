@@ -13,6 +13,10 @@
  * action is ruled here as the automation, with its author's reach. An action
  * whose port has not landed yet is ruled refused `not_available` in the
  * firing's history, so a firing never reads as done when it did nothing.
+ * A task change is one applied task ruling that brought a task into a state,
+ * read in the order rulings landed here since the canvas's ruling cursor, so
+ * a task that went to working and on to done between two passes fires both.
+ * A ruling on an automation's command fires nothing (`actor_kind`).
  * A `when` condition reads the task states and the seat task index fetched
  * with the canvas before the pass, on the editing machine.
  */
@@ -50,7 +54,7 @@ import { TaskRepository } from "../work/task-repository";
 import { ArtifactRepository } from "../work/artifact-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
 import { MachineRepository } from "../machines/repository";
-import { type AutomationPersistenceError, AutomationRepository } from "./repository";
+import { type AutomationPersistenceError, AutomationRepository, RULINGS_START, type TaskRuling } from "./repository";
 import { type ChangeEvent } from "./plan";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
 import { SeatStateSource } from "./seat-state-source";
@@ -105,34 +109,34 @@ export type ArtifactCommentRow = {
 export type ArtifactVersionRow = { readonly artifactId: string; readonly node: string; readonly version: number };
 
 /**
- * The changes between two passes' views: a task that came into a state (a
- * new task too), and a seat whose state moved, gone included. The first pass
- * has nothing before it and is a baseline: it fires nothing. A task state an
- * automation wrote, the same state from the same moment (`since`), is marked
- * `byAutomation`, so no automation fires on it.
+ * One task change per applied ruling, in the order they landed: a task that
+ * came into a state, a new task too. Keyed by the ruling's op, so a pass
+ * retried after a crash claims each once.
+ */
+export const taskChangesOf = (rulings: ReadonlyArray<TaskRuling>): ReadonlyArray<ChangeEvent> =>
+  rulings.map((ruling) => ({
+    kind: "task",
+    key: `task:${ruling.taskId}:${ruling.became}:${ruling.opId}`,
+    nodeId: ruling.node as NodeId,
+    taskId: ruling.taskId as ItemId,
+    becomes: ruling.became as TaskState,
+    byAutomation: ruling.byAutomation,
+  }));
+
+/**
+ * The changes between two passes' views besides tasks (those are rulings,
+ * `taskChangesOf`): an artifact edit, a new comment, and a seat whose state
+ * moved, gone included. The first pass has nothing before it and is a
+ * baseline: it fires nothing.
  */
 export const changesBetween = (
   before: ConditionView | undefined,
   after: ConditionView,
-  automationWrote: (taskId: string, state: string, since: number) => boolean,
   /** False when the runtime seat-state source says seat changes: they are its, never the index's. */
   seatChanges = true,
 ): ReadonlyArray<ChangeEvent> => {
   if (before === undefined) return [];
   const events: Array<ChangeEvent> = [];
-  const was = new Map(before.tasks.map((task) => [task.taskId, task]));
-  for (const task of after.tasks) {
-    const prior = was.get(task.taskId);
-    if (prior !== undefined && prior.state === task.state && prior.since === task.since) continue;
-    events.push({
-      kind: "task",
-      key: `task:${task.taskId}:${task.state}:${task.since}`,
-      nodeId: task.node as NodeId,
-      taskId: task.taskId as ItemId,
-      becomes: task.state as TaskState,
-      byAutomation: automationWrote(task.taskId, task.state, task.since),
-    });
-  }
   // An edit is a new head version of an artifact the pass before knew. Automations write no artifacts.
   const versions = new Map((before.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact.version]));
   for (const artifact of after.artifacts ?? []) {
@@ -198,12 +202,7 @@ export const conditionHolds = (condition: Condition, view: ConditionView): boole
   return tasks.some((task) => task.node === on.node && task.state === condition.becomes);
 };
 
-/**
- * The task read stops here, newest change first. A task that just changed
- * state is among the newest, so its change is seen; a task the cap leaves
- * out is kept from the pass before (`load`), so coming back into the read
- * on an edit is never taken for a new task.
- */
+/** The task read for `when` conditions stops here, newest change first; so does one pass's read of rulings. */
 const TASK_STATES_READ_MAX = 1_000;
 
 /** Nothing read: no task and no seat, so no condition holds. */
@@ -238,8 +237,6 @@ export type TaskPort = {
   readonly repository: TaskRepository["Service"];
   readonly writer: Effect.Effect<InstallationId, unknown>;
   readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, unknown>;
-  /** Told each task state an automation wrote, from when (its `stateSince`). */
-  readonly wrote: (taskId: string, state: string, since: number) => void;
 };
 
 type TaskWrite = { readonly opId: OpId; readonly nodeId: NodeId; readonly taskId: ItemId; readonly wire: TaskCommandWire };
@@ -271,9 +268,6 @@ const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automati
     );
     if (outcome.kind === "refused") return refusalReasonOf(outcome.error);
     if (!outcome.replay) {
-      // Read back when the state it wrote began, so only that exact state is marked as the automation's.
-      const written = yield* port.repository.get(canvasName, outcome.task.id);
-      if (Option.isSome(written)) port.wrote(written.value.taskId, written.value.current.state, written.value.stateSince);
       noteResourceChanged("task", canvasName);
       // The ruling is committed: a lost notice never turns it into a refusal.
       yield* port.deliver({ canvas, canvasName, actor, opId: write.opId, task: outcome.task, effects: outcome.effects }).pipe(
@@ -450,9 +444,6 @@ export const AutomationRunnerLive = Layer.effect(
               Effect.provideService(MachineRepository, machines.value),
               Option.isSome(work) ? Effect.provideService(WorkService, work.value) : (effect) => effect,
             ),
-          wrote: (taskId, state, since) => {
-            automationWrites.set(taskId, { state, since });
-          },
         })
       : Option.none();
     // The canvas as it stood when this pass began; the ports read it synchronously.
@@ -460,16 +451,6 @@ export const AutomationRunnerLive = Layer.effect(
     const views = new Map<string, ConditionView>();
     // The Artifacts nodes of each canvas whose comments have had a good read.
     const commentsRead = new Map<string, Set<string>>();
-    // The last state an automation wrote on each task, and when it began. The
-    // diff that sees that task next takes the mark: it is the automation's
-    // only if the row is that state from that moment; anything later is not.
-    const automationWrites = new Map<string, { readonly state: string; readonly since: number }>();
-    const automationWrote = (taskId: string, state: string, since: number) => {
-      const mark = automationWrites.get(taskId);
-      if (mark === undefined) return false;
-      automationWrites.delete(taskId);
-      return mark.state === state && mark.since === since;
-    };
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       holds: (canvasName, condition) => conditionHolds(condition, views.get(canvasName) ?? EMPTY_VIEW),
@@ -509,6 +490,25 @@ export const AutomationRunnerLive = Layer.effect(
             Effect.orElseSucceed(() => EMPTY_VIEW),
           );
     };
+    // The task rulings since the canvas's cursor, and the seq to move it to once they fired.
+    // The first pass ever is a baseline: it fires nothing and starts the cursor at the newest ruling.
+    const readTaskChanges = (canvasName: string) =>
+      Effect.gen(function* () {
+        const cursor = yield* repository.rulingCursor(canvasName);
+        const read = yield* repository.taskRulingsSince(canvasName, cursor ?? RULINGS_START, TASK_STATES_READ_MAX);
+        if (cursor === undefined) {
+          // Past every ruling now, not only the first page.
+          let through = read.through;
+          for (let page = read; page.rulings.length === TASK_STATES_READ_MAX; through = page.through) {
+            page = yield* repository.taskRulingsSince(canvasName, page.through, TASK_STATES_READ_MAX);
+          }
+          return { changes: [] as ReadonlyArray<ChangeEvent>, through: Option.some(through) };
+        }
+        return { changes: taskChangesOf(read.rulings), through: Option.some(read.through) };
+      }).pipe(
+        // An unreadable store fires nothing and keeps the cursor, so the next pass reads the same rulings.
+        Effect.orElseSucceed(() => ({ changes: [] as ReadonlyArray<ChangeEvent>, through: Option.none<string>() })),
+      );
     // Read the canvas and its view for this pass, and say what changed since the last one.
     const load = (canvasName: string) =>
       model.canvas(canvasName).pipe(
@@ -530,14 +530,12 @@ export const AutomationRunnerLive = Layer.effect(
               if (node.kind === "artifacts" && !unread.has(node.id)) baselined.add(node.id);
             }
             commentsRead.set(canvasName, baselined);
-            const changes = changesBetween(before, view, automationWrote, Option.isNone(seatStates));
-            // Keep the tasks and artifacts this read left out, as they were, for the next diff.
-            const seen = new Set(view.tasks.map((task) => task.taskId));
-            const kept = (before?.tasks ?? []).filter((task) => !seen.has(task.taskId));
+            const changes = changesBetween(before, view, Option.isNone(seatStates));
+            // Keep the artifacts this read left out, as they were, for the next diff.
             const seenArtifacts = new Set(artifacts.map((artifact) => artifact.artifactId));
             const keptArtifacts = (before?.artifacts ?? []).filter((artifact) => !seenArtifacts.has(artifact.artifactId));
             canvases.set(canvasName, canvas);
-            views.set(canvasName, { ...view, tasks: [...view.tasks, ...kept], artifacts: [...artifacts, ...keptArtifacts], comments });
+            views.set(canvasName, { ...view, artifacts: [...artifacts, ...keptArtifacts], comments });
             return changes;
           }),
         ),
@@ -556,13 +554,23 @@ export const AutomationRunnerLive = Layer.effect(
     const turn = yield* Semaphore.make(1);
     const changed = (canvasName: string, changes: ReadonlyArray<ChangeEvent>) =>
       Effect.forEach(changes, (event) => withRepository(runner.onChange(canvasName, event)), { discard: true });
+    // Fire what moved since the last pass: the task rulings first, in the order they landed, then the rest.
+    // The ruling cursor moves only once they fired; a canvas that could not be read fires nothing and keeps it.
+    const pass = (canvasName: string) =>
+      Effect.gen(function* () {
+        const tasks = yield* readTaskChanges(canvasName);
+        const rest = yield* load(canvasName);
+        if (!canvases.has(canvasName)) return;
+        yield* changed(canvasName, [...tasks.changes, ...rest]);
+        if (Option.isSome(tasks.through)) yield* repository.setRulingCursor(canvasName, tasks.through.value);
+      });
 
     const tickAll = turn.withPermits(1)(Effect.gen(function* () {
       const names = yield* model.listCanvases().pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
       for (const name of names) {
         // Only the editing machine runs a canvas's automations, so none fires twice.
         if (!(yield* records.editsCanvas(name).pipe(Effect.orElseSucceed(() => false)))) continue;
-        yield* changed(name, yield* load(name));
+        yield* pass(name);
         yield* withRepository(runner.tick(name));
       }
     }));
@@ -570,14 +578,14 @@ export const AutomationRunnerLive = Layer.effect(
     const wake = (canvasName: string) =>
       turn.withPermits(1)(Effect.gen(function* () {
         if (!(yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false)))) return;
-        yield* changed(canvasName, yield* load(canvasName));
+        yield* pass(canvasName);
       }));
 
     const heard = (canvasName: string, event: ChangeEvent) =>
       turn.withPermits(1)(Effect.gen(function* () {
         if (!(yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false)))) return;
         // The canvas as it is now, for the reach the firing is checked against; what moved meanwhile goes first.
-        yield* changed(canvasName, yield* load(canvasName));
+        yield* pass(canvasName);
         yield* withRepository(runner.onChange(canvasName, event));
       }));
 
@@ -597,7 +605,7 @@ export const AutomationRunnerLive = Layer.effect(
 
     const onRun = (canvasName: string, automationId: AutomationId) =>
       turn.withPermits(1)(Effect.gen(function* () {
-        yield* changed(canvasName, yield* load(canvasName));
+        yield* pass(canvasName);
         return yield* withRepository(runner.onRun(canvasName, automationId));
       }));
 

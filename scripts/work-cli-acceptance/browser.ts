@@ -7,7 +7,8 @@
  * admits no CLI caller yet (edge-grant.ts admitSocket, "not available in this
  * build"). So the net asserts the text bound, which holds before transport,
  * and the exact refusal a comment gets here; the grant cases stay pending on
- * product-attention's e2e lane. No shot is faked.
+ * cli-identity's admitSocket move (9adbd8846, feat/browser-seat-credential),
+ * which admits a seat on its generation credential. No shot is faked.
  *
  * Every call points JUNTO_BROWSER_HOME into the sandbox, so the CLI never
  * reaches the operator's own app.
@@ -19,7 +20,7 @@ import { envelopeOf } from "./envelope";
 
 const { check, pending } = casesFor("browser");
 
-const ON = "product-attention e2e lane";
+const ON = "cli-identity admitSocket move (9adbd8846)";
 const SESSION = "session-acceptance";
 const BOX = "40,120,320,80";
 
