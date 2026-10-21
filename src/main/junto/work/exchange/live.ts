@@ -41,6 +41,8 @@ import { logMachine } from "../../observability/logger";
 export type LiveRowExchangeOptions = {
   /** Mail that arrived for a seat, for this machine to deliver if the seat is here. */
   readonly mailArrived: (canvasName: string, nodeId: string, message: Message) => void;
+  /** Commands arrived for a canvas: wakes the editing machine's ruler. */
+  readonly commandArrived?: (canvasName: string) => void;
   /** A push to a linked machine failed: the exchange on that link is over. */
   readonly linkFailed?: (peer: InstallationId, cause: unknown) => void;
   /** A signal another machine wrote was kept here, as it now stands: for whoever shows signals. */
@@ -278,6 +280,7 @@ export const makeLiveRowExchange = (
       canvases: records.listCanvases().pipe(Effect.orDie),
       placement: (canvasName) => placement(canvasName).pipe(Effect.orDie),
       mailArrived: options.mailArrived,
+      ...(options.commandArrived === undefined ? {} : { commandArrived: options.commandArrived }),
       ...(options.linkFailed === undefined ? {} : { linkFailed: options.linkFailed }),
       cutCopy,
       copySent,

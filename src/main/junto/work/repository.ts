@@ -4464,6 +4464,8 @@ export type CanvasCopySent = {
 export type AppliedExchangeRows = {
   /** Rows that were new to this machine. */
   readonly taken: number;
+  /** Commands that arrived, for the editing machine's ruler to sweep. */
+  readonly commands: number;
   /** Mail that arrived, for the seat's machine to deliver. */
   readonly mail: ReadonlyArray<{
     readonly canvasName: string;
@@ -7754,7 +7756,7 @@ export const WorkRepositoryLive = Layer.effect(
                  updated_at = excluded.updated_at`,
               [frame.canvasName, frame.writer, through, lastBasisSeq, receivedAt],
             );
-            return { taken: fresh.length, mail };
+            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, mail };
           }),
         "mail",
       ).pipe(

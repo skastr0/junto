@@ -12,6 +12,7 @@ import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
 import { RulingRecorderLive } from "./junto/work/ruling-recorder";
+import { ResourceRulerLive } from "./junto/work/resource-ruler";
 import { makeAutomationRepositoryLive } from "./junto/automation/repository";
 import { ReferencesRepositoryLive } from "./junto/references/repository";
 import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
@@ -71,7 +72,8 @@ export const makeCoreProductLayer = (home: string) => {
     Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(state, installOps)),
   );
   const hosts = Layer.provideMerge(HostsServiceLive, Layer.mergeAll(
-    SshTransportLive, Layer.provideMerge(HostRegistryRows.layer, repositories),
+    // The editing machine's ruler, over the stores it rules into.
+    SshTransportLive, Layer.provideMerge(HostRegistryRows.layer, Layer.provideMerge(ResourceRulerLive, repositories)),
   ));
   const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, hosts);
   const occupants = Layer.provideMerge(ActorSeatOccupyLive, pause);

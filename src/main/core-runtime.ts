@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
 import {
   MachinePeerStatus,
   type MachineHarnesses,
@@ -20,6 +20,7 @@ import { failureSentence } from "@shared/failure";
 import { probeManagedHarnessInstalls } from "./junto/term/templates/harness-install";
 import { makeRowsChannel } from "./junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/live";
+import { ResourceRuler } from "./junto/work/resource-ruler";
 import type { RowExchange } from "./junto/work/exchange/session";
 import { messageDelivery } from "./junto/work/message-delivery";
 import { ContentService } from "./junto/content/service";
@@ -145,8 +146,17 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const context = yield* Effect.context<never>();
   const fileContext = yield* Effect.context<HostsService | SshTransport | ContentService>();
   let notifySignal: ((signal: AgentSignal) => void) | undefined;
+  // The editing machine rules held commands by sweep: at boot, and on each arrival.
+  const ruler = yield* Effect.serviceOption(ResourceRuler);
+  const sweep = (ruling: Effect.Effect<void, unknown>) => {
+    void Effect.runPromiseWith(context)(ruling.pipe(
+      Effect.catchCause((cause) => Effect.logWarning("held commands could not be ruled", cause).pipe(Effect.annotateLogs({ area: "rows" }))),
+    ));
+  };
+  if (Option.isSome(ruler)) sweep(ruler.value.sweepAll);
   const exchange = yield* makeLiveRowExchange({
     mailArrived: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
+    ...(Option.isNone(ruler) ? {} : { commandArrived: (canvas: string) => sweep(ruler.value.sweep(canvas)) }),
     signalTaken: signal => notifySignal?.(signal),
     // The closing rule travels with the link close: logged at both ends and sent to the peer.
     linkFailed: (peer, cause) => {

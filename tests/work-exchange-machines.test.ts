@@ -21,7 +21,7 @@ import { encodeExchangeFrame, type CanvasPlacement, type ExchangeFrame, type Row
 import type { Message } from "../src/shared/work-model";
 import { ActorSeatId, type ActorRef } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { seat } from "./support/model-nodes";
+import { seat, taskBoard } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook");
@@ -60,6 +60,8 @@ type Machine = {
   readonly repository: Context.Service.Shape<typeof WorkRepository>;
   readonly exchange: RowExchange;
   readonly arrived: Array<{ nodeId: string; messageId: string }>;
+  /** Canvases a ruler was woken for: commands arrived. */
+  readonly commanded: Array<string>;
   /** How often the exchange looked for a copy to send, and where a canvas's seats are. */
   readonly calls: { cuts: number; placements: number };
 };
@@ -82,13 +84,16 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
           yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${at})`;
           yield* seedCanvasRows({
             seq: 1,
-            canvases: new Map(canvases.map((name) => [name, { nodes: Object.keys(homes).map((nodeId, index) => seat(nodeId, { y: index * 120 })) }])),
+            canvases: new Map(canvases.map((name) => [name, {
+              nodes: [...Object.keys(homes).map((nodeId, index) => seat(nodeId, { y: index * 120 })), taskBoard("board", { y: 1200 })],
+            }])),
           });
         }),
       );
     }),
   );
   const arrived: Machine["arrived"] = [];
+  const commanded: Machine["commanded"] = [];
   const calls: Machine["calls"] = { cuts: 0, placements: 0 };
   const exchange = makeRowExchange({
     self,
@@ -100,6 +105,7 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
         return !canvases.includes(canvasName) ? undefined : canvasName === "private" ? privatePlacement : placement;
       }),
     mailArrived: (_canvas, nodeId, message: Message) => arrived.push({ nodeId, messageId: message.messageId }),
+    commandArrived: (canvasName) => commanded.push(canvasName),
     // These machines already hold their canvases; tests/work-exchange-copy.test.ts sends copies.
     cutCopy: () =>
       Effect.sync(() => {
@@ -111,7 +117,7 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
     signals: () => Effect.succeed([]),
     takeSignal: () => Effect.die("no signal is stated between these machines"),
   });
-  const machine: Machine = { self, root, runtime, repository, exchange, arrived, calls };
+  const machine: Machine = { self, root, runtime, repository, exchange, arrived, commanded, calls };
   machines.set(self, machine);
   return machine;
 };
@@ -264,6 +270,29 @@ describe("mail between machines", () => {
 
     expect(await inbox(mini, "peer")).toEqual(["held-for-the-mini", "live-to-the-mini"]);
     expect(await inbox(editor, "lead")).toEqual(["held-for-the-editor", "live-to-the-editor"]);
+  });
+
+  it("wakes the editing machine's ruler when a seat's command arrives, and no other machine", async () => {
+    await mini.runtime.runPromise(
+      mini.repository.queueCommand({
+        command: {
+          opId: "01M5EXW0000000000000000001",
+          canvasName: "factory",
+          actor: { kind: "seat", seatId: actor("peer").seatId, nodeId: "peer" },
+          target: { kind: "task", nodeId: "board" },
+          basis: null,
+          after: [],
+          op: { kind: "start" },
+        } as never,
+        basis,
+        originAt: at,
+        receivedAt: at,
+      }),
+    );
+    await mini.runtime.runPromise(mini.exchange.committed("factory"));
+    await settle();
+    expect(editor.commanded).toEqual(["factory"]);
+    expect(mini.commanded).toEqual([]);
   });
 
   it("gives a machine only the mail of its own seats, and the editing machine everything", async () => {

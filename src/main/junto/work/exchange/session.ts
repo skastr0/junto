@@ -67,6 +67,8 @@ export type RowExchangeDeps = {
   readonly placement: (canvasName: string) => Effect.Effect<CanvasPlacement | undefined>;
   /** Mail that arrived for a seat, for this machine to deliver if the seat is here. */
   readonly mailArrived: (canvasName: string, nodeId: string, message: Message) => void;
+  /** Commands arrived for a canvas: a wake-up for the editing machine's ruler, never what it rules from. */
+  readonly commandArrived?: (canvasName: string) => void;
   /**
    * This machine's canvas, cut for that machine. Absent when this machine does
    * not edit the canvas or that machine has no seat on it.
@@ -452,6 +454,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       counts.taken += applied.taken;
       state.rows.set(frame.canvasName, counts);
       for (const mail of applied.mail) deps.mailArrived(mail.canvasName, mail.nodeId, mail.message);
+      if (applied.commands > 0) deps.commandArrived?.(frame.canvasName);
       // Rows taken from one machine go on to the others entitled to them.
       if (applied.taken > 0) committed(frame.canvasName, "rows", peer);
     });
