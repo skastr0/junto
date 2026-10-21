@@ -98,7 +98,10 @@ export const automationArea: AcceptanceArea = {
         written,
       ),
       pending("the refusal's next step names junto automation show", "cli-external"),
-      pending("an overseer's write past the gate is ruled", "remote"),
+      // Automations nodes and their store live only on the editing machine, so the write splits by machine.
+      pending("an overseer on the editing machine writes an automation, ruled and applied", "remote"),
+      // The net runs one machine; this waits on a second core.
+      pending("an overseer's write from another machine is refused not_available, naming the editing machine", "remote-work"),
     ];
   },
 };
