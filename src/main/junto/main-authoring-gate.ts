@@ -25,6 +25,7 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.offboard",
   "ipc.work.collaboration-ask",
   "ipc.work.thread-send",
+  "ipc.browser.box-comment",
   "companion.signal-answer",
   "companion.signal-dismiss",
   "companion.mail-send",

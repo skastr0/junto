@@ -1,4 +1,5 @@
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
+import { PAGE_BOX_DRAW_MS } from "@shared/page-shot";
 import type { ResourceChanged, ResourceIpcApi } from "@shared/resource-ipc";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
@@ -671,8 +672,11 @@ const browserApi: JuntoBrowserApi = {
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
   browserPageState: (sessionId) => invoke(IPC_CHANNELS.browserPageState, IPC_TIMEOUT_MS, sessionId),
   browserTakeOver: (sessionId) => invoke(IPC_CHANNELS.browserTakeOver, IPC_TIMEOUT_MS, sessionId),
-  browserCommentBox: (sessionId, box, text) =>
-    invoke(IPC_CHANNELS.browserCommentBox, IPC_TIMEOUT_MS, sessionId, box, text),
+  // Drawing waits on the operator's drag; main ends it at PAGE_BOX_DRAW_MS.
+  browserBoxStart: (sessionId) => invoke(IPC_CHANNELS.browserBoxStart, PAGE_BOX_DRAW_MS + IPC_TIMEOUT_MS, sessionId),
+  browserBoxPost: (sessionId, shotId, text) =>
+    invoke(IPC_CHANNELS.browserBoxPost, IPC_TIMEOUT_MS, sessionId, shotId, text),
+  browserBoxDiscard: (sessionId, shotId) => invoke(IPC_CHANNELS.browserBoxDiscard, IPC_TIMEOUT_MS, sessionId, shotId),
   browserRelease: (sessionId) => invoke(IPC_CHANNELS.browserRelease, IPC_TIMEOUT_MS, sessionId),
   browserGoto: (sessionId, url, tab) =>
     tab === undefined

@@ -161,9 +161,15 @@ const electron = vi.hoisted(() => {
     isDestroyed(): boolean {
       return this.destroyed;
     }
+    /** What a main-world script answers: the box overlay's drawing, in tests that draw. */
+    static answer: Promise<unknown> = Promise.resolve(null);
+    focusCalls = 0;
+    focus(): void {
+      this.focusCalls += 1;
+    }
     executeJavaScript(): Promise<unknown> {
       this.mainWorldEvalCalls += 1;
-      return Promise.resolve(null);
+      return FakeWebContents.answer;
     }
     executeJavaScriptInIsolatedWorld(
       worldId: number,
@@ -172,6 +178,10 @@ const electron = vi.hoisted(() => {
     ): Promise<unknown> {
       this.isolatedCalls.push({ worldId, scripts, userGesture });
       return Promise.resolve({ __juntoEval: 1, status: "ok", json: "null" });
+    }
+    zoom = 1;
+    getZoomFactor(): number {
+      return this.zoom;
     }
     capturePage(rect?: unknown): Promise<{ toPNG(): Uint8Array }> {
       this.captureRects.push(rect);
@@ -206,6 +216,13 @@ const electron = vi.hoisted(() => {
     setVisible(visible: boolean): void {
       this.setVisibleCalls.push(visible);
     }
+    getBounds() {
+      return this.setBoundsCalls.at(-1) ?? { x: 0, y: 0, width: 0, height: 0 };
+    }
+    backgroundColor: string | undefined;
+    setBackgroundColor(color: string): void {
+      this.backgroundColor = color;
+    }
   }
 
   return {
@@ -213,6 +230,7 @@ const electron = vi.hoisted(() => {
     options: [] as unknown[],
     sessions: new Map<string, FakeSession>(),
     FakeSession,
+    FakeWebContents,
     FakeWebContentsView,
     failNextPolicyInstall: (error: Error) => {
       nextPolicyError = error;
@@ -388,6 +406,70 @@ describe("electron browser view generation seam", () => {
     expect(secondChildren).toHaveLength(1);
     handle.detach();
     expect(secondChildren).toEqual([]);
+  });
+
+  it("draws a box on an overlay laid over the shown page, and takes it away after", async () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = await target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onTitle: () => undefined,
+      admitsTopLevel: () => true,
+      onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const page = electron.views.at(-1)!;
+    // Not shown: no overlay, no box.
+    expect(await handle.drawBox?.()).toBeUndefined();
+    target.rebind(host as never);
+    handle.attach({ x: 5, y: 6, width: 300, height: 200 });
+    page.webContents.zoom = 2;
+    electron.FakeWebContents.answer = Promise.resolve({ x: 20, y: 40, w: 60, h: 80 });
+    expect(await handle.drawBox?.()).toEqual({ x: 10, y: 20, w: 30, h: 40 });
+    const overlay = electron.views.at(-1)!;
+    expect(overlay).not.toBe(page);
+    expect(electron.options.at(-1)).toMatchObject({
+      webPreferences: { partition: "junto-box-overlay", sandbox: true, nodeIntegration: false, contextIsolation: true },
+    });
+    expect(overlay.backgroundColor).toBe("#00000000");
+    expect(overlay.setBoundsCalls[0]).toEqual({ x: 5, y: 6, width: 300, height: 200 });
+    expect(overlay.webContents.loaded[0]).toMatch(/^data:text\/html/u);
+    expect(overlay.webContents.focusCalls).toBe(1);
+    expect(children).toEqual([page]);
+    expect(overlay.webContents.closeCalls).toBe(1);
+
+    // Hiding the page ends drawing with no box.
+    let answer!: (value: unknown) => void;
+    electron.FakeWebContents.answer = new Promise((resolve) => {
+      answer = resolve;
+    });
+    const drawing = handle.drawBox?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(children).toHaveLength(2);
+    handle.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    expect(await drawing).toBeUndefined();
+    expect(children).toEqual([]);
+    answer({ x: 0, y: 0, w: 50, h: 50 });
+    electron.FakeWebContents.answer = Promise.resolve(null);
   });
 
   it("parks a zero-size view off the host and throttles the page", async () => {
@@ -969,6 +1051,10 @@ describe("electron browser view generation seam", () => {
     await handle.capturePagePng?.();
     await handle.capturePagePng?.({ x: 10, y: 20, w: 30, h: 40 });
     expect(webContents.captureRects).toEqual([undefined, { x: 10, y: 20, width: 30, height: 40 }]);
+    // A zoomed page's CSS pixels are more of the view's.
+    webContents.zoom = 1.5;
+    await handle.capturePagePng?.({ x: 10, y: 20, w: 30, h: 41 });
+    expect(webContents.captureRects.at(-1)).toEqual({ x: 15, y: 30, width: 45, height: 62 });
 
     await handle.readViewport?.();
     expect(webContents.mainWorldEvalCalls).toBe(0);

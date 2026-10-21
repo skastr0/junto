@@ -38,7 +38,7 @@ const png = (width: number, height: number, bytes = 64): Uint8Array => {
   return out;
 };
 
-type Fake = { viewport: unknown; shot: Uint8Array; crops: Array<Rect | undefined> };
+type Fake = { viewport: unknown; shot: Uint8Array; crops: Array<Rect | undefined>; drawn?: Rect };
 
 const makeAdapter = (fake: Fake): BrowserViewAdapter => (_partition, events) => {
   let resolveDestroyed!: () => void;
@@ -60,6 +60,7 @@ const makeAdapter = (fake: Fake): BrowserViewAdapter => (_partition, events) => 
     destroy: () => resolveDestroyed(),
     whenDestroyed: () => destroyed,
     readViewport: async () => fake.viewport,
+    drawBox: async () => fake.drawn,
     capturePagePng: async (rect) => {
       fake.crops.push(rect);
       return fake.shot;
@@ -141,5 +142,18 @@ describe("a page box's shot", () => {
     });
     // The operator's own capture still goes.
     expect(await service.captureBoxForOwner("junto-ui", sessionId, { x: 10, y: 150, w: 10, h: 10 })).toMatchObject({ ok: true });
+  });
+
+  it("draws a box over the operator's view and shoots it where the page now sits", async () => {
+    const sessionId = await open();
+    fake.drawn = { x: 10, y: 50, w: 100, h: 50 };
+    expect(await service.drawBox(sessionId)).toMatchObject({
+      ok: true,
+      data: { url: "https://box.example.com/", scroll: { x: 0, y: 100 }, rect: { x: 10, y: 150, w: 100, h: 50 } },
+    });
+    expect(fake.crops).toEqual([{ x: 10, y: 50, w: 100, h: 50 }]);
+    fake.drawn = undefined;
+    expect(await service.drawBox(sessionId)).toEqual({ ok: true, data: undefined });
+    expect(fake.crops).toHaveLength(1);
   });
 });

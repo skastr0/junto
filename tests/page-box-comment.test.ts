@@ -16,7 +16,6 @@ import type { SubjectCommentInput } from "../src/shared/subject-comment";
 import { pageShotOf, threadSubjectOf } from "../src/shared/thread-subject";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { OpId } from "../src/shared/work-ids";
-import type { BrowserPageBoxShot } from "../src/main/junto/browser/sessions";
 import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
 import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
@@ -26,8 +25,10 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
-import { postSubjectComment, type SubjectCommentContext } from "../src/main/junto/work/subject-comment";
-import { postOperatorPageBox } from "../src/main/junto/work/page-box-comment";
+import { postSubjectComment, type StagedPageShot, type SubjectCommentContext } from "../src/main/junto/work/subject-comment";
+import { discardOperatorPageBox, postOperatorPageBox, startOperatorPageBox } from "../src/main/junto/work/page-box-comment";
+import { contentStageOwner } from "../src/main/junto/content/stage";
+import { ulid } from "ulid";
 import { readPageShot } from "../src/main/junto/work/page-shot-read";
 import { formatNodeRef } from "../src/shared/node-ref";
 import { canvasOf, page, region, seat as seatNode } from "./support/model-nodes";
@@ -83,17 +84,21 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const capture = (url = "https://example.com/a"): SubjectCommentContext["captureBox"] => (rect) =>
-  Effect.sync((): BrowserPageBoxShot => {
+/** Main's shot of the box, staged to `stager` as main stages it. */
+const capture = (url = "https://example.com/a", stager = "agent"): SubjectCommentContext["pageShot"] => (rect) =>
+  Effect.gen(function* () {
     shots.push(rect);
-    return { png: PNG, url, scroll: { x: 0, y: 120 }, rect };
-  });
+    const content = yield* ContentService;
+    const seat = { canvasName: CANVAS, nodeId: stager };
+    const put = yield* content.put({ source: PNG, mediaType: "image/png", owner: contentStageOwner(seat, ulid()) });
+    return { ref: put.ref, stager: seat, url, scroll: { x: 0, y: 120 }, rect } satisfies StagedPageShot;
+  }).pipe(Effect.orDie) as never;
 
-const context = (captureBox?: SubjectCommentContext["captureBox"]): SubjectCommentContext => ({
+const context = (pageShot?: SubjectCommentContext["pageShot"]): SubjectCommentContext => ({
   canvas: canvasOf(NODES, [], CANVAS),
   canvasName: CANVAS,
   people: [],
-  ...(captureBox === undefined ? {} : { captureBox }),
+  ...(pageShot === undefined ? {} : { pageShot }),
 });
 
 const comment = (opId: string, more: Partial<Extract<SubjectCommentInput, { subject: { kind: "page" } }>> = {}): SubjectCommentInput => ({
@@ -171,6 +176,19 @@ describe("a page box comment", () => {
     expect(await rows()).toEqual([]);
   });
 
+  it("claims only a shot the writer staged, and only once", async () => {
+    expect(failure(await post(comment("01M5ESMJV6GNZ0891YFFWS0S45"), context(capture("https://example.com/a", "operator"))))).toMatchObject({
+      type: "InputError",
+      message: expect.stringMatching(/not yours/),
+    });
+    let first: StagedPageShot | undefined;
+    const once: SubjectCommentContext["pageShot"] = (rect) =>
+      first === undefined ? capture()!(rect).pipe(Effect.tap((shot) => Effect.sync(() => (first = shot)))) : Effect.succeed(first);
+    expect((await post(comment("01M5ESMJV6GNZ0891YFFWS0S46"), context(once)))._tag).toBe("Success");
+    expect(failure(await post(comment("01M5ESMJV6GNZ0891YFFWS0S47"), context(once)))).toMatchObject({ type: "InputError" });
+    expect(await rows()).toHaveLength(1);
+  });
+
   it("lets the claim go when the page's address cannot be named", async () => {
     const refused = await post(comment("01M5ESMJV6GNZ0891YFFWS0S3Y"), context(capture("file:///etc/hosts")));
     expect(failure(refused)).toMatchObject({ type: "InputError" });
@@ -181,37 +199,52 @@ describe("a page box comment", () => {
 });
 
 describe("the operator's box comment", () => {
-  const sessions = (url: string, owners: Array<string>) => ({
+  const sessions = (url: string, drawn: Rect | null = { x: 1, y: 2, w: 30, h: 40 }) => ({
     state: (sessionId: string) =>
       sessionId === "s1"
         ? ({ ok: true, data: { sessionId, ref: formatNodeRef({ canvasName: CANVAS, nodeId: PAGE }), nodeId: PAGE } } as never)
         : ({ ok: false, code: "not_found", message: "no session" } as never),
-    captureBoxForOwner: async (owner: string, _sessionId: string, rect: Rect) => {
-      owners.push(owner);
-      return { ok: true as const, data: { png: PNG, url, scroll: { x: 0, y: 0 }, rect } };
-    },
+    drawBox: async () => ({ ok: true as const, data: drawn === null ? undefined : { png: PNG, url, scroll: { x: 0, y: 0 }, rect: drawn } }),
   });
+  const start = (url = "https://example.com/a?token=1", drawn?: Rect) =>
+    runtime.runPromise(startOperatorPageBox(sessions(url, drawn), "s1"));
+  const postDraft = (shotId: string, url = "https://example.com/") =>
+    runtime.runPromise(postOperatorPageBox(sessions(url), { sessionId: "s1", shotId, text: "look" }));
 
-  it("takes the shot from the operator's own view and posts as operator mail", async () => {
-    const owners: Array<string> = [];
-    const posted = await runtime.runPromise(
-      postOperatorPageBox(sessions("https://example.com/", owners), { sessionId: "s1", rect: { x: 1, y: 2, w: 30, h: 40 }, text: "look" }),
-    );
+  it("shows the staged shot, then posts exactly it as operator mail", async () => {
+    const started = await start();
+    if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
+    const { draft } = started.data;
+    expect(draft).toMatchObject({ rect: { x: 1, y: 2, w: 30, h: 40 }, url: "https://example.com/a", width: 20, height: 10 });
+    expect(Buffer.compare(Buffer.from(draft.png), Buffer.from(PNG))).toBe(0);
+    const posted = await postDraft(draft.shotId);
     if (!posted.ok) throw new Error(posted.message);
-    expect(owners).toEqual(["junto-ui"]);
     const row = (await rows()).find((message) => message.messageId === posted.data.messageId)!;
     expect(row.metadata?.senderName).toBe("operator");
-    expect(pageShotOf(row)).toBeDefined();
+    const shot = pageShotOf(row)!;
+    expect(await owners(shot.sha256)).toEqual([{ kind: "message", canvasName: CANVAS, nodeId: PAGE, recordId: posted.data.messageId }]);
+    // Posted once: the id is spent.
+    expect(await postDraft(draft.shotId)).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/already posted/) });
   });
 
-  it("refuses a page that is not open, and says why a box was refused", async () => {
-    const owners: Array<string> = [];
-    expect(
-      await runtime.runPromise(postOperatorPageBox(sessions("https://example.com/", owners), { sessionId: "s2", rect: { x: 1, y: 2, w: 3, h: 4 }, text: "x" })),
-    ).toMatchObject({ ok: false, code: "invalid" });
-    expect(
-      await runtime.runPromise(postOperatorPageBox(sessions("about:blank", owners), { sessionId: "s1", rect: { x: 1, y: 2, w: 3, h: 4 }, text: "x" })),
-    ).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/http or https/) });
+  it("drops a shot that is discarded, and ends with no box on Escape", async () => {
+    const started = await start();
+    if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
+    const { createHash } = await import("node:crypto");
+    const sha = createHash("sha256").update(PNG).digest("hex");
+    expect(await owners(sha)).toHaveLength(1);
+    await runtime.runPromise(discardOperatorPageBox("s1", started.data.draft.shotId));
+    expect(await owners(sha)).toEqual([]);
+    expect(await postDraft(started.data.draft.shotId)).toMatchObject({ ok: false, code: "invalid" });
+    expect(await runtime.runPromise(startOperatorPageBox(sessions("https://example.com/", null), "s1"))).toEqual({ ok: true, data: { kind: "ended" } });
+    expect(await rows()).toEqual([]);
+  });
+
+  it("refuses a page that is not open, and an address that cannot be named", async () => {
+    expect(await runtime.runPromise(startOperatorPageBox(sessions("https://example.com/"), "s2"))).toMatchObject({ ok: false, code: "invalid" });
+    const started = await start("about:blank");
+    if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
+    expect(await postDraft(started.data.draft.shotId)).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/http or https/) });
     expect(await rows()).toEqual([]);
   });
 });

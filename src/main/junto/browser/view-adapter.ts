@@ -12,6 +12,8 @@ import {
 } from "@shared/browser-limits";
 import type { BrowserSurfaceBounds } from "@shared/ipc";
 import type { BrowserViewAdapter, BrowserViewHandle } from "./sessions";
+import { BOX_OVERLAY_PARTITION, BOX_OVERLAY_SCRIPT, BOX_OVERLAY_URL, drawnBoxOf } from "./box-overlay";
+import { PAGE_BOX_DRAW_MS } from "@shared/page-shot";
 import type {
   BrowserCompositionHostWindow,
   BrowserCompositionViewBinder,
@@ -662,6 +664,19 @@ const makeElectronViewAdapter = (
     }
     callOptionalMethod(view, "setVisible", presenting);
   };
+  // The box drawing overlay, while one is up: it follows the page's bounds
+  // and ends when the page stops being shown.
+  let overlay: { readonly view: electron.WebContentsView; readonly end: () => void } | undefined;
+  const endOverlay = (): void => {
+    const current = overlay;
+    if (current === undefined) return;
+    overlay = undefined;
+    current.end();
+    if (attachedWindow !== undefined && !attachedWindow.isDestroyed()) {
+      attachedWindow.contentView.removeChildView(current.view);
+    }
+    if (!current.view.webContents.isDestroyed()) current.view.webContents.close();
+  };
   const applyBounds = (bounds: BrowserSurfaceBounds): void => {
     const applied = {
       x: Math.round(bounds.x),
@@ -683,6 +698,7 @@ const makeElectronViewAdapter = (
     const host = attachmentTarget?.current();
     if (host !== undefined) attachTo(host);
     view.setBounds(applied);
+    overlay?.view.setBounds(applied);
   };
   const attachTo = (host: ElectronBrowserWindow): void => {
     if (!logicallyAttached || parked || host.isDestroyed() || attachedWindow === host) return;
@@ -693,6 +709,7 @@ const makeElectronViewAdapter = (
     attachedWindow = host;
   };
   const detachFromHost = (): void => {
+    endOverlay();
     if (attachedWindow !== undefined && !attachedWindow.isDestroyed()) {
       attachedWindow.contentView.removeChildView(view);
     }
@@ -785,10 +802,59 @@ const makeElectronViewAdapter = (
         false,
       ),
     capturePagePng: async (rect) => {
+      // The rect is in the page's CSS pixels; the capture's are the view's.
+      const zoom = view.webContents.getZoomFactor();
       const image = await view.webContents.capturePage(rect === undefined
         ? undefined
-        : { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
+        : {
+            x: Math.floor(rect.x * zoom),
+            y: Math.floor(rect.y * zoom),
+            width: Math.ceil(rect.w * zoom),
+            height: Math.ceil(rect.h * zoom),
+          });
       return new Uint8Array(image.toPNG());
+    },
+    drawBox: async () => {
+      const host = attachedWindow;
+      if (overlay !== undefined || host === undefined || host.isDestroyed() || !logicallyAttached || parked) return undefined;
+      if (view.webContents.isDestroyed()) return undefined;
+      const WebContentsView = requireWebContentsView();
+      const drawing = new WebContentsView({
+        webPreferences: {
+          partition: BOX_OVERLAY_PARTITION,
+          sandbox: true,
+          nodeIntegration: false,
+          contextIsolation: true,
+          webSecurity: true,
+          webviewTag: false,
+          navigateOnDragDrop: false,
+        },
+      });
+      let ended!: () => void;
+      const stopped = new Promise<null>((resolve) => {
+        ended = () => resolve(null);
+      });
+      overlay = { view: drawing, end: ended };
+      try {
+        drawing.setBackgroundColor("#00000000");
+        drawing.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+        drawing.webContents.on("will-navigate", (event) => event.preventDefault());
+        drawing.setBounds(view.getBounds());
+        // Added last, so it lies above the page's view.
+        host.contentView.addChildView(drawing);
+        await drawing.webContents.loadURL(BOX_OVERLAY_URL);
+        if (overlay?.view !== drawing) return undefined;
+        drawing.webContents.focus();
+        const timer = setTimeout(ended, PAGE_BOX_DRAW_MS);
+        const answer: unknown = await Promise.race([drawing.webContents.executeJavaScript(BOX_OVERLAY_SCRIPT, true), stopped])
+          .finally(() => clearTimeout(timer));
+        if (overlay?.view !== drawing || view.webContents.isDestroyed()) return undefined;
+        return drawnBoxOf(answer, view.webContents.getZoomFactor());
+      } catch {
+        return undefined;
+      } finally {
+        if (overlay?.view === drawing) endOverlay();
+      }
     },
     traverse: (step, byOperator) => {
       if (initializationFailure !== undefined) throw initializationFailure;

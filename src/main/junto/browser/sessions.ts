@@ -82,6 +82,12 @@ export interface BrowserViewHandle {
   /** The whole viewport, or the part of it `rect` names in CSS pixels. */
   capturePagePng?(rect?: Rect): Promise<Uint8Array>;
   /**
+   * Lets the operator draw a box over the shown page (an app-owned overlay
+   * the page never sees). The box in viewport CSS pixels, or undefined on
+   * Escape, or when the view is not shown or stops being shown.
+   */
+  drawBox?(): Promise<Rect | undefined>;
+  /**
    * Steps the view's own history or reloads it. The navigation this starts
    * arrives through `onNavigationStart` like any the page starts itself.
    */
@@ -3121,6 +3127,33 @@ export class BrowserSessionService {
     const refused = pageShotRefusal(captured.data.data.png);
     if (refused !== undefined) return err(refused === "empty" ? "failed" : "result_too_large", PAGE_SHOT_REFUSED[refused]);
     return { ok: true, data: { png: captured.data.data.png, url, scroll: captured.data.data.scroll, rect } };
+  }
+
+  /**
+   * The operator draws a box over the page's view, and main takes its shot
+   * (B7). Undefined when drawing ended with no box: Escape, or the page
+   * stopped being shown. The box is read into the page's own pixels from
+   * where the page sits when the drag ends, and captured through
+   * `captureBoxForOwner`, so the shot is judged as every shot is.
+   */
+  async drawBox(sessionId: string, signal?: AbortSignal): Promise<BrowserResult<BrowserPageBoxShot | undefined>> {
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    const view = entry.view;
+    if (view.drawBox === undefined || view.readViewport === undefined) {
+      return err("unsupported_capability", "this browser view cannot draw a box");
+    }
+    if (this.navigationBusy(entry)) return err("invalid", "The page is still loading: draw the box when it has loaded.");
+    const drawn = await view.drawBox();
+    if (drawn === undefined) return { ok: true, data: undefined };
+    const viewport = decodePageViewport(await view.readViewport().catch(() => undefined));
+    if (viewport === undefined) return err("failed", "the page did not say where it is scrolled");
+    return this.captureBoxForOwner(
+      BROWSER_UI_SESSION_OWNER,
+      sessionId,
+      { x: drawn.x + viewport.scroll.x, y: drawn.y + viewport.scroll.y, w: drawn.w, h: drawn.h },
+      signal,
+    );
   }
 
   state(sessionId: string): BrowserResult<BrowserSessionInfo> {

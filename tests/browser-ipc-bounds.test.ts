@@ -102,9 +102,11 @@ describe("browser IPC bounds ingress", () => {
     ["close tab with no tab", IPC_CHANNELS.browserCloseTab, ["session-1"]],
     ["activate a bad tab", IPC_CHANNELS.browserActivateTab, ["session-1", ""]],
     ["focus with surplus", IPC_CHANNELS.browserFocusPage, ["session-1", true]],
-    ["a box with bytes in it", IPC_CHANNELS.browserCommentBox, ["session-1", { x: 0, y: 0, w: 1, h: 1, png: "AAAA" }, "look"]],
-    ["a box that is not numbers", IPC_CHANNELS.browserCommentBox, ["session-1", { x: 0, y: 0, w: "1", h: 1 }, "look"]],
-    ["a box comment with no text", IPC_CHANNELS.browserCommentBox, ["session-1", { x: 0, y: 0, w: 1, h: 1 }, " "]],
+    ["box drawing with surplus", IPC_CHANNELS.browserBoxStart, ["session-1", { x: 0, y: 0, w: 1, h: 1 }]],
+    ["a box post naming no shot", IPC_CHANNELS.browserBoxPost, ["session-1", "../shot", "look"]],
+    ["a box post with bytes for a shot", IPC_CHANNELS.browserBoxPost, ["session-1", { png: "AAAA" }, "look"]],
+    ["a box post with no text", IPC_CHANNELS.browserBoxPost, ["session-1", "01M5ESMJV6GNZ0891YFFWS0S3Q", " "]],
+    ["a box discard naming no shot", IPC_CHANNELS.browserBoxDiscard, ["session-1", 7]],
   ])("refuses %s before reaching the page", async (_name, channel, args) => {
     const touched = [
       vi.spyOn(browserSessions, "pageState"),
@@ -117,6 +119,7 @@ describe("browser IPC bounds ingress", () => {
       vi.spyOn(browserSessions, "activateTab"),
       vi.spyOn(browserSessions, "focusPage"),
       vi.spyOn(browserSessions, "captureBoxForOwner"),
+      vi.spyOn(browserSessions, "drawBox"),
     ];
     expect(await invoke(channel, ...args)).toMatchObject({ ok: false, code: "invalid" });
     for (const spy of touched) expect(spy).not.toHaveBeenCalled();

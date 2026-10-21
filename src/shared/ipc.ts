@@ -327,7 +327,9 @@ export const IPC_CHANNELS = {
   /** Renderer → main: the page chrome's reads and the operator's commands on a page. */
   browserPageState: "junto:browser-page-state",
   browserTakeOver: "junto:browser-take-over",
-  browserCommentBox: "junto:browser-comment-box",
+  browserBoxStart: "junto:browser-box-start",
+  browserBoxPost: "junto:browser-box-post",
+  browserBoxDiscard: "junto:browser-box-discard",
   browserRelease: "junto:browser-release",
   browserGoto: "junto:browser-goto",
   browserTraverse: "junto:browser-traverse",
@@ -1400,6 +1402,21 @@ export interface BrowserOpResult<T = unknown> {
   readonly message?: string;
 }
 
+/** What box drawing gave: a box with the shot main staged for it, or none. */
+export type BrowserBoxStarted =
+  | {
+      readonly kind: "drawn";
+      readonly draft: {
+        readonly shotId: string;
+        readonly rect: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+        readonly url: string;
+        readonly width: number;
+        readonly height: number;
+        readonly png: Uint8Array;
+      };
+    }
+  | { readonly kind: "ended" };
+
 export interface BrowserOpenInput {
   readonly ref: NodeRefKey;
 }
@@ -1457,14 +1474,19 @@ export interface JuntoBrowserApi {
   readonly browserPageState: (sessionId: string) => Promise<BrowserOpResult<BrowserChromeState>>;
   readonly browserTakeOver: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   /**
-   * The operator's comment on a box of the page, in page CSS pixels. Main
-   * takes the shot from the operator's own view; the renderer sends no bytes.
+   * The operator draws a box over the page's view; main takes the shot and
+   * stages it under a shot id (plan 06, B7). `ended` when drawing ended with
+   * no box. The renderer never sends bytes.
    */
-  readonly browserCommentBox: (
+  readonly browserBoxStart: (sessionId: string) => Promise<BrowserOpResult<BrowserBoxStarted>>;
+  /** Post the comment with exactly the staged shot; it is dropped either way. */
+  readonly browserBoxPost: (
     sessionId: string,
-    box: { readonly x: number; readonly y: number; readonly w: number; readonly h: number },
+    shotId: string,
     text: string,
   ) => Promise<BrowserOpResult<{ readonly messageId: string; readonly threadId: string }>>;
+  /** Drop a staged shot that was not posted. */
+  readonly browserBoxDiscard: (sessionId: string, shotId: string) => Promise<BrowserOpResult<null>>;
   readonly browserRelease: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   /** Go on the named tab, or the shown one. */
   readonly browserGoto: (

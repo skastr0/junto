@@ -5,6 +5,9 @@
  * from its own bytes before it is stored.
  */
 
+/** How long box drawing waits for the operator's drag before it ends with no box. */
+export const PAGE_BOX_DRAW_MS = 5 * 60_000;
+
 /** The most a shot holds. */
 export const PAGE_SHOT_MAX_BYTES = 2 * 1024 * 1024;
 /** The most a shot measures on either side, in its own pixels. */
@@ -36,6 +39,25 @@ export const pageShotRefusal = (bytes: Uint8Array): PageShotRefusal | undefined 
   const size = pngSize(bytes);
   if (size === undefined) return "not_png";
   return size.width > PAGE_SHOT_MAX_PX || size.height > PAGE_SHOT_MAX_PX ? "too_big" : undefined;
+};
+
+/**
+ * Pure: the page's address as a box comment keeps it: no name, password,
+ * query or fragment, any of which can hold a token, since the comment
+ * crosses machines with its thread. Undefined for an address that does not
+ * parse: it is kept as nothing, and the comment is refused.
+ */
+export const pageBoxUrlOf = (url: string): string | undefined => {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.href;
+  } catch {
+    return undefined;
+  }
 };
 
 /** What the operator or a seat is told when a shot is refused. */

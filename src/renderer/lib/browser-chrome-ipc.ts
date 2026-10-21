@@ -3,7 +3,7 @@
  * and who drives it, rules the operator's commands, and says which page
  * changed by its shown tab's session.
  */
-import type { BrowserChromeApi, BrowserChromeOutcome } from "@shared/browser-chrome";
+import type { BrowserBoxApi, BrowserBoxResult, BrowserChromeApi, BrowserChromeOutcome } from "@shared/browser-chrome";
 import type { BrowserOpResult, JuntoBrowserApi } from "@shared/ipc";
 import { setBrowserChromeApi } from "./browser-chrome-source";
 
@@ -20,6 +20,28 @@ type ChromeIpc = Pick<
   | "browserFocusPage"
   | "onBrowserPageChanged"
 >;
+
+type BoxIpc = Pick<JuntoBrowserApi, "browserBoxStart" | "browserBoxPost" | "browserBoxDiscard">;
+
+/** Box comments over main's IPC: main draws, takes and stages the shot; the chrome shows it and posts its id. */
+export const makeIpcBrowserBox = (api: BoxIpc): BrowserBoxApi => ({
+  start: async (sessionId): Promise<BrowserBoxResult> => {
+    const result = await api.browserBoxStart(sessionId).catch((error: unknown) => ({
+      ok: false as const,
+      code: "failed",
+      message: error instanceof Error ? error.message : String(error),
+    }));
+    if (!result.ok || result.data === undefined) {
+      const refused = chromeOutcome(result);
+      return { kind: "refused", refusal: refused.ok ? { kind: "invalid", message: "the page refused" } : refused.refusal };
+    }
+    return result.data;
+  },
+  post: (sessionId, shotId, text) => outcome(api.browserBoxPost(sessionId, shotId, text)),
+  discard: async (sessionId, shotId) => {
+    await api.browserBoxDiscard(sessionId, shotId).catch(() => undefined);
+  },
+});
 
 /** Main's answer as the chrome reads it: done, or one line of why not. */
 export const chromeOutcome = (result: BrowserOpResult): BrowserChromeOutcome => {
@@ -71,6 +93,9 @@ const CHROME_IPC: ReadonlyArray<keyof ChromeIpc> = [
 export const installIpcBrowserChrome = (bridge: object | undefined): void => {
   const api = bridge as Partial<ChromeIpc> | undefined;
   if (api !== undefined && CHROME_IPC.every((key) => typeof api[key] === "function")) {
-    setBrowserChromeApi(makeIpcBrowserChrome(api as ChromeIpc));
+    const box = bridge as Partial<BoxIpc>;
+    const served = typeof box.browserBoxStart === "function" && typeof box.browserBoxPost === "function" && typeof box.browserBoxDiscard === "function";
+    const chrome = makeIpcBrowserChrome(api as ChromeIpc);
+    setBrowserChromeApi(served ? { ...chrome, box: makeIpcBrowserBox(box as BoxIpc) } : chrome);
   }
 };

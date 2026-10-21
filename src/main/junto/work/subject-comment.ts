@@ -15,14 +15,15 @@
  *    poster. A mentioned seat's notice is a mention; the rest are comments.
  *
  * A page box comment (B7, remote-security's screenshot ruling) sends only
- * the box. The caller hands in `captureBox`, bound to its own right to the
+ * the box. The caller hands in `pageShot`, bound to its own right to the
  * live page (the operator's view, or a seat's live browser grant on this
- * machine); main takes the shot, stores it staged to the writer, and claims
- * it for the comment's own record before the row is written. A failed write
- * lets the claim go. Nothing of the shot is told beyond its digest and size.
+ * machine): the shot main took, staged to the writer. The writer claims it
+ * from the writer's own stage owner for the comment's own record before
+ * the row is written, so a shot another writer staged, or one already
+ * used, is refused. A failed write lets the claim go. Nothing of the shot
+ * is told beyond its digest and size.
  */
 import { Effect, Option, Schema } from "effect";
-import { ulid } from "ulid";
 import type { MailMessageId } from "@shared/crew";
 import { mentionsOf } from "@shared/mention";
 import type { Canvas } from "@shared/model";
@@ -49,12 +50,11 @@ import {
   type ResourceSubject,
 } from "@shared/thread-subject";
 import type { Rect } from "@shared/page-box";
+import { pageBoxUrlOf } from "@shared/page-shot";
 import { operatorActorRef } from "@shared/work-reference";
-import type { ContentRef } from "@shared/wire/content-ref";
-import type { BrowserPageBoxShot } from "../browser/sessions";
 import type { ContentOwner } from "../content/manifest";
 import { ContentService } from "../content/service";
-import { claimStagedContent, contentStageOwner } from "../content/stage";
+import { claimStagedContent, type ContentStageSeat } from "../content/stage";
 import type { WorkErrorBody } from "@shared/work-control";
 import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
 import { MachineRepository } from "../machines/repository";
@@ -70,9 +70,22 @@ export type SubjectCommentContext = {
   readonly people: ReadonlyArray<NodeId>;
   /**
    * A page box's shot from the live page, bound to the writer's own right to
-   * it. Without it a page comment names no box.
+   * it, staged in the content store. Without it a page comment names no box.
    */
-  readonly captureBox?: (rect: Rect) => Effect.Effect<BrowserPageBoxShot, WorkErrorBody>;
+  readonly pageShot?: (rect: Rect) => Effect.Effect<StagedPageShot, WorkErrorBody>;
+};
+
+/** A shot main took of a box and staged, waiting for its comment to claim it. */
+export type StagedPageShot = {
+  /** Which bytes, as main stored them. */
+  readonly ref: { readonly sha256: string; readonly byteLength: number };
+  /** Whose stage holds them: the writer's own, or the claim is refused. */
+  readonly stager: ContentStageSeat;
+  /** The page's committed address when the shot was taken. */
+  readonly url: string;
+  readonly scroll: { readonly x: number; readonly y: number };
+  /** The box in page CSS pixels, as main captured it. */
+  readonly rect: Rect;
 };
 
 const runtimeDown = (message: string): WorkErrorBody => ({ type: "RuntimeDown", message, details: { retryable: true } });
@@ -88,25 +101,6 @@ const posterNode = (actor: ResourceActor): NodeId | undefined => (actor.kind ===
 
 const isBoxRect = Schema.is(BoxAnchor);
 
-/**
- * The page's address as a comment keeps it: no name, password, query or
- * fragment, any of which can hold a token, since the comment crosses
- * machines with its thread. An address that does not parse is kept as
- * nothing, and the comment is refused.
- */
-const withoutQuery = (url: string): string | undefined => {
-  try {
-    const parsed = new URL(url);
-    parsed.username = "";
-    parsed.password = "";
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.href;
-  } catch {
-    return undefined;
-  }
-};
-
 /** Let go of a shot whose comment was not written. */
 const releaseShot = (owner: ContentOwner): Effect.Effect<void> =>
   Effect.serviceOption(ContentService).pipe(
@@ -115,25 +109,30 @@ const releaseShot = (owner: ContentOwner): Effect.Effect<void> =>
 const isPageBox = Schema.is(PageBoxAnchor);
 
 /**
- * The shot stored and held by the comment's own record: put under the
- * writer's own stage owner, then claimed from it, so the record holds only
- * bytes this writer staged. The writer is the operator or the posting seat.
+ * The staged shot held by the comment's own record: claimed from the
+ * writer's own stage owner, so the record holds only bytes this writer
+ * staged, and only once.
  */
 const holdShot = (
-  shot: BrowserPageBoxShot,
-  stager: { readonly canvasName: string; readonly nodeId: string },
+  shot: StagedPageShot,
+  stager: ContentStageSeat,
   owner: ContentOwner,
-): Effect.Effect<ContentRef, WorkErrorBody> =>
+): Effect.Effect<{ readonly sha256: string; readonly byteLength: number }, WorkErrorBody> =>
   Effect.gen(function* () {
     const content = yield* Effect.serviceOption(ContentService);
     if (Option.isNone(content)) return yield* Effect.fail(runtimeDown("the content store is not running in this process"));
-    const staged = yield* content.value
-      .put({ source: shot.png, mediaType: "image/png", displayName: "page-box.png", owner: contentStageOwner(stager, ulid()) })
-      .pipe(Effect.mapError(() => runtimeDown(`the shot (${String(shot.png.byteLength)} bytes) could not be stored`)));
-    const claimed = yield* claimStagedContent(content.value, { ...stager, ref: staged.ref, owner }).pipe(
-      Effect.mapError(() => runtimeDown(`the shot ${staged.ref.sha256} could not be claimed for its comment`)),
-    );
-    return claimed.ref;
+    const staged = shot.stager.canvasName === stager.canvasName && shot.stager.nodeId === stager.nodeId;
+    const claimed = staged
+      ? yield* claimStagedContent(content.value, { ...stager, ref: shot.ref, owner }).pipe(Effect.option)
+      : Option.none();
+    if (Option.isNone(claimed)) {
+      return yield* Effect.fail<WorkErrorBody>({
+        type: "InputError",
+        message: "That shot was already posted or dropped, or is not yours: draw the box again.",
+        details: { path: "anchor", retryable: false },
+      });
+    }
+    return { sha256: claimed.value.ref.sha256, byteLength: claimed.value.ref.byteLength };
   });
 
 export const postSubjectComment = (
@@ -241,21 +240,31 @@ export const postSubjectComment = (
         // The same write again: its row holds its shot already.
         pageBox = before.anchor;
       } else {
-        if (context.captureBox === undefined || input.actor.kind === "automation") {
+        if (context.pageShot === undefined || input.actor.kind === "automation") {
           return yield* Effect.fail<WorkErrorBody>({
             type: "ScopeError",
             message: "a box is drawn on the live page: only the operator, or a seat driving the page on this machine",
             details: { reason: "not_in_reach", path: "anchor", retryable: false },
           });
         }
-        const shot = yield* context.captureBox(box);
+        const shot = yield* context.pageShot(box);
         const stager = input.actor.kind === "operator"
           ? { canvasName, nodeId: operatorActorRef(canvasName).nodeId }
           : { canvasName, nodeId: input.actor.nodeId as string };
         shotOwner = { kind: "message", canvasName, nodeId, recordId: messageId };
         const ref = yield* holdShot(shot, stager, shotOwner);
-        const url = withoutQuery(shot.url);
-        const anchor = { ...box, url, scroll: shot.scroll, shot: { sha256: ref.sha256, byteLength: ref.byteLength, mediaType: ref.mediaType } };
+        const url = pageBoxUrlOf(shot.url);
+        // The box main captured, never the writer's request.
+        const anchor = {
+          kind: "box" as const,
+          x: shot.rect.x,
+          y: shot.rect.y,
+          w: shot.rect.w,
+          h: shot.rect.h,
+          url,
+          scroll: shot.scroll,
+          shot: { sha256: ref.sha256, byteLength: ref.byteLength, mediaType: "image/png" },
+        };
         if (url === undefined || !isPageBox(anchor)) {
           yield* releaseShot(shotOwner);
           return yield* Effect.fail<WorkErrorBody>({
