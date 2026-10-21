@@ -23,7 +23,7 @@ export type TaskNodeId = Branded<NodeId, "TaskNodeId">;
 /**
  * One task: an `ItemId` minted by the caller (the CLI process) on create and
  * kept by the ruling (02). It never changes, across layers and machines. The
- * short number people say (`TaskNumber`, shown as `T-42`) is minted only by
+ * short number people say (`TaskNumber`, shown as `#42`) is minted only by
  * the editing machine when it rules the create; a pending task has none.
  */
 export type TaskId = ItemId;
@@ -40,11 +40,11 @@ export const parseTaskId = (text: string): TaskId | undefined => (isItemId(text)
 export const taskNumber = (value: number): TaskNumber | undefined =>
   Number.isSafeInteger(value) && isTaskNumber(value) ? value : undefined;
 
-export const formatTaskNumber = (value: TaskNumber): string => `T-${value}`;
+export const formatTaskNumber = (value: TaskNumber): string => `#${value}`;
 
-/** `T-42` or `42`, as people type it. */
+/** `#42` or `42`, as people type it. */
 export const parseTaskNumber = (text: string): TaskNumber | undefined => {
-  const match = /^(?:T-)?(\d{1,15})$/i.exec(text.trim());
+  const match = /^#?(\d{1,15})$/.exec(text.trim());
   return match === null ? undefined : taskNumber(Number(match[1]));
 };
 
@@ -67,7 +67,7 @@ export const OPEN_TASK_STATES = ["assigned", "working", "input-required", "in-re
   ReadonlyArray<TaskState>;
 export type OpenTaskState = (typeof OPEN_TASK_STATES)[number];
 
-/** No transition leaves these but archive (and none leaves archived). */
+/** No transition leaves these but archive (and none leaves archived). Cancel does not: a done layer may have been sent on. */
 export const CLOSED_TASK_STATES = ["done", "canceled", "archived"] as const satisfies ReadonlyArray<TaskState>;
 export type ClosedTaskState = (typeof CLOSED_TASK_STATES)[number];
 
@@ -293,17 +293,18 @@ export type LegacyTaskState = (typeof LEGACY_TASK_STATES)[number];
  * The 0.10 state of a stored row, for the task state remap migration.
  * submitted is backlog, or assigned when the row names an actor; completed is
  * done; rejected and failed are canceled; auth-required waits on someone, so
- * it is input-required.
+ * it is input-required. An open state with no actor has nobody to move it, so
+ * it is backlog.
  */
 export const remapLegacyTaskState = (state: LegacyTaskState, hasAssignee: boolean): TaskState => {
   switch (state) {
     case "submitted":
       return hasAssignee ? "assigned" : "backlog";
     case "working":
-      return "working";
+      return hasAssignee ? "working" : "backlog";
     case "input-required":
     case "auth-required":
-      return "input-required";
+      return hasAssignee ? "input-required" : "backlog";
     case "completed":
       return "done";
     case "canceled":

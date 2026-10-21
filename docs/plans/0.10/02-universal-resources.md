@@ -238,9 +238,9 @@ is ruled:
   latest missed slot, with its `when` conditions rechecked. Earlier missed
   slots are recorded as skipped, as today's cron coalesces them
   (`src/main/junto/kernel/cycle.ts:406`).
-- **Short task numbers** (`T-42`) are minted only by the editing machine,
+- **Short task numbers** (`#42`) are minted only by the editing machine,
   from a per-canvas counter, when it rules the create. A pending task has no
-  number; it is named by id. `#T-42` resolves only ruled numbers.
+  number; it is named by id. `#42` resolves only ruled numbers.
 
 ### Invariants under partition
 

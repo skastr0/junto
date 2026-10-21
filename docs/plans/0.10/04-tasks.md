@@ -48,7 +48,7 @@ backlog ──assign──▶ assigned ──start──▶ working ──finish
    ▲                   │                   │  ▲                 │                     │
    └────unassign───────┴───────────────────┘  └──changes asked──┘                 sent on
                                    working ◀─▶ input-required                  (next node)
-any state ──cancel──▶ canceled          done, canceled ──archive──▶ archived
+backlog or open ──cancel──▶ canceled     done, canceled ──archive──▶ archived
 ```
 
 - `backlog`: no assignee. `assigned`: assignee set, not started.

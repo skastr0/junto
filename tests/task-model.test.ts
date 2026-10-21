@@ -71,11 +71,11 @@ describe("task model", () => {
 
   it("reads and writes task numbers as people type them", () => {
     const n = taskNumber(42)!;
-    expect(formatTaskNumber(n)).toBe("T-42");
-    expect(parseTaskNumber("T-42")).toBe(42);
-    expect(parseTaskNumber(" t-7 ")).toBe(7);
+    expect(formatTaskNumber(n)).toBe("#42");
+    expect(parseTaskNumber("#42")).toBe(42);
+    expect(parseTaskNumber(" #7 ")).toBe(7);
     expect(parseTaskNumber("42")).toBe(42);
-    for (const bad of ["T-0", "T-", "T-4.2", "-3", "T42x", ""]) expect(parseTaskNumber(bad), bad).toBeUndefined();
+    for (const bad of ["#0", "#", "#4.2", "-3", "T-42", "42x", ""]) expect(parseTaskNumber(bad), bad).toBeUndefined();
     expect(taskNumber(0)).toBeUndefined();
     expect(taskNumber(1.5)).toBeUndefined();
   });
@@ -91,19 +91,23 @@ describe("task model", () => {
     expect(reviewerKey({ kind: "seat", seat: seatNodeId(asNodeId("operator")) })).toBe("seat:operator");
   });
 
+  it("never remaps a row to an open state with nobody to move it", () => {
+    for (const state of LEGACY_TASK_STATES) expect(isOpenTaskState(remapLegacyTaskState(state, false)), state).toBe(false);
+  });
+
   it("remaps every stored state", () => {
     const remapped = Object.fromEntries(
       LEGACY_TASK_STATES.map((state) => [state, [remapLegacyTaskState(state, false), remapLegacyTaskState(state, true)]]),
     );
     expect(remapped).toEqual({
       submitted: ["backlog", "assigned"],
-      working: ["working", "working"],
-      "input-required": ["input-required", "input-required"],
+      working: ["backlog", "working"],
+      "input-required": ["backlog", "input-required"],
       completed: ["done", "done"],
       canceled: ["canceled", "canceled"],
       failed: ["canceled", "canceled"],
       rejected: ["canceled", "canceled"],
-      "auth-required": ["input-required", "input-required"],
+      "auth-required": ["backlog", "input-required"],
       archived: ["archived", "archived"],
     });
   });
