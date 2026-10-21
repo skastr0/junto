@@ -8,7 +8,7 @@ import {
   type Wire,
 } from "@shared/model";
 import { withSqlRead } from "../state/sql-read";
-import { archiveAutomationsOnNode } from "../automation/repository";
+import { archiveAutomationsOnNode, restoreAutomationsOnNode } from "../automation/repository";
 import { KIND_TABLES } from "./state-schema";
 import {
   nodeFromRow,
@@ -218,7 +218,12 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           ...nodeToRow(canvas, node),
           created_at: at,
           updated_at: at,
-        }).pipe(Effect.asVoid, failure("insertNode"));
+        }).pipe(
+          // An Automations node put back by undo takes back what its delete archived (07).
+          Effect.andThen(node.kind === "automations" ? restoreAutomationsOnNode(sql, canvas, node.id, Date.now()) : Effect.void),
+          Effect.asVoid,
+          failure("insertNode"),
+        );
       });
       const updateNode = Effect.fn("ModelRecords.updateNode")((
         canvas: string,

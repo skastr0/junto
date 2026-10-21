@@ -48,6 +48,9 @@ const run = async (test: (runtime: ManagedRuntime.ManagedRuntime<ModelService | 
   }
 };
 
+const OTHER = Schema.decodeUnknownSync(AutomationId)("01M5ESKJFC1A88R1MH1NEZWJ2R");
+const ARCHIVED = Schema.decodeUnknownSync(AutomationId)("01M5ESKJFC1A88R1MH1NEZWJ2S");
+
 describe("deleting an Automations node", () => {
   it("archives its automations and keeps their firings", () =>
     run(async (runtime) => {
@@ -72,6 +75,35 @@ describe("deleting an Automations node", () => {
           expect(yield* automations.list("factory", asNodeId(NODE))).toEqual([]);
           expect((yield* automations.loadState("factory")).get(ID)?.archived).toBe(true);
           expect(yield* automations.firings("factory", { automationId: ID })).toHaveLength(1);
+        }),
+      );
+    }));
+
+  it("is undone by putting the node back: exactly what the delete archived returns, each as it was", () =>
+    run(async (runtime) => {
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          const model = yield* ModelService;
+          const automations = yield* AutomationRepository;
+          yield* model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator");
+          const node = Schema.decodeUnknownSync(Automations)({ kind: "automations", id: NODE, x: 0, y: 0, width: 240, height: 160, z: 0 });
+          yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node], wires: [] }), "operator");
+          yield* automations.applyFacts("factory", [
+            { fact: "automation.created", automation, at: 1 },
+            { fact: "automation.created", automation: { ...automation, automationId: OTHER, name: "Off", enabled: false }, at: 1 },
+            { fact: "automation.created", automation: { ...automation, automationId: ARCHIVED, name: "Gone" }, at: 1 },
+            // The operator archived this one before the delete.
+            { fact: "automation.archived", automationId: ARCHIVED, at: 2 },
+          ]);
+
+          yield* model.command(command({ _tag: "Remove", canvas: "factory", nodes: [NODE], wires: [] }), "operator");
+          expect(yield* automations.list("factory", asNodeId(NODE))).toEqual([]);
+          // Undo: the same node, added back.
+          yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node], wires: [] }), "operator");
+
+          const back = yield* automations.list("factory", asNodeId(NODE));
+          expect(back.map((a) => [a.name, a.enabled]).sort()).toEqual([["Off", false], ["Standup", true]]);
+          expect((yield* automations.loadState("factory")).get(ARCHIVED)?.archived).toBe(true);
         }),
       );
     }));

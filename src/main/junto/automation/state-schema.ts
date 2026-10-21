@@ -20,6 +20,21 @@ const CANVAS_NAME_CHECK = `
 const ULID_CHECK = (column: string) => `
       CHECK (length(${column}) = 26 AND ${column} NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*')`;
 
+/**
+ * The automations a node delete archived, so undoing the delete (an Add of
+ * the same node id) unarchives exactly those and leaves an automation the
+ * operator archived before the delete archived. Added by a later state step
+ * than the store itself.
+ */
+export const AUTOMATION_NODE_ARCHIVES_SQL = `
+  CREATE TABLE IF NOT EXISTS automation_node_archives (
+    canvas_name TEXT NOT NULL${CANVAS_NAME_CHECK},
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    automation_id TEXT NOT NULL${ULID_CHECK("automation_id")},
+    PRIMARY KEY (canvas_name, node_id, automation_id)
+  ) STRICT, WITHOUT ROWID;
+`;
+
 export const AUTOMATION_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS automations (
     canvas_name TEXT NOT NULL${CANVAS_NAME_CHECK},

@@ -192,3 +192,9 @@ export const STATE_SCHEMA_V33_SQL = stepped(
   STATE_SCHEMA_V32_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 33)!.migrate,
 );
+
+// Version 34 remembered the automations a node delete archived (33 -> 34).
+export const STATE_SCHEMA_V34_SQL = stepped(
+  STATE_SCHEMA_V33_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 34)!.migrate,
+);

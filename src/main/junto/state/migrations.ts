@@ -10,7 +10,7 @@ import {
   PEERS_STATE_SCHEMA_SQL,
   STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
-import { AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
+import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -404,7 +404,17 @@ export const STATE_SCHEMA_V33_IDENTITY = {
     "d3c517a7a11922df59dbd3159fec503ab5f4824889ab8d0d46bf30e597d5b234",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 33;
+/**
+ * Version 34 remembers which automations a deleted Automations node archived
+ * (plan 07): `automation_node_archives`, so undoing the delete restores
+ * exactly those, each as it was. Expand only.
+ */
+export const STATE_SCHEMA_V34_IDENTITY = {
+  actualSchemaSha256:
+    "cbe4024d72a8dd25b14a9b1575225f0084fe043c5c8d9312523dcf8b61c01cd9",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 34;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -412,7 +422,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 33;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V33_IDENTITY;
+  STATE_SCHEMA_V34_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -635,6 +645,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     replacesTables: ["work_review_verdicts"],
     relaxesNotNull: { work_review_verdicts: ["reviewer_seat_id", "author_seat_id"] },
     migrate: (database) => migrateReviewStamps(database),
+  },
+  {
+    fromVersion: 33,
+    toVersion: 34,
+    name: "remember the automations a node delete archived",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V33_IDENTITY,
+    migrate: (database) => {
+      database.exec(AUTOMATION_NODE_ARCHIVES_SQL);
+    },
   },
 ];
 

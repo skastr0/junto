@@ -104,10 +104,34 @@ export const claimKeyOf = (firing: FiringType): string => {
  * their history stays, and the runner skips archived ones.
  */
 export const archiveAutomationsOnNode = (sql: SqlClient.SqlClient, canvasName: string, nodeId: string, at: number) =>
-  sql`
-    UPDATE automations SET archived = 1, updated_at_epoch_ms = ${at}
-    WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND archived = 0
-  `.pipe(Effect.asVoid);
+  Effect.gen(function* () {
+    // Which ones this delete archived, for its undo.
+    yield* sql`
+      INSERT OR IGNORE INTO automation_node_archives(canvas_name, node_id, automation_id)
+      SELECT canvas_name, node_id, automation_id FROM automations
+      WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND archived = 0
+    `;
+    yield* sql`
+      UPDATE automations SET archived = 1, updated_at_epoch_ms = ${at}
+      WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND archived = 0
+    `;
+  });
+
+/**
+ * Undo of a node delete puts the node back with the same id: unarchive
+ * exactly the automations that delete archived, each as it was, enabled or
+ * not. A schedule that missed slots meanwhile fires once for its latest.
+ */
+export const restoreAutomationsOnNode = (sql: SqlClient.SqlClient, canvasName: string, nodeId: string, at: number) =>
+  Effect.gen(function* () {
+    yield* sql`
+      UPDATE automations SET archived = 0, updated_at_epoch_ms = ${at}
+      WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND automation_id IN (
+        SELECT automation_id FROM automation_node_archives WHERE canvas_name = ${canvasName} AND node_id = ${nodeId}
+      )
+    `;
+    yield* sql`DELETE FROM automation_node_archives WHERE canvas_name = ${canvasName} AND node_id = ${nodeId}`;
+  });
 
 /** A claimed firing may have run its actions (at most once), so the limits count it. */
 const countsAsFired = (outcome: FiringOutcome): boolean => outcome.kind !== "skipped";
