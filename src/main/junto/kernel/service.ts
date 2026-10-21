@@ -2,7 +2,7 @@
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, world resync, the 30s safety interval) and binds
 // cycle.ts's injectable seams to concrete main-side collaborators
-// (ModelService, WorkService).
+// (ModelService, TaskRepository).
 //
 // cycle.ts/evaluate.ts are the pure loop + evaluator; this file is the only
 // thing that binds their `__*ForTest`-named seams to something real. Despite
@@ -31,7 +31,6 @@ import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
 import { PausePlane } from "../pause-plane";
 import { MachineRepository } from "../machines/repository";
-import { WorkService } from "../work/service";
 import { TaskRepository } from "../work/task-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
 import { onResourceChanged } from "../work/resource-changes";
@@ -265,7 +264,6 @@ type ModelShape = Context.Service.Shape<typeof ModelService>;
 type ActorRefsShape = Context.Service.Shape<typeof ModelActorRefs>;
 type PauseShape = Context.Service.Shape<typeof PausePlane>;
 type MachinesShape = Context.Service.Shape<typeof MachineRepository>;
-type WorkShape = Context.Service.Shape<typeof WorkService>;
 type TasksShape = Context.Service.Shape<typeof TaskRepository>;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
 
@@ -373,12 +371,11 @@ const makeKernelService = (
   actorRefs: ActorRefsShape,
   pause: PauseShape,
   machines: MachinesShape,
-  work: WorkShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
   tasks: TasksShape,
 ): KernelServiceShape => {
   // What the cycle reads: each canvas as the model holds it, and beside it
-  // the work the work service answers for it and the task each seat holds.
+  // the task each seat holds.
   const worlds = new Map<string, World>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
@@ -597,12 +594,9 @@ const makeKernelService = (
     Effect.gen(function* () {
       if (!generationIsActive(generation)) return;
       const result = yield* Effect.result(
-        Effect.all({
-          canvas: model.canvas(name),
-          work: work.readKernelWork(name),
-        }).pipe(
-          Effect.flatMap((held) =>
-            Effect.map(readSeatTaskIndex(tasks, held.canvas), (seatTasks): World => ({ ...held, seatTasks })),
+        model.canvas(name).pipe(
+          Effect.flatMap((canvas) =>
+            Effect.map(readSeatTaskIndex(tasks, canvas), (seatTasks): World => ({ canvas, seatTasks })),
           ),
         ),
       );
@@ -632,7 +626,7 @@ const makeKernelService = (
       if (generationIsActive(generation)) setWorlds(worlds);
     });
 
-  // A change to a canvas or to its work -> read both again; a canvas that is
+  // A change to a canvas or to its tasks -> read both again; a canvas that is
   // gone -> drop it and purge its namespaced in-memory state. The model's list
   // is the source of truth for "still there".
   const resyncCanvas = (name: string): Effect.Effect<void, unknown> =>
@@ -674,11 +668,6 @@ const makeKernelService = (
         }),
         model.subscribeCanvasesChanges((event) => {
           scheduleResync(event.canvas);
-        }),
-        // Task, request, board and artifact rows; mail never resyncs the kernel.
-        work.subscribeWorkChanges((canvasName) => {
-          if (canvasName !== undefined) scheduleResync(canvasName);
-          else for (const name of worlds.keys()) scheduleResync(name);
         }),
         // A task write moves what a seat holds, and so its blocked mark.
         onResourceChanged((domain, canvasName) => {
@@ -769,7 +758,6 @@ export const KernelLive = Layer.effect(
     const actorRefs = yield* ModelActorRefs;
     const pause = yield* PausePlane;
     const machines = yield* MachineRepository;
-    const work = yield* WorkService;
     const actorSeatOccupy = yield* ActorSeatOccupy;
     const tasks = yield* TaskRepository;
     // No Runtime capture (V4-KERNEL / V4-PROGRAM / migration/runtime.md).
@@ -779,7 +767,6 @@ export const KernelLive = Layer.effect(
       actorRefs,
       pause,
       machines,
-      work,
       actorSeatOccupy,
       tasks,
     );

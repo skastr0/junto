@@ -8,7 +8,6 @@ import {
   type NodeOf,
   type Wire,
 } from "../../src/shared/model";
-import type { KernelWork } from "../../src/shared/work-kernel";
 import type { SeatTaskIndex } from "../../src/shared/execution-graph";
 import type { World } from "../../src/main/junto/kernel/world";
 import { THIS_MACHINE } from "./machines";
@@ -91,12 +90,5 @@ export const canvasOf = (
     wires,
   });
 
-/** What the kernel holds of a canvas: the canvas, the work beside it, and the task each seat holds. */
-export const worldOf = (canvas: Canvas, work: Partial<KernelWork> = {}, seatTasks: SeatTaskIndex = {}): World => ({
-  canvas,
-  work: {
-    tasks: work.tasks ?? new Map(),
-    artifacts: work.artifacts ?? new Map(),
-  },
-  seatTasks,
-});
+/** What the kernel holds of a canvas: the canvas and the task each seat holds. */
+export const worldOf = (canvas: Canvas, seatTasks: SeatTaskIndex = {}): World => ({ canvas, seatTasks });

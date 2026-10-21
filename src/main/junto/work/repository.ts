@@ -1,5 +1,4 @@
 import { readWorkGlances } from "./glance";
-import type { KernelWork } from "@shared/work-kernel";
 import type { WorkAttentionSnapshot } from "@shared/work-attention";
 import { WorkItemQuery, WorkActorQuery, type WorkActorPage, type WorkLaneRow, WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
@@ -4149,7 +4148,6 @@ const refuseExchange = (message: string): WorkAuthorityError =>
   authorityError("authority-mismatch", message);
 
 export interface WorkRepositoryShape {
-  readonly kernelWork: (canvasName: string) => Effect.Effect<KernelWork, WorkRepositoryError>;
   /** Exact policy inputs across the task's visited boards and prerequisite ids. */
   readonly taskRowsByIds: (canvasName: string, ids: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly item: TaskValue }>, WorkRepositoryError>;
   /** Explicit full lane read for agent list commands. */
@@ -6936,35 +6934,6 @@ export const WorkRepositoryLive = Layer.effect(
       queueCommand,
       commandQueueLoad,
       commandState,
-      kernelWork: Effect.fn("WorkRepository.kernelWork")((canvasName: string) =>
-        withSqlRead(sql, Effect.gen(function* () {
-          const tasks = new Map<string, ReadonlyArray<TaskValue>>();
-          const rows = yield* SqlSchema.findAll({
-            Request: Schema.String,
-            Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String }),
-            execute: (canvas) => sql`SELECT work.node_id,work.task_id AS item_id FROM work_tasks AS work
-              JOIN task_boards AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
-              WHERE work.canvas_name=${canvas} AND work.state != 'archived'
-              ORDER BY node.z_index,node.id,work.created_at,work.task_id`,
-          })(canvasName);
-          const byNode = new Map<string, string[]>();
-          for (const row of rows) {
-            const ids = byNode.get(row.node_id) ?? [];
-            ids.push(row.item_id); byNode.set(row.node_id, ids);
-          }
-          for (const [nodeId, ids] of byNode)
-            tasks.set(nodeId, yield* loadLaneTasks(sql, { canvasName, nodeId }, "task", ids));
-          const artifacts = new Map<string, number>();
-          for (const row of yield* SqlSchema.findAll({
-            Request: Schema.String,
-            Result: Schema.Struct({ node_id: Schema.String, count: Schema.Number }),
-            execute: (canvas) => sql`SELECT work.node_id,COUNT(*) AS count FROM work_artifacts AS work
-              JOIN artifact_boards AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
-              WHERE work.canvas_name=${canvas} GROUP BY work.node_id`,
-          })(canvasName)) artifacts.set(row.node_id, row.count);
-          return { tasks, artifacts };
-        })).pipe(Effect.mapError((error) => toRepositoryError("work.kernel.read", error))),
-      ),
       taskRowsByIds: Effect.fn("WorkRepository.taskRowsByIds")((canvasName: string, requested: ReadonlyArray<string>) =>
         withSqlRead(sql, Effect.gen(function* () {
           const ids = [...new Set(requested)];

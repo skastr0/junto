@@ -1,7 +1,5 @@
 import { ModelNotFound, ModelRecords } from "../model/records";
-import type { KernelWork } from "@shared/work-kernel";
 import { workRowTooLargeIn } from "@shared/exchange-bounds";
-export type { KernelWork } from "@shared/work-kernel";
 import { asNodeId, type Canvas, type Node } from "@shared/model";
 // WorkService — one repository-native orchestration seam for the SQLite work
 // plane. Typed canvas rows supply topology;
@@ -283,7 +281,6 @@ export interface WorkServiceShape {
     readonly subscribeWorkChanges: (listener: (canvasName?: string, nodeId?: string) => void) => () => void;
     /** A mailbox changed: mail landed in it, or one of its mails was delivered, read or acked. */
     readonly subscribeMailChanges: (listener: (canvasName: string, nodeId: string) => void) => () => void;
-    readonly readKernelWork: (canvas: string) => Effect.Effect<KernelWork, WorkServiceError>;
     readonly readArtifacts: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Artifact>, WorkServiceError>;
     readonly readArtifact: (canvas: string, nodeId: string, id: string) => Effect.Effect<Artifact | undefined, WorkServiceError>;
     readonly readTopology: (canvas: string) => Effect.Effect<{ readonly canvas: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> }, WorkServiceError>;
@@ -772,7 +769,6 @@ export const WorkLive = Layer.effect(
       subscribeWorkChanges: (listener) => repository.subscribeChanges((canvas, nodeId, kind) => {
         if (kind !== "mail") listener(canvas, nodeId);
       }),
-      readKernelWork: (canvas) => repository.kernelWork(canvas).pipe(Effect.mapError(toWorkServiceError)),
       readArtifacts: (canvas, nodeId) => repository.artifactLane(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readArtifact: (canvas, nodeId, id) => repository.artifactItem(canvas, nodeId, id).pipe(Effect.mapError(toWorkServiceError)),
       readTopology: (canvas) => readTopology(canvas).pipe(Effect.map((read) => ({ canvas: read.topology, actorRefs: read.actorRefs }))),

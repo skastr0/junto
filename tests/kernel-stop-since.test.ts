@@ -30,7 +30,7 @@ describe("stop reasons carry when the stop began", () => {
 
   it("the kernel cycle projects the held task's time onto the blocked seat", async () => {
     const held = heldTask("board", { since: Date.parse(FIRST) });
-    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, {}, { atlas: held })]]));
+    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, { atlas: held })]]));
     await runEvaluationCycle();
     const execution = getExecutionByCanvas().get(CANVAS);
     expect(execution?.blocked).toEqual(["atlas"]);
@@ -40,7 +40,7 @@ describe("stop reasons carry when the stop began", () => {
   });
 
   it("a held task with no recorded time yields a reason with no time", async () => {
-    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, {}, { atlas: heldTask("board") })]]));
+    __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, { atlas: heldTask("board") })]]));
     await runEvaluationCycle();
     const [reason] = getExecutionByCanvas().get(CANVAS)?.reasonsByNodeId.atlas ?? [];
     expect(reason).toMatchObject({ kind: "task", taskNodeId: "board" });

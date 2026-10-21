@@ -29,7 +29,7 @@ import {
   ONE_MACHINE_LOG_REMOVED_TABLES,
   ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
 } from "../src/main/junto/work/migrate-one-machine-log";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { STATE_SCHEMA_V14_SQL, STATE_SCHEMA_V15_SQL } from "./fixtures/state-v13/schema";
 
 const fixtures = [
@@ -152,23 +152,20 @@ describe("state migration 14 -> 15 (the work log of one machine)", () => {
     }
   });
 
-  it.each(fixtures)("opens $fileName through the engine and reads its work", async ({ fileName }) => {
+  it.each(fixtures)("opens $fileName through the engine and reads its facts", async ({ fileName }) => {
     const path = await copyOf(fileName);
     const runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, makeStateEngineLive(path)));
     try {
       const counts = await runtime.runPromise(
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
-          const repository = yield* WorkRepository;
           const version = yield* sql.unsafe<{ user_version: number }>("PRAGMA user_version");
           const facts = yield* sql.unsafe<{ n: number }>("SELECT count(*) AS n FROM work_facts");
-          const work = yield* repository.kernelWork("factory");
-          return { version: version[0]!.user_version, facts: facts[0]!.n, tasks: work.tasks.size };
+          return { version: version[0]!.user_version, facts: facts[0]!.n };
         }),
       );
       expect(counts.version).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(counts.facts).toBeGreaterThan(0);
-      expect(counts.tasks).toBeGreaterThanOrEqual(0);
     } finally {
       await runtime.dispose();
     }

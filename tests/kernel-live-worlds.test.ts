@@ -1,11 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { expect, it } from "vitest";
+import { it } from "vitest";
 import { Command } from "../src/shared/model";
-import { CanvasFactBasis } from "../src/shared/work-protocol";
 import { KernelLive, KernelService } from "../src/main/junto/kernel/service";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelLive } from "../src/main/junto/model/layer";
@@ -14,18 +13,14 @@ import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
-import {
-  createCanvasTaskDependencyScopeCapability,
-  WorkRepository,
-  WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { WorkService } from "../src/main/junto/work/service";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { noteResourceChanged } from "../src/main/junto/work/resource-changes";
+import { TaskRepository } from "../src/main/junto/work/task-repository";
 import { THIS_MACHINE } from "./support/machines";
-import { NoTasksLive } from "./support/no-tasks";
 
 // The kernel service against the real model and work stores: it holds every
 // canvas the model lists, follows canvases that come and go, and reads a
-// board's rows again when work changes.
+// canvas's tasks again when they change.
 
 const until = async <A>(read: () => A | undefined, what: string): Promise<A> => {
   for (let tries = 0; tries < 200; tries += 1) {
@@ -36,25 +31,25 @@ const until = async <A>(read: () => A | undefined, what: string): Promise<A> => 
   throw new Error(`timed out waiting for ${what}`);
 };
 
-it("holds the model's canvases and follows their work", async () => {
+it("holds the model's canvases and follows their tasks", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-kernel-live-"));
   const modelLive = Layer.provideMerge(
     Layer.provide(ModelLive, ModelDependents.empty),
     makeStateEngineLive(join(root, "junto.db")),
   );
   const storesLive = Layer.provideMerge(WorkRepositoryLive, modelLive);
-  // Every read of a canvas's work, so the test sees the kernel follow it.
-  const workReads: string[] = [];
-  const workLive = Layer.effect(
-    WorkService,
-    Effect.map(WorkRepository, (repository) => ({
-      readKernelWork: (canvas: string) => {
-        workReads.push(canvas);
-        return repository.kernelWork(canvas);
+  // Every read of a canvas's tasks, so the test sees the kernel follow them.
+  const taskReads: string[] = [];
+  const tasksLive = Layer.succeed(
+    TaskRepository,
+    TaskRepository.of({
+      list: (canvas) => {
+        taskReads.push(canvas);
+        return Effect.succeed({ tasks: [], more: false });
       },
-      subscribeWorkChanges: (listener: (canvas?: string, node?: string) => void) =>
-        repository.subscribeChanges((canvas, node) => listener(canvas, node)),
-    }) as never),
+      get: () => Effect.succeed(Option.none()),
+      submit: () => Effect.die(new Error("the kernel rules no task")),
+    }),
   );
   const stubsLive = Layer.mergeAll(
     PausePlaneAllPlaying,
@@ -63,12 +58,12 @@ it("holds the model's canvases and follows their work", async () => {
       machineName: Effect.succeed(THIS_MACHINE),
     } as never),
     Layer.succeed(ActorSeatOccupy, {} as never),
-    NoTasksLive,
+    tasksLive,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       KernelLive,
-      Layer.mergeAll(Layer.provideMerge(workLive, storesLive), stubsLive),
+      Layer.mergeAll(storesLive, stubsLive),
     ),
   );
   const run = runtime.runPromise;
@@ -117,38 +112,13 @@ it("holds the model's canvases and follows their work", async () => {
       "the removed canvas to go",
     );
 
-    // A task row is work, not canvas: the kernel reads it again once work says
-    // it changed.
-    const readsBefore = workReads.filter((name) => name === "factory").length;
-    const repository = await run(serviceOf(WorkRepository));
-    const canvas = await run(model.canvas("factory"));
-    const sink = { canvasName: "factory", nodeId: "tasks" };
-    const at = "2026-10-07T00:01:00.000Z";
-    await run(
-      repository.createTask({
-        sink,
-        basis: Schema.decodeUnknownSync(CanvasFactBasis)({
-          kind: "canvas",
-          canvasName: "factory",
-          seq: canvas.seq,
-        }),
-        dependencyScope: createCanvasTaskDependencyScopeCapability({
-          canvas,
-          authoringSink: sink,
-        }),
-        task: {
-          id: "t1",
-          state: "submitted",
-          history: [{ messageId: "brief-t1", role: "user", parts: [{ kind: "text", text: "t1" }] }],
-          visits: [{ board: "tasks", enteredAt: at, epoch: 0 }],
-        },
-        originAt: at,
-        receivedAt: at,
-      }),
-    );
+    // A task write is not a canvas change: the kernel reads the canvas's
+    // tasks again once the task store says they changed.
+    const readsBefore = taskReads.filter((name) => name === "factory").length;
+    noteResourceChanged("task", "factory");
     await until(
-      () => (workReads.filter((name) => name === "factory").length > readsBefore ? true : undefined),
-      "the kernel to read the board's work again",
+      () => (taskReads.filter((name) => name === "factory").length > readsBefore ? true : undefined),
+      "the kernel to read the canvas's tasks again",
     );
   } finally {
     kernel?.suspend();
