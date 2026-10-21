@@ -1,6 +1,9 @@
+import { Schema } from "effect";
 import type { NodeId } from "./model/base";
+import type { NodeKind } from "./model/kinds";
+import { NodeId as NodeIdSchema } from "./physics/schema";
 import type { RefusalReason } from "./resource-command";
-import { isItemId, isTaskNumber, type ItemId, type TaskNumber } from "./work-ids";
+import { isItemId, isTaskNumber, ItemId, type TaskNumber } from "./work-ids";
 
 export type { TaskNumber } from "./work-ids";
 
@@ -127,6 +130,28 @@ export type TaskCore = {
   readonly next?: TaskNodeId;
 };
 
+/** A layer that closed when the task was sent on: it keeps its assignee, reviewers and stamps. */
+export type ClosedTaskLayer = TaskCore & { readonly closedAt: number };
+
+/**
+ * One task as readers show it: the CLI's `task show`, the renderer's rows and
+ * detail. `number` is absent while the create waits for its ruling, and
+ * `pending` names the op the writing machine is still waiting on (02).
+ */
+export type TaskView = {
+  readonly taskId: TaskId;
+  readonly number?: TaskNumber;
+  readonly title: string;
+  readonly body?: string;
+  readonly current: TaskCore;
+  /** Earlier layers, oldest first. */
+  readonly layers: ReadonlyArray<ClosedTaskLayer>;
+  readonly dependsOn: ReadonlyArray<TaskId>;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly pending?: { readonly opId: string };
+};
+
 // ── commands ───────────────────────────────────────────────────────────────
 
 /**
@@ -224,7 +249,13 @@ export type TaskRefusalDetail =
   | { readonly kind: "invalid-policy"; readonly required: number }
   | { readonly kind: "dependency-cycle"; readonly through: ReadonlyArray<TaskId> }
   | { readonly kind: "unknown-task"; readonly taskId: TaskId }
-  | { readonly kind: "task-exists"; readonly taskId: TaskId };
+  | { readonly kind: "task-exists"; readonly taskId: TaskId }
+  /** Only a seat or the operator reviews; an automation never stamps. */
+  | { readonly kind: "cannot-review"; readonly actor: TaskActor["kind"] }
+  /** The command's target item and the create's task id disagree. */
+  | { readonly kind: "target-mismatch"; readonly target: TaskId; readonly taskId: TaskId }
+  /** A node the command names is not of the kind it must be. */
+  | { readonly kind: "wrong-node"; readonly nodeId: NodeId; readonly expected: "agent" | "task" };
 
 export type TaskRefusalKind = TaskRefusalDetail["kind"];
 
@@ -247,6 +278,9 @@ export const TASK_REFUSAL_REASON = {
   "dependency-cycle": "invalid_input",
   "unknown-task": "unknown_target",
   "task-exists": "invalid_input",
+  "cannot-review": "invalid_input",
+  "target-mismatch": "invalid_input",
+  "wrong-node": "invalid_input",
 } as const satisfies Readonly<Record<TaskRefusalKind, RefusalReason>>;
 
 export type TaskRefusal = { readonly reason: RefusalReason; readonly detail: TaskRefusalDetail };
@@ -267,6 +301,116 @@ export const reachExempt = (task: Pick<TaskCore, "state" | "assignee">, actor: T
 export type TaskRuling =
   | { readonly ok: true; readonly task: TaskCore; readonly effects: ReadonlyArray<TaskEffect> }
   | { readonly ok: false; readonly refusal: TaskRefusal };
+
+// ── the wire form of a command ─────────────────────────────────────────────
+
+const TASK_TITLE_MAX = 200;
+const TASK_BODY_MAX = 20_000;
+/** At most this many approvals a task can ask for. */
+export const STAMPS_REQUIRED_MAX = 16;
+
+const Title = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(TASK_TITLE_MAX)));
+const Body = Schema.String.pipe(Schema.check(Schema.isMaxLength(TASK_BODY_MAX)));
+const Required = Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: STAMPS_REQUIRED_MAX })));
+const ReviewerWire = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("seat"), seat: NodeIdSchema }),
+  Schema.Struct({ kind: Schema.Literal("operator") }),
+]);
+const bare = <K extends TaskCommandKind>(kind: K) => Schema.Struct({ kind: Schema.Literal(kind) });
+
+/**
+ * A task op as it travels inside a `ResourceCommand` (`resourceCommandSchema`).
+ * Node ids are plain here: a schema cannot know a node's kind, so the ruler
+ * narrows them with `checkTaskCommand` against its canvas.
+ */
+export const TaskCommandWire = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("create"),
+    taskId: ItemId,
+    title: Title,
+    body: Schema.optionalKey(Body),
+    stampPolicy: Schema.optionalKey(Schema.Struct({ required: Required })),
+  }),
+  Schema.Struct({ kind: Schema.Literal("edit"), title: Schema.optionalKey(Title), body: Schema.optionalKey(Body) }),
+  Schema.Struct({ kind: Schema.Literal("assign"), seat: NodeIdSchema }),
+  bare("unassign"),
+  bare("start"),
+  bare("pause"),
+  bare("resume"),
+  Schema.Struct({ kind: Schema.Literal("finish"), next: Schema.optionalKey(NodeIdSchema) }),
+  bare("cancel"),
+  bare("archive"),
+  Schema.Struct({ kind: Schema.Literal("depend"), on: ItemId }),
+  Schema.Struct({ kind: Schema.Literal("undepend"), on: ItemId }),
+  Schema.Struct({ kind: Schema.Literal("reviewer-add"), reviewer: ReviewerWire }),
+  Schema.Struct({ kind: Schema.Literal("reviewer-remove"), reviewer: ReviewerWire }),
+  Schema.Struct({ kind: Schema.Literal("stamp-policy"), required: Required }),
+  Schema.Struct({
+    kind: Schema.Literal("stamp"),
+    verdict: Schema.Literals(["approve", "changes"]),
+    subjectHash: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))),
+    text: Schema.optionalKey(Body),
+  }),
+]);
+export type TaskCommandWire = typeof TaskCommandWire.Type;
+
+// The wire names exactly the commands the model has, and every model command
+// fits the wire once its brands are dropped.
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const wireKindsAreCommandKinds: Same<TaskCommandWire["kind"], TaskCommandKind> = true;
+const commandFitsWire: TaskCommand extends TaskCommandWire ? true : false = true;
+void wireKindsAreCommandKinds;
+void commandFitsWire;
+
+const seatOk = (kindOf: (id: NodeId) => NodeKind | undefined, id: NodeId): TaskRefusal | undefined =>
+  kindOf(id) === "agent" ? undefined : taskRefusal({ kind: "wrong-node", nodeId: id, expected: "agent" });
+
+/**
+ * Narrow a decoded wire command into the model's: every seat it names is an
+ * agent and every next node a task node on the ruler's canvas.
+ */
+export const checkTaskCommand = (
+  wire: TaskCommandWire,
+  kindOf: (id: NodeId) => NodeKind | undefined,
+): { readonly ok: true; readonly command: TaskCommand } | { readonly ok: false; readonly refusal: TaskRefusal } => {
+  const fail = (refusal: TaskRefusal) => ({ ok: false, refusal }) as const;
+  switch (wire.kind) {
+    case "assign": {
+      const bad = seatOk(kindOf, wire.seat);
+      return bad === undefined ? { ok: true, command: { kind: "assign", seat: seatNodeId(wire.seat) } } : fail(bad);
+    }
+    case "reviewer-add":
+    case "reviewer-remove": {
+      if (wire.reviewer.kind === "operator") return { ok: true, command: { kind: wire.kind, reviewer: { kind: "operator" } } };
+      const bad = seatOk(kindOf, wire.reviewer.seat);
+      return bad === undefined
+        ? { ok: true, command: { kind: wire.kind, reviewer: { kind: "seat", seat: seatNodeId(wire.reviewer.seat) } } }
+        : fail(bad);
+    }
+    case "finish": {
+      if (wire.next === undefined) return { ok: true, command: { kind: "finish" } };
+      return kindOf(wire.next) === "task"
+        ? { ok: true, command: { kind: "finish", next: taskNodeId(wire.next) } }
+        : fail(taskRefusal({ kind: "wrong-node", nodeId: wire.next, expected: "task" }));
+    }
+    case "create":
+      return { ok: true, command: { ...wire, taskId: wire.taskId } };
+    case "edit":
+    case "unassign":
+    case "start":
+    case "pause":
+    case "resume":
+    case "cancel":
+    case "archive":
+    case "depend":
+    case "undepend":
+    case "stamp-policy":
+    case "stamp":
+      return { ok: true, command: wire };
+    default:
+      return wire satisfies never;
+  }
+};
 
 // ── pipelines ──────────────────────────────────────────────────────────────
 

@@ -1,7 +1,10 @@
+import { Result, Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import {
   ASSIGNEE_ONLY,
+  checkTaskCommand,
+  TaskCommandWire,
   blocksAssignee,
   CLOSED_TASK_STATES,
   formatTaskNumber,
@@ -110,6 +113,33 @@ describe("task model", () => {
       "auth-required": ["backlog", "input-required"],
       archived: ["archived", "archived"],
     });
+  });
+});
+
+describe("task command wire", () => {
+  const decode = Schema.decodeUnknownResult(TaskCommandWire, { onExcessProperty: "error" });
+  const kinds = new Map<string, "agent" | "task" | "region">([["agent-1", "agent"], ["task-2", "task"], ["region-3", "region"]]);
+  const kindOf = (id: string) => kinds.get(id);
+
+  it("decodes a create with a caller-minted id and refuses an empty title or an extra key", () => {
+    expect(Result.isSuccess(decode({ kind: "create", taskId: "01M5ETKKW2KX682NBXQZYA69MY", title: "Fix tabs" }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "create", taskId: "01M5ETKKW2KX682NBXQZYA69MY", title: "" }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "start", by: "me" }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "stamp-policy", required: 17 }))).toBe(true);
+  });
+
+  it("narrows seats and next nodes against the canvas, refusing the wrong kind", () => {
+    const assign = Result.getOrThrow(decode({ kind: "assign", seat: "agent-1" }));
+    expect(checkTaskCommand(assign, kindOf)).toEqual({ ok: true, command: { kind: "assign", seat: "agent-1" } });
+    const wrong = Result.getOrThrow(decode({ kind: "assign", seat: "region-3" }));
+    expect(checkTaskCommand(wrong, kindOf)).toEqual({
+      ok: false,
+      refusal: { reason: "invalid_input", detail: { kind: "wrong-node", nodeId: "region-3", expected: "agent" } },
+    });
+    const next = Result.getOrThrow(decode({ kind: "finish", next: "agent-1" }));
+    expect(checkTaskCommand(next, kindOf).ok).toBe(false);
+    const operator = Result.getOrThrow(decode({ kind: "reviewer-add", reviewer: { kind: "operator" } }));
+    expect(checkTaskCommand(operator, kindOf)).toEqual({ ok: true, command: { kind: "reviewer-add", reviewer: { kind: "operator" } } });
   });
 });
 
