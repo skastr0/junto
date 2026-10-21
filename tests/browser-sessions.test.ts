@@ -1169,14 +1169,22 @@ describe("BrowserSessionService", () => {
       .toMatchObject({ ok: false, code: "operator_holds" });
     expect(service.traverseForOwner("job-a", ui.data.sessionId, "reload"))
       .toMatchObject({ ok: false, code: "operator_holds" });
-    // The seat keeps its hold and the operator keeps acting.
-    expect(service.stateForOwner("job-a", ui.data.sessionId)).toMatchObject({ ok: true });
+    // The seat keeps its hold and sees it is paused, never where the operator is.
+    const paused = service.stateForOwner("job-a", ui.data.sessionId);
+    expect(paused).toMatchObject({ ok: true, data: { operatorHolds: true, url: "" } });
+    if (paused.ok) expect(paused.data.title).toBeUndefined();
+    expect(service.listForOwner("job-a")).toMatchObject({ ok: true, data: [{ operatorHolds: true, url: "" }] });
+    expect(service.historyForOwner("job-a", ui.data.sessionId)).toMatchObject({ ok: false, code: "operator_holds" });
+    expect(service.closeForOwner("job-a", ui.data.sessionId)).toMatchObject({ ok: true, data: { operatorHolds: true } });
+    expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true, data: { url: "https://takeover.example.com" } });
     expect(await service.eval(ui.data.sessionId, "1")).toMatchObject({ ok: true });
     expect(spy.views[0]?.destroyed).toBe(false);
 
     expect(service.release(ui.data.sessionId)).toMatchObject({ ok: true });
     expect(service.drivingFor(ui.data.sessionId)?.control.kind).toBe("shared");
     expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+    const resumed = service.stateForOwner("job-a", ui.data.sessionId);
+    expect(resumed.ok && resumed.data.operatorHolds).toBeFalsy();
   });
 
   it("lets the operator reload an off-grant page and refuses to hand it back there", async () => {
@@ -1251,6 +1259,34 @@ describe("BrowserSessionService", () => {
     events.onDocumentCommitted("https://elsewhere.example.net/");
     events.onLoadOk(away.data.sessionId);
     expect(events.admitsTopLevel("https://anywhere.example.org/", true)).toBe(true);
+  });
+
+  it("clears a profile's marks when the profile is wiped clean", async () => {
+    const base = makeProfileService();
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      wipeProfile: () => Effect.succeed({ status: "complete" as const }),
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      localBrowserTestMachineName,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+    const page = target("wiped");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    const inGrant = (url: string) => new URL(url).origin === "https://wiped.example.com";
+    expect(await service.openForOwner("job-a", page, undefined, undefined, inGrant)).toMatchObject({ ok: true });
+    expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+    expect(views[0]?.events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(false);
+    await expect(service.stopForOwner("job-a", ui.data.sessionId)).resolves.toMatchObject({ ok: true });
+
+    expect(await service.wipeProfile("personal")).toMatchObject({ ok: true, data: { status: "complete" } });
+    expect(views[0]?.events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(true);
   });
 
   it("judges a marked document by every seat that evaluated in it, after their holds end", async () => {

@@ -1473,6 +1473,11 @@ export interface BrowserSessionInfo {
   readonly attached: boolean;
   readonly title?: string;
   readonly lastError?: string;
+  /**
+   * Shown to a seat while the operator holds the page: it is paused, and the
+   * page's url, title and error are left out, as the operator is using it.
+   */
+  readonly operatorHolds?: true;
 }
 
 /** Dock/pool limits from BrowserProfileService config — renderer reads, never guesses. */

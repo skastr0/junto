@@ -643,7 +643,10 @@ export class BrowserSessionService {
    * registered, or a page back from the back-forward cache, runs on in that
    * origin. So a navigation a page of that origin starts, in any view of the
    * profile, must pass each of them, for the life of the app, whoever holds
-   * the page and after those seats' holds end. Never empty when set.
+   * the page and after those seats' holds end. Never empty when set. It binds
+   * the operator's own link clicks there too; the address bar stays free, and
+   * a complete profile wipe clears the profile's marks. Bounded by origins a
+   * seat evaluated in times the holds that did, each one small guard.
    */
   private readonly touchedOrigins = new Map<string, Set<BrowserGuestTopLevelGuard>>();
   private readonly pageListeners = new Set<(ref: string) => void>();
@@ -1031,6 +1034,12 @@ export class BrowserSessionService {
 
   private originKey(entry: SessionEntry): string {
     return `${entry.profile}\0${entry.documentOrigin ?? entry.currentOrigin ?? ""}`;
+  }
+
+  private clearTouched(profileId: string): void {
+    for (const key of [...this.touchedOrigins.keys()]) {
+      if (key.startsWith(`${profileId}\0`)) this.touchedOrigins.delete(key);
+    }
   }
 
   /** A seat evaluates in the view: its grant binds what that origin's pages start. */
@@ -1911,6 +1920,8 @@ export class BrowserSessionService {
         return err(code, error.message);
       }
       const receipt = outcome.success;
+      // A wiped profile keeps no worker or cache a seat could have left.
+      if (receipt.status === "complete") this.clearTouched(profileId);
       return receipt.status === "complete"
         ? {
             ok: true,
@@ -2073,7 +2084,7 @@ export class BrowserSessionService {
     const held = this.heldTabFor(guest, target.ref);
     if (held !== undefined && isWarmBrowserSession(held.machine.state)) {
       held.lastActiveAt = this.now();
-      return { ok: true, data: this.info(held) };
+      return { ok: true, data: this.infoFor(held, guest) };
     }
     const guestEpoch = this.ownerEpoch(guest);
     const refEpoch = this.refEpoch(target.ref);
@@ -2097,7 +2108,7 @@ export class BrowserSessionService {
     // they answer only for a generation that is already gone.
     this.guestStops.delete(`${guest}\0${entry.sessionId}`);
     entry.lastActiveAt = this.now();
-    return { ok: true, data: this.info(entry) };
+    return { ok: true, data: this.infoFor(entry, guest) };
   }
 
   private async openResolved(
@@ -2462,6 +2473,8 @@ export class BrowserSessionService {
   historyForOwner(owner: string, sessionId: string): BrowserResult<BrowserHistory> {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    const held = this.guestRefusal(entry, owner);
+    if (held !== undefined) return held;
     if (entry.view.history === undefined) return { ok: true, data: { canGoBack: false, canGoForward: false } };
     try {
       const { canGoBack, canGoForward } = entry.view.history();
@@ -2513,7 +2526,7 @@ export class BrowserSessionService {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     // The surface is the operator's; a guest closing leaves it where it is.
-    if (owner !== entry.owner) return { ok: true, data: this.info(entry) };
+    if (owner !== entry.owner) return { ok: true, data: this.infoFor(entry, owner) };
     try {
       if (entry.attached) {
         entry.view.detach();
@@ -2814,7 +2827,19 @@ export class BrowserSessionService {
     const entry = this.entryForOwner(owner, sessionId);
     return entry === undefined
       ? err("not_found", `no session for ${sessionId}`)
-      : { ok: true, data: this.info(entry) };
+      : { ok: true, data: this.infoFor(entry, owner) };
+  }
+
+  /**
+   * The view as this holder may see it. While the operator holds the page a
+   * seat sees that it is paused, never where the operator is or what it reads;
+   * its stop and close still work by the session it holds.
+   */
+  private infoFor(entry: SessionEntry, owner: string): BrowserSessionInfo {
+    const info = this.info(entry);
+    if (this.guestRefusal(entry, owner) === undefined) return info;
+    const { title: _title, lastError: _lastError, ...rest } = info;
+    return { ...rest, url: "", operatorHolds: true };
   }
 
   list(): BrowserResult<ReadonlyArray<BrowserSessionInfo>> {
@@ -2826,7 +2851,7 @@ export class BrowserSessionService {
       ok: true,
       data: [...this.sessions.values()]
         .filter((entry) => this.holds(entry, owner))
-        .map((entry) => this.info(entry)),
+        .map((entry) => this.infoFor(entry, owner)),
     };
   }
 
