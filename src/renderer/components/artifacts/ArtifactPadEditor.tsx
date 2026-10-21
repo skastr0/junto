@@ -124,7 +124,8 @@ export function ArtifactPadEditor({
       ) : null}
       <PadEditor
         pad={pad}
-        mentionActors={[]}
+        // No pad node behind an artifact pad, so no pin mention candidates.
+        padNodeId=""
         onCommit={onCommit}
         onReadPad={onReadPad}
         onClose={onClose}
