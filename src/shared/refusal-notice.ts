@@ -77,6 +77,10 @@ export const commandWords = (command: QueuedCommand): string => {
   return typeof kind === "string" && /^[a-z][a-z_-]{0,31}$/.test(kind) ? `${command.target.kind} ${kind}` : command.target.kind;
 };
 
+/** What the command lost to, as a bounded token, such as `epoch:7`; anything else is left out of the text. */
+export const lostToWords = (expected: string | undefined): string | undefined =>
+  expected !== undefined && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/.test(expected) ? expected : undefined;
+
 export type RefusalNoticeInput = {
   /** This machine: the writer of the refused command. */
   readonly installationId: string;
@@ -102,10 +106,11 @@ export const refusalNoticeOf = (input: RefusalNoticeInput): RefusalNotice | unde
   if (ruling.root !== ruling.opId || ruling.actor.kind !== "seat") return undefined;
   const recipient = ruling.actor.nodeId;
   const dependents = refusedWith(ruling.opId, input.queue);
+  const lostTo = lostToWords(ruling.expected);
   const text = refusalText({
     command: commandWords(command),
     error: refusalErrorOf(ruling),
-    ...(ruling.expected === undefined ? {} : { lostTo: ruling.expected }),
+    ...(lostTo === undefined ? {} : { lostTo }),
     ...(dependents.length === 0 ? {} : { dependents }),
   });
   const from = { nodeId: command.target.nodeId, name: KIND_NAMES[command.target.kind] };

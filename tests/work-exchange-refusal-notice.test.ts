@@ -3,7 +3,8 @@
  * machine's `ruling.refused` for one of its own commands, the actor seat gets
  * one notice in its own mailbox, from the refused node, naming the commands
  * refused with it. A dependent's own refusal, another machine's command and a
- * non-seat actor give none, and taking the same rows again writes nothing.
+ * non-seat actor give none, nor a command aimed at a seat's node, whose notice
+ * the editing machine would refuse; taking the same rows again writes nothing.
  */
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -36,6 +37,8 @@ const ROOT = op("4W0");
 const CHILD = op("4W1");
 const GRANDCHILD = op("4W2");
 const ALONE = op("4W3");
+const AT_SEAT = op("4W4");
+const AT_SELF = op("4W5");
 const TASK = Schema.decodeUnknownSync(ItemId)("01M5ESR3G8AN1BA0AVVQC2XTSK");
 const actor = { kind: "seat" as const, seatId, nodeId: "peer" };
 
@@ -43,13 +46,13 @@ const placement: CanvasPlacement = {
   canvasId: "canvas-factory",
   editor: EDITOR,
   holds: (machine) => machine === EDITOR || machine === MINI || machine === OTHER,
-  seatOf: (nodeId) => (nodeId === "peer" ? { seatId, machine: MINI } : undefined),
+  seatOf: (nodeId) => (nodeId === "peer" || nodeId === "lead" ? { seatId, machine: MINI } : undefined),
 };
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<WorkRepository | SqlClient.SqlClient, unknown>;
 
-const queue = (opId: OpId, after: ReadonlyArray<OpId>) =>
+const queue = (opId: OpId, after: ReadonlyArray<OpId>, nodeId = "board-1") =>
   Effect.gen(function* () {
     const repository = yield* WorkRepository;
     yield* repository.queueCommand({
@@ -57,7 +60,7 @@ const queue = (opId: OpId, after: ReadonlyArray<OpId>) =>
         opId,
         canvasName: "factory",
         actor,
-        target: { kind: "task", nodeId: "board-1", itemId: TASK },
+        target: { kind: "task", nodeId, itemId: TASK },
         basis: null,
         after,
         op: { kind: "assign" },
@@ -115,6 +118,8 @@ beforeAll(async () => {
       yield* queue(CHILD, [ROOT]);
       yield* queue(GRANDCHILD, [CHILD]);
       yield* queue(ALONE, []);
+      yield* queue(AT_SEAT, [], "lead");
+      yield* queue(AT_SELF, [], "peer");
     }),
   );
 });
@@ -157,6 +162,14 @@ describe("a refusal of this machine's own command", () => {
       refusal("3", ALONE, { writer: OTHER }),
       refusal("4", ALONE, { actor: { kind: "operator" } }),
     ], "4"));
+    expect((await mailbox()).length).toBe(before);
+  });
+
+  it("writes none for a command aimed at a seat's node or the actor's own, and keeps taking rows", async () => {
+    // Its notice would be a row the editing machine refuses, closing the link: main never writes one.
+    const before = (await mailbox()).length;
+    const taken = await take(frame([refusal("5", AT_SEAT), refusal("6", AT_SELF)], "6"));
+    expect(taken.taken).toBe(2);
     expect((await mailbox()).length).toBe(before);
   });
 });

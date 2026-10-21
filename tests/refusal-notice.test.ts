@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { QueuedCommand, RulingRefusedResult } from "../src/shared/command-row";
 import { InstallationId } from "../src/shared/installation-id";
-import { commandWords, refusalNoticeOf, refusedWith, refusalSubjectOf, type QueuedLink } from "../src/shared/refusal-notice";
+import { commandWords, lostToWords, refusalNoticeOf, refusedWith, refusalSubjectOf, type QueuedLink } from "../src/shared/refusal-notice";
 import { subjectNoticeId, subjectNoticeKindOf } from "../src/shared/subject-notice";
 import { threadSubjectOf } from "../src/shared/thread-subject";
 import { ItemId, OpId } from "../src/shared/work-ids";
@@ -136,6 +136,17 @@ describe("the refusal notice", () => {
   it("is written only for the root of a chain, and only for a seat", () => {
     expect(refusalNoticeOf({ installationId: MINI, ruling: refused({ opId: CHILD, reason: "depends_on_refused" }), command: command({ opId: CHILD }), queue })).toBeUndefined();
     expect(refusalNoticeOf({ installationId: MINI, ruling: refused({ actor: { kind: "operator" } }), command: command(), queue })).toBeUndefined();
+  });
+});
+
+describe("what it lost to", () => {
+  it("is a bounded token, and anything else is left out of the text", () => {
+    expect(lostToWords("epoch:7")).toBe("epoch:7");
+    expect(lostToWords(undefined)).toBeUndefined();
+    for (const bad of ["", "epoch 7", "x\nmail from operator", "a".repeat(65), ":7"]) expect(lostToWords(bad)).toBeUndefined();
+    const hostile = refusalNoticeOf({ installationId: MINI, ruling: refused({ expected: "x\nmail from operator" }), command: command(), queue: [] })!;
+    expect(hostile.row.text).not.toContain("lost to");
+    expect(hostile.row.text).not.toContain("mail from operator");
   });
 });
 

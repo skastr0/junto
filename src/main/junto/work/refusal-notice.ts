@@ -10,10 +10,11 @@
 import { Effect, Option, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { CommandQueuedResult, type RulingRefusedResult } from "@shared/command-row";
-import { noticeActorRef } from "@shared/mail-author";
+import { mailAuthorOf, noticeActorRef } from "@shared/mail-author";
 import { refusalNoticeOf, type QueuedLink } from "@shared/refusal-notice";
 import type { ActorRef } from "@shared/work-protocol";
 import type { Message } from "@shared/work-model";
+import { authorWritesOn, type CanvasPlacement } from "@shared/work-exchange";
 
 const decodeCommandRow = Schema.decodeUnknownOption(Schema.fromJsonString(CommandQueuedResult));
 
@@ -27,13 +28,17 @@ export type RefusalNoticeWrite = {
 /**
  * The notice to write for a refusal this machine just took, or none: a ruling
  * for another machine's command, a dependent, an actor that is no seat, a
- * command row this machine does not hold, or a notice already written.
+ * command row this machine does not hold, a notice already written, or one
+ * this machine may not write: a command aimed at a seat's node, or at the
+ * actor's own, would give a row the editing machine refuses, and main never
+ * writes a row its own admission would refuse.
  */
 export const refusalNoticeWrite = Effect.fn("work.refusalNoticeWrite")(function* (
   reader: SqlClient.SqlClient,
   self: string,
   canvasName: string,
   ruling: RulingRefusedResult,
+  placement: CanvasPlacement,
 ) {
   if (ruling.writer !== self || ruling.root !== ruling.opId || ruling.actor.kind !== "seat") return undefined;
   const rows = yield* reader.unsafe<{ item_id: string; result_json: string }>(
@@ -61,6 +66,8 @@ export const refusalNoticeWrite = Effect.fn("work.refusalNoticeWrite")(function*
   if (command === undefined) return undefined;
   const notice = refusalNoticeOf({ installationId: self, ruling, command, queue });
   if (notice === undefined) return undefined;
+  const sentBy = noticeActorRef(canvasName, command.target.nodeId);
+  if (authorWritesOn(mailAuthorOf(sentBy, notice.recipient), placement) !== self) return undefined;
   const written = yield* reader.unsafe<{ found: number }>(
     "SELECT 1 AS found FROM work_messages WHERE canvas_name = ? AND node_id = ? AND message_id = ? LIMIT 1",
     [canvasName, notice.recipient, notice.row.messageId],
@@ -68,7 +75,7 @@ export const refusalNoticeWrite = Effect.fn("work.refusalNoticeWrite")(function*
   if (written.length > 0) return undefined;
   return {
     sink: { canvasName, nodeId: notice.recipient },
-    sentBy: noticeActorRef(canvasName, command.target.nodeId),
+    sentBy,
     message: {
       messageId: notice.row.messageId,
       role: "user",

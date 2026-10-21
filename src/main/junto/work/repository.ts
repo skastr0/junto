@@ -7707,7 +7707,7 @@ export const WorkRepositoryLive = Layer.effect(
                   );
                 } else if (fact.body.operation === "ruling.refused") {
                   // One of this machine's own commands was refused: its seat is told, once, from the refused node.
-                  const notice = yield* refusalNoticeWrite(writer, self, frame.canvasName, fact.body);
+                  const notice = yield* refusalNoticeWrite(writer, self, frame.canvasName, fact.body, placement);
                   if (notice !== undefined) {
                     const canvas = yield* writer.unsafe<{ seq: number }>("SELECT seq FROM canvases WHERE canvas_name = ?", [frame.canvasName]);
                     const basis = { kind: "canvas" as const, canvasName: frame.canvasName, seq: canvas[0]?.seq ?? 0 };
