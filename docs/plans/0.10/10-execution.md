@@ -216,17 +216,19 @@ Every plan, 01 to 09, checked against main cc5ee91c9 item by item. Open work:
 
 | Gap | Plan | Owner | State |
 |---|---|---|---|
-| Artifact comments kept in window memory, not main; no mentions in its composer | 05, 03 | product-shell, cli-overseer (one thread IPC) | started |
-| Task comments in the app (thread landed 03fb039b8 on a local source until the IPC lands) | 03, 04 | product-modals, cli-overseer | started |
-| Dependencies recorded but never enforced on finish | 04 | canvas-writers, cli-performance | started |
-| Handoff note and cited refs dropped on send-on | 04 | canvas-writers | started |
-| A changes stamp files no defect record | 04 | canvas-writers | started |
-| Task change triggers miss states between passes | 07 | canvas-automation | started |
+| Artifact comments kept in window memory, not main; no mentions in its composer | 05, 03 | product-shell, cli-overseer (one thread IPC) | done: 63d545e56, 86df658b9, bf07f7e2d |
+| Task comments in the app | 03, 04 | product-modals, cli-overseer | done: 03fb039b8, bf07f7e2d; reload e2e passed |
+| Dependencies recorded but never enforced on finish | 04 | canvas-writers, cli-performance | done: 564122a16 |
+| Handoff note and cited refs dropped on send-on | 04 | canvas-writers, product-modals | done: 5d9009d2e, e710275a8 |
+| A changes stamp files no defect record | 04 | canvas-writers | done: 0ad501987 |
+| Task change triggers miss states between passes | 07 | canvas-automation | done: dd028a3e3, 4f44356f5, 145a86e9a |
 | Mentions: composers offer seats only; chips not clickable; CLI resolves @seat only; no backlinks; review comments as mail; subject not shown | 03 | product-feed, cli-lead, canvas-model | started |
-| Since: your task, reviews you owe | 08 | pty-contract | started |
+| Since: your task, reviews you owe | 08 | pty-contract | done: e6c608fe5 |
 | Resource comments as universal facts; signal attachments crossing; pending in CLI output; local check before queueing | 02 | remote-lead | asked |
 | Reach change shown while dragging | 01 | canvas | asked |
 | Old task model, admission, promote, ports, legacy states, entity_home, migration 31 contract; leftovers | 04, 09 | canvas | started |
 | Seat tab open and close; driver spike | 06 | not assigned | operator call |
 | Box comment on file images; latest changes on the Artifacts card | 05 | product-shell | after comments |
 | Stale CLI help (automation, task, publish) | 07, 04 | cli-lead | started |
+| Seat portrait on every seat mention (operator law, AGENTS.md dfa17f23e) | 03 | product-feed, product-typography | started |
+| Canvas node card redesign (operator ask) | UI | product-typography leads; card owners; canvas-window | step 1 |
