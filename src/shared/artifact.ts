@@ -23,6 +23,8 @@
 import { Result, Schema } from "effect";
 import { ContentRef } from "./content";
 import { NodeId } from "./physics/schema";
+import { Anchor } from "./thread-subject";
+import { ItemId } from "./work-ids";
 import {
   applyPatch,
   Pad,
@@ -59,17 +61,7 @@ const Int = Schema.Number.pipe(Schema.check(Schema.isInt()));
 // ---------------------------------------------------------------------------
 // Identity
 
-const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/u;
-
-/**
- * An artifact is a resource item: its id is the shared item id (a ULID the
- * creator mints). Stand-in with the same brand as `ItemId` in
- * `work-ids.ts` (cli), so the two are one type; this becomes a re-export of
- * it when that file lands.
- */
-export const ItemId = Schema.String.check(Schema.isPattern(ULID)).pipe(Schema.brand("ItemId"));
-export type ItemId = typeof ItemId.Type;
-
+/** An artifact is a resource item: its id is the shared item id. */
 export const ArtifactId = ItemId;
 export type ArtifactId = ItemId;
 
@@ -350,28 +342,11 @@ export const decodeArtifactOp = Schema.decodeUnknownResult(ArtifactOp, STRICT);
 // Anchors
 
 /**
- * Where a comment thread points inside an artifact. The shapes are 03's
- * `Anchor` (owned by product-feed in `mention.ts` / `mail-threads.ts`); this
- * is the artifact subset, structurally the same, until that lands.
+ * Where a comment thread points inside an artifact: 03's `Anchor`
+ * (`thread-subject.ts`), narrowed per type. `lines` is git review's, never an
+ * artifact's.
  */
-export const ArtifactAnchor = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("whole") }),
-  Schema.Struct({
-    kind: Schema.Literal("box"),
-    x: Schema.Finite,
-    y: Schema.Finite,
-    w: Schema.Finite.pipe(Schema.check(Schema.isGreaterThan(0))),
-    h: Schema.Finite.pipe(Schema.check(Schema.isGreaterThan(0))),
-  }),
-  /** A1 notation over the sheet's column and row order, e.g. `B2` or `A1:C4`. */
-  Schema.Struct({ kind: Schema.Literal("cells"), range: NonEmptyString }),
-  Schema.Struct({
-    kind: Schema.Literal("text"),
-    quote: NonEmptyString,
-    offset: Schema.optionalKey(Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
-  }),
-]);
-export type ArtifactAnchor = typeof ArtifactAnchor.Type;
+export type ArtifactAnchor = Exclude<Anchor, { readonly kind: "lines" }>;
 export type ArtifactAnchorKind = ArtifactAnchor["kind"];
 
 /** Anchor kinds per type. `box` on a file holds only for images (runtime check). */
@@ -405,15 +380,26 @@ const isCellRange = (range: string): boolean => {
   return columnNumber(a[1]!) <= columnNumber(b[1]!) && Number(a[2]) <= Number(b[2]);
 };
 
-/** Whether a comment may anchor here. Text quotes are not checked against the body. */
-export const admitsAnchor = (body: ArtifactBody, anchor: ArtifactAnchor): boolean => {
-  const kinds: ReadonlyArray<ArtifactAnchorKind> = ANCHOR_KINDS[body.type];
+/**
+ * Whether a comment may anchor here: the kind fits the type, a box has area
+ * and no page url (on a file, only an image), cells are an A1 range. Text
+ * quotes are not checked against the body. The subject writer runs this.
+ */
+export const admitsAnchor = <T extends ArtifactType>(
+  body: BodyOf<T>,
+  anchor: Anchor,
+): anchor is AnchorFor<T> => {
+  const kinds: ReadonlyArray<Anchor["kind"]> = ANCHOR_KINDS[body.type as ArtifactType];
   if (!kinds.includes(anchor.kind)) return false;
-  if (anchor.kind === "box" && body.type === "file") {
-    return body.content.mediaType.startsWith("image/");
+  switch (anchor.kind) {
+    case "box":
+      if (anchor.w <= 0 || anchor.h <= 0 || anchor.url !== undefined) return false;
+      return body.type !== "file" || (body as FileBody).content.mediaType.startsWith("image/");
+    case "cells":
+      return isCellRange(anchor.range);
+    default:
+      return true;
   }
-  if (anchor.kind === "cells") return isCellRange(anchor.range);
-  return true;
 };
 
 // ---------------------------------------------------------------------------
