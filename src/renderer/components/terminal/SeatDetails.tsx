@@ -19,8 +19,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Ellipsis } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { WorkOpResult } from "@shared/ipc";
-import type { TaskState } from "@shared/work-model";
-import { asNodeId, type Node } from "@shared/model";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
@@ -33,7 +31,6 @@ import { mailEvidenceLabel } from "../../lib/crew-mail-view";
 import "./actor-ledger-mail.css";
 import {
   artifactRowsForSeat,
-  raisedTaskRowsForSeat,
   seatIdForActorNode,
 } from "../../lib/actor-ledger-work";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
@@ -42,7 +39,7 @@ import { terminal$ } from "../../lib/terminal-state";
 import { SIGNALS_SECTION, useSeatSignals } from "../../lib/agent-signals-view";
 import { clearSectionReveal, sidebarSections$ } from "../../lib/sidebar-sections";
 import { getJuntoApi } from "../../lib/junto-api";
-import { Button, Chip, IconButton, Popover, TaskStateMark, type ChipTone } from "../ui";
+import { Button, IconButton, Popover, TaskStateMark } from "../ui";
 import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
 import { DetailsGroup } from "./DetailsGroup";
 import { SeatSignalsSection } from "./SeatSignalsSection";
@@ -51,14 +48,6 @@ import { ThreadHealthSection } from "./ThreadHealthSection";
 
 // Module-level so the popover's placement effect sees one stable array.
 const DETAILS_SIDES = ["below", "left"] as const;
-
-const taskStateTone = (state: TaskState): ChipTone => {
-  if (state === "working") return "cyan";
-  if (state === "input-required") return "amber";
-  if (state === "completed") return "green";
-  if (state === "submitted" || state === "archived") return "steel";
-  return "crimson";
-};
 
 function MailRowItem({
   row,
@@ -125,81 +114,6 @@ function MailRowItem({
   );
 }
 
-function RaisedTaskRowItem({
-  row,
-  pending,
-  open,
-  onToggle,
-  onApprove,
-}: {
-  readonly row: import("../../lib/actor-ledger-work").RaisedTaskRow;
-  readonly pending: boolean;
-  readonly open: boolean;
-  readonly onToggle: () => void;
-  readonly onApprove: () => void;
-}) {
-  return (
-    <li
-      className="actor-ledger__item"
-      data-testid="actor-ledger-raised-task-row"
-      data-task-id={row.taskId}
-    >
-      <button
-        type="button"
-        className="actor-ledger__item-row"
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        <span className="actor-ledger__item-head">
-          <Chip tone={row.awaitingApproval ? "amber" : taskStateTone(row.state)}>
-            {row.awaitingApproval ? "awaiting approval" : row.state}
-          </Chip>
-          {row.hasFinishCriteria ? (
-            <Chip tone="steel" title="Has finish criteria">
-              criteria
-            </Chip>
-          ) : null}
-          {row.dependsOnCount > 0 ? (
-            <Chip
-              tone="steel"
-              title={`${row.dependsOnCount} prerequisite task${row.dependsOnCount === 1 ? "" : "s"}`}
-            >
-              deps {row.dependsOnCount}
-            </Chip>
-          ) : null}
-        </span>
-        <span className="actor-ledger__item-title">{row.title}</span>
-      </button>
-      {open ? (
-        <div className="actor-ledger__respond">
-          {/* The full decision contract precedes any action. */}
-          {row.details ? (
-            <div className="actor-ledger__contract">{row.details}</div>
-          ) : null}
-          {row.reason ? (
-            <div className="actor-ledger__contract actor-ledger__contract--reason">
-              Why: {row.reason}
-            </div>
-          ) : null}
-          {row.awaitingApproval ? (
-            <div className="actor-ledger__actions">
-              <Button
-                size="xs"
-                variant="primary"
-                disabled={pending}
-                onClick={onApprove}
-                title="Approve this task so agents can claim it"
-              >
-                Approve
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
 /** What the terminal surface knows about its session, shown at the foot of seat details. */
 export type SeatSession = {
   /** Attach status as the surface reports it ("control" while it holds the terminal). */
@@ -219,7 +133,6 @@ const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
 
 /** Renders only for actor-role nodes: every actor has a mailbox with the kernel. */
 /** The contract a task board holds its tasks to, when the node is one. */
-const contractOf = (node: Node | undefined) => (node?.kind === "task" ? node.contract : undefined);
 
 function SeatDetails({ node, session }: { readonly node: SeatFace; readonly session: SeatSession }) {
   const actorRefs = use$(state$.actorRefs);
@@ -247,15 +160,9 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
     [actorRefs, node.id],
   );
   const attentionRows = useAttentionRows(live ? canvas : "");
-  const taskPage = useActorPage("task", live ? canvas : "", seatId);
   const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
   const seatTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
   const claim = live ? seatTask : undefined;
-  const raisedTasks = useMemo(
-    () => live && seatId !== undefined && taskPage.page.kind === "task"
-      ? raisedTaskRowsForSeat(taskPage.page.items, (nodeId) => contractOf(held.nodes.get(asNodeId(nodeId))), seatId) : [],
-    [held, taskPage.page, seatId, live],
-  );
   const artifacts = useMemo(
     () => live && seatId !== undefined && artifactPage.page.kind === "artifacts"
       ? artifactRowsForSeat(artifactPage.page.items, seatId) : [],
@@ -335,7 +242,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
         </div>
       ) : null}
       {signalsSection}
-      <WorkPageControls {...taskPage} />
       <WorkPageControls {...artifactPage} />
       {claim ? (
         <DetailsGroup
@@ -353,39 +259,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
             </span>
             <span className="actor-ledger__item-title">{claim.label} {claim.title}</span>
           </div>
-        </DetailsGroup>
-      ) : null}
-      {raisedTasks.length > 0 ? (
-        <DetailsGroup
-          title="raised tasks"
-          count={raisedTasks.length}
-          countTone={raisedTasks.some((row) => row.awaitingApproval) ? "amber" : "faint"}
-        >
-          <ul className="actor-ledger__list">
-            {raisedTasks.map((row) => {
-              const key = `raised:${row.sinkNodeId}:${row.taskId}`;
-              return (
-                <RaisedTaskRowItem
-                  key={key}
-                  row={row}
-                  pending={pendingKeys.has(key)}
-                  open={openKey === key}
-                  onToggle={() => toggleOpen(key)}
-                  onApprove={() => {
-                    if (!api?.workTaskPromote) return;
-                    void runWork(key, () =>
-                      api!.workTaskPromote!(
-                        canvas,
-                        row.sinkNodeId,
-                        row.taskId,
-                        undefined,
-                      ),
-                    );
-                  }}
-                />
-              );
-            })}
-          </ul>
         </DetailsGroup>
       ) : null}
       {artifacts.length > 0 ? (
