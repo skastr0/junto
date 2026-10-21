@@ -321,6 +321,14 @@ describe("what the ruler reads of the canvas", () => {
     expect(env.seatReaches(seatNodeId(asNodeId("seat-c")), tnode)).toBe(false);
   });
 
+  it("reaches for an automation by its author, and not at all without one", () => {
+    const automations = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes, ["auto", { id: "auto", kind: "automations", name: "Automations", ...box(400, 100) }]]) } as unknown as Canvas;
+    const auto = asNodeId("auto");
+    expect(taskCanvasEnv(automations).automationReaches?.(auto, tnode)).toBe(false);
+    expect(taskCanvasEnv(automations, () => ({ kind: "operator" })).automationReaches?.(auto, tnode)).toBe(true);
+    expect(taskCanvasEnv(automations, () => ({ kind: "operator" })).automationReaches?.(auto, taskNodeId(asNodeId("tasks-2")))).toBe(false);
+  });
+
   it("puts a seat's reach and the operator's whole canvas in the ruling context", () => {
     const context = taskRulingContext(canvas);
     const target = { kind: "task" as const, nodeId: asNodeId("tasks-2") };

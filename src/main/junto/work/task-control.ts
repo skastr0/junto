@@ -10,7 +10,8 @@ import { parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
-import { reaches, seatsInReach } from "@shared/region-reach";
+import { automationTargets, reaches, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
+import { rulingContextOf } from "@shared/ruling-context";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
 import {
   TASK_ARGS,
@@ -157,8 +158,13 @@ export const writeResultOf = (outcome: TaskSubmitOutcome, opId: OpId): Effect.Ef
   }
 };
 
-/** The ruler's view of the canvas: flows downstream, stamp defaults and seat reach. */
-export const taskCanvasEnv = (canvas: Canvas): TaskCanvasEnv => ({
+/** Who wrote each automation, so its reach is the one it had when written (07). None here: the socket serves seats. */
+export type AutomationAuthorOf = (automation: NodeId) => AutomationAuthor | undefined;
+
+const noAutomationAuthor: AutomationAuthorOf = () => undefined;
+
+/** The ruler's view of the canvas: flows downstream, stamp defaults, and seat and automation reach. */
+export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthorOf = noAutomationAuthor): TaskCanvasEnv => ({
   downstream: (node) =>
     [...canvas.wires.values()]
       // `feeds` becomes `flows` (TASK_FLOW_VERB) with canvas C4; this line fails tsc when it does.
@@ -167,22 +173,15 @@ export const taskCanvasEnv = (canvas: Canvas): TaskCanvasEnv => ({
   // Task nodes set no stamp default yet (04): none is required.
   stampDefaultOf: () => ({ required: 0 }),
   seatReaches: (seat, node) => reaches(canvas, seat, node),
-});
-
-/** Region reach for the ruler: a seat reaches what its region reaches; the operator, everything. */
-export const taskRulingContext = (canvas: Canvas): RulingContext => ({
-  inReach: (actor, target) => {
-    switch (actor.kind) {
-      case "seat":
-        return reaches(canvas, actor.nodeId, target.nodeId);
-      case "operator":
-        return true;
-      // An automation writes through its own path (07), never this socket.
-      case "automation":
-        return false;
-    }
+  automationReaches: (automation, node) => {
+    const author = automationAuthor(automation);
+    return author !== undefined && automationTargets(canvas, automation, author).some((target) => target.id === node);
   },
 });
+
+/** Region reach at ruling for every actor kind (01 rule 3). */
+export const taskRulingContext = (canvas: Canvas, automationAuthor: AutomationAuthorOf = noAutomationAuthor): RulingContext =>
+  rulingContextOf(canvas, automationAuthor);
 
 // ---------------------------------------------------------------------------
 // Refs
