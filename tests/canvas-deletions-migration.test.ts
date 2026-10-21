@@ -6,7 +6,7 @@
  * kept stays exactly as it was, and nothing else in the database moves.
  *
  * Until the code that reads the dropped tables is gone, the step runs here
- * through a stand-in plan, as the step after the head.
+ * through a stand-in plan, as the step after version 25.
  */
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
   CANVAS_DELETIONS_REPLACED_TABLES,
   CANVAS_DELETIONS_RETIRED_COLUMNS,
@@ -22,8 +23,6 @@ import {
 } from "../src/main/junto/state/migrate-canvas-deletions";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
-  CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_CONSOLIDATE_SAFETY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -32,7 +31,6 @@ import {
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V25_SQL, stepped } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
@@ -67,10 +65,9 @@ const rows = (database: DatabaseSync, table: string) =>
 const named = <T extends { readonly toVersion: number; readonly migrate: (database: DatabaseSync) => void }>(step: T): T =>
   step.toVersion === 21 ? { ...step, migrate: (database: DatabaseSync) => migrateMachineNames(database, "macbook") } : step;
 
-// From the head, not the fixture text: the fixture compositions after 20 -> 21
-// keep foreign keys that name the tables' old names, where a real database
-// says the new ones.
-const STATE_SCHEMA_V26_SQL = stepped(STATE_SCHEMA_SQL, migrateCanvasDeletions);
+// From the frozen v25 text the fixtures were brought to, so a head schema in
+// flight cannot move it. A real database is checked on a copy of it.
+const STATE_SCHEMA_V26_SQL = stepped(STATE_SCHEMA_V25_SQL, migrateCanvasDeletions);
 
 const versionTwentyFivePlan: StateSchemaMigrationPlan = {
   ...STATE_SCHEMA_MIGRATION_PLAN,
@@ -79,7 +76,7 @@ const versionTwentyFivePlan: StateSchemaMigrationPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 25).map(named),
 };
 
-/** The stand-in: the deletions step appended after the head. */
+/** The stand-in: the deletions step appended after version 25. */
 const deletionsPlan: StateSchemaMigrationPlan = {
   ...versionTwentyFivePlan,
   currentVersion: 26,
@@ -95,6 +92,7 @@ const deletionsPlan: StateSchemaMigrationPlan = {
       removesTables: [...CANVAS_DELETIONS_REMOVED_TABLES],
       replacesTables: [...CANVAS_DELETIONS_REPLACED_TABLES],
       retiresColumns: CANVAS_DELETIONS_RETIRED_COLUMNS,
+      correctiveWriteTables: [...CANVAS_DELETIONS_CORRECTED_TABLES],
       migrate: migrateCanvasDeletions,
     },
   ],
@@ -113,14 +111,17 @@ const firstCanvas = (database: DatabaseSync): string => {
   return "main";
 };
 
+const SETTINGS_BEFORE = { kernel: { pulseLogRetention: 20, debugVerbose: true }, canvas: { showMinimap: false } };
+const SETTINGS_AFTER = { kernel: { debugVerbose: true }, canvas: { showMinimap: false } };
+
 const OLD_VERBS = [
   "messages", "reviews", "manages", "contributes", "works", "publishes", "participates", "reads",
   "edits", "navigates", "feeds", "fires", "announces", "enqueues", "wakes", "chains",
 ] as const;
 
 /**
- * Two seats with a wire of every old verb between them, a pad and a sheet
- * with a wire each, and a row in every table the step drops that has columns
+ * Two seats with a wire of every old verb between them, a pad, a sheet and
+ * a cron with a wire each, and a row in every table the step drops that has columns
  * this seed can fill without knowing the feature. A page and a region that
  * name a machine, and a remote machine with Hermes and the browser.
  */
@@ -144,9 +145,12 @@ const seed = (database: DatabaseSync, canvas: string): void => {
   for (const verb of OLD_VERBS) wire(`wire-${verb}`, "seat-a", "seat-b", verb);
   wire("wire-to-pad", "seat-a", "pad-1", "messages");
   wire("wire-from-sheet", "sheet-1", "seat-b", "messages");
+  insert("crons", { canvas_name: canvas, ...geometry("cron-1"), label: null, host: "macbook", expression: "0 * * * *" });
+  wire("wire-from-cron", "cron-1", "seat-b", "messages");
   insert("pages", { canvas_name: canvas, ...geometry("page-1"), url: "https://example.com/", host: "macbook", profile: "p", on_remove: "detach" });
   insert("regions", { canvas_name: canvas, ...geometry("region-1"), label: "R", hold: 0, page_url: "https://example.com/", page_host: "macbook" });
   const order = Number(database.prepare("SELECT max(sort_order) + 1 AS n FROM host_registry").get()!.n ?? 1);
+  insert("settings_preferences", { singleton: 1, version: 1, body: JSON.stringify(SETTINGS_BEFORE), updated_at: "t" });
   insert("host_registry", { id: "studio-probe", label: "Studio", is_this_machine: 0, capability_mask: 11, effective_hermes_id: "studio-probe", sort_order: order });
 };
 
@@ -159,10 +163,8 @@ const retired = (table: string, list: ReadonlyArray<Record<string, unknown>>) =>
   });
 
 describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
-  it("starts from the head witness", () => {
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(25);
+  it("starts from the version-25 witness", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V25_SQL)).toEqual(STATE_SCHEMA_V25_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V25_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -186,6 +188,7 @@ describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
         const { wires: _wires, host_registry: machinesBefore, ...restBefore } = before;
         for (const table of CANVAS_DELETIONS_REMOVED_TABLES) delete restBefore[table];
         for (const table of ["regions", "pages"]) restBefore[table] = retired(table, restBefore[table]!);
+        restBefore.settings_preferences = restBefore.settings_preferences!.map((row) => ({ ...row, body: JSON.stringify(SETTINGS_AFTER) }));
         expect(rest).toEqual(restBefore);
         expect(after.pages!.find((row) => row.id === "page-1")).not.toHaveProperty("host");
         expect(after.regions!.find((row) => row.id === "region-1")).not.toHaveProperty("page_host");

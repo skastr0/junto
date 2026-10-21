@@ -22,6 +22,10 @@ export const CANVAS_DELETIONS_REMOVED_KIND_TABLES = [
   "sheet_grids",
   "sheets",
   "pads",
+  // Scheduler kinds (07): automations replace them.
+  "crons",
+  "relays",
+  "watchers",
 ] as const;
 
 /** Feature tables with no successor, children before parents. */
@@ -314,7 +318,17 @@ export const migrateCanvasDeletions = (database: StateSchemaMigrationDatabase): 
   rebuild(database, "regions");
   rebuild(database, "pages");
   rebuild(database, "host_registry", remoteCapabilities);
+  // Region Pulse's retention setting goes with it, so the field can leave the
+  // settings schema, which refuses keys it does not know.
+  database.exec(`
+    UPDATE settings_preferences
+    SET body = json_remove(body, '$.kernel.pulseLogRetention')
+    WHERE json_type(body, '$.kernel.pulseLogRetention') IS NOT NULL
+  `);
 };
+
+/** Tables whose rows this step corrects in place. */
+export const CANVAS_DELETIONS_CORRECTED_TABLES = ["settings_preferences"] as const;
 
 /** The tables this step rebuilds in place. */
 export const CANVAS_DELETIONS_REPLACED_TABLES = ["wires", "regions", "pages", "host_registry"] as const;
