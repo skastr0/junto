@@ -142,7 +142,7 @@ export const TaskCheckArgs = Schema.Struct({
     checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256))),
     side: Schema.Literals(["outgoing", "incoming"]),
     exitCode: Schema.Int,
-    /** The output's last bytes; a longer tail is cut to its last CHECK_OUTPUT_TAIL_MAX. */
+    /** The output's last characters; a longer tail is cut to its last CHECK_OUTPUT_TAIL_MAX. */
     outputTail: Schema.String,
   })).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(CHECK_RESULTS_MAX))),
 }).annotate(strict);
