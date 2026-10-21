@@ -4,8 +4,9 @@
  * Until the editing machine's command channel lands, this machine is the
  * editing machine: `submit` rules a command with the shared task domain
  * (`task-machine.ts`) against every task of the canvas, and writes its
- * ruling, the task's new head, a closed layer when the task was sent on and
- * the next number when one was minted, in one transaction. A command already
+ * ruling (in the shared `resource_rulings`), the task's new head, a closed
+ * layer when the task was sent on and the next number when one was minted, in
+ * one transaction; reads serve the contract's `TaskView`. A command already
  * ruled (same writer, same opId) returns its first ruling and writes nothing.
  *
  * The ruling's effects (assignment notices, stamp requests, defects) come
@@ -36,6 +37,7 @@ import {
   seatNodeId,
   taskNodeId,
   taskNumber,
+  type ClosedTaskLayer,
   type Reviewer,
   type Stamp,
   type TaskCommand,
@@ -43,6 +45,7 @@ import {
   type TaskEffect,
   type TaskId,
   type TaskState,
+  type TaskView,
 } from "@shared/task-model";
 import type { WorkErrorBody } from "@shared/work-control";
 import { ItemId, type OpId } from "@shared/work-ids";
@@ -83,10 +86,9 @@ export class TaskRepository extends Context.Service<TaskRepository,
     readonly list: (
       canvasName: string,
       query: TaskListQuery,
-    ) => Effect.Effect<{ readonly tasks: ReadonlyArray<TaskRecord>; readonly more: boolean }, TaskPersistenceError>;
-    readonly get: (canvasName: string, taskId: TaskId) => Effect.Effect<Option.Option<TaskRecord>, TaskPersistenceError>;
-    /** The layers a task closed, oldest first. */
-    readonly layers: (canvasName: string, taskId: TaskId) => Effect.Effect<ReadonlyArray<TaskCore>, TaskPersistenceError>;
+    ) => Effect.Effect<{ readonly tasks: ReadonlyArray<TaskView>; readonly more: boolean }, TaskPersistenceError>;
+    /** One task with its closed layers, oldest first. */
+    readonly get: (canvasName: string, taskId: TaskId) => Effect.Effect<Option.Option<TaskView>, TaskPersistenceError>;
     /** Rule one command here and write what it makes. */
     readonly submit: (
       writer: InstallationId,
@@ -112,8 +114,13 @@ const HeadRow = Schema.Struct({
   stamps_json: Schema.String,
   depends_on_json: Schema.String,
   next_node_id: Schema.NullOr(Schema.String),
+  created_at: Schema.Number,
+  updated_at: Schema.Number,
 });
 type HeadRow = typeof HeadRow.Type;
+
+const LayerRow = Schema.Struct({ task_id: Schema.String, layer_json: Schema.String, closed_at: Schema.Number });
+type LayerRow = typeof LayerRow.Type;
 
 const ReviewerJson = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("seat"), seat: Schema.String.pipe(Schema.check(Schema.isMinLength(1))) }),
@@ -180,6 +187,25 @@ const StoredRuling = Schema.Union([
 ]);
 const decodeStoredRuling = Schema.decodeUnknownResult(StoredRuling);
 
+/** A closed layer row; written whole from a ruled layer and never changed. */
+const layerOfRow = (row: LayerRow): ClosedTaskLayer => ({ ...(parse(row.layer_json) as TaskCore), closedAt: row.closed_at });
+
+/** The read shape of a head and its closed layers. */
+const viewOf = (row: HeadRow, task: TaskRecord, layers: ReadonlyArray<ClosedTaskLayer>): TaskView => {
+  const { id, number, title, body, dependsOn, ...current } = task;
+  return {
+    taskId: id,
+    number,
+    title,
+    ...(body === undefined ? {} : { body }),
+    current,
+    layers,
+    dependsOn,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
 const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError) =>
   TaskPersistenceError.make({ operation, message: error.message, cause: error });
 
@@ -194,14 +220,14 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas, id }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
     });
 
     const canvasRows = SqlSchema.findAll({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
     const nextNumberRow = SqlSchema.findOneOption({
@@ -214,9 +240,36 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, writer: Schema.String, opId: Schema.String }),
       Result: Schema.Struct({ ruling_json: Schema.String }),
       execute: ({ canvas, writer, opId }) => sql`
-        SELECT ruling_json FROM task_rulings
+        SELECT ruling_json FROM resource_rulings
         WHERE canvas_name = ${canvas} AND writer = ${writer} AND op_id = ${opId}`,
     });
+
+    const layerRows = (canvas: string, ids: ReadonlyArray<string>) =>
+      ids.length === 0
+        ? Effect.succeed<ReadonlyArray<LayerRow>>([])
+        : SqlSchema.findAll({
+          Request: Schema.Void,
+          Result: LayerRow,
+          execute: () => sql`
+            SELECT task_id, layer_json, closed_at FROM task_layers
+            WHERE canvas_name = ${canvas} AND ${sql.in("task_id", ids)}
+            ORDER BY task_id, ordinal`,
+        })(undefined);
+
+    /** Views of decodable head rows, each with its closed layers. */
+    const viewsOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>
+      Effect.gen(function* () {
+        const layers = new Map<string, ClosedTaskLayer[]>();
+        for (const row of yield* layerRows(canvas, rows.map((head) => head.task_id))) {
+          const held = layers.get(row.task_id);
+          if (held === undefined) layers.set(row.task_id, [layerOfRow(row)]);
+          else held.push(layerOfRow(row));
+        }
+        return rows.flatMap((row) => {
+          const task = taskOfRow(row);
+          return task === undefined ? [] : [viewOf(row, task, layers.get(row.task_id) ?? [])];
+        });
+      });
 
     const layerCount = (canvas: string, id: TaskId) =>
       Effect.map(
@@ -280,10 +333,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
           }
         }
         yield* sql`
-          INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, updated_at)
+          INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at)
           VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
             ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
-            ${JSON.stringify(task.stamps)}, ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at})
+            ${JSON.stringify(task.stamps)}, ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at})
           ON CONFLICT (canvas_name, task_id) DO UPDATE SET
             node_id = excluded.node_id, title = excluded.title, body = excluded.body, state = excluded.state,
             assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
@@ -300,33 +353,22 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         Request: Schema.Void,
         Result: HeadRow,
         execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id FROM task_heads
+          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads
           WHERE canvas_name = ${canvasName}
             AND ${sql.in("node_id", query.nodeIds)}
             AND ${sql.in("state", states)}
           ORDER BY updated_at DESC, task_id DESC
           LIMIT ${query.limit + 1}`,
       })(undefined);
-      const tasks = rows.slice(0, query.limit).flatMap((row) => taskOfRow(row) ?? []);
+      const tasks = yield* viewsOf(canvasName, rows.slice(0, query.limit));
       return { tasks, more: rows.length > query.limit };
     }, Effect.mapError(persistence("list")));
 
     const get = Effect.fn("tasks.get")(function* (canvasName: string, taskId: TaskId) {
-      return yield* readTask(canvasName, taskId);
+      const row = yield* headRow({ canvas: canvasName, id: taskId });
+      if (Option.isNone(row)) return Option.none<TaskView>();
+      return Option.fromNullishOr((yield* viewsOf(canvasName, [row.value]))[0]);
     }, Effect.mapError(persistence("get")));
-
-    const layers = Effect.fn("tasks.layers")(function* (canvasName: string, taskId: TaskId) {
-      const rows = yield* SqlSchema.findAll({
-        Request: Schema.Void,
-        Result: Schema.Struct({ layer_json: Schema.String }),
-        execute: () => sql`
-          SELECT layer_json FROM task_layers
-          WHERE canvas_name = ${canvasName} AND task_id = ${taskId}
-          ORDER BY ordinal`,
-      })(undefined);
-      // A layer is written whole from a ruled TaskCore and never changed.
-      return rows.map((row) => parse(row.layer_json) as TaskCore);
-    }, Effect.mapError(persistence("layers")));
 
     const submit = Effect.fn("tasks.submit")(function* (
       writer: InstallationId,
@@ -376,11 +418,11 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         ? { kind: "applied", taskId: outcome.task.id }
         : { kind: "refused", error: outcome.error, root: outcome.root };
       yield* sql`
-        INSERT INTO task_rulings (canvas_name, writer, op_id, ruling_json, at)
-        VALUES (${canvas}, ${writer}, ${command.opId}, ${JSON.stringify(stored)}, ${at})`;
+        INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json)
+        VALUES (${canvas}, ${writer}, ${command.opId}, ${stored.kind}, ${JSON.stringify(stored)})`;
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "tasks.submit"), Effect.mapError(persistence("submit")));
 
-    return TaskRepository.of({ list, get, layers, submit });
+    return TaskRepository.of({ list, get, submit });
   }),
 );

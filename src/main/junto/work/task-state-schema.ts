@@ -9,8 +9,8 @@
  * - `task_layers` keeps every layer a task closed by being sent on, in order,
  *   as the layer stood when it closed.
  * - `task_numbers` is the next number the ruler mints on a canvas.
- * - `task_rulings` answers a retried command (same writer, same opId) with
- *   its first ruling, until the shared ruling store of plan 02 lands.
+ *
+ * Rulings go in the shared `resource_rulings` table (02), with every domain's.
  *
  * Reviewers, stamps and dependencies are JSON on the head while their home is
  * decided (stamps on the verdict tables, 04).
@@ -32,7 +32,8 @@ export const TASKS_STATE_SCHEMA_SQL = `
     stamps_json TEXT NOT NULL CHECK (json_valid(stamps_json)),
     depends_on_json TEXT NOT NULL CHECK (json_valid(depends_on_json)),
     next_node_id TEXT CHECK (next_node_id IS NULL OR length(next_node_id) BETWEEN 1 AND 256),
-    updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+    created_at INTEGER NOT NULL CHECK (created_at >= 0),
+    updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
     PRIMARY KEY (canvas_name, task_id),
     UNIQUE (canvas_name, number),
     CHECK ((state IN ('assigned', 'working', 'input-required', 'in-review')) = (assignee_node_id IS NOT NULL)
@@ -63,14 +64,5 @@ export const TASKS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS task_numbers (
     canvas_name TEXT NOT NULL PRIMARY KEY CHECK (length(canvas_name) BETWEEN 1 AND 256),
     next_number INTEGER NOT NULL CHECK (next_number >= 1)
-  ) STRICT, WITHOUT ROWID;
-
-  CREATE TABLE IF NOT EXISTS task_rulings (
-    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
-    writer TEXT NOT NULL CHECK (length(writer) BETWEEN 1 AND 256),
-    op_id TEXT NOT NULL CHECK (length(op_id) = 26),
-    ruling_json TEXT NOT NULL CHECK (json_valid(ruling_json)),
-    at INTEGER NOT NULL CHECK (at >= 0),
-    PRIMARY KEY (canvas_name, writer, op_id)
   ) STRICT, WITHOUT ROWID;
 `;

@@ -30,6 +30,12 @@ beforeEach(() => {
   database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");
   database.exec(TASKS_STATE_SCHEMA_SQL);
+  // The shared ruling store (02); its schema lands with cli-identity's step.
+  database.exec(`CREATE TABLE resource_rulings (
+    canvas_name TEXT NOT NULL, writer TEXT NOT NULL, op_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('applied', 'refused')), ruling_json TEXT NOT NULL CHECK (json_valid(ruling_json)),
+    PRIMARY KEY (canvas_name, writer, op_id)
+  ) STRICT, WITHOUT ROWID`);
   const client = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   runtime = ManagedRuntime.make(TaskRepositoryLive.pipe(Layer.provide(client)));
 });
@@ -95,8 +101,10 @@ describe("task repository", () => {
     expect(first.outcome.task.number).toBe(1);
     expect(second.outcome.task.number).toBe(2);
     expect(first.outcome.effects).toEqual([{ kind: "number-minted", number: 1 }]);
-    const read = await withRepo((repo) => repo.get(canvas, first.taskId));
-    expect(Option.getOrThrow(read)).toEqual(first.outcome.task);
+    const read = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, first.taskId)));
+    const { id: _id, number: _number, title: _title, dependsOn: _deps, ...current } = first.outcome.task;
+    expect(read).toMatchObject({ taskId: first.taskId, number: 1, title: "one", dependsOn: [], layers: [], current });
+    expect(read.createdAt).toBe(read.updatedAt);
     const listed = await withRepo((repo) => repo.list(canvas, { nodeIds: [build], limit: 10 }));
     expect(listed.tasks.map((task) => task.title).sort()).toEqual(["one", "two"]);
   });
@@ -135,12 +143,20 @@ describe("task repository", () => {
       const actor = op.kind === "assign" ? operator : adaActor;
       applied(await submit(command(op, taskId, { actor }), flows));
     }
-    const task = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));
-    expect(task).toMatchObject({ state: "backlog", node: qa });
-    expect(task.assignee).toBeUndefined();
-    const layers = await withRepo((repo) => repo.layers(canvas, taskId));
-    expect(layers).toEqual([
-      { state: "done", node: build, assignee: ada, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+    const view = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));
+    expect(view.current).toMatchObject({ state: "backlog", node: qa });
+    expect(view.current.assignee).toBeUndefined();
+    expect(view.layers).toEqual([
+      {
+        state: "done",
+        node: build,
+        assignee: ada,
+        epoch: 0,
+        stampPolicy: { required: 0 },
+        reviewers: [],
+        stamps: [],
+        closedAt: expect.any(Number),
+      },
     ]);
   });
 
@@ -150,6 +166,6 @@ describe("task repository", () => {
     applied(await submit(command({ kind: "archive" }, taskId)));
     expect((await withRepo((repo) => repo.list(canvas, { nodeIds: [build], limit: 10 }))).tasks).toEqual([]);
     const archived = await withRepo((repo) => repo.list(canvas, { nodeIds: [build], states: ["archived"], limit: 10 }));
-    expect(archived.tasks.map((task) => task.id)).toEqual([taskId]);
+    expect(archived.tasks.map((task) => task.taskId)).toEqual([taskId]);
   });
 });
