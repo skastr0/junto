@@ -29,6 +29,7 @@ import { Command } from "../src/shared/model";
 import { Artifacts, Automations, TaskBoard } from "../src/shared/model/kinds";
 import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
 import { makeUserMessage } from "../src/shared/task";
+import type { Message } from "../src/shared/work-model";
 import { threadSubjectMetadata } from "../src/shared/thread-subject";
 
 const command = Schema.decodeUnknownSync(Command);
@@ -351,6 +352,117 @@ describe("comment triggers, read from each Artifacts node's mailbox", () => {
       await inApp(wake);
       const { firings } = await handlers.firings("factory", { automationId: ID });
       expect(firings.map((f) => f.cause)).toEqual([{ kind: "change", key: `artifact:${ARTIFACT}:commented:01M5ESKJFC1A88R1MH1NEZWJ73` }]);
+    }, work);
+  });
+});
+
+describe("an automation's comment", () => {
+  const T = "01M5ESKJFC1A88R1MH1NEZWJ60";
+  const ARTIFACT = "01M5ESKJFC1A88R1MH1NEZWJ70";
+  const REVIEWER = "agent-b";
+  /** A mailbox per node, and every notice written, as the work service would hold them. */
+  const workStandIn = () => {
+    const boxes = new Map<string, Array<Message>>();
+    const notices: Array<{ readonly to: string; readonly kind: unknown }> = [];
+    const work: Partial<WorkServiceShape> = {
+      readMailbox: (_canvas, nodeId) => Effect.succeed(boxes.get(nodeId) ?? []),
+      workSubjectRow: (_canvas, nodeId, message) =>
+        Effect.sync(() => {
+          boxes.set(nodeId, [...(boxes.get(nodeId) ?? []), message]);
+          return { ok: true, data: { messageId: message.messageId, written: true }, disposition: "applied" } as const;
+        }),
+      workSubjectNotice: (_canvas, nodeId, message) =>
+        Effect.sync(() => {
+          notices.push({ to: nodeId, kind: message.metadata?.mailKind });
+          return { ok: true, data: { messageId: message.messageId, written: true }, disposition: "applied" } as const;
+        }),
+    };
+    return { work, notices };
+  };
+  const submit = (taskId: string, opId: string, wire: Parameters<typeof checkTaskCommand>[0]) =>
+    Effect.gen(function* () {
+      const canvas = yield* (yield* ModelService).canvas("factory");
+      const checked = checkTaskCommand(wire, (id) => canvas.nodes.get(id)?.kind);
+      if (!checked.ok) throw new Error(`the ${wire.kind} does not check`);
+      const outcome = yield* (yield* TaskRepository).submit(
+        "mini" as never,
+        {
+          opId: OpId.make(opId),
+          canvasName: "factory",
+          actor: { kind: "operator" },
+          target: { kind: "task", nodeId: asNodeId(TASKS), itemId: ItemId.make(taskId) },
+          basis: null,
+          after: [],
+          op: checked.command,
+        },
+        rulingContextOf(canvas, () => undefined),
+        taskCanvasEnv(canvas),
+      );
+      if (outcome.kind !== "applied") throw new Error(`the ${wire.kind} was refused: ${JSON.stringify(outcome.error)}`);
+    });
+
+  it("tells the task's assignee and reviewers", () => {
+    const { work, notices } = workStandIn();
+    return run(async (handlers, _changed, _sql, inApp) => {
+      await inApp(Effect.gen(function* () {
+        yield* (yield* ModelService).command(command({ _tag: "Add", canvas: "factory", nodes: [seat(REVIEWER)], wires: [] }), "operator");
+      }));
+      await inApp(submit(T, T, { kind: "create", taskId: ItemId.make(T), title: "By hand" }));
+      await inApp(submit(T, "01M5ESKJFC1A88R1MH1NEZWJ61", { kind: "assign", seat: SEAT as never }));
+      await inApp(submit(T, "01M5ESKJFC1A88R1MH1NEZWJ62", { kind: "reviewer-add", reviewer: { kind: "seat", seat: REVIEWER as never } }));
+      const nudge = { ...definition, then: [{ kind: "comment", on: { kind: "task", nodeId: TASKS, taskId: T }, text: "Status?" }] };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition: nudge as never } });
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "run" } });
+      expect((await handlers.firings("factory", { automationId: ID })).firings[0]?.outcome).toEqual({
+        kind: "fired",
+        actions: [{ index: 0, ruling: "applied" }],
+      });
+      expect(notices.map((notice) => notice.to).sort()).toEqual([SEAT, REVIEWER].sort());
+    }, work);
+  });
+
+  it("is refused on a task the node does not hold, and tells no one", () => {
+    const { work, notices } = workStandIn();
+    return run(async (handlers) => {
+      const nudge = { ...definition, then: [{ kind: "comment", on: { kind: "task", nodeId: TASKS, taskId: T }, text: "Status?" }] };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition: nudge as never } });
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "run" } });
+      expect((await handlers.firings("factory", { automationId: ID })).firings[0]?.outcome).toEqual({
+        kind: "fired",
+        actions: [{ index: 0, ruling: "refused", reason: "unknown_target" }],
+      });
+      expect(notices).toEqual([]);
+    }, work);
+  });
+
+  it("never fires a commented trigger, its own included", () => {
+    const { work } = workStandIn();
+    return run(async (handlers, _changed, _sql, inApp) => {
+      const OTHER = "01M5ESKJFC1A88R1MH1NEZWJ2R";
+      const artifact = { kind: "artifact", nodeId: ARTIFACTS, artifactId: ARTIFACT };
+      // On a comment on the artifact, comment on it: a loop if its own comment fired it.
+      const echo = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "artifact", artifact, event: "commented" } },
+        then: [{ kind: "comment", on: artifact, text: "Seen" }],
+        limits: { minIntervalMs: 0, maxPerHour: 60 },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: echo as never } });
+      const wake = Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).wake("factory");
+      });
+      await inApp(wake); // the baseline
+      // Another automation comments by hand-run: an automation's comment, which fires nothing.
+      const post = { ...definition, then: [{ kind: "comment", on: artifact, text: "Shipped" }] };
+      await handlers.apply("factory", { nodeId: NODE, automationId: OTHER, op: { kind: "create", automationId: OTHER, enabled: false, definition: post as never } });
+      await handlers.apply("factory", { nodeId: NODE, automationId: OTHER, op: { kind: "run" } });
+      expect((await handlers.firings("factory", { automationId: OTHER })).firings[0]?.outcome).toEqual({
+        kind: "fired",
+        actions: [{ index: 0, ruling: "applied" }],
+      });
+      await inApp(wake);
+      await inApp(wake);
+      expect((await handlers.firings("factory", { automationId: ID })).firings).toEqual([]);
     }, work);
   });
 });

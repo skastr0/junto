@@ -36,6 +36,7 @@ import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import { WorkService, type WorkServiceShape } from "../work/service";
 import { postSubjectComment } from "../work/subject-comment";
+import { subjectPeopleAt } from "../work/subject-people";
 import type { SubjectCommentInput } from "@shared/subject-comment";
 import { RefusalReason as RefusalReasonSchema, type RefusalReason } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
@@ -308,16 +309,16 @@ export const performAction = (
       case "comment": {
         // A comment on the whole resource; a place on it waits for the plan 03 anchors.
         if (canvas === undefined || (action.anchor !== undefined && action.anchor.kind !== "whole")) return notAvailable(index);
+        const input = commentOn(action.on, {
+          text: action.text,
+          actor: { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId },
+          // Derived from the firing, so a retried firing posts the comment once.
+          opId: OpId.make(automationMailId(firingId, index)),
+        });
+        // A task's assignee and reviewers hear of it, as on the seat paths; a task not held at the node is refused.
         const posted = yield* Effect.result(
-          postSubjectComment(
-            commentOn(action.on, {
-              text: action.text,
-              actor: { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId },
-              // Derived from the firing, so a retried firing posts the comment once.
-              opId: OpId.make(automationMailId(firingId, index)),
-            }),
-            { canvas, canvasName, people: [] },
-          ),
+          Effect.flatMap(subjectPeopleAt(canvas, canvasName, input.subject), (people) =>
+            postSubjectComment(input, { canvas, canvasName, people })),
         );
         return posted._tag === "Success"
           ? ({ index, ruling: "applied" } as const)
