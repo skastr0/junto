@@ -1,10 +1,14 @@
 import { useMemo, useState } from "react";
 import type { AgentSignalAnswerOptions } from "@shared/ipc";
+import { AGENT_SIGNAL_MAX_RESPONSE_LENGTH } from "@shared/agent-signals";
+import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
 import type { NodeId } from "@shared/physics/schema";
+import type { ContentRef } from "@shared/wire/content-ref";
 import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { useAttachments } from "../../lib/operator-attachments";
+import { carryText, useLongText } from "../../lib/long-text";
 import { useConnectedSeats, useResourcesInReach } from "../../lib/mention-sources";
 import { answerLabel, useQuickReplies, useQuietNotes } from "../../lib/quick-replies";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
@@ -18,6 +22,9 @@ import { keyAria, keyIs } from "../../lib/key-match";
 const claimReplyFocus = (wrapper: HTMLDivElement | null): void => {
   claimFocus(wrapper?.querySelector("textarea"), "open", { preventScroll: true });
 };
+
+/** An answer's column holds fewer characters than a mail's row holds bytes. */
+const ANSWER_BOUND: TextBound = { bytes: MAIL_TEXT_INLINE_MAX_BYTES, characters: AGENT_SIGNAL_MAX_RESPONSE_LENGTH };
 
 /** What the pills wait on while a file uploads: no pill's own text. */
 const UPLOADING = "\u0000uploading";
@@ -102,13 +109,18 @@ export function SignalReply({
   // Every attached file is in (or there are none): an answer may go.
   const filesIn = attachments.ready !== undefined;
   const files = attachments.ready ?? [];
-  const withFiles = (silent: boolean) =>
-    silent || files.length > 0 ? { ...(silent ? { silent } : {}), ...(files.length > 0 ? { attachments: files } : {}) } : undefined;
+  const long = useLongText(reply.trim(), files.length, ANSWER_BOUND);
+  const withFiles = (silent: boolean, carried: ReadonlyArray<ContentRef>) =>
+    silent || carried.length > 0 ? { ...(silent ? { silent } : {}), ...(carried.length > 0 ? { attachments: carried } : {}) } : undefined;
+  // Past its bound the answer goes as a file; its mentions then copy no one, as words in a file do not.
   const answer = (label: string, text: string, silent: boolean): void => {
-    if (pending !== null || !filesIn) return;
-    void act(label, () => respond(signalId, text, withFiles(silent)));
+    if (pending !== null || !filesIn || long.blocked) return;
+    void act(label, async () => {
+      const carried = await carryText(canvasName, text, files, ANSWER_BOUND);
+      return respond(signalId, carried.text, withFiles(silent, carried.files));
+    });
   };
-  const canSend = pending === null && filesIn && (reply.trim().length > 0 || files.length > 0);
+  const canSend = pending === null && filesIn && !long.blocked && (reply.trim().length > 0 || files.length > 0);
   const send = (): void => {
     if (canSend) answer("", reply.trim(), false);
   };
@@ -156,6 +168,11 @@ export function SignalReply({
         aria-label="Your reply"
         aria-keyshortcuts={[keyAria("message.send"), keyAria("message.sendQuietly")].filter(Boolean).join(" ")}
       />
+      {long.notice ? (
+        <p className={long.blocked ? "text-label text-crimson-fg" : "text-label text-dim"} role="status" data-testid="signal-reply-long-text">
+          {long.notice}
+        </p>
+      ) : null}
       {error ? <p className="seat-signal-popover__error" role="alert">{error}</p> : null}
       <div className="seat-signal-popover__actions">
         <span className="mr-auto flex">

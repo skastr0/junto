@@ -263,6 +263,24 @@ describe("the signal answer box", () => {
     });
   });
 
+  it("sends an answer past its bound as message.md, and says so before send", async () => {
+    setOperatorContentPutter(fakeMain().put);
+    const { respond, button } = renderReply();
+    const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    const long = "y".repeat(8001);
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(field, long);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.querySelector('[data-testid="signal-reply-long-text"]')?.textContent).toBe(
+      "Over 8,000 characters, so this goes as message.md, attached",
+    );
+    act(() => button("Send reply").click());
+    await flush();
+    expect(respond).toHaveBeenCalledWith("sig-1", "", { attachments: [ref("message.md", 1, "text/markdown")] });
+  });
+
   it("says a failed file blocks the answer until it is removed, and marks itself as the drop target", async () => {
     setOperatorContentPutter(async () => ({ ok: false, message: "The content store is unavailable." }));
     const { button } = renderReply();

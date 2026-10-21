@@ -7,6 +7,7 @@ import {
   type OperatorContentPut,
   type OperatorContentPutResult,
 } from "@shared/operator-attachments";
+import { LONG_TEXT_FILE } from "@shared/mail-text-bound";
 import { attachmentName } from "@shared/preview-bytes";
 import type { ContentRef } from "@shared/wire/content-ref";
 
@@ -91,6 +92,16 @@ export const uploadOperatorFile = async (
     offset = end;
     if (last) throw new Error("The file could not be stored.");
   }
+};
+
+/**
+ * A composer's text too long to travel inline, uploaded as LONG_TEXT_FILE
+ * for a mail on `canvasName`. Answers its ref, or throws with main's words.
+ */
+export const uploadOperatorText = (canvasName: string, text: string): Promise<ContentRef> => {
+  const put = activePutter();
+  if (!put) return Promise.reject(new Error("Attaching files is not available here."));
+  return uploadOperatorFile(put, canvasName, new Blob([text], { type: LONG_TEXT_FILE.mediaType }), LONG_TEXT_FILE);
 };
 
 /** What a composer holds and hands its tray. */
