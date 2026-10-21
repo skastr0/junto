@@ -48,8 +48,16 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    one of its seats. Another machine's seat arrives as a peer: its id, label,
    machine and place on the canvas, and nothing it could be started from. A
    peer can be addressed and never started. A plain terminal goes only to its
-   own machine. Notes, labels, files, links and every kind that is off stay on
-   the editing machine. The editing machine keeps everything. Whatever a machine
+   own machine. Every node that needs no host's runtime goes to every machine:
+   tasks, artifacts, labels, files, links and region outlines. The copy
+   carries its geometry and label; its body travels as facts or content refs,
+   never in the copy, so the copy stays one frame. A file, a link or a
+   repository arrives as a stub: what it is, where it sits and what it is
+   called, with no path or address. A browser page goes elsewhere as a stub
+   shaped like a peer: id, geometry, label and the editing machine, with
+   nothing to drive it and no wire to it. Notes, what fires on its own host,
+   the kinds 0.10 deletes and every kind that is off stay on the editing
+   machine. The editing machine keeps everything. Whatever a machine
    once received it may still hold; removal does not take it back. There is
    no merging of concurrent edits.
    Nothing may assume a second editor can never exist: ids stay global, and a

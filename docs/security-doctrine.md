@@ -133,10 +133,13 @@ play or pause. Private content follows the seats that need it:
   restricted to a machine remain restricted to it.
 - App briefing and app-wide references go to every machine with a seat: those
   texts are already available to every seat.
-- The editing machine keeps the complete canvas and its work. Other machines
-  receive only work they are entitled to, including mail for their seats and
-  the receipts or answers relevant to their seats' work.
-  Notes, labels, files and links stay on the editing machine.
+- The editing machine keeps the complete canvas and its work. Every other
+  machine on the canvas receives every resource: tasks, artifacts, labels,
+  files and links, as geometry and label in the copy, never a body, path,
+  address or contract. Other machines receive only work they are entitled
+  to, including mail for their seats and the receipts or answers relevant to
+  their seats' work. Notes stay on the editing machine. A browser page goes
+  elsewhere only as a stub, with nothing to drive and no wire to it.
 
 Copy selection must enumerate fields and tables. Adding a field does not
 silently make it public. Content that no local seat needs is not copied just

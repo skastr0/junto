@@ -7,6 +7,7 @@ import {
   type CanvasCopy,
   type CanvasCopySource,
 } from "../src/shared/canvas-copy";
+import { productNodeKindEnabled } from "../src/shared/features";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, asNodeId, type Node, type Region, type Wire } from "../src/shared/model";
 import { seat as seatNode, wire } from "./support/model-nodes";
@@ -73,6 +74,7 @@ const source: CanvasCopySource = {
   canvasId: "canvas-factory",
   seq: 41,
   editor: EDITOR,
+  editorMachineName: "macbook",
   nodes,
   wires,
   guidance: {
@@ -197,5 +199,122 @@ describe("a canvas cut for one machine", () => {
       ok: false,
       refusal: { reason: "a-row-names-no-machine", nodeId: "private" },
     });
+  });
+});
+
+/**
+ * Every kind, cut for two machines: the mini, whose seat is in the region the
+ * resources sit in, and linux, whose seat is in the other one. Resources cross
+ * to both as their place and their label; only a region's private parts follow
+ * the seats.
+ */
+describe("each kind, cut for each machine", () => {
+  const LINUX = id("linux-installation");
+  const inRemote = (x: number) => ({ x, y: 300, width: 40, height: 40, z: 2 });
+  const resources: ReadonlyArray<Node> = [
+    { kind: "task", id: asNodeId("backlog"), ...inRemote(10), color: "#ff0000", name: "Backlog", contract: { instructions: "Task contract body." } } as Node,
+    { kind: "artifacts", id: asNodeId("shelf"), ...inRemote(60), label: "Shelf" },
+    { kind: "label", id: asNodeId("caption"), ...inRemote(110), text: "Caption" },
+    { kind: "file", id: asNodeId("spec"), ...inRemote(160), path: "/Users/op/private-dir/spec.md" },
+    { kind: "link", id: asNodeId("docs"), ...inRemote(210), url: "https://docs.test/secret-path?token=1" },
+    { kind: "git", id: asNodeId("repo"), ...inRemote(260), cwd: "/Users/op/private-repo" },
+    { kind: "page", id: asNodeId("browser"), ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile", host: "mini" as never, onRemove: "detach" },
+    { kind: "note", id: asNodeId("memo"), ...inRemote(360), text: "Note body stays home." },
+    { kind: "cron", id: asNodeId("nightly"), ...inRemote(410), host: "macbook" as never, label: "Nightly", expression: "0 3 * * *" },
+    { kind: "relay", id: asNodeId("relay"), ...inRemote(460), host: "macbook" as never, label: "Relay" },
+    { kind: "watcher", id: asNodeId("gauge"), ...inRemote(510), host: "macbook" as never, label: "Gauge" },
+  ];
+  const lin = seat("lin", "linux", { x: 2300, y: 50 });
+  const everything: CanvasCopySource = {
+    ...source,
+    nodes: [...nodes, lin, ...resources],
+    wires: [
+      ...wires,
+      wire("lead-to-backlog", "lead", "backlog", "messages"),
+      wire("lead-to-browser", "lead", "browser", "messages"),
+      wire("lead-to-memo", "lead", "memo", "messages"),
+    ],
+    seatIdOf: (node) => seatId(node.id === "lead" ? "1" : node.id === "peer" ? "2" : node.id === "solo" ? "3" : "4"),
+  };
+  const cutFor = (installationId: typeof MINI, machineName: string): CanvasCopy => {
+    const result = exportCanvasCopy(everything, { installationId, machineName });
+    if (!result.ok) throw new Error(result.refusal.reason);
+    return result.copy;
+  };
+  const destinations = [
+    { name: "the mini, with a seat in their region", copy: () => cutFor(MINI, "mini") },
+    { name: "linux, with no seat in their region", copy: () => cutFor(LINUX, "linux") },
+  ];
+  const at = (x: number) => ({ ...inRemote(x) });
+
+  const crosses: ReadonlyArray<readonly [Node["kind"], string, object | undefined]> = [
+    ["task", "backlog", { kind: "task", id: "backlog", ...at(10), name: "Backlog" }],
+    ["artifacts", "shelf", { kind: "artifacts", id: "shelf", ...at(60), label: "Shelf" }],
+    ["label", "caption", { kind: "label", id: "caption", ...at(110), text: "Caption" }],
+    ["file", "spec", { kind: "stub", of: "file", id: "spec", ...at(160), label: "spec.md" }],
+    ["link", "docs", { kind: "stub", of: "link", id: "docs", ...at(210), label: "docs.test" }],
+    ["git", "repo", { kind: "stub", of: "git", id: "repo", ...at(260), label: "private-repo" }],
+    // The editing machine's name, not the row's: pages live where the canvas is edited.
+    ["page", "browser", { kind: "stub", of: "page", id: "browser", ...at(310), label: "browser.test", host: "macbook" }],
+    ["note", "memo", undefined],
+    ["cron", "nightly", undefined],
+    ["relay", "relay", undefined],
+    ["watcher", "gauge", undefined],
+  ];
+
+  for (const destination of destinations) {
+    describe(destination.name, () => {
+      it.each(crosses)("a %s (%s)", (kind, nodeId, expected) => {
+        const held = destination.copy().resources.find((resource) => resource.id === nodeId);
+        expect(held).toEqual(productNodeKindEnabled(kind) ? expected : undefined);
+      });
+
+      it("carries no body, colour, path, address or profile", () => {
+        const sent = JSON.stringify(destination.copy());
+        for (const never of [
+          "Task contract body",
+          "#ff0000",
+          "private-dir",
+          "secret-path",
+          "/Users/op/private-repo",
+          "secret-page",
+          "work-profile",
+          "Note body stays home",
+          "0 3 * * *",
+        ]) {
+          expect(sent).not.toContain(never);
+        }
+      });
+
+      it("keeps wires to resources and drops those to a page or a note", () => {
+        const held = destination.copy().wires.map((kept) => kept.id);
+        expect(held).toContain("lead-to-backlog");
+        expect(held).not.toContain("lead-to-browser");
+        expect(held).not.toContain("lead-to-memo");
+      });
+
+      it("decodes as written", () => {
+        expect(Result.isSuccess(decodeCanvasCopy(JSON.parse(JSON.stringify(destination.copy()))))).toBe(true);
+      });
+    });
+  }
+
+  it("gives a region's private parts only to the machine with a seat in it", () => {
+    const remoteFor = (copy: CanvasCopy) => copy.regions.find((held) => held.id === "remote")!;
+    expect(remoteFor(cutFor(MINI, "mini")).instruction).toBe("Briefing for the remote region.");
+    expect(Object.keys(remoteFor(cutFor(LINUX, "linux"))).sort()).toEqual(
+      ["height", "hold", "id", "kind", "label", "width", "x", "y", "z"],
+    );
+    expect(cutFor(LINUX, "linux").regions.find((held) => held.id === "private")!.instruction).toBe(
+      "Briefing nobody on the mini should read.",
+    );
+  });
+
+  it("no longer refuses a page whose row names no machine: the page host is not read", () => {
+    const unnamedPage = {
+      ...everything,
+      nodes: everything.nodes.map((node) => (node.id === "browser" ? ({ ...node, host: "local" } as Node) : node)),
+    };
+    expect(exportCanvasCopy(unnamedPage, { installationId: MINI, machineName: "mini" }).ok).toBe(true);
   });
 });

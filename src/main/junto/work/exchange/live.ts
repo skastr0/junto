@@ -164,6 +164,7 @@ export const makeLiveRowExchange = (
             canvasId: header.canvas_id,
             seq: header.seq,
             editor: self,
+            editorMachineName: yield* machines.machineName,
             nodes,
             wires: yield* records.listWires(canvasName),
             guidance: yield* guidance.list(),
@@ -262,7 +263,14 @@ export const makeLiveRowExchange = (
           canvasId: copy.canvasId,
           seq: copy.seq,
           editor: copy.editor,
-          nodes: [...copy.regions, ...copy.seats, ...copy.peers, ...copy.terminals],
+          // A stub has no row to be kept in yet: it waits for its own kind in the model.
+          nodes: [
+            ...copy.regions,
+            ...copy.seats,
+            ...copy.peers,
+            ...copy.terminals,
+            ...copy.resources.filter((resource) => resource.kind !== "stub"),
+          ],
           wires: copy.wires,
         });
         if (!("seq" in outcome) || outcome.seq === undefined) return { refused: "a-canvas-of-that-name" };

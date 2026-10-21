@@ -4,25 +4,35 @@
  * The machine that edits a canvas keeps all of it. Every other machine with a
  * seat on it gets one snapshot, cut for that machine: its own seats and
  * terminals whole, every other seat as a peer it can address and never start,
- * every region as a rectangle, and the private text only where it applies to
- * that machine's seats. This module is the cut, and nothing else.
+ * every region as a rectangle, every resource as its place and its label, and
+ * the private text only where it applies to that machine's seats. Bodies never
+ * ride in the copy: it is one frame under the frame bound. This module is the
+ * cut, and nothing else.
  */
 import { Schema, SchemaTransformation } from "effect";
 import type { ActorSeatId } from "./actor-seat";
+import { productNodeKindEnabled } from "./features";
 import { InstallationId } from "./installation-id";
 import {
+  Artifacts,
   CanvasName,
+  HostId,
+  Label,
   NodeId,
+  OneLine,
   Peer,
   Region,
   Seat,
   Seq,
+  TaskBoard,
   Terminal,
   Wire,
+  placement,
   regionStack,
+  titleOf,
   type Node,
 } from "./model";
-import type { HostId } from "./remote-hosts";
+import { RESOURCE_KINDS } from "./region-reach";
 import type { SeatGuidance } from "./seat-guidance";
 
 /** The word a row may not use for a machine: it would mean a different one on every copy. */
@@ -76,6 +86,40 @@ const CopiedTerminal = CopiedTerminalFields.pipe(
   ),
 );
 
+/** Where a node sits, and nothing else: its colour stays where it was chosen. */
+const { color: _color, ...geometry } = placement;
+
+/**
+ * A resource as every machine holds it: its kind, its place and its label.
+ * The fields are listed, never spread, so a field added to a kind stays home
+ * until it is named here. A task board's contract is body and stays home.
+ */
+const CopiedTask = Schema.Struct({ kind: TaskBoard.fields.kind, ...geometry, name: TaskBoard.fields.name });
+const CopiedArtifacts = Schema.Struct({ kind: Artifacts.fields.kind, ...geometry, label: Artifacts.fields.label });
+/** Bare text on the map: the text is its label. */
+const CopiedLabel = Schema.Struct({ kind: Label.fields.kind, ...geometry, text: Label.fields.text });
+
+/** The kinds that cross as a stub: what they hold is a path, an address or a live page. */
+export const StubOf = Schema.Literals(["file", "link", "git"]);
+export type StubOf = typeof StubOf.Type;
+
+/**
+ * A node whose own fields are body, as a machine holding a copy sees it: what
+ * it is, where it sits and what it is called. A page also names the machine it
+ * lives on, the editing machine, and has nothing to drive.
+ */
+export const Stub = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("stub"), of: StubOf, ...geometry, label: OneLine }),
+  Schema.Struct({ kind: Schema.Literal("stub"), of: Schema.Literal("page"), ...geometry, label: OneLine, host: HostId }),
+]);
+export type Stub = typeof Stub.Type;
+
+const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, Stub]);
+export type CopiedResource = typeof CopiedResource.Type;
+
+/** Every kind a seat reaches crosses as itself: a resource kind with no copy here does not compile. */
+const _everyResourceCrosses: ReadonlyArray<CopiedResource["kind"]> = RESOURCE_KINDS;
+
 export const CanvasCopy = Schema.Struct({
   canvasName: CanvasName,
   canvasId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
@@ -88,6 +132,7 @@ export const CanvasCopy = Schema.Struct({
   peers: Schema.Array(Peer),
   terminals: Schema.Array(CopiedTerminal),
   regions: Schema.Array(Region),
+  resources: Schema.Array(CopiedResource),
   wires: Schema.Array(Wire),
   guidance: Schema.Array(CopiedGuidance),
   briefing: Schema.optionalKey(Schema.String),
@@ -104,6 +149,8 @@ export type CanvasCopySource = {
   readonly canvasId: string;
   readonly seq: number;
   readonly editor: InstallationId;
+  /** The editing machine's real short name: where its pages live. */
+  readonly editorMachineName: HostId;
   readonly nodes: ReadonlyArray<Node>;
   readonly wires: ReadonlyArray<Wire>;
   /** Soul and instructions by seat node id. */
@@ -131,15 +178,50 @@ export type CanvasCopyResult =
   | { readonly ok: false; readonly refusal: CanvasCopyRefusal };
 
 const namesNoMachine = (node: Node): boolean => {
-  if (node.kind === "agent" || node.kind === "terminal" || node.kind === "page") {
-    return node.host === UNNAMED_MACHINE;
-  }
+  if (node.kind === "agent" || node.kind === "terminal") return node.host === UNNAMED_MACHINE;
   if (node.kind !== "region") return false;
   return (
     Object.keys(node.defaults?.paths ?? {}).includes(UNNAMED_MACHINE) ||
-    node.defaults?.page?.host === UNNAMED_MACHINE ||
     (node.environment?.sources ?? []).some((source) => source.host === UNNAMED_MACHINE)
   );
+};
+
+/** A label fit for one line: what the operator sees on the card. */
+const oneLine = (text: string): string => text.replace(/[\r\n]+/g, " ").slice(0, 256);
+
+const placed = (node: Node) => ({
+  id: node.id,
+  x: node.x,
+  y: node.y,
+  width: node.width,
+  height: node.height,
+  z: node.z,
+});
+
+/**
+ * What every other machine holds of a node that is not a seat, a terminal or
+ * a region. A kind crosses only when it is named here: a new kind stays home
+ * until it is decided. Absent for a note, for what fires on its own host, for
+ * the kinds 0.10 deletes, and for a kind this build has switched off.
+ */
+const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | undefined => {
+  if (!productNodeKindEnabled(node.kind)) return undefined;
+  switch (node.kind) {
+    case "task":
+      return { kind: "task", ...placed(node), ...(node.name === undefined ? {} : { name: node.name }) };
+    case "artifacts":
+      return { kind: "artifacts", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
+    case "label":
+      return { kind: "label", ...placed(node), text: node.text };
+    case "file":
+    case "link":
+    case "git":
+      return { kind: "stub", of: node.kind, ...placed(node), label: oneLine(titleOf(node)) };
+    case "page":
+      return { kind: "stub", of: "page", ...placed(node), label: oneLine(titleOf(node)), host: editorMachineName };
+    default:
+      return undefined;
+  }
 };
 
 /** A region as a rectangle: what every machine needs to resolve what is inside it. */
@@ -198,7 +280,10 @@ export const exportCanvasCopy = (
   const peers: Peer[] = [];
   const terminals: Terminal[] = [];
   const regions: Region[] = [];
+  const resources: CopiedResource[] = [];
   for (const node of source.nodes) {
+    const resource = resourceOf(node, source.editorMachineName);
+    if (resource !== undefined) resources.push(resource);
     if (node.kind === "agent") {
       if (node.host === target.machineName) {
         seats.push(node);
@@ -229,7 +314,9 @@ export const exportCanvasCopy = (
   for (const seat of seats) {
     for (const region of regionStack(placed, seat.id)) mine.add(region.id);
   }
-  const held = new Set<string>([...seats, ...peers, ...terminals, ...regions].map((node) => node.id));
+  // A wire to a page would be something to drive it with: a page goes without one.
+  const wired = resources.filter((resource) => resource.kind !== "stub" || resource.of !== "page");
+  const held = new Set<string>([...seats, ...peers, ...terminals, ...regions, ...wired].map((node) => node.id));
   return {
     ok: true,
     copy: {
@@ -244,6 +331,7 @@ export const exportCanvasCopy = (
       regions: regions.map((region) =>
         mine.has(region.id) ? forMachine(region, target.machineName) : outline(region),
       ),
+      resources,
       wires: source.wires.filter((wire) => held.has(wire.from) && held.has(wire.to)),
       guidance: seats.flatMap((seat) => {
         const guidance = source.guidance[seat.id];

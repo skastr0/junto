@@ -32,6 +32,7 @@ const copy = (): CanvasCopy => {
       canvasId: "canvas-factory",
       seq: 1,
       editor: EDITOR,
+      editorMachineName: "macbook",
       nodes,
       wires: [],
       guidance: {},
