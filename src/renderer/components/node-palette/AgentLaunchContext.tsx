@@ -3,6 +3,8 @@ import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { FLEET_UI_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
+import { getJuntoApi } from "../../lib/junto-api";
+import { isHomeFolder, rememberedCwd, rememberedLaunch, rememberLaunch } from "../../lib/launch-memory";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { loadSetUpMachines, machineLabel, onThisMachine, thisMachineName } from "../../lib/machines";
@@ -85,8 +87,12 @@ export function AgentLaunchContext({
   const anchorRef = useRef<HTMLDivElement>(null);
   const configured = useMemo(configuredHost, []);
   const [hosts, setHosts] = useState<ReadonlyArray<AgentHostChoice>>([configured]);
+  const canvasName = use$(state$.canvasName);
+  // Add item reopens on the machine and folder chosen last on this canvas.
   const [hostId, setHostId] = useState(
-    FLEET_UI_ENABLED ? initialHostId || configured.id : configured.id,
+    FLEET_UI_ENABLED
+      ? initialHostId || rememberedLaunch(canvasName)?.hostId || configured.id
+      : configured.id,
   );
   const center = centerOf(position);
   const region = useMemo(
@@ -94,11 +100,18 @@ export function AgentLaunchContext({
     [center.x, center.y, doc],
   );
   const regionPath = resolveRegionCwd(doc, center.x, center.y, hostId);
+  // A region's default folder wins inside it; elsewhere the folder chosen last.
+  const seedPath = (host: string): string | undefined =>
+    resolveRegionCwd(doc, center.x, center.y, host) ?? rememberedCwd(canvasName, host);
   const selectedHost = hosts.find((host) => host.id === hostId) ?? configured;
   const regionDefaultPath = region?.defaults?.paths?.[hostId]?.trim();
   const [useRegionDefault, setUseRegionDefault] = useState(Boolean(regionDefaultPath));
-  const [cwd, setCwd] = useState(() => regionPath ?? "");
-  const [folderSeed, setFolderSeed] = useState(() => regionPath ?? "~");
+  const [cwd, setCwd] = useState(() => seedPath(hostId) ?? "");
+  const [folderSeed, setFolderSeed] = useState(() => seedPath(hostId) ?? "~");
+  // The machine's home folder: never a seat's folder, though the picker opens there.
+  const [homeRoot, setHomeRoot] = useState<string>();
+  const atHome = isHomeFolder(cwd, homeRoot);
+  const launchCwd = atHome ? "" : cwd;
 
   useEffect(() => {
     if (!FLEET_UI_ENABLED) return;
@@ -115,10 +128,24 @@ export function AgentLaunchContext({
     return () => { live = false; };
   }, [configured]);
 
+  useEffect(() => {
+    let live = true;
+    setHomeRoot(undefined);
+    const read = getJuntoApi()?.hostDirectoryRead;
+    if (!read) return;
+    void read(hostId, "~").then(
+      (home) => {
+        if (live) setHomeRoot(home.root);
+      },
+      () => undefined,
+    );
+    return () => { live = false; };
+  }, [hostId]);
+
   // Seed only when placement identity changes. Saving a default mutates `doc`;
   // that mutation must not reset the checkbox state that initiated it.
   useEffect(() => {
-    const nextPath = resolveRegionCwd(doc, center.x, center.y, hostId);
+    const nextPath = seedPath(hostId);
     const nextDefault = region?.defaults?.paths?.[hostId]?.trim();
     setCwd(nextPath ?? "");
     setFolderSeed(nextPath ?? "~");
@@ -132,12 +159,13 @@ export function AgentLaunchContext({
     onChange({
       host: selectedHost.id,
       agentHost: selectedHost.agentHost,
-      cwd,
+      cwd: launchCwd,
     });
-  }, [cwd, onChange, selectedHost.agentHost, selectedHost.id]);
+    rememberLaunch(canvasName, selectedHost.id, launchCwd);
+  }, [canvasName, launchCwd, onChange, selectedHost.agentHost, selectedHost.id]);
 
   const selectHost = (nextHostId: string) => {
-    const nextSeed = resolveRegionCwd(doc, center.x, center.y, nextHostId) ?? "~";
+    const nextSeed = seedPath(nextHostId) ?? "~";
     setHostId(nextHostId);
     setCwd(nextSeed === "~" ? "" : nextSeed);
     setFolderSeed(nextSeed);
@@ -151,13 +179,13 @@ export function AgentLaunchContext({
       region.id,
       region.defaults,
       hostId,
-      checked ? cwd : undefined,
+      checked && launchCwd ? launchCwd : undefined,
     );
   };
 
   const saveSelectedFolder = (path: string) => {
     setCwd(path);
-    if (useRegionDefault && region) {
+    if (useRegionDefault && region && !isHomeFolder(path, homeRoot)) {
       savePathAsRegionDefault(
         region.id,
         region.defaults,
@@ -198,7 +226,7 @@ export function AgentLaunchContext({
             />
             <RegionDefaultFolderOption
               checked={useRegionDefault}
-              disabled={!region || !cwd}
+              disabled={!region || !launchCwd}
               showRegionHint={!region}
               machine={onThisMachine(hostId) ? "this machine" : selectedHost.label}
               onToggle={toggleRegionDefault}
@@ -250,10 +278,20 @@ export function AgentLaunchContext({
               aria-label="Choose starting folder"
               onClick={() => onFolderOpenChange(!folderOpen)}
             >
-              <span className="min-w-0 truncate font-mono text-[11px]">{cwd || "choose folder"}</span>
+              <span
+                className={["min-w-0 truncate font-mono text-[11px]", launchCwd ? "" : "text-amber"].join(" ")}
+                data-testid="launch-folder"
+              >
+                {launchCwd || "choose folder"}
+              </span>
               <ChevronDown size={13} className="shrink-0" />
             </Button>
           </div>
+          {atHome ? (
+            <span className="normal-case tracking-normal text-amber" role="status" data-testid="launch-folder-home">
+              Home is not a working folder: choose a project folder in it
+            </span>
+          ) : null}
         </label>
       </div>
       {popover}
