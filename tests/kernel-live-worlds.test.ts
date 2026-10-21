@@ -11,7 +11,6 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelService } from "../src/main/junto/model/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import { SchedulerRepository } from "../src/main/junto/scheduler/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
@@ -43,20 +42,21 @@ it("holds the model's canvases and follows their work", async () => {
     makeStateEngineLive(join(root, "junto.db")),
   );
   const storesLive = Layer.provideMerge(WorkRepositoryLive, modelLive);
+  // Every read of a canvas's work, so the test sees the kernel follow it.
+  const workReads: string[] = [];
   const workLive = Layer.effect(
     WorkService,
     Effect.map(WorkRepository, (repository) => ({
-      readKernelWork: (canvas: string) => repository.kernelWork(canvas),
+      readKernelWork: (canvas: string) => {
+        workReads.push(canvas);
+        return repository.kernelWork(canvas);
+      },
       subscribeWorkChanges: (listener: (canvas?: string, node?: string) => void) =>
         repository.subscribeChanges((canvas, node) => listener(canvas, node)),
     }) as never),
   );
   const stubsLive = Layer.mergeAll(
     PausePlaneAllPlaying,
-    Layer.succeed(SchedulerRepository, {
-      claimExpression: () => Effect.succeed({ _tag: "Duplicate" }),
-      reconcileHome: () => Effect.succeed(0),
-    } as never),
     Layer.succeed(MachineRepository, {
       installationId: Effect.succeed("board-home"),
       machineName: Effect.succeed(THIS_MACHINE),
@@ -92,9 +92,8 @@ it("holds the model's canvases and follows their work", async () => {
       canvas: "factory",
       nodes: [
         { kind: "task", id: "tasks", x: 0, y: 0, width: 200, height: 100, z: 0 },
-        { kind: "relay", id: "relay", x: 300, y: 0, width: 200, height: 100, z: 1, host: THIS_MACHINE },
       ],
-      wires: [{ id: "w1", from: "tasks", to: "relay", verb: "announces" }],
+      wires: [],
     });
 
     const live = await run(KernelService as never as Effect.Effect<Kernel>);
@@ -106,11 +105,7 @@ it("holds the model's canvases and follows their work", async () => {
       },
     });
 
-    const watching = (canvas: string) =>
-      live.getSnapshot().canvases[canvas]?.watchers["relay"]?.detail;
-    expect(await until(() => watching("factory"), "the relay to be read")).toContain(
-      "has no tasks yet",
-    );
+    await until(() => live.getSnapshot().canvases["factory"], "the canvas to be held");
 
     // A canvas made after the kernel started is held too; one removed is dropped.
     await send({ _tag: "CreateCanvas", canvas: "annex" });
@@ -121,7 +116,9 @@ it("holds the model's canvases and follows their work", async () => {
       "the removed canvas to go",
     );
 
-    // A task row is work, not canvas: the relay sees it once work says it changed.
+    // A task row is work, not canvas: the kernel reads it again once work says
+    // it changed.
+    const readsBefore = workReads.filter((name) => name === "factory").length;
     const repository = await run(WorkRepository as never as Effect.Effect<Repository>);
     const canvas = await run(model.canvas("factory"));
     const sink = { canvasName: "factory", nodeId: "tasks" };
@@ -149,8 +146,8 @@ it("holds the model's canvases and follows their work", async () => {
       }),
     );
     await until(
-      () => (watching("factory")?.includes("waiting for a task") ? true : undefined),
-      "the relay to see the task",
+      () => (workReads.filter((name) => name === "factory").length > readsBefore ? true : undefined),
+      "the kernel to read the board's work again",
     );
   } finally {
     kernel?.suspend();

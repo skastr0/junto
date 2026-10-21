@@ -40,9 +40,7 @@ import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
-  CRON_ENABLED,
   FLEET_UI_ENABLED,
-  RELAY_ENABLED,
   REQUESTS_ENABLED,
   SEAT_AWARENESS_COMPILED,
   TASKS_ENABLED,
@@ -873,48 +871,6 @@ export const registerJuntoIpc = (): void => {
             return { ok: false as const, error: written.failure.message };
           }
           return { ok: true as const, state: pause.stateFor(canvas) };
-        }),
-      ),
-  );
-
-  if (CRON_ENABLED || RELAY_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.schedulerFire,
-    (
-      _event,
-      canvas: string,
-      sourceNodeId: string,
-    ): Promise<
-      | {
-          ok: true;
-          sourceNodeId: string;
-          kind: "relay" | "cron" | "gauge";
-          applied: number;
-          message: string;
-        }
-      | { ok: false; error: string }
-    > =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const kernel = yield* KernelService;
-          const result = yield* Effect.tryPromise({
-            try: () =>
-              kernel.manualFire({
-                canvasName: canvas,
-                sourceNodeId,
-              }),
-            catch: (error) =>
-              error instanceof Error ? error : new Error(String(error)),
-          });
-          if (!result.ok) {
-            return { ok: false as const, error: result.message };
-          }
-          return {
-            ok: true as const,
-            sourceNodeId: result.sourceNodeId,
-            kind: result.kind,
-            applied: result.applied,
-            message: result.message,
-          };
         }),
       ),
   );

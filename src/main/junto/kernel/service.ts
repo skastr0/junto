@@ -2,7 +2,7 @@
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, world resync, the 30s safety interval) and binds
 // cycle.ts's injectable seams to concrete main-side collaborators
-// (ModelService, WorkService, timer scheduler).
+// (ModelService, WorkService).
 //
 // cycle.ts/evaluate.ts are the pure loop + evaluator; this file is the only
 // thing that binds their `__*ForTest`-named seams to something real. Despite
@@ -18,25 +18,18 @@
 // (circular: RootLayer includes KernelLive).
 
 import type { SeatStartCause } from "../term/seat-start-cause";
-import { Cause, Context, Effect, Layer, Schema } from "effect";
+import { Cause, Context, Effect, Layer } from "effect";
 import { asNodeId } from "@shared/model/base";
-import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import type { ServiceCheck } from "@shared/contracts";
-import { makeUserMessage } from "@shared/task";
-import { ulid } from "ulid";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type { ActorRef } from "@shared/work-protocol";
-import type {
-  KernelSnapshot,
-  WatcherRuntimeState,
-} from "@shared/ipc";
+import type { KernelSnapshot } from "@shared/ipc";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
 import { PausePlane } from "../pause-plane";
-import { SchedulerRepository } from "../scheduler/repository";
 import { MachineRepository } from "../machines/repository";
 import { WorkService } from "../work/service";
 import {
@@ -47,29 +40,14 @@ import {
 import { seatStateRuntime } from "../term/agent-state";
 import { ActorSeatOccupy } from "../term/actor-seat-occupy";
 import {
-  checkTimers,
   getExecutionByCanvas,
-  getNextFire,
-  getWatchers,
-  manualSchedulerFire,
   purgeCanvasMemory,
-  reconcileLiveCanvasMemory,
   runEvaluationCycle,
   setActorRefResolver,
   setWorlds,
-  setMachineName,
-  __setAutomationGateForTest,
-  __setTimerSchedulerForTest,
-  setPageLoadDeps,
-  setRaisedHandDeps,
+  type ExecutionSnapshot,
 } from "./cycle";
 import type { World } from "./world";
-import {
-  admitSchedulerEffectAutomation,
-  setSchedulerEffectDeps,
-  type OverseerFireAuthority,
-  type SchedulerEffectDeps,
-} from "./effects";
 import {
   makeKernelTickScheduler,
   type KernelTickScheduler,
@@ -80,7 +58,6 @@ import {
   type TickTimerCancel,
 } from "./tick";
 import { noteSyncSpan } from "../observability/main-thread-budget";
-import { raisedHands } from "../signals/raised-hands";
 
 export class KernelService extends Context.Service<KernelService,
   {
@@ -109,38 +86,6 @@ export class KernelService extends Context.Service<KernelService,
     readonly getSnapshot: () => KernelSnapshot;
     // Pushed on cycle end — never per-watcher.
     readonly subscribe: (listener: (snapshot: KernelSnapshot) => void) => () => void;
-    /** Fire one selected scheduler's outbound does edges (operator Fire now / agent relay.trigger). */
-    readonly manualFire: (input: {
-      readonly canvasName: string;
-      readonly sourceNodeId: string;
-      readonly kind?: "relay" | "cron" | "gauge";
-    }) => Promise<
-      | {
-          readonly ok: true;
-          readonly sourceNodeId: string;
-          readonly kind: "relay" | "cron" | "gauge";
-          readonly applied: number;
-          readonly message: string;
-        }
-      | { readonly ok: false; readonly message: string }
-    >;
-    /**
-     * Demand a coalesced evaluation pass (page load ok/fail, external sensors).
-     * No-op until start(); ignored after suspend.
-     */
-    readonly requestCycle: () => void;
-    /**
-     * Bind the live browser page readiness map for page→relay watch.
-     * Call after browser composition starts; pass undefined to clear.
-     */
-    readonly setPageLoadProvider: (
-      snapshot:
-        | (() => ReadonlyMap<
-            string,
-            import("@shared/scheduler-effects").PageLoadStatus
-          >)
-        | undefined,
-    ) => void;
   }>()("@junto/KernelService") {}
 
 const SAFETY_INTERVAL_MS = 30_000;
@@ -313,20 +258,9 @@ export const makeKernelLaneScheduler = (
   return scheduler;
 };
 
-// Splits a `${canvasName}::${id}` module-memory key back into its parts.
-// Canvas names are restricted to [a-z0-9-] (canvases.ts NAME_PATTERN) and
-// node/region ids never contain "::", so the first occurrence is always the
-// namespace boundary.
-const splitNamespacedKey = (key: string): readonly [canvasName: string, id: string] | undefined => {
-  const idx = key.indexOf("::");
-  if (idx < 0) return undefined;
-  return [key.slice(0, idx), key.slice(idx + 2)];
-};
-
 type ModelShape = Context.Service.Shape<typeof ModelService>;
 type ActorRefsShape = Context.Service.Shape<typeof ModelActorRefs>;
 type PauseShape = Context.Service.Shape<typeof PausePlane>;
-type SchedulerShape = Context.Service.Shape<typeof SchedulerRepository>;
 type MachinesShape = Context.Service.Shape<typeof MachineRepository>;
 type WorkShape = Context.Service.Shape<typeof WorkService>;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
@@ -335,7 +269,7 @@ type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
  * Host-owned Effect entry for kernel (AppRuntime / RemoteRuntime).
  * Bound once at start() from main boot — never constructed inside kernel.
  *
- * - runPromise: Promise seams (timer scheduler inject, rare host bridges)
+ * - runPromise: Promise seams (rare host bridges)
  * - runFork: factory program (hydration + coalesced evaluation cycle)
  */
 export type KernelHost = {
@@ -358,7 +292,6 @@ const refreshMachineScope = (
   const scope: ActiveMachineScope = current._tag === "Failure"
     ? { ready: false }
     : { ready: true, ...current.success };
-  if (commit()) setMachineName(scope.ready ? scope.machineName : undefined);
   return scope;
 });
 
@@ -435,7 +368,6 @@ const makeKernelService = (
   model: ModelShape,
   actorRefs: ActorRefsShape,
   pause: PauseShape,
-  scheduler: SchedulerShape,
   machines: MachinesShape,
   work: WorkShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
@@ -501,33 +433,10 @@ const makeKernelService = (
   let started = false;
 
   const composeSnapshot = (): KernelSnapshot => {
-    const canvasesOut: Record<
-      string,
-      {
-        watchers: Record<string, WatcherRuntimeState>;
-        nextFire: Record<string, number>;
-        execution?: import("./cycle").ExecutionSnapshot;
-      }
-    > = {};
-    const entryFor = (name: string) =>
-      (canvasesOut[name] ??= {
-        watchers: {},
-        nextFire: {},
-      });
+    const canvasesOut: Record<string, { execution?: ExecutionSnapshot }> = {};
     for (const name of worlds.keys()) {
-      const entry = entryFor(name);
       const execution = getExecutionByCanvas().get(name);
-      if (execution) entry.execution = execution;
-    }
-    for (const [key, value] of getWatchers()) {
-      const split = splitNamespacedKey(key);
-      if (!split) continue;
-      entryFor(split[0]).watchers[split[1]] = value;
-    }
-    for (const [key, value] of getNextFire()) {
-      const split = splitNamespacedKey(key);
-      if (!split) continue;
-      entryFor(split[0]).nextFire[split[1]] = value;
+      canvasesOut[name] = execution === undefined ? {} : { execution };
     }
     return { canvases: canvasesOut };
   };
@@ -542,33 +451,6 @@ const makeKernelService = (
       }
     }
   };
-
-  // Cron durable due + nextFire.
-  __setTimerSchedulerForTest({
-    claimExpression: (input) =>
-      run(scheduler.claimExpression(input)),
-    reconcileHome: (homeStation, activeTimerKeys) =>
-      run(
-        scheduler.reconcileHome(homeStation, activeTimerKeys),
-      ),
-  });
-
-  // Process-local effect receipts (at-most-once within this runtime).
-  const effectReceipts = new Set<string>();
-
-  const { canAutomateCanvas, effectDeps } = makeSchedulerProductionEffectDeps({
-    pause,
-    work,
-    run,
-    effectReceipts,
-  });
-
-  __setAutomationGateForTest({ canAutomateCanvas });
-
-  setSchedulerEffectDeps(effectDeps);
-
-  // Agent → relay `announces` watches the seat's raised hand.
-  setRaisedHandDeps({ snapshot: raisedHands.snapshot });
 
   // --- evaluation cycle --------------------------------------------------------
 
@@ -585,20 +467,7 @@ const makeKernelService = (
         : activeActorRegistry(yield* actorRefs.read());
     if (!generationIsActive(generation)) return;
     setActorRefResolver(registry.resolve);
-    // Evaluation + timers remain Promise-shaped pure-cycle modules; wrap once
-    // at the Effect boundary (not factory control plane ownership).
-    yield* Effect.all(
-      [
-        Effect.promise(() => runEvaluationCycle()),
-        Effect.promise(() => checkTimers()),
-      ],
-      { concurrency: 2 },
-    );
-    if (!generationIsActive(generation)) return;
-    // Sweep stale watcher/timer runtime entries for nodes removed on a still-
-    // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
-    // on resync). Runs after evaluation so this cycle's fresh entries stand.
-    reconcileLiveCanvasMemory();
+    runEvaluationCycle();
     emitSnapshot();
   });
 
@@ -810,8 +679,6 @@ const makeKernelService = (
           (listener) => seatStateRuntime.subscribe(listener),
           scheduleCycle,
         ),
-        // A raised or lowered hand re-evaluates agent → relay announce wires.
-        raisedHands.subscribe(() => scheduleCycle()),
       ];
 
       // No Effect yield between the generation check and installing these
@@ -879,103 +746,7 @@ const makeKernelService = (
       return () => snapshotListeners.delete(listener);
     },
 
-    manualFire: (input) => manualSchedulerFire(input),
-
-    requestCycle: () => {
-      scheduleCycle();
-    },
-
-    setPageLoadProvider: (snapshot) => {
-      setPageLoadDeps(
-        snapshot === undefined ? undefined : { snapshot },
-      );
-    },
   });
-};
-
-export type SchedulerProductionEffectHost = {
-  readonly pause: Pick<PauseShape, "stateFor">;
-  readonly work: Pick<WorkShape, "workTaskCreate" | "workSystemMailboxNotify">;
-  readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
-  readonly effectReceipts: Set<string>;
-};
-
-/** Production enqueue and inject callbacks share the canvas play gate. */
-export const makeSchedulerProductionEffectDeps = (
-  host: SchedulerProductionEffectHost,
-): {
-  readonly canAutomateCanvas: (canvasName: string) => boolean;
-  readonly effectDeps: SchedulerEffectDeps;
-} => {
-  const canAutomateCanvas = (canvasName: string): boolean => {
-    return host.pause.stateFor(canvasName).playing;
-  };
-
-  const effectDeps: SchedulerEffectDeps = {
-    canAutomateCanvas,
-    hasReceipt: (fireKey, edgeId) =>
-      host.effectReceipts.has(`${fireKey}::${edgeId}`),
-    recordReceipt: (fireKey, edgeId) => {
-      host.effectReceipts.add(`${fireKey}::${edgeId}`);
-    },
-    enqueueTask: async ({ canvasName, sinkNodeId, payload, overseer }) => {
-      const admitted = await admitSchedulerEffectAutomation({
-        canvasName,
-        canAutomateCanvas,
-        ...(overseer !== undefined ? { overseer } : {}),
-      });
-      if (!admitted.ok) return admitted;
-      const args = effectTasksCreateToWorkArgs(payload);
-      const result = await host.run(
-        host.work.workTaskCreate(
-          canvasName,
-          sinkNodeId,
-          args.brief,
-          args.metadata,
-          args.reason ?? "scheduler",
-          undefined,
-          args.dependsOn,
-          args.finishCriteria,
-        ),
-      );
-      if (overseer !== undefined && !(await overseer.liveGrant())) {
-        return { ok: false, message: "overseer grant revoked" };
-      }
-      if (!result.ok) {
-        return { ok: false, message: result.message };
-      }
-      return { ok: true };
-    },
-    injectPrompt: async ({ canvasName, agentNodeId, text, overseer }) => {
-      const admitted = await admitSchedulerEffectAutomation({
-        canvasName,
-        canAutomateCanvas,
-        ...(overseer !== undefined ? { overseer } : {}),
-      });
-      if (!admitted.ok) return admitted;
-      const result = await host.run(
-        host.work.workSystemMailboxNotify(
-          canvasName,
-          agentNodeId,
-          makeUserMessage({
-            messageId: ulid(),
-            text,
-            contextId: canvasName,
-            metadata: { factoryScheduler: true, injectPrompt: true },
-          }),
-        ),
-      );
-      if (overseer !== undefined && !(await overseer.liveGrant())) {
-        return { ok: false, message: "overseer grant revoked" };
-      }
-      if (!result.ok) {
-        return { ok: false, message: result.message };
-      }
-      return { ok: true };
-    },
-  };
-
-  return { canAutomateCanvas, effectDeps };
 };
 
 export const KernelLive = Layer.effect(
@@ -984,7 +755,6 @@ export const KernelLive = Layer.effect(
     const model = yield* ModelService;
     const actorRefs = yield* ModelActorRefs;
     const pause = yield* PausePlane;
-    const scheduler = yield* SchedulerRepository;
     const machines = yield* MachineRepository;
     const work = yield* WorkService;
     const actorSeatOccupy = yield* ActorSeatOccupy;
@@ -994,7 +764,6 @@ export const KernelLive = Layer.effect(
       model,
       actorRefs,
       pause,
-      scheduler,
       machines,
       work,
       actorSeatOccupy,
