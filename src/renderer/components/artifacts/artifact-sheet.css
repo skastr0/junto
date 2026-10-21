@@ -40,8 +40,8 @@
   background: transparent;
   color: var(--color-ink);
   padding: 0 9px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
   outline: none;
 }
 .junto-artifact-sheet__grid input[data-numeric="true"] {
@@ -66,14 +66,14 @@
 }
 .junto-artifact-sheet__letter {
   color: var(--color-faint);
-  font-size: 9px;
-  letter-spacing: .1em;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
 }
 .junto-artifact-sheet__head input {
   color: var(--color-faint);
   font-family: inherit;
-  font-size: 10px;
-  letter-spacing: .1em;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 .junto-artifact-sheet__gutter {
@@ -82,7 +82,7 @@
   background: color-mix(in oklab, var(--color-inset) 50%, transparent);
   color: var(--color-faint);
   text-align: right;
-  font-size: 9px;
+  font-size: var(--text-label);
 }
 .junto-artifact-sheet__gutter-inner {
   display: flex;
@@ -102,34 +102,12 @@
   border-top: 1px solid var(--color-stroke);
   padding: 8px 12px;
 }
-.junto-artifact-sheet__actions > button:not([aria-label]) {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--color-overlay-4);
-  border-radius: 4px;
-  background: var(--color-overlay-1);
-  color: var(--color-dim);
-  padding: 5px 9px;
-  font-size: 9px;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  transition: border-color .16s ease, color .16s ease, background .16s ease;
-}
-.junto-artifact-sheet__actions > button:not([aria-label]):hover:not(:disabled) {
-  border-color: color-mix(in oklab, var(--color-main) 48%, transparent);
-  background: color-mix(in oklab, var(--color-main) 10%, transparent);
-  color: var(--color-amber);
-}
-.junto-artifact-sheet__actions > button:disabled {
-  opacity: .4;
-}
 .junto-artifact-sheet__note,
 .junto-artifact-sheet__refusal {
   min-width: 0;
   overflow: hidden;
-  font-size: 9px;
-  letter-spacing: .04em;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -137,5 +115,5 @@
   color: var(--color-faint);
 }
 .junto-artifact-sheet__refusal {
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }

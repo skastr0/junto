@@ -23,6 +23,7 @@ import {
   SHEET_MAX_ROWS,
   SHEET_ROW_HEIGHT_PX,
 } from "@shared/sheet";
+import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import "./artifact-sheet.css";
 
@@ -359,16 +360,18 @@ export function ArtifactSheetEditor({
       <div className="junto-artifact-sheet__actions">
         {readOnly ? null : (
           <>
-            <button
-              type="button"
+            <Button
+              size="xs"
+              variant="chrome"
               onClick={addRow}
               disabled={atRowLimit}
               title={atRowLimit ? `A sheet holds ${String(SHEET_MAX_ROWS)} rows` : "Add a row"}
             >
               <Plus size={11} aria-hidden /> Row
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="xs"
+              variant="chrome"
               onClick={addColumn}
               disabled={atColumnLimit}
               title={
@@ -378,12 +381,13 @@ export function ArtifactSheetEditor({
               }
             >
               <Plus size={11} aria-hidden /> Column
-            </button>
+            </Button>
           </>
         )}
         {onCommentCells ? (
-          <button
-            type="button"
+          <Button
+            size="xs"
+            variant="chrome"
             data-testid="artifact-sheet-comment"
             disabled={commentRange === null}
             title={commentRange ? `Comment on ${commentRange}` : "Select cells to comment on"}
@@ -394,7 +398,7 @@ export function ArtifactSheetEditor({
             }}
           >
             <MessageSquare size={11} aria-hidden /> {commentRange ? `Comment ${commentRange}` : "Comment"}
-          </button>
+          </Button>
         ) : null}
         <IconButton
           aria-label="Copy as markdown table"
