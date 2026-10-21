@@ -38,14 +38,9 @@ const ALLOWED = new Set([
   "AGENTS.md",
   "scripts/lint-no-canvas-document.ts",
   "src/main/junto/state/migrations.ts",
-  // The one-time reading of rows an old database holds.
-  "src/main/junto/model/migrate.ts",
-  "src/shared/model/from-legacy-row.ts",
-  // Tests of that one-time reading and of what old databases held.
-  "tests/model-legacy-row.test.ts",
-  "tests/model-kind-migration.test.ts",
+  // Tests of what old databases held.
   "tests/model-installed-migration.test.ts",
-  "tests/state-v1-fixture-migration.test.ts",
+  "tests/one-machine-log-migration.test.ts",
   "tests/audit-retired-state-signatures.test.ts",
   "tests/token-pressure-retired-data.test.ts",
   // The preview check, which reads an old database's tables to compare them
@@ -68,7 +63,7 @@ const ALLOWED = new Set([
  * databases written out for the migration tests, and the two below.
  */
 const ALLOWED_DIRS = [
-  "tests/fixtures/state-v1/",
+  "tests/fixtures/state-v13/",
   // Records of measurements taken while the old document still existed.
   "docs/research/",
   "tests/fixtures/domain-cutover",

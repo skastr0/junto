@@ -22,7 +22,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V20_SQL, STATE_SCHEMA_V21_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V20_SQL, STATE_SCHEMA_V21_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -33,7 +33,7 @@ afterEach(async () => {
 const openCopy = async (fixture: string): Promise<DatabaseSync> => {
   dir = await mkdtemp(join(tmpdir(), "junto-machine-names-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return database;
@@ -167,7 +167,7 @@ describe("state migration 20 -> 21 (machine names)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V21_SQL)).toEqual(STATE_SCHEMA_V21_IDENTITY);
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "names this machine in every row of %s that said local, and keeps every other row",
     async (fixture) => {
       const database = await openCopy(fixture);
@@ -303,7 +303,7 @@ describe("state migration 20 -> 21 (machine names)", () => {
   );
 
   it("never takes the name of a machine it knows, and keeps a name it was already given", async () => {
-    const database = await openCopy("command-center-v1.db");
+    const database = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, versionTwentyPlan);
       database.exec("PRAGMA foreign_keys = OFF");
@@ -329,7 +329,7 @@ describe("state migration 20 -> 21 (machine names)", () => {
   });
 
   it("keeps the name the machine that set it up gave it, and is one row in its own list", async () => {
-    const database = await openCopy("remote-v1.db");
+    const database = await openCopy("remote-v13.db");
     try {
       migrateStateSchema(database, versionTwentyPlan);
       database.exec("PRAGMA foreign_keys = OFF");

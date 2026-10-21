@@ -22,7 +22,7 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V24_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V24_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -33,7 +33,7 @@ afterEach(async () => {
 const openCopy = async (fixture: string): Promise<DatabaseSync> => {
   dir = await mkdtemp(join(tmpdir(), "junto-retire-on-remove-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return database;
@@ -98,7 +98,7 @@ describe("state migration 24 -> 25 (retire on_remove from seats and terminals)",
     expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "drops the column from seats and terminals in %s and leaves everything else as it was",
     async (fixture) => {
       const database = await openCopy(fixture);

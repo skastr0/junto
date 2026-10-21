@@ -21,7 +21,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V22_SQL, STATE_SCHEMA_V23_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V22_SQL, STATE_SCHEMA_V23_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -32,7 +32,7 @@ afterEach(async () => {
 const openCopy = async (fixture: string): Promise<DatabaseSync> => {
   dir = await mkdtemp(join(tmpdir(), "junto-harness-model-cache-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return database;
@@ -95,7 +95,7 @@ describe("state migration 22 -> 23 (harness model cache)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V23_SQL)).toEqual(STATE_SCHEMA_V23_IDENTITY);
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "adds the tables to %s and leaves every row already held as it was",
     async (fixture) => {
       const database = await openCopy(fixture);
@@ -121,7 +121,7 @@ describe("state migration 22 -> 23 (harness model cache)", () => {
   );
 
   it("finds a model by any three letters of its id, provider, label or description", async () => {
-    const database = await openCopy("command-center-v1.db");
+    const database = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, planTo(23, STATE_SCHEMA_V23_SQL));
       seed(database);
@@ -138,7 +138,7 @@ describe("state migration 22 -> 23 (harness model cache)", () => {
   });
 
   it("clears a harness, its search entries with it, when its scan row goes", async () => {
-    const database = await openCopy("command-center-v1.db");
+    const database = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, planTo(23, STATE_SCHEMA_V23_SQL));
       seed(database);
@@ -152,7 +152,7 @@ describe("state migration 22 -> 23 (harness model cache)", () => {
   });
 
   it("refuses a model with no scan, an unknown source, and a second row for one model", async () => {
-    const database = await openCopy("command-center-v1.db");
+    const database = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, planTo(23, STATE_SCHEMA_V23_SQL));
       seed(database);

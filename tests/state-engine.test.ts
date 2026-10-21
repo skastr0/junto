@@ -26,7 +26,7 @@ import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
 } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V1_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V13_SQL } from "./fixtures/state-v13/schema";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import {
   RETIRED_SOURCE_SCHEMA_SHA256,
@@ -64,14 +64,14 @@ const seedCurrentStateSchema = async (path: string): Promise<void> => {
   await disposeRuntime(runtime);
 };
 
-const seedVersionOneStateSchema = (path: string, version = 1): void => {
+const seedBaselineStateSchema = (path: string, version = 13): void => {
   const database = new DatabaseSync(path);
   try {
     // Seed the historical fixture atomically, rather than syncing every DDL
     // statement before the runtime under test opens it.
     database.exec("BEGIN IMMEDIATE");
-    database.exec(STATE_SCHEMA_V1_SQL);
-    verifyAndStampStateSchema(database, STATE_SCHEMA_V1_SQL);
+    database.exec(STATE_SCHEMA_V13_SQL);
+    verifyAndStampStateSchema(database, STATE_SCHEMA_V13_SQL);
     database.exec(`PRAGMA user_version = ${version}`);
     database.exec("COMMIT");
   } finally {
@@ -284,9 +284,9 @@ describe("StateEngine", () => {
   });
 
   test("adopts the exact unversioned baseline in place without losing state", async () => {
-    const root = await makeTempDir("junto-state-adopt-v1-");
+    const root = await makeTempDir("junto-state-adopt-baseline-");
     const path = join(root, "junto.db");
-    seedVersionOneStateSchema(path, 0);
+    seedBaselineStateSchema(path, 0);
     const unversioned = new DatabaseSync(path);
     try {
       unversioned
@@ -386,7 +386,7 @@ describe("StateEngine", () => {
   test("aborts an installed schema advance before live mutation when backup verification cannot start", async () => {
     const root = await makeTempDir("junto-state-migration-backup-failure-");
     const path = join(root, "junto.db");
-    seedVersionOneStateSchema(path);
+    seedBaselineStateSchema(path);
     const external = join(root, "external");
     await mkdir(external, { mode: 0o755 });
     await symlink(external, join(root, "backups"));
@@ -403,7 +403,7 @@ describe("StateEngine", () => {
     const after = new DatabaseSync(path, { readOnly: true });
     try {
       expect(after.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 1,
+        user_version: 13,
       });
     } finally {
       after.close();

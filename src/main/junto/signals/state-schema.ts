@@ -79,12 +79,3 @@ export const AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL = `
     PRIMARY KEY (signal_id, position)
   ) STRICT, WITHOUT ROWID;
 `;
-
-/** 10 -> 11: every attachment already held becomes a file part, in place and order. */
-export const AGENT_SIGNAL_PARTS_COPY_SQL = `
-  INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption)
-  SELECT signal_id, position, 'file',
-    json_object('sha256', sha256, 'byteLength', byte_length, 'mediaType', media_type, 'displayName', display_name),
-    caption
-  FROM agent_signal_attachments;
-`;

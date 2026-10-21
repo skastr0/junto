@@ -18,7 +18,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V18_SQL, STATE_SCHEMA_V19_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V18_SQL, STATE_SCHEMA_V19_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -29,7 +29,7 @@ afterEach(async () => {
 const openCopy = async (fixture: string): Promise<DatabaseSync> => {
   dir = await mkdtemp(join(tmpdir(), "junto-canvas-copy-history-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return database;
@@ -68,7 +68,7 @@ describe("state migration 18 -> 19 (the canvas copies sent)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V19_SQL)).toEqual(STATE_SCHEMA_V19_IDENTITY);
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "adds the two tables to %s and leaves every row already held as it was",
     async (fixture) => {
       const database = await openCopy(fixture);

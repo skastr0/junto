@@ -4,17 +4,7 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
-import { migrateCanvasKinds } from "../model/migrate";
-import { migrateWorkFactBasis } from "../model/migrate-work-basis";
 import { CANVAS_EDITOR_COLUMN_SQL, PEERS_STATE_SCHEMA_SQL } from "../model/state-schema";
-import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
-import {
-  AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
-  AGENT_SIGNAL_PARTS_COPY_SQL,
-  AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
-  AGENT_SIGNALS_STATE_SCHEMA_SQL,
-} from "../signals/state-schema";
-import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -30,19 +20,11 @@ import {
   ONE_MACHINE_LOG_REMOVED_TABLES,
   ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
 } from "../work/migrate-one-machine-log";
-import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
-import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
-import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
-import { SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
-import { migrateSeatPins, SEAT_SESSIONS_V8_STATE_SCHEMA_SQL } from "./migrate-seat-pins";
+import { migrateSeatPins } from "./migrate-seat-pins";
 import { migrateSeatSessionData } from "./migrate-seat-session-data";
 import { migrateSeatRows } from "./migrate-seat-rows";
 import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
-import {
-  PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
-  PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
-} from "../portraits/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -142,117 +124,11 @@ export type StateSchemaMigrationResult =
   };
 
 /**
- * Junto schema version 1 is the re-baselined durable shape: the rename carries
- * the schema forward at its current composition with no chain beneath it.
- * `bun run schema:identity` rewrites the hash after any schema change; the
- * next schema edit advances CURRENT_STATE_SCHEMA_VERSION and appends `1 -> 2`.
+ * Version 13 is the floor: kinds replaced document authority there, and no
+ * older database is opened. `bun run schema:identity` rewrites the head hash
+ * after any schema change; the next schema edit advances
+ * CURRENT_STATE_SCHEMA_VERSION and appends its step.
  */
-export const STATE_SCHEMA_V1_IDENTITY = {
-  actualSchemaSha256:
-    "5486e207e1571e17f4e726891ea30ed165eec95324e5c5ba27d946e44330e382",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 2 retires the mail delivery ledger: mail is typed into its seat at
- * once, with no attempts, refusals, or fallback to record.
- */
-export const STATE_SCHEMA_V2_IDENTITY = {
-  actualSchemaSha256:
-    "a28acec6845e2cd35e9b22e5e1d29eac754674fbe9401f77339d94f42bfbddd1",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 3 adds agent signals: a seat's durable escalate, blocked, or
- * feedback claim waiting for the operator's response.
- */
-export const STATE_SCHEMA_V3_IDENTITY = {
-  actualSchemaSha256:
-    "59a9fd4f9c230fc9e03b340320bc34e8c6c5fbfd7c5646353f35bab11bf9146d",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 4 adds squads: the operator's reusable seat templates, placed from
- * the add picker.
- */
-export const STATE_SCHEMA_V4_IDENTITY = {
-  actualSchemaSha256:
-    "97562129f02960699181a455e453f0bc38164717bf8afc06006cd820c9d75bbc",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 5 adds portrait overrides: per-seat character customization, moved
- * out of the size-capped settings row (copied forward, settings copy kept).
- */
-export const STATE_SCHEMA_V5_IDENTITY = {
-  actualSchemaSha256:
-    "062a8908004842d3c82922717802abdc487c5d6bee28b99e9d8dc72c7ec83f2d",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 6 adds companion devices: the phones paired with this Mac for the
- * free mobile companion. Expand only.
- */
-export const STATE_SCHEMA_V6_IDENTITY = {
-  actualSchemaSha256:
-    "968a438797d302398a05ac6042b2d2eb06d55a63e2de2c98680fe5cd18672cae",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 7 adds seat guidance (per-seat soul and instructions) and agent
- * profiles (saved agents placed from the add picker). Expand only.
- */
-export const STATE_SCHEMA_V7_IDENTITY = {
-  actualSchemaSha256:
-    "8d486dc491037e9fabb428007a69b1bbbb5a69d028ea39c22e509b07bdfd3137",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 8 adds seat sessions: every harness session an agent seat has run,
- * with where its transcript and offboard notes live. Expand only.
- */
-export const STATE_SCHEMA_V8_IDENTITY = {
-  actualSchemaSha256:
-    "c575413a87057e541dcce8f16b5d7e3643590dedb56f3f92282717530bc012eb",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 9 adds signal attachments: the files an agent attached to a signal,
- * as references into the content store. Expand only.
- */
-export const STATE_SCHEMA_V9_IDENTITY = {
-  actualSchemaSha256:
-    "a6a35c88c30b1efe477b4ddf2831c2170b786eae138e01ded00dc656dfc425e6",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 10 adds seat session drains: when an offboarded session's process
- * was detached from its seat, when it really ended, and how. Expand only.
- */
-export const STATE_SCHEMA_V10_IDENTITY = {
-  actualSchemaSha256:
-    "be023cfbff369afd83b5dde6cba7c9b0c61005d9dc228cce31b1506ccced2239",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 11 adds signal parts: what a signal carries beside its words, with
- * no bound on how many or on a caption's length. Expand only: the attachments
- * table it replaces stays, and its rows are copied across.
- */
-export const STATE_SCHEMA_V11_IDENTITY = {
-  actualSchemaSha256:
-    "b1b2007cca29300066c9b2ee3409ecf3f606fb7b2669e6f8b8558cfc8bb679b5",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/**
- * Version 12 adds app texts: the app briefing and the named references seats
- * read on demand. Expand only: one new table, nothing else touched.
- */
-export const STATE_SCHEMA_V12_IDENTITY = {
-  actualSchemaSha256:
-    "5c8983f4ed3a056986f61208625b9571903cfa2ae0ff989fd5afb60e95462502",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-/** Version 13 replaces document authority with kinds and a local canvas seq. */
 export const STATE_SCHEMA_V13_IDENTITY = {
   actualSchemaSha256:
     "5c7bc7241a4a81d1d0813ac85169b09a83e4c447dcf433670a273d9dc4c4720f",
@@ -384,146 +260,11 @@ export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
   STATE_SCHEMA_V25_IDENTITY;
 
 /**
- * Junto version 1 is composed fresh and adopted, never reached by chain; each
- * later schema change appends its step here.
+ * Version 13 is the oldest database Junto opens: steps below it, and the
+ * legacy row converters only they used, are gone. Each later schema change
+ * appends its step here.
  */
 export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
-  {
-    fromVersion: 1,
-    toVersion: 2,
-    name: "retire the mail delivery ledger",
-    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
-    fromIdentity: STATE_SCHEMA_V1_IDENTITY,
-    // Transport bookkeeping with no successor: whether a message reached its
-    // seat lives in work_delivery_receipts, which this step leaves untouched.
-    removesTables: ["work_mail_attempts", "work_mail_notice_fallback"],
-    migrate: (database) => {
-      database.exec(`
-        DROP TABLE work_mail_attempts;
-        DROP TABLE work_mail_notice_fallback;
-      `);
-    },
-  },
-  {
-    fromVersion: 2,
-    toVersion: 3,
-    name: "add agent signals",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V2_IDENTITY,
-    migrate: (database) => {
-      database.exec(AGENT_SIGNALS_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 3,
-    toVersion: 4,
-    name: "add squads",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V3_IDENTITY,
-    migrate: (database) => {
-      database.exec(SQUADS_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 4,
-    toVersion: 5,
-    name: "add portrait overrides",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V4_IDENTITY,
-    // Expand and preserve: the new table takes a copy of every seat override
-    // the settings row holds; the settings row itself is left untouched.
-    migrate: (database) => {
-      database.exec(PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL);
-      database.prepare(PORTRAIT_OVERRIDES_COPY_FORWARD_SQL).run(Date.now());
-    },
-  },
-  {
-    fromVersion: 5,
-    toVersion: 6,
-    name: "add companion devices",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V5_IDENTITY,
-    migrate: (database) => {
-      database.exec(COMPANION_DEVICES_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 6,
-    toVersion: 7,
-    name: "add seat guidance and agent profiles",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V6_IDENTITY,
-    migrate: (database) => {
-      database.exec(SEAT_GUIDANCE_STATE_SCHEMA_SQL);
-      database.exec(AGENT_PROFILES_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 7,
-    toVersion: 8,
-    name: "add seat sessions",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V7_IDENTITY,
-    migrate: (database) => {
-      database.exec(SEAT_SESSIONS_V8_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 8,
-    toVersion: 9,
-    name: "add signal attachments",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V8_IDENTITY,
-    migrate: (database) => {
-      database.exec(AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 9,
-    toVersion: 10,
-    name: "add seat session drains",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V9_IDENTITY,
-    migrate: (database) => {
-      database.exec(SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 10,
-    toVersion: 11,
-    name: "add signal parts",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V10_IDENTITY,
-    migrate: (database) => {
-      database.exec(AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL);
-      database.exec(AGENT_SIGNAL_PARTS_COPY_SQL);
-    },
-  },
-  {
-    fromVersion: 11,
-    toVersion: 12,
-    name: "add app texts",
-    safety: STATE_SCHEMA_MIGRATION_SAFETY,
-    fromIdentity: STATE_SCHEMA_V11_IDENTITY,
-    migrate: (database) => {
-      database.exec(APP_TEXTS_STATE_SCHEMA_SQL);
-    },
-  },
-  {
-    fromVersion: 12,
-    toVersion: 13,
-    name: "replace document authority with domain kinds",
-    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
-    fromIdentity: STATE_SCHEMA_V12_IDENTITY,
-    removesTables: ["canvas_edges", "canvas_nodes", "canvas_entities", "canvas_documents", "canvas_portfolio_head"],
-    replacesTables: ["work_facts"],
-    retiresColumns: {work_facts: ["basis_authorial_generation", "basis_authorial_content_sha256"]},
-    replacesObjects: ["trigger:work_fact_authorial_basis_resolves"],
-    migrate: (database) => {
-      migrateCanvasKinds(database);
-      migrateWorkFactBasis(database);
-    },
-  },
   {
     fromVersion: 13,
     toVersion: 14,
@@ -662,8 +403,8 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
 ];
 
 export const STATE_SCHEMA_MIGRATION_PLAN: StateSchemaMigrationPlan = {
-  baselineVersion: 1,
-  baselineIdentity: STATE_SCHEMA_V1_IDENTITY,
+  baselineVersion: 13,
+  baselineIdentity: STATE_SCHEMA_V13_IDENTITY,
   currentVersion: CURRENT_STATE_SCHEMA_VERSION,
   currentSchemaSql: STATE_SCHEMA_SQL,
   migrations: STATE_SCHEMA_MIGRATIONS,
@@ -1299,7 +1040,7 @@ export const stateSchemaAdvanceRequired = (
  * Initialize, adopt, or migrate the sole Junto database in one transaction.
  *
  * `user_version = 0` is not a wildcard for arbitrary old databases. A
- * non-empty version-zero database must match the frozen v1 witness exactly.
+ * non-empty version-zero database must match the frozen baseline witness exactly.
  */
 export const migrateStateSchema = (
   database: DatabaseSync,

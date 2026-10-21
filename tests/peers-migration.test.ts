@@ -22,7 +22,7 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { Node } from "../src/shared/model";
-import { STATE_SCHEMA_V16_SQL, STATE_SCHEMA_V17_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V16_SQL, STATE_SCHEMA_V17_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -33,7 +33,7 @@ afterEach(async () => {
 const openCopy = async (fixture: string): Promise<DatabaseSync> => {
   dir = await mkdtemp(join(tmpdir(), "junto-peers-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return database;
@@ -85,7 +85,7 @@ describe("state migration 16 -> 17 (peers)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V17_SQL)).toEqual(STATE_SCHEMA_V17_IDENTITY);
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "adds the one table to %s and leaves every row already held as it was",
     async (fixture) => {
       const database = await openCopy(fixture);
@@ -108,7 +108,7 @@ describe("state migration 16 -> 17 (peers)", () => {
   );
 
   it("stores a peer in its own table and reads it back as a peer, with nothing to start it from", async () => {
-    const database = await openCopy("command-center-v1.db");
+    const database = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, versionSeventeenPlan);
       const canvas = String(database.prepare("SELECT canvas_name FROM canvases LIMIT 1").get()!.canvas_name);

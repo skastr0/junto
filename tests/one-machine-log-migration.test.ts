@@ -1,7 +1,7 @@
 /**
  * State migration 14 -> 15 drops the tables that carried tasks between
  * machines and rebuilds the work log without its links to them. Proven on both
- * shipped version-1 databases, brought to version 14 by the real steps, with
+ * version-13 databases, brought to version 14 by the real step, with
  * rows in the log and in the tables that go: every fact survives with its
  * identity, hash and body, every other table is untouched, and the engine
  * opens the result.
@@ -30,11 +30,11 @@ import {
   ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
 } from "../src/main/junto/work/migrate-one-machine-log";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { STATE_SCHEMA_V14_SQL, STATE_SCHEMA_V15_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V14_SQL, STATE_SCHEMA_V15_SQL } from "./fixtures/state-v13/schema";
 
 const fixtures = [
-  { fileName: "command-center-v1.db", sha256: "ba3fd2b90591bd83f3706b153799c0f325ab47bc10b273be5fdcccd9155a2615" },
-  { fileName: "remote-v1.db", sha256: "2d9e0be7c9571292ad872e45b415efa8fbdfa91198ab0a178f1ae31d12c6588a" },
+  { fileName: "command-center-v13.db", sha256: "c31b3097c2c2c56130d9b5e3d9fce4dd1bc289e40e58feab2623801cf0e2072d" },
+  { fileName: "remote-v13.db", sha256: "de746b761025302f018311b1dda3c3008ac99179d95560722176eddbb01cf719" },
 ] as const;
 
 type Row = Readonly<Record<string, SQLOutputValue>>;
@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 const copyOf = async (fileName: string): Promise<string> => {
-  const source = fileURLToPath(new URL(`./fixtures/state-v1/${fileName}`, import.meta.url));
+  const source = fileURLToPath(new URL(`./fixtures/state-v13/${fileName}`, import.meta.url));
   dir = await mkdtemp(join(tmpdir(), "junto-one-machine-log-"));
   const path = join(dir, "junto.db");
   await copyFile(source, path);

@@ -20,7 +20,7 @@ import {
 } from "../src/main/junto/state/migrations";
 import { notesPathAtVersion20 } from "../src/main/junto/state/migrate-seat-pins";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V19_SQL, STATE_SCHEMA_V20_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V19_SQL, STATE_SCHEMA_V20_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -35,7 +35,7 @@ const openCopy = async (fixture: string): Promise<{ database: DatabaseSync; seat
   const state = join(dir, ".junto", "state");
   await mkdir(state, { recursive: true });
   const path = join(state, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return { database, seatsRoot: join(dir, ".junto", "seats") };
@@ -110,7 +110,7 @@ describe("state migration 19 -> 20 (seat session pins)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V20_SQL)).toEqual(STATE_SCHEMA_V20_IDENTITY);
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "pins every seat of %s in the seat sessions store and keeps every session it had",
     async (fixture) => {
       const { database, seatsRoot } = await openCopy(fixture);

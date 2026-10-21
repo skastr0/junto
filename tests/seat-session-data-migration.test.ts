@@ -24,7 +24,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V21_SQL, STATE_SCHEMA_V22_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V21_SQL, STATE_SCHEMA_V22_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -39,7 +39,7 @@ const openCopy = async (fixture: string): Promise<{ readonly database: DatabaseS
   const state = join(dir, ".junto", "state");
   await mkdir(state, { recursive: true });
   const path = join(state, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return { database, seatsRoot: join(dir, ".junto", "seats") };
@@ -167,7 +167,7 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V22_SQL)).toEqual(STATE_SCHEMA_V22_IDENTITY);
   });
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "keeps every session of %s with its history, without notes_path, and adds the ledger and clock",
     async (fixture) => {
       const { database } = await openCopy(fixture);
@@ -211,7 +211,7 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
     },
   );
 
-  it.each(["command-center-v1.db", "remote-v1.db"])(
+  it.each(["command-center-v13.db", "remote-v13.db"])(
     "imports the retired seat files of %s once, whole, and leaves every file as it was",
     async (fixture) => {
       const { database, seatsRoot } = await openCopy(fixture);
@@ -264,7 +264,7 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
   );
 
   it("skips and counts a clock it cannot read, and a binding owed to two seats", async () => {
-    const { database, seatsRoot } = await openCopy("command-center-v1.db");
+    const { database, seatsRoot } = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, versionTwentyOnePlan);
       seed(database);
@@ -288,7 +288,7 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
   });
 
   it("holds notes and the next session's note whole, never empty", async () => {
-    const { database } = await openCopy("command-center-v1.db");
+    const { database } = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, versionTwentyOnePlan);
       migrateStateSchema(database, versionTwentyTwoPlan);

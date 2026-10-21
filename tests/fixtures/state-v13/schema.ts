@@ -1,0 +1,140 @@
+/**
+ * The frozen state schemas, version 13 through version 24, built only from
+ * frozen text and frozen steps so no later schema change can move a
+ * historical witness.
+ * Version 14 is its frozen fragments; version 13 is version 14 with the mail
+ * trigger put back; each later version is the one before with its own step
+ * run on it. Tests build historical databases from these to prove each step.
+ */
+import {
+  PROPOSAL_STORAGE_V14_TEXTS,
+  STATE_SCHEMA_V14_FRAGMENTS,
+} from "./v14-fragments";
+import { DatabaseSync } from "node:sqlite";
+import { migrateOneMachineLog } from "../../../src/main/junto/work/migrate-one-machine-log";
+import { STATE_SCHEMA_MIGRATIONS } from "../../../src/main/junto/state/migrations";
+
+const STATE_SCHEMA_FRAGMENTS: ReadonlyArray<string> = Object.values(STATE_SCHEMA_V14_FRAGMENTS);
+
+/** Every composition leaves the proposal storage out, by exact text. */
+const withoutProposalStorage = (sql: string): string => {
+  let corrected = sql;
+  for (const text of PROPOSAL_STORAGE_V14_TEXTS) {
+    if (!corrected.includes(text)) throw new Error("frozen schema composition lost a proposal storage text");
+    corrected = corrected.replace(text, "");
+  }
+  return corrected;
+};
+
+export const STATE_SCHEMA_V14_SQL = withoutProposalStorage(STATE_SCHEMA_FRAGMENTS.join("\n"));
+
+/**
+ * A later version is the earlier one with that step's own migration run on
+ * it. A step never follows the head, so the result is frozen with the step.
+ */
+const stepped = (
+  sql: string,
+  migrate: (database: DatabaseSync) => void,
+): string => {
+  const database = new DatabaseSync(":memory:");
+  try {
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.exec(sql);
+    migrate(database);
+    // A full-text table's shadow tables are its own: creating it makes them.
+    return (
+      database
+        .prepare(
+          `SELECT sql FROM sqlite_schema
+            WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*'
+              AND name NOT IN (SELECT name FROM pragma_table_list WHERE type = 'shadow')
+            ORDER BY rowid`,
+        )
+        .all()
+        .map((row) => `${String(row.sql)};`)
+        .join("\n")
+    );
+  } finally {
+    database.close();
+  }
+};
+
+// Version 15 dropped the tables that carried tasks between machines (14 -> 15).
+export const STATE_SCHEMA_V15_SQL = stepped(STATE_SCHEMA_V14_SQL, migrateOneMachineLog);
+
+// Version 16 added the row exchange cursors (15 -> 16).
+export const STATE_SCHEMA_V16_SQL = stepped(
+  STATE_SCHEMA_V15_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 16)!.migrate,
+);
+
+// Version 17 added peers (16 -> 17).
+export const STATE_SCHEMA_V17_SQL = stepped(
+  STATE_SCHEMA_V16_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 17)!.migrate,
+);
+
+// Version 18 named the machine that edits each canvas (17 -> 18).
+export const STATE_SCHEMA_V18_SQL = stepped(
+  STATE_SCHEMA_V17_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 18)!.migrate,
+);
+
+// Version 19 added what the editing machine remembers of the copies it sent (18 -> 19).
+export const STATE_SCHEMA_V19_SQL = stepped(
+  STATE_SCHEMA_V18_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 19)!.migrate,
+);
+
+// Version 20 moved each seat's session pin into the seat sessions store (19 -> 20).
+export const STATE_SCHEMA_V20_SQL = stepped(
+  STATE_SCHEMA_V19_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 20)!.migrate,
+);
+
+// Version 21 gave every machine a real name (20 -> 21).
+export const STATE_SCHEMA_V21_SQL = stepped(
+  STATE_SCHEMA_V20_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 21)!.migrate,
+);
+
+// Version 22 kept seat session notes and marks in the database (21 -> 22).
+export const STATE_SCHEMA_V22_SQL = stepped(
+  STATE_SCHEMA_V21_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 22)!.migrate,
+);
+
+// Version 23 added the harness model cache (22 -> 23).
+export const STATE_SCHEMA_V23_SQL = stepped(
+  STATE_SCHEMA_V22_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 23)!.migrate,
+);
+
+// Version 24 retired seats.session_id and said stop, not kill-session (23 -> 24).
+export const STATE_SCHEMA_V24_SQL = stepped(
+  STATE_SCHEMA_V23_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 24)!.migrate,
+);
+
+// Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.
+const MAIL_HOME_TRIGGER_V13_SQL = `
+  CREATE TRIGGER IF NOT EXISTS work_messages_require_cc_home
+  BEFORE INSERT ON work_messages
+  WHEN
+    NOT EXISTS (
+      SELECT 1
+      FROM station_configuration AS configuration
+      JOIN station_installation AS installation
+        ON installation.singleton = configuration.singleton
+      WHERE configuration.singleton = 1
+        AND configuration.role = 'command-center'
+        AND NEW.entity_home = installation.installation_id
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'work mailbox messages must be Command Center-homed'
+    );
+  END;
+`;
+export const STATE_SCHEMA_V13_SQL = `${STATE_SCHEMA_V14_SQL}\n${MAIL_HOME_TRIGGER_V13_SQL}`;

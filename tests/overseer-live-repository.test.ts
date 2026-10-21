@@ -266,9 +266,9 @@ describe("durable Live journal", () => {
     expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "unknown" });
   });
 
-  it("opens the populated v1 fixture and retains every kept table's rows including immutable Work logs", async () => {
+  it("opens the populated v13 fixture and retains every kept table's rows including immutable Work logs", async () => {
     const path = await tempPath();
-    await copyFile(new URL("./fixtures/state-v1/remote-v1.db", import.meta.url), path);
+    await copyFile(new URL("./fixtures/state-v13/remote-v13.db", import.meta.url), path);
     const baseline = new DatabaseSync(path);
     let before: Record<string, unknown[]>;
     try {

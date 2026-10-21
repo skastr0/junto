@@ -22,7 +22,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V17_SQL, STATE_SCHEMA_V18_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V17_SQL, STATE_SCHEMA_V18_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -33,7 +33,7 @@ afterEach(async () => {
 const copyOf = async (fixture: string): Promise<string> => {
   dir = await mkdtemp(join(tmpdir(), "junto-canvas-editor-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v1/${fixture}`, import.meta.url)), path);
+  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
   return path;
 };
 
@@ -77,8 +77,8 @@ describe("state migration 17 -> 18 (the machine that edits each canvas)", () => 
   });
 
   it.each([
-    ["command-center-v1.db", "command-center-v1"],
-    ["remote-v1.db", "remote-v1"],
+    ["command-center-v13.db", "command-center-v1"],
+    ["remote-v13.db", "remote-v1"],
   ])("makes every canvas of %s this machine's and leaves every other row as it was", async (fixture, installation) => {
     const database = open(await copyOf(fixture));
     try {
@@ -100,7 +100,7 @@ describe("state migration 17 -> 18 (the machine that edits each canvas)", () => 
   });
 
   it("stamps a new canvas with this machine and reads the editor back", async () => {
-    const path = await copyOf("command-center-v1.db");
+    const path = await copyOf("command-center-v13.db");
     const runtime = ManagedRuntime.make(Layer.provideMerge(ModelRecords.layer, makeStateEngineLive(path)));
     try {
       const editors = await runtime.runPromise(
