@@ -55,6 +55,20 @@ describe("task and artifact attachments, as main admits them", () => {
     });
   });
 
+  it("admits a far task for a live overseer seat, and a far artifact for no one", () => {
+    // S as an overseer, with an artifacts shelf AX beside TX in sibling region Q.
+    const flagged = (overseer: boolean): SignalResources => ({
+      canvas: { nodes: new Map([...canvas.nodes, [asNodeId("S"), { ...canvas.nodes.get(asNodeId("S"))!, overseer } as ReachNode], [asNodeId("AX"), node("AX", "artifacts", 1200, 10)]]) },
+      holds: (kind, nodeId, item) => held.has(`${kind}:${nodeId}:${item}`) || (kind === "artifact" && nodeId === "AX" && item === A),
+    });
+    expect(admitResourceAttachment({ kind: "task", ref: ref("TX", T) }, seat, flagged(true))).toEqual({
+      ok: true,
+      attachment: { kind: "task", nodeId: "TX", taskId: T },
+    });
+    expect(admitResourceAttachment({ kind: "task", ref: ref("TX", T) }, seat, flagged(false))).toEqual({ ok: false, reason: "TX is out of this seat's reach" });
+    expect(admitResourceAttachment({ kind: "artifact", ref: ref("AX", A) }, seat, flagged(true))).toEqual({ ok: false, reason: "AX is out of this seat's reach" });
+  });
+
   it("refuses, with the reason, anything else", () => {
     const refused = (kind: "task" | "artifact", href: string) => {
       const admitted = admitResourceAttachment({ kind, ref: href }, seat, resources);

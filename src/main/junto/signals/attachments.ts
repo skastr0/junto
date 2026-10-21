@@ -10,7 +10,7 @@ import {
 import { MENTION_KIND_OF_NODE, parseMentionHref } from "@shared/mention";
 import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName, isTextHead } from "@shared/preview-bytes";
 import { asNodeId, type NodeId } from "@shared/physics/schema";
-import { resourcesInReach, type ReachCanvas } from "@shared/region-reach";
+import { resourcesSeatReaches, type ReachCanvas } from "@shared/region-reach";
 import type { ItemId } from "@shared/work-ids";
 import type { ContentOwner } from "../content/manifest";
 import { ContentService } from "../content/service";
@@ -100,7 +100,7 @@ export const admitResourceAttachment = (
     ? undefined
     : MENTION_KIND_OF_NODE[node.kind as keyof typeof MENTION_KIND_OF_NODE];
   if (kind !== noun) return { ok: false, reason: `${target.nodeId} holds no ${noun}s on this canvas` };
-  if (!resourcesInReach(resources.canvas, seatId).some((reached) => reached.id === target.nodeId)) {
+  if (!resourcesSeatReaches(resources.canvas, seatId).some((reached) => reached.id === target.nodeId)) {
     return { ok: false, reason: `${target.nodeId} is out of this seat's reach` };
   }
   if (!resources.holds(noun, target.nodeId, target.item)) {

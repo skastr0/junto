@@ -20,7 +20,7 @@ import { mentionsOf } from "@shared/mention";
 import type { Canvas } from "@shared/model";
 import { asNodeId } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
-import { isCommentableKind, reaches, seatsInReach } from "@shared/region-reach";
+import { isCommentableKind, reaches, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
 import type { ResourceActor } from "@shared/resource-command";
 import {
   commentSubjectOf,
@@ -79,7 +79,9 @@ export const postSubjectComment = (
     }
     const poster = posterNode(input.actor);
     const from = input.actor.kind === "automation" ? input.actor.nodeId : poster;
-    if (from !== undefined && !reaches(canvas, from, nodeId)) {
+    // A seat reaches a task as the task verbs do: a live overseer, every task node.
+    const reached = from === undefined || (input.actor.kind === "seat" && node.kind === "task" ? seatReachesTaskNode(canvas, from, nodeId) : reaches(canvas, from, nodeId));
+    if (!reached) {
       return yield* Effect.fail<WorkErrorBody>({
         type: "ScopeError",
         message: `"${nodeId}" is outside the reach of "${from}"`,
@@ -138,7 +140,10 @@ export const postSubjectComment = (
     const subject = rooted ?? asked;
     const earlier = thread.flatMap((row) => {
       const by = row.metadata?.senderNodeId;
-      return typeof by === "string" && inReach.has(by) ? [asNodeId(by)] : [];
+      // A far live overseer that posted on a task is told of what follows, as any earlier poster.
+      const told = typeof by === "string" &&
+        (inReach.has(by) || (node.kind === "task" && canvas.nodes.get(asNodeId(by))?.kind === "agent" && seatReachesTaskNode(canvas, asNodeId(by), nodeId)));
+      return told ? [asNodeId(by)] : [];
     });
 
     const metadata = {

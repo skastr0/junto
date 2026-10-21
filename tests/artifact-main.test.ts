@@ -9,7 +9,8 @@ import {
   type ArtifactState,
   emptyArtifactState,
 } from "../src/shared/artifact-domain";
-import type { ArtifactShowResult, ArtifactWriteResult } from "../src/shared/artifact-control";
+import { ARTIFACT_OPS, type ArtifactShowResult, type ArtifactWriteResult } from "../src/shared/artifact-control";
+import { ARTIFACTS_ENABLED } from "../src/shared/features";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { emptyRuled, type ResourceCommand, rule, type Ruled } from "../src/shared/resource-command";
@@ -126,7 +127,7 @@ const failure = (exit: Exit.Exit<unknown, WorkErrorBody>): WorkErrorBody => {
 const createDoc = (ports: ArtifactPorts, extra: Record<string, unknown> = {}) =>
   ok<ArtifactWriteResult>(run(ports, "artifact.create", { opId: OP, artifactId: NEW, type: "document", title: "Notes", ...extra }));
 
-describe("junto artifact in main", () => {
+describe.runIf(ARTIFACTS_ENABLED)("junto artifact in main", () => {
   it("creates on the one Artifacts node in reach, with an empty body, as the caller", () => {
     const { ports, submitted } = memoryPorts();
     expect(createDoc(ports)).toEqual({ disposition: "applied", opId: OP, artifactId: NEW, version: 1 });
@@ -277,6 +278,15 @@ describe("junto artifact in main", () => {
     expect(failure(run(ports, "artifact.list", { nodes: "x" }))).toMatchObject({ type: "InputError" });
     expect(failure(run(ports, "artifact.archive", { opId: "op-1", artifact: NEW }))).toMatchObject({ type: "InputError" });
     expect(failure(run(ports, "artifact.show", { artifact: ItemId.make(NEW).toLowerCase() }))).toMatchObject({ type: "InputError" });
+  });
+});
+
+describe.runIf(!ARTIFACTS_ENABLED)("an artifacts-off build", () => {
+  it("refuses every artifact op before it reads one", () => {
+    for (const op of ARTIFACT_OPS) {
+      const refused = failure(run(memoryPorts().ports, op, {}));
+      expect([refused.type, refused.details?.missing, refused.details?.reason], op).toEqual(["ScopeError", "feature enabled in this build", op]);
+    }
   });
 });
 

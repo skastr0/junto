@@ -253,6 +253,26 @@ export const admitLiveOverseer = (
  * a build whose gate is off. Name the gate rather than an edge so an agent
  * stops instead of asking the operator for a wire that can never grant.
  */
+/**
+ * A product's op refused whole in a build that turns the product off. A
+ * tasks-off build can open a canvas a tasks-on machine wrote; no node there
+ * makes its ops runnable.
+ */
+export const productDisabledError = (callerId: string, kind: "task" | "artifacts", op: WorkOpName): WorkErrorBody => ({
+  type: "ScopeError",
+  message: `${op} is disabled in this Junto build: node kind ${kind} is off`,
+  details: {
+    caller: callerId,
+    expected: [],
+    received: kind,
+    hint: "this product surface is turned off in this build",
+    next_step: "stop work on this node; the feature is disabled in this build and no edge can grant it",
+    retryable: false,
+    missing: "feature enabled in this build",
+    reason: op,
+  },
+});
+
 const featureDisabledError = (
   callerId: string,
   targetId: string,
@@ -773,16 +793,6 @@ const candidateOf = (node: Node): TargetCandidate => ({ kind: node.kind, nodeId:
 export const wiredTargetCandidates: TargetCandidates = (doc, callerId, op) =>
   wiredNodes(doc, callerId)
     .filter((node) => Result.isSuccess(admitWorkTarget(doc, callerId, node.id, op)))
-    .map(candidateOf);
-
-/**
- * Resource ops: every resource node in the caller's region reach (01). An op
- * that names items adds them beside their node, with their numbers.
- */
-export const reachTargetCandidates: TargetCandidates = (doc, callerId) =>
-  resourcesInReach(doc, asNodeId(callerId))
-    .map((reached) => findNode(doc, reached.id))
-    .filter((node): node is Node => node !== undefined)
     .map(candidateOf);
 
 /**

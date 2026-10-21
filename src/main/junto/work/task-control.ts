@@ -55,7 +55,8 @@ import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { ResourceSubmit } from "./resource-submit";
 import { MachineRepository } from "../machines/repository";
-import { linkSeatMentions, resourceMentionCandidates } from "./authz";
+import { linkSeatMentions, productDisabledError, resourceMentionCandidates } from "./authz";
+import { TASKS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged, onResourceChanged } from "./resource-changes";
 import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
@@ -594,6 +595,7 @@ export const handleTaskOp = (
   ports: TaskPorts,
 ): Effect.Effect<unknown, WorkErrorBody> =>
   Effect.gen(function* () {
+    if (!TASKS_ENABLED) return yield* Effect.fail(productDisabledError(caller.actor.nodeId, "task", op));
     switch (op) {
       case "task.list": {
         const input = yield* decode(TASK_ARGS[op], args);

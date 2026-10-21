@@ -3,12 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   linkSeatMentions,
   mailMentionCandidates,
-  reachTargetCandidates,
   resolveWorkTarget,
   resourceMentionCandidates,
 } from "../src/main/junto/work/authz";
 import { mentionLink } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
+import { titleOf } from "../src/shared/model/title";
+import { resourcesInReach } from "../src/shared/region-reach";
 import { artifacts, canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
 
 // Region A holds the caller, board-a and the shared artifacts; region B holds board-b.
@@ -25,14 +26,11 @@ const canvas = canvasOf(
   [wire("caller-peer", "caller", "peer", "messages")],
 );
 
-describe("resolveWorkTarget", () => {
-  it("names resource nodes in the caller's region reach, and nothing outside it", () => {
-    expect(reachTargetCandidates(canvas, "caller", "msg.send").map((c) => [c.kind, c.nodeId, c.name])).toEqual([
-      ["task", "board-a", "Backlog"],
-      ["artifacts", "docs", "Docs"],
-    ]);
-  });
+// The resource nodes in the caller's region reach, as a resolver's candidates.
+const reachTargetCandidates = (doc: typeof canvas, callerId: string) =>
+  resourcesInReach(doc, asNodeId(callerId)).map((node) => ({ kind: node.kind, nodeId: node.id, name: titleOf(doc.nodes.get(node.id)!) }));
 
+describe("resolveWorkTarget", () => {
   it("resolves a resource by name through reach, and mail by the wired seats", () => {
     const board = resolveWorkTarget(canvas, "caller", "backlog", "msg.send", reachTargetCandidates);
     expect(Result.isSuccess(board) && board.success).toEqual({ nodeId: "board-a" });

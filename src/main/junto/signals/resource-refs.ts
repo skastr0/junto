@@ -3,7 +3,7 @@ import type { AgentSignalAttachmentInput } from "@shared/agent-signals";
 import { mentionHref } from "@shared/mention";
 import type { Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
-import { resourcesInReach } from "@shared/region-reach";
+import { resourcesSeatReaches } from "@shared/region-reach";
 import type { TaskNumber } from "@shared/task-model";
 import type { TargetCandidate, WorkErrorBody } from "@shared/work-control";
 import { isItemId, type ItemId } from "@shared/work-ids";
@@ -135,7 +135,7 @@ const readReachedItems = (
   kinds: ReadonlySet<ResourceKind>,
 ): Effect.Effect<{ readonly items: ReadonlyArray<ReachedItem>; readonly missing: ReadonlySet<ResourceKind> }, WorkErrorBody> =>
   Effect.gen(function* () {
-    const reached = resourcesInReach(board, seatId);
+    const reached = resourcesSeatReaches(board, seatId);
     const nodesOf = (kind: ResourceKind) => reached.filter((node) => node.kind === NODE_KIND[kind]).map((node) => node.id);
     const items: ReachedItem[] = [];
     const missing = new Set<ResourceKind>();

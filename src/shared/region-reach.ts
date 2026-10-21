@@ -141,11 +141,11 @@ export const reaches = (canvas: ReachCanvas, from: NodeId, to: NodeId): boolean 
  * admitOverseerWorkTarget admits (authz.ts). The flag is read off the canvas
  * the caller holds, never cached; what the seat may do there stays the ruler's.
  */
-export const seatReachesTaskNode = (canvas: ReachCanvas, seat: NodeId, node: NodeId): boolean => {
-  if (reaches(canvas, seat, node)) return true;
-  const self = canvas.nodes.get(seat);
-  return self?.kind === "agent" && "overseer" in self && self.overseer === true && canvas.nodes.get(node)?.kind === "task";
-};
+export const seatReachesTaskNode = (canvas: ReachCanvas, seat: NodeId, node: NodeId): boolean =>
+  reaches(canvas, seat, node) || (isLiveOverseer(canvas.nodes.get(seat)) && canvas.nodes.get(node)?.kind === "task");
+
+const isLiveOverseer = (node: ReachNode | undefined): boolean =>
+  node?.kind === "agent" && "overseer" in node && node.overseer === true;
 
 const inReachOf = (
   canvas: ReachCanvas,
@@ -170,6 +170,18 @@ const inReachOf = (
  */
 export const resourcesInReach = (canvas: ReachCanvas, seatId: NodeId): ReadonlyArray<ReachNode> =>
   canvas.nodes.get(seatId)?.kind === "agent" ? inReachOf(canvas, seatId, isResourceKind) : [];
+
+/**
+ * The resource nodes a seat may name and act on: `resourcesInReach`, and for
+ * a live overseer seat every task node too (`seatReachesTaskNode`). Other
+ * resource kinds stay plain reach. Sorted by id.
+ */
+export const resourcesSeatReaches = (canvas: ReachCanvas, seatId: NodeId): ReadonlyArray<ReachNode> => {
+  const reached = resourcesInReach(canvas, seatId);
+  if (!isLiveOverseer(canvas.nodes.get(seatId))) return reached;
+  const tasks = [...canvas.nodes.values()].filter((node) => node.kind === "task" && !reached.some((found) => found.id === node.id));
+  return [...reached, ...tasks].sort(byId);
+};
 
 /** Seats that reach a node: reviewers, mention candidates, recipients. Sorted by id. */
 export const seatsInReach = (canvas: ReachCanvas, nodeId: NodeId): ReadonlyArray<ReachNode> =>

@@ -313,6 +313,25 @@ describe("subject threads", () => {
     ]);
   });
 
+  it.skipIf(!TASKS_ENABLED)("a far live overseer comments on a task and is told of the next comment; with the flag off it is refused", async () => {
+    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD3");
+    // outsider sits in region other, out of reach of the board, unwired.
+    const flagged = (overseer: boolean) => canvasOf(NODES.map((node) => (node.id === "outsider" ? { ...node, overseer } : node)) as typeof NODES, WIRES, CANVAS);
+    const as = (nodeId: string) => ({ kind: "seat" as const, seatId: `seat_${(nodeId === "agent" ? "a" : "b").repeat(64)}` as ActorSeatId, nodeId: asNodeId(nodeId) });
+    const comment = (canvas: ReturnType<typeof flagged>, from: string, text: string, opId: string) =>
+      postSubjectComment({ subject: { kind: "task", nodeId: asNodeId(BOARD), taskId }, text, actor: as(from), opId: OpId.make(opId) }, { canvas, canvasName: CANVAS, people: [] });
+
+    const refused = await runtime.runPromise(Effect.flip(comment(flagged(false), "outsider", "from afar", "01M5ESMJV6GNZ0891YFFWS0S3W")));
+    expect(refused.details?.reason).toBe("not_in_reach");
+
+    const on = flagged(true);
+    const posted = await runtime.runPromise(comment(on, "outsider", "from afar", "01M5ESMJV6GNZ0891YFFWS0S3X"));
+    expect((await mailbox(BOARD)).some((message) => message.messageId === posted.messageId)).toBe(true);
+    const next = await runtime.runPromise(comment(on, "agent", "seen it", "01M5ESMJV6GNZ0891YFFWS0S3Y"));
+    expect(next.notified).toEqual(["outsider"]);
+    expect((await mailbox("outsider")).find((message) => message.metadata?.subjectNotice === "comment")?.metadata).toMatchObject({ threadId: taskId, senderNodeId: "agent" });
+  });
+
   it("an automation comments as its own node, and never from the operator's", async () => {
     const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD1");
     const context = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [asNodeId("peer")] };

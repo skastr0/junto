@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { TASKS_ENABLED } from "../src/shared/features";
 import { Effect, Exit, Result, Schema } from "effect";
 import {
   TASK_ARGS,
@@ -213,7 +214,7 @@ const failure = (exit: Exit.Exit<unknown, WorkErrorBody>): WorkErrorBody => {
   return (error as { readonly error: WorkErrorBody }).error;
 };
 
-describe("task verbs", () => {
+describe.runIf(TASKS_ENABLED)("task verbs", () => {
   it("assigns to a seat named by @name in the task's reach", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
     const exit = await run("task.assign", { opId: OP, task: "#42", seat: "@beta" }, portsWith(applied({ assignee: seatNodeId(asNodeId("seat-b")) }), submitted));
@@ -401,7 +402,7 @@ describe("task verbs", () => {
   });
 });
 
-describe("task rules and wait", () => {
+describe.runIf(TASKS_ENABLED)("task rules and wait", () => {
   const ruled = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
     [id, id === "tasks-1" ? { ...(node as object), contract: { rules: [{ id: "tests", text: "Tests pass" }] } } : node])) } as unknown as Canvas;
   const at = (ports: TaskPorts) => (op: TaskControlOp, args: unknown) =>
@@ -470,7 +471,7 @@ describe("task rules and wait", () => {
   });
 });
 
-describe("task check", () => {
+describe.runIf(TASKS_ENABLED)("task check", () => {
   // tasks-1 runs "unit" on the way out; tasks-3 runs "smoke" on the way in.
   const checked = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
     [id, id === "tasks-1"
@@ -595,6 +596,19 @@ describe("what the ruler reads of the canvas", () => {
     const artifact = { kind: "artifact" as const, nodeId: asNodeId("tasks-2") };
     expect(rulingContextOf({ nodes: new Map([...flagged(true).canvas.nodes].map(([id, node]) => [id, id === "tasks-2" ? { ...node, kind: "artifact" } : node])) } as never, () => undefined)
       .inReach(caller.actor, artifact)).toBe(false);
+  });
+});
+
+describe.runIf(!TASKS_ENABLED)("a tasks-off build", () => {
+  it("refuses every task op, for every seat, before it reads a task", async () => {
+    // A canvas a tasks-on machine wrote still holds task nodes; none makes a task op runnable.
+    const ports = { ...portsWith(applied()), find: () => Effect.die("read a task") } as TaskPorts;
+    for (const who of [caller, flagged(true)]) {
+      for (const op of Object.keys(TASK_ARGS) as ReadonlyArray<TaskControlOp>) {
+        const refused = failure(await Effect.runPromiseExit(handleTaskOp(op, { task: "#42" }, who, ports)));
+        expect([refused.type, refused.details?.missing, refused.details?.reason], op).toEqual(["ScopeError", "feature enabled in this build", op]);
+      }
+    }
   });
 });
 

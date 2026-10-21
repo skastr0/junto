@@ -59,7 +59,8 @@ import { BodyPuller } from "../content/body-puller";
 import type { PulledOwner } from "../content/pull";
 import { ArtifactRepository, type ArtifactBodyRead } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
-import { linkSeatMentions, resourceMentionCandidates } from "./authz";
+import { linkSeatMentions, productDisabledError, resourceMentionCandidates } from "./authz";
+import { ARTIFACTS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 
 /** What the verbs need from the artifact store and the ruler. */
@@ -454,6 +455,7 @@ export const handleArtifactOp = (
   ports: ArtifactPorts,
 ): Effect.Effect<unknown, WorkErrorBody> =>
   Effect.gen(function* () {
+    if (!ARTIFACTS_ENABLED) return yield* Effect.fail(productDisabledError(caller.actor.nodeId, "artifacts", op));
     switch (op) {
       case "artifact.list": {
         const input = yield* decode(ArtifactListArgs, args);
