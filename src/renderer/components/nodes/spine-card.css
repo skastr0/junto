@@ -21,8 +21,12 @@
   transform: none;
 }
 
+/* A spine node has no box to fill, so its words may run past the model's
+   width, up to a cap, rather than cut a row's name. */
 .spine-card {
   display: flex;
+  width: max-content;
+  max-width: max(100%, 320px);
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
@@ -201,6 +205,12 @@
   text-overflow: ellipsis;
   text-shadow: var(--spine-halo);
   white-space: nowrap;
+}
+
+/* A path line keeps its end: the ellipsis falls at the start. */
+.spine-leaf[data-tail="true"] {
+  direction: rtl;
+  text-align: left;
 }
 
 /* Spine and rows */

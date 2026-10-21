@@ -33,29 +33,6 @@
 .junto-node[data-node-kind="agent"].junto-blocker::after,
 .junto-node[data-node-kind="agent"][data-seat-attention="true"]::after,
 .junto-node[data-node-kind="agent"][data-attention="fire"]::after { display: none; }
-/* Terminal and git speak the seat's language (InstrumentSeat): a 40px ring
-   around the kind's glyph, the name, one line; half-round left end
-   concentric with the ring. Same rest, hover and selection surfaces as the
-   seat, and the ring owns their status too. */
-.junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]):not([data-look="spine"]) {
-  border-radius: 22px 12px 12px 22px;
-  padding: 1px 10px 1px 1px;
-  border-color: transparent !important;
-  background: color-mix(in oklab, var(--color-ground) 72%, transparent) !important;
-  box-shadow: none !important;
-}
-.junto-node:is([data-node-kind="terminal"], [data-node-kind="git"])[data-occupancy] { outline: none; }
-.junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]):is([data-seat-attention="true"], [data-attention="fire"])::after { display: none; }
-/* A free note is content, so it keeps its size, but wears the seat's
-   surfaces: a wash at rest, a hairline and lift only on hover and selection,
-   and its leading title reads as a seat name, not a stamped plate. */
-.junto-node[data-node-kind="text"]:not([data-bare]):not([data-look="spine"]) {
-  border-radius: 14px;
-  padding: 10px 12px;
-  border-color: transparent !important;
-  background: color-mix(in oklab, var(--color-ground) 72%, transparent) !important;
-  box-shadow: none !important;
-}
 .junto-node[data-node-kind="text"] .note-md__h--cartouche {
   margin-bottom: 0.3em;
   padding-bottom: 0;
@@ -65,15 +42,6 @@
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
-}
-.react-flow__node:hover .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"], [data-node-kind="text"]):not([data-bare]):not([data-look="spine"]) {
-  border-color: var(--color-stroke) !important;
-  background: color-mix(in oklab, var(--color-raise) 90%, transparent) !important;
-}
-.react-flow__node.selected .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"], [data-node-kind="text"]):not([data-bare]):not([data-look="spine"]) {
-  border-color: color-mix(in oklab, var(--color-main) 55%, transparent) !important;
-  background: color-mix(in oklab, var(--color-raise) 94%, transparent) !important;
-  box-shadow: 0 8px 22px var(--color-shadow-2) !important;
 }
 /* The glyph in an instrument's ring: identity in quiet ink; the ring says state. */
 .junto-instrument__glyph {
@@ -101,13 +69,6 @@
 .factory-agent-card:not(:has([data-testid="seat-task"])) {
   justify-content: center;
 }
-.junto-node[data-node-kind="task"] { border-radius: 8px 4px 4px 8px; }
-.junto-node[data-node-kind="requests"] { border-radius: 4px 9px 9px 4px; }
-.junto-node[data-node-kind="artifacts"]:not([data-look="spine"]) {
-  border-radius: 3px;
-  background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 88%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent)) !important;
-}
-.junto-node[data-node-kind="board"] { border-radius: 5px; }
 
 .factory-glance__header { min-height: 12px; }
 .factory-glance__list { position: relative; }

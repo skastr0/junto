@@ -80,7 +80,12 @@ export type SpineCardProps = {
    * line and no spine; a holder has a meta line and rows on the spine.
    */
   readonly body?:
-    | { readonly kind: "leaf"; readonly line: string }
+    | {
+        readonly kind: "leaf";
+        readonly line: string;
+        /** A path: when it does not fit, the start gives way, so the folders nearest the name stay. */
+        readonly tail?: boolean;
+      }
     | {
         readonly kind: "spine";
         readonly meta: string;
@@ -152,7 +157,15 @@ export function SpineCard({ glyph, hue, name, count, status: reported, trailing,
         </span>
         {status === undefined ? null : <SpineStatusTag status={status} />}
       </div>
-      {body?.kind === "leaf" ? <p className="spine-leaf">{body.line}</p> : null}
+      {body?.kind === "leaf" ? (
+        body.tail === true ? (
+          <p className="spine-leaf" data-tail="true">
+            <bdi dir="ltr">{body.line}</bdi>
+          </p>
+        ) : (
+          <p className="spine-leaf">{body.line}</p>
+        )
+      ) : null}
       {body?.kind === "spine" ? (
         <ul className="spine">
           <li className="spine__meta">{body.meta}</li>

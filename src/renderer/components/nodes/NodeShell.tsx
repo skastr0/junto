@@ -470,10 +470,12 @@ export function NodeShell({
       data-node-kind={kind === undefined ? undefined : kindWord(kind)}
       data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
-      data-seat-attention={liveSeatAttention ? "true" : undefined}
+      // A spine node says attention with its tag, spine and disc: the shell's
+      // attention glow, ring and occupancy outline would frame its whole box.
+      data-seat-attention={liveSeatAttention && look !== "spine" ? "true" : undefined}
       data-overseer={overseer ? "true" : undefined}
-      data-occupancy={occupancyAttr}
-      data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
+      data-occupancy={look === "spine" ? undefined : occupancyAttr}
+      data-attention={look === "spine" ? undefined : attention === "idle" && liveSeatAttention ? "fire" : attention}
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}
       style={

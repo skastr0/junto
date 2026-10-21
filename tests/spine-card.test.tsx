@@ -74,6 +74,12 @@ describe("SpineCard", () => {
     expect(host.querySelector(".spine__row")?.getAttribute("data-tone")).toBe("crimson");
   });
 
+  it("keeps a path line's end when it does not fit", () => {
+    render(<SpineCard glyph={glyph} hue="dim" name="a.json" body={{ kind: "leaf", line: "Users/me/scratchpad/export3", tail: true }} />);
+    expect(host.querySelector(".spine-leaf")?.getAttribute("data-tail")).toBe("true");
+    expect(host.querySelector(".spine-leaf bdi")?.textContent).toBe("Users/me/scratchpad/export3");
+  });
+
   it("gives a leaf one line and no spine; a dashed chip for peers and stubs", () => {
     render(<SpineCard glyph={glyph} hue="dim" name="report.pdf" dashed body={{ kind: "leaf", line: "docs/report.pdf" }} />);
     expect(host.querySelector(".spine-leaf")?.textContent).toBe("docs/report.pdf");

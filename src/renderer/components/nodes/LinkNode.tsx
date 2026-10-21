@@ -14,6 +14,18 @@ import { state$ } from "../../lib/state";
 import { useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { NodeShell } from "./NodeShell";
 import { SpineCard } from "./SpineCard";
+
+/** An address as its host and the last step of its path: "effect.website/…/docs". */
+const hostAndTail = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const steps = parsed.pathname.split("/").filter(Boolean);
+    if (steps.length === 0) return parsed.host;
+    return steps.length === 1 ? `${parsed.host}/${steps[0]}` : `${parsed.host}/…/${steps.at(-1)}`;
+  } catch {
+    return url;
+  }
+};
 import { BROWSER_ENABLED } from "@shared/features";
 
 export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
@@ -83,7 +95,7 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
   return (
     <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} look="spine">
       <div title={url}>
-        <SpineCard glyph={<Link2 />} hue="cyan" name={host} status="retired" dashed body={{ kind: "leaf", line: url || host }} />
+        <SpineCard glyph={<Link2 />} hue="cyan" name={host} status="retired" dashed body={{ kind: "leaf", line: hostAndTail(url) || host }} />
       </div>
     </NodeShell>
   );

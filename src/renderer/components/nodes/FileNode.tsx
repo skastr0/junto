@@ -17,10 +17,10 @@ import { Button, Eyebrow, IconButton } from "../ui";
 import { NodeShell } from "./NodeShell";
 import { SpineCard } from "./SpineCard";
 
-/** The folders a path sits in, the nearest last: what the leaf line names. */
+/** The folders a path sits in, the nearest last: what the leaf line names, its start giving way. */
 const pathTail = (path: string): string => {
   const parts = path.split("/").filter(Boolean);
-  return parts.length > 1 ? parts.slice(-3, -1).join("/") : path;
+  return parts.length > 1 ? parts.slice(0, -1).join("/") : path;
 };
 
 export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
@@ -120,7 +120,7 @@ export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   return (
     <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} look="spine">
       <div title={path}>
-        <SpineCard glyph={<FileText />} hue="dim" name={base} status="retired" dashed body={{ kind: "leaf", line: pathTail(path) }} />
+        <SpineCard glyph={<FileText />} hue="dim" name={base} status="retired" dashed body={{ kind: "leaf", line: pathTail(path), tail: true }} />
       </div>
     </NodeShell>
   );
