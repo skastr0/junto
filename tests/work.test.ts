@@ -87,11 +87,11 @@ const makeWorkRuntime = (databasePath: string) => {
     ModelStoresLive,
     repositoriesLive
   );
-  return ManagedRuntime.make(((
+  return ManagedRuntime.make(
     Layer.provideMerge(
       WorkLive,
-      canvasesLive as never) as never)
-    )
+      canvasesLive,
+    ),
   );
 };
 

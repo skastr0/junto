@@ -90,7 +90,7 @@ describe("executeOverseerCanvas", () => {
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
-        Layer.mergeAll(canvases) as never,
+        Layer.mergeAll(canvases),
       ),
     );
   };

@@ -97,8 +97,8 @@ const makeRuntime = () => {
   return ManagedRuntime.make(
     Layer.provideMerge(
       WorkLive,
-      Layer.mergeAll(canvasesLive) as never,
-    ) as never,
+      Layer.mergeAll(canvasesLive),
+    ),
   );
 };
 

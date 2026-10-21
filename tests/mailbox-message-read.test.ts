@@ -68,7 +68,7 @@ const makeRuntime = (root: string) => {
     WorkLive,
     canvasesLive,
   );
-  return ManagedRuntime.make(workLive as never);
+  return ManagedRuntime.make(workLive);
 };
 
 const agentNodes = () => [

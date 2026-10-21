@@ -69,7 +69,7 @@ it("holds the model's canvases and follows their work", async () => {
     Layer.provideMerge(
       KernelLive,
       Layer.mergeAll(Layer.provideMerge(workLive, storesLive), stubsLive),
-    ) as never,
+    ),
   );
   const run = <A, E>(effect: Effect.Effect<A, E, never>) =>
     runtime.runPromise(effect as never) as Promise<A>;
