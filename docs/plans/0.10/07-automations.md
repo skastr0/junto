@@ -26,6 +26,13 @@ carries its Automations nodes: a copy that brought them would fire the same
 mail and tasks twice, from a canvas nobody chose to automate. The operator or
 an overseer recreates them on the copy.
 
+**Deleting the node archives them; undoing the delete restores them.** The
+delete archives every live automation on the node in the same ruling, keeps
+their history, and is never refused. Undo of that delete unarchives exactly
+the automations it archived, each with the enabled state it had; a schedule
+that missed slots meanwhile fires once on return for its latest slot, as after
+an away editing machine.
+
 ## Today
 
 - No scheduler service; the kernel runs it (`src/main/junto/kernel/cycle.ts`,
