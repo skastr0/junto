@@ -13,7 +13,9 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { Schema } from "effect";
-import { Node } from "../../src/shared/model";
+import { asNodeId, Node } from "../../src/shared/model";
+import { taskNodeId } from "../../src/shared/task-model";
+import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, test } from "../harness/launch";
 import { modelFixture, modelSeat, modelWire, readModelCanvas } from "../harness/model";
 
@@ -251,11 +253,14 @@ test.describe("a task path between two boards", () => {
   test("removing the path says what it does to the task on its way, and cancel sends nothing", async ({ junto }) => {
     const { page } = junto;
     await ready(page, ["build", "review"]);
+    // A task on Build, so removing its path has something to say: made as the
+    // renderer makes one, through the task resource.
+    const taskId = mintItemId();
     const made = await page.evaluate(
-      (canvas) => window.junto!.workTaskCreate(canvas, "build", "Ship the wire spec", { title: "Ship the wire spec", details: "A task on Build, so removing its path has something to say." }),
-      CANVAS,
+      ({ canvas, node, taskId, opId }) => window.junto!.resource.task.apply(canvas, node, taskId, opId, { kind: "create", taskId, title: "Ship the wire spec" }),
+      { canvas: CANVAS, node: taskNodeId(asNodeId("build")), taskId, opId: mintOpId() },
     );
-    expect(made.ok).toBe(true);
+    expect(made.kind).toBe("applied");
 
     await page.getByRole("button", { name: /^Select edge -/ }).first().press("Enter");
     const remove = page.getByRole("button", { name: "Delete relation" });
