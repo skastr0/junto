@@ -64,6 +64,7 @@ it("the agent rail draws a seat's connected agents and its other connections fro
   expect(host.querySelector('[aria-label^="Go to Ada"]')).not.toBeNull();
   const others = [...host.querySelectorAll<HTMLElement>('[data-testid="actor-rail-others"] li')];
   expect(others.map((element) => [element.dataset.peerNodeId, element.dataset.peerKind])).toEqual([["talk", "board"]]);
+  expect(others[0]!.textContent).toContain("board");
 
   // A wire that goes takes its seat out of the rail, with no document to say so.
   await act(async () => hold([seat("lead"), seat("ada")], []));
