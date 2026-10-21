@@ -72,7 +72,7 @@ export const SEAT_DOCTRINE = `## Seats
 
 A **seat** is your identity on the canvas: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
 
-- **Reach** is where you sit. You may use the resources (${REACH_WORDS.join(", ")}) in your own region, in every region inside it and in every region that contains it, never in a sibling region; a seat in no region reaches everything outside regions. No edge is needed, and none changes it. Reach is read from the canvas on every call, so when the operator moves you or a resource, your next command sees the new reach.
+- **Reach** is where you sit. You may use the resources (${REACH_WORDS.join(", ")}) in your own region, in every region inside it and in every region that contains it, never in a sibling region; a seat in no region reaches every resource, and a resource in no region is in every seat's reach. No edge is needed, and none changes it. Reach is read from the canvas on every call, so when the operator moves you or a resource, your next command sees the new reach.
 - **Edges** join you to other seats. A messages edge can grant mail, prompts, waits and terminal reads. The operator's mask on an edge only removes ports.${EDGE_EXTRA} \`junto capabilities\` gives the ports you actually hold; a neighboring node alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns, most stable first, the operator's briefings and your seat's instructions, then your seat, role, the seats you are connected to, the commands you may run, the resources in your reach and co-members by region, then what changed since your last session. \`junto since\` returns that last part alone, capped like onboard; \`junto since --all\` lists every line.${SINCE_TASKS_LINE} Re-run onboard whenever your view may be stale.
@@ -159,7 +159,7 @@ ${COMPLETION_SECTION}
 
 ### Reach
 
-- **Reach** is your region: the resources in it, in the regions inside it and in the regions that contain it. **Edges** are for seats: mail, prompts, waits and terminal reads go over an edge.
+- **Reach** is your region: the resources in it, in the regions inside it and in the regions that contain it; a seat in no region reaches every resource, and a resource in no region is in every seat's reach. **Edges** are for seats: mail, prompts, waits and terminal reads go over an edge.
 - A \`ScopeError\` says which: a \`details.reason\` of \`out_of_reach\` or \`not_in_reach\` means the resource sits outside your region, and only the operator moving you or it changes that; otherwise you hold no edge or port for that target.
 - Env like seat hints is **context only**, never authority.`;
 
