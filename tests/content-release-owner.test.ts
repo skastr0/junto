@@ -49,7 +49,7 @@ describe("ContentService.releaseOwner", () => {
     expect(await Effect.runPromise(service.releaseOwner(first))).toBe(2);
     // The second signal still holds the shared bytes.
     const left = await Effect.runPromise(service.listRefs(a.ref.sha256));
-    expect(left.map((row) => row.owner.recordId)).toEqual(["signal:s2"]);
+    expect(left.map((row) => ({ kind: row.owner.kind, recordId: row.owner.recordId }))).toEqual([{ kind: "signal", recordId: "s2" }]);
     // Releasing again, or an owner that holds nothing, releases nothing.
     expect(await Effect.runPromise(service.releaseOwner(first))).toBe(0);
 
