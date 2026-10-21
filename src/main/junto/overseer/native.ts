@@ -186,6 +186,10 @@ const fail = (
 
 const ok = (data: unknown): NativeOk => ({ ok: true, data });
 
+/** A thrown error's message as the seat reads it: scrubbed, never empty. */
+const thrownMessage = (error: unknown): string =>
+  scrubMessage(error instanceof Error ? error.message : String(error)) || "overseer command failed";
+
 const asWorkError = (error: OverseerErrorBody): WorkErrorBody => {
   const type: WorkErrorBody["type"] =
     error.type === "Forbidden"
@@ -204,7 +208,8 @@ const asWorkError = (error: OverseerErrorBody): WorkErrorBody => {
                   ? "NeedsUpdate"
                   : "InternalError";
   const details = workDetails(error.details);
-  return { type, message: error.message, ...(details === undefined ? {} : { details }) };
+  // The one exit to the seat: every message, authored or thrown, is scrubbed here.
+  return { type, message: scrubMessage(error.message) || "overseer command failed", ...(details === undefined ? {} : { details }) };
 };
 
 const decodeWorkDetails = Schema.decodeUnknownResult(WorkErrorDetails, { onExcessProperty: "error" });
@@ -1300,7 +1305,7 @@ const makeDeleteHooks = (
         }
         return {
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: thrownMessage(error),
         };
       }
 

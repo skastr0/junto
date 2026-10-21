@@ -19,6 +19,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { executeOverseer } from "../src/main/junto/overseer/dispatch";
+import { setOverseerNativeDeleteHooks } from "../src/main/junto/overseer/canvas";
 import { makeOverseerNativeLive, workDetails } from "../src/main/junto/overseer/native";
 import { LinkBuildMismatch } from "../src/main/junto/link/types";
 import type { TermPlane } from "../src/main/junto/term/plane";
@@ -44,6 +45,7 @@ let root: string | undefined;
 let runtime: ReturnType<typeof makeRuntime> | undefined;
 
 afterEach(async () => {
+  setOverseerNativeDeleteHooks(undefined);
   await runtime?.dispose();
   runtime = undefined;
   if (root) await rm(root, { recursive: true, force: true });
@@ -60,6 +62,11 @@ const termPlane = (remote: () => never): TermPlane => ({
     get: async (bindingId: string, hostId?: string) =>
       hostId === OTHER_MACHINE ? remote() : { bindingId, hostId, status: "running", epoch: "e1", detached: false, createdAt: 1 },
   },
+  // Deleting a seat fails as its terminal is fenced, with whatever the remote failure says.
+  nodeDelete: {
+    beginNodeDelete: async () => remote(),
+    finishNodeDelete: () => undefined,
+  },
 }) as unknown as TermPlane;
 
 const stale = (): never => {
@@ -71,7 +78,7 @@ const boot = async (remote: () => never = stale) => {
   root = await mkdtemp(join(tmpdir(), "overseer-needs-update-"));
   runtime = makeRuntime(root);
   await runtime.runPromise(nameThisMachine);
-  await runtime.runPromise(seedCanvas("origin", [seat("boss", { label: "Boss" })]));
+  await runtime.runPromise(seedCanvas("origin", [seat("boss", { label: "Boss" }), agent("doomed", THIS_MACHINE)]));
   await runtime.runPromise(grantOverseer(caller.canvasName, caller.nodeId, true));
   const board = canvasOf([agent("here", THIS_MACHINE), agent("there", OTHER_MACHINE)]);
   const native = makeOverseerNativeLive({
@@ -81,6 +88,7 @@ const boot = async (remote: () => never = stale) => {
     listCanvases: async () => new Map([["factory", board]]),
     occupySeat: async () => false,
   });
+  setOverseerNativeDeleteHooks(native);
   const held = runtime;
   return async (request: OverseerRequest) => {
     const result = await held.runPromise(executeOverseer(caller, request, { native: native.execute }));
@@ -124,6 +132,25 @@ describe("a seat whose machine runs another build, as the CLI reads it", () => {
     expect(one._tag === "Success" && (one.success as { terminals: unknown }).terminals).toEqual([
       expect.objectContaining({ nodeId: "there", machine: { name: OTHER_MACHINE, needsUpdate: true } }),
     ]);
+  });
+
+  it("a thrown error carrying a secret reaches the seat scrubbed", async () => {
+    const cli = await boot(() => { throw new Error("link dropped, Authorization: Bearer ghp_seatsecret123"); });
+    const read = await cli({ operation: "agent.get", args: { canvas: "factory", nodeId: "there" } });
+    expect(read._tag).toBe("Failure");
+    if (read._tag !== "Failure") return;
+    expect(read.failure.type).toBe("InternalError");
+    expect(read.failure.message).toMatch(/^link dropped/);
+    expect(JSON.stringify(read.failure)).not.toContain("ghp_seatsecret123");
+  });
+
+  it("a node delete whose prepare throws a secret reaches the seat scrubbed", async () => {
+    const cli = await boot(() => { throw new Error("fence failed, Authorization: Bearer ghp_seatsecret123"); });
+    const read = await cli({ operation: "node.delete", args: { canvas: "origin", nodeIds: ["doomed"] } });
+    expect(read._tag).toBe("Failure");
+    if (read._tag !== "Failure") return;
+    expect(read.failure.message).toMatch(/fence failed/);
+    expect(JSON.stringify(read.failure)).not.toContain("ghp_seatsecret123");
   });
 
   it("an error's details reach the CLI as data or their JSON, never [object Object]", async () => {
