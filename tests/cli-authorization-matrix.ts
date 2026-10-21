@@ -195,7 +195,7 @@ const isGrantedTarget = (kind: string): kind is GrantedTarget =>
   Object.hasOwn(AGENT_SINK_GRANTS, kind);
 
 /** A verb no agent-to-anything pair holds, so it can never compile a grant. */
-const FOREIGN_VERB: Verb = "chains";
+const FOREIGN_VERB: Verb = "feeds";
 
 const verbFor = (
   targetKind: WellKnownKind,

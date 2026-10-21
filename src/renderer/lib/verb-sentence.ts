@@ -11,11 +11,6 @@ const VERB_SENTENCE = {
   participates: "{from} takes part in {to}",
   navigates: "{from} drives {to}",
   feeds: "{from} feeds {to}",
-  fires: "{from} fires {to}",
-  announces: "{from} announces to {to}",
-  enqueues: "{from} enqueues onto {to}",
-  wakes: "{from} wakes {to}",
-  chains: "{from} chains into {to}",
 } as const satisfies Record<Verb, string>;
 
 export const verbSentence = (verb: Verb, from: string, to: string): string =>

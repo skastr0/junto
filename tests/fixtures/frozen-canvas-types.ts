@@ -35,18 +35,6 @@ type LegacyEdgeEther = {
     | undefined;
 };
 
-const effectModeOf = (does: unknown): string | undefined => {
-  if (typeof does !== "object" || does === null) return undefined;
-  const mode = (does as { readonly mode?: unknown }).mode;
-  return typeof mode === "string" ? mode : undefined;
-};
-
-const verbForEffectMode = (mode: string): Verb | undefined => {
-  if (mode === "enqueue_task") return "enqueues";
-  if (mode === "inject_prompt") return "wakes";
-  return undefined;
-};
-
 const ACCESS_VERB_FOR_SINK = {
   page: "navigates",
 } as const satisfies { readonly [K in SinkKind]?: Verb };
@@ -90,8 +78,6 @@ const inferCandidate = (
   const sourceRole = roleOfKind(source);
   const targetRole = roleOfKind(target);
 
-  if (sourceRole === "scheduler" && targetRole === "scheduler") return "chains";
-
   // agent ↔ sink: the access relationship, read off the sink kind.
   if (
     (sourceRole === "actor" && targetRole === "sink") ||
@@ -105,36 +91,7 @@ const inferCandidate = (
     return table[sink];
   }
 
-  if (sourceRole === "scheduler" || targetRole === "scheduler") {
-    const scheduler = sourceRole === "scheduler" ? source : target;
-    const other = sourceRole === "scheduler" ? target : source;
-    const schedulerIsSource = sourceRole === "scheduler";
-
-    // Agent → relay trigger: the slot or the minted port proves it.
-    if (
-      scheduler === "relay" &&
-      other === "agent" &&
-      (legacyEther?.slot === "trigger" ||
-        (legacyEther?.ports ?? []).includes("relay.trigger"))
-    ) {
-      return "fires";
-    }
-
-    // An authored fire action names its own verb.
-    const mode = effectModeOf(legacyEther?.does);
-    if (mode !== undefined) return verbForEffectMode(mode);
-
-    // An authored watch predicate is an announcement into the relay.
-    if (legacyEther?.when !== undefined) return "announces";
-
-    // Neither authored: direction decides. Into a scheduler is an
-    // announcement; out of one is the fire action its target accepts.
-    if (!schedulerIsSource) return "announces";
-    if (other === "task") return "enqueues";
-    if (other === "agent") return "wakes";
-    return undefined;
-  }
-
+  // A scheduler pairing holds no verb since 0.10 deleted the scheduler verbs.
   return undefined;
 };
 

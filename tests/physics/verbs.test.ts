@@ -1,5 +1,6 @@
 import { HashSet } from "effect";
 import { describe, expect, it } from "vitest";
+import { productPortEnabled } from "../../src/shared/features";
 import { KindSpecs } from "../../src/shared/physics/kinds";
 import {
   WELL_KNOWN_KINDS,
@@ -44,8 +45,9 @@ describe("verb table", () => {
       );
       for (const { verb, ports } of grantsOf(pair)) {
         for (const port of ports) {
+          // A port this build's profile gates off is offered by no kind.
           expect(
-            HashSet.has(offered, port),
+            HashSet.has(offered, port) || !productPortEnabled(port),
             `${verb} on ${pair[0]}>${pair[1]} grants unoffered ${port}`,
           ).toBe(true);
         }
@@ -121,7 +123,7 @@ describe("compiled grants", () => {
       for (const { verb, ports } of grantsOf(pair)) {
         for (const port of ports) {
           expect(
-            HashSet.has(KindSpecs[far].offers, port),
+            HashSet.has(KindSpecs[far].offers, port) || !productPortEnabled(port),
             `${verb} on ${pair[0]}>${pair[1]} grants ${port}, which ${far} does not offer`,
           ).toBe(true);
         }

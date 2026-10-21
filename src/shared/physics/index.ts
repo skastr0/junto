@@ -109,14 +109,10 @@ export {
   defaultVerbForPair,
   verbSideOf,
   verbsForPair,
-  EdgeEffect,
-  WatchWhen,
 } from "./verbs";
 export type {
-  ClockKind,
   VerbGrant,
   VerbSide,
-  WatchWhenAtom,
 } from "./verbs";
 
 export { NodeContracts, contractOf, familyColorToken } from "./contracts";

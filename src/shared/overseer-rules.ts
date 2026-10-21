@@ -191,26 +191,6 @@ export const verbsForEndpoints = (
     ? []
     : verbsForPair(from.kind, to.kind);
 
-const chainsHaveCycle = (wires: Iterable<Wire>): boolean => {
-  const indegrees = new Map<string, number>();
-  const outgoing = new Map<string, string[]>();
-  for (const wire of wires) {
-    if (wire.verb !== "chains") continue;
-    indegrees.set(wire.from, indegrees.get(wire.from) ?? 0);
-    indegrees.set(wire.to, (indegrees.get(wire.to) ?? 0) + 1);
-    outgoing.set(wire.from, [...(outgoing.get(wire.from) ?? []), wire.to]);
-  }
-  const ready = [...indegrees].filter(([, degree]) => degree === 0).map(([id]) => id);
-  for (let index = 0; index < ready.length; index += 1) {
-    for (const target of outgoing.get(ready[index]!) ?? []) {
-      const degree = indegrees.get(target)! - 1;
-      indegrees.set(target, degree);
-      if (degree === 0) ready.push(target);
-    }
-  }
-  return ready.length !== indegrees.size;
-};
-
 export type OverseerStepResult =
   | { readonly operation: "node.create"; readonly nodeId: string; readonly node: Node }
   | {
@@ -497,9 +477,6 @@ export const planOverseerSteps = (input: {
   if (wiresChanged) {
     const cycle = validateFlowDag({ wires: wires as unknown as Canvas["wires"] });
     if (cycle !== undefined) return reject("InvalidArguments", cycle.message);
-    if (chainsHaveCycle(wires.values())) {
-      return reject("InvalidArguments", "scheduler chains must not contain a cycle");
-    }
   }
   return { ok: true, commands, results };
 };

@@ -21,7 +21,7 @@ export const ContractEvent = Schema.Struct({
   word: Schema.Literals(["completes", "signals"]),
   /**
    * Discriminator for completes variants on one wire (OR multi-select).
-   * Maps onto WatchWhenCompletes.equals — e.g. page ready vs failed.
+   * e.g. page ready vs failed.
    */
   equals: Schema.optionalKey(Schema.String),
 });
@@ -31,7 +31,7 @@ export type ContractEvent = typeof ContractEvent.Type;
 export const ContractInput = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  /** Maps to EdgeEffect.mode — the two actions a scheduler verb compiles to. */
+  /** The two actions a scheduler applied to its target. */
   mode: Schema.Literals(["enqueue_task", "inject_prompt"]),
 });
 export type ContractInput = typeof ContractInput.Type;

@@ -10,6 +10,7 @@ import {
 } from "../../src/shared/physics";
 import type { Node } from "../../src/shared/model";
 import { canvasToCapabilityView } from "../../src/shared/physics/view";
+import { productNodeKindEnabled } from "../../src/shared/features";
 import { OTHER_MACHINE, THIS_MACHINE } from "../support/machines";
 import { artifacts, canvasOf, note, page, region, seat, taskBoard, terminal, wire } from "../support/model-nodes";
 
@@ -234,7 +235,23 @@ describe("physics admitPure", () => {
 // ---------------------------------------------------------------------------
 // Reach: a seat uses the resource nodes on its line of regions, with no edge
 
-describe("physics reach", () => {
+// Reach admits the resource kinds this build enables; a profile that gates them
+// off (ship) leaves nothing in reach, which the gated block below asserts.
+const reachKindsOn = productNodeKindEnabled("task") && productNodeKindEnabled("artifacts");
+
+describe.runIf(!reachKindsOn)("physics reach, resource kinds gated off", () => {
+  it("a gated task board in the seat's own region is refused, not reached", () => {
+    const doc = canvasOf([
+      region("team", { x: 0, y: 0, width: 600, height: 400 }),
+      agent("worker", 40, 40),
+      taskBoard("backlog", { x: 200, y: 40, ...SIZE }),
+    ]);
+    const result = admitPure(canvasToCapabilityView(doc, VIEW), asNodeId("worker"), asNodeId("backlog"), "tasks.create");
+    expect(Result.isFailure(result)).toBe(true);
+  });
+});
+
+describe.runIf(reachKindsOn)("physics reach", () => {
   // Two sibling regions inside one outer region:
   //   outer  (0,0  1000x600)
   //     left  (20,20  400x400)
@@ -433,7 +450,7 @@ describe("physics across machines", () => {
     if (Result.isFailure(page)) expect(page.failure.reason).toBe("no_port");
   });
 
-  it("a resource node is reached whichever machine edits the canvas: the write travels there", () => {
+  it.runIf(reachKindsOn)("a resource node is reached whichever machine edits the canvas: the write travels there", () => {
     const doc = canvasOf([agent("worker"), taskBoard("board", { x: 200 })]);
     for (const editingMachine of [THIS_MACHINE, OTHER_MACHINE]) {
       expect(Result.isSuccess(admits(doc, "worker", "board", "tasks.claim", editingMachine)), editingMachine).toBe(true);

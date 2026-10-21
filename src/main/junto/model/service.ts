@@ -365,7 +365,7 @@ export class ModelService extends Context.Service<ModelService>()(
                       "These objects already have this relationship.",
                     );
                   }
-                  if (wire.verb === "feeds" || wire.verb === "chains") {
+                  if (wire.verb === "feeds") {
                     const pending = [wire.to];
                     const seen = new Set<string>();
                     while (pending.length > 0) {
