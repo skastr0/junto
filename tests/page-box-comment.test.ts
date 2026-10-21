@@ -8,6 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -320,6 +321,21 @@ describe("a seat's page box comment", () => {
     expect(await runtime.runPromise(postSeatPageBox(browser("refused"), request()))).toMatchObject({ ok: false, code: "operator_holds" });
     expect(await runtime.runPromise(postSeatPageBox(browser(), request({ text: "  " })))).toMatchObject({ ok: false, code: "invalid" });
     expect(await owners(await sha())).toEqual([]);
+    expect(await rows()).toEqual([]);
+  });
+
+  it("refuses on a machine that does not edit the canvas, before any shot is taken", async () => {
+    taken.length = 0;
+    await runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(Effect.gen(function* () {
+      yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES ('the-editor', '2026-10-21T12:00:00.000Z')`;
+      yield* sql`UPDATE canvases SET editor_installation_id = 'the-editor' WHERE canvas_name = ${CANVAS}`;
+    }))));
+    expect(await runtime.runPromise(postSeatPageBox(browser(), request()))).toEqual({
+      ok: false,
+      code: "forbidden",
+      message: "a seat comments on a page box only on the machine that edits the canvas",
+    });
+    expect(taken).toEqual([]);
     expect(await rows()).toEqual([]);
   });
 });

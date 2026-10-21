@@ -10,6 +10,7 @@
  * The renderer never sends bytes.
  */
 import { Effect, Option } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import type { MailMessageId } from "@shared/crew";
 import { parseNodeRef } from "@shared/node-ref";
@@ -235,15 +236,32 @@ export type SeatPageBoxRequest = {
  * on the one comment path as the seat, which judges the seat's reach to the
  * page. A seat on a paused canvas does not act. The stage is let go after,
  * whatever happened: a posted shot moved to the comment.
+ *
+ * Only on the machine that edits the canvas: pages live there, and only a
+ * seat with a live grant there captures (plan 06). A seat elsewhere reads
+ * the crop through the thread (page-shot-seat.ts); its shot never moves.
  */
 export const postSeatPageBox = (
   sessions: Pick<BrowserSessionService, "captureBoxForOwner">,
   request: SeatPageBoxRequest,
-): Effect.Effect<BrowserResult<{ readonly messageId: string; readonly threadId: string }>, never, ModelService | MachineRepository | PausePlane> =>
+): Effect.Effect<
+  BrowserResult<{ readonly messageId: string; readonly threadId: string }>,
+  never,
+  ModelService | MachineRepository | PausePlane | SqlClient.SqlClient
+> =>
   Effect.gen(function* () {
     const ref = parseNodeRef(request.pageRef);
     if (!ref.ok) return { ok: false, code: "invalid", message: "That page cannot be named." } as const;
     const { canvasName, nodeId } = ref.value;
+    // No editor named is this machine's own canvas, as the model reads it.
+    const placed = yield* Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      sql<{ editor: string | null; self: string | null }>`
+        SELECT editor_installation_id AS editor, (SELECT installation_id FROM installation WHERE singleton = 1) AS self
+        FROM canvases WHERE canvas_name = ${canvasName}`,
+    ).pipe(Effect.map((rows) => rows[0]), Effect.orElseSucceed(() => undefined));
+    if (placed === undefined || (placed.editor !== null && placed.editor !== placed.self)) {
+      return { ok: false, code: "forbidden", message: "a seat comments on a page box only on the machine that edits the canvas" } as const;
+    }
     if (!(yield* PausePlane).stateFor(canvasName).playing) {
       return { ok: false, code: "forbidden", message: "This canvas is paused: a seat comments when the operator plays it." } as const;
     }
