@@ -185,6 +185,7 @@ describe("envelope", () => {
     const retryable = (Object.keys(REFUSAL) as RefusalReason[]).filter((reason) => REFUSAL[reason].retryable).sort();
     expect(retryable).toEqual(["queue_full", "rebase_conflict", "stale"]);
     expect([REFUSAL.stale.type, REFUSAL.rebase_conflict.type]).toEqual(["Stale", "Stale"]);
+    expect(REFUSAL.not_permitted).toEqual({ type: "ScopeError", retryable: false });
   });
 
   it("closes the id, reason and actor types", () => {

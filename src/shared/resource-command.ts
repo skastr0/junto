@@ -102,6 +102,7 @@ export const commandKey = (writer: InstallationId, opId: OpId): CommandKey => `$
  */
 export const RefusalReason = Schema.Literals([
   "not_in_reach",
+  "not_permitted",
   "unknown_target",
   "invalid_input",
   "invalid_transition",
@@ -118,6 +119,8 @@ export type RefusalReason = typeof RefusalReason.Type;
 /** `stale` and `rebase_conflict` are both `Stale`; `details.reason` tells them apart (02 Contracts). */
 export const REFUSAL: { readonly [R in RefusalReason]: { readonly type: WorkErrorType; readonly retryable: boolean } } = {
   not_in_reach: { type: "ScopeError", retryable: false },
+  /** In reach, but a rule above reach withholds it, such as automation writes being the operator's or an overseer's. */
+  not_permitted: { type: "ScopeError", retryable: false },
   unknown_target: { type: "UnknownTarget", retryable: false },
   invalid_input: { type: "InputError", retryable: false },
   invalid_transition: { type: "InvalidTransition", retryable: false },
