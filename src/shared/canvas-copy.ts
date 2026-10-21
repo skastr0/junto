@@ -200,12 +200,12 @@ const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | und
       return { kind: "artifacts", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
     case "label":
       return { kind: "label", ...placed(node), text: node.text };
-    // No label: a file or link has none the operator wrote, and its title is its path or address.
+    // A stub is called by what the operator wrote, never by its path or address.
     case "file":
     case "link":
-      return { kind: "stub", of: node.kind, ...placed(node) };
     case "git":
-      return { kind: "stub", of: "git", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
+      return { kind: "stub", of: node.kind, ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
+    // A page's name stays home with it: a page stub names only its machine.
     case "page":
       return { kind: "stub", of: "page", ...placed(node), host: editorMachineName };
     default:

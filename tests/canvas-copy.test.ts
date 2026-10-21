@@ -218,6 +218,9 @@ describe("each kind, cut for each machine", () => {
     { kind: "label", id: asNodeId("caption"), ...inRemote(110), text: "Caption" },
     { kind: "file", id: asNodeId("spec"), ...inRemote(160), path: "/Users/op/private-dir/spec.md" },
     { kind: "link", id: asNodeId("docs"), ...inRemote(210), url: "https://docs.test/secret-path?token=1" },
+    { kind: "file", id: asNodeId("named-spec"), ...inRemote(710), path: "/Users/op/private-dir/plan.md", label: "Launch plan" },
+    { kind: "link", id: asNodeId("named-docs"), ...inRemote(760), url: "https://docs.test/secret-path", label: "Team handbook" },
+    page("named-browser", { ...inRemote(810), url: "https://browser.test/secret-page", profile: "work-profile", label: "Page name stays home" }),
     { kind: "git", id: asNodeId("repo"), ...inRemote(260), cwd: "/Users/op/private-repo" },
     { kind: "git", id: asNodeId("named-repo"), ...inRemote(560), cwd: "/Users/op/other-repo", label: "Junto source" },
     // The shared builder, so the page keeps compiling when its host field goes (R4).
@@ -260,10 +263,14 @@ describe("each kind, cut for each machine", () => {
     // A stub is named only by what the operator wrote, never by its path or address.
     ["file", "spec", { kind: "stub", of: "file", id: "spec", ...at(160) }],
     ["link", "docs", { kind: "stub", of: "link", id: "docs", ...at(210) }],
+    ["file", "named-spec", { kind: "stub", of: "file", id: "named-spec", ...at(710), label: "Launch plan" }],
+    ["link", "named-docs", { kind: "stub", of: "link", id: "named-docs", ...at(760), label: "Team handbook" }],
     ["git", "repo", { kind: "stub", of: "git", id: "repo", ...at(260) }],
     ["git", "named-repo", { kind: "stub", of: "git", id: "named-repo", ...at(560), label: "Junto source" }],
     // The editing machine's name: pages live where the canvas is edited.
     ["page", "browser", { kind: "stub", of: "page", id: "browser", ...at(310), host: "macbook" }],
+    // A page's name stays home: a page stub names only its machine.
+    ["page", "named-browser", { kind: "stub", of: "page", id: "named-browser", ...at(810), host: "macbook" }],
     ["note", "memo", undefined],
     // A copy would fire the same mail and tasks twice: automations never cross (07).
     ["automations", "routines", undefined],
@@ -291,6 +298,8 @@ describe("each kind, cut for each machine", () => {
           "secret-page",
           "work-profile",
           "Note body stays home",
+          "Page name stays home",
+          "plan.md",
           "Morning routines",
           "0 3 * * *",
         ]) {
