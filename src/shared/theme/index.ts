@@ -42,6 +42,10 @@ export const FONT_MONO =
   '"SF Mono", SFMono-Regular, Menlo, Consolas, monospace';
 export const FONT_DISPLAY =
   '"Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif';
+/** Running prose a person reads in sentences (message bubbles): proportional,
+ *  the system face. Mono stays for instruments, code and metadata. */
+export const FONT_BODY =
+  '-apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif';
 
 /** Resolve a token to its solid OKLCH, following aliases. Mixes have no
  *  single solid resolution — use `tokenCss` / `tokenRuntime` instead. */

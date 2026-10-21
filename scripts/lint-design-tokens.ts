@@ -38,7 +38,7 @@ export type Rule = (typeof RULES)[number];
 /** What to write instead, shown with every failure. */
 const REMEDY: Record<Rule, string> = {
   "font-size": "use a size token: text-label, text-body, text-body-lg, text-title, text-display, text-hero, or var(--text-*)",
-  "font-family": "use font-mono or font-display, or var(--font-mono) / var(--font-display)",
+  "font-family": "use font-mono, font-display or font-body (prose only), or var(--font-mono) / var(--font-display) / var(--font-body)",
   tracking: "use tracking-flat, tracking-soft, tracking-label, tracking-eyebrow, or var(--tracking-*)",
   leading: "use leading-compact, leading-dense, leading-body, leading-open, or var(--leading-*)",
   radius: "use rounded-sm, rounded-md, rounded-lg, rounded-xl, rounded-pill, or var(--radius-*)",

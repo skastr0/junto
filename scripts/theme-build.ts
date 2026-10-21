@@ -13,6 +13,7 @@ import {
   TOKEN_NAMES,
   tokenCss,
   themeRuntime,
+  FONT_BODY,
   FONT_DISPLAY,
   FONT_MONO,
   LEADING,
@@ -83,9 +84,10 @@ for (const name of TOKEN_NAMES) {
 }
 lines.push(
   "",
-  "  /* house type: mono instrument + condensed display stamp */",
+  "  /* house type: mono instrument + condensed display stamp + proportional prose */",
   `  --font-mono: ${FONT_MONO};`,
   `  --font-display: ${FONT_DISPLAY};`,
+  `  --font-body: ${FONT_BODY};`,
   "",
   "  /* type scale: a few steps; a legacy value moves to its nearest one */",
 );

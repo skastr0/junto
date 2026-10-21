@@ -51,9 +51,10 @@
   --color-accent: var(--color-crimson);
   --color-accent-fg: var(--color-crimson-fg);
 
-  /* house type: mono instrument + condensed display stamp */
+  /* house type: mono instrument + condensed display stamp + proportional prose */
   --font-mono: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-display: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+  --font-body: -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
 
   /* type scale: a few steps; a legacy value moves to its nearest one */
   --text-micro: 8px; /* legacy, under review: not for new work */
