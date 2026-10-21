@@ -360,34 +360,21 @@ export const makeAgentMessage = (params: {
   ...(params.metadata ? { metadata: params.metadata } : {}),
 });
 
-const TASK_RELEASE_ACTOR_SEAT_KEY = "junto.taskRelease.actorSeatId";
-
 /**
- * Exact operator-release boundary for one claimed task generation.
- *
- * The message id gives subsequent delivery receipts a fresh identity while
- * the seat marker lets factory selection briefly avoid handing the task
- * straight back to the actor it was explicitly released from.
+ * Exact operator-release boundary for one claimed task generation. The
+ * message id gives subsequent delivery receipts a fresh identity.
  */
 export const makeTaskReleaseMessage = (params: {
   readonly messageId: string;
   readonly text: string;
   readonly contextId: string;
   readonly taskId: string;
-  readonly actorSeatId?: ActorSeatId;
 }): Message =>
   makeUserMessage({
     messageId: params.messageId,
     text: params.text,
     contextId: params.contextId,
     taskId: params.taskId,
-    ...(params.actorSeatId === undefined
-      ? {}
-      : {
-        metadata: {
-          [TASK_RELEASE_ACTOR_SEAT_KEY]: params.actorSeatId,
-        },
-      }),
   });
 
 export const claimedByOf = (task: Task): ActorSeatId | undefined =>
