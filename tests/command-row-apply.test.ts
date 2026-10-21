@@ -18,6 +18,7 @@ import type { CanvasPlacement, RowsFrame } from "../src/shared/work-exchange";
 import { OpId } from "../src/shared/work-ids";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
+import { artifactBodyRef } from "../src/main/junto/work/artifact-repository";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
 
@@ -284,5 +285,55 @@ describe("a machine that does not edit the canvas folds the editing machine's ta
     expect(Exit.isSuccess(taken)).toBe(true);
     expect(await heads()).toEqual([{ task_id: taskId, title: "ship it", created_at: Date.parse(at) }]);
     expect(await facts(mini)).toBe(before + 1);
+  });
+});
+
+describe("a machine that does not edit the canvas folds the editing machine's artifact rulings", () => {
+  const foldOp = Schema.decodeUnknownSync(OpId)("01M5EX9000000000000000000F");
+  const artifactId = "01M5EX9000000000000000000A";
+  const created = (body?: object) => ({
+    fact: "artifact.created",
+    bodyRef: artifactBodyRef({ type: "document", markdown: "from afar" }),
+    ...(body === undefined ? {} : { body }),
+    artifact: {
+      artifactId,
+      nodeId: "board-1",
+      type: "document",
+      title: "Remote",
+      version: 1,
+      createdBy: { kind: "operator" },
+      updatedAt: 1,
+      archived: false,
+      taskIds: [],
+    },
+  });
+  const applied = (facts: ReadonlyArray<unknown>) =>
+    row(EDITOR, "4", { kind: "ruling", itemId: foldOp, sink: { canvasName: "factory", nodeId: "board-1" } }, {
+      operation: "ruling.applied",
+      writer: MINI,
+      opId: foldOp,
+      actor: { kind: "operator" },
+      kind: "artifact",
+      facts,
+    });
+  const versions = () =>
+    mini.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql.unsafe<{ pending: number }>(
+          "SELECT inline_body_json IS NULL AS pending FROM artifact_versions WHERE canvas_name = 'factory' AND artifact_id = ?",
+          [artifactId],
+        )),
+    );
+
+  it("refuses facts it cannot decode and folds nothing", async () => {
+    const bad = await apply(mini, EDITOR, frame(EDITOR, [applied([{ ...created(), fact: "artifact.lost" }])], "4"));
+    expect(Exit.isFailure(bad)).toBe(true);
+    expect(await versions()).toEqual([]);
+  });
+
+  it("folds a body that rode only by ref as pending", async () => {
+    const taken = await apply(mini, EDITOR, frame(EDITOR, [applied([created()])], "4"));
+    expect(Exit.isSuccess(taken)).toBe(true);
+    expect(await versions()).toEqual([{ pending: 1 }]);
   });
 });

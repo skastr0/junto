@@ -10,11 +10,13 @@
  * Replication is not access: holding a resource here grants no seat anything.
  * Each core checks reach (01) on its own reads.
  */
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { SqlClient, SqlError } from "effect/unstable/sql";
+import { ArtifactFact } from "@shared/artifact-domain";
 import type { RulingAppliedResult } from "@shared/command-row";
 import type { ResourceKind } from "@shared/resource-command";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
+import { projectArtifactFacts } from "./artifact-repository";
 import { projectTaskFact } from "./task-repository";
 
 /** An applied ruling whose facts this build cannot fold: the link that carried it closes. */
@@ -28,6 +30,8 @@ type Fold = (
   ruling: RulingAppliedResult,
   at: number,
 ) => Effect.Effect<void, SqlError.SqlError | RulingFoldRefused>;
+
+const decodeArtifactFacts = Schema.decodeUnknownResult(Schema.Array(ArtifactFact), { onExcessProperty: "error" });
 
 /** A domain whose rulings no editing machine of this build writes yet. */
 const notYetRuled = (kind: ResourceKind): Fold => () =>
@@ -44,8 +48,13 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
       ? Effect.fail(new RulingFoldRefused({ message: "a task ruling carries facts this build does not know" }))
       : Effect.forEach(facts, (fact) => projectTaskFact(sql, canvasName, fact, at), { discard: true });
   },
-  // Artifact rulings are recorded once a replica can hold a body still pending (option C).
-  artifact: notYetRuled("artifact"),
+  artifact: (sql, canvasName, ruling) => {
+    const facts = decodeArtifactFacts(ruling.facts);
+    return Result.isFailure(facts)
+      ? Effect.fail(new RulingFoldRefused({ message: "an artifact ruling carries facts this build does not know" }))
+      // A body that rode by ref is written pending; a read fetches its bytes by ref (v29).
+      : projectArtifactFacts(sql, canvasName, ruling.opId, facts.success, () => undefined);
+  },
   thread: notYetRuled("thread"),
   automation: notYetRuled("automation"),
 };
