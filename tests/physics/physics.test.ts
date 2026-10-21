@@ -318,7 +318,8 @@ describe("physics reach", () => {
 
   it("a terminal is no actor and reaches nothing", () => {
     const nodes = [left, terminal("shell", at(40, 40)), taskBoard("backlog", at(200, 40))];
-    expect(reasonOf(admits(nodes, "shell", "backlog", "tasks.create"))).not.toBe("granted");
+    // Not an actor, so not reach: the edge path refuses it, the same as any sink.
+    expect(reasonOf(admits(nodes, "shell", "backlog", "tasks.create"))).toBe("not_connected");
   });
 });
 
