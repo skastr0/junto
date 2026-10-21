@@ -139,6 +139,7 @@ everyone else reports by mail and on the needs-you feed.
 | 02 queued writes, final pass | remote, c56245482 | done |
 | remote R2 to R6 | remote-work, remote-send, remote-seats (R2); remote-cut (R3); remote-core (R4); remote-window (R5); remote-security (R6); doctrine remote-design 659e44833, 52717c3a1 | started |
 | Machine build define `__JUNTO_MACHINE_BUILD__` | cli owns, remote-core asserts the bundle | requested |
+| Automation contract | canvas-automation, 731327ee0 | in review by canvas-lead |
 | Mention contract | product-feed, `mention.ts` fb267e17a | landed |
 | Thread subject and anchor contract | pty-mail, `thread-subject.ts` 74b442b98; tests by product-feed 1e4c91e0b | landed |
 | Visual language v1 | product-typography: ResourceChip, TaskStateMark, StampTally, TwoPane, pending rows; 8888746da to e167586b4; on the feed | landed |
@@ -148,9 +149,9 @@ everyone else reports by mail and on the needs-you feed.
 | Flow graph tests | canvas-writers, c521f4c56 | in review |
 | Migration slots | canvas-model keeps the list; only v26 fixed | running |
 | Artifact contract | product-shell, 3d9c5facc, 28 tests; shared edit reducer `ruleArtifactEdit` for ruler and pending view | landed |
-| Task model contract | canvas, `task-model.ts` d540d3f61; ruler still on stand-in types, moving onto it | landed, ruler migrating |
+| Task model contract | canvas, `task-model.ts` d540d3f61, 84897c9aa; reach review fixes 4fd64a703 | landed, ruler migrating |
 | Tasks UI: verb bar, reviewers | product-modals, ebbd76ae2, offers only what the ruler admits | landed, continuing |
-| MentionCombobox, availability hooks | product-keyboard, 8ea979958, b02bb6f06, 6b8de8cee, 30 tests | landed, in review; replacing old copies next |
+| MentionCombobox, availability hooks | product-keyboard, 8ea979958, b02bb6f06, 6b8de8cee, 30 tests; accessibility approved with fix f42fbf264; typography approved with 3 CSS changes | landed; replacing old copies next |
 | Hermes Providers card | product-settings, 11b9db75b | landed |
 | One id source lock | product-verify, `tests/item-id-one-source.test.ts` | passing, commits after the four contracts land |
 | cli L4 `junto automation` | cli-external, review cli-overseer | started |
