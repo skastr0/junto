@@ -59,7 +59,8 @@ export type ArtifactPorts = {
   readonly nodes: (canvas: Canvas) => ReadonlyArray<Node>;
   readonly list: (canvasName: string, query: ArtifactListQuery) => Effect.Effect<Omit<ArtifactListResult, "artifacts"> & { readonly artifacts: ArtifactListResult["artifacts"] }, WorkErrorBody>;
   readonly head: (canvasName: string, artifactId: ItemId) => Effect.Effect<Option.Option<ArtifactHeadRead>, WorkErrorBody>;
-  readonly body: (canvasName: string, artifactId: ItemId, version: ArtifactVersion) => Effect.Effect<Option.Option<ArtifactBody>, WorkErrorBody>;
+  /** One version's body; null while its bytes are pending. */
+  readonly body: (canvasName: string, artifactId: ItemId, version: ArtifactVersion) => Effect.Effect<Option.Option<ArtifactBody | null>, WorkErrorBody>;
   readonly history: (
     canvasName: string,
     artifactId: ItemId,
@@ -188,6 +189,13 @@ const findNode = (
       : inputError(`${named.length} Artifacts nodes in reach are named ${text}; name one by its id`, "node", hint),
   );
 };
+
+/** A version whose bytes this machine is still fetching. */
+const pending = (artifactId: ItemId, version: ArtifactVersion): WorkErrorBody => ({
+  type: "InputError",
+  message: `the body of artifact ${artifactId} at version ${version} is still on its way to this machine`,
+  details: { reason: "not_available", retryable: true, hint: "try again in a moment" },
+});
 
 /**
  * The head of an artifact in reach. One out of reach reads as unknown, so a
@@ -376,6 +384,7 @@ export const handleArtifactOp = (
             details: { path: "version", expected: head.artifact.version, retryable: false },
           });
         }
+        if (body === null) return yield* Effect.fail(pending(input.artifact, version));
         return { artifact: head.artifact, version, text: artifactText(body), body } satisfies ArtifactShowResult;
       }
       case "artifact.history": {
@@ -430,7 +439,8 @@ export const handleArtifactOp = (
       case "artifact.comment": {
         const input = yield* decode(ArtifactCommentArgs, args);
         const head = yield* findArtifact(caller, ports, input.artifact);
-        if (input.anchor !== undefined && !admitsAnchor(head.body, input.anchor)) {
+        if (input.anchor !== undefined && head.body === null) return yield* Effect.fail(pending(input.artifact, head.artifact.version));
+        if (input.anchor !== undefined && head.body !== null && !admitsAnchor(head.body, input.anchor)) {
           return yield* Effect.fail(
             inputError(
               `a ${head.artifact.type} does not take a ${input.anchor.kind} anchor here`,

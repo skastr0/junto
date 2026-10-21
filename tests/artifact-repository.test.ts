@@ -17,18 +17,27 @@ import {
   type RulingContext,
 } from "../src/shared/resource-command";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
   ArtifactRepository,
   ArtifactRepositoryLive,
   type ArtifactSubmitOutcome,
+  artifactBodyRef,
+  projectArtifactFacts,
 } from "../src/main/junto/work/artifact-repository";
 
 let root: string;
-let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | SqlClient.SqlClient, unknown>;
+let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | ContentService | SqlClient.SqlClient, unknown>;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-artifacts-"));
-  runtime = ManagedRuntime.make(ArtifactRepositoryLive.pipe(Layer.provideMerge(makeStateEngineLive(join(root, "junto.db")))));
+  const content = makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true });
+  runtime = ManagedRuntime.make(
+    Layer.provideMerge(ArtifactRepositoryLive, content).pipe(
+      Layer.provideMerge(Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db")))),
+    ),
+  );
 });
 
 afterEach(async () => {
@@ -119,7 +128,7 @@ describe("ArtifactRepository", () => {
       Effect.all([repo.body(canvas, id, v(2)), repo.history(canvas, id, { limit: 10 })]),
     );
     const body = Option.getOrThrow(past);
-    expect(body.type === "sheet" && body.grid.rows[0]?.cells).toEqual({ c1: "a" });
+    expect(body?.type === "sheet" && body.grid.rows[0]?.cells).toEqual({ c1: "a" });
     expect(history.versions.map((entry) => entry.version)).toEqual([3, 2, 1]);
     expect(history.versions[2]?.edit).toBeUndefined();
     expect(history.versions[0]?.edit).toEqual(sheetCell(2, "c1", "b"));
@@ -216,5 +225,60 @@ describe("ArtifactRepository", () => {
       repo.submit(mini, command({ op: "edit", edit: sheetCell(1, "c1", "a") }, id, { opId }), everywhere),
     );
     expect(again.message).toContain("does not decode");
+  });
+
+  it("puts each version's canonical bytes in the content store, owned by that version", async () => {
+    const id = await createSheet();
+    await submit(command({ op: "edit", edit: sheetCell(1, "c1", "a") }, id));
+    const refs = await runtime.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* ArtifactRepository;
+        const store = yield* ContentService;
+        const head = Option.getOrThrow(yield* repo.head(canvas, id));
+        return { head, rows: yield* store.listRefs(head.bodyRef.sha256) };
+      }),
+    );
+    expect(refs.head.bodyRef).toEqual(artifactBodyRef(refs.head.body!));
+    expect(refs.rows.map((row) => row.owner)).toContainEqual({ kind: "artifact", canvasName: canvas, nodeId: node, recordId: `${id}@2` });
+  });
+
+  it("folds a version whose bytes are not here as pending, and reads it once the store holds them", async () => {
+    const id = mintItemId();
+    const body = emptyBody("document");
+    const bodyRef = artifactBodyRef({ type: "document", markdown: "from afar" });
+    await sql((client) =>
+      projectArtifactFacts(client, canvas, mintOpId(), [
+        {
+          fact: "artifact.created",
+          bodyRef: artifactBodyRef(body),
+          body,
+          artifact: {
+            artifactId: id,
+            nodeId: node,
+            type: "document",
+            title: "Remote",
+            version: v(1),
+            createdBy: operator,
+            updatedAt: 1,
+            archived: false,
+            taskIds: [],
+          },
+        },
+        { fact: "artifact.edited", artifactId: id, version: v(2), bodyRef, author: operator, at: 2 },
+      ], () => undefined),
+    );
+    const pending = await withRepo((repo) => repo.head(canvas, id));
+    expect(Option.getOrThrow(pending).body).toBeNull();
+    // An edit on a pending head is refused, never ruled on a guess.
+    const refused = await submit(command({ op: "edit", edit: { kind: "replace", baseVersion: v(2), body } }, id));
+    expect(refused).toMatchObject({ kind: "refused", error: { details: { reason: "not_available" } } });
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const store = yield* ContentService;
+        yield* store.put({ source: JSON.stringify({ markdown: "from afar", type: "document" }), mediaType: "application/json" });
+      }),
+    );
+    const arrived = await withRepo((repo) => repo.body(canvas, id, v(2)));
+    expect(Option.getOrThrow(arrived)).toEqual({ type: "document", markdown: "from afar" });
   });
 });

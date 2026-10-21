@@ -72,7 +72,7 @@ const memoryPorts = () => {
     },
     head: (_canvas, id) =>
       Effect.succeed(
-        Option.fromNullishOr(ruled.state.get(id)).pipe(Option.map(({ artifact, body }) => ({ artifact, body: body ?? bodies.get(`${id}@${artifact.version}`)! }))),
+        Option.fromNullishOr(ruled.state.get(id)).pipe(Option.map(({ artifact, body, bodyRef }) => ({ artifact, bodyRef, body: body ?? bodies.get(`${id}@${artifact.version}`)! }))),
       ),
     body: (_canvas, id, version) => Effect.succeed(Option.fromNullishOr(bodies.get(`${id}@${version}`))),
     history: () => Effect.succeed({ versions: [], more: false }),

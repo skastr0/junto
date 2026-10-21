@@ -5,13 +5,13 @@
  * - `artifact_heads` is what list reads: the head version and its facts,
  *   never a body. Keyed by canvas and artifact id; the Artifacts node is a
  *   column, since an artifact id is a ULID and names one artifact.
- * - `artifact_versions` keeps every version's body and the edit that made
- *   it (none on version 1, the create), so show reads any version in one row
- *   and the ruler reads the edits since a base to rebase a patch.
+ * - `artifact_versions` keeps every version's body ref, its body and the
+ *   edit that made it (none on version 1, the create), so show reads any
+ *   version in one row and the ruler reads the edits since a base to rebase
+ *   a patch. `inline_body_json` is the canonical bytes the ref names, or null while
+ *   a replica's bytes are pending; the content store holds them too.
  * - Rulings live in the shared `resource_rulings` (resource-rulings-schema.ts).
  *
- * Bodies are JSON here. When artifacts replicate (02), a version fact carries
- * a content ref to its body instead.
  */
 export const ARTIFACTS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS artifact_heads (
@@ -39,7 +39,8 @@ export const ARTIFACTS_STATE_SCHEMA_SQL = `
     author_json TEXT NOT NULL CHECK (json_valid(author_json)),
     at INTEGER NOT NULL CHECK (at >= 0),
     edit_json TEXT CHECK (edit_json IS NULL OR json_valid(edit_json)),
-    body_json TEXT NOT NULL CHECK (json_valid(body_json)),
+    body_ref_json TEXT NOT NULL CHECK (json_valid(body_ref_json)),
+    inline_body_json TEXT CHECK (inline_body_json IS NULL OR json_valid(inline_body_json)),
     PRIMARY KEY (canvas_name, artifact_id, version),
     CHECK ((version = 1) = (edit_json IS NULL)),
     FOREIGN KEY (canvas_name, artifact_id)

@@ -30,8 +30,8 @@ import { migrateSeatSessionData } from "./migrate-seat-session-data";
 import { migrateSeatRows } from "./migrate-seat-rows";
 import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { migrateRulingActor } from "./migrate-ruling-actor";
+import { migrateArtifactBodyRefs } from "./migrate-artifact-body-refs";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
-import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -48,6 +48,42 @@ export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
   "exec" | "prepare"
 >;
+
+/** Artifacts as 25 -> 26 created them, before body refs (28 -> 29). Frozen. */
+const ARTIFACTS_V26_SQL = `
+  CREATE TABLE IF NOT EXISTS artifact_heads (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    artifact_id TEXT NOT NULL CHECK (length(artifact_id) = 26),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    type TEXT NOT NULL CHECK (type IN ('link', 'document', 'pad', 'sheet', 'file')),
+    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+    version INTEGER NOT NULL CHECK (version >= 1),
+    created_by_json TEXT NOT NULL CHECK (json_valid(created_by_json)),
+    updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+    archived INTEGER NOT NULL CHECK (archived IN (0, 1)),
+    task_ids_json TEXT NOT NULL CHECK (json_valid(task_ids_json)),
+    PRIMARY KEY (canvas_name, artifact_id)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS artifact_heads_by_node
+    ON artifact_heads (canvas_name, node_id, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS artifact_versions (
+    canvas_name TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK (version >= 1),
+    op_id TEXT NOT NULL CHECK (length(op_id) = 26),
+    author_json TEXT NOT NULL CHECK (json_valid(author_json)),
+    at INTEGER NOT NULL CHECK (at >= 0),
+    edit_json TEXT CHECK (edit_json IS NULL OR json_valid(edit_json)),
+    body_json TEXT NOT NULL CHECK (json_valid(body_json)),
+    PRIMARY KEY (canvas_name, artifact_id, version),
+    CHECK ((version = 1) = (edit_json IS NULL)),
+    FOREIGN KEY (canvas_name, artifact_id)
+      REFERENCES artifact_heads (canvas_name, artifact_id)
+      ON DELETE CASCADE
+  ) STRICT, WITHOUT ROWID;
+`;
 
 /** Resource rulings as 25 -> 26 created them, before the actor (26 -> 27). Frozen. */
 const RESOURCE_RULINGS_V26_SQL = `
@@ -297,7 +333,18 @@ export const STATE_SCHEMA_V28_IDENTITY = {
     "1ad62cabba205a19c62d885a4a2a86be4f7c6f5bddd354ad7a76dba60a8b5c76",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 28;
+/**
+ * Version 29 names every artifact version's body by content ref and lets a
+ * replica hold a version whose bytes are pending: `body_ref_json` on every
+ * version, and the required `body_json` retired for a nullable
+ * `inline_body_json` (0.10, plan 05 with 02).
+ */
+export const STATE_SCHEMA_V29_IDENTITY = {
+  actualSchemaSha256:
+    "6ce1b20e80ade3b95a6a98919f6119d64a4500119b39e5d43853eb14bde05958",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 29;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -305,7 +352,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 28;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V28_IDENTITY;
+  STATE_SCHEMA_V29_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -456,7 +503,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V25_IDENTITY,
     migrate: (database) => {
       database.exec(RESOURCE_RULINGS_V26_SQL);
-      database.exec(ARTIFACTS_STATE_SCHEMA_SQL);
+      database.exec(ARTIFACTS_V26_SQL);
     },
   },
   {
@@ -478,6 +525,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
       database.exec(AUTOMATION_BOARDS_STATE_SCHEMA_SQL);
       database.exec(AUTOMATION_STATE_SCHEMA_SQL);
     },
+  },
+  {
+    fromVersion: 28,
+    toVersion: 29,
+    name: "name artifact bodies by content ref",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V28_IDENTITY,
+    replacesTables: ["artifact_versions"],
+    retiresColumns: { artifact_versions: ["body_json"] },
+    migrate: (database) => migrateArtifactBodyRefs(database),
   },
 ];
 

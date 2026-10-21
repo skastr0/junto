@@ -50,7 +50,6 @@ export const makeCoreProductLayer = (home: string) => {
       CrewRepositoryLive,
       SquadRepositoryLive,
       SeatGuidanceRepositoryLive,
-      ArtifactRepositoryLive,
       Layer.provideMerge(ReferencesFollowCanvasLive, ReferencesRepositoryLive),
       SeatSessionRepositoryLive,
       ProfileRepositoryLive,
@@ -59,7 +58,8 @@ export const makeCoreProductLayer = (home: string) => {
       SchedulerRepositoryLive,
       MachineRepositoryLive,
       OpRepositoryLive,
-      makeContentServiceLive({ home }),
+      // The artifact store puts each version's bytes in the content store.
+      Layer.provideMerge(ArtifactRepositoryLive, makeContentServiceLive({ home })),
     ),
     Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(state, installOps)),
   );

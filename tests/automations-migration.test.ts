@@ -11,9 +11,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V27_IDENTITY,
@@ -66,11 +64,9 @@ const TABLES = ["automation_boards", "automations", "automation_cursors", "autom
 const AUTO = "01J0000000000000000000000A";
 
 describe("state migration 27 -> 28 (automations)", () => {
-  it("freezes the witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V27_SQL)).toEqual(STATE_SCHEMA_V27_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V28_SQL)).toEqual(STATE_SCHEMA_V28_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V28_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
