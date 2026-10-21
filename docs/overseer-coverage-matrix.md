@@ -184,7 +184,7 @@ replay.
 | Vocabulary | the wire carries the model's own types from `src/shared/model`: a node told by `kind` with that kind's flat fields, a wire by `from`, `to`, `verb`; args schemas in `src/shared/overseer-control.ts` are built from the model's exported schemas (`NodeDraft`, `SeatDraft`, `NodeEdit`, `WireDraft`, `WireEdit`, `Seq`) |
 | `canvas.read` | `{name, seq, nodes, wires}`, nodes in paint order; `seq` is a number |
 | `canvas.read`, `node.list`, `node.get`, `agent.list`, `agent.get` | every node carries `regions`, each region around it as `{id, name}`, outermost first, from the model's one membership rule (`seatRegions`); a seat (`agent`, and `peer` on a copy) carries `name` (`titleOf`) |
-| `canvas.read`, `node.list`, `node.get`, `wire.list`, `wire.get` | structure only; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
+| `canvas.read`, `node.list`, `node.get`, `wire.list`, `wire.get` | structure only; no tasks, artifacts, mail or comment threads ride on a node; work is read with its own command |
 | `node.create`, `wire.connect` | a draft: `id` optional and minted by main, no `z`; the answer carries the node or wire with its id |
 | Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label` on create); main builds the launch, agent key and session; a seat draft carrying `launch`, `agentKey`, `bindingId`, `sessionId` or `overseer` is `InvalidArguments`; a terminal draft keeps `launch` |
 | `node.configure`, `scheduler.configure` | `change` is the model edit for the node's kind; a kind that is not the node's is `InvalidArguments` naming the actual kind |

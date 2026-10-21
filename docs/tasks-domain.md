@@ -33,7 +33,7 @@ seat, peer, grant, canvas — only where they are the plainest word available.
 | Concept | Word | Notes |
 |---|---|---|
 | The node | **Tasks** | Physics role: sink. Default node name is `Tasks <short id>`. Never station, sink, stop, or stage in copy. |
-| The node opened | **board** | It is a kanban board. Acceptable next to the message board because the sentence always disambiguates. |
+| The node opened | **board** | It is a kanban board. |
 | The node's settings | **Board settings** | One panel with two sections, **Incoming** and **Outgoing**. |
 | Text agents read when they claim a task here | **Instructions** | Prose. Not validated. |
 | A region's prose for agents inside it | **Brief** | Prose. Not validated. Stacks outer to inner. |
