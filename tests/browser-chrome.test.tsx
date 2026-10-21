@@ -50,6 +50,13 @@ describe("BrowserChrome", () => {
     expect(settled).not.toContain('aria-label="Stop"');
   });
 
+  it("says a refused navigation in main's words on the tab it happened on, and not on another tab", () => {
+    const blocked = { tab: "t2" as never, message: "That page tried to go to a private address.", at: 1 };
+    expect(draw({ tabs: tabsTwo, driving: initialPageDriving, blocked })).toContain("That page tried to go to a private address.");
+    expect(draw({ tabs: tabsTwo, driving: initialPageDriving, blocked: { ...blocked, tab: "t1" as never } })).not.toContain("private address");
+    expect(draw({ tabs: tabsTwo, driving: initialPageDriving })).not.toContain("browser-chrome-blocked");
+  });
+
   it("hides close on the only tab", () => {
     const html = draw({ tabs: initialPageTabs("https://example.com/"), driving: initialPageDriving });
     expect(html).not.toContain("Close example.com");

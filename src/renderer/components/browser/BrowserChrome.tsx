@@ -244,12 +244,6 @@ export function AddressBar({
 }
 
 /**
- * The page's chrome (plan 06): tab strip, address bar, who is driving and the
- * operator's takeover. `onCommand` runs one command and answers its outcome;
- * a refusal is said here in one line and nothing is lost. `trailing` is where
- * the surface puts its own buttons (stop, close).
- */
-/**
  * The operator took over a tab whose document a seat ran code in: code it
  * left may still watch what they type, until a reload (main's line, as is).
  */
@@ -275,6 +269,27 @@ export function SeatCodeNotice({
   );
 }
 
+/**
+ * The page's last refused navigation, in main's words, while it stands: until
+ * the tab shows another document. A line, not an alert: nothing the operator
+ * did failed, a page asked to go somewhere that is not allowed.
+ */
+export function NavigationBlockNotice({ state }: { readonly state: BrowserChromeState }) {
+  const blocked = state.blocked;
+  if (blocked === undefined || blocked.tab !== state.tabs.active) return null;
+  return (
+    <p className="browser-chrome__refused" role="status" data-testid="browser-chrome-blocked">
+      {blocked.message}
+    </p>
+  );
+}
+
+/**
+ * The page's chrome (plan 06): tab strip, address bar, who is driving and the
+ * operator's takeover. `onCommand` runs one command and answers its outcome;
+ * a refusal is said here in one line and nothing is lost. `trailing` is where
+ * the surface puts its own buttons (stop, close).
+ */
 export function BrowserChrome({
   state,
   now,
@@ -389,6 +404,7 @@ export function BrowserChrome({
         {trailing}
       </div>
       <SeatCodeNotice state={state} pending={pending} onCommand={run} />
+      <NavigationBlockNotice state={state} />
       {draft === null ? null : (
         <BoxCommentComposer draft={draft} canvasName={canvasName ?? ""} nodeId={nodeId ?? ""} pending={posting} onPost={postBox} onDiscard={discardBox} />
       )}
