@@ -2471,13 +2471,15 @@ export class BrowserSessionService {
     const held = this.guestRefusal(entry, owner);
     if (held !== undefined) return held;
     // Stopping a load starts nothing: it runs while the page is busy, and the
-    // stopped load ends as the page's own failed one.
+    // stopped load ends as the page's own failed one. A step not yet started
+    // is cancelled with it, so its mark goes too.
     if (step === "stop") {
       try {
         view.traverse("stop");
       } catch (error) {
         return err("failed", error instanceof Error ? error.message : String(error));
       }
+      this.clearStepPending(entry);
       entry.lastActiveAt = this.now();
       return { ok: true, data: this.info(entry) };
     }

@@ -1408,8 +1408,17 @@ describe("BrowserSessionService", () => {
     expect(service.traverse(opened.data.sessionId, "stop")).toMatchObject({ ok: true });
     expect(views[0]?.calls).toContain("traverse:stop");
     views[0]?.events.onLoadOk(opened.data.sessionId);
-    expect(service.goto(opened.data.sessionId, "https://stoppable.example.com/2")).toMatchObject({ ok: true });
-    expect(service.focusPage(opened.data.sessionId)).toBe(false);
+    const moved = service.goto(opened.data.sessionId, "https://stoppable.example.com/2");
+    if (!moved.ok) throw new Error("goto failed");
+    const sessionId = moved.data.sessionId;
+    expect(service.focusPage(sessionId)).toBe(false);
+    // A step that has not started yet goes with the stop, and leaves the page free.
+    views[0]?.events.onLoadOk(sessionId);
+    views[0]!.history = { canGoBack: true, canGoForward: false };
+    expect(service.traverse(sessionId, "back")).toMatchObject({ ok: true });
+    expect(service.goto(sessionId, "https://stoppable.example.com/3")).toMatchObject({ ok: false });
+    expect(service.traverse(sessionId, "stop")).toMatchObject({ ok: true });
+    expect(service.goto(sessionId, "https://stoppable.example.com/3")).toMatchObject({ ok: true });
   });
 
   it("takes over every tab of a page at once", async () => {
