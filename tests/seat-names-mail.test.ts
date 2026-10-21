@@ -234,9 +234,12 @@ describe("every surface that lists peers names them", () => {
         { id: "rev-b", name: "reviewer", regions: [JUNTO, PTY] },
       ]);
       // solo shares Junto; the regions themselves are geography, never peers.
-      expect(result.data.co_members).toEqual([
-        expect.objectContaining({ id: "solo-seat", name: "solo", regions: [JUNTO], shared_region: JUNTO }),
-      ]);
+      // Onboard names co-members by region; capabilities keeps their records.
+      expect(result.data.co_members).toEqual(
+        op === "onboard"
+          ? [{ region: JUNTO.name, seats: ["solo"] }]
+          : [expect.objectContaining({ id: "solo-seat", name: "solo", regions: [JUNTO], shared_region: JUNTO })],
+      );
     }
   });
 });

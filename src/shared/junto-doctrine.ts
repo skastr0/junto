@@ -61,7 +61,7 @@ A **seat** is your identity on the canvas: the node you occupy, bound to your pr
 
 - **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads${REVIEWS_ENABLED ? "; a directed reviews edge grants \`verdict.post\` only from reviewer to author" : ""}.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
-- **Orientation** is one command: \`junto onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
+- **Orientation** is one command: \`junto onboard\` returns, most stable first, the operator's briefings and your seat's instructions, then your seat, role, connected seats ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, the resources in your reach, the commands each allows and co-members by region, then what changed since your last session. Re-run it whenever your view may be stale.
 ${TASKS_ENABLED ? "- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: `junto rulings`.\n" : ""}\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Onboard once per session, and again only when you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
@@ -129,7 +129,7 @@ You occupy a **peer seat** on a Junto canvas. The human operator authors the can
 
 ### Peer loop
 
-1. **onboard** — first. \`junto onboard\` loads your seat, role, region briefing, connected targets and the commands each allows. Nothing else tells you where you are.
+1. **onboard** — first. \`junto onboard\` loads your seat, role, region briefing, connected seats, the resources in your reach, the commands each allows, and what changed since your last session. Nothing else tells you where you are.
 ${WORK_STEP}
 ${UPDATE_STEP}
 4. **raise your hand when blocked** — if you need human input or approval, \`junto blocked\`${TASKS_ENABLED ? " and set the task to `input-required`" : ""}. Stop inventing work around the block.

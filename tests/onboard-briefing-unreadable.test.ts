@@ -23,7 +23,7 @@ describe("onboard's app briefing", () => {
     const failing = storeWith(() =>
       Effect.fail(new ReferencesPersistenceError({ operation: "briefing.read", message: "disk I/O error", cause: null })),
     );
-    expect(await fieldsWith(failing)).toEqual({ briefing_unreadable: BRIEFING_UNREADABLE });
+    expect(await fieldsWith(failing)).toEqual({ briefing: { unreadable: BRIEFING_UNREADABLE } });
   });
 
   it("carries the body when there is one, and nothing when there is none", async () => {

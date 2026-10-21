@@ -35,6 +35,7 @@ import {
   SeatGuidanceRepositoryLive,
 } from "../src/main/junto/seat-guidance/repository";
 import { ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
+import { productPortEnabled, TASKS_ENABLED } from "../src/shared/features";
 
 const CANVAS = "onboard";
 const PEERS = ["peer-a", "peer-b", "peer-c"] as const;
@@ -69,11 +70,7 @@ const seat = (id: string, x: number) =>
     launch: { kind: "harness", argv: ["claude"] },
   });
 
-/**
- * One seat in a briefed region, wired by messages wires to the given peers.
- * Its reach: the task board beside it and the loose artifacts node, never the
- * board in the region next door.
- */
+/** One seat in a briefed region, wired by messages wires to the given peers. */
 const nodes = () => [
   region("region", { x: -40, y: -40, width: 900, height: 300 }, {
     label: "PTY",
@@ -81,6 +78,14 @@ const nodes = () => [
   }),
   seat("agent", 0),
   ...PEERS.map((id, index) => seat(id, 160 * (index + 1))),
+];
+
+/**
+ * The same seat with resources around it. Its reach: the task board beside
+ * it and the loose artifacts node, never the board in the region next door.
+ */
+const withResources = () => [
+  ...nodes(),
   taskBoard("board-in", { x: 0, y: 150, width: 200, height: 60 }),
   region("next-door", { x: 1000, y: -40, width: 400, height: 300 }, { label: "Canvas" }),
   taskBoard("board-away", { x: 1040, y: 40, width: 200, height: 60 }),
@@ -116,11 +121,11 @@ afterEach(async () => {
   delete process.env.JUNTO_WORK_HOME;
 });
 
-const write = async (peers: ReadonlyArray<string>) => {
+const write = async (peers: ReadonlyArray<string>, layout: () => Parameters<typeof seedCanvas>[1] = nodes) => {
   const model = await runtime.runPromise(ModelService);
   if (!(await runtime.runPromise(model.listCanvases())).some((name) => name === CANVAS)) {
     await runtime.runPromise(
-      seedCanvas(CANVAS, nodes(), peers.map((id) => wire(`edge-${id}`, "agent", id, "messages"))),
+      seedCanvas(CANVAS, layout(), peers.map((id) => wire(`edge-${id}`, "agent", id, "messages"))),
     );
     return;
   }
@@ -154,37 +159,32 @@ const onboard = async () => {
 };
 
 describe("junto onboard output", () => {
-  it("leads with the guidance, then the seat's facts and its compiled commands", async () => {
+  it("reads most stable first: the operator's words, then who and what, then since the last session", async () => {
     await write(PEERS);
     const data = await onboard();
     expect(Object.keys(data)).toEqual([
       "guidance",
+      "region",
+      "seat",
       "nodeRef",
       "node",
-      "seat",
       "role",
-      "tools",
       "overseer",
       "protocol_version",
-      "region",
+      "paused",
       "connected",
       "commands",
       "reach",
-      "since",
       ...("rulings" in data ? ["rulings"] : []),
       "co_members",
-      "paused",
+      "tools",
+      "since",
     ]);
     expect(data.guidance).toEqual([...ONBOARD_GUIDANCE]);
     expect(data.region).toMatchObject({ label: "PTY", instruction: "We are working on the PTY subsystem." });
     expect(data.seat).toMatchObject({ harness: "claude" });
-    expect(data.tools.map((tool: { id: string }) => tool.id)).toEqual([
-      "preamble",
-      "escalate",
-      "blocked",
-      "feedback",
-      "signal",
-    ]);
+    // The guidance already teaches feedback, blocked and escalate.
+    expect(data.tools.map((tool: { id: string }) => tool.id)).toEqual(["preamble", "signal"]);
   });
 
   it("lists each connection with its grants and one shared command set for peers that hold the same ports", async () => {
@@ -220,20 +220,24 @@ describe("junto onboard output", () => {
     expect(data.connected).toEqual([]);
     expect(data.commands).toEqual([]);
     expect(data.guidance).toEqual([...ONBOARD_GUIDANCE]);
-    expect(data.co_members.map((member: { id: string }) => member.id)).toEqual(
-      expect.arrayContaining([...PEERS]),
-    );
+    // Seats by name under the region they share.
+    expect(data.co_members).toEqual([{ region: "PTY", seats: [...PEERS] }]);
   });
 
-  it("lists the resources in the seat's region reach by kind, and teaches no command an edge does not grant", async () => {
-    await write(PEERS);
+  it("lists the resources in the seat's region reach by kind, and teaches each the commands reach admits", async () => {
+    await write([], withResources);
     const data = await onboard();
     expect(data.reach.map(({ kind, count, targets }: { kind: string; count: number; targets: string[] }) => ({ kind, count, targets }))).toEqual([
       { kind: "task", count: 1, targets: ["board-in"] },
       { kind: "artifacts", count: 1, targets: ["shelf"] },
     ]);
-    // Unwired, so admission grants nothing on them yet: no command is taught for them.
-    expect(data.commands.flatMap((group: { targets: string[] }) => group.targets)).toEqual([...PEERS]);
+    // No edge to either: reach admits them, and the board next door is taught nothing.
+    const taught = data.commands.flatMap((group: { targets: string[] }) => group.targets);
+    expect(taught.includes("board-in")).toBe(TASKS_ENABLED);
+    expect(taught.includes("shelf")).toBe(productPortEnabled("artifact.publish"));
+    expect(taught).not.toContain("board-away");
+    // Resources are in reach, never co-members.
+    expect(data.co_members).toEqual([{ region: "PTY", seats: [...PEERS] }]);
   });
 
   it("carries the operator's soul and standing instructions, read live", async () => {

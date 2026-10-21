@@ -198,7 +198,9 @@ import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
 import {
   compileConnectionInstructions,
   compileReach,
+  coMembersByRegion,
   onboardGuidanceFor,
+  toolsBeyondGuidance,
 } from "@shared/seat-onboarding";
 import { isResourceKind, resourcesInReach } from "@shared/region-reach";
 
@@ -1342,41 +1344,43 @@ const dispatchOp = (
         isResourceKind(node.kind) ? [{ id: node.id as string, kind: node.kind }] : [],
       );
       const overseer = self.kind === "agent" && self.overseer === true;
-      const tools = overseer
-        ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
-        : [PREAMBLE_TOOL, ...SIGNAL_TOOLS];
+      const guidance = onboardGuidanceFor(seat);
+      const tools = toolsBeyondGuidance(
+        overseer ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL] : [PREAMBLE_TOOL, ...SIGNAL_TOOLS],
+        guidance,
+      );
+      const { briefing, references } = yield* onboardReferenceFields({ canvasName: caller.canvasName, nodeId: caller.nodeId });
+      // Most stable first: what changes only when the operator edits it, then
+      // who and what this seat is, then what changed since its last session,
+      // then the note its last session left.
       return {
-        // First, so it is read first: the note the previous session left
-        // for this one, when it continued rather than rested.
-        ...(history?.handoff ? { handoff: history.handoff } : {}),
-        // Or, when the previous session left nothing: say so, and where its
-        // transcript is.
-        ...(history?.previousWithoutNotes
-          ? { previous_session_without_notes: history.previousWithoutNotes }
-          : {}),
         // The few lines every seat needs. Nothing is sent to a harness at
         // session start, so this is where a seat learns what Junto asks of it.
-        guidance: onboardGuidanceFor(seat),
-        nodeRef: formatNodeRef({
-          canvasName: caller.canvasName,
-          nodeId: caller.nodeId,
-        }),
-        node: summarizeNode(self),
+        guidance,
+        // The operator's app briefing, or why it could not be read.
+        ...(briefing === undefined ? {} : { briefing }),
+        // The innermost region, with every region's instruction outer to inner.
+        region: region ?? null,
         // The seat as the operator configured it: name, harness and launch
         // dials, look, and the operator-authored soul and standing
         // instructions. Onboard is their only carrier, the same for every
         // harness, read live so an edit shows on the next onboard.
         ...(seat ? { seat } : {}),
-        // This seat's earlier sessions: history for continuity, with the
-        // latest offboard notes inline and paths to open for the rest.
-        ...(history ? { sessions: history.sessions } : {}),
+        nodeRef: formatNodeRef({
+          canvasName: caller.canvasName,
+          nodeId: caller.nodeId,
+        }),
+        node: summarizeNode(self),
         // Additive: derived factory role of the credentialed seat.
         role: factoryRoleOfNode(self),
-        tools,
         overseer: { enabled: overseer, affectedByPause: false },
         protocol_version: WORK_PROTOCOL_VERSION,
-        ...(yield* onboardReferenceFields({ canvasName: caller.canvasName, nodeId: caller.nodeId })),
-        region: region ?? null,
+        // Pause surface: a paused seat must distinguish pause from a broken
+        // grant. Reads stay open; mutating ops still refuse with Paused.
+        paused,
+        ...(paused
+          ? { next_step: "wait for the operator to play the canvas" }
+          : {}),
         connected: connected.map((c) => ({
           id: c.id,
           kind: c.kind,
@@ -1397,26 +1401,32 @@ const dispatchOp = (
         // The resources in this seat's region reach, by kind, with the
         // command that lists each.
         reach: compileReach(reach),
-        // Since your last session: replies owed and awaited, open signals,
-        // silent answers since the previous session started, unread mail.
-        // A failed read says so instead of dropping the section.
-        since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() => console.error(`[onboard] since unreadable for ${caller.canvasName}/${caller.nodeId}:`, error)),
-          ),
-          Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
-        ),
+        ...(references === undefined ? {} : { references }),
         // Operator-pinned precedent from the seat's own region stack. Region
         // rulings ride the Tasks gate: a tasks-off build names none.
         ...(TASKS_ENABLED
           ? { rulings: rulingsForRegionStack(board, caller.nodeId) }
           : {}),
-        co_members: regionVisibility(board, caller.nodeId),
-        // Pause surface: a paused seat must distinguish pause from a broken
-        // grant. Reads stay open; mutating ops still refuse with Paused.
-        paused,
-        ...(paused
-          ? { next_step: "wait for the operator to play the canvas" }
+        // The other seats in this seat's regions, by name.
+        co_members: coMembersByRegion(regionVisibility(board, caller.nodeId)),
+        // The seat tools the guidance does not already teach.
+        tools,
+        // Since your last session: replies owed and awaited, open signals,
+        // silent answers since the previous session started, unread mail.
+        // A failed read says so instead of dropping the section.
+        since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
+          Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
+        ),
+        // This seat's earlier sessions: history for continuity, with the
+        // latest offboard notes inline and paths to open for the rest.
+        ...(history ? { sessions: history.sessions } : {}),
+        // Last, the note the previous session left for this one, when it
+        // continued rather than rested.
+        ...(history?.handoff ? { handoff: history.handoff } : {}),
+        // Or, when the previous session left nothing: say so, and where its
+        // transcript is.
+        ...(history?.previousWithoutNotes
+          ? { previous_session_without_notes: history.previousWithoutNotes }
           : {}),
       };
     }

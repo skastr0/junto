@@ -64,8 +64,7 @@ export const BRIEFING_UNREADABLE =
 export const onboardReferenceFields = (
   seat: ReferenceSeat,
 ): Effect.Effect<{
-  readonly briefing?: string;
-  readonly briefing_unreadable?: string;
+  readonly briefing?: string | { readonly unreadable: string };
   readonly references?: ReadonlyArray<ReferenceListing>;
 }> =>
   Effect.gen(function* () {
@@ -85,7 +84,7 @@ export const onboardReferenceFields = (
         );
     return {
       ...(briefing === "unreadable"
-        ? { briefing_unreadable: BRIEFING_UNREADABLE }
+        ? { briefing: { unreadable: BRIEFING_UNREADABLE } }
         : briefing !== null
           ? { briefing: briefing.body }
           : {}),

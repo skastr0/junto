@@ -17,7 +17,7 @@
 
 import { productPortEnabled, TASKS_ENABLED } from "./features";
 import type { Port } from "./physics/schema";
-import { RESOURCE_KINDS, type ResourceKind } from "./region-reach";
+import { RESOURCE_KINDS, SEAT_KINDS, type ResourceKind } from "./region-reach";
 
 /** A connected node and the ports the seat holds on it. */
 export type ConnectedTarget = {
@@ -325,6 +325,33 @@ export const compileReach = (
     const id = targets.length === 1 ? targets[0]! : TARGET_PLACEHOLDER;
     return [{ kind, count: targets.length, targets, list: row ? row.command(id) : `junto docs node ${spec.docsKind}` }];
   });
+
+// ── Co-members ─────────────────────────────────────────────────────────────
+
+/** Seats sharing a region with this one, by name, under the innermost region they share. */
+export type CoMemberGroup = { readonly region: string; readonly seats: ReadonlyArray<string> };
+
+/** Seat co-members grouped by shared region, both sorted by name; other nodes left out. */
+export const coMembersByRegion = (
+  members: ReadonlyArray<{ readonly kind?: string; readonly name: string; readonly shared_region: { readonly name: string } }>,
+): ReadonlyArray<CoMemberGroup> => {
+  const byRegion = new Map<string, string[]>();
+  for (const member of members) {
+    if (!(SEAT_KINDS as ReadonlyArray<string | undefined>).includes(member.kind)) continue;
+    const seats = byRegion.get(member.shared_region.name) ?? [];
+    seats.push(member.name);
+    byRegion.set(member.shared_region.name, seats);
+  }
+  return [...byRegion]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([region, seats]) => ({ region, seats: seats.sort((a, b) => a.localeCompare(b)) }));
+};
+
+/** The seat tools onboard lists: those its guidance does not already teach. */
+export const toolsBeyondGuidance = <T extends { readonly command: string }>(
+  tools: ReadonlyArray<T>,
+  guidance: ReadonlyArray<string>,
+): ReadonlyArray<T> => tools.filter((tool) => !guidance.some((line) => line.includes(`\`${tool.command}`)));
 
 // ── Guidance ───────────────────────────────────────────────────────────────
 
