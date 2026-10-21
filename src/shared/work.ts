@@ -748,6 +748,7 @@ export const workTaskTransition = (
           text: note?.trim() || "Released to Queue by operator.",
           contextId,
           taskId,
+          actorSeatId: claimedByOf(current),
         }),
       ];
     } else if (note?.trim()) {

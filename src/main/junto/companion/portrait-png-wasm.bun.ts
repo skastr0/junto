@@ -5,7 +5,7 @@
  * reads the wasm from the packaged node_modules instead.
  */
 
-// @ts-expect-error Bun's file import has no type declaration; its default export is the file's path.
+// Typed by resvg-wasm-file.d.ts: the default export is the file's path.
 import wasmPath from "@resvg/resvg-wasm/index_bg.wasm" with { type: "file" };
 
-export default wasmPath as string;
+export default wasmPath;

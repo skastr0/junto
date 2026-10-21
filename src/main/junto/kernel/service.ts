@@ -2,7 +2,10 @@
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, world resync, the 30s safety interval) and binds
 // cycle.ts's injectable seams to concrete main-side collaborators
-// (ModelService, WorkService, timer scheduler).
+// (ModelService, WorkService, timer scheduler, factory claim delivery).
+//
+// Region Pulse delivery / arming product path is retired — repository arm/
+// debug-pulse methods remain for schema-identity tests only.
 //
 // cycle.ts/evaluate.ts are the pure loop + evaluator; this file is the only
 // thing that binds their `__*ForTest`-named seams to something real. Despite
@@ -226,7 +229,7 @@ export type KernelLaneOptions = {
  * |--------------|-----------------------|------------------------------------|
  * | immediate    | one per dirty canvas  | the operator's own commit; a burst  |
  * |              |                       | on one canvas is now ONE re-read    |
- * | simulation   | `cycle`               | the evaluation pass                 |
+ * | simulation   | `cycle`               | claim selection, delivery, wake     |
  * | housekeeping | `safety-sweep`        | the 30s repair watchdog             |
  *
  * The floor is spacing between two slices of the same lane, not latency added
@@ -543,7 +546,8 @@ const makeKernelService = (
     }
   };
 
-  // Cron durable due + nextFire.
+  // Cron durable due + nextFire. Factory claims use managedPulseDeliver
+  // separately — not region-pulse delivery deps.
   __setTimerSchedulerForTest({
     claimExpression: (input) =>
       run(scheduler.claimExpression(input)),

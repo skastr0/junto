@@ -220,8 +220,8 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
       result,
       out,
       err,
-      data: ((out?.data ?? {}) as Record<string, unknown>) ?? {},
-      error: ((err?.error ?? {}) as { type?: unknown; message?: unknown }) ?? {},
+      data: (out?.data ?? {}) as Record<string, unknown>,
+      error: (err?.error ?? {}) as { type?: unknown; message?: unknown },
     };
   };
   const input = (value: unknown): string => JSON.stringify(value);
