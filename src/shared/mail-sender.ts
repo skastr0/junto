@@ -24,15 +24,17 @@ const isActorSeatId = Schema.is(ActorSeatId);
 
 /**
  * The kind of a stored row's author in `mailbox`, from its admitted stamps.
- * A row from before seat ids, whose `fromSeat` names a node, was a seat's.
+ * A row from before seat ids, whose `fromSeat` names a node or is absent
+ * beside a `senderNodeId`, was a seat's.
+ * Without the mailbox a notice reads as malformed; neither takes a reply.
  */
 export const storedMailAuthorKindOf = (
   message: { readonly metadata?: Readonly<Record<string, unknown>> | undefined },
-  mailbox: string,
+  mailbox?: string,
 ): MailAuthorKind => {
   const fromSeat = message.metadata?.fromSeat;
   const nodeId = message.metadata?.senderNodeId;
-  if (!isActorSeatId(fromSeat)) return typeof fromSeat === "string" ? "seat" : "malformed";
+  if (!isActorSeatId(fromSeat)) return typeof fromSeat === "string" || typeof nodeId === "string" ? "seat" : "malformed";
   return mailAuthorOf({ seatId: fromSeat, nodeId: typeof nodeId === "string" ? nodeId : "" }, mailbox).kind;
 };
 
@@ -58,3 +60,16 @@ type Answerable = Extract<MailAuthorKind, "seat" | "operator">;
 export type MailHeaderSender =
   | { readonly kind: Answerable; readonly label: string; readonly replyTarget?: string }
   | { readonly kind: Exclude<MailAuthorKind, Answerable>; readonly label: string; readonly replyTarget?: never };
+
+/** A header sender of `kind`: the reply target kept only when the kind takes a reply. */
+export const mailHeaderSender = (kind: MailAuthorKind, label: string, replyTarget?: string): MailHeaderSender => {
+  switch (kind) {
+    case "seat":
+    case "operator":
+      return { kind, label, ...(replyTarget === undefined ? {} : { replyTarget }) };
+    case "automation":
+    case "notice":
+    case "malformed":
+      return { kind, label };
+  }
+};

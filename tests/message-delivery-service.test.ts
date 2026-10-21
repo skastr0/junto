@@ -21,7 +21,7 @@ import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 const canvas = "crew";
 const nodeId = "agent-b";
 const bindingId = "bind-b";
-const SENDER = `seat_${"a".repeat(64)}` as MailExtension["fromSeat"];
+const SENDER = `seat_${"b".repeat(64)}` as MailExtension["fromSeat"];
 
 const mail = (messageId: string, text: string, mailKind: MailKind = "notice"): Message => ({
   messageId,

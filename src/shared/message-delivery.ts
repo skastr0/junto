@@ -8,6 +8,7 @@ import type { Node } from "./model";
 import type { Message } from "./work-model";
 import type { SurfaceDeliveryTarget } from "./actor-surface";
 import { readMailExtension } from "./crew";
+import { mailHeaderSender, storedMailAuthorKindOf, type MailHeaderSender } from "./mail-sender";
 import { noticeTakesReply, subjectNoticeKindOf } from "./subject-notice";
 import { subjectLabel, subjectNodeOf, threadSubjectOf } from "./thread-subject";
 
@@ -115,13 +116,12 @@ const briefWithoutFactoryEnvelope = (message: Message): string =>
  */
 export const MAIL_ONBOARD_POINTER = "new to this seat? run `junto onboard` first";
 
-/** Who sent a mail, as the recipient reads it, and where a reply goes. */
-export type MailSender = {
-  /** The sender as one line: "cli-lead (Junto / CLI)". */
-  readonly label: string;
-  /** `junto msg reply`'s target: the sender's node id. Absent: no reply command. */
-  readonly replyTarget?: string;
-};
+/**
+ * Who sent a mail, as the recipient reads it ("cli-lead (Junto / CLI)"), and
+ * where a reply goes: the sender's node id for a seat or the operator, and no
+ * reply command at all for a notice or an automation, by type.
+ */
+export type MailSender = MailHeaderSender;
 
 /** What the composer knows about the destination seat. */
 export type MailLineOptions = {
@@ -164,7 +164,7 @@ const isPromptMail = (message: Message): boolean => readMailExtension(message.me
 const stampedSender = (message: Message): MailSender => {
   const node = message.metadata?.senderNodeId;
   const target = typeof node === "string" ? sanitizeDeliveryLine(node) : "";
-  return { label: factoryMailFromSeat(message) ?? "seat", ...(target === "" ? {} : { replyTarget: target }) };
+  return mailHeaderSender(storedMailAuthorKindOf(message), factoryMailFromSeat(message) ?? "seat", target === "" ? undefined : target);
 };
 
 /** The thread a notice is a reply in; undefined for a thread's own root. */

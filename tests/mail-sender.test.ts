@@ -8,7 +8,7 @@ import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { AutomationNodeId, automationActorRef, noticeActorRef, type MailAuthorKind } from "../src/shared/mail-author";
-import { authorTakesReply, storedMailAuthorKindOf, type MailHeaderSender } from "../src/shared/mail-sender";
+import { authorTakesReply, mailHeaderSender, storedMailAuthorKindOf, type MailHeaderSender } from "../src/shared/mail-sender";
 import { OPERATOR_SEAT_ID, operatorActorRef, type ActorRef } from "../src/shared/work-reference";
 
 const SEAT: ActorRef = {
@@ -43,6 +43,7 @@ describe("whose a stored row is", () => {
 
   it("reads a row from before seat ids, whose fromSeat names a node, as a seat's", () => {
     expect(storedMailAuthorKindOf({ metadata: { fromSeat: "agent-1" } }, "agent-2")).toBe("seat");
+    expect(storedMailAuthorKindOf({ metadata: { senderNodeId: "agent-1" } }, "agent-2")).toBe("seat");
   });
 });
 
@@ -50,6 +51,22 @@ describe("replies", () => {
   it("are taken only from a seat or the operator", () => {
     const kinds: ReadonlyArray<MailAuthorKind> = ["seat", "operator", "automation", "notice", "malformed"];
     expect(kinds.filter(authorTakesReply)).toEqual(["seat", "operator"]);
+  });
+});
+
+describe("a header sender", () => {
+  it("keeps the reply target only for a seat or the operator", () => {
+    expect(mailHeaderSender("seat", "cli-lead", "agent-1")).toEqual({ kind: "seat", label: "cli-lead", replyTarget: "agent-1" });
+    expect(mailHeaderSender("operator", "the operator", "operator")).toEqual({ kind: "operator", label: "the operator", replyTarget: "operator" });
+    expect(mailHeaderSender("notice", "Tasks", "task-1")).toEqual({ kind: "notice", label: "Tasks" });
+    expect(mailHeaderSender("automation", "nightly", "nightly")).toEqual({ kind: "automation", label: "nightly" });
+    expect(mailHeaderSender("seat", "cli-lead")).toEqual({ kind: "seat", label: "cli-lead" });
+  });
+
+  it("reads a notice without its mailbox as no one's, still with no reply", () => {
+    const kind = storedMailAuthorKindOf(writtenBy(noticeActorRef("factory", "task-1")));
+    expect(kind).toBe("malformed");
+    expect(authorTakesReply(kind)).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import { note, seat, terminal } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import type { Message } from "../src/shared/work-model";
+import { AUTOMATION_SEAT_ID, NOTICE_SEAT_ID } from "../src/shared/mail-author";
 import {
   composeMailBatch,
   composeMessageDeliveryPayload,
@@ -83,7 +84,7 @@ describe("message-delivery pure helpers", () => {
         "\nPlease review the contract.\n\n1. The cap\n2. The read stamp",
     );
     // The canvas names the sender at delivery, regions and all.
-    expect(composeMessageDeliveryPayload(notice, { sender: { label: "cli-lead (Junto / CLI)", replyTarget: "agent-a" } }))
+    expect(composeMessageDeliveryPayload(notice, { sender: { kind: "seat", label: "cli-lead (Junto / CLI)", replyTarget: "agent-a" } }))
       .toMatch(/^mail from cli-lead \(Junto \/ CLI\), id 01KZSM4A84ASFRTZ77YAQ09CVH — reply: /u);
     expect(mailTypedWhole(notice)).toBe(true);
   });
@@ -115,16 +116,31 @@ describe("message-delivery pure helpers", () => {
       },
       parts: [{ kind: "text", text: "Can you take this?" }],
     });
-    expect(composeMessageDeliveryPayload(comment, { sender: { label: "pty-a (Junto)", replyTarget: "agent-a" } })).toBe(
+    expect(composeMessageDeliveryPayload(comment, { sender: { kind: "seat", label: "pty-a (Junto)", replyTarget: "agent-a" } })).toBe(
       "mail from pty-a (Junto), id 01KZSM4A84ASFRTZ77YAQ09CVJ, thread 01KZSM4A84ASFRTZ77YAQ09CVH, " +
         "on task 01KZSM4A84ASFRTZ77YAQ09CVK at task-board — reply: junto msg reply " +
         `'{"target":"task-board","inReplyTo":"01KZSM4A84ASFRTZ77YAQ09CVJ","text":"..."}'` +
         "\nCan you take this?",
     );
     const refusal = { ...comment, metadata: { ...comment.metadata, senderName: "Tasks", senderNodeId: "task-board", subjectNotice: "refusal" } };
-    expect(composeMessageDeliveryPayload(refusal, { sender: { label: "Tasks", replyTarget: "task-board" } }).split("\n")[0]).toBe(
+    expect(composeMessageDeliveryPayload(refusal, { sender: { kind: "notice", label: "Tasks" } }).split("\n")[0]).toBe(
       "mail from Tasks, id 01KZSM4A84ASFRTZ77YAQ09CVJ, thread 01KZSM4A84ASFRTZ77YAQ09CVH, on task 01KZSM4A84ASFRTZ77YAQ09CVK at task-board",
     );
+  });
+
+  it("gives a resource's notice and an automation's mail no reply command, outside a subject thread too", () => {
+    const refusal = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVM",
+      metadata: { factoryMail: true, fromSeat: NOTICE_SEAT_ID, senderNodeId: "task-board", senderName: "Tasks", subjectNotice: "refusal" },
+      parts: [{ kind: "text", text: "Refused: the task moved on." }],
+    });
+    expect(composeMessageDeliveryPayload(refusal).split("\n")[0]).toBe("mail from Tasks, id 01KZSM4A84ASFRTZ77YAQ09CVM");
+    const automation = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVN",
+      metadata: { factoryMail: true, fromSeat: AUTOMATION_SEAT_ID, senderNodeId: "nightly", senderName: "nightly" },
+      parts: [{ kind: "text", text: "Nightly build failed." }],
+    });
+    expect(composeMessageDeliveryPayload(automation).split("\n")[0]).toBe("mail from nightly, id 01KZSM4A84ASFRTZ77YAQ09CVN");
   });
 
   it("cuts a notice past the cap, points at the rest, and leaves it unread", () => {
@@ -340,7 +356,7 @@ describe("a batch of mail for one seat", () => {
 
   it("types one mail exactly as it is alone, with no count line", () => {
     const only = notice("01A", "one thing");
-    const sender = { label: "cli-lead (Junto / CLI)", replyTarget: "agent-a" };
+    const sender = { kind: "seat", label: "cli-lead (Junto / CLI)", replyTarget: "agent-a" } as const;
     expect(composeMailBatch([{ message: only, sender }], { onboarded: false })).toEqual({
       text: composeMessageDeliveryPayload(only, { onboarded: false, sender }),
       whole: [true],
@@ -350,12 +366,12 @@ describe("a batch of mail for one seat", () => {
   it("opens more with a count line, then each mail whole under its own header, oldest first", () => {
     const first = notice("01A", "first\nwith a second line");
     const second = notice("01B", "second", "agent-c");
-    const batch = composeMailBatch([{ message: first }, { message: second, sender: { label: "Reviewer (Junto)", replyTarget: "agent-c" } }]);
+    const batch = composeMailBatch([{ message: first }, { message: second, sender: { kind: "seat", label: "Reviewer (Junto)", replyTarget: "agent-c" } }]);
     expect(batch.text).toBe(
       [
         "2 mails, oldest first",
         composeMessageDeliveryPayload(first),
-        composeMessageDeliveryPayload(second, { sender: { label: "Reviewer (Junto)", replyTarget: "agent-c" } }),
+        composeMessageDeliveryPayload(second, { sender: { kind: "seat", label: "Reviewer (Junto)", replyTarget: "agent-c" } }),
       ].join("\n\n"),
     );
     expect(batch.whole).toEqual([true, true]);
@@ -422,7 +438,7 @@ describe("a batch of mail for one seat", () => {
 
   it("names the sender of a one-line mail as the canvas does", () => {
     const mails = [notice("01A", "z".repeat(MAIL_TYPED_BODY_MAX)), notice("01B", "w".repeat(MAIL_TYPED_BODY_MAX)), notice("01C", "v".repeat(MAIL_BATCH_BODY_MAX - 2 * MAIL_TYPED_BODY_MAX + 1))];
-    const batch = composeMailBatch([{ message: mails[0]! }, { message: mails[1]! }, { message: mails[2]!, sender: { label: "pty-lead (Junto / PTY)" } }]);
+    const batch = composeMailBatch([{ message: mails[0]! }, { message: mails[1]! }, { message: mails[2]!, sender: { kind: "seat", label: "pty-lead (Junto / PTY)" } }]);
     expect(batch.whole).toEqual([true, true, false]);
     expect(batch.text.endsWith("\n\nmail from pty-lead (Junto / PTY), id 01C — junto msg read 01C")).toBe(true);
     expect(header(mails[0]!)).toBe("mail from agent-a, id 01A — reply: junto msg reply '{\"target\":\"agent-a\",\"inReplyTo\":\"01A\",\"text\":\"...\"}'");

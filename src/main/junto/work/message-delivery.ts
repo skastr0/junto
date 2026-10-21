@@ -70,6 +70,7 @@ import {
   type MailSender,
 } from "@shared/message-delivery";
 import { seatIdentity, seatLabel } from "@shared/model/seat-identity";
+import { mailHeaderSender, storedMailAuthorKindOf } from "@shared/mail-sender";
 import type { MailHold } from "@shared/mail-hold";
 import {
   wireTrafficOfMail,
@@ -241,13 +242,16 @@ const oldestFirst = (a: Gathered, b: Gathered): number => a.message.messageId.lo
 
 /**
  * The sender as the canvas names it now: its name and every region around
- * it, and its node for the reply. Undefined when it is not on this canvas;
- * the mail then names the sender as it was stamped.
+ * it, and its node for the reply when its author takes one (a notice or an
+ * automation does not). Undefined when it is not on this canvas; the mail
+ * then names the sender as it was stamped.
  */
-const senderOn = (doc: Canvas, message: Message): MailSender | undefined => {
+const senderOn = (doc: Canvas, message: Message, mailbox: string): MailSender | undefined => {
   const nodeId = message.metadata?.senderNodeId;
   const node = typeof nodeId === "string" ? doc.nodes.get(asNodeId(nodeId)) : undefined;
-  return node === undefined ? undefined : { label: seatLabel(seatIdentity(doc, node)), replyTarget: node.id };
+  return node === undefined
+    ? undefined
+    : mailHeaderSender(storedMailAuthorKindOf(message, mailbox), seatLabel(seatIdentity(doc, node)), node.id);
 };
 
 /** A lookup that fails must never cost a delivery: no answer means no pointer. */
@@ -561,7 +565,7 @@ export class MessageDeliveryService {
       if (this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
       return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
-    const sender = senderOn(doc, message);
+    const sender = senderOn(doc, message, nodeId);
     const mail = { key, canvas, nodeId, message, sender, attachmentLines };
     if (readMailExtension(message.metadata)?.mailKind !== "prompt") {
       return this.gather(target.bindingId, mail, generation);
