@@ -165,3 +165,23 @@ describe("overseer Work socket completion classification", () => {
     });
   });
 });
+
+describe("a resource write that loses its answer", () => {
+  const opId = "01M5EW2K9M5CN3Z3VP1J5EFB0Y";
+
+  it.each<FailureMode>(["timeout", "disconnect", "oversized", "truncated"])(
+    "returns its opId as a retryable Timeout after a %s",
+    async (mode) => {
+      const server = await startFakeWorkServer(mode);
+      const result = await call("automation.run" as WorkOpName, { opId, automation: "nightly" }, mode === "timeout" ? 20 : 1_000);
+      expect(server.invocations()).toBe(1);
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "WireError", type: "Timeout", details: { opId, retryable: true } },
+      });
+      if (result._tag === "Failure") {
+        expect((result.failure as { details: { next_step: string } }).details.next_step).toContain(`--op-id ${opId}`);
+      }
+    },
+  );
+});

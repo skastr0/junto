@@ -20,6 +20,7 @@ import {
   type WorkResponseEnvelope,
 } from "../../shared/work-control";
 import { AuthError, RuntimeDown, WireError } from "./errors";
+import { opIdInArgs, writeTimeout } from "./op-id";
 
 export const resolveWorkHome = (): string => {
   const env = process.env[WORK_HOME_ENV]?.trim();
@@ -92,12 +93,14 @@ const ndjsonCall = (
     let timer: ReturnType<typeof setTimeout> | undefined;
     const mutatingOperation = mutatingOverseerOperation(op, args) ??
       (["msg.send", "msg.prompt", "msg.reply", "verdict.post"].includes(op) ? op : undefined);
+    const writeOpId = opIdInArgs(args);
 
     const transportFailure = (
       type: string,
       message: string,
       details?: unknown,
     ): WireError => {
+      if (writeOpId !== undefined && requestDispatched) return writeTimeout(writeOpId, message);
       if (mutatingOperation === undefined || !requestDispatched) {
         return new WireError({
           type,
@@ -226,7 +229,7 @@ const ndjsonCall = (
     });
 
     socket.on("error", (error: NodeJS.ErrnoException) => {
-      if (requestDispatched && mutatingOperation !== undefined) {
+      if (requestDispatched && (mutatingOperation !== undefined || writeOpId !== undefined)) {
         settle(
           Effect.fail(transportFailure("InternalError", error.message)),
         );

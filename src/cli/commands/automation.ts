@@ -10,16 +10,15 @@ import {
   AutomationShowArgs,
   type AutomationOp,
 } from "../../shared/automation-control";
-import { mintItemId, mintOpId } from "../../shared/resource-command";
-import { OpId } from "../../shared/work-ids";
+import { mintItemId } from "../../shared/resource-command";
 import type {
   CommandCapability,
   CommandExample,
   CommandSchemaContract,
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
-import { InputError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
+import { opIdFlag, opIdOf } from "../core/op-id";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
 
@@ -41,24 +40,10 @@ const timeoutOption = Flag.integer("timeout").pipe(
   Flag.withDescription(`Socket call timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
 );
 
-const opIdOption = Flag.string("op-id").pipe(
-  Flag.optional,
-  Flag.withDescription("Resend a write that timed out with the opId it returned, so it applies once"),
-);
-
 const call = (op: AutomationOp, args: unknown, timeout: Option.Option<number>) =>
   Effect.gen(function* () {
     const socket = yield* WorkSocket;
     return yield* socket.call(op, args, Option.getOrUndefined(timeout));
-  });
-
-const opIdOf = (given: Option.Option<string>) =>
-  Option.match(given, {
-    onNone: () => Effect.succeed(mintOpId()),
-    onSome: (text) =>
-      Schema.decodeUnknownEffect(OpId)(text).pipe(
-        Effect.mapError(() => new InputError({ message: "--op-id must be the ULID a write returned", path: "--op-id", received: text })),
-      ),
   });
 
 const DESCRIPTIONS = {
@@ -98,7 +83,7 @@ const readCommand = (verb: "show" | "history", schema: Schema.Top) =>
 
 const createCommand = Command.make(
   "create",
-  { input: inputArg, opId: opIdOption, timeout: timeoutOption },
+  { input: inputArg, opId: opIdFlag, timeout: timeoutOption },
   ({ input, opId, timeout }) =>
     executeJsonCommand(
       "automation create",
@@ -118,7 +103,7 @@ const createCommand = Command.make(
 const writeCommand = (verb: "edit" | "enable" | "disable" | "run", schema: Schema.Top) =>
   Command.make(
     verb,
-    { input: inputArg, opId: opIdOption, timeout: timeoutOption },
+    { input: inputArg, opId: opIdFlag, timeout: timeoutOption },
     ({ input, opId, timeout }) =>
       executeJsonCommand(
         `automation ${verb}`,
