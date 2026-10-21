@@ -92,6 +92,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   const renameInput = page.getByRole("textbox", { name: "Agent name" });
   await expect(renameInput).toBeVisible();
   await renameInput.fill("renamed worker");
+  await page.locator(".rts-shell").screenshot({ path: join(SHOTS, "00-rename-in-card.png") });
   await renameInput.press("Enter");
   await expect(renameInput).toBeHidden();
   await expect(page.locator(".react-flow__node", { hasText: "renamed worker" }).first()).toBeVisible();
