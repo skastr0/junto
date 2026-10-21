@@ -290,6 +290,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
       {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
         <ArtifactsDetail
           nodeId={id}
+          initialItemId={workDetailItemId}
           onClose={() => {
             setWorkDetail(false);
             setWorkDetailItemId(undefined);

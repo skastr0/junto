@@ -304,13 +304,23 @@ export function TasksDetail({
 
 export function ArtifactsDetail({
   nodeId,
+  initialItemId,
   onClose,
 }: {
   readonly nodeId: string;
+  /** Open on this artifact (a mention or a chip that names it). */
+  readonly initialItemId?: string;
   readonly onClose: () => void;
 }) {
   const canvasName = use$(state$.canvasName) || "";
-  return <ArtifactsNode canvasName={canvasName} nodeId={asNodeId(nodeId)} onClose={onClose} />;
+  return (
+    <ArtifactsNode
+      canvasName={canvasName}
+      nodeId={asNodeId(nodeId)}
+      {...(initialItemId === undefined ? {} : { initialArtifactId: initialItemId })}
+      onClose={onClose}
+    />
+  );
 }
 
 /** The operator's Automations pane. Main sets the stored author from the actor. */

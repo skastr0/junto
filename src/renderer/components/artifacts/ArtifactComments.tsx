@@ -56,9 +56,10 @@ export function ArtifactComments({
   const start = async (): Promise<void> => {
     const text = draft.trim();
     if (text.length === 0) return;
-    const refused = await onStart(text, draftAnchor);
+    const refused = await onStart(text, draftAnchor).catch(() => "Not posted: the comment could not reach Junto. Try again.");
     setRefusal(refused);
-    if (refused === null) setDraft("");
+    // Only what was sent clears: text typed while it was in flight stays.
+    if (refused === null) setDraft((now) => (now.trim() === text ? "" : now));
   };
 
   return (
@@ -155,9 +156,9 @@ function ThreadView({
   const send = async (): Promise<void> => {
     const text = reply.trim();
     if (text.length === 0) return;
-    const refused = await onReply(text);
+    const refused = await onReply(text).catch(() => "Not posted: the reply could not reach Junto. Try again.");
     setRefusal(refused);
-    if (refused === null) setReply("");
+    if (refused === null) setReply((now) => (now.trim() === text ? "" : now));
   };
   return (
     <li className="artifact-thread">
