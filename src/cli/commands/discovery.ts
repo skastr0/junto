@@ -112,7 +112,8 @@ export const staticCapabilitiesData = {
     failure: { stream: "stderr", envelope: "{ ok: false, command, error }" },
   },
   batch: {
-    outcome_values: ["succeeded", "partial_failure", "failed"],
+    outcome_values: ["succeeded", "partial_failure"],
+    all_failed: "the failure envelope: one item's own error, or BatchFailed with every result",
     default_concurrency: 5,
     partial_failure_exit_code: 1,
   },

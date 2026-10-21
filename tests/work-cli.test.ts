@@ -13,7 +13,7 @@ import {
   renderSuccessEnvelope,
   toErrorDetails,
 } from "../src/cli/core/output";
-import { InputError } from "../src/cli/core/errors";
+import { InputError, WireError } from "../src/cli/core/errors";
 import {
   allSchemas,
   allExamples,
@@ -220,6 +220,21 @@ describe("work CLI batch outcomes", () => {
     expect(result.results[2]?.ok).toBe(true);
     expect(process.exitCode).toBe(1);
     process.exitCode = 0;
+  });
+
+  it("every item failed: the envelope is ok:false, one item with its own error", async () => {
+    const fail = (items: ReadonlyArray<unknown>) =>
+      Effect.runPromise(
+        runMutationBatch({
+          input: JSON.stringify(items),
+          concurrency: 2,
+          itemSchema: MsgPromptArgs,
+          run: () => Effect.fail(new WireError({ type: "ScopeError", message: "refused", details: { retryable: false } })),
+        }).pipe(Effect.flip),
+      );
+    expect(toErrorDetails(await fail([{ target: "n7", text: "t1" }]))).toEqual({ type: "ScopeError", message: "refused", details: { retryable: false } });
+    const all = toErrorDetails(await fail([{ target: "n7", text: "t1" }, { target: "n8", text: "t2" }]));
+    expect(all).toMatchObject({ type: "BatchFailed", message: "all 2 items failed", details: { outcome: "failed", error_count: 2 } });
   });
 
   it("rejects concurrency <= 0", async () => {

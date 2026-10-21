@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { InputError } from "./errors";
+import { InputError, WireError } from "./errors";
 import { loadBatchJsonInput } from "./json";
 import { setExitCode, toErrorDetails } from "./output";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
@@ -91,6 +91,20 @@ export const runMutationBatch = <S extends Schema.Top, R>(options: {
     // Preserve submission order by index (Effect.forEach already does).
     const ordered = [...results].sort((a, b) => a.index - b.index);
     const summary = summarizeBatchResults(options.concurrency, ordered);
+    // Nothing was written, so the envelope says ok:false: a caller reading
+    // .ok never takes a refusal for a send. One item fails with its own error.
+    if (summary.outcome === "failed") {
+      const only = ordered.length === 1 && !ordered[0]!.ok ? ordered[0]!.error : undefined;
+      return yield* Effect.fail(
+        only !== undefined
+          ? new WireError(only)
+          : new WireError({
+              type: "BatchFailed",
+              message: `all ${summary.total} items failed`,
+              details: summary,
+            }),
+      );
+    }
     if (summary.error_count > 0) {
       yield* setExitCode(1);
     }
