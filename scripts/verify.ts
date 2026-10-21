@@ -2,7 +2,7 @@
 /**
  * Ship gate. Cheap lints first, then overlapping lanes: typecheck, unit
  * tests, ship-profile gates, compile. Every lane must pass. Vitest is
- * worker-capped so tsc and electron-vite still get CPU.
+ * worker-capped so the type checker and electron-vite still get CPU.
  */
 import { spawn } from "node:child_process";
 import { readdirSync } from "node:fs";
@@ -68,6 +68,15 @@ await allMustPass([
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
 
+// Locally the lane is tsrs: on a busy main the TypeScript 7 cache is always
+// stale, so tsc costs about 23 cpu-s and 3.4 GB a run against tsrs's 6 and
+// 1. CI keeps TypeScript 7 as the reference checker, and the hourly main
+// verify runs both and reports any disagreement.
+const typecheck: readonly string[] =
+  process.env.CI === "true"
+    ? ["tsc", "--noEmit", "--incremental", "--tsBuildInfoFile", ".tsbuildinfo"]
+    : ["tsrs", "--noEmit", "--incremental", "--tsBuildInfoFile", ".tsrs.tsbuildinfo"];
+
 // Every feature gate test runs in the ship profile. Discovered, not listed:
 // a gate added after this file was last edited must not skip CI.
 const shipProfileTests = (): string[] =>
@@ -86,9 +95,9 @@ const shipProfileTests = (): string[] =>
 await allMustPass([
   {
     name: "typecheck",
-    // The full check owns the one incremental cache; seat-made scoped
-    // configs that extend tsconfig.json write none.
-    cmd: ["tsc", "--noEmit", "--incremental", "--tsBuildInfoFile", ".tsbuildinfo"],
+    // The full check owns the incremental cache; seat-made scoped configs
+    // that extend tsconfig.json write none.
+    cmd: typecheck,
   },
   {
     name: "test",
