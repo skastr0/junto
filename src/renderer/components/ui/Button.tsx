@@ -63,7 +63,8 @@ export function Button({
   return (
     <button
       type={type}
-      onClick={inert ? undefined : onClick}
+      // preventDefault too, so an inert submit button does not submit its form.
+      onClick={inert ? (event) => event.preventDefault() : onClick}
       className={[
         "inline-flex items-center justify-center transition-colors select-none",
         HIT_24,

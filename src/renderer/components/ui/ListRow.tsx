@@ -52,7 +52,7 @@ export function ListRow({
         {title}
         {pending ? <span className="sr-only">, queued</span> : null}
       </span>
-      {meta ? <span className="min-w-0 truncate text-label leading-compact text-dim tabular-nums">{meta}</span> : null}
+      {meta ? <span title={typeof meta === "string" ? meta : undefined} className="min-w-0 truncate text-label leading-compact text-dim tabular-nums">{meta}</span> : null}
     </>
   );
   if (!rest.onClick) {
