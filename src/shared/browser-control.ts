@@ -286,7 +286,8 @@ export const ScreenshotRequest = Schema.Struct({
 });
 export type ScreenshotRequest = typeof ScreenshotRequest.Type;
 
-const BoxEdge = Schema.Number.pipe(Schema.check(Schema.makeFilter((value) => Number.isFinite(value), { message: "a box is finite numbers" })));
+// Finite in discovery too: a plain Number would advertise "Infinity", "-Infinity" and "NaN".
+const BoxEdge = Schema.Finite.annotate({ message: "a box is finite numbers" });
 
 /** The most of a box comment's text a seat may send; the comment writer bounds it again. */
 export const BROWSER_MAX_COMMENT_TEXT_BYTES = 64 * 1024;

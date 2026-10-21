@@ -10,7 +10,7 @@ import {
   browserSchemas,
   type BrowserCommandName,
 } from "../src/cli/commands/browser-contract";
-import { allSchemas, commandCapabilities } from "../src/cli/core/discovery";
+import { allSchemas, commandCapabilities, renderSchemaContract } from "../src/cli/core/discovery";
 import { BROWSER_ENABLED } from "../src/shared/features";
 
 describe("browser errors as work errors", () => {
@@ -123,6 +123,19 @@ describe("browser discovery", () => {
     for (const schema of browserSchemas) {
       expect(schema.command.startsWith(schema.command_id.replace(".", " "))).toBe(true);
     }
+  });
+
+  it("shows a comment's box edges as finite numbers only, as the route takes them", () => {
+    const comment = browserSchemas.find((schema) => schema.command_id === "browser.comment");
+    expect(comment).toBeDefined();
+    const rect = (renderSchemaContract(comment!).schema as { properties: { rect: unknown } }).properties.rect;
+    expect(rect).toEqual({
+      type: "object",
+      properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } },
+      required: ["x", "y", "w", "h"],
+      additionalProperties: false,
+    });
+    expect(JSON.stringify(rect)).not.toMatch(/Infinity|NaN/u);
   });
 
   it("is listed exactly when this build has the browser", () => {
