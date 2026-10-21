@@ -16,11 +16,6 @@ import {
   hermesRefusesMultilinePaste,
   payloadMayChip,
 } from "../src/main/junto/term/drive";
-import {
-  makeManagedPulseDeliver,
-  scheduleManagedPulseReady,
-  subscribeManagedPulseReady,
-} from "../src/main/junto/term/managed-pulse-bridge";
 import { isPromptSubmitted } from "../src/shared/managed-prompt";
 import type { PtyDeliveryTraceEvent } from "../src/main/junto/term/drive/pty-delivery-trace";
 
@@ -855,89 +850,6 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toEqual([]);
   });
 
-  it("managed pulse handoff samples readiness and always disables the drive queue", async () => {
-    const calls: Array<{
-      bindingId: string;
-      text: string;
-      options: Parameters<typeof drive.writePrompt>[2];
-    }> = [];
-    let ready = false;
-    const pulse = makeManagedPulseDeliver(
-      async (bindingId, text, options) => {
-        calls.push({ bindingId, text, options });
-        return true;
-      },
-      () => ready,
-    );
-
-    await expect(pulse("b1", "first")).resolves.toBe(true);
-    ready = true;
-    await expect(pulse("b1", "second")).resolves.toBe(true);
-
-    expect(calls).toEqual([
-      {
-        bindingId: "b1",
-        text: "first",
-        options: { ready: false, queueIfBusy: false },
-      },
-      {
-        bindingId: "b1",
-        text: "second",
-        options: { ready: true, queueIfBusy: false },
-      },
-    ]);
-  });
-
-  it("publishes one payload-free readiness wake at an explicit guard boundary", async () => {
-    vi.useFakeTimers();
-    const events: Array<{ bindingId: string; epoch: string }> = [];
-    const unsubscribe = subscribeManagedPulseReady((event) => {
-      events.push(event);
-    });
-
-    scheduleManagedPulseReady(
-      { bindingId: "grok-seat", epoch: "generation-1" },
-      1_500,
-      () => true,
-    );
-
-    await vi.advanceTimersByTimeAsync(1_499);
-    expect(events).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(events).toEqual([
-      { bindingId: "grok-seat", epoch: "generation-1" },
-    ]);
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(events).toHaveLength(1);
-
-    unsubscribe();
-  });
-
-  it("cancels or rejects stale readiness guards without publishing", async () => {
-    vi.useFakeTimers();
-    const events: Array<{ bindingId: string; epoch: string }> = [];
-    const unsubscribe = subscribeManagedPulseReady((event) => {
-      events.push(event);
-    });
-
-    const cancel = scheduleManagedPulseReady(
-      { bindingId: "grok-seat", epoch: "generation-1" },
-      1_500,
-      () => true,
-    );
-    cancel();
-    scheduleManagedPulseReady(
-      { bindingId: "grok-seat", epoch: "generation-2" },
-      1_500,
-      () => false,
-    );
-
-    await vi.advanceTimersByTimeAsync(1_500);
-    expect(events).toEqual([]);
-
-    unsubscribe();
-  });
-
   it("clipboard-unsafe aborts without clearing clipboard or writing", async () => {
     const attention: string[] = [];
     drive = makeDrive({
@@ -1262,20 +1174,17 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(2);
   });
 
-  it("managed pulse reports a stalled prompt as refused for durable receipt logic", async () => {
+  it("an unqueued prompt that stalls reports refused", async () => {
     vi.useFakeTimers();
     try {
       drive = makeDrive({
         stallWatch: true,
         stallTimeoutMs: 5_000,
       });
-      const pulse = makeManagedPulseDeliver(
-        (bindingId, text, options) =>
-          drive.writePrompt(bindingId, text, options).then(isPromptSubmitted),
-        () => true,
-      );
+      const send = (text: string) =>
+        drive.writePrompt("b1", text, { ready: true, queueIfBusy: false }).then(isPromptSubmitted);
 
-      const accepted = pulse("b1", "kernel pulse");
+      const accepted = send("prompt");
       await flushMicrotasks();
       expect(writes).toHaveLength(2);
 
@@ -1283,7 +1192,7 @@ describe("ManagedTerminalDrive", () => {
       await expect(accepted).resolves.toBe(false);
       // No chip chrome authorizes recovery, and failure never sends Ctrl+C.
       expect(writes).toHaveLength(2);
-      await expect(pulse("b1", "kernel pulse")).resolves.toBe(false);
+      await expect(send("prompt")).resolves.toBe(false);
       expect(writes).toHaveLength(2);
     } finally {
       vi.useRealTimers();

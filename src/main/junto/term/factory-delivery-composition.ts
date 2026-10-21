@@ -1,8 +1,8 @@
 /**
  * Shared factory-delivery composition.
  *
- * The product delivery paths — kernel pulses, the injection supervisor,
- * and board wakes — all reach a managed seat PTY
+ * The product delivery paths — the injection supervisor and board wakes —
+ * all reach a managed seat PTY
  * through one destination drive. Command Center and the packaged Node
  * Remote both compose them here; mailbox mail is Command Center-only (actor
  * mailboxes are CC-homed) and is wired beside this in `ipc.ts` through the
@@ -26,10 +26,6 @@ import {
 } from "@shared/managed-prompt";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
-import {
-  makeManagedPulseDeliver,
-  type ManagedPulseDeliver,
-} from "./managed-pulse-bridge";
 import type { BoardDeliveryTransport } from "../work/board-delivery";
 
 /** Minimal drive surface every delivery path needs. */
@@ -84,14 +80,6 @@ export type FactoryDeliverySupervisor = {
   readonly onSnapshot: (snap: ObserverGridSnapshot) => void;
 };
 
-export type FactoryDeliveryPulse = {
-  readonly setDeliver: (
-    fn:
-      | ((bindingId: string, message: string) => Promise<boolean>)
-      | undefined,
-  ) => void;
-};
-
 export type FactoryDeliveryBoard = {
   readonly configure: (transport: BoardDeliveryTransport) => void;
 };
@@ -110,27 +98,6 @@ export const makeFactoryWriteManagedPrompt = (
       ready: options?.ready ?? driveReady(bindingId),
       ...(options ?? {}),
     });
-
-/**
- * Kernel pulse transport through the destination drive. Returns the
- * concrete deliver closure it registers: callsites must route later
- * conditional re-registrations through this closure, never through the
- * global dispatcher — wrapping the dispatcher re-registers the wrapper
- * itself and recurses on every pulse.
- */
-export const factoryPulseTransport = (input: {
-  readonly pulse: FactoryDeliveryPulse;
-  readonly drive: FactoryDeliveryDrive;
-  readonly driveReady: (bindingId: string) => boolean;
-}): ManagedPulseDeliver => {
-  const deliver = makeManagedPulseDeliver(
-    (bindingId, text, options) =>
-      input.drive.writePrompt(bindingId, text, options).then(isPromptSubmitted),
-    input.driveReady,
-  );
-  input.pulse.setDeliver(deliver);
-  return deliver;
-};
 
 /** Board megaphone transport through the destination drive. */
 export const factoryBoardTransport = (input: {
@@ -191,7 +158,6 @@ export type ComposeFactoryDeliveryInput = {
   /** Types the supervisor's nudge mid-turn; see wireFactorySupervisor. */
   readonly interject: (bindingId: string, text: string) => Promise<boolean>;
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
-  readonly pulse: FactoryDeliveryPulse;
   readonly board: FactoryDeliveryBoard;
 };
 
@@ -201,7 +167,7 @@ export type ComposedFactoryDelivery = {
 };
 
 /**
- * Compose pulse, supervisor, and board delivery through one destination
+ * Compose supervisor and board delivery through one destination
  * drive. Returns the writer and a dispose closing every subscription this
  * call opened.
  */
@@ -210,11 +176,6 @@ export const composeFactoryDelivery = (
 ): ComposedFactoryDelivery => {
   const write = makeFactoryWriteManagedPrompt(input.drive, input.driveReady);
 
-  factoryPulseTransport({
-    pulse: input.pulse,
-    drive: input.drive,
-    driveReady: input.driveReady,
-  });
   input.board.configure(
     factoryBoardTransport({ kernel: input.kernel, write }),
   );

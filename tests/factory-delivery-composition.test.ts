@@ -189,7 +189,6 @@ describe("composeFactoryDelivery", () => {
       },
       interject: () => Promise.resolve(true),
       composerVerdict: () => "empty",
-      pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
     });
     return { drive, composed, seatListeners, noted, unsubs };

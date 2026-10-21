@@ -164,12 +164,7 @@ import {
 import { onSeatViewQuestions } from "./term/seat-views";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
-  scheduleManagedPulseReady,
-  setManagedPulseDeliver,
-} from "./term/managed-pulse-bridge";
-import {
   factoryBoardTransport,
-  factoryPulseTransport,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
@@ -1588,25 +1583,7 @@ export const registerJuntoIpc = (): void => {
 
       let productAutomationSuspended = false;
       let checkoutWatch: CheckoutWatchSupervisor | undefined;
-      const managedPulseReadyCancels = new Map<
-        string,
-        { readonly epoch: string; readonly cancel: () => void }
-      >();
       const acceptedClaudeRecoveryEpoch = new Map<string, string>();
-      const cancelManagedPulseReady = (
-        bindingId: string,
-        epoch?: string,
-      ): void => {
-        const pending = managedPulseReadyCancels.get(bindingId);
-        if (
-          pending === undefined ||
-          (epoch !== undefined && pending.epoch !== epoch)
-        ) {
-          return;
-        }
-        pending.cancel();
-        managedPulseReadyCancels.delete(bindingId);
-      };
       // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
       // the Settings toggle: a discovered key is not consent. Off, the plane is
       // not running at all; on with no key it publishes missing_key. The toggle
@@ -1652,9 +1629,6 @@ export const registerJuntoIpc = (): void => {
       coreMail.seats.onSuspend(() => {
         productAutomationSuspended = true;
         checkoutWatch?.stop();
-        setManagedPulseDeliver(undefined);
-        for (const pending of managedPulseReadyCancels.values()) pending.cancel();
-        managedPulseReadyCancels.clear();
       });
       // Operator multi-prompt (RTS): the operator's text is prompt mail from
       // the operator, delivered like any other mail — at once when the seat
@@ -1780,46 +1754,20 @@ export const registerJuntoIpc = (): void => {
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),
       });
-      const writeManagedPulse = factoryPulseTransport({
-        pulse: { setDeliver: setManagedPulseDeliver },
-        drive: managedDrive,
-        driveReady,
-      });
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
         if (payload.type === "output") return;
         if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
-        const epoch = payload.epoch;
         if (payload.status === "exited") {
-          cancelManagedPulseReady(bindingId, epoch);
           acceptedClaudeRecoveryEpoch.delete(bindingId);
           return;
         }
         if (payload.status !== "running") return;
-        cancelManagedPulseReady(bindingId);
         acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
         const settleMs = harnessRecordFor(harness)?.pty.postSpawnSettleMs;
-        if (settleMs !== undefined) {
-          managedDrive.markSpawned(bindingId, settleMs);
-          const cancel = scheduleManagedPulseReady(
-            { bindingId, epoch },
-            settleMs,
-            () => {
-              const pending = managedPulseReadyCancels.get(bindingId);
-              if (pending?.epoch !== epoch) return false;
-              managedPulseReadyCancels.delete(bindingId);
-              const live = termPlane.host.get(bindingId);
-              return (
-                !productAutomationSuspended &&
-                live?.epoch === epoch &&
-                live.status === "running"
-              );
-            },
-          );
-          managedPulseReadyCancels.set(bindingId, { epoch, cancel });
-        }
+        if (settleMs !== undefined) managedDrive.markSpawned(bindingId, settleMs);
       }, { replayCurrentSessions: true });
       // A seat's declared signals ride its own snapshot, so its needs carry them.
       wireSeatReports({
@@ -1866,13 +1814,6 @@ export const registerJuntoIpc = (): void => {
           }
         }
       });
-      // Kernel pulses for managed seats (not ACP).
-      setManagedPulseDeliver(
-        productAutomationSuspended
-          ? undefined
-          : (bindingId, text) => writeManagedPulse(bindingId, text),
-      );
-
       // Bulletin board operator megaphone reuses managed-prompt transport.
       const { configureBoardDelivery } = yield* Effect.promise(
         () => import("./work/board-delivery"),
