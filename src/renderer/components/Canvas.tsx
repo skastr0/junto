@@ -729,7 +729,8 @@ const makeAddActions = (
     if (!TASKS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = newTaskBoard(onTop(position));
-    addNode(node, { edit: false });
+    // An unnamed Tasks node is called by its id, so it opens its name field: the operator names it now.
+    addNode(node);
     state$.focusNodeId.set(node.id);
     dismiss();
   },
