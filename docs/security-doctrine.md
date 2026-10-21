@@ -326,8 +326,13 @@ or privileged app preload, and cannot become the trusted app renderer through
 navigation. Browser commands require a live local seat and the relevant edge
 to that page; access to one page does not grant other pages or profile deletion.
 While the operator holds a page, a seat sees the timing of the hold, never its
-content. A service worker never outlives a run: every profile starts with none,
-and one registered in an origin a seat touched is removed as it registers.
+content. Code a seat already ran in the page's document can keep running when
+the operator takes the page over, and can watch what the operator types there.
+The operator accepted this (21 October): the takeover shows a notice that a
+seat ran code on the page, and reloading the page ends that code. A service
+worker a seat could have left never outlives a crash: each origin a seat runs
+code in is recorded before the code runs, and its workers are removed at the
+next start, and one registered during a run is removed as it registers.
 The machines feature carries no browser control or browser credentials.
 
 The phone companion keeps its separate restricted forced-command keys, device
