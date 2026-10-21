@@ -6,42 +6,14 @@
  * and the assignee is the seat's node id, so there is no join to make.
  */
 import { batch, observable, observe } from "@legendapp/state";
-import { blocksAssignee, formatTaskNumber, isOpenTaskState, type OpenTaskState, type TaskId, type TaskNodeId, type TaskView } from "@shared/task-model";
+import { buildSeatTaskIndex, type SeatTask } from "@shared/seat-task-index";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 import { installIpcTasksSource, tasksSource } from "./tasks-source";
 
-/** What a seat card paints for the task its seat holds. */
-export type SeatTask = {
-  readonly taskId: TaskId;
-  /** `#42`, or `queued` while the create waits for its number. */
-  readonly label: string;
-  readonly title: string;
-  readonly state: OpenTaskState;
-  readonly node: TaskNodeId;
-  /** The seat waits on someone else: paused for input (`blocksAssignee`). */
-  readonly blocked: boolean;
-};
-
 export const seatTasks$ = observable<{ bySeat: Record<string, SeatTask | undefined> }>({ bySeat: {} });
 
-/** The open task of each assignee, by seat node id. The first wins if a store ever holds two. */
-export const buildSeatTaskIndex = (views: ReadonlyArray<TaskView>): Record<string, SeatTask> => {
-  const index: Record<string, SeatTask> = {};
-  for (const view of views) {
-    const { assignee, state } = view.current;
-    if (assignee === undefined || !isOpenTaskState(state) || index[assignee] !== undefined) continue;
-    index[assignee] = {
-      taskId: view.taskId,
-      label: view.number === undefined ? "queued" : formatTaskNumber(view.number),
-      title: view.title,
-      state,
-      node: view.current.node,
-      blocked: blocksAssignee(state),
-    };
-  }
-  return index;
-};
+export { buildSeatTaskIndex, type SeatTask };
 
 /** Equal for what a card paints: nothing else reaches the DOM. */
 const samePainted = (a: SeatTask | undefined, b: SeatTask | undefined): boolean =>
@@ -53,7 +25,8 @@ const samePainted = (a: SeatTask | undefined, b: SeatTask | undefined): boolean 
     a.title === b.title &&
     a.state === b.state &&
     a.node === b.node &&
-    a.blocked === b.blocked);
+    a.blocked === b.blocked &&
+    a.since === b.since);
 
 /** Write only the keys whose painted projection moved. */
 export const publishSeatTaskIndex = (next: Record<string, SeatTask>): void => {
