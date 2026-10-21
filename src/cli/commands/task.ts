@@ -66,7 +66,7 @@ const present = (fields: Record<string, Option.Option<unknown>>): Record<string,
 
 const DESCRIPTIONS = {
   list: "Tasks on every task node in this seat's reach, or on the one named by --node, newest change first.",
-  show: "One task with its layers: earlier nodes show their handoff note, stamps and cited refs.",
+  show: "One task with its layers: earlier nodes show their assignee, reviewers and stamps.",
   create: "Create a task in backlog on the task node in reach, or the one --node names.",
   edit: "Change a task's title or body.",
   assign: "Assign a task to a seat in its node's reach, or to this seat. The seat is mailed a notice in the task's thread.",
@@ -78,7 +78,7 @@ const DESCRIPTIONS = {
   check: "Report the checks you ran for this move, each with its exit code: Junto never runs one. task rules lists them with their side, command and status; --outgoing reports this node's, --incoming the next node's, or --results carries them as JSON with each output's tail.",
   cancel: "Cancel a task that is not done.",
   archive: "Archive a done or canceled task.",
-  depend: "Make a task wait on another: it cannot finish until --on is done.",
+  depend: "Record that a task depends on --on; a dependency that would close a cycle is refused. Finishing does not wait on it yet.",
   undepend: "Drop a dependency.",
   "reviewer-add": "Name a reviewer: a seat in the node's reach, operator, or this seat.",
   "reviewer-remove": "Drop a reviewer.",
