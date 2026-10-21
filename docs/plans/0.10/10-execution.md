@@ -186,6 +186,7 @@ everyone else reports by mail and on the needs-you feed.
 | remote R4 browser out | 255613ef8, 2614f3578, 658827b65, c12fe5cf7, 29bb0747a, 8a1d5e3ce, 4947ce9f3, 8f20c2f0c | done |
 | remote R3 canvas copy | 77f7a7134, f65727f16, fe9d7f375, a139bde94, 101f36c40, 1e632c2ec, e997e0706; stubs for file, link, git, page | done |
 | remote R2 ruler live | 49d0fed36, 1085f6dca; tasks c97b66587; artifacts and pane refresh remote-send; at_risk overlay remote-seats | live for tasks |
+| R2 two-machine artifacts milestone | remote-verify on da42e23b4: 15 of 18; lost update (queued edit after a stale refusal applies; after chain unfilled), remote-work fixing in ResourceSubmit.queue, remote-security reviews | slipping, rerun pending |
 | Pinning deletion | product-shell b7aaeeb54, 34dd02699, 3b5841794 (flag out) | done |
 | Anchor lock, target resolution tests | product-verify f30bdc9cd, bcd7a9e40 | landed |
 | Long mail text over 64 KiB | product-feed 5a299a18e, bound in `mail-text-bound.ts` (48 KiB text); thread composer with product-keyboard; envelope bound confirming with remote-send | landed, confirming |
