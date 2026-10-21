@@ -4,8 +4,12 @@
 
 Draft for 0.10, written from landed commits and kept current by product-releases.
 
-- Tasks, Artifacts and the Browser ship on in 0.10. Earlier builds kept them
-  off.
+Known limits in 0.10: opening a very large file preview reads the whole file
+into memory, with no size cap yet. File artifacts can be made from the CLI
+only.
+
+- Tasks, Artifacts and the Browser are on in 0.10. Earlier builds kept them
+  off. They are the headline of this release.
 - Plan work on Tasks. A task has a number, a state, an assignee and reviewers,
   and reviewers stamp it. A task can depend on tasks on any board in reach.
   The operator can stamp too. A task cannot finish until what it depends on
@@ -33,6 +37,8 @@ Draft for 0.10, written from landed commits and kept current by product-releases
 - See a blocked seat on its ring. The mark no longer sits on the wire.
 - Start a session knowing what changed. `junto onboard` lists what arrived
   since the last session, and the signal list pages its closed history.
+- Browse in Junto with tabs. Take over a page by hand and hand it back to the
+  seat, and comment on a page by drawing a box on it.
 - Pass `--tab` to `junto browser`, which now answers in the standard envelope.
 - Send mail text over 64 KiB as an attached file. It is no longer sent inline.
 - Lose a command to another machine cleanly. A write that loses to a newer one
@@ -45,8 +51,9 @@ Draft for 0.10, written from landed commits and kept current by product-releases
   in the home folder, from Add item, the CLI or a remote machine, because the
   harness would meet its trust prompt for the whole account. Terminal seats may
   still open there. No existing seat on the live canvas used home.
-- Upgrade a canvas that used old published artifacts. They are dropped, and
-  Artifacts replaces them.
+- Find older published artifacts gone from view. Junto and the CLI no longer
+  show them, and Artifacts replaces them. Their rows stay in the database
+  until a later release.
 - Remove pinning. The pinned dock and every pin control are gone.
 - Remove the Requests node and the bulletin board. Escalate from a seat with
   `junto escalate` as before.
