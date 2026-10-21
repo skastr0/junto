@@ -128,6 +128,14 @@ everyone else reports by mail and on the needs-you feed.
 | Contracts | per table | started |
 | canvas C1 to C6 | canvas | started |
 | remote R1 to R6 | remote | started |
-| cli L1 to L6 | cli | started |
+| cli L1 contracts | cli-protocol, review cli-lead | started |
+| cli L2 `junto task` | cli-performance, review cli-identity | started |
+| cli L3 `junto artifact` | cli-identity, review cli-performance | started |
+| cli L4 `junto automation` | cli-external, review cli-overseer | started |
+| cli L5 `junto browser` port | cli-overseer, review cli-external | started |
+| cli L6 onboard output | cli-skill, review cli-protocol | started |
+| 02 queued writes design | canvas, remote | written (da44a4919), remote final pass |
+| Verification split | product-automation: deletions, reach, queued writes; product-verify: cli and product surfaces | started |
+| Flag removal | product-releases, after each deletion's last consumer | waiting on first deletion |
 | pty P1 to P5 | pty | started |
 | product, all seats | product | started |
