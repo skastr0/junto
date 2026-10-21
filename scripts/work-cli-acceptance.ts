@@ -461,7 +461,9 @@ export const runWorkCliAcceptance = async () => {
   });
   // The 0.10 stores the resource verbs write through, each ruling recorded
   // through the work store, as the running core composes them (core-product.ts).
-  const recorded = Layer.provide(RulingRecorderLive, WorkRepositoryLive);
+  // The recorder reads this machine and the model for the notices a ruling
+  // owes (ruling-recorder.ts), so both sit below it: without them it writes none.
+  const recorded = Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive));
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
@@ -476,17 +478,19 @@ export const runWorkCliAcceptance = async () => {
       Layer.provide(TaskRepositoryLive, recorded),
       Layer.provide(ArtifactRepositoryLive, Layer.merge(recorded, contentLive)),
     ),
-    Layer.mergeAll(
-      makeStateEngineLive(join(root, "state", "junto.db")),
-      makeInstallOpsLive(join(root, "state", "install-ops.db")),
+    // The model under the stores, as core-product.ts has it.
+    Layer.provideMerge(
+      Layer.provide(ModelLive, WorkModelDependentsLive),
+      Layer.mergeAll(
+        makeStateEngineLive(join(root, "state", "junto.db")),
+        makeInstallOpsLive(join(root, "state", "install-ops.db")),
+      ),
     ),
   );
   // This machine edits the acceptance canvas and links no peer: every write is ruled here.
-  // The ruler reads the model, so it goes over the canvases (core-product.ts).
-  const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositoriesLive);
   const ruledLive = Layer.provideMerge(
     Layer.mergeAll(makeResourceSubmitLayer(() => false), ResourceRulerLive),
-    canvasesLive,
+    repositoriesLive,
   );
   const workLive = Layer.provideMerge(
     WorkLive,
