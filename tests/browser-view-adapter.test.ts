@@ -116,7 +116,9 @@ const electron = vi.hoisted(() => {
       for (const listener of this.listeners.get(event) ?? []) listener(...args);
     }
 
-    loadURL(_url: string): Promise<void> {
+    readonly loaded: string[] = [];
+    loadURL(url: string): Promise<void> {
+      this.loaded.push(url);
       return this.loadError === undefined
         ? Promise.resolve()
         : Promise.reject(this.loadError);
@@ -703,18 +705,84 @@ describe("electron browser view generation seam", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(webContents.stopCalls).toBe(1);
     expect(starts.map((start) => start.url)).not.toContain("https://elsewhere.example.net/back");
-    // Only a start that names an initiator frame is the page's. Electron
-    // leaves the field undefined for the browser's own (address bar, back,
-    // reload): seen in the app, 2026-10-21.
+    // Electron's initiator never decides it: with no start main recorded
+    // for the operator, every start is the page's, null, missing or named.
     byPage.length = 0;
     webContents.emit("did-start-navigation", { ...navigation("https://example.com/again"), initiator: null });
     webContents.emit("did-start-navigation", navigation("https://example.com/browser-started"));
     webContents.emit("did-start-navigation", { ...navigation("https://example.com/page-started"), initiator: {} });
-    expect(byPage).toEqual([false, false, true]);
+    expect(byPage).toEqual([true, true, true]);
     // A same-document step is not a new top-level document.
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
     await new Promise((resolve) => setImmediate(resolve));
     expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("refuses a deleted frame's start (no initiator) in a touched origin", async () => {
+    const { handle, webContents, byPage, guard } = await setup();
+    guard.admits = (url, fromPage) => !fromPage || new URL(url).origin === "https://example.com";
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    byPage.length = 0;
+    webContents.emit("did-start-navigation", { ...navigation("https://elsewhere.example.net/"), initiator: null });
+    expect(byPage).toEqual([true]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("admits the operator's own goto and history step in a touched origin through the start main recorded", async () => {
+    const { handle, webContents, byPage, guard, starts } = await setup();
+    guard.admits = (url, fromPage) => !fromPage || new URL(url).origin === "https://example.com";
+    handle.loadUrl("https://elsewhere.example.net/", "session-2", true);
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    webContents.navigationHistory.back = true;
+    handle.traverse!("back", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    // Each record is used once: the next start to the same place is the page's.
+    webContents.emit("did-start-navigation", { ...navigation("https://elsewhere.example.net/"), initiator: null });
+    expect(byPage).toEqual([false, false, true]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(0 + 1);
+    expect(starts.map((start) => start.url)).toEqual(["https://elsewhere.example.net/", "https://example.com/start"]);
+    // A seat's goto records nothing.
+    byPage.length = 0;
+    handle.loadUrl("https://elsewhere.example.net/next", "session-3");
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/next"));
+    expect(byPage).toEqual([true]);
+  });
+
+  it("asks will-frame-navigate as the page's, and a redirect as whoever began the navigation", async () => {
+    const { handle, webContents, byPage } = await setup();
+    const frame = { ...navigation("https://example.com/a"), initiator: null, preventDefault: vi.fn() };
+    webContents.emit("will-frame-navigate", frame);
+    handle.loadUrl("https://example.com/b", "session-1", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/b"));
+    webContents.emit("will-redirect", { ...navigation("https://example.com/c"), preventDefault: vi.fn() });
+    webContents.emit("did-start-navigation", navigation("https://example.com/d"));
+    webContents.emit("will-redirect", { ...navigation("https://example.com/e"), preventDefault: vi.fn() });
+    expect(byPage).toEqual([true, false, false, true, true]);
+  });
+
+  it("rolls back a refused start that commits anyway, and says so on the page", async () => {
+    const { handle, webContents, guard, blocks } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    webContents.emit("did-navigate", {}, "https://example.com/start");
+    guard.admits = (url) => new URL(url).origin === "https://example.com";
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    // The stop has not landed yet and the refused document commits.
+    webContents.emit("did-navigate", {}, "https://elsewhere.example.net/");
+    expect(blocks).toEqual(["origin_mismatch"]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.loaded.at(-1)).toBe("https://example.com/start");
+    // The way back is main's own start, so the guard lets it through.
+    const asked: boolean[] = [];
+    guard.admits = (_url, fromPage) => {
+      asked.push(fromPage ?? true);
+      return true;
+    };
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    expect(asked).toEqual([false]);
   });
 
   it("hears its profile's service worker registrations while it lives, and clears one origin's", async () => {

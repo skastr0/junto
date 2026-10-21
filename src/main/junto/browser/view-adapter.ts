@@ -52,6 +52,12 @@ interface AttachedElectronView {
   readonly detachFromHost: () => void;
 }
 
+
+/** How long a recorded operator start waits for its navigation to begin. */
+const OPERATOR_START_MS = 5_000;
+/** Refused urls kept for the commit backstop; the oldest goes first. */
+const REFUSED_STARTS_MAX = 64;
+
 export interface ElectronBrowserViewAttachmentTarget extends BrowserCompositionViewBinder {
   readonly adapter: BrowserViewAdapter;
 }
@@ -438,6 +444,36 @@ const makeElectronViewAdapter = (
 
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
+  // Main names the operator's own navigations; Electron's initiator does not
+  // (remote-security): a page can start one with none. Set just before the
+  // operator's loadURL or history step, consumed by the first cross-document
+  // start that matches it, and gone after OPERATOR_START_MS unmatched. Any
+  // other start is the page's.
+  let operatorStart: { readonly url: string } | { readonly step: "back" | "forward" | "reload" } | undefined;
+  let operatorStartTimer: ReturnType<typeof setTimeout> | undefined;
+  const recordOperatorStart = (start: NonNullable<typeof operatorStart>): void => {
+    operatorStart = start;
+    if (operatorStartTimer !== undefined) clearTimeout(operatorStartTimer);
+    operatorStartTimer = setTimeout(() => {
+      operatorStart = undefined;
+      operatorStartTimer = undefined;
+    }, OPERATOR_START_MS);
+  };
+  const takeOperatorStart = (url: string): boolean => {
+    const start = operatorStart;
+    if (start === undefined || ("url" in start && start.url !== url)) return false;
+    operatorStart = undefined;
+    if (operatorStartTimer !== undefined) clearTimeout(operatorStartTimer);
+    operatorStartTimer = undefined;
+    return true;
+  };
+  // Who began the cross-document navigation in flight: its redirects are theirs.
+  let inFlightByPage = true;
+  // The commit backstop: a refused start can still commit if its stop lands
+  // late (the stop waits a turn). Each refused url is kept until a start to
+  // it is admitted; a commit of one is rolled back to the last admitted url.
+  const refusedStarts = new Set<string>();
+  let lastAdmittedUrl: string | undefined;
   let currentSessionId: string | undefined;
   let releaseWebPolicy: (() => void) | undefined;
   let initializationFailure: Error | undefined;
@@ -456,7 +492,7 @@ const makeElectronViewAdapter = (
         },
       },
       testOnlyGrant,
-      (url, byPage) => events.admitsTopLevel(url, byPage),
+      (url, hook) => events.admitsTopLevel(url, hook === "frame" || inFlightByPage),
     );
   } catch (error) {
     // Return a teardown-capable failed handle instead of throwing after the
@@ -486,12 +522,18 @@ const makeElectronViewAdapter = (
     // browser made (address bar, back, reload) has none, and Electron leaves
     // the field undefined rather than null. The stop waits for this callback
     // to return: stopping a navigation inside its own start aborts main.
-    const byPage = details.initiator !== null && details.initiator !== undefined;
-    if (!details.isSameDocument && !events.admitsTopLevel(normalizedUrl, byPage)) {
-      setImmediate(() => {
-        if (!view.webContents.isDestroyed()) view.webContents.stop();
-      });
-      return;
+    if (!details.isSameDocument) {
+      const byPage = !takeOperatorStart(normalizedUrl);
+      if (!events.admitsTopLevel(normalizedUrl, byPage)) {
+        if (refusedStarts.size >= REFUSED_STARTS_MAX) refusedStarts.delete(refusedStarts.values().next().value!);
+        refusedStarts.add(normalizedUrl);
+        setImmediate(() => {
+          if (!view.webContents.isDestroyed()) view.webContents.stop();
+        });
+        return;
+      }
+      refusedStarts.delete(normalizedUrl);
+      inFlightByPage = byPage;
     }
     const previousNavigation = activeNavigation;
     const expected = expectedNavigation;
@@ -522,6 +564,23 @@ const makeElectronViewAdapter = (
   // did-navigate is the main frame's own cross-document commit.
   view.webContents.on("did-navigate", (_event, url) => {
     events.onDocumentCommitted(normalizeUrl(url));
+    const committed = normalizeUrl(url);
+    if (refusedStarts.has(committed)) {
+      // Committed though refused: leave it for the last admitted page, as
+      // main's own start so the guard lets it through, and say so.
+      refusedStarts.delete(committed);
+      activeNavigation = undefined;
+      events.onNavigationBlocked("origin_mismatch");
+      setImmediate(() => {
+        if (view.webContents.isDestroyed()) return;
+        view.webContents.stop();
+        const back = lastAdmittedUrl ?? "about:blank";
+        recordOperatorStart({ url: normalizeUrl(back) });
+        view.webContents.loadURL(back).catch(() => undefined);
+      });
+      return;
+    }
+    lastAdmittedUrl = committed;
     if (activeNavigation === undefined) return;
     const normalizedUrl = normalizeUrl(url);
     activeNavigation = { ...activeNavigation, url: normalizedUrl };
@@ -623,10 +682,11 @@ const makeElectronViewAdapter = (
   });
 
   const handle: BrowserViewHandle = {
-    loadUrl: (url, expectedSessionId) => {
+    loadUrl: (url, expectedSessionId, byOperator) => {
       if (initializationFailure !== undefined) throw initializationFailure;
       const pending = { url: normalizeUrl(url), sessionId: expectedSessionId };
       expectedNavigation = pending;
+      if (byOperator === true) recordOperatorStart({ url: pending.url });
 
       const handleRejection = (error: unknown): void => {
         if (isAbortedLoadError(error)) {
@@ -706,9 +766,10 @@ const makeElectronViewAdapter = (
         : { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
       return new Uint8Array(image.toPNG());
     },
-    traverse: (step) => {
+    traverse: (step, byOperator) => {
       if (initializationFailure !== undefined) throw initializationFailure;
       if (view.webContents.isDestroyed()) return;
+      if (byOperator === true && step !== "stop") recordOperatorStart({ step });
       switch (step) {
         case "back":
           view.webContents.navigationHistory.goBack();

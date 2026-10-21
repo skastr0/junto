@@ -78,8 +78,12 @@ export const isAllowedByBrowserTestOnlyExactOriginGrant = (
   }
 };
 
-/** `byPage`: a frame started the navigation; false when the browser itself did. */
-export type BrowserTopLevelNavigationGuard = (url: string, byPage: boolean) => boolean;
+/**
+ * Asked before a main-frame navigation goes on. `frame` is will-frame-navigate,
+ * which Electron emits only for a navigation a frame started; `redirect` is a
+ * redirect of whichever navigation is in flight, so its caller knows who began it.
+ */
+export type BrowserTopLevelNavigationGuard = (url: string, hook: "frame" | "redirect") => boolean;
 export type BrowserTopLevelNavigationRejection =
   | BrowserTargetRejection
   | "origin_mismatch";
@@ -308,11 +312,10 @@ export const installBrowserWebPolicy = (
   hardenBrowserPartition(webContents.session, testOnlyGrant);
   managedBrowserContents.add(webContents);
   const prevent = (event: Event): void => event.preventDefault();
-  const topLevelNavigationAllowed = (url: string, initiator: unknown): boolean => {
+  const topLevelNavigationAllowed = (url: string, hook: "frame" | "redirect"): boolean => {
     if (topLevelNavigationGuard === undefined) return true;
     try {
-      // Only an explicit null means the browser started it; unknown is the page's.
-      return topLevelNavigationGuard(url, initiator !== null);
+      return topLevelNavigationGuard(url, hook);
     } catch {
       return false;
     }
@@ -322,7 +325,7 @@ export const installBrowserWebPolicy = (
   ): void => {
     if (
       event.isMainFrame &&
-      !topLevelNavigationAllowed(event.url, event.initiator)
+      !topLevelNavigationAllowed(event.url, "frame")
     ) {
       event.preventDefault();
       events.onBlockedTopLevelNavigation?.("origin_mismatch");
@@ -344,7 +347,7 @@ export const installBrowserWebPolicy = (
   ): void => {
     if (
       event.isMainFrame &&
-      !topLevelNavigationAllowed(event.url, event.initiator)
+      !topLevelNavigationAllowed(event.url, "redirect")
     ) {
       event.preventDefault();
       events.onBlockedTopLevelNavigation?.("origin_mismatch");

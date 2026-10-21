@@ -67,7 +67,8 @@ import {
  */
 export interface BrowserViewHandle {
   /** Resolves only when Electron's load request itself settles. */
-  loadUrl(url: string, expectedSessionId: string): Promise<void>;
+  /** `byOperator`: the operator's own navigation, which a touched origin lets go anywhere. */
+  loadUrl(url: string, expectedSessionId: string, byOperator?: boolean): Promise<void>;
   attach(bounds: BrowserSurfaceBounds): void;
   setBounds(bounds: BrowserSurfaceBounds): void;
   detach(): void;
@@ -83,7 +84,7 @@ export interface BrowserViewHandle {
    * Steps the view's own history or reloads it. The navigation this starts
    * arrives through `onNavigationStart` like any the page starts itself.
    */
-  traverse?(step: BrowserTraverseStep): void;
+  traverse?(step: BrowserTraverseStep, byOperator?: boolean): void;
   history?(): BrowserHistory;
   /** The page's viewport and scroll as its renderer reports them; untrusted. */
   readViewport?(): Promise<unknown>;
@@ -2483,7 +2484,7 @@ export class BrowserSessionService {
       }
       entry.navigationInFlight = entry.sessionId;
       this.reduceCurrent(entry, { type: "open" });
-      const loading = entry.view.loadUrl(startUrl, entry.sessionId);
+      const loading = entry.view.loadUrl(startUrl, entry.sessionId, owner === BROWSER_UI_SESSION_OWNER);
       this.trackViewLoad("open", loading);
       if (owner === BROWSER_UI_SESSION_OWNER) {
         this.trackUiNavigation("open", entry.sessionId);
@@ -2594,7 +2595,7 @@ export class BrowserSessionService {
         entry.currentUrl = nextExactUrl;
         entry.currentOrigin = nextOrigin;
         entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
-        const loading = entry.view.loadUrl(url, entry.sessionId);
+        const loading = entry.view.loadUrl(url, entry.sessionId, owner === BROWSER_UI_SESSION_OWNER);
         this.trackViewLoad("goto", loading);
         this.releaseOperation(entry, operation);
         return { ok: true, data: this.info(entry) };
@@ -2613,7 +2614,7 @@ export class BrowserSessionService {
     entry.navigationInFlight = rotated.data;
     try {
       this.reduceCurrent(entry, { type: "reload" });
-      const loading = entry.view.loadUrl(url, entry.sessionId);
+      const loading = entry.view.loadUrl(url, entry.sessionId, owner === BROWSER_UI_SESSION_OWNER);
       this.trackViewLoad("goto", loading);
       if (!this.isCurrent(entry)) return err("not_found", `no session for ${sessionId}`);
       return { ok: true, data: this.info(entry) };
@@ -2682,7 +2683,7 @@ export class BrowserSessionService {
         }
       }
       entry.lastActiveAt = this.now();
-      view.traverse(step);
+      view.traverse(step, owner === BROWSER_UI_SESSION_OWNER);
       entry.stepOwner = owner;
       entry.stepPending = setTimeout(() => {
         entry.stepPending = undefined;

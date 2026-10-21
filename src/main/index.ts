@@ -220,6 +220,16 @@ app.commandLine.removeSwitch("proxy-auto-detect");
 // client; the switch does. Operator decision, 2026-10-17.
 app.commandLine.appendSwitch("disable-renderer-accessibility");
 
+// No back-forward cache: a restore commits with no network round trip, the
+// fastest path past a refused start's stop (remote-security). Merged with any
+// features already disabled.
+{
+  const disabled = app.commandLine.getSwitchValue("disable-features").split(",").filter((name) => name !== "");
+  if (!disabled.includes("BackForwardCache")) {
+    app.commandLine.appendSwitch("disable-features", [...disabled, "BackForwardCache"].join(","));
+  }
+}
+
 // Managed browser partitions use an app-owned CONNECT proxy. Do not install
 // process-wide proxy-server / no-proxy-server switches: they restamp Session
 // prefs on NetworkContext create and would either force DIRECT or inherit a
