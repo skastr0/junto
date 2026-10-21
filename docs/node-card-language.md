@@ -19,16 +19,17 @@ in a comment, a list and on the canvas.
 - Glyph 15px, in the kind's hue (the hue is a mark, never a word). In bright,
   the amber and cyan glyphs (Automations, Link) use `--color-amber-fg` and
   `--color-cyan-fg`; the mark forms are under 3:1 there.
-- Name, mono 13px, weight 600, `--color-ink`.
-- Count, mono 11px, weight 600, `--color-dim`, tabular. Tasks: every task on
+- Name, mono `--text-body-lg` (12px; there is no 13px token), weight 600,
+  `--color-ink`.
+- Count, mono `--text-body` (11px), weight 600, `--color-dim`, tabular. Tasks: every task on
   the board, backlog included. Artifacts: live artifacts. Automations: all.
 - Hover: border `--color-stroke-hi`. Selected: border `--color-main` plus a
   1px `--color-main` box-shadow ring (no blur). Focus: 2px `--color-cyan`
   outline, offset 3px, in screen pixels, following the chip's pill radius.
 
 **Status tag.** Only when the status is notable, 8px after the chip: a 22px pill,
-1.5px border in the status tone, text 10px weight 700 uppercase with `.04em`
-tracking in the tone's `-fg` token, and a shape mark before the word.
+1.5px border in the status tone, text `--text-label` (10px) weight 700 uppercase with
+`--tracking-soft` in the tone's `-fg` token, and a shape mark before the word.
 
 | Status | Word | Shape | Tone |
 |---|---|---|---|
@@ -43,12 +44,12 @@ alone.
 **Spine.** Starts 15px in from the chip's left edge, 6px below it: a 1.5px
 `--color-stroke-hi` left rule. A blocked or needs-you node's spine is 2px in
 its tone. Each row hangs from it by an 11px tick, padding-left 16px, gap 7px,
-mono 11px `--color-ink-2`, glyph 12px `--color-dim`. The first row is the
-meta line, 10.5px `--color-dim`. At most four rows, then a dim `+N more` row.
+mono `--text-body` (11px) `--color-ink-2`, glyph 12px `--color-dim`. The first
+row is the meta line, `--text-label` (10px) `--color-dim`. At most four rows, then a dim `+N more` row.
 A seat mentioned in a row is a ResourceChip with its portrait.
 
 **Leaf nodes** (page, terminal, git, file, link, peer, stub) are a chip alone,
-with one dim 10.5px line after it, and no spine.
+with one dim `--text-label` line under it, indented 15px, and no spine.
 
 **Note and label have no chip.** A note is typeset text: a 3px
 `--color-amber` left rule, 12px left padding, title 14px weight 600, body 11px
@@ -145,8 +146,9 @@ Words use the `-fg` colour tokens; marks use the mark forms.
 
 - Flat paint only: borders, outlines, one 1px box-shadow ring on select. No
   blur shadow, no gradient. This removes today's 28px shadow.
-- Motion: only the working arc may turn, on the compositor
-  (transform and opacity), one layer, as a seat ring does. Never slowed.
+- Motion: the Working arc is a static open-arc mark in 0.10; it does not turn.
+  If a kind ever animates it, only on the compositor (transform and opacity),
+  one layer, never slowed.
 - Tiers hide by `visibility`, so size never changes. Memo by CARD_FACTS; read
   each field alone. The status word reads one field per node.
 - Keep `::before` and `::after` of `.react-flow__node` free (reach preview).
