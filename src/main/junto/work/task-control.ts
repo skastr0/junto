@@ -34,7 +34,7 @@ import {
   type TaskState,
   type TaskView,
 } from "@shared/task-model";
-import type { ThreadSubject } from "@shared/thread-subject";
+import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
 import { MachineRepository } from "../machines/repository";
@@ -61,14 +61,11 @@ export type TaskPorts = {
   readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskSubmitOutcome, WorkErrorBody>;
   /** Mail the ruling owes: assignment notices, stamp requests, defects, sent on (pty P4). */
   readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, WorkErrorBody>;
-  /** Mail in the task's thread (03). */
-  readonly comment: (input: {
-    readonly canvasName: string;
-    readonly actor: TaskCaller["actor"];
-    readonly opId: OpId;
-    readonly subject: Extract<ThreadSubject, { readonly kind: "task" }>;
-    readonly text: string;
-  }) => Effect.Effect<{ readonly messageId: string }, WorkErrorBody>;
+  /** A comment in the task's thread: pty's one write path, `postSubjectComment` (03). */
+  readonly comment: (
+    canvasName: string,
+    input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
+  ) => Effect.Effect<SubjectCommented, WorkErrorBody>;
 };
 
 export type TaskCaller = {
@@ -406,14 +403,13 @@ export const handleTaskOp = (
       case "task.comment": {
         const input = yield* decode(TASK_ARGS[op], args);
         const task = yield* findTask(caller, ports, input.task);
-        const sent = yield* ports.comment({
-          canvasName: caller.canvasName,
-          actor: caller.actor,
-          opId: input.opId,
+        const sent = yield* ports.comment(caller.canvasName, {
           subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
           text: input.text,
+          actor: caller.actor,
+          opId: input.opId,
         });
-        return { disposition: "applied", opId: input.opId, taskId: task.taskId, messageId: sent.messageId };
+        return { disposition: "applied", opId: input.opId, taskId: task.taskId, threadId: sent.threadId, messageId: sent.messageId };
       }
       case "task.create": {
         const input = yield* decode(TASK_ARGS[op], args);

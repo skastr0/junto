@@ -26,6 +26,7 @@ import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import type { ResourceCommand } from "../src/shared/resource-command";
+import type { MailMessageId } from "../src/shared/crew";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId, OpId, TaskNumber } from "../src/shared/work-ids";
 import {
@@ -166,6 +167,8 @@ const applied = (overrides: Partial<TaskRecord> = {}): TaskSubmitOutcome => ({
   replay: false,
 });
 
+const commented: Array<Parameters<TaskPorts["comment"]>[1]> = [];
+
 const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<TaskCommand>> = []): TaskPorts => ({
   nodes: (c) => [...c.nodes.values()].filter((node) => node.kind === "task"),
   list: (_, query) => {
@@ -179,7 +182,10 @@ const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<
     return Effect.succeed(outcome);
   },
   deliver: () => Effect.void,
-  comment: () => Effect.succeed({ messageId: "m1" }),
+  comment: (_, input) => {
+    commented.push(input);
+    return Effect.succeed({ threadId: "t1" as MailMessageId, messageId: "m1" as MailMessageId, notified: [] });
+  },
 });
 
 const run = (op: TaskControlOp, args: unknown, ports: TaskPorts) => Effect.runPromiseExit(handleTaskOp(op, args, caller, ports));
@@ -274,8 +280,10 @@ describe("task verbs", () => {
   });
 
   it("comments in the task's thread", async () => {
+    commented.length = 0;
     const exit = await run("task.comment", { opId: OP, task: "#42", text: "Looks right" }, portsWith(applied()));
-    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, messageId: "m1" }));
+    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, threadId: "t1", messageId: "m1" }));
+    expect(commented).toEqual([{ subject: { kind: "task", nodeId: "tasks-1", taskId: ID }, text: "Looks right", actor: caller.actor, opId: OP }]);
   });
 
   it("lists the task nodes in reach and says when there are more", async () => {
