@@ -25,6 +25,27 @@ const ARTIFACT_GLYPH: Readonly<Record<ArtifactType, LucideIcon>> = {
   file: File,
 };
 
+const glyphFor = (kind: ResourceKind, artifactType?: ArtifactType): LucideIcon =>
+  kind === "artifact" && artifactType ? ARTIFACT_GLYPH[artifactType] : GLYPH[RESOURCE_KIND_VISUAL[kind].glyph];
+
+/**
+ * ResourceGlyphMark: the kind's glyph in the kind's hue, for a place that
+ * names a resource without a whole chip (a list row, an option). The same
+ * glyph table as ResourceChip, so a kind never wears two marks.
+ */
+export function ResourceGlyphMark({
+  kind,
+  artifactType,
+  size = 11,
+}: {
+  readonly kind: ResourceKind;
+  readonly artifactType?: ArtifactType;
+  readonly size?: number;
+}) {
+  const Glyph = glyphFor(kind, artifactType);
+  return <Glyph size={size} aria-hidden style={{ color: markColor(RESOURCE_KIND_VISUAL[kind].tone), flex: "none" }} />;
+}
+
 /**
  * ResourceChip: a mention, drawn. One chip for a seat, a task, an artifact or
  * a page, wherever one is named: a composer, a comment, a feed attachment, an
@@ -70,7 +91,7 @@ export function ResourceChip({
   readonly onOpen?: () => void;
 } & Omit<ComponentPropsWithRef<"span">, "children" | "className" | "onClick" | "role">) {
   const visual = RESOURCE_KIND_VISUAL[kind];
-  const Glyph = kind === "artifact" && artifactType ? ARTIFACT_GLYPH[artifactType] : GLYPH[visual.glyph];
+  const Glyph = glyphFor(kind, artifactType);
   const noun = kind === "artifact" && artifactType ? ARTIFACT_TYPE_NOUN[artifactType] : visual.noun;
   const state = missing ? ", unavailable" : pending ? ", queued" : "";
   const content = (
