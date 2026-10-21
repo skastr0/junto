@@ -333,40 +333,40 @@ describe("junto offboard on a seat whose session id is not known yet", () => {
 });
 
 describe("junto onboard past sessions", () => {
-  it("lists past sessions newest first, latest notes inline, framed as history", async () => {
+  it("shows the last session with its notes and counts the earlier ones, framed as history", async () => {
     await op("offboard", { notes: "First session: set up the repo" });
     await writeSession("s2");
     await op("offboard", { notes: "Second session: wired the parser" });
     await writeSession("s3");
-    await writeSession("s4");
 
     const onboard = await op("onboard", {});
     expect(onboard.ok).toBe(true);
     const sessions = onboard.data.sessions;
     expect(sessions.note).toBe(PAST_SESSIONS_FRAMING);
-    expect(sessions.current).toMatchObject({ session_id: "s4", offboarded: false });
+    expect(sessions.current).toMatchObject({ session_id: "s3", offboarded: false });
     expect(sessions.current).not.toHaveProperty("notes_path");
-    expect(sessions.past.map((s: { session_id: string }) => s.session_id)).toEqual(["s3", "s2", "s1"]);
-    const [s3, s2, s1] = sessions.past;
-    // A session that never offboarded has no notes.
-    expect(s3).toMatchObject({ gist: null, ended_because: "replaced" });
-    expect(s3).not.toHaveProperty("notes");
-    expect(s2).toMatchObject({
+    expect(sessions).not.toHaveProperty("past");
+    expect(sessions.last).toMatchObject({
+      session_id: "s2",
       gist: "Second session: wired the parser",
       notes: "Second session: wired the parser",
     });
-    expect(s1.notes).toBe("First session: set up the repo");
+    expect(sessions.last).not.toHaveProperty("closed");
+    expect(sessions.earlier).toBe(1);
+    // The earlier session's notes are not carried.
+    expect(JSON.stringify(onboard.data)).not.toContain("First session: set up the repo");
 
-    // The inline count is configurable; older sessions keep their gist.
-    const one = await op("onboard", { past_notes: 1 });
-    const [, t2, t1] = one.data.sessions.past;
-    expect(t2.notes).toBe("Second session: wired the parser");
-    expect(t1).not.toHaveProperty("notes");
-    expect(t1).toMatchObject({ gist: "First session: set up the repo" });
-    expect(t1).not.toHaveProperty("notes_path");
+    // Onboard takes no input now.
+    const asked = await op("onboard", { past_notes: 1 });
+    expect(asked).toMatchObject({ ok: false, error: { type: "InputError" } });
+  });
 
-    const tooMany = await op("onboard", { past_notes: 99 });
-    expect(tooMany).toMatchObject({ ok: false, error: { type: "InputError" } });
+  it("a last session that left no notes says who closed it instead of an empty gist", async () => {
+    await writeSession("s2");
+    const replaced = (await op("onboard", {})).data.sessions.last;
+    expect(replaced).toMatchObject({ session_id: "s1", ended_because: "replaced", closed: "ended without notes" });
+    expect(replaced).not.toHaveProperty("gist");
+    expect(replaced).not.toHaveProperty("notes");
   });
 });
 
@@ -389,12 +389,12 @@ describe("junto onboard after an offboard that continues", () => {
     await writeSession("s2");
   };
 
-  it("hands the next session everything in one place, first", async () => {
+  it("hands the next session everything in one place, last", async () => {
     await handOver();
     const onboard = await op("onboard", {});
     expect(onboard.ok).toBe(true);
-    // Read first: the handoff leads the answer.
-    expect(Object.keys(onboard.data)[0]).toBe("handoff");
+    // Onboard reads most stable first, so the note the last session left ends it.
+    expect(Object.keys(onboard.data).at(-1)).toBe("handoff");
     const { handoff } = onboard.data;
     expect(handoff.note).toBe(CONTINUATION_FRAMING);
     // What to do next comes before what happened.
@@ -414,7 +414,7 @@ describe("junto onboard after an offboard that continues", () => {
   it("does not print the same notes twice", async () => {
     await handOver();
     const onboard = await op("onboard", {});
-    const [previous] = onboard.data.sessions.past;
+    const previous = onboard.data.sessions.last;
     expect(previous).toMatchObject({
       session_id: "s1",
       ended_because: "offboard",
@@ -426,21 +426,15 @@ describe("junto onboard after an offboard that continues", () => {
     expect(JSON.stringify(onboard.data).split("shipped: tokenizer").length - 1).toBe(1);
   });
 
-  it("carries the notes even when the caller asked for no past notes inline", async () => {
-    await handOver();
-    const onboard = await op("onboard", { past_notes: 0 });
-    expect(onboard.data.handoff.notes).toBe(NOTES);
-  });
-
   it("only the very next session gets the handoff", async () => {
     await handOver();
     await writeSession("s3");
     const onboard = await op("onboard", {});
     expect(onboard.data).not.toHaveProperty("handoff");
-    // The notes are history now, inline like any other.
-    const s1 = onboard.data.sessions.past.find((s: { session_id: string }) => s.session_id === "s1");
-    expect(s1.notes).toBe(NOTES);
-    expect(s1).not.toHaveProperty("notes_in");
+    // s1 is history now: counted, its notes not carried.
+    expect(onboard.data.sessions.last).toMatchObject({ session_id: "s2" });
+    expect(onboard.data.sessions.earlier).toBe(1);
+    expect(JSON.stringify(onboard.data)).not.toContain("shipped: tokenizer");
   });
 
   it("an offboard that rests leaves notes as history and no handoff", async () => {
@@ -450,12 +444,12 @@ describe("junto onboard after an offboard that continues", () => {
     const onboard = await op("onboard", {});
     expect(onboard.data).not.toHaveProperty("handoff");
     expect(onboard.data).not.toHaveProperty("previous_session_without_notes");
-    expect(onboard.data.sessions.past[0]).toMatchObject({ session_id: "s1", notes: NOTES });
+    expect(onboard.data.sessions.last).toMatchObject({ session_id: "s1", notes: NOTES });
   });
 });
 
 describe("junto onboard after a session that ended without notes", () => {
-  it("says so first, with the previous session's id and transcript as the reference", async () => {
+  it("says so last, with the previous session's id and transcript as the reference", async () => {
     // Junto ended the session itself: no agent turn, so no notes were written.
     await noteTranscript("s1", "/harness/sessions/s1.jsonl");
     await endAsOffboard("s1");
@@ -463,7 +457,7 @@ describe("junto onboard after a session that ended without notes", () => {
 
     const onboard = await op("onboard", {});
     expect(onboard.ok).toBe(true);
-    expect(Object.keys(onboard.data)[0]).toBe("previous_session_without_notes");
+    expect(Object.keys(onboard.data).at(-1)).toBe("previous_session_without_notes");
     expect(onboard.data).not.toHaveProperty("handoff");
     const told = onboard.data.previous_session_without_notes;
     expect(told.note).toBe(PREVIOUS_WITHOUT_NOTES_FRAMING);
@@ -487,6 +481,8 @@ describe("junto onboard after a session that ended without notes", () => {
       await writeSession("s2");
       const told = (await op("onboard", {})).data.previous_session_without_notes;
       expect(told).toMatchObject({ session_id: "s1", ended_because: "offboard", ended_by: by });
+      const closed = { operator: "ended by the operator, no notes", overseer: "ended by an overseer, no notes", automatic: "closed by Junto, no notes" }[by];
+      expect((await op("onboard", {})).data.sessions.last).toMatchObject({ session_id: "s1", closed });
     },
   );
 
@@ -508,7 +504,7 @@ describe("junto onboard after a session that ended without notes", () => {
       const told = data.previous_session_without_notes;
       expect(told).toMatchObject({ session_id: "s1", transcript_path: null });
       expect(told.transcript_missing).toBe(describeTranscriptMissing("claude", "none"));
-      expect(data.sessions.past[0]).toMatchObject({ session_id: "s1", transcript_path: null, transcript_missing: told.transcript_missing });
+      expect(data.sessions.last).toMatchObject({ session_id: "s1", transcript_path: null, transcript_missing: told.transcript_missing });
     } finally {
       __setSessionExistenceHomeForTest(undefined);
     }
@@ -559,7 +555,7 @@ describe("junto onboard when the previous session's process was detached to fini
     expect(data.handoff.wind_down).toBe("Offboarded, winding down");
     expect(data.handoff.transcript_caution).toMatch(/still/i);
     expect(data.handoff.transcript_caution).toMatch(/transcript/i);
-    expect(data.sessions.past[0].wind_down).toBe("Offboarded, winding down");
+    expect(data.sessions.last.wind_down).toBe("Offboarded, winding down");
   });
 
   it.each([
@@ -588,7 +584,7 @@ describe("junto onboard when the previous session's process was detached to fini
     const data = (await op("onboard", {})).data;
     expect(data.handoff).not.toHaveProperty("wind_down");
     expect(data.handoff).not.toHaveProperty("transcript_caution");
-    expect(data.sessions.past[0]).not.toHaveProperty("wind_down");
+    expect(data.sessions.last).not.toHaveProperty("wind_down");
   });
 
   it("tells a session whose predecessor left no notes the same thing", async () => {

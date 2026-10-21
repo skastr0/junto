@@ -25,7 +25,7 @@ The agent chooses its stopping point, and one of two modes:
 
 In both modes the seat moves on the moment `junto offboard` returns, so the agent runs it last. The old session is not cut: its process is taken off the seat and left to finish what it is saying, so its transcript is whole. From that moment nothing reaches it: no mail, no prompt, no keystroke, and its `junto` commands are refused. Mail that arrives goes to the fresh session. Junto stops the old process once it goes idle, or after ten minutes, and records how it ended.
 
-When the next session runs `junto onboard`, it gets the seat's past sessions, newest first. The latest five notes are included in full (`--past-notes` changes the count), and each older session comes with the paths to its notes and transcript. Onboard marks them as past sessions: context for continuity, not work to resume unless the agent's current instructions or mail ask for it. To look further back, the agent opens those files itself.
+When the next session runs `junto onboard`, it gets the seat's last session: its notes in full when it left them, or who closed it when it left none, and its transcript. Earlier sessions are counted, not listed. Onboard marks this as a past session: context for continuity, not work to resume unless the agent's current instructions or mail ask for it.
 
 The continuation is the one exception to past sessions being context: only the session right after the one that continued sees it, and it is meant to be picked up.
 

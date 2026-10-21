@@ -1,7 +1,6 @@
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import { WORK_PROTOCOL_VERSION, WORK_TOKEN_ENV } from "../../shared/work-control";
-import { ONBOARD_PAST_NOTES_DEFAULT, ONBOARD_PAST_NOTES_MAX } from "../../shared/seat-sessions";
 import { loadOffboardArgs } from "../core/offboard-input";
 import { CLI_NAME, CLI_VERSION, DEFAULT_TIMEOUT_MS } from "../core/constants";
 import {
@@ -132,30 +131,22 @@ export const capabilitiesCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Live edge wiring as a contract"));
 
-const pastNotesOption = Flag.integer("past-notes").pipe(
-  Flag.optional,
-  Flag.withDescription(
-    `How many of this seat's latest offboard notes to include inline (default ${ONBOARD_PAST_NOTES_DEFAULT}, at most ${ONBOARD_PAST_NOTES_MAX})`,
-  ),
-);
-
 export const onboardCommand = Command.make(
   "onboard",
-  { pastNotes: pastNotesOption, timeout: timeoutOption },
-  ({ pastNotes, timeout }) =>
+  { timeout: timeoutOption },
+  ({ timeout }) =>
     executeJsonCommand(
       "onboard",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
-        const args = Option.isSome(pastNotes) ? { past_notes: pastNotes.value } : {};
         // Onboard already carries the commands each connection allows,
         // compiled by the daemon from held ports (`commands`).
-        return yield* socket.call("onboard", args, toUndefined(timeout));
+        return yield* socket.call("onboard", {}, toUndefined(timeout));
       }),
     ),
 ).pipe(
   Command.withDescription(
-    "Load this seat: guidance, region briefing, connections and the commands each allows, past sessions",
+    "Load this seat: guidance, briefings, connected seats, reach and the commands each allows, since your last session, and your last session",
   ),
 );
 

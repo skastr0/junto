@@ -128,11 +128,6 @@ export const SEAT_SESSION_NOTES_MAX_CHARS = 16_000;
 export const SEAT_SESSION_CONTINUATION_MAX_CHARS = 8_000;
 export const SEAT_SESSION_GIST_MAX_CHARS = 160;
 
-/** How many of the latest offboard notes `junto onboard` carries inline. */
-export const ONBOARD_PAST_NOTES_DEFAULT = 5;
-export const ONBOARD_PAST_NOTES_MAX = 20;
-/** Past sessions `junto onboard` lists at all; older ones are counted. */
-export const ONBOARD_PAST_SESSIONS_MAX = 30;
 
 /**
  * How `junto onboard` and the doctrine behind `junto docs` frame the past sessions. Short

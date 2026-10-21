@@ -188,8 +188,6 @@ import {
   sessionDrainCaution,
   type SeatSession,
   gistOfNotes,
-  ONBOARD_PAST_NOTES_DEFAULT,
-  ONBOARD_PAST_SESSIONS_MAX,
   PAST_SESSIONS_FRAMING,
   SEAT_SESSION_CONTINUATION_MAX_CHARS,
   SEAT_SESSION_NOTES_MAX_CHARS,
@@ -1110,11 +1108,11 @@ const isoAt = (ms: number | undefined): string | undefined =>
   ms === undefined ? undefined : new Date(ms).toISOString();
 
 /**
- * `junto onboard`'s past sessions: every earlier session of this seat, newest
- * first, with where its notes and transcript live, and the latest notes
- * inline. Framed as history, never as work to resume, with one exception:
- * the handoff, the continuation note the previous session left for this one.
- * Absent when this runtime keeps no seat sessions.
+ * `junto onboard`'s past sessions: the last one before this session, with its
+ * gist, notes and transcript, and a count of the earlier ones. Framed as
+ * history, never as work to resume, with one exception: the handoff, the
+ * continuation note the previous session left for this one. Absent when this
+ * runtime keeps no seat sessions.
  */
 /**
  * What became of a session's process after its seat moved on, for the session
@@ -1139,7 +1137,23 @@ const transcriptOf = (session: SeatSession) => ({
     : { transcript_missing: describeTranscriptMissing(session.harness, session.transcriptMissing) }),
 });
 
-const pastSessionsOf = (node: Node, pastNotes: number) =>
+/** What a session that left no notes says in their place: who closed it. */
+const closedWithoutNotes = (session: SeatSession): string => {
+  switch (session.endedBy) {
+    case "automatic":
+      return "closed by Junto, no notes";
+    case "operator":
+      return "ended by the operator, no notes";
+    case "overseer":
+      return "ended by an overseer, no notes";
+    case undefined:
+      return "ended without notes";
+    default:
+      return session.endedBy satisfies never;
+  }
+};
+
+const pastSessionsOf = (node: Node) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(SeatSessionRepository);
     if (Option.isNone(store)) return undefined;
@@ -1154,10 +1168,10 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
     // It is complete by itself, in the order an agent needs it: what to do
     // next, then what happened, then where the full record lives.
     const previous = past[0];
-    // Notes are read only for the sessions listed here, never the whole history.
+    // Notes are read for the last session only, never the whole history.
     const notesOf = yield* store.value.notesOf(
       node.id,
-      past.slice(0, ONBOARD_PAST_SESSIONS_MAX).filter((session) => session.offboardedAt !== undefined).map((session) => session.sessionId),
+      previous?.offboardedAt === undefined ? [] : [previous.sessionId],
     ).pipe(Effect.orElseSucceed((): ReadonlyMap<string, SeatSessionNotes> => new Map()));
     const continuation =
       previous?.endReason === "offboard" ? notesOf.get(previous.sessionId)?.continuation : undefined;
@@ -1197,27 +1211,30 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
             ...windDownOf(previous),
           }
         : undefined;
-    let inline = 0;
-    const listed = past.slice(0, ONBOARD_PAST_SESSIONS_MAX).map((session) => {
-      const offboarded = session.offboardedAt !== undefined;
-      // The handoff already carries its session's notes in full; the list
-      // points there instead of printing them a second time.
-      const inHandoff = session === previous && handoffNotes !== undefined;
-      const notes =
-        offboarded && !inHandoff && inline < pastNotes ? notesOf.get(session.sessionId)?.notes : undefined;
-      if (notes !== undefined) inline += 1;
-      return {
-        session_id: session.sessionId,
-        harness: session.harness,
-        started_at: isoAt(session.startedAt),
-        ...(session.endedAt === undefined ? {} : { ended_at: isoAt(session.endedAt), ended_because: session.endReason }),
-        gist: session.gist ?? null,
-        ...transcriptOf(session),
-        ...(notes === undefined ? {} : { notes }),
-        ...(inHandoff ? { notes_in: "handoff" as const } : {}),
-        ...(session.drain === undefined ? {} : { wind_down: describeSessionDrain(session.drain) }),
-      };
-    });
+    // The last session: gist and notes only when it wrote them, and who
+    // closed it when it did not. The handoff already carries its notes in
+    // full, so the entry points there instead of printing them twice.
+    const last = previous === undefined
+      ? null
+      : {
+          session_id: previous.sessionId,
+          harness: previous.harness,
+          started_at: isoAt(previous.startedAt),
+          ...(previous.endedAt === undefined ? {} : { ended_at: isoAt(previous.endedAt), ended_because: previous.endReason }),
+          ...(previous.offboardedAt === undefined
+            ? { closed: closedWithoutNotes(previous) }
+            : {
+                ...(previous.gist === undefined ? {} : { gist: previous.gist }),
+                ...(handoffNotes !== undefined
+                  ? { notes_in: "handoff" as const }
+                  : (() => {
+                      const notes = notesOf.get(previous.sessionId)?.notes;
+                      return notes === undefined ? {} : { notes };
+                    })()),
+              }),
+          ...transcriptOf(previous),
+          ...(previous.drain === undefined ? {} : { wind_down: describeSessionDrain(previous.drain) }),
+        };
     const sessions = {
       note: PAST_SESSIONS_FRAMING,
       current: current
@@ -1228,8 +1245,9 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
             offboarded: mine?.offboardedAt !== undefined,
           }
         : null,
-      past: listed,
-      ...(past.length > listed.length ? { older_not_listed: past.length - listed.length } : {}),
+      last,
+      // The sessions before the last one, counted, never listed.
+      earlier: Math.max(0, past.length - 1),
     };
     return {
       sessions,
@@ -1350,9 +1368,17 @@ const dispatchOp = (
     if (op === "onboard") {
       const decodedOnboard = decodeArgs(OnboardArgs, args ?? {});
       if (Result.isFailure(decodedOnboard)) return yield* Effect.fail(decodedOnboard.failure);
+      // An empty struct admits any object, so the no-argument rule is checked here.
+      if (Object.keys((args ?? {}) as object).length > 0) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "onboard takes no arguments: a seat onboards itself",
+          details: { path: "args", retryable: false, hint: "junto schema show onboard" },
+        });
+      }
       const self = findNode(board, caller.nodeId)!;
       const seat = yield* seatConfigurationOf(self);
-      const history = yield* pastSessionsOf(self, decodedOnboard.success.past_notes ?? ONBOARD_PAST_NOTES_DEFAULT);
+      const history = yield* pastSessionsOf(self);
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
       const reach = resourcesInReach(board, asNodeId(caller.nodeId)).flatMap((node) =>
@@ -1433,8 +1459,8 @@ const dispatchOp = (
           Effect.map(renderSince),
           Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
         ),
-        // This seat's earlier sessions: history for continuity, with the
-        // latest offboard notes inline and paths to open for the rest.
+        // This seat's last session and a count of the earlier ones: history
+        // for continuity, never work to resume.
         ...(history ? { sessions: history.sessions } : {}),
         // Last, the note the previous session left for this one, when it
         // continued rather than rested.
@@ -1452,7 +1478,7 @@ const dispatchOp = (
     if (op === "since") {
       const decodedSince = decodeArgs(SinceArgs, args ?? {});
       if (Result.isFailure(decodedSince)) return yield* Effect.fail(decodedSince.failure);
-      const history = yield* pastSessionsOf(findNode(board, caller.nodeId)!, 0);
+      const history = yield* pastSessionsOf(findNode(board, caller.nodeId)!);
       const perSection = decodedSince.success.all === true ? Number.POSITIVE_INFINITY : SINCE_PER_SECTION;
       return renderSince(
         yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt, perSection).pipe(

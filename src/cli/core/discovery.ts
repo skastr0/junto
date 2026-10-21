@@ -309,7 +309,7 @@ export const onboardSchema: CommandSchemaContract = {
   command: "onboard",
   schema_id: "onboard.input/v1",
   description:
-    "Load this seat's briefing. past_notes: how many of the latest offboard notes to include inline (default 5). Usually run with no input.",
+    "Load this seat's briefing. Takes no input.",
   schema: OnboardArgs,
 };
 
@@ -1206,7 +1206,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command: "onboard",
     category: "discovery",
     description:
-      "The one loader: short guidance, your seat (name, harness, soul, standing instructions), region briefing, connections with the commands each allows, co-members, and this seat's past sessions.",
+      "The one loader: short guidance, briefings, your seat (name, harness, soul, standing instructions), connected seats, the resources in reach and the commands each allows, co-members, since your last session, and your last session.",
     schemas: [onboardSchema],
   },
   {

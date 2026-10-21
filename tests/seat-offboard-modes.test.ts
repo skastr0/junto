@@ -226,11 +226,11 @@ describe("junto onboard handoff", () => {
       transcript_path: null,
       transcript_missing: describeTranscriptMissing("claude", "none"),
     });
-    // Once: the note appears in the handoff only, and leads the payload.
+    // Once: the note appears in the handoff only, and ends the payload.
     expect(occurrences(JSON.stringify(next.data), "Pick up the 429 retry")).toBe(1);
-    expect(Object.keys(next.data)[0]).toBe("handoff");
+    expect(Object.keys(next.data).at(-1)).toBe("handoff");
     // The notes stay history, beside it.
-    expect(next.data.sessions.past[0]).toMatchObject({ session_id: "s1", gist: "Parser shipped" });
+    expect(next.data.sessions.last).toMatchObject({ session_id: "s1", gist: "Parser shipped" });
 
     // Re-orienting after a compaction still finds it.
     expect((await op("onboard", {})).data.handoff.continuation).toBe(CONTINUATION);
@@ -246,7 +246,7 @@ describe("junto onboard handoff", () => {
     await rotateTo("s2");
     const next = await op("onboard", {});
     expect(next.data).not.toHaveProperty("handoff");
-    expect(next.data.sessions.past[0]).toMatchObject({ session_id: "s1", notes: NOTES });
+    expect(next.data.sessions.last).toMatchObject({ session_id: "s1", notes: NOTES });
   });
 
   it("a session replaced for any other reason hands nothing over", async () => {

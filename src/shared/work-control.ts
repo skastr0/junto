@@ -1,6 +1,5 @@
 import { Result, Schema } from "effect";
 import { MachineLogQuery } from "./machine-log";
-import { ONBOARD_PAST_NOTES_MAX } from "./seat-sessions";
 import {
   CheckSide,
   CompletionEvidence,
@@ -842,15 +841,8 @@ export const ReferencesReadArgs = Schema.Struct({ name: Schema.String }).annotat
 });
 export type ReferencesReadArgs = typeof ReferencesReadArgs.Type;
 
-/**
- * `junto onboard`: how many of the seat's latest offboard notes to carry
- * inline (default and bound in `seat-sessions.ts`).
- */
-export const OnboardArgs = Schema.Struct({
-  past_notes: Schema.optionalKey(
-    Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: ONBOARD_PAST_NOTES_MAX }))),
-  ),
-}).annotate({
+/** `junto onboard` takes no input: a seat onboards itself. */
+export const OnboardArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type OnboardArgs = typeof OnboardArgs.Type;
