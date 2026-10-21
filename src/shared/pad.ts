@@ -1,11 +1,8 @@
 /**
- * Junto pad IR. applyPatch is the only mutation.
- * Author class is not here — WorkService refuses agent ink/image.
+ * Junto pad IR, the body of a pad artifact. applyPatch is the only mutation.
  */
 import { Result, Schema } from "effect";
 import { ContentRef } from "./content";
-import { Author } from "./author";
-import { Part } from "./work-model";
 
 const STRICT = { onExcessProperty: "error" } as const;
 
@@ -33,14 +30,6 @@ export type PadElementId = typeof PadElementId.Type;
 
 export const asPadElementId = (id: string): PadElementId => id as PadElementId;
 
-export const PadPostId = NonEmptyString.pipe(
-  Schema.check(Schema.isMaxLength(256)),
-  Schema.brand("PadPostId"),
-);
-export type PadPostId = typeof PadPostId.Type;
-
-export const asPadPostId = (id: string): PadPostId => id as PadPostId;
-
 export const PadShapeType = Schema.Literals(["box", "ellipse", "triangle", "label"]);
 export type PadShapeType = typeof PadShapeType.Type;
 
@@ -50,7 +39,7 @@ export type PadShapeStatus = typeof PadShapeStatus.Type;
 export const PadSide = Schema.Literals(["top", "right", "bottom", "left"]);
 export type PadSide = typeof PadSide.Type;
 
-export const PadLayer = Schema.Literals(["image", "shape", "edge", "ink", "pin"]);
+export const PadLayer = Schema.Literals(["image", "shape", "edge", "ink"]);
 export type PadLayer = typeof PadLayer.Type;
 
 export const PadPoint = Schema.Struct({
@@ -58,12 +47,6 @@ export const PadPoint = Schema.Struct({
   y: FiniteNumber,
 });
 export type PadPoint = typeof PadPoint.Type;
-
-export const PadBounds = Schema.Struct({
-  w: PositiveSize,
-  h: PositiveSize,
-});
-export type PadBounds = typeof PadBounds.Type;
 
 export const PadShape = Schema.Struct({
   id: PadElementId,
@@ -110,40 +93,16 @@ export const PadInk = Schema.Struct({
 });
 export type PadInk = typeof PadInk.Type;
 
-export const PadPost = Schema.Struct({
-  postId: PadPostId,
-  author: Author,
-  parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
-});
-export type PadPost = typeof PadPost.Type;
-
-export const PadPinShell = Schema.Struct({
-  id: PadElementId,
-  x: FiniteNumber,
-  y: FiniteNumber,
-  bounds: Schema.optionalKey(PadBounds),
-  mentions: Schema.Array(NonEmptyString),
-});
-export type PadPinShell = typeof PadPinShell.Type;
-
-export const PadPin = Schema.Struct({
-  ...PadPinShell.fields,
-  posts: Schema.Array(PadPost),
-});
-export type PadPin = typeof PadPin.Type;
-
 const collectElementIds = (pad: {
   readonly images: ReadonlyArray<{ readonly id: string }>;
   readonly shapes: ReadonlyArray<{ readonly id: string }>;
   readonly edges: ReadonlyArray<{ readonly id: string }>;
   readonly inks: ReadonlyArray<{ readonly id: string }>;
-  readonly pins: ReadonlyArray<{ readonly id: string }>;
 }): string[] => [
   ...pad.images.map((image) => image.id),
   ...pad.shapes.map((shape) => shape.id),
   ...pad.edges.map((edge) => edge.id),
   ...pad.inks.map((ink) => ink.id),
-  ...pad.pins.map((pin) => pin.id),
 ];
 
 const padInvariants = (pad: {
@@ -155,13 +114,6 @@ const padInvariants = (pad: {
     readonly to: string;
   }>;
   readonly inks: ReadonlyArray<{ readonly id: string }>;
-  readonly pins: ReadonlyArray<{
-    readonly id: string;
-    readonly posts: ReadonlyArray<{
-      readonly postId: string;
-      readonly parts: ReadonlyArray<{ readonly kind: string }>;
-    }>;
-  }>;
 }): true | string => {
   const ids = collectElementIds(pad);
   if (new Set(ids).size !== ids.length) {
@@ -173,30 +125,21 @@ const padInvariants = (pad: {
       return "edge endpoints must exist";
     }
   }
-  for (const pin of pad.pins) {
-    const postIds = pin.posts.map((post) => post.postId);
-    if (new Set(postIds).size !== postIds.length) {
-      return "post ids must be unique on a pin";
-    }
-    if (pin.posts.some((post) => postHasInlineBytes(post.parts))) {
-      return "bytes never live in pad JSON";
-    }
-  }
   return true;
 };
 
-const postHasInlineBytes = (
-  parts: ReadonlyArray<{ readonly kind: string }>,
-): boolean => parts.some((part) => part.kind === "raw");
+/** Ids unique across the layers, and every edge's ends present. */
+export const PadInvariants = Schema.makeFilter(padInvariants);
 
-export const Pad = Schema.Struct({
+export const PadFields = {
   revision: Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   images: Schema.Array(PadImage),
   shapes: Schema.Array(PadShape),
   edges: Schema.Array(PadEdge),
   inks: Schema.Array(PadInk),
-  pins: Schema.Array(PadPin),
-}).pipe(Schema.check(Schema.makeFilter(padInvariants)));
+};
+
+export const Pad = Schema.Struct(PadFields).pipe(Schema.check(PadInvariants));
 export type Pad = typeof Pad.Type;
 
 export const PadUpsertShape = Schema.Struct({
@@ -227,19 +170,6 @@ export const PadUpsertInk = Schema.Struct({
 });
 export type PadUpsertInk = typeof PadUpsertInk.Type;
 
-export const PadPinUpsert = Schema.Struct({
-  op: Schema.Literal("pin.upsert"),
-  pin: PadPinShell,
-});
-export type PadPinUpsert = typeof PadPinUpsert.Type;
-
-export const PadPinReply = Schema.Struct({
-  op: Schema.Literal("pin.reply"),
-  pinId: PadElementId,
-  post: PadPost,
-});
-export type PadPinReply = typeof PadPinReply.Type;
-
 export const PadDelete = Schema.Struct({
   op: Schema.Literal("delete"),
   id: PadElementId,
@@ -257,8 +187,6 @@ export const PadPatch = Schema.Union([PadUpsertShape,
 PadUpsertEdge,
 PadUpsertImage,
 PadUpsertInk,
-PadPinUpsert,
-PadPinReply,
 PadDelete,
 PadZ,]);
 export type PadPatch = typeof PadPatch.Type;
@@ -283,8 +211,6 @@ export const decodePadShape = Schema.decodeUnknownResult(PadShape, STRICT);
 export const decodePadEdge = Schema.decodeUnknownResult(PadEdge, STRICT);
 export const decodePadImage = Schema.decodeUnknownResult(PadImage, STRICT);
 export const decodePadInk = Schema.decodeUnknownResult(PadInk, STRICT);
-export const decodePadPin = Schema.decodeUnknownResult(PadPin, STRICT);
-export const decodePadPost = Schema.decodeUnknownResult(PadPost, STRICT);
 
 export const emptyPad = (): Pad => ({
   revision: 0,
@@ -292,7 +218,6 @@ export const emptyPad = (): Pad => ({
   shapes: [],
   edges: [],
   inks: [],
-  pins: [],
 });
 
 const formatError = (error: unknown): string =>
@@ -320,7 +245,6 @@ const layerOf = (pad: Pad, id: string): PadLayer | undefined => {
   if (pad.shapes.some((shape) => shape.id === id)) return "shape";
   if (pad.edges.some((edge) => edge.id === id)) return "edge";
   if (pad.inks.some((ink) => ink.id === id)) return "ink";
-  if (pad.pins.some((pin) => pin.id === id)) return "pin";
   return undefined;
 };
 
@@ -400,43 +324,6 @@ const applyDecoded = (pad: Pad, patch: PadPatch): Result.Result<Pad, PadError> =
       }
       break;
     }
-    case "pin.upsert": {
-      const allowed = requireLayer(pad, patch.pin.id, "pin");
-      if (Result.isFailure(allowed)) return Result.fail(allowed.failure);
-      const existing = pad.pins.find((pin) => pin.id === patch.pin.id);
-      const nextPin: PadPin = {
-        ...patch.pin,
-        posts: existing?.posts ?? [],
-      };
-      return Result.succeed({
-        ...pad,
-        pins: replaceById(pad.pins, nextPin),
-      });
-    }
-    case "pin.reply": {
-      const index = pad.pins.findIndex((pin) => pin.id === patch.pinId);
-      if (index === -1) {
-        return padFail("missing", "pin does not exist", patch.pinId);
-      }
-      if (postHasInlineBytes(patch.post.parts)) {
-        return padFail(
-          "invalid",
-          "bytes never live in pad JSON",
-          patch.pinId,
-        );
-      }
-      const pin = pad.pins[index]!;
-      if (pin.posts.some((post) => post.postId === patch.post.postId)) {
-        return padFail(
-          "duplicate_id",
-          "post ids must be unique on a pin",
-          patch.pinId,
-        );
-      }
-      const pins = pad.pins.slice();
-      pins[index] = { ...pin, posts: [...pin.posts, patch.post] };
-      return Result.succeed({ ...pad, pins });
-    }
     case "delete": {
       const layer = layerOf(pad, patch.id);
       if (layer === undefined) {
@@ -462,9 +349,6 @@ const applyDecoded = (pad: Pad, patch: PadPatch): Result.Result<Pad, PadError> =
         inks: layer === "ink"
           ? pad.inks.filter((ink) => ink.id !== patch.id)
           : pad.inks,
-        pins: layer === "pin"
-          ? pad.pins.filter((pin) => pin.id !== patch.id)
-          : pad.pins,
       });
     }
     case "z": {

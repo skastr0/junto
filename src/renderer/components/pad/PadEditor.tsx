@@ -78,7 +78,7 @@ import {
   deletePatch,
   draftImageRect,
   draftInkFromPoints,
-  draftPinFromDrag,
+  areaFromDrag,
   finishInkStroke,
   draftShapeFromDrag,
   editableLayer,
@@ -90,14 +90,12 @@ import {
   isControlTarget,
   isShapeTool,
   moveImage,
-  movePin,
   moveShape,
   nearestSide,
   newPadElementId,
   nextLayerZ,
   padIsEmpty,
   panBy,
-  pinById,
   resizeImage,
   resizeShape,
   shapeById,
@@ -105,7 +103,6 @@ import {
   upsertEdgePatch,
   upsertImagePatch,
   upsertInkPatch,
-  upsertPinPatch,
   upsertShapePatch,
   viewSlop,
   zOf,
@@ -129,10 +126,9 @@ type Gesture =
       readonly id: PadElementId;
     }
   | {
-      readonly kind: "pin";
+      readonly kind: "area";
       readonly start: PadPoint;
       readonly current: PadPoint;
-      readonly id: PadElementId;
     }
   | {
       readonly kind: "ink";
@@ -172,7 +168,6 @@ type CommitTask = {
   readonly operatorPatches: ReadonlyArray<PadPatch>;
   /** Inverse frame for the operator patches, computed against `base`. */
   readonly inverse: ReadonlyArray<PadPatch>;
-  readonly deletesPopulatedPin: boolean;
   /** Pad view the optimistic apply started from; used for rollback. */
   readonly base: Pad;
   /** Revision the frames were computed against. */
@@ -365,7 +360,7 @@ export function PadEditor({
   const inkColor = defaultInkColor(theme);
 
   const selected = selectedId
-    ? shapeById(pad, selectedId) ?? imageById(pad, selectedId) ?? pinById(pad, selectedId)
+    ? shapeById(pad, selectedId) ?? imageById(pad, selectedId)
     : undefined;
   const selectedLayer = selectedId ? editableLayer(pad, selectedId) : undefined;
   const empty = padIsEmpty(pad);
@@ -442,7 +437,6 @@ export function PadEditor({
             // base that still exists, so undo history remains valid.
             expectedRevRef.current = nextExpected;
             if (
-              !task.deletesPopulatedPin &&
               task.expectedRev === expected &&
               task.inverse.length > 0
             ) {
@@ -485,7 +479,6 @@ export function PadEditor({
                 inverse: Result.isSuccess(retryInverse)
                   ? [...retryInverse.success]
                   : [],
-                deletesPopulatedPin: task.deletesPopulatedPin,
                 base: fresh,
                 expectedRev: fresh.revision,
                 retried: true,
@@ -514,18 +507,12 @@ export function PadEditor({
       if (patches.length === 0) return Promise.resolve(true);
       const base = padRef.current;
       const inverse = inversePatches(base, patches);
-      const deletesPopulatedPin = patches.some(
-        (patch) =>
-          patch.op === "delete" &&
-          (base.pins.find((pin) => pin.id === patch.id)?.posts.length ?? 0) > 0,
-      );
       // Optimistic display; the authoritative pad replaces it at ack.
       const optimistic = applyPatches(base, patches);
       if (Result.isSuccess(optimistic)) setLocalPad(optimistic.success);
       const task: CommitTask = {
         operatorPatches: [...patches],
         inverse: Result.isSuccess(inverse) ? [...inverse.success] : [],
-        deletesPopulatedPin,
         base,
         expectedRev: expectedRevRef.current,
         retried: false,
@@ -568,13 +555,9 @@ export function PadEditor({
 
   const applyDelete = useCallback(async () => {
     if (!selectedId || !canDelete(selectedLayer)) return;
-    const pin = pinById(padRef.current, selectedId);
-    if (pin && pin.posts.length > 0) {
-      notice("Pins with replies cannot be undone — delete removes the thread for good.");
-    }
     await commit([deletePatch(selectedId as PadElementId)]);
     setSelectedId(undefined);
-  }, [commit, notice, selectedId, selectedLayer]);
+  }, [commit, selectedId, selectedLayer]);
 
   const applyZ = useCallback(
     async (delta: 1 | -1) => {
@@ -595,12 +578,7 @@ export function PadEditor({
         return;
       }
       const image = imageById(padRef.current, selectedId);
-      if (image) {
-        await commit([upsertImagePatch(moveImage(image, dx, dy))]);
-        return;
-      }
-      const pin = pinById(padRef.current, selectedId);
-      if (pin) await commit([upsertPinPatch(movePin(pin, dx, dy))]);
+      if (image) await commit([upsertImagePatch(moveImage(image, dx, dy))]);
     },
     [commit, selectedId, selectedLayer],
   );
@@ -719,8 +697,8 @@ export function PadEditor({
       }
       const typing = isOperatorTyping(event.target) || editingLabel;
       if (typing && event.key === "Escape") {
-        // Child inputs own Escape (label input cancels itself; the pin thread
-        // dismisses its mention menu and keeps the draft). Do not intercept.
+        // Child inputs own Escape (the label input cancels itself). Do not
+        // intercept.
         return;
       }
       const control = !typing && isControlTarget(event.target);
@@ -739,7 +717,7 @@ export function PadEditor({
       }
       switch (action?.type) {
         case "tool":
-          if (action.tool === "pin" && pins.kind === "none") return;
+          if (action.tool === "area" && pins.kind === "none") return;
           setTool(action.tool);
           setEditingLabel(false);
           return;
@@ -833,10 +811,9 @@ export function PadEditor({
       setSelectedId(id);
       return;
     }
-    if (tool === "pin") {
-      const id = newPadElementId("pin");
-      setGesture({ kind: "pin", id, start: scene, current: scene });
-      setSelectedId(id);
+    if (tool === "area") {
+      setGesture({ kind: "area", start: scene, current: scene });
+      setSelectedId(undefined);
       return;
     }
     if (tool !== "select") {
@@ -869,7 +846,7 @@ export function PadEditor({
     setSelectedId(hit.id);
     const layer = editableLayer(pad, hit.id);
     if (canMove(layer)) {
-      const item = shapeById(pad, hit.id) ?? imageById(pad, hit.id) ?? pinById(pad, hit.id);
+      const item = shapeById(pad, hit.id) ?? imageById(pad, hit.id);
       if (item) {
         setGesture({
           kind: "move",
@@ -892,7 +869,7 @@ export function PadEditor({
       return;
     }
     const scene = sceneOf(event);
-    if (gesture.kind === "draw" || gesture.kind === "pin") {
+    if (gesture.kind === "draw" || gesture.kind === "area") {
       setGesture({ ...gesture, current: scene });
       return;
     }
@@ -942,13 +919,10 @@ export function PadEditor({
       });
       return;
     }
-    if (current.kind === "pin") {
-      const draft = draftPinFromDrag(current.id, current.start, scene);
+    if (current.kind === "area") {
       // An area pick writes nothing; a bare click picks no area.
-      setSelectedId(undefined);
-      if (pins.kind === "area" && draft.bounds !== undefined) {
-        pins.onArea({ x: draft.x - draft.bounds.w / 2, y: draft.y - draft.bounds.h / 2, w: draft.bounds.w, h: draft.bounds.h });
-      }
+      const area = areaFromDrag(current.start, scene);
+      if (pins.kind === "area" && area !== undefined) pins.onArea(area);
       return;
     }
     if (current.kind === "ink") {
@@ -982,13 +956,6 @@ export function PadEditor({
       const image = imageById(pad, current.id);
       if (image) {
         void commit([upsertImagePatch(moveImage({ ...image, x: current.start.x, y: current.start.y }, dx, dy))]);
-        return;
-      }
-      const pin = pinById(pad, current.id);
-      if (pin) {
-        void commit([
-          upsertPinPatch(movePin({ ...pin, x: current.start.x, y: current.start.y }, dx, dy)),
-        ]);
       }
       return;
     }
@@ -1030,13 +997,6 @@ export function PadEditor({
       );
       return { ...pad, shapes: [...pad.shapes.filter((s) => s.id !== draft.id), draft] };
     }
-    if (gesture.kind === "pin") {
-      const draft = draftPinFromDrag(gesture.id, gesture.start, gesture.current);
-      return {
-        ...pad,
-        pins: [...pad.pins.filter((pin) => pin.id !== draft.id), { ...draft, posts: [] }],
-      };
-    }
     if (gesture.kind === "ink") {
       const first = gesture.points[0];
       const second = gesture.points[1];
@@ -1063,11 +1023,6 @@ export function PadEditor({
           image.id === gesture.id
             ? moveImage({ ...image, x: gesture.start.x, y: gesture.start.y }, dx, dy)
             : image,
-        ),
-        pins: pad.pins.map((pin) =>
-          pin.id === gesture.id
-            ? { ...pin, ...movePin({ ...pin, x: gesture.start.x, y: gesture.start.y }, dx, dy) }
-            : pin,
         ),
       };
     }
@@ -1116,7 +1071,7 @@ export function PadEditor({
             <Type size={13} />
           </ToolButton>
           {pins.kind === "area" ? (
-            <ToolButton tool="pin" current={tool} onSelect={setTool} label="Comment on an area (P)">
+            <ToolButton tool="area" current={tool} onSelect={setTool} label="Comment on an area (P)">
               <MessageSquare size={13} />
             </ToolButton>
           ) : null}
@@ -1263,9 +1218,24 @@ export function PadEditor({
                   strokeLinejoin="round"
                 />
               ))}
-            {shown.pins.map((pin) => (
-              <PinEl key={pin.id} pin={pin} selected={pin.id === selectedId} />
-            ))}
+            {gesture.kind === "area" ? (
+              (() => {
+                const area = areaFromDrag(gesture.start, gesture.current);
+                return area ? (
+                  <rect
+                    data-testid="pad-area-draft"
+                    x={area.x}
+                    y={area.y}
+                    width={area.w}
+                    height={area.h}
+                    fill="none"
+                    stroke="var(--color-amber)"
+                    strokeDasharray="3 2"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ) : null;
+              })()
+            ) : null}
             {gesture.kind === "draw" && gesture.tool === "image" ? (
               (() => {
                 const box = draftImageRect(gesture.start, gesture.current);
@@ -1365,41 +1335,6 @@ export function PadEditor({
       </div>
       </div>
     </div>
-  );
-}
-
-function PinEl({
-  pin,
-  selected,
-}: {
-  readonly pin: { readonly id: string; readonly x: number; readonly y: number; readonly bounds?: { readonly w: number; readonly h: number } };
-  readonly selected: boolean;
-}) {
-  const r = selected ? 6 : 5;
-  return (
-    <g data-testid="pad-pin" data-pin-id={pin.id}>
-      {pin.bounds ? (
-        <rect
-          x={pin.x - pin.bounds.w / 2}
-          y={pin.y - pin.bounds.h / 2}
-          width={pin.bounds.w}
-          height={pin.bounds.h}
-          fill="none"
-          stroke={selected ? "var(--color-amber)" : "var(--color-stroke)"}
-          strokeDasharray="3 2"
-          vectorEffect="non-scaling-stroke"
-        />
-      ) : null}
-      <circle
-        cx={pin.x}
-        cy={pin.y}
-        r={r}
-        fill="var(--color-raise-2)"
-        stroke="var(--color-amber)"
-        strokeWidth={1.25}
-      />
-      <circle cx={pin.x} cy={pin.y} r={selected ? 2.2 : 1.8} fill="var(--color-amber)" />
-    </g>
   );
 }
 

@@ -21,6 +21,7 @@ import {
 } from "../src/shared/artifact";
 import type { ContentRef } from "../src/shared/content";
 import { asPadElementId } from "../src/shared/pad";
+import { canonicalJson } from "../src/shared/work-canonical-json";
 
 const v = (n: number): ArtifactVersion => ArtifactVersion.make(n);
 
@@ -238,6 +239,24 @@ describe("anchors", () => {
     for (const range of ["a1", "A0", "1A", "A1:", "AAAA1", "A1:B2:C3"]) {
       expect(admitsAnchor(sheet, { kind: "cells", range })).toBe(false);
     }
+  });
+});
+
+describe("a stored pad body from before the pin layer left", () => {
+  const stored = { type: "pad", pad: { revision: 3, images: [], shapes: [], edges: [], inks: [], pins: [] } };
+
+  it("decodes and re-encodes to the same bytes, so its content ref holds", () => {
+    const decoded = decodeArtifactBody(stored);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) expect(canonicalJson(decoded.success)).toBe(canonicalJson(stored));
+  });
+
+  it("refuses a non-empty pins key, which no artifact body ever held", () => {
+    expect(Result.isFailure(decodeArtifactBody({ ...stored, pad: { ...stored.pad, pins: [{}] } }))).toBe(true);
+  });
+
+  it("a new body carries no pins key", () => {
+    expect("pins" in emptyBody("pad").pad).toBe(false);
   });
 });
 

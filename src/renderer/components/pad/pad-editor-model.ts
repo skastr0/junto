@@ -13,7 +13,6 @@ import {
   type PadImage,
   type PadInk,
   type PadPatch,
-  type PadPin,
   type PadPoint,
   type PadShape,
   type PadShapeType,
@@ -32,7 +31,7 @@ import { keyIs } from "../../lib/key-match";
 export const PAD_SHAPE_TOOLS = ["box", "ellipse", "triangle", "label"] as const;
 export type PadShapeTool = (typeof PAD_SHAPE_TOOLS)[number];
 
-export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "pin", "image", "ink"] as const;
+export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "area", "image", "ink"] as const;
 export type PadTool = (typeof PAD_TOOLS)[number];
 
 /**
@@ -49,7 +48,7 @@ export const PAD_TOOL_KEYS: Readonly<Record<string, PadTool>> = {
   o: "ellipse",
   t: "triangle",
   l: "label",
-  p: "pin",
+  p: "area",
   i: "image",
   d: "ink",
 };
@@ -404,17 +403,11 @@ export const upsertInkPatch = (ink: PadInk): PadPatch => ({
   ink,
 });
 
-export const upsertPinPatch = (pin: Omit<PadPin, "posts">): PadPatch => ({
-  op: "pin.upsert",
-  pin,
-});
-
 export const padIsEmpty = (pad: Pad): boolean =>
   pad.shapes.length === 0 &&
   pad.edges.length === 0 &&
   pad.images.length === 0 &&
-  pad.inks.length === 0 &&
-  pad.pins.length === 0;
+  pad.inks.length === 0;
 
 export const draftImageRect = (start: PadPoint, current: PadPoint): GeomRect => {
   const dx = Math.abs(current.x - start.x);
@@ -425,24 +418,11 @@ export const draftImageRect = (start: PadPoint, current: PadPoint): GeomRect => 
   return normalizeRect(start.x, start.y, current.x, current.y);
 };
 
-export const draftPinFromDrag = (
-  id: PadElementId,
-  start: PadPoint,
-  current: PadPoint,
-): Omit<PadPin, "posts"> => {
-  const w = Math.abs(current.x - start.x);
-  const h = Math.abs(current.y - start.y);
-  if (w < MIN_SHAPE_SIZE || h < MIN_SHAPE_SIZE) {
-    return { id, x: snap(start.x), y: snap(start.y), mentions: [] };
-  }
-  return {
-    id,
-    x: snap((start.x + current.x) / 2),
-    y: snap((start.y + current.y) / 2),
-    bounds: { w: snap(Math.max(MIN_SHAPE_SIZE, w)), h: snap(Math.max(MIN_SHAPE_SIZE, h)) },
-    mentions: [],
-  };
-};
+/** The area a drag picks, or nothing when the drag is too small to be one. */
+export const areaFromDrag = (start: PadPoint, current: PadPoint): GeomRect | undefined =>
+  Math.abs(current.x - start.x) < MIN_SHAPE_SIZE || Math.abs(current.y - start.y) < MIN_SHAPE_SIZE
+    ? undefined
+    : normalizeRect(start.x, start.y, current.x, current.y);
 
 export const appendInkPoint = (
   points: ReadonlyArray<PadPoint>,
@@ -480,14 +460,6 @@ export const draftInkFromPoints = (
   points: [...points],
 });
 
-export const movePin = (pin: PadPin, dx: number, dy: number): Omit<PadPin, "posts"> => ({
-  id: pin.id,
-  x: snap(pin.x + dx),
-  y: snap(pin.y + dy),
-  mentions: pin.mentions,
-  ...(pin.bounds ? { bounds: pin.bounds } : {}),
-});
-
 export const deletePatch = (id: PadElementId): PadPatch => ({
   op: "delete",
   id,
@@ -506,8 +478,7 @@ type ElementSnap =
   | { readonly layer: "shape"; readonly shape: PadShape }
   | { readonly layer: "edge"; readonly edge: PadEdge }
   | { readonly layer: "image"; readonly image: PadImage }
-  | { readonly layer: "ink"; readonly ink: PadInk }
-  | { readonly layer: "pin"; readonly pin: PadPin };
+  | { readonly layer: "ink"; readonly ink: PadInk };
 
 const snapOf = (pad: Pad, id: string): ElementSnap | undefined => {
   const shape = pad.shapes.find((item) => item.id === id);
@@ -518,8 +489,6 @@ const snapOf = (pad: Pad, id: string): ElementSnap | undefined => {
   if (image) return { layer: "image", image };
   const ink = pad.inks.find((item) => item.id === id);
   if (ink) return { layer: "ink", ink };
-  const pin = pad.pins.find((item) => item.id === id);
-  if (pin) return { layer: "pin", pin };
   return undefined;
 };
 
@@ -533,26 +502,11 @@ const upsertFromSnap = (snap: ElementSnap): PadPatch => {
       return { op: "upsert", layer: "image", image: snap.image };
     case "ink":
       return { op: "upsert", layer: "ink", ink: snap.ink };
-    case "pin": {
-      const { posts: _posts, ...pin } = snap.pin;
-      return { op: "pin.upsert", pin };
-    }
   }
 };
 
-/**
- * Pin snaps compare as shells: posts are append-only (no patch removes one),
- * so a pin.reply diff must not produce a no-op undo frame, and a shell-only
- * diff must not drag posts into the comparison.
- */
-const snapKey = (snap: ElementSnap | undefined): string | undefined => {
-  if (snap === undefined) return undefined;
-  if (snap.layer !== "pin") return JSON.stringify(snap);
-  return JSON.stringify({ ...snap, pin: { ...snap.pin, posts: [] } });
-};
-
 const sameSnap = (a: ElementSnap | undefined, b: ElementSnap | undefined): boolean =>
-  snapKey(a) === snapKey(b);
+  JSON.stringify(a) === JSON.stringify(b);
 
 const layerRank = (snap: ElementSnap): number => {
   switch (snap.layer) {
@@ -562,12 +516,19 @@ const layerRank = (snap: ElementSnap): number => {
       return 1;
     case "ink":
       return 2;
-    case "pin":
-      return 3;
     case "edge":
-      return 4;
+      return 3;
   }
 };
+
+const upsertId = (patch: Extract<PadPatch, { readonly op: "upsert" }>): string =>
+  patch.layer === "shape"
+    ? patch.shape.id
+    : patch.layer === "edge"
+      ? patch.edge.id
+      : patch.layer === "image"
+        ? patch.image.id
+        : patch.ink.id;
 
 /** Inverse patches that restore `before` after `patches` have been applied. */
 export const inversePatches = (
@@ -583,9 +544,7 @@ export const inversePatches = (
       else if (patch.layer === "edge") ids.add(patch.edge.id);
       else if (patch.layer === "image") ids.add(patch.image.id);
       else ids.add(patch.ink.id);
-    } else if (patch.op === "pin.upsert") ids.add(patch.pin.id);
-    else if (patch.op === "pin.reply") ids.add(patch.pinId);
-    else ids.add(patch.id);
+    } else ids.add(patch.id);
   }
   for (const edge of before.edges) {
     if (!after.success.edges.some((item) => item.id === edge.id)) ids.add(edge.id);
@@ -602,28 +561,8 @@ export const inversePatches = (
     else if (was) updates.push(upsertFromSnap(was));
   }
   creates.sort((a, b) => {
-    const as = a.op === "upsert" || a.op === "pin.upsert"
-      ? snapOf(before, a.op === "upsert"
-        ? a.layer === "shape"
-          ? a.shape.id
-          : a.layer === "edge"
-            ? a.edge.id
-            : a.layer === "image"
-              ? a.image.id
-              : a.ink.id
-        : a.pin.id)
-      : undefined;
-    const bs = b.op === "upsert" || b.op === "pin.upsert"
-      ? snapOf(before, b.op === "upsert"
-        ? b.layer === "shape"
-          ? b.shape.id
-          : b.layer === "edge"
-            ? b.edge.id
-            : b.layer === "image"
-              ? b.image.id
-              : b.ink.id
-        : b.pin.id)
-      : undefined;
+    const as = a.op === "upsert" ? snapOf(before, upsertId(a)) : undefined;
+    const bs = b.op === "upsert" ? snapOf(before, upsertId(b)) : undefined;
     return (as ? layerRank(as) : 9) - (bs ? layerRank(bs) : 9);
   });
   return Result.succeed([...creates, ...updates, ...deletes]);
@@ -652,11 +591,11 @@ export const applyLocalUndo = (
 export const editableLayer = (
   pad: Pad,
   id: string,
-): "shape" | "edge" | "image" | "ink" | "pin" | undefined =>
+): "shape" | "edge" | "image" | "ink" | undefined =>
   snapOf(pad, id)?.layer;
 
 export const canMove = (layer: ReturnType<typeof editableLayer>): boolean =>
-  layer === "shape" || layer === "image" || layer === "pin";
+  layer === "shape" || layer === "image";
 
 export const canResize = (layer: ReturnType<typeof editableLayer>): boolean =>
   layer === "shape" || layer === "image";
@@ -665,7 +604,7 @@ export const canZ = (layer: ReturnType<typeof editableLayer>): boolean =>
   layer === "shape" || layer === "image" || layer === "ink";
 
 export const canDelete = (layer: ReturnType<typeof editableLayer>): boolean =>
-  layer === "shape" || layer === "edge" || layer === "image" || layer === "ink" || layer === "pin";
+  layer === "shape" || layer === "edge" || layer === "image" || layer === "ink";
 
 export const zOf = (pad: Pad, id: string): number | undefined => {
   const snap = snapOf(pad, id);
@@ -685,5 +624,3 @@ export const imageById = (pad: Pad, id: string): PadImage | undefined =>
 export const inkById = (pad: Pad, id: string): PadInk | undefined =>
   pad.inks.find((ink) => ink.id === id);
 
-export const pinById = (pad: Pad, id: string): PadPin | undefined =>
-  pad.pins.find((pin) => pin.id === id);

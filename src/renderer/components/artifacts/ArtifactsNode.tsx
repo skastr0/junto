@@ -8,6 +8,7 @@ import {
   type ArtifactOp,
   type ArtifactType,
   type ArtifactVersion,
+  padOf,
 } from "@shared/artifact";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
@@ -303,7 +304,7 @@ function SelectedArtifact({
       case "pad":
         return (
           <ArtifactPadEditor
-            pad={body.pad}
+            pad={padOf(body)}
             readOnly={readOnly}
             onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "pad", baseVersion, patches: [...patches] }))}
             onCommentBox={(box) => setDraftAnchor({ kind: "box", ...box })}

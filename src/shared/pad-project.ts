@@ -1,14 +1,11 @@
 /**
  * Junto pad projections. Deterministic, no DOM.
  */
-import { Result, Schema } from "effect";
+import { Schema } from "effect";
 import {
-  PadError,
-  asPadElementId,
   type Pad,
   type PadElementId,
   type PadImage,
-  type PadPin,
   type PadShape,
   type PadShapeStatus,
 } from "./pad";
@@ -17,8 +14,6 @@ import {
   boundsOf,
   contentBounds,
   edgePoints,
-  lookHereBounds,
-  rectsOverlap,
   strokePath,
   trianglePoints,
   type GeomRect as GeomRectValue,
@@ -27,7 +22,6 @@ import { themeRuntime, type ThemeMode } from "./theme";
 
 const VIEW_PAD = 80;
 const EMPTY_VIEW = { x: 0, y: 0, w: 800, h: 600 } as const;
-export const LOOK_HERE_MARGIN = 80;
 
 const SHA_PREFIX = 8;
 
@@ -39,7 +33,6 @@ const padFocusedType = Schema.Literals([
   "image",
   "edge",
   "ink",
-  "pin",
 ]);
 export type PadFocusedType = typeof padFocusedType.Type;
 
@@ -51,13 +44,6 @@ export const PadFocusedItem = Schema.Struct({
   status: Schema.optionalKey(Schema.Literals(["none", "active", "done", "blocked"])),
 });
 export type PadFocusedItem = typeof PadFocusedItem.Type;
-
-export const PadLookHere = Schema.Struct({
-  bounds: GeomRect,
-  digest: Schema.String,
-  svg: Schema.String,
-});
-export type PadLookHere = typeof PadLookHere.Type;
 
 export type PadSvgOptions = {
   readonly hrefs?: Readonly<Record<string, string>>;
@@ -186,15 +172,6 @@ export const padElementsByZ = <T extends { readonly z: number }>(
     .sort((a, b) => a.item.z - b.item.z || a.index - b.index)
     .map((entry) => entry.item);
 
-const firstTextPart = (pin: PadPin): string | undefined => {
-  for (const post of pin.posts) {
-    for (const part of post.parts) {
-      if (part.kind === "text" && part.text.length > 0) return part.text;
-    }
-  }
-  return undefined;
-};
-
 const emitShape = (shape: PadShape, pal: PadSvgPalette): string[] => {
   const fill = esc(padShapeFill(shape, pal));
   const stroke = esc(padShapeStroke(shape, pal));
@@ -275,18 +252,6 @@ export const padToSvg = (
     );
   }
 
-  for (const pin of pad.pins) {
-    if (pin.bounds) {
-      const crop = lookHereBounds(pin, LOOK_HERE_MARGIN);
-      parts.push(
-        `<rect x="${fmt(crop.x)}" y="${fmt(crop.y)}" width="${fmt(crop.w)}" height="${fmt(crop.h)}" fill="none" stroke="${esc(pal.dim)}" stroke-dasharray="4 3" opacity="0.6"/>`,
-      );
-    }
-    parts.push(
-      `<circle cx="${fmt(pin.x)}" cy="${fmt(pin.y)}" r="5" fill="${esc(pal.amber)}"/>`,
-    );
-  }
-
   parts.push("</svg>");
   return parts.join("\n");
 };
@@ -328,14 +293,6 @@ export const padToDigest = (pad: Pad): string => {
       `  ${ink.id} :: width=${fmt(ink.width)} color=${ink.color} points=${ink.points.length}`,
     );
   }
-  lines.push(`pins :: ${pad.pins.length}`);
-  for (const pin of pad.pins) {
-    const mentions = pin.mentions.join(",");
-    const crop = pin.bounds ? ` bounds=${wh(pin.bounds.w, pin.bounds.h)}` : "";
-    lines.push(
-      `  ${pin.id} :: ${xy(pin.x, pin.y)}${crop} mentions=${mentions} posts=${pin.posts.length}`,
-    );
-  }
   return lines.join("\n");
 };
 
@@ -369,46 +326,6 @@ export const padToFocused = (pad: Pad): PadFocusedItem[] => {
   for (const ink of pad.inks) {
     items.push(focused(ink.id, "ink", boundsOf(ink)));
   }
-  for (const pin of pad.pins) {
-    items.push(focused(pin.id, "pin", boundsOf(pin), firstTextPart(pin)));
-  }
   return items;
 };
 
-const cropPad = (pad: Pad, crop: GeomRectValue): Pad => {
-  const keep = (rect: GeomRectValue): boolean => rectsOverlap(rect, crop);
-  const images = pad.images.filter((image) => keep(boundsOf(image)));
-  const shapes = pad.shapes.filter((shape) => keep(boundsOf(shape)));
-  const inks = pad.inks.filter((ink) => keep(boundsOf(ink)));
-  const pins = pad.pins.filter((pin) => keep(boundsOf(pin)));
-  const edges = pad.edges.filter((edge) => {
-    const bounds = boundsOf(pad, edge.id);
-    return bounds !== undefined && keep(bounds);
-  });
-  return { revision: pad.revision, images, shapes, edges, inks, pins };
-};
-
-export const padLookHere = (
-  pad: Pad,
-  pinId: string,
-  theme: ThemeMode = "dark",
-): Result.Result<PadLookHere, PadError> => {
-  const pin = pad.pins.find((candidate) => candidate.id === pinId);
-  if (!pin) {
-    return Result.fail(
-      PadError.make({
-        code: "missing",
-        message: "pin does not exist",
-        id: asPadElementId(pinId),
-      }),
-    );
-  }
-  const bounds = lookHereBounds(pin, LOOK_HERE_MARGIN);
-  const cropped = cropPad(pad, bounds);
-  const digest = [`look-here :: ${pin.id}`, `bounds :: ${xy(bounds.x, bounds.y)} ${wh(bounds.w, bounds.h)}`, padToDigest(cropped)].join("\n");
-  return Result.succeed({
-    bounds,
-    digest,
-    svg: padToSvg(pad, theme, { viewBox: bounds }),
-  });
-};

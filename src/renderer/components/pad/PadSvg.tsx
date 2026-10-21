@@ -3,15 +3,13 @@
  * markup here — paint is resolved to hex/`none` or a trusted theme default.
  * Serialized `padToSvg` is for export only.
  */
-import type { Pad, PadImage, PadInk, PadPin, PadShape } from "@shared/pad";
+import type { Pad, PadImage, PadInk, PadShape } from "@shared/pad";
 import {
   edgePoints,
-  lookHereBounds,
   strokePath,
   trianglePoints,
 } from "@shared/pad-geom";
 import {
-  LOOK_HERE_MARGIN,
   padClipText,
   padElementsByZ,
   padImageLabel,
@@ -123,29 +121,6 @@ const InkEl = ({
   />
 );
 
-const PinEl = ({ pin, pal }: { readonly pin: PadPin; readonly pal: PadSvgPalette }) => (
-  <g>
-    {pin.bounds ? (
-      (() => {
-        const crop = lookHereBounds(pin, LOOK_HERE_MARGIN);
-        return (
-          <rect
-            x={crop.x}
-            y={crop.y}
-            width={crop.w}
-            height={crop.h}
-            fill="none"
-            stroke={pal.dim}
-            strokeDasharray="4 3"
-            opacity={0.6}
-          />
-        );
-      })()
-    ) : null}
-    <circle cx={pin.x} cy={pin.y} r={5} fill={pal.amber} />
-  </g>
-);
-
 export function PadSvg({
   pad,
   theme = "dark",
@@ -229,9 +204,6 @@ export function PadSvg({
       ))}
       {padElementsByZ(pad.inks).map((ink) => (
         <InkEl key={ink.id} ink={ink} pal={pal} />
-      ))}
-      {pad.pins.map((pin) => (
-        <PinEl key={pin.id} pin={pin} pal={pal} />
       ))}
     </svg>
   );

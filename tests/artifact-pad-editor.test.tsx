@@ -45,7 +45,7 @@ afterEach(() => {
 it("renders a pinless pad with no P tool, and P selects nothing", async () => {
   await act(async () => root.render(<ArtifactPadEditor pad={emptyPad()} onPatch={onPatch} />));
   expect(host.querySelector('[data-testid="pad-svg"]')).not.toBeNull();
-  expect(host.querySelector('[data-testid="pad-tool-pin"]')).toBeNull();
+  expect(host.querySelector('[data-testid="pad-tool-area"]')).toBeNull();
   expect(host.querySelector(".pad-toolbar__hint")?.textContent).not.toContain("P");
   await act(async () => svg().dispatchEvent(new KeyboardEvent("keydown", { key: "p", bubbles: true })));
   await drag([20, 30], [80, 70]);
@@ -67,7 +67,7 @@ it("the comment tool turns a dragged area into a box and writes no pin", async (
   await act(async () => root.render(
     <ArtifactPadEditor pad={emptyPad()} onPatch={onPatch} onCommentBox={onCommentBox} />,
   ));
-  const tool = host.querySelector<HTMLButtonElement>('[data-testid="pad-tool-pin"]')!;
+  const tool = host.querySelector<HTMLButtonElement>('[data-testid="pad-tool-area"]')!;
   expect(tool.getAttribute("aria-label")).toBe("Comment on an area (P)");
   expect(host.querySelector(".pad-toolbar__hint")?.textContent).toContain("Pcomment");
   await act(async () => tool.click());

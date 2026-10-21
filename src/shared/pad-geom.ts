@@ -9,7 +9,6 @@ import type {
   PadImage,
   PadInk,
   PadLayer,
-  PadPin,
   PadPoint,
   PadShape,
   PadSide,
@@ -48,7 +47,6 @@ export type PadHit = {
 export const identityCamera: Camera = { x: 0, y: 0, zoom: 1 };
 
 const EDGE_STUB = 16;
-const PIN_MARKER_R = 8;
 
 const fmtNum = (n: number): string => String(Object.is(n, -0) ? 0 : n);
 
@@ -93,35 +91,6 @@ const pointsBounds = (
     h: Math.max(0, maxY - minY + pad * 2),
   };
 };
-
-const pinMarkerBounds = (pin: PadPin): GeomRect => ({
-  x: pin.x - PIN_MARKER_R,
-  y: pin.y - PIN_MARKER_R,
-  w: PIN_MARKER_R * 2,
-  h: PIN_MARKER_R * 2,
-});
-
-export const lookHereBounds = (pin: PadPin, margin: number): GeomRect => {
-  if (pin.bounds) {
-    return {
-      x: pin.x - pin.bounds.w / 2,
-      y: pin.y - pin.bounds.h / 2,
-      w: pin.bounds.w,
-      h: pin.bounds.h,
-    };
-  }
-  return {
-    x: pin.x - margin,
-    y: pin.y - margin,
-    w: margin * 2,
-    h: margin * 2,
-  };
-};
-
-const pinContentBounds = (pin: PadPin): GeomRect =>
-  pin.bounds
-    ? lookHereBounds(pin, 0)
-    : pinMarkerBounds(pin);
 
 const unionRects = (rects: ReadonlyArray<GeomRect>): GeomRect => {
   if (rects.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
@@ -312,10 +281,9 @@ export const edgePoints = (pad: Pad, edge: PadEdge): PadPoint[] | undefined => {
 };
 
 const elementBounds = (
-  item: PadShape | PadImage | PadInk | PadPin,
+  item: PadShape | PadImage | PadInk,
 ): GeomRect => {
   if ("points" in item) return pointsBounds(item.points, item.width / 2);
-  if ("mentions" in item) return pinContentBounds(item);
   return rectOf(item);
 };
 
@@ -325,10 +293,10 @@ const edgeRect = (pad: Pad, edge: PadEdge): GeomRect | undefined => {
   return pointsBounds(points);
 };
 
-export function boundsOf(item: PadShape | PadImage | PadInk | PadPin): GeomRect;
+export function boundsOf(item: PadShape | PadImage | PadInk): GeomRect;
 export function boundsOf(pad: Pad, id: string): GeomRect | undefined;
 export function boundsOf(
-  itemOrPad: PadShape | PadImage | PadInk | PadPin | Pad,
+  itemOrPad: PadShape | PadImage | PadInk | Pad,
   id?: string,
 ): GeomRect | undefined {
   if (id !== undefined) {
@@ -339,13 +307,11 @@ export function boundsOf(
     if (shape) return rectOf(shape);
     const ink = pad.inks.find((candidate) => candidate.id === id);
     if (ink) return pointsBounds(ink.points, ink.width / 2);
-    const pin = pad.pins.find((candidate) => candidate.id === id);
-    if (pin) return pinContentBounds(pin);
     const edge = pad.edges.find((candidate) => candidate.id === id);
     if (edge) return edgeRect(pad, edge);
     return undefined;
   }
-  return elementBounds(itemOrPad as PadShape | PadImage | PadInk | PadPin);
+  return elementBounds(itemOrPad as PadShape | PadImage | PadInk);
 }
 
 export const contentBounds = (pad: Pad): GeomRect => {
@@ -353,7 +319,6 @@ export const contentBounds = (pad: Pad): GeomRect => {
     ...pad.images.map(rectOf),
     ...pad.shapes.map(rectOf),
     ...pad.inks.map((ink) => pointsBounds(ink.points, ink.width / 2)),
-    ...pad.pins.map(pinContentBounds),
   ];
   for (const edge of pad.edges) {
     const rect = edgeRect(pad, edge);
@@ -441,9 +406,6 @@ const hitsShape = (shape: PadShape, point: PadPoint, slop: number): boolean => {
 const hitsInk = (ink: PadInk, point: PadPoint, slop: number): boolean =>
   distToPolyline(point, ink.points) <= ink.width / 2 + slop;
 
-const hitsPin = (pin: PadPin, point: PadPoint, slop: number): boolean =>
-  hypot(point.x - pin.x, point.y - pin.y) <= PIN_MARKER_R + slop;
-
 const sortZDesc = <T extends { readonly z: number }>(
   items: ReadonlyArray<T>,
 ): T[] =>
@@ -458,12 +420,6 @@ export const hitTest = (
   slop = 0,
 ): PadHit | undefined => {
   const reach = slop > 0 ? slop : 0;
-  for (let i = pad.pins.length - 1; i >= 0; i -= 1) {
-    const pin = pad.pins[i]!;
-    if (hitsPin(pin, scenePt, reach)) {
-      return { id: pin.id, layer: "pin" };
-    }
-  }
   for (const ink of sortZDesc(pad.inks)) {
     if (hitsInk(ink, scenePt, reach)) {
       return { id: ink.id, layer: "ink" };

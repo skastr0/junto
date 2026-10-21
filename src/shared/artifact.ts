@@ -28,8 +28,10 @@ import { Anchor } from "./thread-subject";
 import { ItemId } from "./work-ids";
 import {
   applyPatch,
-  Pad,
+  type Pad,
   PadDelete,
+  PadFields,
+  PadInvariants,
   PadUpsertEdge,
   PadUpsertImage,
   PadUpsertInk,
@@ -124,18 +126,29 @@ export const DocumentBody = Schema.Struct({
 });
 export type DocumentBody = typeof DocumentBody.Type;
 
-/** Pins are comment sites; on an artifact they are threads (03), never pad JSON. */
-const PinlessPad = Pad.pipe(
-  Schema.check(Schema.makeFilter((pad: Pad) => pad.pins.length === 0, {
-    message: "an artifact pad carries no pins; comments are threads",
-  })),
-);
+/**
+ * A stored pad. Comments on a pad are threads (03), never pad JSON, and the pad
+ * has no pin layer. Bodies written before the pin layer left carry `pins: []`.
+ * Stored bodies are content-addressed and hash-verified, so they cannot be
+ * rewritten: the key still decodes, only ever empty, and re-encodes to the
+ * same bytes, so their refs hold. A body written now has no pins key.
+ */
+const StoredPad = Schema.Struct({
+  ...PadFields,
+  pins: Schema.optionalKey(Schema.Tuple([])),
+}).pipe(Schema.check(PadInvariants));
 
 export const PadBody = Schema.Struct({
   type: Schema.Literal("pad"),
-  pad: PinlessPad,
+  pad: StoredPad,
 });
 export type PadBody = typeof PadBody.Type;
+
+/** The pad a body holds, without a stored legacy `pins` key. */
+export const padOf = (body: PadBody): Pad => {
+  const { pins: _legacy, ...pad } = body.pad;
+  return pad;
+};
 
 const uniqueSheetIds = (grid: SheetGrid): true | string => {
   const columns = grid.columns.map((column) => column.id);
@@ -523,7 +536,7 @@ const applyPadPatches = (
   body: PadBody,
   patches: ReadonlyArray<ArtifactPadPatch>,
 ): Result.Result<ArtifactBody, ArtifactEditError> => {
-  let pad: Pad = body.pad;
+  let pad: Pad = padOf(body);
   for (const patch of patches) {
     const next = applyPatch(pad, patch);
     if (Result.isFailure(next)) {
@@ -769,7 +782,7 @@ export const artifactText = (body: ArtifactBody): string => {
 export const emptyBody = <T extends Exclude<ArtifactType, "link" | "file">>(type: T): BodyOf<T> => {
   const bodies: { readonly [K in Exclude<ArtifactType, "link" | "file">]: BodyOf<K> } = {
     document: { type: "document", markdown: "" },
-    pad: { type: "pad", pad: { revision: 0, images: [], shapes: [], edges: [], inks: [], pins: [] } },
+    pad: { type: "pad", pad: { revision: 0, images: [], shapes: [], edges: [], inks: [] } },
     sheet: {
       type: "sheet",
       grid: { columns: [{ id: "c1", name: "Column A" }, { id: "c2", name: "Column B" }], rows: [{ id: "r1", cells: {} }] },
