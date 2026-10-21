@@ -30,11 +30,12 @@ everyone else reports by mail and on the needs-you feed.
 - **Review.** Every change gets a review from a seat that did not write it.
   Tokens, type or shared UI components also go through product-typography.
 - **The operator reviews through the needs-you feed, with pictures.** Every
-  UI change is reported with `junto feedback` carrying screenshots
+  new or changed UI is reported with `junto feedback` carrying screenshots
   (`--attach`), before and after (`--compare`) or a video (`--video`), and
   the commit (`--commit`). Every decision goes as `junto escalate` with the
   options and a recommendation. Blocked work goes as `junto blocked`. Never
-  ask the operator anything inside mail.
+  ask the operator anything inside mail. Deletions get no screenshots and
+  no before and after (operator, 2026-10-21): report them with the commit only.
 - **Leads mail product-lead** when a contract lands, a track finishes, or a
   dependency slips. product-lead updates the tracker below.
 
