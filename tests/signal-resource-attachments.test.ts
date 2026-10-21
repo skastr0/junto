@@ -6,7 +6,8 @@ import type { ReachCanvas, ReachNode } from "../src/shared/region-reach";
 import { ItemId } from "../src/shared/work-ids";
 import { AgentSignalAttachment, agentSignalAttachmentKind, isResourceAttachment } from "../src/shared/agent-signals";
 import { previewRefsOfAttachments } from "../src/shared/preview";
-import { admitResourceAttachment, type SignalResources } from "../src/main/junto/signals/attachments";
+import { Effect } from "effect";
+import { admitResourceAttachment, claimSignalAttachments, type SignalResources } from "../src/main/junto/signals/attachments";
 
 const node = (id: string, kind: NodeKind, x: number, y: number, width = 50, height = 50): ReachNode => ({
   id: asNodeId(id),
@@ -67,6 +68,35 @@ describe("task and artifact attachments, as main admits them", () => {
     expect(refused("task", ref("gone", T))).toBe("gone holds no tasks on this canvas");
     expect(refused("task", ref("TX", T))).toBe("TX is out of this seat's reach");
     expect(refused("task", ref("T", A))).toBe(`no task ${A} on T`);
+  });
+});
+
+describe("a signal's task and artifact attachments, claimed", () => {
+  const content = { releaseOwner: () => Effect.void } as never;
+  const signal = { signalId: "sig-1", canvasName: "factory", nodeId: "S" };
+
+  it("keeps a task named twice once, where first named", async () => {
+    const taken = await Effect.runPromise(
+      claimSignalAttachments(
+        content,
+        signal,
+        [
+          { kind: "task", ref: ref("T", T), caption: "first" },
+          { kind: "artifact", ref: ref("A", A) },
+          { kind: "task", ref: ref("T", T), caption: "again" },
+        ],
+        resources,
+      ),
+    );
+    expect(taken).toEqual([
+      { kind: "task", nodeId: "T", taskId: T, caption: "first" },
+      { kind: "artifact", nodeId: "A", artifactId: A },
+    ]);
+  });
+
+  it("refuses both kinds in a runtime that gives no canvas to judge them by", async () => {
+    const refused = await Effect.runPromise(Effect.flip(claimSignalAttachments(content, signal, [{ kind: "task", ref: ref("T", T) }])));
+    expect(refused).toEqual({ path: "attach[0]", message: "tasks cannot be attached in this Junto runtime" });
   });
 });
 

@@ -187,6 +187,8 @@ describe("AgentSignalRepository", () => {
       { ref: ref("notes.txt", "a") },
       { kind: "compare", before: ref("before.ts", "b"), after: ref("after.ts", "d"), name: "limit.ts" },
       { kind: "link", url: "https://media.example.com/run.mp4", caption: "The run" },
+      { kind: "task", nodeId: "task-board", taskId: "01M5ESZPWMZZM3TZ88P6FVVK33", caption: "Stamp this" },
+      { kind: "artifact", nodeId: "artifacts-1", artifactId: "01M5ESR42S7P9YNR8FEH0TD2QC" },
     ] as never;
     const got = await run(
       Effect.gen(function* () {

@@ -2,6 +2,7 @@ import { open } from "node:fs/promises";
 import { Effect, Option } from "effect";
 import {
   admitLinkUrl,
+  isResourceAttachment,
   type AgentSignal,
   type AgentSignalAttachment,
   type AgentSignalAttachmentInput,
@@ -209,7 +210,20 @@ export const claimSignalAttachments = (
       if (!link.ok) return yield* Effect.fail(refusal(index, link.reason));
       return { kind: "link", url: link.url, ...caption } as AgentSignalAttachment;
     }),
-  ).pipe(Effect.tapError(() => content.releaseOwner(owner).pipe(Effect.ignore)));
+  ).pipe(
+    // The same task or artifact named twice is one attachment, kept where first named.
+    Effect.map((taken) => {
+      const named = new Set<string>();
+      return taken.filter((attachment) => {
+        if (!isResourceAttachment(attachment)) return true;
+        const key = `${attachment.kind}:${attachment.nodeId}:${attachment.kind === "task" ? attachment.taskId : attachment.artifactId}`;
+        if (named.has(key)) return false;
+        named.add(key);
+        return true;
+      });
+    }),
+    Effect.tapError(() => content.releaseOwner(owner).pipe(Effect.ignore)),
+  );
 };
 
 /**

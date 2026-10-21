@@ -662,6 +662,8 @@ export function OperatorFeed() {
     // The open composer owns its keys: an answer key on its buttons (Attach,
     // a chip's Remove) would answer without the files it holds.
     if (event.target instanceof Element && event.target.closest('[data-testid="signal-reply"]')) return;
+    // A task or artifact chip is a button: Enter opens it, and no answer key acts from it.
+    if (event.target instanceof Element && event.target.closest('[data-testid="signal-resource-chips"]')) return;
     // The region and order menus read letters as type-ahead: keys that land
     // inside a listbox are the menu's, never j/k movement.
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;

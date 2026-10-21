@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   type AgentSignal,
   type AgentSignalAttachment,
+  type AgentSignalAttachmentKind,
   AgentSignalKind,
   AgentSignalState,
 } from "@shared/agent-signals";
@@ -220,7 +221,16 @@ type PartJson = {
   readonly caption: string | null;
 };
 
-const PART_KINDS: ReadonlySet<string> = new Set(["file", "compare", "commit", "link"]);
+/** Every attachment kind the wire knows: a new one fails to compile here until it is stored. */
+const STORED_KINDS = {
+  file: true,
+  compare: true,
+  commit: true,
+  link: true,
+  task: true,
+  artifact: true,
+} as const satisfies Record<AgentSignalAttachmentKind, true>;
+const PART_KINDS: ReadonlySet<string> = new Set(Object.keys(STORED_KINDS));
 /** The part kind a suggested reply is stored as; its body is `{"text": ...}`. */
 const SUGGEST_PART_KIND = "suggest";
 
