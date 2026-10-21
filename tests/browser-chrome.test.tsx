@@ -30,6 +30,15 @@ describe("BrowserChrome", () => {
     expect(html).toContain("New tab");
   });
 
+  it("keeps the tablist to tabs: one tab in the tab order, new tab and close outside the tab keys", () => {
+    const html = draw({ tabs: tabsTwo, driving: initialPageDriving });
+    const list = html.slice(html.indexOf('role="tablist"'), html.indexOf("New tab") );
+    expect((list.match(/role="tab"/g) ?? []).length).toBe(2);
+    expect((list.match(/tabindex="0"/g) ?? []).length).toBe(1);
+    expect((list.match(/tabindex="-1"/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(html.indexOf('aria-label="New tab"')).toBeGreaterThan(html.indexOf("</div></div>", html.indexOf('role="tablist"')) - 1);
+  });
+
   it("hides close on the only tab", () => {
     const html = draw({ tabs: initialPageTabs("https://example.com/"), driving: initialPageDriving });
     expect(html).not.toContain("Close example.com");

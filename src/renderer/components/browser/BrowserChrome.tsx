@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Hand, Plus, RotateCw, Undo2, X } from "lucide-react";
 import type { BrowserChromeState } from "@shared/browser-chrome";
 import type { BrowserTabId } from "@shared/browser-tab";
@@ -6,6 +6,7 @@ import { activeTab } from "@shared/page-tabs";
 import type { ChromeCommand } from "../../lib/browser-chrome-source";
 import { addressTarget, driverView, refusalLine, tabLabel, takeoverOffer } from "../../lib/browser-chrome-model";
 import type { BrowserChromeOutcome } from "@shared/browser-chrome";
+import { claimFocus } from "../../lib/focus-ownership";
 import { Button, IconButton, Input, StatusDot } from "../ui";
 import "./browser-chrome.css";
 
@@ -56,7 +57,13 @@ export function TakeoverControl({
   );
 }
 
-/** The tabs in order; the active one is marked. Closing is hidden on the last tab. */
+/**
+ * The tabs in order; the active one is marked. The tablist owns only tabs
+ * (each wrapped in a presentational row with its close button, which the mouse
+ * uses; the keyboard closes a focused tab with Delete). One tab is in the tab
+ * order at a time; Left and Right move to the neighbour and activate it. The
+ * new-tab button sits beside the list, not inside it.
+ */
 export function TabStrip({
   state,
   pending,
@@ -68,39 +75,61 @@ export function TabStrip({
 }) {
   const { tabs, active } = state.tabs;
   const only = tabs.length === 1;
+  const move = (event: KeyboardEvent<HTMLButtonElement>, tab: BrowserTabId): void => {
+    const keys = event.key;
+    if (keys === "Delete" && !only) {
+      event.preventDefault();
+      onCommand({ kind: "closeTab", tab });
+      return;
+    }
+    const step = keys === "ArrowRight" ? 1 : keys === "ArrowLeft" ? -1 : 0;
+    if (step === 0) return;
+    const index = tabs.findIndex((candidate) => candidate.id === tab);
+    const next = tabs[(index + step + tabs.length) % tabs.length];
+    if (next === undefined || next.id === tab) return;
+    event.preventDefault();
+    onCommand({ kind: "activateTab", tab: next.id as BrowserTabId });
+    const buttons = event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLElement>('[role="tab"]');
+    claimFocus(buttons?.[tabs.findIndex((candidate) => candidate.id === next.id)], "gesture", { event });
+  };
   return (
-    <div className="tab-strip" role="tablist" aria-label="Tabs" data-testid="browser-tabs">
-      {tabs.map((tab) => {
-        const label = tabLabel(tab);
-        return (
-          <div key={tab.id} className="tab-strip__tab" data-active={tab.id === active ? "true" : undefined} data-loading={tab.loading ? "true" : undefined}>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab.id === active}
-              className="tab-strip__label"
-              title={tab.url === "" ? label : `${label}\n${tab.url}`}
-              disabled={pending}
-              onClick={() => onCommand({ kind: "activateTab", tab: tab.id as BrowserTabId })}
-            >
-              {tab.loading ? <span className="tab-strip__loading" aria-hidden /> : null}
-              <span className="truncate">{label}</span>
-              {tab.loading ? <span className="sr-only">, loading</span> : null}
-            </button>
-            {only ? null : (
-              <IconButton
-                aria-label={`Close ${label}`}
-                title="Close tab"
-                size="xs"
+    <div className="tab-strip" data-testid="browser-tabs">
+      <div className="tab-strip__list" role="tablist" aria-label="Tabs">
+        {tabs.map((tab) => {
+          const label = tabLabel(tab);
+          return (
+            <div key={tab.id} role="presentation" className="tab-strip__tab" data-active={tab.id === active ? "true" : undefined} data-loading={tab.loading ? "true" : undefined}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.id === active}
+                tabIndex={tab.id === active ? 0 : -1}
+                className="tab-strip__label"
+                title={tab.url === "" ? label : `${label}\n${tab.url}`}
                 disabled={pending}
-                onClick={() => onCommand({ kind: "closeTab", tab: tab.id as BrowserTabId })}
+                onClick={() => onCommand({ kind: "activateTab", tab: tab.id as BrowserTabId })}
+                onKeyDown={(event) => move(event, tab.id as BrowserTabId)}
               >
-                <X size={11} />
-              </IconButton>
-            )}
-          </div>
-        );
-      })}
+                {tab.loading ? <span className="tab-strip__loading" aria-hidden /> : null}
+                <span className="truncate">{label}</span>
+                {tab.loading ? <span className="sr-only">, loading</span> : null}
+              </button>
+              {only ? null : (
+                <IconButton
+                  aria-label={`Close ${label}`}
+                  title="Close tab (Delete on the tab)"
+                  size="xs"
+                  tabIndex={-1}
+                  disabled={pending}
+                  onClick={() => onCommand({ kind: "closeTab", tab: tab.id as BrowserTabId })}
+                >
+                  <X size={11} />
+                </IconButton>
+              )}
+            </div>
+          );
+        })}
+      </div>
       <IconButton
         aria-label="New tab"
         title="New tab"
