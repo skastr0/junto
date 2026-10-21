@@ -4,7 +4,6 @@ import type { ActorRefResolver } from "./attention";
 import type { Canvas, Node } from "./model";
 import { titleOf } from "./model/title";
 import { inPaintOrder, regionMembers as membersOf, regionName } from "./model/canvas";
-import type { SnapshotState } from "./entities";
 import {
   deriveExecutionGraph,
   type LiveTrustViews,
@@ -21,7 +20,7 @@ import type { WorkItemsOf } from "./execution-graph";
 //
 // Pure, side-effect-free, derived from (canvas rows + compiled actor refs +
 // optional live inputs). Never persisted. INVARIANT (mirror of the edge law):
-// unknown or missing live data invents NOTHING — absent snapshots/activity
+// unknown or missing live data invents NOTHING — absent activity
 // only narrow what can be derived; they never fabricate blocks, attention,
 // or work.
 
@@ -102,10 +101,6 @@ export interface RegionRollupInput extends LiveTrustViews {
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
   readonly workBlockedSeats?: ReadonlyMap<string, WorkBlockedSeat>;
-  // Reserved seam: binding staleness deliberately does NOT feed the ladder
-  // yet — a down adapter would cry wolf on every bound node. Accepted so the
-  // digest and the app service share one input shape.
-  readonly snapshots?: SnapshotState;
   readonly agentActivity?: ReadonlyMap<string, AgentActivity>;
   // Backend-neutral harness activity by canvas node id. Session liveness alone
   // never means work: only an explicit harness state contributes severity.

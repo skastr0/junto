@@ -136,12 +136,11 @@ describe("macOS privacy policy", () => {
     }
   });
 
-  it("discloses Hermes host snapshots separately from local Hermes usage", () => {
+  it("discloses local Hermes usage and its refresh cadence", () => {
     const docs = read("docs/macos-privacy.md");
     const ui = read("src/renderer/components/settings/ProvidersSettingsSection.tsx");
-    expect(docs).toContain("Hermes host snapshots");
-    expect(docs).toContain("hermes profile list");
-    expect(docs).toContain("every one minute");
+    expect(docs).toContain("Hermes usage");
+    expect(docs).not.toContain("Hermes host snapshots");
     expect(docs).toContain("every five minutes");
     expect(docs).toContain("default-on value is treated as off");
     expect(ui).toContain("sourceAccess");

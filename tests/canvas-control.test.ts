@@ -71,7 +71,6 @@ const makeRuntime = (input: {
             opened: { ...current, canvas: asCanvasName(name) },
             digest: `Canvas ${name}`,
             actorRefs: input.actorRefs?.get(name) ?? [],
-            snapshots: { bundles: [{ source: "hermes", fetchedAt: "2026-07-27T12:00:00.000Z", ok: true, entities: [] }] },
           });
     },
   });
@@ -157,7 +156,6 @@ describe("canvas control", () => {
     ]);
     expect(read.opened.nodes[0]?.id).toBe("note");
     expect(read.actorRefs).toEqual([projectedActor]);
-    expect(read.snapshots.bundles[0]?.source).toBe("hermes");
     expect((await stat(controlHome)).mode & 0o777).toBe(0o700);
     expect((await stat(server.socketPath)).mode & 0o777).toBe(0o600);
     expect((await readdir(controlHome)).some((name) => /token|\.json$/u.test(name))).toBe(false);
@@ -168,7 +166,6 @@ describe("canvas control", () => {
     const base = {
       opened: doc(),
       digest: "Canvas portfolio",
-      snapshots: { bundles: [] },
     };
     const decode = Schema.decodeUnknownResult(CanvasControlReadData, {
       onExcessProperty: "error",

@@ -11,7 +11,6 @@ import { ModelService } from "../src/main/junto/model/service";
 import { readModelDigest } from "../src/main/junto/model/digest";
 import { CanvasControlQueries } from "../src/main/junto/canvas-control/queries";
 import { CanvasControlReadData } from "../src/main/junto/canvas-control/protocol";
-import { SnapshotsService } from "../src/main/junto/snapshots";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -49,17 +48,11 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
       sentBy: actors.find((ref) => ref.nodeId === "sender")!, destination: { kind: "mailbox" },
       message: { messageId: "delivered-mail", role: "user", parts: [{ kind: "text", text: "hello" }] },
     }));
-    const digest = await runtime.runPromise(readModelDigest("factory", { bundles: [] }));
+    const digest = await runtime.runPromise(readModelDigest("factory"));
     expect(digest).toContain("sender :: agent");
     expect(digest).toContain("inbox :: agent");
     expect(digest).not.toContain("hello");
-    const queries = await runtime.runPromise(CanvasControlQueries.make.pipe(
-      Effect.provideService(SnapshotsService, SnapshotsService.of({
-        doctor: Effect.succeed({ id: "snapshots", label: "Snapshots", status: "ok", detail: "test" }),
-        current: Effect.succeed({ bundles: [] }), refresh: () => Effect.succeed({ bundles: [] }),
-        start: () => undefined, subscribe: () => () => undefined,
-      })),
-    ));
+    const queries = await runtime.runPromise(CanvasControlQueries.make);
     const controlRead = await runtime.runPromise(queries.read("factory"));
     expect(Schema.decodeUnknownSync(CanvasControlReadData, { onExcessProperty: "error" })(controlRead)).toEqual(controlRead);
     expect(controlRead.opened.nodes.map(({ kind }) => kind)).toEqual(["agent", "agent"]);

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { Canvas } from "../src/shared/model";
-import type { SnapshotState } from "../src/shared/entities";
 import {
   digestCanvas as digestCanvasWithActorRefs,
   type DigestLiveViews,
@@ -14,10 +13,9 @@ type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef" | "itemsOf">;
 const digestCanvas = (
   name: string,
   canvas: Canvas,
-  snapshots: SnapshotState,
   live: DigestFixtureViews = {},
 ): string =>
-  digestCanvasWithActorRefs(canvas, snapshots, {
+  digestCanvasWithActorRefs(canvas, {
     ...live,
     itemsOf: () => [],
     resolveActorRef: executionContextForCanvas(canvas, name).resolveActorRef,
@@ -42,25 +40,6 @@ const doc = canvasOf(
   [],
   "fixture",
 );
-
-const snapshots: SnapshotState = {
-  bundles: [
-    {
-      source: "hermes",
-      fetchedAt: "2026-01-01T00:00:00.000Z",
-      ok: true,
-      entities: [
-        {
-          source: "hermes",
-          key: "host:agent",
-          kind: "agent",
-          stats: { b: "x", a: 1 },
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-    },
-  ],
-};
 
 const expected = `canvas :: fixture
 nodes :: 4
@@ -87,21 +66,17 @@ team :: region
 Foo :: note
 Bar :: note
 Baz :: agent
-  hermes: stale
-
-sources
-hermes :: ok (1 entities)
 `;
 
 describe("digestCanvas", () => {
   it("is deterministic across repeated calls", () => {
-    const first = digestCanvas("fixture", doc, snapshots);
-    const second = digestCanvas("fixture", doc, snapshots);
+    const first = digestCanvas("fixture", doc);
+    const second = digestCanvas("fixture", doc);
     expect(first).toBe(second);
   });
 
   it("matches the exact expected projection for the fixture", () => {
-    expect(digestCanvas("fixture", doc, snapshots)).toBe(expected);
+    expect(digestCanvas("fixture", doc)).toBe(expected);
   });
 });
 
@@ -158,7 +133,7 @@ const expected2 = [
 
 describe("digestCanvas — region rollups formatting", () => {
   it("pins singular counts, empty region, and the unnamed region fallback", () => {
-    expect(digestCanvas("fixture2", doc2, { bundles: [] })).toBe(expected2);
+    expect(digestCanvas("fixture2", doc2)).toBe(expected2);
   });
 });
 
@@ -175,7 +150,7 @@ describe("digestCanvas — design (I13)", () => {
   );
 
   it("empty-seat fixture appears under design", () => {
-    const out = digestCanvas("trust", trustDoc, { bundles: [] }, {
+    const out = digestCanvas("trust", trustDoc, {
       occupancy: new Map([["agent1", "empty"]]),
     });
     expect(out).toContain("design");
@@ -194,12 +169,12 @@ it("reads explicit Work waits and authored verbs from model rows", async () => {
   const id = asWireId("contribution");
   const canvas = { name: asCanvasName("factory"), seq: 7, nodes: new Map([worker, queue].map((node) => [node.id, node])), wires: new Map([[id, { id, from: worker.id, to: queue.id, verb: "contributes" as const }]]) };
   const live: DigestLiveViews = { resolveActorRef: (ref) => ref.nodeId === worker.id ? { canvasName: "factory", nodeId: worker.id, seatId } : undefined, itemsOf: (nodeId) => nodeId === queue.id ? [{ id: "waiting", state: "input-required", claimedBy: seatId, history: [] }] : [] };
-  const text = digestCanvasWithActorRefs(canvas, { bundles: [] }, live);
+  const text = digestCanvasWithActorRefs(canvas, live);
   expect(text).toContain("edges :: 1");
   expect(text).toContain("Queue :: task");
   expect(text).toContain("blockers");
   expect(text).toContain("Worker --blocks(");
-  const idle = digestCanvasWithActorRefs(canvas, { bundles: [] }, { ...live, itemsOf: () => [] });
+  const idle = digestCanvasWithActorRefs(canvas, { ...live, itemsOf: () => [] });
   expect(idle).toContain("Worker --contributes--> Queue");
   expect(idle).not.toContain("blockers");
 });

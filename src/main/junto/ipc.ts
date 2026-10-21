@@ -21,7 +21,6 @@ import { OperatorAttachments, OperatorContentPut, type OperatorContentPutResult 
 import { putOperatorContent } from "./content/operator-attachments";
 import {
   IPC_CHANNELS,
-  type BindingHint,
   type AgentSignalAnswerOptions,
   type AgentSignalOperatorResult,
   type FactoryPauseSetResult,
@@ -65,7 +64,6 @@ import { registerReferencesIpc } from "./references/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
-import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
@@ -375,23 +373,10 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.canvasDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
-        const snapshots = yield* SnapshotsService;
-        const digest = yield* readModelDigest(name, yield* snapshots.current);
+        const digest = yield* readModelDigest(name);
         return { digest };
       }),
     ),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.getSnapshots, () =>
-    AppRuntime.runPromise(Effect.flatMap(SnapshotsService, (snapshots) => snapshots.current)),
-  );
-
-  if (HERMES_INTEGRATION_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.refreshSnapshots,
-    (_event, hints?: ReadonlyArray<BindingHint>) =>
-      AppRuntime.runPromise(
-        Effect.flatMap(SnapshotsService, (snapshots) => snapshots.refresh(hints)),
-      ),
   );
 
   if (USAGE_ENABLED) {
@@ -1563,7 +1548,6 @@ export const registerJuntoIpc = (): void => {
   void AppRuntime.runPromise(
     Effect.gen(function* () {
       const modelForBoot = yield* ModelService;
-      const snapshots = yield* SnapshotsService;
       const usage = yield* UsageService;
       const kernel = yield* KernelService;
       const coreMail = yield* MachineCoreMail;
@@ -1593,7 +1577,6 @@ export const registerJuntoIpc = (): void => {
         if (event._tag === "Removed") noticeCanvases.delete(event.canvas);
         else if (current) noticeCanvases.set(event.canvas, current);
       });
-      snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       if (USAGE_ENABLED) {
         usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));
       }
@@ -1939,7 +1922,6 @@ export const registerJuntoIpc = (): void => {
       };
       syncCheckoutWatch();
 
-      snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
       // provider fetches can take tens of seconds so it never blocks window open.
       if (USAGE_ENABLED) usage.start();

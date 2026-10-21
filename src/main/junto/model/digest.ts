@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { digestCanvas, type DigestLiveViews } from "@shared/digest";
-import type { SnapshotState } from "@shared/entities";
 import type { BoardGlanceTopic, PadGlance, Task } from "@shared/work-model";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import { withSqlRead } from "../state/sql-read";
@@ -12,7 +11,6 @@ import { ModelActorRefs } from "./actor-refs";
 /** A requested digest reads exact sink rows, never mailbox projections. */
 export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
   name: string,
-  snapshots: SnapshotState,
 ) {
   const model = yield* ModelService;
   const actors = yield* ModelActorRefs;
@@ -60,6 +58,6 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
       }
     }
     const live: DigestLiveViews = { resolveActorRef: actorRefResolverFromProjection(refs), itemsOf: (id) => items.get(id) ?? [], artifactCounts, padGlances, boardGlances, sheetSizes };
-    return digestCanvas(canvas, snapshots, live);
+    return digestCanvas(canvas, live);
   }));
 });

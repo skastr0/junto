@@ -86,7 +86,7 @@ one. `tests/launch-permission-surface.test.ts` holds both.
 | Live conversation | Starting a call in a Live-enabled build | Microphone audio sent to OpenAI; selected canvas context and transcript sent to the controller | Audio is not recorded locally; transcript, requests, and operation receipts remain in product state; microphone tracks stop on call end |
 | Shell environment | App start, once per Junto (window or machine core) | The operator's login shell, `$SHELL -l -i -c`, run from `~/.junto` with its rc files; its exported environment, with `PATH` merged over the inherited `PATH`, optional operator tool directories and fixed executable directories such as `~/.local/bin` and `~/.bun/bin` | One bounded, owned child per start; never per spawn. Its rc files touch what they touch under Junto's TCC identity, like a Junto terminal's `$SHELL -l`. See Shell environment below |
 | Supervisor status | Packaged app start | Current-user launchd job metadata | No content-library access and no permission prompt |
-| Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; Hermes host snapshots poll every minute when separately enabled; revocation clears the row immediately and stops future polls |
+| Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; revocation clears the row immediately and stops future polls |
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
 | Terminal or attached agent | Explicitly creating or activating the seat, or, once the operator presses play, waking a seat whose work is waiting | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed. A managed agent seat must name a working directory and is refused when it resolves to the operator home |
@@ -193,9 +193,6 @@ Settings card names the access before opt-in:
 - Hermes usage: `~/.hermes/profiles` and local profile state databases, read
   through the `sqlite3` CLI. Does not run `hermes` CLI commands or reach
   enrolled hosts. Refreshes every five minutes.
-- Hermes host snapshots (separate toggle, Hermes-integration builds only):
-  local and enrolled-host SSH `hermes profile list` and `hermes version`, plus
-  remote profile metadata. Polls every one minute.
 - Kimi: configured or `~/.kimi-code` credentials, Kimi network.
 - Ollama Cloud: configured/environment credentials, Ollama network.
 - OpenCode Go: credentials and local usage database read through the

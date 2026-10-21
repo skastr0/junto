@@ -2,8 +2,6 @@ import { asNodeId, inPaintOrder, regionMembers, regionName, type Canvas, type No
 import { titleOf as modelTitleOf } from "./model/title";
 import type { BoardGlanceTopic, PadGlance } from "./work-model";
 import type { ActorRefResolver } from "./attention";
-import { buildConnectionIndex } from "./connections";
-import type { EntitySource, SnapshotState } from "./entities";
 import {
   deriveExecutionGraph,
   type LiveTrustViews,
@@ -20,12 +18,9 @@ import { deriveRegionRollups } from "./region-rollup";
 import { readReviewVerdict, type ReviewVerdict } from "./crew";
 import { rulesInForce, taskEpoch } from "./rules";
 
-// Deterministic text projection of spatial kinds, exact Work rows and snapshots.
-// Model paint order and fixed source order make repeat reads byte-identical.
+// Deterministic text projection of spatial kinds and exact Work rows.
+// Model paint order makes repeat reads byte-identical.
 // Empty seats are design facts; only current Work waits generate blockers.
-
-// Fixed rendering order for the sources section, independent of fetch order.
-const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["hermes"];
 
 // Fixed role count key order for the canvas physics section.
 const ROLE_ORDER: ReadonlyArray<FactoryRole> = [
@@ -45,13 +40,6 @@ const ROLE_COUNT_KEY: Record<FactoryRole, string> = {
 const titleOf = (node: Node): string => node.kind === "region" && !node.label?.trim()
   ? `unnamed region (${node.id})` : modelTitleOf(node);
 
-const formatStats = (stats: Record<string, string | number>): string => {
-  const parts = Object.keys(stats)
-    .sort()
-    .map((key) => `${key}=${String(stats[key])}`);
-  return parts.length > 0 ? parts.join(" ") : "ok";
-};
-
 /** Required actor authority plus optional trust/occupancy views. */
 export type DigestLiveViews = LiveTrustViews & {
   /** Exact current Work rows supplied separately from the spatial model. */
@@ -68,14 +56,12 @@ export type DigestLiveViews = LiveTrustViews & {
 
 export const digestCanvas = (
   canvas: Canvas,
-  snapshots: SnapshotState,
   live: DigestLiveViews,
 ): string => {
   const name = canvas.name;
   const nodes = inPaintOrder(canvas);
   const edges = [...canvas.wires.values()];
   const nodeById = canvas.nodes;
-  const connectionIndex = buildConnectionIndex(snapshots);
   const titleForId = (id: string): string => {
     const node = nodeById.get(asNodeId(id));
     return node ? titleOf(node) : id;
@@ -115,13 +101,12 @@ export const digestCanvas = (
 
   // region rollups — severity bubbled up per region (the bottom bar's
   // operational tier). Headless: no agent activity input, so the section
-  // stays a pure function of doc + snapshots.
+  // stays a pure function of the doc.
   if (groups.length > 0) {
     const rollupLines = ["region rollups"];
     for (const rollup of deriveRegionRollups({
       canvas,
       itemsOf,
-      snapshots,
       canvasName: name,
       resolveActorRef: live.resolveActorRef,
       ...trust,
@@ -218,10 +203,6 @@ export const digestCanvas = (
     const entityLines = ["entities"];
     for (const node of entityNodes) {
       entityLines.push(`${titleOf(node)} :: ${node.kind}`);
-      if (node.kind === "agent") {
-        const entity = connectionIndex.byKey.get(`hermes:${node.agentKey}`);
-        entityLines.push(entity ? `  hermes: ${formatStats(entity.stats)}` : "  hermes: stale");
-      }
       // Work rows are supplied separately from spatial kinds.
       if (node.kind === "task") {
         const items = itemsOf(node.id);
@@ -396,21 +377,6 @@ export const digestCanvas = (
   }
   if (reviewLines.length > 1) {
     sections.push(reviewLines);
-  }
-
-  // sources
-  if (snapshots.bundles.length > 0) {
-    const sourceLines = ["sources"];
-    for (const source of SOURCE_ORDER) {
-      const bundle = snapshots.bundles.find((b) => b.source === source);
-      if (!bundle) continue;
-      sourceLines.push(
-        bundle.ok
-          ? `${source} :: ok (${bundle.entities.length} entities)`
-          : `${source} :: down (${bundle.error ?? "unknown error"})`,
-      );
-    }
-    sections.push(sourceLines);
   }
 
   for (const section of sections) {

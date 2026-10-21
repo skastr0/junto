@@ -3,7 +3,6 @@ import { SqlClient } from "effect/unstable/sql";
 import { ModelService } from "../model/service";
 import { ModelActorRefs } from "../model/actor-refs";
 import { readModelDigest } from "../model/digest";
-import { SnapshotsService } from "../snapshots";
 import { withSqlRead } from "../state/sql-read";
 import { WorkRepository } from "../work/repository";
 import type { CanvasControlListData, CanvasControlReadData } from "./protocol";
@@ -17,7 +16,6 @@ export class CanvasControlQueries extends Context.Service<CanvasControlQueries>(
   make: Effect.gen(function* () {
     const model = yield* ModelService;
     const actors = yield* ModelActorRefs;
-    const snapshots = yield* SnapshotsService;
     const sql = yield* SqlClient.SqlClient;
     const context = yield* Effect.context<ModelService | ModelActorRefs | WorkRepository | SqlClient.SqlClient>();
     const list = Effect.fn("CanvasControlQueries.list")(function* () {
@@ -34,9 +32,8 @@ export class CanvasControlQueries extends Context.Service<CanvasControlQueries>(
       return yield* withSqlRead(sql, Effect.gen(function* () {
         const opened = yield* model.open(name);
         const actorRefs = yield* actors.read(name);
-        const current = yield* snapshots.current;
-        const digest = yield* readModelDigest(name, current).pipe(Effect.provide(context));
-        const data: CanvasControlReadData = { opened, actorRefs, snapshots: current, digest };
+        const digest = yield* readModelDigest(name).pipe(Effect.provide(context));
+        const data: CanvasControlReadData = { opened, actorRefs, digest };
         return data;
       })).pipe(queryError);
     });

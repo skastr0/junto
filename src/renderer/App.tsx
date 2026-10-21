@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
-import { seatIdentityHints } from "../shared/connections";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { modelStore } from "./lib/use-model";
@@ -60,7 +59,6 @@ import { AgentEditorHost } from "./components/agent-editor/AgentEditor";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   LIVE_OVERSEER_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -102,20 +100,6 @@ const setError = (error: unknown) =>
 const refreshList = async () => {
   if (!window.junto) return;
   state$.canvases.set(await window.junto.modelCanvases());
-};
-
-/** Ask for fresh snapshots of the agents the open canvas seats. */
-const refreshSnapshotsSoft = async () => {
-  if (!HERMES_INTEGRATION_ENABLED || !window.junto?.refreshSnapshots) return;
-  try {
-    const snapshots = await Promise.race([
-      window.junto.refreshSnapshots(seatIdentityHints([modelStore.canvasOf(state$.canvasName.peek())])),
-      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500)),
-    ]);
-    if (snapshots) state$.snapshots.set(snapshots);
-  } catch (error) {
-    setError(error);
-  }
 };
 
 const resetCanvasView = (): void => {
@@ -219,7 +203,6 @@ const openCanvas = async (name: string) => {
       clearAbandonedCanvas(name);
       showHeld(name, held);
       state$.error.set("");
-      await refreshSnapshotsSoft();
     } catch (error) {
       if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
     } finally {
@@ -259,7 +242,6 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
     state$.error.set("");
-    void refreshSnapshotsSoft();
   },
   onFailure: (error) => {
     state$.canvasLoading.set(false);
@@ -290,7 +272,6 @@ const createCanvas = async (name: string) => {
       }
       showHeld(result.name, held);
       state$.error.set("");
-      await refreshSnapshotsSoft();
     } catch (error) {
       if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
     } finally {
@@ -399,7 +380,6 @@ export function App() {
         if (settingsResult?.ok && settingsResult.settings) {
           state$.settings.set(settingsResult.settings);
         }
-        state$.snapshots.set(await junto.getSnapshots());
         const list = await junto.modelCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
@@ -442,7 +422,6 @@ export function App() {
     // GPU helper can drop off the fan curve (fleet closed is not enough).
     const stopSurfaceMotion = startSurfaceMotionGate();
 
-    const offSnapshots = junto.onSnapshotsChanged((state) => state$.snapshots.set(state));
     // The open canvas follows the node store; nothing reads it again here. A
     // window showing no canvas opens the first one that comes to exist.
     const offCanvas = junto.onModelCanvasesChanged(() => {
@@ -483,7 +462,6 @@ export function App() {
 
     return () => {
       offNodeRef();
-      offSnapshots();
       offUsage();
       offCanvas();
       offPreamble?.();

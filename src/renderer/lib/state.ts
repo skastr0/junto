@@ -1,6 +1,5 @@
 import { batch, observable } from "@legendapp/state";
 import type { WirePhase } from "@shared/model/wire";
-import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult } from "@shared/ipc";
 import type { RegionRollup } from "@shared/region-rollup";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -10,7 +9,6 @@ import type { ActorRef } from "@shared/work-protocol";
 import type { HotbarSlot } from "./hotbar-slots";
 import type { MachineFacts } from "./machines";
 
-export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
 export const EMPTY_USAGE: UsageState = { snapshots: [] };
 export const EMPTY_SETTINGS: Settings = defaultSettings();
 
@@ -81,7 +79,6 @@ export const state$ = observable({
   // Stepped with it. A delete in progress reads it to know the canvas is
   // still the one the operator was asked about.
   docEpoch: 0,
-  snapshots: EMPTY_SNAPSHOTS as SnapshotState,
   // Provider usage plane (native sources). Fail-open empty until first quotas.
   usage: EMPTY_USAGE as UsageState,
   // User settings document (main owns the SQLite row; renderer holds a live projection).

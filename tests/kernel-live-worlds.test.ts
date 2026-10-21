@@ -12,7 +12,6 @@ import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelService } from "../src/main/junto/model/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { SchedulerRepository } from "../src/main/junto/scheduler/repository";
-import { SnapshotsService } from "../src/main/junto/snapshots";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
@@ -54,11 +53,6 @@ it("holds the model's canvases and follows their work", async () => {
   );
   const stubsLive = Layer.mergeAll(
     PausePlaneAllPlaying,
-    Layer.succeed(SnapshotsService, {
-      current: Effect.succeed({ bundles: [] }),
-      refresh: () => Effect.void,
-      subscribe: () => () => undefined,
-    } as never),
     Layer.succeed(SchedulerRepository, {
       claimExpression: () => Effect.succeed({ _tag: "Duplicate" }),
       reconcileHome: () => Effect.succeed(0),

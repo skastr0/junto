@@ -51,7 +51,6 @@ import {
   TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import type { MailWaitingFact } from "@shared/mail-waiting";
@@ -466,7 +465,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   modelStart: (input) => invoke(IPC_CHANNELS.modelStart, IPC_TIMEOUT_MS, input),
   modelSeatLaunchState: (input) => invoke(IPC_CHANNELS.modelSeatLaunchState, IPC_TIMEOUT_MS, input),
   modelStop: (input) => invoke(IPC_CHANNELS.modelStop, IPC_TIMEOUT_MS, input),
-  getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>
     invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
@@ -587,8 +585,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<ReadonlyArray<CompanionDeviceRecord>>(IPC_CHANNELS.companionDevicesChanged, listener),
   companionRemoteLogin: () => invoke(IPC_CHANNELS.companionRemoteLogin, IPC_TIMEOUT_MS),
   companionOpenRemoteLoginSettings: () => invoke(IPC_CHANNELS.companionOpenRemoteLoginSettings, IPC_TIMEOUT_MS),
-  onSnapshotsChanged: (listener) =>
-    subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
@@ -816,8 +812,6 @@ const padWorkApi: Pick<JuntoApi, "workPadRead" | "workPadPatch"> = {
 };
 
 const hermesIntegrationApi: JuntoHermesIntegrationApi = {
-  refreshSnapshots: (hints) =>
-    invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
   agentMessage: (key, text) =>
     invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
 };

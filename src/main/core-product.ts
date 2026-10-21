@@ -23,7 +23,6 @@ import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
 import { makeInstallOpsLive } from "./junto/install-ops/engine";
 import { makeSettingsLive } from "./junto/settings/service";
-import { SnapshotsLive } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
 import { HostsServiceLive } from "./junto/hosts";
 import { HostRegistryRows } from "./junto/hosts/registry";
@@ -68,8 +67,7 @@ export const makeCoreProductLayer = (home: string) => {
   const transport = Layer.provideMerge(HermesTransportLive, hosts);
   const planes = Layer.provideMerge(HermesPlaneLive, transport);
   const chat = Layer.provideMerge(ChatServiceFromHermesLive, planes);
-  const snapshots = Layer.provideMerge(SnapshotsLive, chat);
-  const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, snapshots);
+  const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, chat);
   const occupants = Layer.provideMerge(ActorSeatOccupyLive, pause);
   return Layer.provideMerge(
     Layer.mergeAll(Layer.provideMerge(KernelLive, WorkLive), CanvasControlQueries.layer, Layer.provideMerge(NativeConfigLive, HarnessInventoryLive)),

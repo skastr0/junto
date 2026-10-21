@@ -26,7 +26,6 @@ import { asNodeId } from "@shared/model/base";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
-import { seatIdentityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
 import { makeUserMessage } from "@shared/task";
 import { ulid } from "ulid";
@@ -39,7 +38,6 @@ import type {
 } from "@shared/ipc";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
-import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
 import { MachineRepository } from "../machines/repository";
@@ -64,7 +62,6 @@ import {
   setWorlds,
   setMachineName,
   __setAutomationGateForTest,
-  __setSnapshotsForTest,
   __setTimerSchedulerForTest,
   setPageLoadDeps,
   setRaisedHandDeps,
@@ -103,8 +100,7 @@ export class KernelService extends Context.Service<KernelService,
       // Why the seat starts: mail by default.
       options?: { readonly cause?: SeatStartCause },
     ) => Promise<boolean>;
-    // Begin hydration + the evaluation loop. Idempotent, matching
-    // SnapshotsService.start().
+    // Begin hydration + the evaluation loop. Idempotent.
     // Host supplies ManagedRuntime entry (AppRuntime / RemoteRuntime).
     readonly start: (host: KernelHost) => void;
     // Irreversibly stop admitting new kernel work. Existing terminal/agent
@@ -332,7 +328,6 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
 
 type ModelShape = Context.Service.Shape<typeof ModelService>;
 type ActorRefsShape = Context.Service.Shape<typeof ModelActorRefs>;
-type SnapshotsShape = Context.Service.Shape<typeof SnapshotsService>;
 type PauseShape = Context.Service.Shape<typeof PausePlane>;
 type SchedulerShape = Context.Service.Shape<typeof SchedulerRepository>;
 type MachinesShape = Context.Service.Shape<typeof MachineRepository>;
@@ -442,7 +437,6 @@ const runtimeAuthority = (
 const makeKernelService = (
   model: ModelShape,
   actorRefs: ActorRefsShape,
-  snapshots: SnapshotsShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
   machines: MachinesShape,
@@ -595,9 +589,6 @@ const makeKernelService = (
         : activeActorRegistry(yield* actorRefs.read());
     if (!generationIsActive(generation)) return;
     setActorRefResolver(registry.resolve);
-    const currentSnapshots = yield* snapshots.current;
-    if (!generationIsActive(generation)) return;
-    __setSnapshotsForTest(currentSnapshots);
     // Evaluation + timers remain Promise-shaped pure-cycle modules; wrap once
     // at the Effect boundary (not factory control plane ownership).
     yield* Effect.all(
@@ -786,23 +777,11 @@ const makeKernelService = (
       const before = worlds.get(name);
       yield* hydrateWorld(name, generation);
       if (worlds.get(name) !== before && generationIsActive(generation)) {
-        fork(refreshWithIdentityHints());
         scheduleCycle();
       }
       // else: transient read failure — keep the world already held; the next
       // change notification retries.
     });
-
-  // Enrichment hints name the agent every held seat runs
-  // (shared/connections.ts). Cold start: the first poll fetches base lists
-  // unhinted, the next resolves against them — convergence within two cycles,
-  // by design.
-  const refreshWithIdentityHints = () =>
-    Effect.suspend(() =>
-      snapshots.refresh(
-        seatIdentityHints([...worlds.values()].map((world) => world.canvas)),
-      ),
-    );
 
   const startProgram = (
     generation: number,
@@ -812,7 +791,6 @@ const makeKernelService = (
       if (!generationIsActive(generation)) return;
       yield* hydrateAllWorlds(generation);
       if (!generationIsActive(generation)) return;
-      fork(refreshWithIdentityHints());
 
       lifecycleCleanups = [
         // Immediate lane, keyed by canvas: a burst of commits on one canvas
@@ -828,7 +806,6 @@ const makeKernelService = (
           if (canvasName !== undefined) scheduleResync(canvasName);
           else for (const name of worlds.keys()) scheduleResync(name);
         }),
-        snapshots.subscribe(() => scheduleCycle()),
         // Play/pause is an authoritative runtime transition. Resume must
         // claim immediately; pause must promptly cause the next cycle to
         // observe the closed gate instead of waiting for the 30s watchdog.
@@ -1010,7 +987,6 @@ export const KernelLive = Layer.effect(
   Effect.gen(function* () {
     const model = yield* ModelService;
     const actorRefs = yield* ModelActorRefs;
-    const snapshots = yield* SnapshotsService;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
     const machines = yield* MachineRepository;
@@ -1021,7 +997,6 @@ export const KernelLive = Layer.effect(
     return makeKernelService(
       model,
       actorRefs,
-      snapshots,
       pause,
       scheduler,
       machines,

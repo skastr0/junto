@@ -4,7 +4,6 @@ import {
   CANVAS_NAME_INPUT_PATTERN,
   CANVAS_NAME_MAX_LENGTH,
 } from "@shared/canvas-name";
-import { SnapshotState } from "@shared/entities";
 import { ActorRef } from "@shared/work-protocol";
 
 /**
@@ -121,7 +120,6 @@ export const CanvasControlReadData = Schema.Struct({
   opened: Opened,
   digest: Schema.String,
   actorRefs: Schema.Array(ActorRef),
-  snapshots: SnapshotState,
 });
 export type CanvasControlReadData = typeof CanvasControlReadData.Type;
 

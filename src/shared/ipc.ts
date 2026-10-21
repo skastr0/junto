@@ -50,7 +50,6 @@ import type {
   DemoStateInfo,
   DemoWriteEdlResult,
 } from "./demo";
-import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
 import type { CanvasPauseState } from "./pause";
 import type {
@@ -188,8 +187,6 @@ export const IPC_CHANNELS = {
   modelStart: "junto:model-start",
   modelSeatLaunchState: "junto:model-seat-launch-state",
   modelStop: "junto:model-stop",
-  getSnapshots: "junto:get-snapshots",
-  refreshSnapshots: "junto:refresh-snapshots",
   getUsage: "junto:get-usage",
   refreshUsage: "junto:refresh-usage",
   agentMessage: "junto:agent-message",
@@ -385,7 +382,6 @@ export const IPC_CHANNELS = {
   canvasQuiesceAndFlushRequested: "junto:canvas-quiesce-and-flush-requested",
   canvasQuiesceAndFlushStarted: "junto:canvas-quiesce-and-flush-started",
   canvasQuiesceAndFlushComplete: "junto:canvas-quiesce-and-flush-complete",
-  snapshotsChanged: "junto:snapshots-changed",
   usageChanged: "junto:usage-changed",
   settingsChanged: "junto:settings-changed",
   chatEvent: "junto:chat-event",
@@ -515,13 +511,6 @@ export interface CanvasQuiesceAndFlushResult
 
 export interface DigestResult {
   readonly digest: string;
-}
-
-// Renderer passes open-document identity keys so adapters can enrich where a
-// node actually binds (hermes agents). Live plane is hermes-only.
-export interface BindingHint {
-  readonly source: "hermes";
-  readonly key: string;
 }
 
 // --- kernel state types (wire) -----------------------------------------------
@@ -751,10 +740,6 @@ export interface JuntoSchedulerApi {
 }
 
 export interface JuntoHermesIntegrationApi {
-
-  readonly refreshSnapshots: (
-    hints?: ReadonlyArray<BindingHint>,
-  ) => Promise<SnapshotState>;
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
@@ -863,7 +848,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     readonly nextTurn?: SeatNextTurn;
     readonly cacheWindow?: SeatCacheWindow;
   }>;
-  readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
   // Factory pause plane (app-state switch; the factory is born paused and the
@@ -1244,7 +1228,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly companionRemoteLogin?: () => Promise<CompanionStatus["remoteLogin"]>;
   /** Open System Settings at Sharing, Remote Login (macOS). */
   readonly companionOpenRemoteLoginSettings?: () => Promise<{ readonly ok: boolean }>;
-  readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).
   readonly settingsGet: () => Promise<SettingsOpResult>;

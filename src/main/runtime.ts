@@ -23,7 +23,6 @@ import {
 } from "./junto/term/native-readiness";
 import { KernelService } from "./junto/kernel/service";
 import { SettingsService } from "./junto/settings/service";
-import { SnapshotsService } from "./junto/snapshots";
 import { UsageService } from "./junto/usage/usage-service";
 import { HostsService } from "./junto/hosts";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
@@ -100,7 +99,6 @@ export const buildDoctorReport = Effect.gen(function* () {
   const appInfo = yield* AppInfoService;
   const codex = yield* CodexService;
   const model = yield* ModelService;
-  const snapshots = yield* SnapshotsService;
   const kernel = yield* KernelService;
   const usage = yield* UsageService;
   const settings = yield* SettingsService;
@@ -116,7 +114,6 @@ export const buildDoctorReport = Effect.gen(function* () {
         onFailure: () => ({ id: "canvases", label: "Canvases", status: "error" as const, detail: "Canvas storage is unavailable" }),
         onSuccess: (names) => ({ id: "canvases", label: "Canvases", status: "ok" as const, detail: `${names.length} canvases` }),
       })),
-      snapshots.doctor,
       kernel.doctor,
       usage.doctor,
       settings.doctor,

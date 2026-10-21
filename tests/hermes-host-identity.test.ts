@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildConnectionIndex } from "../src/shared/connections";
 import {
   isLocalHermesHost,
   parseAgentKey,
@@ -14,30 +13,6 @@ const machine = {
 };
 
 describe("canonical Hermes machine identity", () => {
-  it("keeps successful Hermes facts visible when another fleet host made the bundle partial", () => {
-    const state = {
-      bundles: [{
-        source: "hermes" as const,
-        fetchedAt: "2026-07-23T00:00:00.000Z",
-        ok: false,
-        stale: true,
-        error: "hermes host refresh failed (fleet-render)",
-        entities: [{
-          source: "hermes" as const,
-          key: "fleet-studio:default",
-          kind: "agent",
-          title: "default",
-          stats: { host: "Studio", hostId: "studio", running: 1 },
-          updatedAt: "2026-07-23T00:00:00.000Z",
-          stale: false,
-        }],
-      }],
-    };
-
-    expect(buildConnectionIndex(state).byKey.get("hermes:fleet-studio:default"))
-      .toMatchObject({ stale: false });
-  });
-
   it("recognizes only the exact configured Hermes prefix", () => {
     const parsed = parseAgentKey("fleet-studio:default");
     expect(parsed && isLocalHermesHost(parsed.host, machine)).toBe(true);

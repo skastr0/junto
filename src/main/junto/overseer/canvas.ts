@@ -461,7 +461,7 @@ const handleDigest = (
   Effect.gen(function* () {
     const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     return {
-      digest: yield* readModelDigest(canvas.name, { bundles: [] }).pipe(
+      digest: yield* readModelDigest(canvas.name).pipe(
         Effect.mapError((error): WorkErrorBody =>
           fail("InternalError", `canvas "${canvas.name}" could not be digested: ${String(error)}`),
         ),
