@@ -43,6 +43,20 @@ const localWriter = Effect.gen(function* () {
   return Option.map(row, (found) => found.installation_id as InstallationId);
 });
 
+/** The pinned name of the machine that edits a canvas; none when that machine is not pinned here. */
+const editorName = (canvasName: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const row = yield* SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: Schema.Struct({ machine_name: Schema.String }),
+      execute: (name) => sql`SELECT p.machine_name FROM canvases c
+        JOIN machine_peers p ON p.installation_id = c.editor_installation_id AND p.retired_at IS NULL
+        WHERE c.canvas_name = ${name}`,
+    })(canvasName);
+    return Option.map(row, (found) => found.machine_name);
+  });
+
 const notAvailable = (command: ResourceCommand<AutomationOp>, message: string, next_step?: string): AutomationSubmitOutcome => ({
   kind: "refused",
   opId: command.opId,
@@ -57,14 +71,24 @@ const notAvailable = (command: ResourceCommand<AutomationOp>, message: string, n
 export const applyAutomationCommand = (command: ResourceCommand<AutomationOp>) =>
   Effect.gen(function* () {
     const name = command.canvasName;
-    // Automation writes are ruled on the editing machine (02, 07). Until the
-    // command channel carries them there, a copy refuses them.
+    // Automations and their store live on the editing machine (07, rule 2):
+    // a copy has nothing to write against, so it refuses and names where to go.
     if (!(yield* (yield* ModelRecords).editsCanvas(name))) {
-      return notAvailable(
-        command,
-        "automations are written on the machine that edits this canvas",
-        "Open this canvas on its editing machine to change its automations",
-      );
+      const editor = yield* editorName(name);
+      return Option.match(editor, {
+        onSome: (machine) =>
+          notAvailable(
+            command,
+            `automations on "${name}" are written on ${machine}, the machine that edits it`,
+            `Open "${name}" on ${machine} to change its automations`,
+          ),
+        onNone: () =>
+          notAvailable(
+            command,
+            `automations on "${name}" are written on the machine that edits it, and that machine is not paired here`,
+            `Open "${name}" on its editing machine to change its automations`,
+          ),
+      });
     }
     const writer = yield* localWriter;
     if (Option.isNone(writer)) return notAvailable(command, "this machine has no installation id yet");

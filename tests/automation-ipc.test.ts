@@ -22,7 +22,7 @@ import { writeRuling } from "../src/main/junto/work/resource-rulings";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
-import { THIS_MACHINE } from "./support/machines";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { seat } from "./support/model-nodes";
 import type { AutomationDefinition, AutomationsChanged } from "../src/shared/automation";
 import { Command } from "../src/shared/model";
@@ -155,6 +155,17 @@ describe("automation IPC", () => {
       expect(await handlers.apply("factory", create)).toMatchObject({ kind: "refused", refusal: { reason: "not_available" } });
       expect(changed).toEqual([]);
       expect((await handlers.list("factory", { nodeId: NODE })).automations).toEqual([]);
+    }));
+
+  it("names the editing machine in the refusal, so the writer knows where to go", () =>
+    run(async (handlers, _changed, sql) => {
+      await sql("INSERT INTO known_installations(installation_id,registered_at) VALUES ('inst-atlas','2026-10-21T00:00:00Z')");
+      await sql(`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('${OTHER_MACHINE}','inst-atlas','2026-10-21T00:00:00Z')`);
+      await sql("UPDATE canvases SET editor_installation_id = 'inst-atlas' WHERE canvas_name = 'factory'");
+      const create = { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition } };
+      const refused = await handlers.apply("factory", create);
+      expect(refused).toMatchObject({ kind: "refused", refusal: { reason: "not_available" } });
+      expect(JSON.stringify(refused)).toContain(OTHER_MACHINE);
     }));
 
   it("fires a run now, files the task as the automation, and records each action's ruling", () =>
