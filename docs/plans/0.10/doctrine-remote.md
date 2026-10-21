@@ -34,8 +34,12 @@ Landed with `95ed7b998`: the closed list gains `command.queued`,
 most 64 KiB; rulings keyed by writer and opId. Writer rules landed with
 `41db5ad26` (a seat's command judged where its seat was) and `3ee4ad729`
 (rulings, operator and automation commands only from the editing machine).
-Still held: resource fact families and predecessors, seat occupancy, the
-every-row cap (`exchange-bounds.ts`) and the queue bound with `queue_full`.
+Every-row cap and byte paging landed with `a194abcc2` and `1dd8fdddd`.
+Design change `387564472`: resource facts ride inside `ruling.applied`, so
+rows still stand alone and no predecessor crosses; the rule 4 sentence for
+it lands when the code carries facts in the ruling (today it carries fact
+seqs). Still held: that sentence, seat occupancy, and the queue bound with
+`queue_full`.
 
 `docs/machines.md:71-72`. Replace
 
