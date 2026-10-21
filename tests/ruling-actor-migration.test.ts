@@ -2,8 +2,8 @@
  * State migration 26 -> 27 puts the actor on resource rulings. Proven on both
  * shipped fixtures brought to version 26 by the real steps: every other row
  * survives as it was, the rulings table comes back with its actor columns, a
- * ruling held before the step stops it, and `writeRuling` fills the actor
- * from the command.
+ * ruling held before the step is kept as the operator's, and `writeRuling`
+ * fills the actor from the command.
  */
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -88,7 +88,7 @@ describe("state migration 26 -> 27 (the actor on resource rulings)", () => {
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
-    "rebuilds the empty rulings table on %s and leaves every other row as it was",
+    "rebuilds the rulings table on %s and leaves every other row as it was",
     async (fixture) => {
       const database = await openCopy(fixture);
       try {
@@ -108,16 +108,19 @@ describe("state migration 26 -> 27 (the actor on resource rulings)", () => {
     },
   );
 
-  it("stops on a ruling held before the step rather than invent its actor, and rolls back", async () => {
+  it("carries a ruling from before the step over as the operator's, with no node id", async () => {
     const database = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, planTo(26, STATE_SCHEMA_V26_SQL));
+      const json = JSON.stringify({ kind: "applied", taskId: OP });
       database
-        .prepare(`INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json) VALUES ('factory', 'mini', ?, 'applied', '{}')`)
-        .run(OP);
-      expect(() => migrateStateSchema(database, planTo(27, STATE_SCHEMA_V27_SQL))).toThrow(/no actor/);
-      expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V26_IDENTITY);
-      expect(database.prepare("SELECT COUNT(*) AS n FROM resource_rulings").get()).toEqual({ n: 1 });
+        .prepare(`INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json) VALUES ('factory', 'mini', ?, 'applied', ?)`)
+        .run(OP, json);
+      migrateStateSchema(database, planTo(27, STATE_SCHEMA_V27_SQL));
+      expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V27_IDENTITY);
+      expect(database.prepare("SELECT * FROM resource_rulings").all()).toEqual([
+        { canvas_name: "factory", writer: "mini", op_id: OP, kind: "applied", ruling_json: json, actor_kind: "operator", actor_node_id: null },
+      ]);
     } finally {
       database.close();
     }

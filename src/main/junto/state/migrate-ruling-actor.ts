@@ -6,10 +6,10 @@ import type { StateSchemaMigrationDatabase } from "./migrations";
  * for the operator and an automation), so `junto op show` and `junto op list`
  * read a seat's own writes.
  *
- * The table is rebuilt empty. No ruling was ever written before this step: the
- * task and artifact repositories that write them were not wired into main, so
- * no database holds one. A ruling found here has no actor to give it, so the
- * step refuses rather than invent one, and the whole migration rolls back.
+ * The table is rebuilt and every ruling kept. A ruling from before this step
+ * predates actor recording, and only dev builds wrote any (main's task verbs
+ * were wired onto the ruler minutes before it), so it is carried over as the
+ * operator's with no node id. A seat's `junto op list` does not show it.
  *
  * The DDL below is this step's own copy. It never follows the head schema.
  */
@@ -31,11 +31,19 @@ const RESOURCE_RULINGS_ACTOR_SQL = `
     ON resource_rulings(canvas_name, writer, actor_node_id, op_id);
 `;
 
+const KEPT = ["canvas_name", "writer", "op_id", "kind", "ruling_json"] as const;
+
 export const migrateRulingActor = (database: StateSchemaMigrationDatabase): void => {
-  const held = Number(database.prepare("SELECT count(*) AS n FROM resource_rulings").get()!.n);
-  if (held !== 0) {
-    throw new Error(`resource_rulings holds ${held} rulings with no actor; this step adds the actor and cannot invent one`);
-  }
+  const stored = database
+    .prepare(`SELECT ${KEPT.join(", ")} FROM resource_rulings ORDER BY canvas_name, writer, op_id`)
+    .all() as unknown as ReadonlyArray<Record<(typeof KEPT)[number], string>>;
   database.exec("DROP TABLE resource_rulings");
   database.exec(RESOURCE_RULINGS_ACTOR_SQL);
+  const insert = database.prepare(
+    `INSERT INTO resource_rulings (${KEPT.join(", ")}, actor_kind, actor_node_id)
+     VALUES (${KEPT.map(() => "?").join(", ")}, 'operator', NULL)`,
+  );
+  for (const row of stored) insert.run(...KEPT.map((column) => row[column]));
+  const kept = Number(database.prepare("SELECT count(*) AS n FROM resource_rulings").get()!.n);
+  if (kept !== stored.length) throw new Error("a ruling did not survive the step");
 };
