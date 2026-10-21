@@ -1,21 +1,13 @@
-import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useCallback, useState, type KeyboardEvent } from "react";
+import type { MentionRef } from "@shared/mention";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { useConnectedSeats } from "../../lib/mention-sources";
 import { useAttachments } from "../../lib/operator-attachments";
-import {
-  mentionQueryAt,
-  mentionsIn,
-  pickMention,
-  sendSeatThread,
-  THREAD_MENTIONS_MAX,
-  THREAD_TEXT_MAX,
-  useSeatThreadMentionables,
-  type MentionableSeat,
-  type SeatAddress,
-} from "../../lib/seat-threads";
+import { sendSeatThread, THREAD_MENTIONS_MAX, THREAD_TEXT_MAX, type SeatAddress } from "../../lib/seat-threads";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
-import { Textarea } from "../ui/Field";
+import { MentionCombobox } from "../ui/MentionCombobox";
 
 /**
  * The operator writes in a seat's threads: a reply in a thread they are in,
@@ -46,57 +38,20 @@ export function ThreadComposer({
   /** New thread only: leave without sending. */
   readonly onCancel?: () => void;
 }) {
-  const mentionables = useSeatThreadMentionables(seat);
+  const connected = useConnectedSeats(seat);
   const attachments = useAttachments(seat.canvasName);
   const [draft, setDraft] = useState("");
-  const [picked, setPicked] = useState<ReadonlyArray<MentionableSeat>>([]);
-  const [caret, setCaret] = useState(0);
-  const [active, setActive] = useState(0);
-  const [dismissedAt, setDismissedAt] = useState<number>();
+  const [mentioned, setMentioned] = useState<ReadonlyArray<MentionRef>>([]);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
-  const fieldRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingCaret = useRef<number | undefined>(undefined);
-  const listId = useId();
   // The field takes the keyboard once, when it mounts.
   const setField = useCallback((element: HTMLTextAreaElement | null) => {
-    fieldRef.current = element;
     claimFocusOnMount(element);
   }, []);
 
-  const mentions = mentionsIn(draft, picked);
+  const mentions = mentioned.flatMap((ref) => (ref.kind === "seat" ? [ref.nodeId] : []));
   const mentionsFull = mentions.length >= THREAD_MENTIONS_MAX;
   const tooLong = draft.trim().length > THREAD_TEXT_MAX;
-  const query = mentionQueryAt(draft, caret);
-  const options =
-    query === undefined || query.start === dismissedAt || mentionsFull
-      ? []
-      : mentionables.filter((candidate) => candidate.name.toLowerCase().startsWith(query.text.toLowerCase()));
-  const picking = options.length > 0;
-  const chosen = Math.min(active, Math.max(0, options.length - 1));
-
-  // Put the caret after a chosen name once the draft holding it is drawn.
-  useEffect(() => {
-    const field = fieldRef.current;
-    const at = pendingCaret.current;
-    if (!field || at === undefined) return;
-    pendingCaret.current = undefined;
-    field.setSelectionRange(at, at);
-    setCaret(at);
-  }, [draft]);
-
-  const follow = (event: ChangeEvent<HTMLTextAreaElement> | { currentTarget: HTMLTextAreaElement }): void => {
-    setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
-  };
-
-  const choose = (candidate: MentionableSeat): void => {
-    if (query === undefined) return;
-    const next = pickMention(draft, query, candidate.name);
-    pendingCaret.current = next.caret;
-    setDraft(next.text);
-    setPicked((known) => (known.some((seat) => seat.nodeId === candidate.nodeId) ? known : [...known, candidate]));
-    setActive(0);
-  };
 
   // Files ride along: a mail may be only files, and waits for every one to be in.
   const hasFiles = attachments.items.length > 0;
@@ -114,7 +69,7 @@ export function ThreadComposer({
       text,
       ...(mode === "reply" && inReplyTo !== undefined ? { inReplyTo } : {}),
       ...(mode === "reply" && inReplyTo === undefined && threadId !== undefined ? { threadId } : {}),
-      ...(mentions.length > 0 ? { mentions: mentions.map((seat) => seat.nodeId) } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
       ...(files.length > 0 ? { attachments: files } : {}),
     });
     setSending(false);
@@ -124,34 +79,13 @@ export function ThreadComposer({
     }
     setDraft("");
     attachments.clear();
-    setPicked([]);
-    setCaret(0);
+    setMentioned([]);
     onSent?.(result.threadId);
   };
 
+  // The list takes its own keys first; what reaches here is the composer's.
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.nativeEvent.isComposing) return;
-    if (picking) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        setActive((chosen + step + options.length) % options.length);
-        return;
-      }
-      if (event.key === "Enter" || event.key === "Tab") {
-        event.preventDefault();
-        const candidate = options[chosen];
-        if (candidate) choose(candidate);
-        return;
-      }
-      if (event.key === "Escape") {
-        // The list closes; the dialog stays.
-        event.preventDefault();
-        event.stopPropagation();
-        setDismissedAt(query?.start);
-        return;
-      }
-    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void send();
@@ -168,44 +102,23 @@ export function ThreadComposer({
         </div>
       ) : null}
       <div className="thread-composer__field">
-        {picking ? (
-          <div className="thread-composer__picker" data-testid="thread-composer-picker">
-            <div className="thread-composer__picker-head">Connected to {name}</div>
-            <ul id={listId} role="listbox" aria-label={`Seats connected to ${name}`}>
-              {options.map((candidate, index) => (
-                <li
-                  key={candidate.nodeId}
-                  id={`${listId}-${index}`}
-                  role="option"
-                  aria-selected={index === chosen}
-                  className="thread-composer__option"
-                  data-testid="thread-composer-option"
-                  // A press must not take the keyboard from the field.
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => choose(candidate)}
-                >
-                  {candidate.name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        <Textarea
-          ref={setField}
+        <MentionCombobox
+          fieldRef={setField}
           dense
-          className="thread-composer__input"
-          aria-label={mode === "new" ? `New thread to ${name}` : "Reply"}
-          aria-controls={picking ? listId : undefined}
-          aria-activedescendant={picking ? `${listId}-${chosen}` : undefined}
-          aria-autocomplete="list"
-          data-testid="thread-composer-input"
+          placement="above"
           value={draft}
-          onChange={(event) => {
-            setDraft(event.currentTarget.value);
+          onValueChange={(next, refs) => {
+            setDraft(next);
+            setMentioned(refs);
             setFailure(undefined);
-            follow(event);
           }}
-          onSelect={(event) => follow(event)}
+          canvasName={seat.canvasName}
+          candidates={connected}
+          listLabel={() => `Seats connected to ${name}`}
+          noun={{ one: "seat", other: "seats" }}
+          maxMentions={THREAD_MENTIONS_MAX}
+          aria-label={mode === "new" ? `New thread to ${name}` : "Reply"}
+          data-testid="thread-composer-input"
           onKeyDown={onKeyDown}
         />
       </div>

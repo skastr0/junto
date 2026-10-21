@@ -17,6 +17,7 @@ import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent } from "@shared/mail-threads";
+import { mentionLinksOf } from "@shared/mention";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { MailParty } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
@@ -535,40 +536,10 @@ export const sendSeatThread = async (
   }
 };
 
-/** An @ being typed just before the caret: where its @ sits and what follows it. */
-export type MentionQuery = { readonly start: number; readonly text: string };
-
-export const mentionQueryAt = (draft: string, caret: number): MentionQuery | undefined => {
-  const match = /(^|\s)@([\w.-]*)$/u.exec(draft.slice(0, caret));
-  if (!match) return undefined;
-  const text = match[2] ?? "";
-  return { start: caret - text.length - 1, text };
-};
-
-/** The draft with the @ being typed replaced by the chosen name and a space, and the caret after it. */
-export const pickMention = (
-  draft: string,
-  query: MentionQuery,
-  name: string,
-): { readonly text: string; readonly caret: number } => {
-  const end = query.start + 1 + query.text.length;
-  const inserted = `@${name} `;
-  const rest = draft.slice(end).replace(/^ /u, "");
-  return { text: `${draft.slice(0, query.start)}${inserted}${rest}`, caret: query.start + inserted.length };
-};
-
-/** The chosen seats whose @name is still in the draft, as a whole word. */
-export const mentionsIn = (
-  draft: string,
-  picked: ReadonlyArray<MentionableSeat>,
-): ReadonlyArray<MentionableSeat> =>
-  picked.filter((seat) =>
-    draft.split(/\s+/u).some((word) => word.replace(/[,.;:!?)]+$/u, "") === `@${seat.name}`),
-  );
-
 /**
- * A message's text cut at its @names: each @ that names one of the seats the
- * mail mentions is a reference, the rest is plain text.
+ * A message's text cut at its mentions: each mention link reads as its label,
+ * and each @ that names one of the seats the mail mentions (mail written
+ * before mentions were links) is a reference too; the rest is plain text.
  */
 export const mentionParts = (
   text: string,
@@ -577,13 +548,24 @@ export const mentionParts = (
   const known = new Set(names);
   const parts: Array<{ text: string; mention?: true }> = [];
   let plain = "";
-  for (const piece of text.split(/(@[\w.-]*[\w-])/u)) {
-    if (piece.startsWith("@") && known.has(piece.slice(1))) {
-      if (plain) parts.push({ text: plain });
-      plain = "";
-      parts.push({ text: piece, mention: true });
-    } else plain += piece;
+  const words = (run: string): void => {
+    for (const piece of run.split(/(@[\w.-]*[\w-])/u)) {
+      if (piece.startsWith("@") && known.has(piece.slice(1))) {
+        if (plain) parts.push({ text: plain });
+        plain = "";
+        parts.push({ text: piece, mention: true });
+      } else plain += piece;
+    }
+  };
+  let at = 0;
+  for (const link of mentionLinksOf(text)) {
+    words(text.slice(at, link.start));
+    if (plain) parts.push({ text: plain });
+    plain = "";
+    parts.push({ text: link.label, mention: true });
+    at = link.end;
   }
+  words(text.slice(at));
   if (plain) parts.push({ text: plain });
   return parts;
 };

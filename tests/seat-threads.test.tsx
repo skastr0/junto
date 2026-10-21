@@ -144,7 +144,8 @@ describe("the Threads button", () => {
     await render();
     expect(q("seat-threads-button")?.textContent).toBe("Threads");
     await click(q("seat-threads-button"));
-    expect(document.querySelector("[data-testid=seat-threads] [aria-hidden][style]")).toBeNull();
+    // The mention field's chip mirror is aria-hidden and styled too; it is no mark.
+    expect(document.querySelector("[data-testid=seat-threads] [aria-hidden][style]:not(.mention-combobox__mirror)")).toBeNull();
   });
 });
 
@@ -423,23 +424,34 @@ describe("the thread composer", () => {
   it("opens the wired seats on @, puts the chosen one in the draft and in mentions, never in To", async () => {
     await open();
     await type("Thanks. @c");
-    expect(all("thread-composer-option").map((option) => option.textContent)).toEqual(["cli-lead", "canvas-lead"]);
+    expect(
+      [...document.querySelectorAll('[data-testid="mention-option"] .mention-combobox__label')].map((label) => label.textContent),
+    ).toEqual(["@cli-lead", "@canvas-lead"]);
+    expect(document.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Seats connected to pty-lead");
     await key("ArrowDown");
     await key("Enter");
     expect(field().value).toBe("Thanks. @canvas-lead ");
-    expect(q("thread-composer-picker")).toBeNull();
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(sends).toEqual([]);
     await key("Enter");
+    // The text carries the mention as its link; the seat goes in mentions, never in To.
     expect(sends).toEqual([
-      { canvasName: "factory", nodeId: "seat-1", text: "Thanks. @canvas-lead", inReplyTo: "m2", mentions: ["seat-canvas"] },
+      {
+        canvasName: "factory",
+        nodeId: "seat-1",
+        text: "Thanks. [@canvas-lead](junto://canvas/factory?node=seat-canvas)",
+        inReplyTo: "m2",
+        mentions: ["seat-canvas"],
+      },
     ]);
   });
 
   it("closes the @ list on Escape and leaves the popup open", async () => {
     await open();
     await type("@c");
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
     await key("Escape");
-    expect(q("thread-composer-picker")).toBeNull();
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(q("seat-threads")).not.toBeNull();
   });
 
@@ -495,6 +507,24 @@ describe("the thread composer", () => {
       "Thanks. @cli-lead check it, and @pty-lead or @nobody.",
     );
     expect(q("seat-threads")?.querySelector(".seat-threads__chat-meta")?.textContent).not.toContain("cli-lead");
+  });
+
+  it("shows a mention link in a message as its label, a reference", async () => {
+    const { state, change } = await open();
+    state.messages.notes = [
+      {
+        messageId: "m1",
+        author: "you",
+        mine: true,
+        text: "Ask [@cli-lead](junto://canvas/factory?node=seat-cli) first.",
+        mentions: ["cli-lead"],
+        at: at(1, 2),
+      },
+    ];
+    change();
+    await flush();
+    expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
+    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe("Ask @cli-lead first.");
   });
 
   it("will not send past main's text bound, and says so", async () => {
