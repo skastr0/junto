@@ -136,7 +136,8 @@ describe("claude", () => {
   });
 });
 
-describe("codex", () => {
+/** Codex's error-server and error-context replays, run together, took past 5s at a load near 170. */
+describe("codex", { timeout: 30_000 }, () => {
   it("usage-limit: the model picker after the limit is the limit, with its reset", async () => {
     const { final } = await replay("codex", "usage-limit");
     // "try again at 6:25 AM.": 06:25 in the zone codex ran in.
