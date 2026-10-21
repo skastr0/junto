@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyBody } from "../src/shared/artifact";
 import { asNodeId } from "../src/shared/physics/schema";
-import { makeLocalArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { makeLocalArtifactsSource, withLocalThreads } from "../src/renderer/lib/artifacts-source";
 import { mintItemId, mintOpId } from "../src/shared/resource-command";
 import {
   ageLabel,
@@ -118,5 +118,22 @@ describe("local artifacts source", () => {
     expect(thread?.resolved).toBe(true);
     expect(changes).toBe(3);
     expect(await source.comment("c", doc, { text: "lost", threadId: "nope", version: 1 as never })).toBeNull();
+  });
+
+  it("serves main's artifacts with local threads, and either side's change reaches a reader", async () => {
+    const main = makeLocalArtifactsSource();
+    const local = makeLocalArtifactsSource();
+    const source = withLocalThreads(main, local);
+    const doc = mintItemId();
+    const seen: string[] = [];
+    const off = source.onChanged((changed) => seen.push(changed.canvasName));
+    await main.apply("c", node, doc, mintOpId(), { op: "create", title: "Plan", body: emptyBody("document") });
+    expect((await source.list("c", node)).map((head) => head.artifact.title)).toEqual(["Plan"]);
+    await source.comment("c", doc, { text: "hi", version: 1 as never });
+    expect(await main.threads("c", doc)).toEqual([]);
+    expect(await local.threads("c", doc)).toHaveLength(1);
+    off();
+    await source.comment("c", doc, { text: "late", version: 1 as never });
+    expect(seen).toEqual(["c", "c"]);
   });
 });

@@ -12,8 +12,9 @@
  * as is; threads are added beside it until product-feed's subject threads
  * carry artifact comments (03).
  *
- * Stand-in: until main's handlers land, `makeLocalArtifactsSource` holds
- * everything in this window's memory, ruled by the same domain.
+ * In the app the artifacts come from main (`window.junto.resource.artifact`,
+ * ruled by the same ruler as the CLI); outside it, or with artifacts off,
+ * `makeLocalArtifactsSource` holds everything in this window's memory.
  */
 import { useEffect, useRef, useState } from "react";
 import type { Anchor } from "@shared/thread-subject";
@@ -36,6 +37,7 @@ import {
   type ArtifactHead,
   type ArtifactResourceApi,
   type ResourceChanged,
+  type ResourceIpcApi,
 } from "@shared/resource-ipc";
 import {
   emptyRuled,
@@ -241,8 +243,37 @@ export const makeLocalArtifactsSource = (
   };
 };
 
-/** This window's source. Swapped for main's when cli-identity's handlers land. */
-let source: ArtifactsSource = makeLocalArtifactsSource();
+/**
+ * Main's artifacts with this window's threads beside them: artifacts are
+ * read and ruled in main, threads stay local until subject threads carry
+ * them (03). Either side's change refreshes the readers.
+ */
+export const withLocalThreads = (main: ArtifactResourceApi, local: ArtifactsSource = makeLocalArtifactsSource()): ArtifactsSource => ({
+  list: main.list,
+  history: main.history,
+  body: main.body,
+  apply: main.apply,
+  threads: local.threads,
+  comment: local.comment,
+  resolve: local.resolve,
+  onChanged: (listener) => {
+    const offMain = main.onChanged(listener);
+    const offLocal = local.onChanged(listener);
+    return () => {
+      offMain();
+      offLocal();
+    };
+  },
+});
+
+/** Main's artifact API; absent outside the app or with artifacts off. */
+const mainArtifacts = (): ArtifactResourceApi | undefined =>
+  typeof window === "undefined"
+    ? undefined
+    : (window as { junto?: { resource?: Partial<ResourceIpcApi> } }).junto?.resource?.artifact;
+
+/** This window's source: main's when it serves artifacts, else the local stand-in. */
+let source: ArtifactsSource = ((main) => (main === undefined ? makeLocalArtifactsSource() : withLocalThreads(main)))(mainArtifacts());
 
 export const artifactsSource = (): ArtifactsSource => source;
 
