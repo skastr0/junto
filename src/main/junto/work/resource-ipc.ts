@@ -163,7 +163,8 @@ export const applyTask = (
 /**
  * A body the window found pending: start pulling it from the machine that
  * edits the canvas. Every resource is in the operator's reach; the next read
- * finds it in the store.
+ * finds it in the store. A list asks again for every head still pending, which
+ * costs nothing: pullBody runs one transfer per object and joins the rest.
  */
 const pullForOperator = (
   ports: ResourceIpcPorts,
