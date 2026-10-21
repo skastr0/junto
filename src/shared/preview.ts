@@ -298,6 +298,9 @@ export const PREVIEW_THUMB_EDGE = 480;
 /** Where the text that names the path lives. Main reads it from its own store. */
 export type PreviewSource = { readonly kind: "signal"; readonly signalId: string };
 
+/** A page box comment, or a reply in its thread, whose shot is read. Main reads the row from its own store. */
+export type PreviewShotSource = { readonly kind: "comment"; readonly canvasName: string; readonly nodeId: string; readonly messageId: string };
+
 /**
  * What to preview: a path exactly as `previewRefsIn` returned it for the
  * source's text, or one of the source's own attachments by its place in the
@@ -305,10 +308,12 @@ export type PreviewSource = { readonly kind: "signal"; readonly signalId: string
  */
 export type PreviewTarget =
   | { readonly kind: "path"; readonly path: string }
-  | { readonly kind: "attachment"; readonly index: number };
+  | { readonly kind: "attachment"; readonly index: number }
+  /** A page box comment's shot. */
+  | { readonly kind: "shot" };
 
 export type PreviewRequest = {
-  readonly source: PreviewSource;
+  readonly source: PreviewSource | PreviewShotSource;
   readonly target: PreviewTarget;
   /** `thumb`: an image scaled down in main, a text file's start. `full`: the file as it is. */
   readonly variant: "thumb" | "full";

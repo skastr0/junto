@@ -28,6 +28,7 @@ import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { postSubjectComment, type SubjectCommentContext } from "../src/main/junto/work/subject-comment";
 import { postOperatorPageBox } from "../src/main/junto/work/page-box-comment";
+import { readPageShot } from "../src/main/junto/work/page-shot-read";
 import { formatNodeRef } from "../src/shared/node-ref";
 import { canvasOf, page, region, seat as seatNode } from "./support/model-nodes";
 import { nameThisMachine } from "./support/name-this-machine";
@@ -199,5 +200,33 @@ describe("the operator's box comment", () => {
       await runtime.runPromise(postOperatorPageBox(sessions("about:blank", owners), { sessionId: "s1", rect: { x: 1, y: 2, w: 3, h: 4 }, text: "x" })),
     ).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/http or https/) });
     expect(await rows()).toEqual([]);
+  });
+});
+
+describe("a page box shot's read", () => {
+  const read = (messageId: string) => runtime.runPromise(readPageShot({ canvasName: CANVAS, nodeId: PAGE, messageId }));
+
+  it("serves the shot for the comment and for a reply in its thread, judged again", async () => {
+    const posted = await post(comment("01M5ESMJV6GNZ0891YFFWS0S40"), context(capture()));
+    if (posted._tag === "Failure") throw new Error(posted.failure.message);
+    const { anchor: _anchor, ...whole } = comment("01M5ESMJV6GNZ0891YFFWS0S41", { threadId: posted.success.threadId });
+    const reply = await post(whole as SubjectCommentInput, context(capture()));
+    if (reply._tag === "Failure") throw new Error(reply.failure.message);
+    for (const id of [posted.success.messageId, reply.success.messageId]) {
+      const shot = await read(id);
+      expect(shot.ok && Buffer.compare(shot.bytes, Buffer.from(PNG))).toBe(0);
+    }
+  });
+
+  it("serves nothing for a comment with no shot, or a shot its comment no longer holds", async () => {
+    const posted = await post(comment("01M5ESMJV6GNZ0891YFFWS0S42"), context(capture()));
+    if (posted._tag === "Failure") throw new Error(posted.failure.message);
+    expect(await read("01M5ESMJV6GNZ0891YFFWS0S4Z")).toEqual({ ok: false, reason: "not-named" });
+    await runtime.runPromise(
+      Effect.flatMap(ContentService, (content) =>
+        content.releaseOwner({ kind: "message", canvasName: CANVAS, nodeId: PAGE, recordId: posted.success.messageId }),
+      ),
+    );
+    expect(await read(posted.success.messageId)).toEqual({ ok: false, reason: "missing" });
   });
 });

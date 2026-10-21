@@ -1,4 +1,5 @@
 import { canvasReceiptBasis } from "./work/delivery-receipts";
+import { readPageShot } from "./work/page-shot-read";
 import { WorkItemQuery, WorkActorQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
@@ -83,6 +84,7 @@ import {
   type PreviewRequest,
   type PreviewResult,
   type PreviewRevealResult,
+  type PreviewShotSource,
   type PreviewSource,
 } from "@shared/preview";
 import { raisedHands } from "./signals/raised-hands";
@@ -628,6 +630,28 @@ export const registerJuntoIpc = (): void => {
       thumbnail: previewThumbnail,
       thumbEdge: PREVIEW_THUMB_EDGE,
     };
+    // A page box comment's shot: the operator reaches every page, and
+    // readPageShot serves it only while its thread holds the claim.
+    const source = request?.source as Partial<PreviewShotSource> | undefined;
+    if (source?.kind === "comment") {
+      if (target?.kind !== "shot" || typeof source.canvasName !== "string" || typeof source.nodeId !== "string" || typeof source.messageId !== "string") {
+        return { ok: false, reason: "not-named" };
+      }
+      const shot = await AppRuntime.runPromise(
+        readPageShot({ canvasName: source.canvasName, nodeId: source.nodeId, messageId: source.messageId }),
+      ).catch(() => ({ ok: false, reason: "missing" }) as const);
+      if (!shot.ok) return shot;
+      const small = render.variant === "thumb" ? previewThumbnail(shot.bytes, PREVIEW_THUMB_EDGE) : undefined;
+      const bytes = small?.bytes ?? shot.bytes;
+      return {
+        ok: true,
+        kind: "image",
+        name: "page box",
+        byteLength: shot.ref.byteLength,
+        mediaType: "image/png",
+        dataUrl: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
+      };
+    }
     const signal = await previewSourceSignal(request?.source);
     // An attachment is served by the signal's own list: its place there, then
     // the content store's file for that reference. No path from anyone.
