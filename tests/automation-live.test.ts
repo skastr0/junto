@@ -137,3 +137,17 @@ describe("changesBetween", () => {
     expect(changesBetween(idle, gone, never)).toMatchObject([{ seat: "agent-a", becomes: "gone" }]);
   });
 });
+
+describe("changesBetween, artifacts", () => {
+  const view = (artifacts: ConditionView["artifacts"]): ConditionView => ({ tasks: [], seatTasks: {}, seatOnCanvas: () => false, seats: [], artifacts });
+  const A = "01M5ESKJFC1A88R1MH1NEZWJ70";
+
+  it("says an edit when a known artifact's head moves, and nothing for a new one", () => {
+    const one = view([{ artifactId: A, node: "artifacts-1", version: 1 }]);
+    const two = view([{ artifactId: A, node: "artifacts-1", version: 2 }]);
+    expect(changesBetween(view([]), one, () => false)).toEqual([]);
+    expect(changesBetween(one, two, () => false)).toEqual([
+      { kind: "artifact", key: `artifact:${A}:edited:2`, nodeId: "artifacts-1", artifactId: A, event: "edited", byAutomation: false },
+    ]);
+  });
+});

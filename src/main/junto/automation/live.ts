@@ -2,8 +2,8 @@
  * The automation runner in the running app (plan 0.10/07). One runner for
  * every canvas this machine edits: a loop considers each schedule and poll
  * whose slot came due, every task or artifact write wakes a pass that fires
- * the change triggers its tasks and seats moved through, and the pane's Run
- * hands its applied run here.
+ * the change triggers its tasks, seats and artifacts moved through, and the
+ * pane's Run hands its applied run here.
  *
  * Actions run as the automation, never as the operator. Mail goes from the
  * automation's own node (`automationActorRef`) into the seat's mailbox, with
@@ -44,6 +44,7 @@ import { noteResourceChanged, onResourceChanged } from "../work/resource-changes
 import { taskCanvasEnv } from "../work/task-control";
 import { deliverTaskEffects, type TaskDelivery } from "../work/task-delivery";
 import { TaskRepository } from "../work/task-repository";
+import { ArtifactRepository } from "../work/artifact-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
 import { MachineRepository } from "../machines/repository";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
@@ -80,7 +81,12 @@ export type ConditionView = {
   readonly seatOnCanvas: (seat: string) => boolean;
   /** Every seat on the canvas, for the changes between two passes. */
   readonly seats: ReadonlyArray<string>;
+  /** Each artifact's head version, for the edits between two passes. */
+  readonly artifacts?: ReadonlyArray<ArtifactVersionRow>;
 };
+
+/** An artifact as a change trigger reads it. */
+export type ArtifactVersionRow = { readonly artifactId: string; readonly node: string; readonly version: number };
 
 /** A task state an automation wrote, so its change never triggers an automation. */
 const writtenKey = (taskId: string, state: string) => `${taskId}:${state}`;
@@ -109,6 +115,20 @@ export const changesBetween = (
       taskId: task.taskId as ItemId,
       becomes: task.state as TaskState,
       byAutomation: automationWrote(task.taskId, task.state),
+    });
+  }
+  // An edit is a new head version of an artifact the pass before knew. Automations write no artifacts.
+  const versions = new Map((before.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact.version]));
+  for (const artifact of after.artifacts ?? []) {
+    const prior = versions.get(artifact.artifactId);
+    if (prior === undefined || prior === artifact.version) continue;
+    events.push({
+      kind: "artifact",
+      key: `artifact:${artifact.artifactId}:edited:${artifact.version}`,
+      nodeId: artifact.node as NodeId,
+      artifactId: artifact.artifactId as ItemId,
+      event: "edited",
+      byAutomation: false,
     });
   }
   for (const seat of new Set([...before.seats, ...after.seats])) {
@@ -336,6 +356,17 @@ export const AutomationRunnerLive = Layer.effect(
     const work = yield* Effect.serviceOption(WorkService);
     const machines = yield* Effect.serviceOption(MachineRepository);
     const taskStore = yield* Effect.serviceOption(TaskRepository);
+    const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
+    const readArtifacts = (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyArray<ArtifactVersionRow>> => {
+      const nodeIds = [...canvas.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id);
+      if (Option.isNone(artifactStore) || nodeIds.length === 0) return Effect.succeed([]);
+      return artifactStore.value.list(canvasName, { nodeIds, archived: false, limit: TASK_STATES_READ_MAX }).pipe(
+        Effect.map(({ artifacts }) =>
+          artifacts.map((artifact) => ({ artifactId: artifact.artifactId, node: artifact.nodeId, version: artifact.version })),
+        ),
+        Effect.orElseSucceed(() => [] as ReadonlyArray<ArtifactVersionRow>),
+      );
+    };
     const tasks: Option.Option<TaskPort> = Option.isSome(taskStore) && Option.isSome(machines)
       ? Option.some({
           repository: taskStore.value,
@@ -399,14 +430,17 @@ export const AutomationRunnerLive = Layer.effect(
     const load = (canvasName: string) =>
       model.canvas(canvasName).pipe(
         Effect.flatMap((canvas) =>
-          Effect.map(readConditionView(canvasName, canvas), (view) => {
+          Effect.map(Effect.zip(readConditionView(canvasName, canvas), readArtifacts(canvasName, canvas)), ([read, artifacts]) => {
+            const view: ConditionView = { ...read, artifacts };
             const before = views.get(canvasName);
             const changes = changesBetween(before, view, automationWrote);
-            // Keep the tasks this read left out, as they were, for the next diff.
-            const read = new Set(view.tasks.map((task) => task.taskId));
-            const kept = (before?.tasks ?? []).filter((task) => !read.has(task.taskId));
+            // Keep the tasks and artifacts this read left out, as they were, for the next diff.
+            const seen = new Set(view.tasks.map((task) => task.taskId));
+            const kept = (before?.tasks ?? []).filter((task) => !seen.has(task.taskId));
+            const seenArtifacts = new Set(artifacts.map((artifact) => artifact.artifactId));
+            const keptArtifacts = (before?.artifacts ?? []).filter((artifact) => !seenArtifacts.has(artifact.artifactId));
             canvases.set(canvasName, canvas);
-            views.set(canvasName, kept.length === 0 ? view : { ...view, tasks: [...view.tasks, ...kept] });
+            views.set(canvasName, { ...view, tasks: [...view.tasks, ...kept], artifacts: [...artifacts, ...keptArtifacts] });
             return changes;
           }),
         ),
