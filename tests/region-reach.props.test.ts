@@ -89,14 +89,15 @@ describe("region reach properties", () => {
     return out;
   }));
 
-  it("agrees between resourcesInReach, seatsInReach and reaches", forall((nodes, canvas) => {
+  it("agrees between resourcesInReach, seatsInReach and reaches; a peer row acts on nothing", forall((nodes, canvas) => {
     const out: string[] = [];
     for (const seat of nodes.filter((n) => isSeatKind(n.kind))) {
       const resources = new Set(ids(resourcesInReach(canvas, seat.id)));
+      if (seat.kind === "peer" && resources.size !== 0) out.push(`peer ${seat.id} acts on resources`);
       for (const resource of nodes.filter((n) => isResourceKind(n.kind))) {
-        const expected = reaches(canvas, seat.id, resource.id);
-        if (resources.has(resource.id) !== expected) out.push(`${seat.id} -> ${resource.id} resourcesInReach`);
-        if (ids(seatsInReach(canvas, resource.id)).includes(seat.id) !== expected) out.push(`${resource.id} <- ${seat.id} seatsInReach`);
+        const reached = reaches(canvas, seat.id, resource.id);
+        if (resources.has(resource.id) !== (reached && seat.kind === "agent")) out.push(`${seat.id} -> ${resource.id} resourcesInReach`);
+        if (ids(seatsInReach(canvas, resource.id)).includes(seat.id) !== reached) out.push(`${resource.id} <- ${seat.id} seatsInReach`);
       }
     }
     return out;
