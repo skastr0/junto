@@ -105,8 +105,7 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   }
   if (reason === "need:permission") return { ...base, label: "awaiting permission", symbol: "?" };
   if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
-  if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };
-  if (reason === "relay") return { ...base, label: "relayed block" };
+  if (reason.startsWith("task:")) return { ...base, label: reason.slice("task:".length) };
   if (reason.startsWith("seed:")) return { ...base, label: "seed block" };
   return base;
 };

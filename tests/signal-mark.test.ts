@@ -35,6 +35,11 @@ describe("signalMark", () => {
     expect(mark.label).toBe("awaiting permission");
     expect(mark.symbol).toBe("?");
   });
+
+  it("labels a blocked seat with the task it waits on", () => {
+    const mark = signalMarkForMember({ severity: S.blocked, reasons: ["task:needs input - approve delivery"] });
+    expect(mark.label).toBe("needs input - approve delivery");
+  });
 });
 
 describe("identity hue of a model node", () => {

@@ -65,7 +65,7 @@ export const MemberStatus = Schema.Struct({
   kind: Schema.String,
   severity: MemberSeverityView.Group,
   // Short machine strings, worst-tier first: permission:pending,
-  // need:<cause>, work:<detail>, edge:<detail>, and the harness fallback's
+  // need:<cause>, work:<detail>, task:<detail>, and the harness fallback's
   // activity:attention, activity:blocked, activity:ready, activity:working.
   reasons: Schema.Array(Schema.String),
 });
