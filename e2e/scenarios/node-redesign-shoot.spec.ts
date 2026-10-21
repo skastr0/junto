@@ -7,7 +7,10 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { Schema } from "effect";
+import { Effect, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { makeStateEngineLive } from "../../src/main/junto/state/engine";
+import type { Sandbox } from "../harness/sandbox";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { taskNodeId } from "../../src/shared/task-model";
@@ -28,6 +31,7 @@ const nodes: Node[] = [
   planner,
   builder,
   decode({ kind: "task", id: "board", name: "Ship 0.10", ...at(340, 40, 320, 220) }),
+  decode({ kind: "task", id: "gate", name: "Release gate", ...at(980, 175, 240, 110) }),
   decode({ kind: "task", id: "intake", name: "Intake", ...at(1260, 130, 220, 150) }),
   decode({ kind: "page", id: "bad", url: "https://127.0.0.1:1/", profile: "personal", onRemove: "detach", ...at(620, 200, 240, 80) }),
   decode({ kind: "artifacts", id: "shelf", label: "Shelf", ...at(700, 40, 240, 120) }),
@@ -44,6 +48,29 @@ const nodes: Node[] = [
   decode({ kind: "stub", id: "stub-page", of: "page", host: "macbook", ...at(1260, 40, 200, 80) }),
 ];
 const fixture = modelFixture(nodes);
+
+/** Work as the task store holds it: a seat waiting on input (Blocked), and a review owed by the operator (Needs you). */
+const seedWork = async (sandbox: Sandbox): Promise<void> => {
+  const runtime = ManagedRuntime.make(makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")));
+  const at = Date.now() - 20 * 60_000;
+  try {
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const insert = (taskId: string, node: string, title: string, state: string, reviewers: string, stamps: number) =>
+          sql.unsafe(
+            `INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, checks_json, created_at, updated_at, state_since)
+             VALUES (?, ?, 1, ?, ?, ?, ?, 0, ?, ?, '[]', '[]', ?, ?, ?)`,
+            [CANVAS, taskId, node, title, state, "planner", stamps, reviewers, at, at, at],
+          );
+        yield* insert("01JZ00000000000000000000G1", "gate", "Cut the 0.10 build", "input-required", "[]", 0);
+        yield* insert("01JZ00000000000000000000I1", "intake", "Pick the icon set", "in-review", '[{"kind":"operator"}]', 1);
+      }),
+    );
+  } finally {
+    await runtime.dispose();
+  }
+};
 
 const scaleOf = (page: Page): Promise<number> =>
   page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector(".react-flow__viewport")!).transform).a);
@@ -83,7 +110,7 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
 test("every node kind beside a seat, near and far, dark and bright", async () => {
   test.setTimeout(240_000);
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture }, windowContentSize: { width: 1700, height: 900 } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture }, afterSeed: seedWork, windowContentSize: { width: 1700, height: 900 } });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -96,22 +123,6 @@ test("every node kind beside a seat, near and far, dark and bright", async () =>
       { canvas: CANVAS, node: taskNodeId(asNodeId("board")), id: taskId, opId: mintOpId() },
     );
     expect(tasks.kind).toBe("applied");
-    // Needs you: a task in review that lists the operator as a reviewer with no stamp.
-    const reviewId = mintItemId();
-    const reviewOps = [
-      { kind: "create", taskId: reviewId, title: "Pick the icon set" },
-      { kind: "assign", seat: "planner" },
-      { kind: "start" },
-      { kind: "reviewer-add", reviewer: { kind: "operator" } },
-      { kind: "finish" },
-    ] as const;
-    for (const op of reviewOps) {
-      const result = await page.evaluate(
-        ({ canvas, node, id, opId, op }) => window.junto!.resource!.task!.apply(canvas, node, id, opId, op as never),
-        { canvas: CANVAS, node: taskNodeId(asNodeId("intake")), id: reviewId, opId: mintOpId(), op },
-      );
-      console.log(`intake ${op.kind}: ${result.kind}`);
-    }
     const artifactId = mintItemId();
     await page.evaluate(
       ({ canvas, node, id, opId }) => window.junto!.resource!.artifact!.apply(canvas, node, id, opId, { op: "create", title: "Wire spec notes", body: { type: "document", markdown: "# notes" } }),
@@ -149,7 +160,13 @@ test("every node kind beside a seat, near and far, dark and bright", async () =>
       { bindingId: "local:nr-builder", epoch: "e2e", state: "idle", reason: "rule:empty_prompt_idle", confidence: "high", at: Date.now() + 1 },
     ]);
 
-    const ids = ["planner", "builder", "remote", "board", "intake", "shelf", "auto", "docs", "bad", "dev-server", "repo", "pkg", "ref", "note", "label", "stub-git", "stub-page"];
+    // A page whose load fails: open it once so it tries.
+    await page.getByRole("button", { name: /fit all/i }).first().click();
+    await page.locator('.react-flow__node[data-id="bad"]').dblclick();
+    await page.waitForTimeout(4_000);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+    const ids = ["planner", "builder", "remote", "board", "gate", "intake", "shelf", "auto", "docs", "bad", "dev-server", "repo", "pkg", "ref", "note", "label", "stub-git", "stub-page"];
     for (const theme of ["dark", "bright"] as const) {
       await setTheme(page, theme);
       await page.getByRole("button", { name: /fit all/i }).first().click();
