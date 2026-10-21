@@ -164,18 +164,20 @@ describe("Effect logger sink", () => {
     try {
       await runtime.runPromise(
         Effect.gen(function* () {
-          yield* Effect.log("hello-effect-ring");
-          yield* Effect.logWarning("warn-effect-ring");
+          // A made-up word: the scrub redacts any environment value of six
+          // characters or more, so a real word ("effect") can vanish.
+          yield* Effect.log("hello-qx7ring");
+          yield* Effect.logWarning("warn-qx7ring");
         }),
       );
       // Allow logger side effects to settle.
       const snap = observabilityRing.query({
-        q: "effect-ring",
+        q: "qx7ring",
         limit: 20,
       });
       const messages = snap.entries.map((e) => e.message);
-      expect(messages.some((m) => m.includes("hello-effect-ring"))).toBe(true);
-      expect(messages.some((m) => m.includes("warn-effect-ring"))).toBe(true);
+      expect(messages.some((m) => m.includes("hello-qx7ring"))).toBe(true);
+      expect(messages.some((m) => m.includes("warn-qx7ring"))).toBe(true);
       expect(snap.entries.every((e) => e.source === "effect")).toBe(true);
       // Single source — no main double from default pretty console.
       expect(snap.entries.filter((e) => e.source === "main")).toHaveLength(0);
