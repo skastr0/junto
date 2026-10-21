@@ -15,10 +15,22 @@ import type { BrowserTabId } from "./browser-tab";
 import type { PageDriving } from "./page-driver";
 import type { PageTabs, PageTabsRefusal } from "./page-tabs";
 
+/**
+ * A top-level navigation the browser refused on a tab, said in one line.
+ * It stands until that tab shows another document.
+ */
+export type BrowserNavigationBlock = {
+  readonly tab: BrowserTabId;
+  readonly message: string;
+  readonly at: number;
+};
+
 /** Everything the chrome paints, read together so a frame is never torn. */
 export type BrowserChromeState = {
   readonly tabs: PageTabs;
   readonly driving: PageDriving;
+  /** The page's last refused navigation, while it stands. */
+  readonly blocked?: BrowserNavigationBlock;
 };
 
 /**

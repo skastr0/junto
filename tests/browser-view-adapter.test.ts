@@ -289,6 +289,7 @@ describe("electron browser view generation seam", () => {
     const operatorInputs: number[] = [];
     const commits: number[] = [];
     const workers: string[] = [];
+    const blocks: string[] = [];
     const guard = { admits: (_url: string, _byPage?: boolean): boolean => true };
     const byPage: boolean[] = [];
     let pageGeneration = 1;
@@ -311,6 +312,7 @@ describe("electron browser view generation seam", () => {
         onOperatorInput: () => operatorInputs.push(1),
         onDocumentCommitted: () => commits.push(1),
         onServiceWorkerRegistered: (scope) => workers.push(scope),
+        onNavigationBlocked: (reason) => blocks.push(reason),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
     );
@@ -331,6 +333,7 @@ describe("electron browser view generation seam", () => {
       byPage,
       commits,
       workers,
+      blocks,
     };
   };
 
@@ -363,6 +366,7 @@ describe("electron browser view generation seam", () => {
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
       onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
 
@@ -403,6 +407,7 @@ describe("electron browser view generation seam", () => {
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
       onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -449,6 +454,7 @@ describe("electron browser view generation seam", () => {
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
       onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -497,6 +503,7 @@ describe("electron browser view generation seam", () => {
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
       onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -536,6 +543,7 @@ describe("electron browser view generation seam", () => {
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
       onServiceWorkerRegistered: () => undefined,
+      onNavigationBlocked: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -636,7 +644,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("terminates an active generation when policy blocks its redirect", async () => {
-    const { handle, webContents, failed } = await setup();
+    const { handle, webContents, failed, blocks } = await setup();
     handle.loadUrl("https://example.com/start", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
     const redirect = {
@@ -649,6 +657,20 @@ describe("electron browser view generation seam", () => {
     expect(failed).toEqual([
       ["session-1", "navigation blocked by browser policy (non_public_ip)"],
     ]);
+    expect(blocks).toEqual(["non_public_ip"]);
+  });
+
+  it("says a block of a navigation the page started, which has no generation to fail", async () => {
+    const { webContents, failed, blocks } = await setup();
+    const link = {
+      ...navigation("file:///etc/passwd"),
+      initiator: {},
+      preventDefault: vi.fn(),
+    };
+    webContents.emit("will-frame-navigate", link);
+    expect(link.preventDefault).toHaveBeenCalledOnce();
+    expect(blocks).toEqual(["scheme"]);
+    expect(failed).toEqual([]);
   });
 
   it("follows a public cross-origin step: a shared view is never pinned to one origin", async () => {

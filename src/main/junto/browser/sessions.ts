@@ -16,6 +16,8 @@ import {
 } from "@shared/browser";
 import type { Rect } from "@shared/page-box";
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
+import type { BrowserNavigationBlock } from "@shared/browser-chrome";
+import type { BrowserTopLevelNavigationRejection } from "./web-policy";
 import type { NodeId } from "@shared/model/base";
 import type { BrowserTabId } from "@shared/browser-tab";
 import {
@@ -115,6 +117,8 @@ export interface BrowserViewEvents {
   readonly onDocumentCommitted: (url: string) => void;
   /** A service worker was registered in the view's profile, for `scope`. */
   readonly onServiceWorkerRegistered: (scope: string) => void;
+  /** The browser refused a top-level navigation, whoever started it. */
+  readonly onNavigationBlocked: (reason: BrowserTopLevelNavigationRejection) => void;
   /**
    * Electron reports an unplanned WebContents loss through either
    * `render-process-gone` or `destroyed`. The adapter coalesces both signals
@@ -270,13 +274,26 @@ interface GuestHold {
 interface PageRecord {
   tabs: PageTabs;
   driving: PageDriving;
+  blocked?: BrowserNavigationBlock;
 }
 
-/** What the page's chrome paints: its tabs, live, and who drives it. */
+/** What the page's chrome paints: its tabs, live, who drives it, and a refused navigation. */
 export interface BrowserPageState {
   readonly tabs: PageTabs;
   readonly driving: PageDriving;
+  readonly blocked?: BrowserNavigationBlock;
 }
+
+/** A refusal as the operator reads it in the page's chrome. */
+const BLOCKED_NAVIGATION: Readonly<Record<BrowserTopLevelNavigationRejection, string>> = {
+  invalid_url: "Blocked: not a valid web address",
+  scheme: "Blocked: only http and https pages open here",
+  credentials: "Blocked: an address with a username or password",
+  ambiguous_host: "Blocked: the host name is ambiguous",
+  local_host: "Blocked: this machine's own addresses stay closed",
+  non_public_ip: "Blocked: private network addresses stay closed",
+  origin_mismatch: "Blocked: outside the sites the seat on this page may reach",
+};
 
 /** A view's place: one per tab of a page. */
 const tabSlot = (ref: string, tab: BrowserTabId): string => `${ref}\0${tab}`;
@@ -1218,6 +1235,7 @@ export class BrowserSessionService {
     return {
       tabs: { ...page.tabs, tabs: [live(first), ...rest.map(live)] },
       driving: page.driving,
+      ...(page.blocked !== undefined ? { blocked: page.blocked } : {}),
     };
   }
 
@@ -1788,6 +1806,22 @@ export class BrowserSessionService {
   private isActiveTab(entry: SessionEntry): boolean {
     const page = this.pages.get(entry.ref);
     return page === undefined || page.tabs.active === entry.tab;
+  }
+
+  /** The browser refused a navigation on this tab: the chrome says so until the tab moves on. */
+  private navigationBlocked(entry: SessionEntry, reason: BrowserTopLevelNavigationRejection): void {
+    if (!this.isCurrent(entry)) return;
+    const page = this.pages.get(entry.ref);
+    if (page === undefined) return;
+    page.blocked = { tab: entry.tab, message: BLOCKED_NAVIGATION[reason], at: this.now() };
+    this.notifyPage(entry.ref);
+  }
+
+  private clearBlocked(entry: SessionEntry): void {
+    const page = this.pages.get(entry.ref);
+    if (page?.blocked === undefined || page.blocked.tab !== entry.tab) return;
+    page.blocked = undefined;
+    this.notifyPage(entry.ref);
   }
 
   /** A seat's action starts or ends on the page: the chrome's driver mark follows. */
@@ -2367,8 +2401,10 @@ export class BrowserSessionService {
           onOperatorInput: () => this.takeOverEntry(entry),
           onDocumentCommitted: (url) => {
             entry.documentOrigin = exactBrowserOrigin(url);
+            this.clearBlocked(entry);
           },
           onServiceWorkerRegistered: (scope) => this.serviceWorkerRegistered(entry, scope),
+          onNavigationBlocked: (reason) => this.navigationBlocked(entry, reason),
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
       );

@@ -1422,6 +1422,23 @@ describe("BrowserSessionService", () => {
     expect(service.goto(sessionId, "https://stoppable.example.com/3")).toMatchObject({ ok: true });
   });
 
+  it("shows the chrome a refused navigation until the tab shows another document", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("blocked-nav"));
+    if (!opened.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(opened.data.sessionId);
+    const changed: string[] = [];
+    service.subscribePages((ref) => changed.push(ref));
+    views[0]?.events.onNavigationBlocked("scheme");
+    expect(service.pageState(opened.data.sessionId)?.blocked).toMatchObject({
+      tab: "t1",
+      message: "Blocked: only http and https pages open here",
+    });
+    views[0]?.events.onDocumentCommitted("https://blocked-nav.example.com/next");
+    expect(service.pageState(opened.data.sessionId)?.blocked).toBeUndefined();
+    expect(changed).toHaveLength(2);
+  });
+
   it("names the seat driving the page while its action runs", async () => {
     const { service, views } = makeDefaultService();
     const page = target("seat-mark");

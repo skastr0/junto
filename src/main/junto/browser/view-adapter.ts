@@ -446,6 +446,7 @@ const makeElectronViewAdapter = (
       view.webContents,
       {
         onBlockedTopLevelNavigation: (reason) => {
+          events.onNavigationBlocked(reason);
           const active = activeNavigation;
           if (active === undefined) return;
           expectedNavigation = undefined;
