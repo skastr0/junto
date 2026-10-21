@@ -50,8 +50,11 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    peer can be addressed and never started. A plain terminal goes only to its
    own machine. Every node that needs no host's runtime goes to every machine:
    tasks, artifacts, labels, files, links and region outlines. The copy
-   carries its geometry and label; its body travels as facts or content refs,
-   never in the copy, so the copy stays one frame. A file, a link or a
+   carries its geometry and label. The body of a task, artifact, label, file
+   or link travels as facts or content refs, never in the copy, so the copy
+   stays one frame. A region outline crosses as geometry and label only; its
+   briefing, references, folders and environment go only where a local seat
+   is in the region, as above. A file, a link or a
    repository arrives as a stub: what it is, where it sits and what it is
    called, with no path or address. A browser page goes elsewhere as a stub
    shaped like a peer: id, geometry, label and the editing machine, with

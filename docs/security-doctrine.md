@@ -142,8 +142,8 @@ play or pause. Private content follows the seats that need it:
   elsewhere only as a stub, with nothing to drive and no wire to it.
 
 Copy selection must enumerate fields and tables. Adding a field does not
-silently make it public. Content that no local seat needs is not copied just
-because it has a canvas row. A guidance, reference, briefing or placement
+silently make it public. A field crosses only because a rule above names
+it, never because it has a canvas row. A guidance, reference, briefing or placement
 change must advance the count used for replacement. Equality is for the same
 canvas, count and destination; different destinations may receive different
 bytes. A replacement removes private fields that are no longer selected.
