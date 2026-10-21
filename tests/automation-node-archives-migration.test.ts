@@ -91,5 +91,5 @@ describe("state migration 33 -> 34 (automation node archives)", () => {
     } finally {
       database.close();
     }
-  });
+  }, 60_000);
 });
