@@ -287,7 +287,7 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
  * The one machine this author writes on, or none. A seat writes on the
  * machine it lives on, under that seat's own identity. The operator and an
  * automation write only on the machine that edits the canvas: automations run
- * there and nowhere else.
+ * there and nowhere else, and never on a seat's node.
  */
 export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): InstallationId | undefined => {
   switch (author.kind) {
@@ -296,8 +296,10 @@ export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): 
       return seat !== undefined && seat.seatId === author.seatId ? seat.machine : undefined;
     }
     case "operator":
-    case "automation":
       return placement.editor;
+    case "automation":
+      // Never under a seat's node: a mail would name that seat as its sender.
+      return placement.seatOf(author.nodeId) === undefined ? placement.editor : undefined;
     case "malformed":
       return undefined;
     default: {

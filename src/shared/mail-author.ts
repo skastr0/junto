@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { OPERATOR_SEAT_ID, WorkNodeId, operatorActorRef, type ActorRef } from "./work-reference";
 
@@ -30,6 +30,7 @@ export const AutomationNodeId = WorkNodeId.pipe(
   Schema.brand("AutomationNodeId"),
 );
 export type AutomationNodeId = typeof AutomationNodeId.Type;
+const decodeAutomationNodeId = Schema.decodeUnknownOption(AutomationNodeId);
 
 /** The author of mail an automation sends: its own node, never the operator. */
 export const automationActorRef = (canvasName: string, nodeId: AutomationNodeId): ActorRef => ({
@@ -53,7 +54,8 @@ export const mailAuthorOf = (actor: Pick<ActorRef, "seatId" | "nodeId">): MailAu
   if (actor.seatId === OPERATOR_SEAT_ID) return operatorNode ? { kind: "operator" } : { kind: "malformed" };
   if (operatorNode) return { kind: "malformed" };
   if (actor.seatId === AUTOMATION_SEAT_ID) {
-    return { kind: "automation", nodeId: actor.nodeId as AutomationNodeId };
+    const nodeId = decodeAutomationNodeId(actor.nodeId);
+    return Option.isSome(nodeId) ? { kind: "automation", nodeId: nodeId.value } : { kind: "malformed" };
   }
   return { kind: "seat", seatId: actor.seatId, nodeId: actor.nodeId };
 };

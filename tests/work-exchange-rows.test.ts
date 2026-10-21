@@ -293,8 +293,9 @@ describe("who may hand a row over, and who wrote it", () => {
     // From the machine the target seat lives on, or any other: never.
     expect(writtenByItsAuthor(decode(mail(mini, automation, "peer")), placement)).toBe(false);
     expect(writtenByItsAuthor(decode(mail(other, automation, "far")), placement)).toBe(false);
-    // An automation's identity on a seat's node is no seat's, and on the operator's node no one's.
+    // An automation's identity on a seat's node is no one's, from any machine, and on the operator's node no one's.
     expect(writtenByItsAuthor(decode(mail(mini, { seatId: automation.seatId, nodeId: "peer" }, "lead")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(mail(editor, { seatId: automation.seatId, nodeId: "lead" }, "peer")), placement)).toBe(false);
     expect(writtenByItsAuthor(decode(mail(editor, { seatId: automation.seatId, nodeId: "operator" }, "peer")), placement)).toBe(false);
     // An automation writes no receipt.
     expect(writtenByItsAuthor(decode(receipt(editor, automation)), placement)).toBe(false);
