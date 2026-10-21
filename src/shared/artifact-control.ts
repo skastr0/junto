@@ -145,6 +145,9 @@ export const ARTIFACT_ARGS = {
   "artifact.restore": ArtifactOneArgs,
 } as const satisfies { readonly [Op in ArtifactControlOp]: Schema.Top };
 
+export const isArtifactOp = (op: string): op is ArtifactControlOp =>
+  (ARTIFACT_OPS as ReadonlyArray<string>).includes(op);
+
 export const isArtifactWriteOp = (op: string): op is ArtifactWriteOp =>
   (ARTIFACT_WRITE_OPS as ReadonlyArray<string>).includes(op);
 

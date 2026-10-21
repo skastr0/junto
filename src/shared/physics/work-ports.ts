@@ -1,4 +1,5 @@
 import { productNodeKindEnabled } from "../features";
+import type { ArtifactControlOp } from "../artifact-control";
 import type { AutomationOp } from "../automation-control";
 import type { WorkOpName } from "../work-control";
 import type { Port, SinkKind } from "./schema";
@@ -14,6 +15,8 @@ export type TargetWorkOpName = Exclude<
   | "signal.raise" | "signal.clear" | "signal.list" | "env.report" | "logs.read" | "references.list" | "references.read" | "content.stage"
   // Automations are not reached through an edge port (plan 07).
   | AutomationOp
+  // Nor are artifacts (plan 05): an Artifacts node in reach admits.
+  | ArtifactControlOp
 >;
 
 /**

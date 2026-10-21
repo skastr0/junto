@@ -11,6 +11,7 @@ import { CompanionDeviceRepositoryLive } from "./junto/companion/repository";
 import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
+import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
 import { ReferencesRepositoryLive } from "./junto/references/repository";
 import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
@@ -48,6 +49,7 @@ export const makeCoreProductLayer = (home: string) => {
       CrewRepositoryLive,
       SquadRepositoryLive,
       SeatGuidanceRepositoryLive,
+      ArtifactRepositoryLive,
       Layer.provideMerge(ReferencesFollowCanvasLive, ReferencesRepositoryLive),
       SeatSessionRepositoryLive,
       ProfileRepositoryLive,

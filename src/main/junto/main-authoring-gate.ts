@@ -136,6 +136,14 @@ const WORK_OPERATION_CLASSIFICATION = {
   "automation.enable": "authorial",
   "automation.disable": "authorial",
   "automation.run": "authorial",
+  "artifact.list": "read",
+  "artifact.show": "read",
+  "artifact.history": "read",
+  "artifact.create": "authorial",
+  "artifact.edit": "authorial",
+  "artifact.comment": "authorial",
+  "artifact.archive": "authorial",
+  "artifact.restore": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
 
 export const classifyMainAuthoringWorkOperation = (

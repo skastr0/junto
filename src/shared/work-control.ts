@@ -138,7 +138,16 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "automation.enable",
 "automation.disable",
 "automation.run",
-"automation.history",]);
+"automation.history",
+/** Artifacts in reach (plan 05): no edge, no port; region reach admits. */
+"artifact.list",
+"artifact.show",
+"artifact.history",
+"artifact.create",
+"artifact.edit",
+"artifact.comment",
+"artifact.archive",
+"artifact.restore",]);
 export type WorkOpName = typeof WorkOpName.Type;
 
 // ---------------------------------------------------------------------------

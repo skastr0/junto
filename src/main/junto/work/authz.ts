@@ -364,6 +364,15 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "automation.disable":
     case "automation.run":
     case "automation.history":
+    // Artifacts too: an Artifacts node in reach admits (plan 05).
+    case "artifact.list":
+    case "artifact.show":
+    case "artifact.history":
+    case "artifact.create":
+    case "artifact.edit":
+    case "artifact.comment":
+    case "artifact.archive":
+    case "artifact.restore":
       return false;
     case "task.list":
     case "task.wait":

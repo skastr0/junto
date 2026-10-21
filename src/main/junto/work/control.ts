@@ -150,6 +150,8 @@ import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
 import { AUTOMATION_WRITE_OPS, isAutomationOp } from "@shared/automation-control";
 import { handleAutomationOp, liveAutomationPorts } from "./automation-control";
+import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
+import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
 import { liveSeatObservation } from "./seat-observation-live";
 import { readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
@@ -219,6 +221,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "board.post",
   "board.mark_read",
   ...AUTOMATION_WRITE_OPS,
+  ...ARTIFACT_WRITE_OPS,
   // Agent signals stay open while paused: raising a hand to the operator is
   // not a factory act, and a paused seat may need to say it is stuck.
 ]);
@@ -2472,6 +2475,16 @@ const dispatchOp = (
         canvasName: caller.canvasName,
         actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
       }, liveAutomationPorts);
+    }
+
+    if (isArtifactOp(op)) {
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
+      return yield* handleArtifactOp(op, args, {
+        canvas: board,
+        canvasName: caller.canvasName,
+        actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
+      }, liveArtifactPorts);
     }
 
     if (op === "references.list" || op === "references.read") {

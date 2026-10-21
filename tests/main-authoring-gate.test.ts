@@ -209,6 +209,14 @@ describe("work-control main authoring classification", () => {
       "automation.enable": "authorial",
       "automation.disable": "authorial",
       "automation.run": "authorial",
+      "artifact.list": "read",
+      "artifact.show": "read",
+      "artifact.history": "read",
+      "artifact.create": "authorial",
+      "artifact.edit": "authorial",
+      "artifact.comment": "authorial",
+      "artifact.archive": "authorial",
+      "artifact.restore": "authorial",
     } as const satisfies Record<
       WorkOpName,
       ReturnType<typeof classifyMainAuthoringWorkOperation>
