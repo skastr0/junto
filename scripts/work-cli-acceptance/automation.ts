@@ -5,7 +5,8 @@
  * and writes none: the overseer gate refuses its write before any ruler sees
  * it.
  */
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { automationIpcHandlers } from "../../src/main/junto/automation/ipc";
 import { ModelService } from "../../src/main/junto/model/service";
 import { overseerAutomationExamples } from "../../src/cli/commands/overseer-automation";
@@ -19,6 +20,8 @@ const { check, fail, pending } = casesFor("automation");
 const NODE = "automations";
 const NAME = "standup reminder";
 const OVERSEEN = "wrap up";
+/** A paired machine that edits the canvas while the off-editor case runs. */
+const EDITOR = { machine: "atlas", installation: "inst-acceptance-atlas" } as const;
 const CREATE = overseerAutomationExamples.find((entry) => entry.command === "overseer automation create")!.input;
 
 export const automationArea: AcceptanceArea = {
@@ -87,6 +90,23 @@ export const automationArea: AcceptanceArea = {
     log("automation show of the overseer's", seen.stdout || seen.stderr);
     const seenBody = envelopeOf(seen);
 
+    // Off the editing machine: this core holds the canvas as a copy while atlas edits it, then edits it again.
+    const sql = (statement: string) =>
+      inApp.runPromise<ReadonlyArray<Record<string, unknown>>>(Effect.flatMap(SqlClient.SqlClient, (client) => client.unsafe(statement)));
+    const [own] = await sql(`SELECT editor_installation_id AS editor FROM canvases WHERE canvas_name = '${canvas}'`);
+    const restore = own?.editor == null ? "NULL" : `'${String(own.editor)}'`;
+    await sql(`INSERT INTO known_installations(installation_id,registered_at) VALUES ('${EDITOR.installation}','2026-10-21T00:00:00Z')`);
+    await sql(`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('${EDITOR.machine}','${EDITOR.installation}','2026-10-21T00:00:00Z')`);
+    let offEditor: Awaited<ReturnType<typeof cli>>;
+    try {
+      await sql(`UPDATE canvases SET editor_installation_id = '${EDITOR.installation}' WHERE canvas_name = '${canvas}'`);
+      offEditor = await cli(["overseer", "automation", "create", JSON.stringify({ ...ruledInput, name: "off the editor" })], overseer);
+    } finally {
+      await sql(`UPDATE canvases SET editor_installation_id = ${restore} WHERE canvas_name = '${canvas}'`);
+    }
+    log("overseer automation create off the editing machine", offEditor.stdout || offEditor.stderr);
+    const off = envelopeOf(offEditor);
+
     return [
       check(
         "list reads as a seat",
@@ -126,8 +146,13 @@ export const automationArea: AcceptanceArea = {
           seen.code === 0 && seenBody?.data?.automation?.automationId === rule.data?.automationId,
         ruled.code === 0 ? seen : ruled,
       ),
-      // Automation writes are not queued; canvas-automation adds the refusal that names the editing machine.
-      pending("an overseer's write from another machine is refused not_available, naming the editing machine", "canvas-automation"),
+      // Automation writes are not queued: a copy refuses them and names where to go.
+      check(
+        "an overseer's write from another machine is refused not_available, naming the editing machine",
+        offEditor.code === 1 && off?.ok === false && off.error?.type === "InputError" && off.error?.details?.reason === "not_available" &&
+          String(off.error?.message).includes(EDITOR.machine) && String(off.error?.details?.next_step).includes(EDITOR.machine),
+        offEditor,
+      ),
     ];
   },
 };
