@@ -5,9 +5,9 @@
  *
  * Writes are `AutomationOp`s (automation.ts) on a resource command (02) whose
  * target is the automation item; reads are the `AutomationList` and
- * `AutomationFirings` payloads. A write comes back applied, queued (durable,
- * the editing machine has not ruled yet) or refused with its reason; a stale
- * edit carries the head it lost to in `expected`.
+ * `AutomationFirings` payloads. A write comes back applied or refused with its
+ * reason, never queued: off the editing machine it is refused `not_available`
+ * with a next step. A stale edit carries the head it lost to in `expected`.
  *
  * Stand-in: until canvas-automation serves these over IPC (track C5),
  * `makeLocalAutomationsSource` holds them in this window's memory under the
@@ -33,7 +33,6 @@ import type { Refusal } from "@shared/resource-command";
 
 export type ApplyResult =
   | { readonly kind: "applied"; readonly automation?: Automation }
-  | { readonly kind: "queued" }
   | { readonly kind: "refused"; readonly refusal: Refusal };
 
 export interface AutomationsSource {

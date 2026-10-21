@@ -202,13 +202,16 @@ describe("automations pane", () => {
     const apply = source.apply;
     setAutomationsSource({
       ...source,
-      apply: async (...args) => (args[3].kind === "archive" ? { kind: "refused", refusal: { reason: "queue_full", message: "full" } } : apply(...args)),
+      apply: async (...args) =>
+        args[3].kind === "archive"
+          ? { kind: "refused", refusal: { reason: "not_available", message: "this machine has no installation id yet" } }
+          : apply(...args),
     });
     await act(async () => button("Archive").click());
     expect(document.body.textContent).toContain("Archive Morning standup?");
     await act(async () => [...document.body.querySelectorAll("button")].filter((element) => element.textContent?.trim() === "Archive").at(-1)!.click());
     expect(document.body.querySelector('[data-testid="automation-editor"]')).not.toBeNull();
-    expect(document.body.textContent).toContain("the queue for the editing machine is full");
+    expect(document.body.textContent).toContain("Not available: this machine has no installation id yet");
     setAutomationsSource(source);
     await act(async () => button("Archive").click());
     await act(async () => [...document.body.querySelectorAll("button")].filter((element) => element.textContent?.trim() === "Archive").at(-1)!.click());
@@ -216,21 +219,29 @@ describe("automations pane", () => {
     expect((await source.list(canvas, node)).automations).toEqual([]);
   });
 
-  it("a queued save marks its row until the editing machine rules, then clears", async () => {
+  it("off the editing machine a save is refused not_available, and the pane says where to make it", async () => {
     await opened();
-    const apply = source.apply;
-    setAutomationsSource({ ...source, apply: async (...args) => (args[3].kind === "edit" ? { kind: "queued" } : apply(...args)) });
-    await typeName("Queued name");
-    await act(async () => button("Save").click());
-    expect(document.body.textContent).toContain("Queued: the editing machine has not ruled on it yet.");
-    expect(document.body.textContent).toContain(", queued");
-    setAutomationsSource(source);
-    // The ruling lands: the head moves.
-    await act(async () => {
-      await source.apply(canvas, node, automationId, { kind: "edit", baseVersion: (await stored()).version, definition: { ...definition, name: "Queued name" } });
+    // Main's refusal from a copy (automation/apply.ts): never queued.
+    setAutomationsSource({
+      ...source,
+      apply: async () => ({
+        kind: "refused",
+        refusal: {
+          reason: "not_available",
+          message: `automations on "${canvas}" are written on Studio Mac, the machine that edits it`,
+          next_step: `Open "${canvas}" on Studio Mac to change its automations`,
+        },
+      }),
     });
-    expect(document.body.textContent).not.toContain("Queued: the editing machine");
-    expect(document.body.textContent).not.toContain(", queued");
+    await typeName("Elsewhere");
+    await act(async () => button("Save").click());
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
+      `Automations on "${canvas}" are written on Studio Mac, the machine that edits it. Open "${canvas}" on Studio Mac to change its automations.`,
+    );
+    // The draft stays, unsaved, and nothing is marked pending.
+    expect(nameShown()).toBe("Elsewhere");
+    expect((await stored()).name).toBe("Morning standup");
+    expect(document.body.querySelector('[data-pending="true"]')).toBeNull();
   });
 
   it("a field's problem is its description", async () => {

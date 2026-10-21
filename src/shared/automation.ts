@@ -437,10 +437,9 @@ export type AutomationFiringsResponse = typeof AutomationFiringsResponse.Type;
 export const AutomationApplyRequest = Schema.Struct({ nodeId: NodeId, automationId: AutomationId, op: AutomationOp });
 export type AutomationApplyRequest = typeof AutomationApplyRequest.Type;
 
-/** Applied (the head it left, absent once archived), queued for the editing machine, or refused with its reason. */
+/** Applied (the head it left, absent once archived) or refused with its reason; never queued (apply.ts). */
 export type AutomationApplyResponse =
   | { readonly kind: "applied"; readonly automation?: Automation }
-  | { readonly kind: "queued" }
   | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /** Sent to every window after a committed change to a node's automations. */

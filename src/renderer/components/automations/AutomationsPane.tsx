@@ -11,8 +11,9 @@
  * draft stays, and the pane offers to send it again over the head or to take
  * the head. A draft with no unsent change follows a new head on its own. On
  * and off is `set-enabled` and lands at once; an edit never carries it, so a
- * save never undoes a toggle made elsewhere. A queued write marks its
- * row dashed until the editing machine rules.
+ * save never undoes a toggle made elsewhere. A write is never queued: the
+ * editing machine rules it, and any other machine refuses it `not_available`,
+ * naming where to make it.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Play, Plus, Zap } from "lucide-react";
@@ -87,9 +88,10 @@ const refusalWords = (refusal: Refusal): string => {
     case "not_in_reach":
       return "A target is outside what this automation may reach.";
     case "not_available":
-      return `Not available: ${refusal.message}`;
-    case "queue_full":
-      return "Not sent: the queue for the editing machine is full. Try again shortly.";
+      // Off the editing machine main names where to go: "Open "x" on Y to change its automations".
+      return refusal.next_step === undefined
+        ? `Not available: ${refusal.message}`
+        : `${refusal.message.charAt(0).toUpperCase()}${refusal.message.slice(1)}. ${refusal.next_step}.`;
     default:
       return `Not saved: ${refusal.message}`;
   }
@@ -141,15 +143,12 @@ function SidebarRow({
   automation,
   selected,
   dirty,
-  pending,
   canvasName,
   onSelect,
 }: {
   readonly automation: Automation;
   readonly selected: boolean;
   readonly dirty: boolean;
-  /** A write to it is queued, not yet ruled. */
-  readonly pending: boolean;
   readonly canvasName: string;
   readonly onSelect: () => void;
 }) {
@@ -163,7 +162,6 @@ function SidebarRow({
   return (
     <ListRow
       selected={selected}
-      pending={pending}
       leading={<StatusDot tone={automation.enabled ? "green" : "dim"} />}
       title={`${automation.name}${dirty ? ", edited" : ""}`}
       meta={triggerWords(trigger, nameOf)}
@@ -190,10 +188,6 @@ export function AutomationsPane({
   const [asking, setAsking] = useState<() => void>();
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal>();
-  // A queued write, with the head it was sent against (none for a create); the mark clears once the head moves.
-  const [queued, setQueued] = useState<
-    ReadonlyMap<AutomationId, Automation | undefined>
-  >(new Map());
   const [archiving, setArchiving] = useState(false);
   const firings = useFirings(
     canvasName,
@@ -213,15 +207,7 @@ export function AutomationsPane({
     setEditing(next);
   };
 
-  const markQueued = (automationId: AutomationId, on: boolean): void =>
-    setQueued((now) => {
-      const next = new Map(now);
-      if (on) next.set(automationId, headOf(automationId));
-      else next.delete(automationId);
-      return next;
-    });
-
-  /** One op; a refusal is kept for the pane to say, a queued op marks its row. */
+  /** One op; a refusal is kept for the pane to say. */
   const send = async (
     automationId: AutomationId,
     op: AutomationOp,
@@ -241,7 +227,6 @@ export function AutomationsPane({
         }),
       );
     setBusy(false);
-    markQueued(automationId, result.kind === "queued");
     if (result.kind === "refused") setRefusal(result.refusal);
     return result;
   };
@@ -285,8 +270,6 @@ export function AutomationsPane({
     );
     if (result.kind === "applied" && result.automation)
       open(editingOf(result.automation));
-    else if (result.kind === "queued" && base !== editing.base)
-      setEditing({ ...editing, base });
   };
 
   // A loaded automation turns on and off at once, keeping any edits in the draft.
@@ -354,23 +337,6 @@ export function AutomationsPane({
     if (lost) claimFocus((editing ? saveButton : newButton).current, "gesture");
   }, [refocus]);
 
-  // The editing machine ruled a queued write once its head moved: created, edited, toggled or archived.
-  useEffect(() => {
-    setQueued((now) => {
-      const settled = [...now].filter(([automationId, before]) => {
-        const head = headOf(automationId);
-        return before === undefined
-          ? head !== undefined
-          : head === undefined ||
-              head.version !== before.version ||
-              head.enabled !== before.enabled;
-      });
-      if (settled.length === 0) return now;
-      const next = new Map(now);
-      for (const [automationId] of settled) next.delete(automationId);
-      return next;
-    });
-  }, [automations]);
 
   // A draft with no unsent change follows its head: an edit, a toggle or an archive made elsewhere.
   useEffect(() => {
@@ -442,7 +408,6 @@ export function AutomationsPane({
                     canvasName={canvasName}
                     selected={automation.automationId === selectedId}
                     dirty={automation.automationId === selectedId && dirty}
-                    pending={queued.has(automation.automationId)}
                     onSelect={() => {
                       if (automation.automationId !== selectedId)
                         leave(() => open(editingOf(automation)));
@@ -489,13 +454,7 @@ export function AutomationsPane({
                 saveRef={saveButton}
                 nameRef={nameField}
                 dirty={dirty}
-                refusal={
-                  refusal
-                    ? refusalWords(refusal)
-                    : queued.has(editing.draft.automationId)
-                      ? "Queued: the editing machine has not ruled on it yet."
-                      : undefined
-                }
+                refusal={refusal ? refusalWords(refusal) : undefined}
                 onSave={() => void save()}
                 onRevert={() =>
                   setEditing({ ...editing, draft: editing.loaded })
