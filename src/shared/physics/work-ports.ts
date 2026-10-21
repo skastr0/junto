@@ -57,7 +57,6 @@ export const PortForWorkOp = {
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
   "msg.react": "msg.list",
-  "artifact.publish": "artifact.publish",
   "board.list": "board.list",
   "board.create_topic": "board.create_topic",
   "board.post": "board.post",
@@ -90,7 +89,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.read",
   "msg.reply",
   "msg.react",
-  "artifact.publish",
   "board.list",
   "board.create_topic",
   "board.post",
@@ -131,7 +129,8 @@ export const OPS_BY_SINK = {
     "msg.reply",
     "msg.react",
   ],
-  artifacts: ["artifact.publish"],
+  // Artifacts admit by reach (plan 05); no work op checks a port.
+  artifacts: [],
   automations: [],
   board: [
     "board.list",

@@ -50,7 +50,6 @@ import type {
 import { resolveSpec } from "@shared/physics";
 import {
   WorkError,
-  workArtifactPublish,
   workMessageAppend,
   workRequestCreate,
   workRequestResolve,
@@ -658,13 +657,6 @@ export interface WorkServiceShape {
       responseText: string,
       disposition: "completed" | "rejected",
     ) => Effect.Effect<WorkOpResult<Task>>;
-    readonly workArtifactPublish: (
-      canvas: string,
-      nodeId: string,
-      artifact: Artifact,
-      publishedBy: ActorRef,
-      admin?: OverseerWorkAdmin,
-    ) => Effect.Effect<WorkOpResult<Artifact>>;
     /** Operator soft-archive / restore (metadata.archived). */
     readonly workArtifactArchive: (
       canvas: string,
@@ -1009,8 +1001,7 @@ export const WorkLive = Layer.effect(
         | "msg.send"
         | "msg.read"
         | "msg.reply"
-        | "msg.react"
-        | "artifact.publish",
+        | "msg.react",
       admin?: OverseerWorkAdmin,
     ): Effect.Effect<Node, WorkServiceError> => {
       if (admin !== undefined) {
@@ -3004,80 +2995,6 @@ export const WorkLive = Layer.effect(
               }
             }
             return completed;
-          }),
-        ),
-
-      workArtifactPublish: (
-        canvas,
-        nodeId,
-        artifact,
-        publishedBy,
-        admin,
-      ) =>
-        asResult(
-          Effect.gen(function* () {
-            const read = yield* readTopology(canvas);
-            if (admin === undefined) {
-              yield* requireActor(
-                read,
-                publishedBy,
-                nodeId,
-                "artifact.publish",
-              );
-            } else {
-              const live = yield* requireLiveOverseer(admin);
-              if (!sameActor(live, publishedBy)) {
-                return yield* new WorkServiceError({
-                  code: "invalid",
-                  message: "overseer admin actor does not match the publishing seat",
-                });
-              }
-              const sink = admitOverseerWorkTarget(
-                read.topology,
-                nodeId,
-                "artifact.publish",
-              );
-              if (Result.isFailure(sink)) {
-                return yield* new WorkServiceError({
-                  code:
-                    sink.failure.type === "UnknownTarget"
-                      ? "node_not_found"
-                      : "invalid",
-                  message: sink.failure.message,
-                });
-              }
-            }
-            const policyWork = yield* policyRows(canvas, nodeId, [artifact.task?.itemId].filter((id): id is string => id !== undefined), [artifact.artifactId]);
-            const policy = yield* runPolicy(() =>
-              workArtifactPublish(policyWork, read.topology,
-                canvas,
-                nodeId,
-                artifact,
-              )
-            );
-            const materializedArtifact = yield* externalizeParts(
-              policy.artifact.parts,
-              {
-                kind: "artifact",
-                canvasName: canvas,
-                nodeId,
-                recordId: policy.artifact.artifactId,
-              },
-            ).pipe(
-              Effect.map((parts) => ({ ...policy.artifact, parts })),
-            );
-            const origin = yield* readTopology(publishedBy.canvasName);
-            yield* requireNode(origin.topology, publishedBy.nodeId);
-            const outcome = yield* local(
-                  repository.publishArtifact({
-                    sink: sinkRef(canvas, nodeId),
-                    basis: intentBasis(read.intentWitness),
-                    artifact: materializedArtifact,
-                    publishedBy,
-                  }),
-                  admin,
-                );
-            return yield* complete(outcome);
           }),
         ),
 

@@ -22,7 +22,6 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.request-resolve",
   "ipc.work.signal-answer",
   "ipc.work.signal-dismiss",
-  "ipc.work.artifact-publish",
   "ipc.work.artifact-archive",
   "ipc.work.artifact-delete",
   "ipc.resource.task-apply",
@@ -32,7 +31,6 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.msg-send",
   "control.work.signal",
   "control.work.offboard",
-  "control.work.artifact-publish",
   "control.work.board-create-topic",
   "control.work.board-post",
   "control.work.board-mark-read",
@@ -140,7 +138,6 @@ const WORK_OPERATION_CLASSIFICATION = {
   "references.read": "read",
   // Staging writes the content store and its manifest.
   "content.stage": "authorial",
-  "artifact.publish": "authorial",
   "board.list": "read",
   "board.tags": "read",
   "board.create_topic": "authorial",
@@ -197,7 +194,6 @@ const WORK_AUTHORING_LABELS = {
   // authorial family, so it carries the same label.
   "content.stage": "control.work.signal",
   offboard: "control.work.offboard",
-  "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
   "board.mark_read": "control.work.board-mark-read",
@@ -232,7 +228,6 @@ const WORK_AUTHORING_LABELS = {
     | "signal.clear"
     | "content.stage"
     | "offboard"
-    | "artifact.publish"
     | "board.create_topic"
     | "board.post"
     | "board.mark_read"

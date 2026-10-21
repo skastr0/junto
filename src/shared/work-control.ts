@@ -143,7 +143,6 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "references.read",
 /** Universal seat-local: the seat puts a file of its own into the content store, in pieces. */
 "content.stage",
-"artifact.publish",
 "board.list",
 "board.create_topic",
 "board.post",
@@ -700,37 +699,6 @@ export const OffboardArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type OffboardArgs = typeof OffboardArgs.Type;
-
-/** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */
-export const ArtifactPartWire = Schema.Union([Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
-Schema.Struct({
-  kind: Schema.Literal("url"),
-  url: Schema.String,
-  mediaType: Schema.optionalKey(Schema.String),
-}),
-Schema.Struct({ kind: Schema.Literal("data"), data: Schema.Unknown }),
-Schema.Struct({
-  kind: Schema.Literal("raw"),
-  bytesBase64: Schema.String,
-  mediaType: Schema.optionalKey(Schema.String),
-}),
-ContentPart,]);
-
-export const ArtifactTaskArgs = Schema.Struct({
-  target: Schema.String,
-  id: Schema.String,
-});
-export type ArtifactTaskArgs = typeof ArtifactTaskArgs.Type;
-
-export const ArtifactPublishArgs = Schema.Struct({
-  target: Schema.String,
-  name: Schema.optionalKey(Schema.String),
-  artifactId: Schema.optionalKey(Schema.String),
-  parts: Schema.Array(ArtifactPartWire),
-  task: Schema.optionalKey(ArtifactTaskArgs),
-  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-});
-export type ArtifactPublishArgs = typeof ArtifactPublishArgs.Type;
 
 export const EmptyArgs = Schema.Struct({});
 export type EmptyArgs = typeof EmptyArgs.Type;

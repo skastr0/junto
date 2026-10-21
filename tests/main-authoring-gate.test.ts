@@ -209,7 +209,6 @@ describe("work-control main authoring classification", () => {
       "references.list": "read",
       "references.read": "read",
       "content.stage": "authorial",
-      "artifact.publish": "authorial",
       "board.list": "read",
       "board.tags": "read",
       "board.create_topic": "authorial",

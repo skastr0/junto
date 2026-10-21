@@ -41,7 +41,7 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",
   "verdict.post": "Post an epoch-bound verdict on the work of this edge's author, from a distinct reviewer seat.",
-  "artifact.publish": "Publish an artifact (text/data/ContentRef parts).",
+  "artifact.publish": "Read and edit the artifacts in reach with junto artifact (the port name is historical).",
   "browser.automate": "Control a granted page session (browser CLI).",
   "board.list": "List bulletin-board topics and posts.",
   "board.create_topic": "Create a board topic (does not notify agents).",
@@ -92,8 +92,8 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "task.transition — requests share the Task state machine",
   ],
   artifacts: [
-    "artifact.publish — admitted, process-bound publish with proof stamp",
-    "artifact.link — artifact linked to a task via Artifact.task",
+    "artifact.create, artifact.edit — versioned, ruled by the machine that edits the canvas",
+    "artifact.comment — a thread on the artifact, whole or at an anchor",
   ],
   board: [
     "board.topic_created / board.posted / board.mark_read — attention changes",

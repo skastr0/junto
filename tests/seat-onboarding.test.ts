@@ -25,7 +25,7 @@ import {
   buildEdgeContracts,
 } from "../src/shared/junto-doctrine";
 import { buildDoctrineDoc, buildNodeKindDoc } from "../src/shared/junto-docs";
-import { BROWSER_ENABLED, TASKS_ENABLED } from "../src/shared/features";
+import { ARTIFACTS_ENABLED, BROWSER_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { compileVerb } from "../src/shared/physics/verbs";
 import { ALL_PORTS } from "../src/shared/physics/schema";
 
@@ -181,8 +181,7 @@ describe("onboard reach", () => {
       { kind: "artifacts", count: 1, targets: ["art-1"] },
     ]);
     expect(reach[0]!.list).toBe(TASKS_ENABLED ? `junto task list '{"target":"<target>"}'` : "junto docs node task");
-    // No artifact list command yet: the reference instead of a command that does not exist.
-    expect(reach[1]!.list).toBe("junto docs node artifacts");
+    expect(reach[1]!.list).toBe(ARTIFACTS_ENABLED ? "junto artifact list" : "junto docs node artifacts");
     expect(compileReach([{ id: "board-a", kind: "task" }])[0]!.list).toBe(
       TASKS_ENABLED ? `junto task list '{"target":"board-a"}'` : "junto docs node task",
     );

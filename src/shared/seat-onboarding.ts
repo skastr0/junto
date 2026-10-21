@@ -148,13 +148,16 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
   artifacts: {
     label: "artifacts",
     docsKind: "artifacts",
-    note: "Artifacts never block: publish intermediate and final outputs freely.",
+    note: "Artifacts never block: create and edit intermediate and final outputs freely. An edit names the version it read with --base.",
     rows: [
+      { port: "artifact.publish", intent: "what is here", command: () => "junto artifact list" },
       {
         port: "artifact.publish",
         intent: "ship output",
-        command: (t) => `junto artifact publish '{"target":"${t}","name":"<name>","parts":[{"kind":"text","text":"..."}]${TASK_LINKAGE}}'`,
+        command: (t) => `junto artifact create "<title>" --type document --node ${t} --markdown "..."`,
+        detail: "--task <taskId> links it to a task; link, pad, sheet and file are the other types",
       },
+      { port: "artifact.publish", intent: "read, then edit", command: () => "junto artifact show <id>, junto artifact edit <id> --base <n> --markdown \"...\"" },
     ],
   },
   board: {
@@ -271,7 +274,7 @@ export const compileConnectionInstructions = (
  */
 const REACH_LISTING: Readonly<Record<ResourceKind, { readonly family: CommandFamily; readonly intent?: string }>> = {
   task: { family: "tasks", intent: "list queue" },
-  artifacts: { family: "artifacts" },
+  artifacts: { family: "artifacts", intent: "what is here" },
 };
 
 /** One resource kind in a seat's reach, as `junto onboard` returns it. */

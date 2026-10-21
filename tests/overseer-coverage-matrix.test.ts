@@ -50,7 +50,6 @@ const FROZEN_OPERATIONS = [
   "request.comment",
   "artifact.list",
   "artifact.get",
-  "artifact.publish",
   "artifact.archive",
   "artifact.delete",
   "msg.list",
@@ -178,7 +177,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(111);
+    expect(FROZEN_OPERATIONS).toHaveLength(110);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("GrantOverseer");
     expect(matrix).toContain("tests/overseer-admission.test.ts");

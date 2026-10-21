@@ -69,7 +69,6 @@ export const PREAMBLE_TOOL_TTL_MS = 8_000;
  */
 export const SEAT_TOOL_PHRASE: Readonly<Record<string, string>> = {
   "verdict.post": "posted a verdict",
-  "artifact.publish": "published an artifact",
 };
 
 /** The preamble for one successful seat tool call, or undefined when it is not news. */

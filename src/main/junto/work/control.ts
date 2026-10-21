@@ -14,7 +14,7 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, Message, Part } from "@shared/work-model";
+import type { Message } from "@shared/work-model";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
@@ -73,12 +73,6 @@ import {
 } from "@shared/mailbox-target";
 import { formatNodeRef } from "@shared/node-ref";
 import {
-  artifactPublishAuthority,
-  extractProofStamp,
-  globalStampRuntime,
-} from "@shared/proof-stamps";
-import {
-  ArtifactPublishArgs,
   BoardCreateTopicArgs,
   BoardListArgs,
   BoardMarkReadArgs,
@@ -217,7 +211,6 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "msg.read",
   "msg.reply",
   "msg.react",
-  "artifact.publish",
   "board.create_topic",
   "board.post",
   "board.mark_read",
@@ -2494,62 +2487,6 @@ const dispatchOp = (
         disposition: "applied" as const,
         next_step: SIGNAL_NEXT_STEP[signal.kind],
       };
-    }
-
-    if (op === "artifact.publish") {
-      const decoded = decodeArgs(ArtifactPublishArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const parts = decoded.success.parts as Part[];
-      const artifact: Artifact = {
-        artifactId: decoded.success.artifactId?.trim() || ulid(),
-        parts,
-        ...(decoded.success.name !== undefined ? { name: decoded.success.name } : {}),
-        ...(decoded.success.task !== undefined
-          ? {
-              task: {
-                kind: "task",
-                itemId: decoded.success.task.id,
-                sink: {
-                  canvasName: caller.canvasName,
-                  nodeId: decoded.success.task.target,
-                },
-              },
-            }
-          : {}),
-        ...(decoded.success.metadata !== undefined
-          ? { metadata: decoded.success.metadata }
-          : {}),
-      };
-      const publishedBy = resolveProcessBoundActorRef(
-        read.actorRefs,
-        caller,
-      );
-      if (Result.isFailure(publishedBy)) {
-        return yield* Effect.fail(publishedBy.failure);
-      }
-      const result = yield* work.workArtifactPublish(
-        caller.canvasName,
-        decoded.success.target,
-        artifact,
-        publishedBy.success,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      // Work control admits credentialed callers only. Renderer IPC publish
-      // does not write stamps, so it cannot become a trust-plane side door.
-      const authority = artifactPublishAuthority({
-        canvasName: caller.canvasName,
-        seat: caller.nodeId,
-        occupant: caller.occupant,
-        sinkNodeId: decoded.success.target,
-      });
-      const stamp = extractProofStamp(authority, mapped.success.value);
-      if (stamp) {
-        globalStampRuntime.recordStamp(authority, stamp);
-      }
-      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "board.list") {

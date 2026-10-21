@@ -1236,52 +1236,6 @@ export const workRequestResolve = (
   return { task };
 };
 
-export const workArtifactPublish = (
-  work: WorkPolicyRead,
-  doc: Canvas,
-  canvasName: string,
-  nodeId: string,
-  artifact: Artifact,
-): WorkArtifactResult => {
-  const node = requireNode(doc, nodeId);
-  requireSink(node, ["artifacts"]);
-  if (!artifact.artifactId.trim()) {
-    throw new WorkError("invalid", "artifactId must be non-empty");
-  }
-  if (!Array.isArray(artifact.parts) || artifact.parts.length === 0) {
-    throw new WorkError("invalid", "artifact must have at least one part");
-  }
-  const taskRef = artifact.task;
-  if (taskRef !== undefined) {
-    if (taskRef.sink.canvasName !== canvasName) {
-      throw new WorkError(
-        "invalid",
-        "artifact task reference must belong to the artifact canvas",
-      );
-    }
-    const taskNode = requireNode(doc, taskRef.sink.nodeId);
-    requireSink(taskNode, ["task"]);
-    const task = work.taskAt(taskRef.sink.nodeId, taskRef.itemId);
-    if (task === undefined) {
-      throw new WorkError(
-        "task_not_found",
-        `task "${taskRef.itemId}" not found`,
-      );
-    }
-    if (task.claimedBy === undefined) {
-      throw new WorkError(
-        "invalid",
-        `task "${taskRef.itemId}" must be claimed before artifact linkage`,
-      );
-    }
-  }
-  const existing = work.artifactsOf(nodeId);
-  if (existing.some((a) => a.artifactId === artifact.artifactId)) {
-    throw new WorkError("invalid", `artifact "${artifact.artifactId}" already exists`);
-  }
-  return { artifact };
-};
-
 /** Soft-archive flag lives in metadata so decode admits history without schema migration. */
 export const isArtifactArchived = (artifact: Artifact): boolean =>
   artifact.metadata?.archived === true;

@@ -86,7 +86,6 @@ export const OVERSEER_OPERATION_NAMES = [
   "request.comment",
   "artifact.list",
   "artifact.get",
-  "artifact.publish",
   "artifact.archive",
   "artifact.delete",
   "msg.list",
@@ -438,14 +437,6 @@ const ArtifactIdentity = Schema.Struct({
   ...SinkTarget,
   artifact: Id,
 });
-const ArtifactPublish = Schema.Struct({
-  ...SinkTarget,
-  name: Schema.optionalKey(Schema.String),
-  artifactId: Schema.optionalKey(Id),
-  parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
-  task: Schema.optionalKey(Schema.Struct({ target: Id, id: Id })),
-  metadata: Schema.optionalKey(WorkMetadata),
-});
 const ArtifactArchive = Schema.Struct({
   ...SinkTarget,
   artifact: Id,
@@ -750,7 +741,6 @@ export const OverseerArgsSchemas = {
   "request.comment": RequestComment,
   "artifact.list": Schema.Struct(SinkTarget),
   "artifact.get": ArtifactIdentity,
-  "artifact.publish": ArtifactPublish,
   "artifact.archive": ArtifactArchive,
   "artifact.delete": ArtifactIdentity,
   "msg.list": MessageList,

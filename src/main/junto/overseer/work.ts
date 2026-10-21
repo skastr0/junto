@@ -10,7 +10,6 @@ import type { OldTaskStoreOp } from "@shared/physics/work-ports";
 import { Buffer } from "node:buffer";
 import { Effect, Result } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, Part } from "@shared/work-model";
 import type { Canvas } from "@shared/model";
 import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
@@ -80,7 +79,6 @@ const WORK_OPERATIONS = new Set<string>([
   "request.comment",
   "artifact.list",
   "artifact.get",
-  "artifact.publish",
   "artifact.archive",
   "artifact.delete",
   "msg.list",
@@ -199,6 +197,21 @@ const requireTarget = (
   if (Result.isFailure(admitted)) return failBody(admitted.failure);
   return Effect.void;
 };
+
+/** The old artifact administration targets an Artifacts node: its kind, no port. */
+const requireArtifactsTarget = (
+  canvas: Canvas,
+  targetId: string,
+): Effect.Effect<void, WorkErrorBody> =>
+  Effect.gen(function* () {
+    yield* requireTarget(canvas, targetId, "artifact.list");
+    const kind = nodeKind(findNode(canvas, targetId));
+    if (kind !== "artifacts") {
+      return yield* failBody(
+        scopeError("overseer", targetId, "wrong_kind", { kind, op: "artifact.list" }),
+      );
+    }
+  });
 
 /** Request administration targets a Requests node, admitted like its thread. */
 const requireRequestsTarget = (
@@ -547,13 +560,13 @@ export const executeOverseerWork = (
     if (op === "artifact.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "artifact.publish");
+      yield* requireArtifactsTarget(read.canvas, target);
       return { target, items: yield* catchWork(work.readArtifacts(canvas, target)) };
     }
     if (op === "artifact.get") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "artifact.publish");
+      yield* requireArtifactsTarget(read.canvas, target);
       const item = yield* catchWork(
         work.readArtifact(canvas, target, args.artifact),
       );
@@ -566,32 +579,10 @@ export const executeOverseerWork = (
       }
       return { target, artifact: item };
     }
-    if (op === "artifact.publish") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "artifact.publish");
-      const artifact: Artifact = {
-        artifactId: args.artifactId?.trim() || ulid(),
-        parts: args.parts as Part[],
-        ...(args.name !== undefined ? { name: args.name } : {}),
-        ...(args.task !== undefined
-          ? {
-              task: {
-                kind: "task" as const,
-                itemId: args.task.id,
-                sink: { canvasName: canvas, nodeId: args.task.target },
-              },
-            }
-          : {}),
-        ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
-      };
-      const result = yield* work.workArtifactPublish(canvas, target, artifact, actor, admin);
-      return exposeMutation(yield* fromWorkResult(result));
-    }
     if (op === "artifact.archive") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "artifact.publish");
+      yield* requireArtifactsTarget(read.canvas, target);
       const result = yield* work.workArtifactArchive(
         canvas,
         target,
@@ -603,7 +594,7 @@ export const executeOverseerWork = (
     if (op === "artifact.delete") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "artifact.publish");
+      yield* requireArtifactsTarget(read.canvas, target);
       const result = yield* work.workArtifactDelete(canvas, target, args.artifact);
       return exposeMutation(yield* fromWorkResult(result));
     }
