@@ -115,7 +115,11 @@ export type Stamp = {
 /** A check's side: the node it leaves, or the node it arrives at. */
 export type CheckSide = "outgoing" | "incoming";
 
-/** At most this many bytes of a check's output travel and stay. */
+/**
+ * At most this many characters (UTF-16 code units, as `slice` and
+ * `isMaxLength` count) of a check's output travel and stay: up to about
+ * 24 KB as UTF-8.
+ */
 export const CHECK_OUTPUT_TAIL_MAX = 8 * 1024;
 /** At most this many results one check command carries. */
 export const CHECK_RESULTS_MAX = 64;
