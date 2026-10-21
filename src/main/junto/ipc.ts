@@ -126,6 +126,7 @@ import {
 } from "./signals/operator";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
+import { TaskRepository } from "./work/task-repository";
 import { CrewRepository } from "./work/crew-repository";
 import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
@@ -333,6 +334,7 @@ export const registerJuntoIpc = (): void => {
     {
       task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),
       artifact: (operation) => runMainAuthoring("ipc.resource.artifact-apply", operation),
+      thread: (operation) => runMainAuthoring("ipc.resource.thread-post", operation),
     },
   );
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
@@ -1406,6 +1408,7 @@ export const registerJuntoIpc = (): void => {
         host: termPlane.host,
         crew,
         workRepository,
+        tasks: yield* TaskRepository,
         messageDelivery,
         basisFor: canvasReceiptBasis,
         run: (effect) => AppRuntime.runPromise(effect),

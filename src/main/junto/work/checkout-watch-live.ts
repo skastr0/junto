@@ -58,8 +58,7 @@ import type { ActorSeatId } from "@shared/actor-seat";
 import { asNodeId, type Node } from "@shared/model";
 import { isGitSha } from "@shared/git";
 import { isThisMachine } from "@shared/machine-identity";
-import { currentTaskOwner } from "@shared/task-owner";
-import type { Task, TasksContract } from "@shared/work-model";
+import { isOpenTaskState, type TaskView } from "@shared/task-model";
 import type { ActorRef } from "@shared/work-reference";
 import { runCli } from "../adapters/exec";
 import {
@@ -101,14 +100,6 @@ export type CheckoutWatchContext = {
   readonly claims: ReadonlyArray<CheckoutWatchClaim>;
 };
 
-/** One board's current Work rows. */
-export type CheckoutWatchBoard = {
-  readonly nodeId: string;
-  readonly tasks: ReadonlyArray<Task>;
-  /** The board's authored contract. */
-  readonly contract: TasksContract | undefined;
-};
-
 /**
  * The raw facts a claim context is derived from. Everything here is a live
  * projection the caller already holds; nothing is persisted by derivation.
@@ -117,7 +108,8 @@ export type CheckoutWatchFacts = {
   readonly canvasName: string;
   /** This machine's name. Only a seat on it has a checkout here. */
   readonly thisMachine: string;
-  readonly boards: ReadonlyArray<CheckoutWatchBoard>;
+  /** The canvas's tasks, oldest first: a later task for the same seat and checkout wins. */
+  readonly tasks: ReadonlyArray<TaskView>;
   /** Live process-bound seats for this canvas (`canvas.actorRefs`). */
   readonly actorRefs: ReadonlyArray<ActorRef>;
   readonly nodes: ReadonlyArray<Node>;
@@ -140,54 +132,49 @@ export type CheckoutWatchFacts = {
 /**
  * Derive the active binding set from live facts.
  *
- * A claim needs all five: a live non-terminal task whose owner is a seat
- * (`currentTaskOwner` — terminal rows notify nobody, a Me board has no seat
- * claimant), that seat process-bound on *this* canvas, a managed seat whose
+ * A claim needs all five: an open task with an assignee (`current.assignee`,
+ * the seat's node), that seat process-bound on *this* canvas, a managed seat whose
  * canonical delivery surface is this host, a proven canonical checkout, and an
  * observed process generation. Missing any one yields no claim rather than a
  * guess.
  *
  * A seat binds one checkout: its process-bound node's proven worktree (the
- * first `actorRef` for a seat wins, so a duplicated ref cannot bind twice).
+ * first `actorRef` for a node wins, so a duplicated ref cannot bind twice).
  * Several tasks for the same seat on the same checkout resolve to the later
- * board row; several distinct seats on one checkout is the ambiguity the
+ * task; several distinct seats on one checkout is the ambiguity the
  * watcher refuses to attribute.
  */
 export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContext => {
   const nodesById = new Map(facts.nodes.map((node) => [node.id, node]));
-  const actorBySeat = new Map<string, ActorRef>();
+  const actorByNode = new Map<string, ActorRef>();
   for (const ref of facts.actorRefs) {
     if (ref.canvasName !== facts.canvasName) continue;
-    if (!actorBySeat.has(ref.seatId)) actorBySeat.set(ref.seatId, ref);
+    if (!actorByNode.has(ref.nodeId)) actorByNode.set(ref.nodeId, ref);
   }
 
   const claims = new Map<string, CheckoutWatchClaim>();
-  for (const board of facts.boards) {
-    for (const task of board.tasks) {
-      const claimed = task.claimedBy;
-      if (claimed === undefined) continue;
-      const owner = currentTaskOwner(task, board.contract);
-      if (owner.kind !== "seat" || owner.seatId !== claimed) continue;
-      const ref = actorBySeat.get(claimed);
-      if (ref === undefined) continue;
-      const node = nodesById.get(asNodeId(ref.nodeId));
-      if (node === undefined) continue;
-      if (node.kind !== "agent" || !isThisMachine(node.host, facts.thisMachine)) continue;
-      const checkoutKey = facts.checkoutKeyFor(ref.nodeId)?.trim();
-      if (checkoutKey === undefined || checkoutKey.length === 0) continue;
-      const process = facts.observedProcessFor(ref.nodeId);
-      if (process === undefined || process.generation.length === 0) continue;
-      claims.set(`${checkoutKey}\u0000${claimed}`, {
-        seatId: claimed,
-        taskId: task.id,
-        taskNodeId: board.nodeId,
-        nodeId: ref.nodeId,
-        checkoutKey,
-        via: "claim-context",
-        generation: process.generation,
-        harness: process.harness,
-      });
-    }
+  for (const task of facts.tasks) {
+    const { state, assignee, node: taskNodeId } = task.current;
+    if (assignee === undefined || !isOpenTaskState(state)) continue;
+    const ref = actorByNode.get(assignee);
+    if (ref === undefined) continue;
+    const node = nodesById.get(asNodeId(ref.nodeId));
+    if (node === undefined) continue;
+    if (node.kind !== "agent" || !isThisMachine(node.host, facts.thisMachine)) continue;
+    const checkoutKey = facts.checkoutKeyFor(ref.nodeId)?.trim();
+    if (checkoutKey === undefined || checkoutKey.length === 0) continue;
+    const process = facts.observedProcessFor(ref.nodeId);
+    if (process === undefined || process.generation.length === 0) continue;
+    claims.set(`${checkoutKey}\u0000${ref.seatId}`, {
+      seatId: ref.seatId,
+      taskId: task.taskId,
+      taskNodeId,
+      nodeId: ref.nodeId,
+      checkoutKey,
+      via: "claim-context",
+      generation: process.generation,
+      harness: process.harness,
+    });
   }
   return { canvasName: facts.canvasName, claims: [...claims.values()] };
 };

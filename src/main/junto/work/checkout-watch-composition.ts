@@ -4,6 +4,7 @@ import { asNodeId, type Seat, type Canvas } from "@shared/model";
 import type { MailSenderStamp } from "@shared/crew";
 import { isThisMachine } from "@shared/machine-identity";
 import type { TerminalSessionSummary } from "@shared/terminal";
+import { OPEN_TASK_STATES, taskNodeId, type TaskView } from "@shared/task-model";
 import type { CanvasFactBasis } from "@shared/work-protocol";
 import type { ModelService } from "../model/service";
 import type { ModelActorRefs } from "../model/actor-refs";
@@ -23,6 +24,10 @@ import type { GitProbe } from "./checkout-watch";
 import { CrewRepositoryError, type CrewRepositoryShape } from "./crew-repository";
 import type { MessageDeliveryService } from "./message-delivery";
 import type { WorkRepositoryShape } from "./repository";
+import type { TaskRepository } from "./task-repository";
+
+/** Every open task of a canvas: a seat holds at most one. */
+const OPEN_TASK_LIMIT = 10_000;
 
 export type CheckoutWatchCompositionOptions = {
   readonly model: Pick<Context.Service.Shape<typeof ModelService>, "listCanvases" | "canvas">;
@@ -30,7 +35,8 @@ export type CheckoutWatchCompositionOptions = {
   readonly settings: Pick<SettingsServiceApi, "get">;
   readonly host: Pick<LocalSessionHost, "get">;
   readonly crew: Pick<CrewRepositoryShape, "recordCheckoutObservation">;
-  readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts" | "taskLane">;
+  readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts">;
+  readonly tasks: Pick<Context.Service.Shape<typeof TaskRepository>, "list">;
   readonly messageDelivery: Pick<MessageDeliveryService, "notifyAppended">;
   readonly basisFor: (witness: { readonly canvasName: string; readonly seq: Canvas["seq"] }) => CanvasFactBasis;
   readonly run: <A>(effect: Effect.Effect<A, never>) => Promise<A>;
@@ -113,25 +119,27 @@ export const makeCheckoutWatchComposition = (
       processes.set(actor.nodeId, { session, checkoutKey });
     }
     const claims: ProvenClaim[] = [];
-    for (const node of canvas.nodes.values()) {
-      if (node.kind !== "task") continue;
-      const tasks = yield* options.workRepository.taskLane(canvasName, node.id);
-      const context = claimContextFrom({
-        canvasName,
-        thisMachine,
-        boards: [{ nodeId: node.id, tasks, contract: node.contract }],
-        actorRefs: actors.filter((actor) => processes.has(actor.nodeId)),
-        nodes: [...canvas.nodes.values()],
-        checkoutKeyFor: (nodeId) => processes.get(nodeId)?.checkoutKey,
-        observedProcessFor: (nodeId) => {
-          const session = processes.get(nodeId)?.session;
-          return session?.harness === undefined ? undefined : { generation: session.epoch, harness: session.harness };
-        },
-      });
-      for (const claim of context.claims) {
-        const process = processes.get(claim.nodeId);
-        if (process !== undefined) claims.push({ claim, taskSinkId: node.id, process });
-      }
+    const nodeIds = [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => taskNodeId(node.id));
+    const open: ReadonlyArray<TaskView> = nodeIds.length === 0 ? [] : (yield* options.tasks.list(canvasName, {
+      nodeIds,
+      states: OPEN_TASK_STATES,
+      limit: OPEN_TASK_LIMIT,
+    })).tasks;
+    const context = claimContextFrom({
+      canvasName,
+      thisMachine,
+      tasks: [...open].sort((a, b) => a.createdAt - b.createdAt),
+      actorRefs: actors.filter((actor) => processes.has(actor.nodeId)),
+      nodes: [...canvas.nodes.values()],
+      checkoutKeyFor: (nodeId) => processes.get(nodeId)?.checkoutKey,
+      observedProcessFor: (nodeId) => {
+        const session = processes.get(nodeId)?.session;
+        return session?.harness === undefined ? undefined : { generation: session.epoch, harness: session.harness };
+      },
+    });
+    for (const claim of context.claims) {
+      const process = processes.get(claim.nodeId);
+      if (process !== undefined) claims.push({ claim, taskSinkId: claim.taskNodeId, process });
     }
     return { canvas, claims, sessions };
   });

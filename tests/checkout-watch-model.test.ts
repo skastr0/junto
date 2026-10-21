@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { expect, it } from "vitest";
-import { Node, asCanvasName, type Canvas } from "../src/shared/model";
+import { Node, asCanvasName, asNodeId, type Canvas } from "../src/shared/model";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { defaultSettings } from "../src/shared/settings";
-import type { Task } from "../src/shared/work-model";
+import { seatNodeId, taskNodeId, type TaskId, type TaskView } from "../src/shared/task-model";
+
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import { canvasReceiptBasis } from "../src/main/junto/work/delivery-receipts";
 import { makeCheckoutWatchComposition, type CheckoutWatchCompositionOptions } from "../src/main/junto/work/checkout-watch-composition";
@@ -19,7 +20,16 @@ const board = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", x: 0, 
 const fixture = async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-checkout-model-"));
   let canvas: Canvas = { name: asCanvasName("factory"), seq: 1, nodes: new Map([seat, board].map((node) => [node.id, node])), wires: new Map() };
-  let task: Task = { id: "task", state: "working", claimedBy: seatId, history: [] };
+  let task: TaskView = {
+    taskId: "task" as TaskId,
+    title: "Task",
+    current: { state: "working", node: taskNodeId(asNodeId("queue")), assignee: seatNodeId(asNodeId("seat")), epoch: 1, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+    layers: [],
+    dependsOn: [],
+    createdAt: 1,
+    updatedAt: 1,
+    stateSince: 1,
+  };
   let head = "a".repeat(40);
   const receipts: Array<Parameters<CheckoutWatchCompositionOptions["workRepository"]["publishCheckoutReceipts"]>[0]> = [];
   const records: unknown[] = [];
@@ -31,8 +41,8 @@ const fixture = async () => {
     settings: { get: Effect.succeed({ ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }) },
     host: { get: () => session },
     crew: { recordCheckoutObservation: (input) => Effect.sync(() => { records.push(input); return true; }) },
+    tasks: { list: () => Effect.succeed({ tasks: [task], more: false }) },
     workRepository: {
-      taskLane: () => Effect.succeed([task]),
       publishCheckoutReceipts: (input) => Effect.sync(() => { receipts.push(input); return []; }),
     },
     messageDelivery: { notifyAppended: () => undefined },
@@ -41,7 +51,7 @@ const fixture = async () => {
     write: Effect.runPromise,
     probe: { head: async () => ({ branch: "main", head }), newCommits: async () => [head] },
   };
-  return { root, options, receipts, records, advance: () => { head = "b".repeat(40); }, resequence: () => { canvas = { ...canvas, seq: canvas.seq + 1 }; }, complete: () => { task = { ...task, state: "completed" }; } };
+  return { root, options, receipts, records, advance: () => { head = "b".repeat(40); }, resequence: () => { canvas = { ...canvas, seq: canvas.seq + 1 }; }, complete: () => { task = { ...task, current: { ...task.current, state: "done" } }; } };
 };
 
 it("checkout receipts use exact task rows and the canvas sequence at commit", async () => {
@@ -74,7 +84,7 @@ it("a claim completed while waiting for the authoring gate cannot emit checkout 
 
 it("a canvas change during claim inventory rejects the pass instead of replacing its baseline", async () => {
   const f = await fixture();
-  const watch = makeCheckoutWatchComposition({ ...f.options, workRepository: { ...f.options.workRepository, taskLane: () => { f.resequence(); return f.options.workRepository.taskLane("factory", "queue"); } } });
+  const watch = makeCheckoutWatchComposition({ ...f.options, tasks: { list: (canvasName, query) => { f.resequence(); return f.options.tasks.list(canvasName, query); } } });
   try {
     await expect(Effect.runPromise(watch.scanOnce())).rejects.toMatchObject({ reason: "checkout-intent-changed" });
     expect(f.receipts).toEqual([]);
