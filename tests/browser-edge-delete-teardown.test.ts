@@ -98,7 +98,6 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
 
 const twoPageDoc = (
   edges: ReadonlyArray<{ id: string; from: string; to: string }>,
-  pageHosts?: { p1?: string; p2?: string },
   agentX = 0,
 ): Canvas =>
   canvasOf(
@@ -112,11 +111,9 @@ const twoPageDoc = (
       }),
       pageNode("p1", {
         url: "https://example.com/one", x: 200, y: 0, width: 120, height: 48, profile: "personal",
-        host: pageHosts?.p1 ?? "studio",
       }),
       pageNode("p2", {
         url: "https://example.com/two", x: 400, y: 0, width: 120, height: 48, profile: "personal",
-        host: pageHosts?.p2 ?? "studio",
       }),
     ],
     edges.map((e) => wire(e.id, e.from, e.to, "navigates")),
@@ -389,7 +386,7 @@ describe("browser edge-delete session teardown", () => {
     if (!opened.ok) return;
 
     // Same edges; only node geometry changed — no teardown.
-    const next = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }], undefined, 50);
+    const next = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }], 50);
     const receipts = edgeGrant.invalidateCanvas("work", { previous: previous, next: next });
     expect(receipts).toEqual([]);
     expect(sessions.sessionIdForRefForOwner(lease.auditId, REF_P1)).toBe(

@@ -66,7 +66,6 @@ export const watcher = (id: string, more: Partial<NodeOf<"watcher">> = {}): Node
 export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> => ({
   kind: "page",
   ...placed(id),
-  host: THIS_MACHINE,
   url: "https://example.com/",
   profile: "default",
   onRemove: "kill-session",

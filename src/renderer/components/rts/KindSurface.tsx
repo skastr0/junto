@@ -238,9 +238,7 @@ function RegionKindSurface({ node }: { readonly node: Region }) {
   const hasEnvironment = node.environment !== undefined;
   const instruction = Boolean(node.instruction?.trim());
   const defaults = node.defaults;
-  const hasPage = Boolean(
-    defaults?.page?.url || defaults?.page?.profile || defaults?.page?.host,
-  );
+  const hasPage = Boolean(defaults?.page?.url || defaults?.page?.profile);
   const pathMap = defaults?.paths;
   const hasPaths = Boolean(
     pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),

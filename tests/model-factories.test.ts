@@ -46,7 +46,7 @@ describe("new nodes", () => {
     ["git", () => newGit(spot, "/repo", "junto")],
     ["seat", () => newSeat(spot, { harness: "claude", host: "studio" })],
     ["terminal", () => newTerminal(spot, { host: "studio", launch: { kind: "shell", cwd: "/work" } })],
-    ["page", () => newPage(spot, "https://example.com", { host: "studio" })],
+    ["page", () => newPage(spot, "https://example.com")],
     ...on(TASKS_ENABLED, "task board", () => newTaskBoard(spot)),
     ...on(REQUESTS_ENABLED, "requests", () => newRequests(spot)),
     ...on(ARTIFACTS_ENABLED, "artifacts", () => newArtifacts(spot)),
@@ -77,7 +77,6 @@ describe("new nodes", () => {
   it("refuses a host that is not one", () => {
     expect(() => newSeat(spot, { harness: "claude", host: "" })).toThrow();
     expect(() => newTerminal(spot, { host: "" })).toThrow();
-    expect(() => newPage(spot, "https://example.com", { host: " " })).toThrow();
   });
 });
 

@@ -88,8 +88,8 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
 
 const frame = { y: 0, width: 120, height: 48 };
 
-/** An agent and a page; `hosts` puts each on a machine other than this one. */
-const browserCanvas = (withEdge: boolean, hosts: { agent?: string; page?: string } = {}): Canvas =>
+/** An agent and a page; `hosts.agent` puts the agent on a machine other than this one. */
+const browserCanvas = (withEdge: boolean, hosts: { agent?: string } = {}): Canvas =>
   canvasOf(
     [
       seat("agent", {
@@ -99,7 +99,7 @@ const browserCanvas = (withEdge: boolean, hosts: { agent?: string; page?: string
         bindingId: "bind-local-default" as never,
         launch: { kind: "harness", argv: ["claude"] },
       }),
-      pageNode("p1", { ...frame, x: 200, profile: "personal", host: hosts.page ?? "studio" }),
+      pageNode("p1", { ...frame, x: 200, profile: "personal" }),
     ],
     withEdge ? [wire("e1", "agent", "p1", "navigates")] : [],
     "work",
@@ -109,7 +109,7 @@ const terminalCanvas = (): Canvas =>
   canvasOf(
     [
       seat("terminal", { ...frame, x: 0, agentKey: "local:terminal", host: "studio", bindingId: "terminal-binding" as never }),
-      pageNode("p1", { ...frame, x: 200, profile: "personal", host: "studio" }),
+      pageNode("p1", { ...frame, x: 200, profile: "personal" }),
     ],
     [wire("e1", "terminal", "p1", "navigates")],
     "work",
@@ -341,35 +341,8 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });
 
-  it("refuses a cross-host page edge before minting browser authority", async () => {
-    const doc = browserCanvas(true, { agent: "studio", page: "render" });
-    const capabilities = makeBrowserCapabilityRegistry();
-    registries.push(capabilities);
-    const edgeGrant = makeEdgeGrantService({
-      capabilities,
-      listCanvasModels: async () => [{ name: "work", doc: doc }],
-      resolvePageTarget: async (candidate) =>
-        candidate === REF_PAGE
-          ? { ok: true, data: TARGET }
-          : { ok: false, code: "not_found", message: "missing" },
-      machineName: () => "studio",
-      editsCanvas: async () => true,
-    });
-
-    // Placement: an edge between two machines is a route denial before host-mint checks.
-    // Cross-host studio→render therefore never reaches physical_host_mismatch —
-    // physics withholds the browser.automate edge (surfaces as not_connected).
-    await expect(
-      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      denial: "not_connected",
-    });
-    expect(capabilities.stats().activeCapabilities).toBe(0);
-  });
-
   it("refuses a caller assigned to another machine before minting browser authority", async () => {
-    const doc = browserCanvas(true, { agent: "render", page: "render" });
+    const doc = browserCanvas(true, { agent: "render" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const edgeGrant = makeEdgeGrantService({

@@ -10,7 +10,7 @@ const name = "region-settings";
 const loaded = (): NodeOf<"region"> => region("works", { x: 900, y: 30, width: 500, height: 320 }, {
   z: 7, color: "4", label: "Works", hold: true,
   instruction: "Keep every field.",
-  defaults: { page: { url: "https://example.com/works", profile: "work", host: "local" }, paths: { local: "/tmp/works" } },
+  defaults: { page: { url: "https://example.com/works", profile: "work" }, paths: { local: "/tmp/works" } },
   contract: { rules: [{ id: "r1", text: "Review first." }], rulings: [{ id: "p1", text: "Use the shared folder.", pinnedAt: "2026-10-07T12:00:00Z" }] },
   environment: { sealed: true, sources: [{ id: "e1", kind: "value", name: "BUILD_MODE", value: "review" }], folders: ["/tmp/shared"] },
   background: "content://backgrounds/works.png", backgroundStyle: "cover",

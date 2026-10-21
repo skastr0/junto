@@ -3,11 +3,10 @@ import { asCanvasName, asNodeId, type Node, type NodeOf } from "../src/shared/mo
 import { editLink, setGitCwd, setPageBinding } from "../src/renderer/lib/mutations";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
-import { OTHER_MACHINE } from "./support/machines";
 import { page } from "./support/model-nodes";
 
 const name = "page-git-writers";
-const loadedPage = () => page("target", { x: 30, y: 50, width: 460, height: 280, z: 8, color: "4", url: "https://before.example", profile: "work", host: "studio", onRemove: "detach" });
+const loadedPage = () => page("target", { x: 30, y: 50, width: 460, height: 280, z: 8, color: "4", url: "https://before.example", profile: "work", onRemove: "detach" });
 const loadedGit = (): NodeOf<"git"> => ({ kind: "git", id: asNodeId("target"), x: 30, y: 50, width: 460, height: 280, z: 8, color: "4", label: "Repository", cwd: "/tmp/before" });
 let release: (() => void) | undefined;
 const open = (node: Node) => {
@@ -30,21 +29,15 @@ describe("page and git writers change their fields alone", () => {
     expect(show).toHaveBeenCalledTimes(1);
   });
 
-  it("binding changes profile and host only, omitting a field already equal", () => {
+  it("binding changes profile only, with blank and repeat ignored", () => {
     const before = open(loadedPage());
     const show = vi.spyOn(modelStore, "show");
-    setPageBinding("target", { profile: " personal ", host: ` ${OTHER_MACHINE} ` });
-    expect(held()).toEqual({ ...before, profile: "personal", host: OTHER_MACHINE });
-    expect(show).toHaveBeenCalledExactlyOnceWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "page", profile: "personal", host: OTHER_MACHINE } });
-    setPageBinding("target", { profile: "second", host: OTHER_MACHINE });
-    expect(show).toHaveBeenLastCalledWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "page", profile: "second" } });
-    expect(held()).toEqual({ ...before, profile: "second", host: OTHER_MACHINE });
-    setPageBinding("target", { profile: "second", host: OTHER_MACHINE });
-    setPageBinding("target", { profile: "", host: OTHER_MACHINE });
-    setPageBinding("target", { profile: "second", host: "../bad" });
-    // No machine is called local: a page cannot be moved to one.
-    setPageBinding("target", { profile: "third", host: "local" });
-    expect(show).toHaveBeenCalledTimes(2);
+    setPageBinding("target", { profile: " personal " });
+    expect(held()).toEqual({ ...before, profile: "personal" });
+    expect(show).toHaveBeenCalledExactlyOnceWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "page", profile: "personal" } });
+    setPageBinding("target", { profile: "personal" });
+    setPageBinding("target", { profile: "  " });
+    expect(show).toHaveBeenCalledTimes(1);
   });
 
   it("repository changes cwd only, with blank and repeat ignored", () => {
@@ -61,10 +54,10 @@ describe("page and git writers change their fields alone", () => {
     const before = open({ kind: "link", id: asNodeId("target"), x: 30, y: 50, width: 460, height: 280, z: 8, color: "4", url: "https://before.example" });
     const show = vi.spyOn(modelStore, "show");
     editLink("target", "https://after.example");
-    setPageBinding("target", { profile: "personal", host: "local" });
+    setPageBinding("target", { profile: "personal" });
     setGitCwd("target", "/tmp/after");
     editLink("missing", "https://after.example");
-    setPageBinding("missing", { profile: "personal", host: "local" });
+    setPageBinding("missing", { profile: "personal" });
     setGitCwd("missing", "/tmp/after");
     expect(held()).toEqual(before); expect(show).not.toHaveBeenCalled();
   });

@@ -19,8 +19,9 @@ const VIEW = { editingMachine: THIS_MACHINE };
 const SIZE = { width: 120, height: 48 };
 const agent = (id: string, x = 0, y = 0, host = THIS_MACHINE) =>
   seat(id, { x, y, ...SIZE, host, agentKey: `${host}:${id}` });
-const pageAt = (id: string, x = 200, y = 0, host = THIS_MACHINE) =>
-  page(id, { x, y, ...SIZE, host });
+/** A page has no machine of its own: it is on the machine that edits the canvas. */
+const pageAt = (id: string, x = 200, y = 0) =>
+  page(id, { x, y, ...SIZE });
 
 describe("physics PortGrant attenuation", () => {
   it("never expands", () => {
@@ -341,10 +342,10 @@ describe("physics across machines", () => {
 
   it("same machine: a seat automates a page it is wired to, as before", () => {
     const doc = canvasOf(
-      [agent("agent-a", 0, 0, OTHER_MACHINE), pageAt("page-a", 200, 0, OTHER_MACHINE)],
+      [agent("agent-a", 0, 0, OTHER_MACHINE), pageAt("page-a", 200, 0)],
       [wire("e1", "agent-a", "page-a", "navigates")],
     );
-    expect(Result.isSuccess(admits(doc, "agent-a", "page-a", "browser.automate"))).toBe(true);
+    expect(Result.isSuccess(admits(doc, "agent-a", "page-a", "browser.automate", OTHER_MACHINE))).toBe(true);
   });
 
   it("same machine: two wired seats keep every port of the actor inbox", () => {
@@ -396,12 +397,12 @@ describe("physics across machines", () => {
     }
   });
 
-  it("two machines: a seat cannot automate another machine's page", () => {
+  it("two machines: a seat cannot automate a page on the machine that edits the canvas", () => {
     const doc = canvasOf(
-      [agent("here"), pageAt("page-there", 200, 0, OTHER_MACHINE)],
-      [wire("e1", "here", "page-there", "navigates")],
+      [agent("there", 0, 0, OTHER_MACHINE), pageAt("page-here", 200, 0)],
+      [wire("e1", "there", "page-here", "navigates")],
     );
-    const result = admits(doc, "here", "page-there", "browser.automate");
+    const result = admits(doc, "there", "page-here", "browser.automate");
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) expect(result.failure.reason).toBe("other_machine");
   });
@@ -423,9 +424,9 @@ describe("physics across machines", () => {
     if (Result.isFailure(masked)) expect(masked.failure.reason).toBe("no_port");
     // A wire whose verb does not carry mail grants none either.
     const page = admits(
-      canvasOf([agent("here"), pageAt("page-there", 200, 0, OTHER_MACHINE)], [wire("e1", "here", "page-there", "navigates")]),
-      "here",
-      "page-there",
+      canvasOf([agent("there", 0, 0, OTHER_MACHINE), pageAt("page-here", 200, 0)], [wire("e1", "there", "page-here", "navigates")]),
+      "there",
+      "page-here",
       "msg.send",
     );
     expect(Result.isFailure(page)).toBe(true);

@@ -16,7 +16,7 @@ import { IconButton } from "../ui";
  * does the same). Stop is two-click arm. Never on the card body.
  */
 export function PageToolbarActions({ node }: { readonly node: NodeOf<"page"> }) {
-  const browser = useMemo(() => ({ profile: node.profile, host: node.host, onDelete: node.onRemove }), [node.profile, node.host, node.onRemove]);
+  const browser = useMemo(() => ({ profile: node.profile, onDelete: node.onRemove }), [node.profile, node.onRemove]);
   const url = node.url;
   const canvasName = use$(state$.canvasName);
   const pageRef = useMemo(() => {

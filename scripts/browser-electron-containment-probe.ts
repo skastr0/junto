@@ -1796,7 +1796,7 @@ const main = async (): Promise<void> => {
       x: 840, y: -180, width: 320, height: 96, z: 0,
     },
     ...pageTargets.map(({ nodeId, profile, url }, index): Node => ({
-      kind: "page", id: nodeId as Node["id"], url, profile, host: "local", onRemove: "detach",
+      kind: "page", id: nodeId as Node["id"], url, profile, onRemove: "detach",
       x: index * 420, y: 0, width: 400, height: 300, z: index + 1,
     })),
   ];

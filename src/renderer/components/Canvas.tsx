@@ -65,7 +65,6 @@ import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
 import { useCanvasWorkItems, workAttentionStore } from "../lib/use-work-sink";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { thisMachineName } from "../lib/machines";
-import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
@@ -791,7 +790,6 @@ const makeAddActions = (
     );
     const node = newPage(onTop(position), seed?.url?.trim() || "https://example.com", {
       ...(seed?.profile ? { profile: seed.profile } : {}),
-      host: resolveAuthoredPageHost(seed?.host, thisMachineName()),
     });
     addNode(node);
     dismiss();

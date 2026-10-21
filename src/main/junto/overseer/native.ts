@@ -881,7 +881,6 @@ const handlePage = async (
         nodeId,
         url: admitted.node.url,
         profile: admitted.node.profile,
-        hostId: admitted.node.host,
         sessionId: live?.sessionId,
       });
     }
@@ -911,7 +910,6 @@ const handlePage = async (
       canvas: targeted.canvasName,
       url: admitted.node.url,
       profile: admitted.node.profile,
-      hostId: admitted.node.host,
       session,
     });
   }

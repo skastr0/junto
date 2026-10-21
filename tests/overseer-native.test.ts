@@ -80,7 +80,7 @@ const agent = (
   });
 
 const page = (id: string, url = "https://example.com/"): NodeOf<"page"> =>
-  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal", host: THIS_MACHINE });
+  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal" });
 
 const git = (id: string, cwd: string): NodeOf<"git"> => ({
   kind: "git", id: asNodeId(id), x: 0, y: 160, z: 0, width: 120, height: 40, cwd,

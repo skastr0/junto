@@ -5,7 +5,6 @@ import { HashMap, HashSet, Option } from "effect";
 import type { RegionDefaults } from "@shared/model/region";
 import {
   BROWSER_ENABLED,
-  FLEET_UI_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import {
@@ -25,7 +24,7 @@ import { asNodeId as asModelNodeId } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { Chip } from "./ui";
 import { RegionRules } from "./rules";
-import { BrowserProfileSelect, MachineSelect } from "./HostPickers";
+import { BrowserProfileSelect } from "./HostPickers";
 
 // ---------------------------------------------------------------------------
 // Canvas physics — capability inventory (read-only) + "limit this key" editor
@@ -188,40 +187,20 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
 }
 
 
-/** Host + profile for a page — used from RTS kind-strip pop. */
+/** Browser profile for a page — used from RTS kind-strip pop. */
 export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
   const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
   const storedProfile = node?.kind === "page" ? node.profile : "personal";
-  const storedHost = node?.kind === "page" ? node.host : "";
   const [profile, setProfile] = useState(storedProfile);
-  const [host, setHost] = useState(storedHost);
 
   useEffect(() => {
     setProfile(storedProfile);
-    setHost(storedHost);
-  }, [nodeId, storedHost, storedProfile]);
-
-  const commit = (nextProfile = profile, nextHost = host) => {
-    setPageBinding(nodeId, { profile: nextProfile, host: nextHost });
-  };
+  }, [nodeId, storedProfile]);
 
   if (node?.kind !== "page") return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">browser binding</div>
-      {FLEET_UI_ENABLED ? (
-        <label className="inspector-editor">
-          <span>machine</span>
-          <MachineSelect
-            ariaLabel="Page browser machine"
-            value={host}
-            onChange={(next) => {
-              setHost(next);
-              commit(profile, next);
-            }}
-          />
-        </label>
-      ) : null}
       <label className="inspector-editor">
         <span>profile</span>
         <BrowserProfileSelect
@@ -229,7 +208,7 @@ export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
           value={profile}
           onChange={(next) => {
             setProfile(next);
-            commit(next, host);
+            setPageBinding(nodeId, { profile: next });
           }}
         />
       </label>
@@ -298,22 +277,19 @@ export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeI
   const stored = useNodeOf(use$(state$.canvasName), regionId, "region")?.defaults;
   const [pageUrl, setPageUrl] = useState(stored?.page?.url ?? "");
   const [pageProfile, setPageProfile] = useState(stored?.page?.profile ?? "");
-  const [pageHost, setPageHost] = useState(stored?.page?.host ?? "");
 
   useEffect(() => {
     setPageUrl(stored?.page?.url ?? "");
     setPageProfile(stored?.page?.profile ?? "");
-    setPageHost(stored?.page?.host ?? "");
-  }, [regionId, stored?.page?.url, stored?.page?.profile, stored?.page?.host]);
+  }, [regionId, stored?.page?.url, stored?.page?.profile]);
 
-  const writePage = (url: string, profile: string, host: string) => {
+  const writePage = (url: string, profile: string) => {
     const paths = stored?.paths;
     const page =
-      url.trim() || profile.trim() || host.trim()
+      url.trim() || profile.trim()
         ? {
             ...(url.trim() ? { url: url.trim() } : {}),
             ...(profile.trim() ? { profile: profile.trim() } : {}),
-            ...(host.trim() ? { host: host.trim() } : {}),
           }
         : undefined;
     const next: RegionDefaults = {
@@ -323,19 +299,16 @@ export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeI
     setRegionDefaults(regionId, Object.keys(next).length > 0 ? next : undefined);
   };
 
-  const commit = () => writePage(pageUrl, pageProfile, pageHost);
+  const commit = () => writePage(pageUrl, pageProfile);
 
   const clearPage = () => {
     setPageUrl("");
     setPageProfile("");
-    setPageHost("");
-    writePage("", "", "");
+    writePage("", "");
   };
 
   const onEnter = commitOnEnter(commit);
-  const hasPageDefaults = Boolean(
-    stored?.page?.url || stored?.page?.profile || stored?.page?.host,
-  );
+  const hasPageDefaults = Boolean(stored?.page?.url || stored?.page?.profile);
 
   return (
     <div className="inspector-section">
@@ -362,23 +335,10 @@ export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeI
           allowNone
           onChange={(next) => {
             setPageProfile(next);
-            writePage(pageUrl, next, pageHost);
+            writePage(pageUrl, next);
           }}
         />
       </label>
-      {FLEET_UI_ENABLED ? (
-        <label className="inspector-editor">
-          <span>machine</span>
-          <MachineSelect
-            ariaLabel="Region page browser machine default"
-            value={pageHost}
-            onChange={(next) => {
-              setPageHost(next);
-              writePage(pageUrl, pageProfile, next);
-            }}
-          />
-        </label>
-      ) : null}
       {hasPageDefaults ? (
         <div className="inspector-flags" style={{ marginTop: 14 }}>
           <button type="button" className="inspector-flag-toggle" onClick={clearPage}>

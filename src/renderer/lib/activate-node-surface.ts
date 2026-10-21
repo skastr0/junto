@@ -72,7 +72,7 @@ export function activateNodeSurface(nodeId: string): ActivateNodeSurfaceResult {
     case "page": {
       const canvasName = state$.canvasName.peek();
       if (node.kind !== "page") return { opened: false, reason: "no-surface" };
-      const browser = { profile: node.profile, host: node.host, onDelete: node.onRemove };
+      const browser = { profile: node.profile, onDelete: node.onRemove };
       const url = node.url;
       if (!canvasName) return { opened: false, reason: "unavailable" };
       let pageRef: string;

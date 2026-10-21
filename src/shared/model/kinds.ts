@@ -110,7 +110,6 @@ export const Page = Schema.Struct({
   ...placement,
   url: Schema.String,
   profile: NonEmpty,
-  host: HostId,
   onRemove: PageOnRemove,
 });
 export type Page = typeof Page.Type;

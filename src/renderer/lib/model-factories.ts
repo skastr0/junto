@@ -101,21 +101,19 @@ export const newTerminal = (
 
 // ── Surfaces agents work against ────────────────────────────────────────────
 
-/** An in-app browser page on the machine named `host`. The profile is a name; cookies stay with the browser. */
+/** An in-app browser page, on the machine that edits the canvas. The profile is a name; cookies stay with the browser. */
 export const newPage = (
   spot: Spot,
   url: string,
   options: {
-    readonly host: string;
     readonly profile?: string;
     readonly onRemove?: NodeOf<"page">["onRemove"];
-  },
+  } = {},
 ): NodeOf<"page"> => ({
   kind: "page",
   ...placed("page", spot, { width: 260, height: 110 }),
   url,
   profile: options.profile?.trim() || "personal",
-  host: requireHostId(options.host),
   onRemove: options.onRemove ?? "kill-session",
 });
 

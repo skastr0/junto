@@ -105,7 +105,6 @@ export type RegionEnvironment = typeof RegionEnvironment.Type;
 export const RegionPageDefaults = Schema.Struct({
   url: Schema.optionalKey(Schema.String),
   profile: Schema.optionalKey(Schema.String),
-  host: Schema.optionalKey(HostId),
 });
 export type RegionPageDefaults = typeof RegionPageDefaults.Type;
 

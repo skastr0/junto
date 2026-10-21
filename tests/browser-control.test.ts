@@ -338,7 +338,7 @@ describe("control route handlers", () => {
       listDocuments: async () => [{
         name: "work",
         doc: canvasOf(
-          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile, host: "studio" })],
+          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile })],
           [],
           "work",
         ),
@@ -1094,9 +1094,9 @@ describe("control route handlers", () => {
 
 /** A page of the smallest size, on a profile a browser can open. */
 const tiny = (id: string, url: string, profile = "default"): Node =>
-  pageNode(id, { url, x: 0, y: 0, width: 1, height: 1, profile, host: "studio" });
+  pageNode(id, { url, x: 0, y: 0, width: 1, height: 1, profile });
 const mailPage = (): Node =>
-  pageNode("p1", { url: "https://mail.example.com", width: 400, height: 300, profile: "personal", host: "studio" });
+  pageNode("p1", { url: "https://mail.example.com", width: 400, height: 300, profile: "personal" });
 /** A plain web link, which is not a page. */
 const plainLink = (id: string, url: string): Node => ({ kind: "link", id: asNodeId(id), url, x: 0, y: 0, z: 0, width: 1, height: 1 });
 

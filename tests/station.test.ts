@@ -14,9 +14,9 @@ describe("node host assignment", () => {
       profile: "codex",
       label: "codex",
     });
-    const page = newPage({ x: 0, y: 0, z: 0 }, "https://example.com", { host: OTHER_MACHINE });
+    const page = newPage({ x: 0, y: 0, z: 0 }, "https://example.com");
     expect(agent.host).toBe(THIS_MACHINE);
-    expect(page.host).toBe(OTHER_MACHINE);
+    expect("host" in page).toBe(false);
   });
 
   it("separates an actor's placement HostId from its Hermes routing key", () => {

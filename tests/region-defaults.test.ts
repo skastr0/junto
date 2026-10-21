@@ -14,7 +14,7 @@ const outer = region("outer", { x: 0, y: 0, width: 800, height: 600 }, {
   label: "outer",
   hold: true,
   defaults: {
-    page: { url: "https://outer.example", profile: "work", host: "studio" },
+    page: { url: "https://outer.example", profile: "work" },
     paths: {
       local: "/Users/op/outer",
       "remote-a": "/home/op/outer-remote",
@@ -46,7 +46,6 @@ describe("region spawn defaults", () => {
     expect(page).toEqual({
       url: "https://outer.example",
       profile: "work",
-      host: "studio",
     });
     expect(resolvePageSpawnDefaults(canvas, 550, 120)).toEqual({
       url: "https://page-only.example",
@@ -61,17 +60,17 @@ describe("region spawn defaults", () => {
   it("stripEmptyRegionDefaults drops blank hosts and empty bags", () => {
     expect(
       stripEmptyRegionDefaults({
-        page: { url: "", profile: "  ", host: "" },
+        page: { url: "", profile: "  " },
         paths: { local: "  ", "": "/x" },
       }),
     ).toBeUndefined();
     expect(
       stripEmptyRegionDefaults({
-        page: { url: " https://x ", profile: "", host: " studio " },
+        page: { url: " https://x ", profile: "" },
         paths: { local: " /repo ", "  ": "/drop", remote: "" },
       }),
     ).toEqual({
-      page: { url: "https://x", host: "studio" },
+      page: { url: "https://x" },
       paths: { local: "/repo" },
     });
   });

@@ -6,8 +6,8 @@ import { asCanvasName, asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, page as pageNode } from "./support/model-nodes";
 import { makePageTargetResolver } from "../src/main/junto/browser/page-target";
 
-const page = (id: string, url: string, profile = "personal", host = "local"): Node =>
-  pageNode(id, { url, width: 400, height: 300, profile, host });
+const page = (id: string, url: string, profile = "personal"): Node =>
+  pageNode(id, { url, width: 400, height: 300, profile });
 
 const reader = (held: Readonly<Record<string, ReadonlyArray<Node>>>): ModelNodeReader => ({
   listCanvases: () => Effect.succeed(Object.keys(held).map(asCanvasName)),
@@ -29,30 +29,9 @@ describe("canonical browser page target resolution", () => {
       data: {
         ref: "junto://canvas/work?node=same",
         nodeId: "same",
-        hostId: "local",
         url: "https://work.example.com",
         profile: "work",
       },
-    });
-  });
-
-  it("derives host affinity from the current page node", async () => {
-    const resolve = makePageTargetResolver(
-      reader({
-        work: [
-          page("legacy", "https://legacy.example.com"),
-          page("remote", "https://remote.example.com", "work", "studio"),
-        ],
-      }),
-    );
-
-    expect(await resolve("junto://canvas/work?node=legacy")).toMatchObject({
-      ok: true,
-      data: { hostId: "local" },
-    });
-    expect(await resolve("junto://canvas/work?node=remote")).toMatchObject({
-      ok: true,
-      data: { hostId: "studio" },
     });
   });
 

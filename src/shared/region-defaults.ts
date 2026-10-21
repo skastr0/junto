@@ -24,14 +24,13 @@ export const findContainingRegion = (
   y: number,
 ): Region | undefined => findInnermostGroup(doc, x, y, () => true);
 
-/** True when the region bag has a non-empty page url, profile, or host. */
+/** True when the region bag has a non-empty page url or profile. */
 const regionHasPageSpawnFields = (group: Region): boolean => {
   const page = group.defaults?.page;
   if (!page) return false;
   const url = page.url?.trim() ?? "";
   const profile = page.profile?.trim() ?? "";
-  const host = page.host?.trim() ?? "";
-  return url.length > 0 || profile.length > 0 || host.length > 0;
+  return url.length > 0 || profile.length > 0;
 };
 
 /** True when the region bag has at least one non-empty host→path entry. */
@@ -54,7 +53,7 @@ const regionHasPathForHost = (group: Region, hostId: string): boolean => {
 
 /**
  * Bag-atomic page spawn defaults from the innermost region that defines them.
- * Returns undefined when url, profile, and host are all unset on every containing bag.
+ * Returns undefined when url and profile are both unset on every containing bag.
  */
 export const resolvePageSpawnDefaults = (
   doc: Canvas | undefined,
@@ -66,12 +65,10 @@ export const resolvePageSpawnDefaults = (
   if (!page) return undefined;
   const url = page.url?.trim();
   const profile = page.profile?.trim();
-  const host = page.host?.trim();
-  if (!url && !profile && !host) return undefined;
+  if (!url && !profile) return undefined;
   return {
     ...(url ? { url } : {}),
     ...(profile ? { profile } : {}),
-    ...(host ? { host } : {}),
   };
 };
 
@@ -129,13 +126,11 @@ export const stripEmptyRegionDefaults = (
   if (!defaults) return undefined;
   const pageUrl = defaults.page?.url?.trim();
   const pageProfile = defaults.page?.profile?.trim();
-  const pageHost = defaults.page?.host?.trim();
   let page: RegionPageDefaults | undefined;
-  if (pageUrl || pageProfile || pageHost) {
+  if (pageUrl || pageProfile) {
     page = {
       ...(pageUrl ? { url: pageUrl } : {}),
       ...(pageProfile ? { profile: pageProfile } : {}),
-      ...(pageHost ? { host: pageHost } : {}),
     };
   }
   const paths = stripEmptyRegionPaths(defaults.paths);

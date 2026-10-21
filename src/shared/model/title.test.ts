@@ -42,7 +42,7 @@ describe("what a node is called", () => {
       { kind: "link", ...at, url: "https://example.com/a/long/path?with=query" },
       { kind: "link", ...at, url: "example.com/docs" },
       { kind: "link", ...at, url: "" },
-      { kind: "page", ...at, url: "http://localhost:3000/x", host: "local", profile: "p", onRemove: "detach" },
+      { kind: "page", ...at, url: "http://localhost:3000/x", profile: "p", onRemove: "detach" },
       { kind: "note", ...at, text: "## Plan\nbody" },
       { kind: "label", ...at, text: "" },
     ];

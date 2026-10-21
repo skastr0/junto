@@ -21,7 +21,7 @@ import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
  * proxy (that lied when the seat was busy for other reasons).
  */
 export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
-  const browser = useMemo(() => ({ profile: node.profile, host: node.host, onDelete: node.onRemove }), [node.profile, node.host, node.onRemove]);
+  const browser = useMemo(() => ({ profile: node.profile, onDelete: node.onRemove }), [node.profile, node.onRemove]);
   const url = node.url;
   const canvasName = use$(state$.canvasName);
   const pageRef = useMemo(() => {

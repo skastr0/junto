@@ -607,16 +607,15 @@ describe("renderer graph mutations", () => {
     });
   });
 
-  it("edits page host/profile without dropping URL, delete policy, or other page fields", () => {
+  it("edits page profile without dropping URL, delete policy, or other page fields", () => {
     state$.canvasName.set("mutation-test");
     load([pageNode("https://before.example", { width: 200, height: 80 })]);
 
-    setPageBinding("page", { profile: "work", host: "studio" });
+    setPageBinding("page", { profile: "work" });
 
     expect(docNow().nodes[0]).toMatchObject({
       kind: "page",
       url: "https://before.example",
-      host: "studio",
       profile: "work",
       onRemove: "kill-session",
     });

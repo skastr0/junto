@@ -73,7 +73,6 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         ...base,
         url: node.url,
         profile: node.profile,
-        host: node.host,
         on_remove: node.onRemove,
       };
     case "task":
@@ -124,7 +123,6 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         instruction: node.instruction ?? null,
         page_url: node.defaults?.page?.url ?? null,
         page_profile: node.defaults?.page?.profile ?? null,
-        page_host: node.defaults?.page?.host ?? null,
         paths_json: json(node.defaults?.paths),
         rules_json: json(node.contract?.rules),
         rulings_json: json(node.contract?.rulings),
@@ -176,7 +174,6 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
       fields = {
         url: row.url,
         profile: row.profile,
-        host: row.host,
         onRemove: row.on_remove,
       };
       break;
@@ -231,19 +228,17 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
         ...([
           row.page_url,
           row.page_profile,
-          row.page_host,
           row.paths_json,
         ].some((value) => value != null)
           ? {
               defaults: {
-                ...([row.page_url, row.page_profile, row.page_host].some(
+                ...([row.page_url, row.page_profile].some(
                   (value) => value != null,
                 )
                   ? {
                       page: {
                         ...optional(row, "page_url", "url"),
                         ...optional(row, "page_profile", "profile"),
-                        ...optional(row, "page_host", "host"),
                       },
                     }
                   : {}),

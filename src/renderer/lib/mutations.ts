@@ -3,7 +3,6 @@ import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
-import { isValidMachineName } from "@shared/machine-identity";
 import { ulid } from "ulid";
 import { TASKS_ENABLED } from "@shared/features";
 import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./deletion-impact";
@@ -626,15 +625,14 @@ export const editLink = (id: string, url: string): void => {
   commitCommands((canvas) => pageEdited(canvas, id, { url: next }));
 };
 
-/** Change a page's browser binding, keeping its URL and removal choice. */
+/** Change a page's browser profile, keeping its URL and removal choice. */
 export const setPageBinding = (
   id: string,
-  input: { readonly profile: string; readonly host: string },
+  input: { readonly profile: string },
 ): void => {
   const profile = input.profile.trim();
-  const host = input.host.trim();
-  if (!profile || !isValidMachineName(host)) return;
-  commitCommands((canvas) => pageEdited(canvas, id, { profile, host }));
+  if (!profile) return;
+  commitCommands((canvas) => pageEdited(canvas, id, { profile }));
 };
 
 /** Change the repository a git card reads. */
