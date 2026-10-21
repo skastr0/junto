@@ -11,6 +11,7 @@ import { use$ } from "@legendapp/state/react";
 import { Workflow } from "lucide-react";
 import { asNodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
+import type { LastOutcome } from "@shared/automation";
 import { RegionUrgency } from "@shared/wire/urgency";
 import { automationsCardFacts } from "../../lib/automations-card";
 import { useAutomationList } from "../../lib/automations-source";
@@ -22,11 +23,13 @@ import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { SpineCard } from "../nodes/SpineCard";
-import { useTargetNames } from "./AutomationEditor";
+import { useTargetNames } from "../../lib/automation-names";
 import "./automations.css";
 
 // Names in a change trigger, read once per node with the operator's reach (the widest).
 const OPERATOR = { kind: "operator" } as const;
+// Until the read lands: one object, so the facts are not recomputed each render.
+const NO_OUTCOMES: Readonly<Record<string, LastOutcome>> = {};
 
 /** On is a filled dot, off a hollow ring: a shape, never colour alone. */
 function OnMark({ on }: { readonly on: boolean }) {
@@ -47,29 +50,31 @@ export function AutomationsCard({
   const { automations, lastOutcomes } = useAutomationList(canvasName, asNodeId(nodeId));
   const nameOf = useTargetNames(useAutomationTargets(canvasName, asNodeId(nodeId), OPERATOR), canvasName);
   const facts = useMemo(
-    () => automationsCardFacts(automations, lastOutcomes ?? {}, nameOf),
+    () => automationsCardFacts(automations, lastOutcomes ?? NO_OUTCOMES, nameOf),
     [automations, lastOutcomes, nameOf],
   );
   // Failed counts as blocked for the region frame; it clears when the card goes.
   useNodeUrgency(nodeId, facts.status === "failed" ? RegionUrgency.group.blocked : undefined);
 
-  if (renaming)
-    return (
-      <div data-testid="automations-card">
-        <FirstLineRenameInput
-          initial={name}
-          ariaLabel="Rename automations"
-          onCommit={(next) => commitCommands((canvas) => renamed(canvas, nodeId, next))}
-          onDone={onRenameDone}
-        />
-      </div>
-    );
   return (
     <div data-testid="automations-card">
       <SpineCard
         glyph={<Workflow />}
         hue="amber"
         name={name}
+        // Renaming keeps the card: the field stands in for the name in the chip.
+        {...(renaming
+          ? {
+              nameEditor: (
+                <FirstLineRenameInput
+                  initial={name}
+                  ariaLabel="Rename automations"
+                  onCommit={(next) => commitCommands((canvas) => renamed(canvas, nodeId, next))}
+                  onDone={onRenameDone}
+                />
+              ),
+            }
+          : {})}
         count={facts.count}
         status={facts.status}
         body={{
@@ -78,13 +83,15 @@ export function AutomationsCard({
           rows: facts.rows.map((row) => ({
             key: row.automationId,
             mark: <OnMark on={row.on} />,
-            // The mark is hidden from a screen reader, so off and failed are said in words.
+            // The mark is hidden from a screen reader, so off and failed are said in
+            // words; the closing comma parts the name from the trigger after it.
             text: (
               <>
                 {row.name}
                 <span className="sr-only">
                   {row.on ? "" : ", off"}
-                  {row.failed ? ", failed" : ""},{" "}
+                  {row.failed ? ", failed" : ""}
+                  {", "}
                 </span>
               </>
             ),

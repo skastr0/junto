@@ -88,6 +88,13 @@ describe("Automations card", () => {
     root = createRoot(host);
   });
 
+  it("renaming keeps the card, with the field in the chip", async () => {
+    await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: true, definition: definition("Morning standup") });
+    await act(async () => root.render(<AutomationsCard nodeId={node} renaming onRenameDone={() => undefined} />));
+    expect(document.body.querySelector('input[aria-label="Rename automations"]')).not.toBeNull();
+    expect(text()).toContain("1 on, 0 off");
+  });
+
   it("Off when every one is off", async () => {
     await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: false, definition: definition("Morning standup") });
     await render();

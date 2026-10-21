@@ -31,34 +31,17 @@ import {
   type DraftProblem,
   type EditableTriggerKind,
   type NameOf,
-  type TargetRef,
   type TriggerDraft,
   type WatchDraft,
 } from "../../lib/automation-editor";
 import type { MentionCandidate, MentionTrigger } from "../../lib/mention-draft";
 import { useAutomationTargets } from "../../lib/mention-sources";
 import { useCanvas } from "../../lib/use-model";
+import { useTargetNames } from "../../lib/automation-names";
 import { Button, FieldLabel, IconButton, Input, Select, Switch } from "../ui";
 import { MentionCombobox } from "../ui/MentionCombobox";
 
 type TargetKind = MentionRef["kind"];
-
-/** Labels for every target this automation may name, and a fallback for one it no longer reaches. */
-export const useTargetNames = (
-  candidates: ReadonlyArray<MentionCandidate>,
-  canvasName: string,
-): NameOf => {
-  const canvas = useCanvas(canvasName);
-  return useMemo(() => {
-    const labels = new Map(candidates.map((candidate) => [mentionKey(candidate.ref), candidate.label]));
-    return (ref: TargetRef) => {
-      const known = labels.get(mentionKey(ref));
-      if (known) return known;
-      const node = canvas.nodes.get(ref.nodeId);
-      return node ? `${ref.kind === "seat" || ref.kind === "page" ? "@" : "#"}${titleOf(node)}` : "something out of reach";
-    };
-  }, [candidates, canvas]);
-};
 
 const LIST_LABEL = (trigger: MentionTrigger): string =>
   trigger === "@" ? "Seats and pages this automation may name" : "Tasks and artifacts this automation may name";

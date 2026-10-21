@@ -57,7 +57,8 @@ import {
 } from "../ui";
 import { FocusSurface } from "../FocusSurface";
 import { claimFocus } from "../../lib/focus-ownership";
-import { AutomationEditor, useTargetNames } from "./AutomationEditor";
+import { AutomationEditor } from "./AutomationEditor";
+import { useTargetNames } from "../../lib/automation-names";
 import "./automations.css";
 
 type Editing = {
