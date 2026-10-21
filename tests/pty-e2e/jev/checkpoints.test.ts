@@ -270,6 +270,8 @@ describe("JEVC — reproducibility", () => {
       const committed = manifest.checkpoints.filter((c) => harnesses.includes(c.harness));
       expect(fresh.checkpoints).toEqual(committed);
     },
-    180_000,
+    // A full rebuild over every capture: 202 s at load 42, so 180 s failed a
+    // loaded machine on time, not on drift.
+    600_000,
   );
 });

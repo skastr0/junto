@@ -165,6 +165,9 @@ describe("JA — trace boundary", () => {
   // does not sample the manifest's cuts, and re-deriving from a nearby cut
   // would mean the state no longer belongs to the label.
   const GRID = manifest.steps.fraction;
+  // Each trace test replays whole captures, CPU-bound: 5 to 11 s at load 50, so
+  // the default 5 s budget fails on a loaded machine, not on a wrong trace.
+  const TRACE_BUDGET_MS = 60_000;
   const sample = manifest.checkpoints
     .filter((checkpoint) => checkpoint.harness === "claude" && checkpoint.scenario === "working-turn")
     .slice(0, 3);
@@ -178,7 +181,7 @@ describe("JA — trace boundary", () => {
     const after = await replayCapture({ harness: "claude", scenario: "working-turn", fractionSteps: GRID });
     expect(after.traceDigest).toBe(before.traceDigest);
     expect(JSON.stringify(after.trace)).toBe(JSON.stringify(before.trace));
-  });
+  }, TRACE_BUDGET_MS);
 
   it("JA-trace: a paid run leaves every trace digest unchanged", async () => {
     const states = await stateForCheckpoints(sample, { fractionSteps: GRID });
@@ -219,7 +222,7 @@ describe("JA — trace boundary", () => {
     expect(report.traces.length).toBe(1);
     const fresh = await traceDigestFor("claude", "working-turn", GRID);
     expect(report.traces[0]?.digest).toBe(fresh.digest);
-  });
+  }, TRACE_BUDGET_MS);
 
   it("JA-trace: the report is renderable and carries the pack's nine questions", async () => {
     const states = await stateForCheckpoints(sample.slice(0, 1), { fractionSteps: GRID });
@@ -247,7 +250,7 @@ describe("JA — trace boundary", () => {
     ]);
     // An answer-less response means every question abstains; nothing is invented.
     for (const entry of report.agreement) expect(entry.modelAbstained).toBe(1);
-  });
+  }, TRACE_BUDGET_MS);
 });
 
 describe("JA — no stray awareness artefacts", () => {
