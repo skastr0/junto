@@ -97,6 +97,9 @@ ancestor node that targets its siblings (canvas-lead).
   it skips and records the skip.
 - Every firing is recorded (fired, skipped and why, actions ruled), shown in
   the main pane, and listed by `junto automation history`.
+  History keeps the newest 1,000 firings per automation; the claim that
+  writes a new row prunes the oldest in the same transaction. A slot's claim
+  row is never pruned while it is the cursor's latest slot.
 
 ## Webhooks, later
 
