@@ -26,7 +26,6 @@ import {
 import { executeOverseer, type OverseerRuntime } from "./dispatch";
 import { admitOverseer } from "./admission";
 import {
-  applySchedulerConfigure,
   commitAgentReseat,
   setOverseerNativeDeleteHooks,
 } from "./canvas";
@@ -36,7 +35,6 @@ import {
   type ApplicationCaptureResult,
   type OverseerNative,
   type OverseerSeatStart,
-  type SchedulerConfigureApplyInput,
 } from "./native";
 import { managedTerminalDriveForOverseer } from "../term/managed-drive-holder";
 import type { ManagedTerminalDrive } from "../term/drive";
@@ -229,21 +227,6 @@ export const composeOverseer = async (input: {
     );
   };
 
-  const applySchedulerHook = async (
-    payload: SchedulerConfigureApplyInput,
-    signal: AbortSignal,
-  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-    return runCanvasHook(
-      input.run,
-      applySchedulerConfigure(payload.caller, {
-        canvas: payload.canvasName,
-        nodeId: payload.nodeId,
-        change: payload.change,
-      }),
-      signal,
-    );
-  };
-
   const native: OverseerNative = makeOverseerNativeLive({
     termPlane,
     get pages() {
@@ -258,7 +241,6 @@ export const composeOverseer = async (input: {
         .then(() => true, () => false),
     managedDrive: lateBoundDrive(),
     commitAgentReseat: commitReseatHook,
-    applySchedulerConfigure: applySchedulerHook,
   });
 
   setOverseerNativeDeleteHooks({
@@ -321,15 +303,6 @@ export const composeOverseer = async (input: {
                   { canvas: payload.canvasName, nodeId: payload.nodeId },
                   payload.parts,
                 );
-                return runCanvasHook(input.run, live === undefined ? effect :
-                  Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
-              },
-              applySchedulerConfigure: (payload, commitSignal) => {
-                const effect = applySchedulerConfigure(payload.caller, {
-                  canvas: payload.canvasName,
-                  nodeId: payload.nodeId,
-                  change: payload.change,
-                });
                 return runCanvasHook(input.run, live === undefined ? effect :
                   Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
               },

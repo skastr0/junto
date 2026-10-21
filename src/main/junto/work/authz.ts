@@ -34,7 +34,6 @@ import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
 import {
   productNodeKindEnabled,
-  RELAY_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 
@@ -393,7 +392,6 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "board.create_topic":
     case "board.post":
     case "board.mark_read":
-    case "relay.trigger":
       return true;
   }
 };
@@ -419,17 +417,12 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
  * `OPS_BY_SINK` record in the physics work vocabulary, so a new sink kind is a
  * compile error at the declaration rather than a silent empty op list here.
  */
-const RELAY_OPS: ReadonlyArray<WorkOpName> = RELAY_ENABLED
-  ? ["relay.trigger"]
-  : [];
-
 const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
   Match.value(spec).pipe(
     Match.tagsExhaustive({
       Actor: () => MSG_OPS,
       Sink: (s): ReadonlyArray<WorkOpName> => opsForSink(s.kind),
-      Scheduler: (s): ReadonlyArray<WorkOpName> =>
-        s.kind === "relay" ? RELAY_OPS : NO_OPS,
+      Scheduler: () => NO_OPS,
       Geography: () => NO_OPS,
     }),
   );

@@ -130,8 +130,6 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.post",
 "board.mark_read",
 "board.tags",
-/** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
-"relay.trigger",
 /** Automations in reach (plan 07): no edge, no port; region reach admits. */
 "automation.list",
 "automation.show",
@@ -965,14 +963,6 @@ export const BoardMarkReadArgs = Schema.Struct({
   ),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
-
-/** Agent fires a connected scheduler via the relay.trigger port. */
-export const RelayTriggerArgs = Schema.Struct({
-  target: Schema.String,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type RelayTriggerArgs = typeof RelayTriggerArgs.Type;
 
 // ---------------------------------------------------------------------------
 // Helpers

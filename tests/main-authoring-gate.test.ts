@@ -201,7 +201,6 @@ describe("work-control main authoring classification", () => {
       "pad.read": "read",
       "sheet.read": "read",
       "pad.patch": "authorial",
-      "relay.trigger": "authorial",
       "automation.list": "read",
       "automation.show": "read",
       "automation.history": "read",

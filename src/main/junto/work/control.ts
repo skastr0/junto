@@ -99,7 +99,6 @@ import {
   SeatReadArgs,
   TaskWaitArgs,
   PreambleArgs,
-  RelayTriggerArgs,
   SignalClearArgs,
   SignalListArgs,
   type SignalListResult,
@@ -160,7 +159,6 @@ import { taskNodeId } from "@shared/task-model";
 import { taskSubjectOf, taskThreadOf } from "@shared/task-notices";
 import { subjectLabel, threadSubjectMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
 import { isItemId } from "@shared/work-ids";
-import { manualSchedulerFire } from "../kernel/cycle";
 import {
   AgentSignalRepository,
   type AgentSignalRepositoryError,
@@ -191,7 +189,7 @@ import {
 import { PortraitOverrideRepository } from "../portraits/repository";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
+import { TASKS_ENABLED } from "@shared/features";
 import {
   compileConnectionInstructions,
   compileReach,
@@ -220,7 +218,6 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "board.create_topic",
   "board.post",
   "board.mark_read",
-  "relay.trigger",
   ...AUTOMATION_WRITE_OPS,
   // Agent signals stay open while paused: raising a hand to the operator is
   // not a factory act, and a paused seat may need to say it is stuck.
@@ -2922,70 +2919,6 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return exposeWorkMutation(mapped.success);
-    }
-
-    if (op === "relay.trigger") {
-      if (!RELAY_ENABLED) {
-        return yield* Effect.fail({
-          type: "ScopeError" as const,
-          message: "relay.trigger is disabled in this Junto build",
-          details: { retryable: false, missing: "relay feature" },
-        });
-      }
-      const decoded = decodeArgs(RelayTriggerArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const kind = nodeKind(gate.node);
-      if (
-        kind !== "relay" &&
-        kind !== "cron" &&
-        kind !== "timer" &&
-        kind !== "watcher"
-      ) {
-        return yield* Effect.fail({
-          type: "ScopeError" as const,
-          message: `relay.trigger requires a scheduler target; got ${kind ?? "none"}`,
-          details: {
-            target: decoded.success.target,
-            caller: caller.nodeId,
-            retryable: false,
-            missing: "scheduler target",
-          },
-        });
-      }
-      const fired = yield* Effect.tryPromise({
-        try: () =>
-          manualSchedulerFire({
-            canvasName: caller.canvasName,
-            sourceNodeId: decoded.success.target,
-            kind:
-              kind === "cron" || kind === "timer"
-                ? "cron"
-                : kind === "watcher"
-                  ? "gauge"
-                  : "relay",
-          }),
-        catch: (error) => ({
-          type: "InternalError" as const,
-          message: error instanceof Error ? error.message : String(error),
-          details: { retryable: true },
-        }),
-      });
-      if (!fired.ok) {
-        return yield* Effect.fail({
-          type: "RuntimeDown" as const,
-          message: fired.message,
-          details: { target: decoded.success.target, retryable: true },
-        });
-      }
-      return {
-        target: decoded.success.target,
-        fired: true as const,
-        applied: fired.applied,
-        message: fired.message,
-        disposition: "applied" as const,
-      };
     }
 
     // Exhaustiveness — Schema already gates ops

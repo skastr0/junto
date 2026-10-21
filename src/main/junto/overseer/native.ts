@@ -2,7 +2,7 @@
  * Native-runtime overseer adapters.
  *
  * Parent authenticates the live caller and rechecks the overseer grant before
- * routing here. This module executes agent/terminal/page/scheduler/git and
+ * routing here. This module executes agent/terminal/page/git and
  * application-screenshot operations against existing main-owned services.
  * It never fakes a WebContents trusted sender, never uses a bare PID, and
  * never pans/zooms/focuses/resizes/switches the operator viewport.
@@ -40,7 +40,6 @@ import {
 } from "../browser/sessions";
 import { makePageTargetResolver } from "../browser/page-target";
 import { readGitLog, readGitShow, readGitStatus } from "../adapters/git";
-import { getNextFire, getWatchers, overseerSchedulerFire } from "../kernel/cycle";
 import {
   admitOverseerPage,
   overseerPageMessage,
@@ -83,9 +82,6 @@ const NATIVE_OPERATIONS = new Set<string>([
   "page.screenshot",
   "page.close",
   "page.stop",
-  "scheduler.fire",
-  "scheduler.status",
-  "scheduler.configure",
   "git.status",
   "git.log",
   "git.show",
@@ -138,16 +134,6 @@ export type AgentReseatCommitInput = {
   readonly parts: SeatParts;
 };
 
-export type SchedulerConfigureApplyInput = {
-  /** Authenticated overseer seat. Never the target node. */
-  readonly caller: OverseerCaller;
-  /** Target canvas of the scheduler node. */
-  readonly canvasName: string;
-  /** Target scheduler node id. */
-  readonly nodeId: string;
-  readonly change: OverseerArgsFor<"scheduler.configure">["change"];
-};
-
 /** The seat an overseer starts or wakes, as its canvas names it. */
 export type OverseerSeatStart = {
   readonly bindingId: string;
@@ -180,13 +166,6 @@ export type OverseerNativeLiveOptions = {
    */
   readonly commitAgentReseat?: (
     input: AgentReseatCommitInput,
-    signal: AbortSignal,
-  ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
-  /**
-   * Canvas-owned scheduler timer/watch mutation. Missing → Unsupported.
-   */
-  readonly applySchedulerConfigure?: (
-    input: SchedulerConfigureApplyInput,
     signal: AbortSignal,
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   readonly now?: () => number;
@@ -1035,87 +1014,6 @@ const handlePage = async (
   }
 };
 
-const handleScheduler = async (
-  ctx: NativeContext,
-  caller: OverseerCaller,
-  operation: OverseerOperation,
-  args: Record<string, unknown>,
-): Promise<NativeOutcome> => {
-  const targeted = await resolveTargetNode(
-    ctx,
-    caller,
-    args as { canvas?: string; nodeId: string },
-  );
-  if ("error" in targeted) return targeted;
-  const { canvasName, node } = targeted;
-  if (node.kind !== "cron" && node.kind !== "relay" && node.kind !== "watcher") {
-    return fail("InvalidArguments", "node is not a scheduler (cron, relay, or watcher)");
-  }
-
-  if (operation === "scheduler.status") {
-    const key = `${canvasName}::${node.id}`;
-    const watcher = getWatchers().get(key);
-    const nextFire = getNextFire().get(key);
-    return ok({
-      nodeId: node.id,
-      canvas: canvasName,
-      kind: node.kind,
-      // What the scheduler is set to: a cron's expression, a watcher's rule.
-      ...(node.kind === "cron" ? { expression: node.expression ?? null } : {}),
-      ...(node.kind === "watcher"
-        ? { rule: { key: node.key ?? null, stat: node.stat ?? null, op: node.op ?? null, value: node.value ?? null } }
-        : {}),
-      // What it last saw and when it next fires.
-      watcher: watcher ?? null,
-      nextFire: nextFire ?? null,
-    });
-  }
-
-  if (operation === "scheduler.fire") {
-    const revoked = await requireGrant(ctx, caller);
-    if (revoked) return revoked;
-    const fireInput = {
-      canvasName,
-      sourceNodeId: node.id,
-      liveGrant: async () => {
-        if (ctx.signal.aborted) return false;
-        const granted = await ctx.liveOverseerGrant(caller);
-        return !ctx.signal.aborted && granted;
-      },
-    };
-    const fired = await overseerSchedulerFire(fireInput);
-    if (!fired.ok) {
-      return fail("RuntimeDown", fired.message);
-    }
-    if (fired.applied === 0) {
-      const still = await requireGrant(ctx, caller);
-      if (still) return still;
-    }
-    return ok(fired);
-  }
-
-  if (operation === "scheduler.configure") {
-    if (ctx.applySchedulerConfigure === undefined) {
-      return fail(
-        "Unsupported",
-        "scheduler.configure requires canvas-owned applySchedulerConfigure",
-      );
-    }
-    const revoked = await requireGrant(ctx, caller);
-    if (revoked) return revoked;
-    const applied = await ctx.applySchedulerConfigure({
-      caller,
-      canvasName,
-      nodeId: node.id,
-      change: (args as OverseerArgsFor<"scheduler.configure">).change,
-    }, ctx.signal);
-    if (!applied.ok) return fail("Conflict", applied.message);
-    return ok({ configured: true, nodeId: node.id, canvas: canvasName });
-  }
-
-  return fail("Unsupported", `native adapter does not handle ${operation}`);
-};
-
 const handleGit = async (
   ctx: NativeContext,
   caller: OverseerCaller,
@@ -1196,8 +1094,6 @@ const dispatchNative = async (
       return handleTerminal(ctx, caller, request.operation, args);
     case "page":
       return handlePage(ctx, caller, request.operation, args);
-    case "scheduler":
-      return handleScheduler(ctx, caller, request.operation, args);
     case "git":
       return handleGit(ctx, caller, request.operation, args);
     default:

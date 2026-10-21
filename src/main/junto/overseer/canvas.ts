@@ -888,15 +888,4 @@ export const commitAgentReseat = (
   });
 };
 
-/** Change when a cron fires or what a watcher watches. */
-export const applySchedulerConfigure = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"scheduler.configure">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  writeNode(caller, args.canvas, {
-    operation: "node.configure",
-    nodeId: args.nodeId,
-    change: args.change,
-  });
-
 export { fromOverseerError };

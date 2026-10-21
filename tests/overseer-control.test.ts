@@ -278,13 +278,6 @@ describe("overseer command contract", () => {
       fails(decodeOverseerArgs("agent.reseat", { nodeId: "agent-2", harness: "codex", ...extra }));
     }
     fails(decodeOverseerArgs("agent.reseat", { nodeId: "agent-2", harness: "not-a-harness" }));
-    // A scheduler change is the cron or the watcher edit, no other kind.
-    succeeds(decodeOverseerArgs("scheduler.configure", { nodeId: "c1", change: { kind: "cron", expression: "0 9 * * 1-5" } }));
-    succeeds(decodeOverseerArgs("scheduler.configure", { nodeId: "c1", change: { kind: "cron", expression: null } }));
-    succeeds(decodeOverseerArgs("scheduler.configure", { nodeId: "w1", change: { kind: "watcher", stat: "cpu", op: "gt", value: 90 } }));
-    fails(decodeOverseerArgs("scheduler.configure", { nodeId: "n1", change: { kind: "note", text: "x" } }));
-    fails(decodeOverseerArgs("scheduler.configure", { nodeId: "c1", timer: { kind: "cron" } }));
-    fails(decodeOverseerArgs("scheduler.configure", { nodeId: "c1", change: { kind: "cron" }, watch: null }));
   });
 
   it("classifies uncertain or side-effecting reads conservatively", () => {

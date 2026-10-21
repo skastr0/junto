@@ -128,9 +128,6 @@ export const OVERSEER_OPERATION_NAMES = [
   "page.screenshot",
   "page.close",
   "page.stop",
-  "scheduler.fire",
-  "scheduler.status",
-  "scheduler.configure",
   "git.status",
   "git.log",
   "git.show",
@@ -567,13 +564,6 @@ const TerminalResize = Schema.Struct({
 const PageSession = Schema.Struct({ sessionId: Id });
 const PageGoto = Schema.Struct({ sessionId: Id, url: NonEmpty });
 const PageEval = Schema.Struct({ sessionId: Id, code: NonEmpty });
-/** The model edit of the two kinds that fire on their own: a cron or a watcher. */
-const SchedulerEdit = Schema.Union(
-  NodeEdit.members.filter((member) =>
-    ["cron", "watcher"].includes(member.fields.kind.literal),
-  ),
-);
-const SchedulerConfigure = Schema.Struct({ ...NodeTarget, change: SchedulerEdit });
 const GitTarget = Schema.Struct({ ...NodeTarget });
 const GitLog = Schema.Struct({
   ...NodeTarget,
@@ -795,9 +785,6 @@ export const OverseerArgsSchemas = {
   "page.screenshot": PageSession,
   "page.close": PageSession,
   "page.stop": PageSession,
-  "scheduler.fire": Schema.Struct(NodeTarget),
-  "scheduler.status": Schema.Struct(NodeTarget),
-  "scheduler.configure": SchedulerConfigure,
   "git.status": GitTarget,
   "git.log": GitLog,
   "git.show": GitShow,
@@ -903,7 +890,6 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "terminal.output",
   "page.list",
   "page.get",
-  "scheduler.status",
   "git.status",
   "git.log",
   "git.show",

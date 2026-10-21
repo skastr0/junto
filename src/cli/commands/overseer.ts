@@ -227,7 +227,6 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   agent: "Agent list, get, reseat, start, wake, prompt, output, interrupt, stop, offboard, offboard-status, offboard-rules, offboard-configure",
   terminal: "Terminal list, get, start, input, output, resize, interrupt, stop",
   page: "Page list, get, open, goto, eval, screenshot, close, stop",
-  scheduler: "Scheduler fire, status, configure",
   git: "Git status, log, show on a git node",
   env: "Region environment: show, source-add, source-edit, source-remove, source-reorder, seal, folders, doctor",
   secret: "Junto's own secret store on this machine: put (value on stdin), delete, list",
@@ -770,14 +769,6 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "which verbs two nodes allow",
     args: ["overseer", "wire", "verbs"],
     input: { from: "a", to: "b" },
-  },
-  {
-    command_id: commandIdFor("scheduler.configure"),
-    command: "overseer scheduler configure",
-    name: "give a cron its schedule",
-    description: "change is the cron or watcher edit: say the kind, name a field to set it, null to clear it.",
-    args: ["overseer", "scheduler", "configure"],
-    input: { nodeId: "cron-1", change: { kind: "cron", expression: "0 9 * * 1-5" } },
   },
   {
     command_id: commandIdFor("task.list"),

@@ -29,7 +29,6 @@ const SHIP_OPERATIONS = [
   "msg.list", "msg.send", "msg.read", "msg.reply", "msg.react",
   "agent.list", "agent.get", "agent.reseat", "agent.start", "agent.wake", "agent.prompt", "agent.output", "agent.interrupt", "agent.stop",
   "terminal.list", "terminal.get", "terminal.start", "terminal.input", "terminal.output", "terminal.resize", "terminal.interrupt", "terminal.stop",
-  "scheduler.fire", "scheduler.status", "scheduler.configure",
   "git.status", "git.log", "git.show",
   "env.show", "env.source-add", "env.source-edit", "env.source-remove", "env.source-reorder", "env.seal", "env.folders", "env.doctor",
   "secret.put", "secret.delete", "secret.list",
