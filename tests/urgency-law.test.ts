@@ -168,7 +168,6 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/main/junto/usage/antigravity-source.ts", name: "windowsFromQuotaSummary.kindRank", rule: "table", reason: `usage quota kinds; ${NOT_URGENCY}` },
   { file: "src/renderer/components/pad/pad-editor-model.ts", name: "layerRank", rule: "table", reason: `pad element layers; ${NOT_URGENCY}` },
   { file: "src/renderer/components/settings/search-index.ts", name: "searchSettings.rank", rule: "table", reason: `settings search matches; ${NOT_URGENCY}` },
-  { file: "src/renderer/components/work/task-path.ts", name: "groupOutgoingVisits.rank", rule: "table", reason: `task path visits; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/actor-ledger-work.ts", name: "compareRaisedTaskRows.rank", rule: "table", reason: `raised task rows; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/actor-ledger-work.ts", name: "compareRequestRows.attentionRank", rule: "table", reason: `request rows flagged for attention; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/focus-switcher.ts", name: "recencyOrder.rank", rule: "table", reason: `focus recency; ${NOT_URGENCY}` },
