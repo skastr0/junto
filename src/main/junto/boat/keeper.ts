@@ -51,6 +51,8 @@ export interface BoatKeeperDeps {
   readonly log: (level: "Info" | "Warning", message: string, fields: Record<string, unknown>) => void;
   readonly now?: () => number;
   readonly every?: number;
+  /** A core that is not ready (booting, or stopping) skips the pass. */
+  readonly ready?: () => boolean;
 }
 
 type Wake = "mail" | "catch-up" | "keep-disk";
@@ -111,6 +113,7 @@ export const startBoatKeeper = (deps: BoatKeeperDeps): (() => void) => {
   const schedule = (ms: number): void => {
     if (stopped) return;
     timer = setTimeout(() => {
+      if (deps.ready?.() === false) { schedule(ms); return; }
       void keepBoatMachines(deps, first)
         .catch((cause: unknown) => deps.log("Warning", "Boat keeper pass failed", { detail: boatFailureMessage(cause, "failed") }))
         .finally(() => { first = false; schedule(deps.every ?? KEEPER_EVERY_MS); });

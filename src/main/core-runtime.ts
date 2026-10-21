@@ -61,6 +61,13 @@ import { startSeat, stopSeat } from "./junto/term/seat-control";
 import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
 import { readBoatRecords } from "./junto/boat/files";
 import { startLinkKeeper, type LinkKeeper } from "./junto/link/keeper";
+import { keepBoatMachines, pendingMailFor, startBoatKeeper, type BoatKeeperDeps } from "./junto/boat/keeper";
+import { startBoatLease } from "./junto/boat/lease";
+import { WorkRepository } from "./junto/work/repository";
+import { BOAT_IDLE_MS } from "@shared/boat";
+import { seatStateRuntime } from "./junto/term/agent-state/runtime";
+import { termPlane } from "./junto/term/plane";
+import { terminalObserverPlane } from "./junto/term/observer";
 import { boatOwnerDispatch, makeBoatOwner } from "./junto/boat/owner";
 
 export interface MachineCoreOptions {
@@ -312,7 +319,7 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
  */
 export class MachineLinkKeeper extends Context.Service<MachineLinkKeeper, LinkKeeper>()("@junto/MachineLinkKeeper") {}
 
-const machineLinkKeeperLayer = (home: string) => Layer.effect(MachineLinkKeeper, Effect.gen(function* () {
+const machineLinkKeeperLayer = (home: string, ready: () => boolean) => Layer.effect(MachineLinkKeeper, Effect.gen(function* () {
   const hosts = yield* HostsService;
   const link = yield* MachineLink;
   const machines = yield* MachineRepository;
@@ -322,7 +329,8 @@ const machineLinkKeeperLayer = (home: string) => Layer.effect(MachineLinkKeeper,
   const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromiseWith(context)(effect);
   const keeper = startLinkKeeper({
     self: yield* machines.machineName.pipe(Effect.orElseSucceed(() => "this-machine")),
-    peers: () => run(machines.peers),
+    // A core that is not ready (booting, or stopping) dials nothing.
+    peers: () => ready() ? run(machines.peers) : Promise.resolve([]),
     linked: (peer) => rows.exchange.linked(peer),
     wanted: (peer) => run(Effect.gen(function* () {
       for (const name of yield* model.listCanvases()) {
@@ -340,6 +348,43 @@ const machineLinkKeeperLayer = (home: string) => Layer.effect(MachineLinkKeeper,
   });
   yield* Effect.addFinalizer(() => Effect.sync(keeper.stop));
   return MachineLinkKeeper.of({ pass: keeper.pass });
+}));
+
+/**
+ * Boat in this machine's services (docs/machines.md, Boat machines): the
+ * keeper for the Boat machines this one added, and the lease when this one is
+ * a Boat machine. The window and the windowless core both build it.
+ */
+export class MachineBoatKeeper extends Context.Service<MachineBoatKeeper, {
+  /** One keeper pass; answers which machines were woken and why. */
+  readonly pass: () => ReturnType<typeof keepBoatMachines>;
+}>()("@junto/MachineBoatKeeper") {}
+
+const machineBoatKeeperLayer = (ready: () => boolean) => Layer.effect(MachineBoatKeeper, Effect.gen(function* () {
+  const plane = yield* BoatPlane;
+  const hosts = yield* HostsService;
+  const link = yield* MachineLink;
+  const context = yield* Effect.context<ModelService | WorkRepository>();
+  const run = <A, E>(effect: Effect.Effect<A, E, ModelService | WorkRepository>): Promise<A> => Effect.runPromiseWith(context)(effect);
+  const deps: BoatKeeperDeps = {
+    home: plane.home, client: plane.client, machines: plane.machines, log: plane.log, run: plane.run,
+    getHost: (name) => run(hosts.get(name)),
+    connect: async (host) => { await run(link.connect(host)); },
+    pendingMail: (machine) => run(pendingMailFor(machine)),
+    ready,
+  };
+  const stopKeeper = startBoatKeeper(deps);
+  const stopLease = startBoatLease({
+    home: plane.home, log: plane.log, run: plane.run,
+    busy: () => {
+      if (seatStateRuntime.currentEvents().some((event) => event.state === "working")) return true;
+      const since = Date.now() - BOAT_IDLE_MS;
+      return termPlane.host.list().some((session) => (session.status === "running" || session.status === "starting") &&
+        (terminalObserverPlane.lastOutputAt(session.bindingId) ?? 0) > since);
+    },
+  });
+  yield* Effect.addFinalizer(() => Effect.sync(() => { stopKeeper(); stopLease(); }));
+  return MachineBoatKeeper.of({ pass: () => keepBoatMachines(deps, false) });
 }));
 
 /** Both entries add these services to their one owning runtime. */
@@ -361,7 +406,10 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   );
   const seats = Layer.provideMerge(machineCoreSeatsLayer, submit);
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);
-  const boat = Layer.provideMerge(machineLinkKeeperLayer(options.home), Layer.provideMerge(boatPlaneLayer(options.home), mail));
+  const boat = Layer.provideMerge(
+    Layer.mergeAll(machineLinkKeeperLayer(options.home, options.ready), machineBoatKeeperLayer(options.ready)),
+    Layer.provideMerge(boatPlaneLayer(options.home), mail),
+  );
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
     const machineStatus = yield* MachineCoreStatus;
