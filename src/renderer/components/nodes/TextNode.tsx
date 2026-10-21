@@ -56,10 +56,6 @@ import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
   ArtifactsDetail,
-  BoardCard,
-  BoardDetail,
-  RequestsCard,
-  RequestsDetail,
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
@@ -291,9 +287,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const entityKind = kind;
   const isWorkSurface =
     entityKind === "task" ||
-    entityKind === "requests" ||
     entityKind === "artifacts" ||
-    entityKind === "board" ||
     entityKind === "pad" ||
     entityKind === "sheet" ||
     entityKind === "git";
@@ -472,19 +466,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "requests" ? (
-        <RequestsDetail
-          nodeId={id}
-          initialItemId={workDetailItemId}
-          onClose={() => {
-            setWorkDetail(false);
-            setWorkDetailItemId(undefined);
-          }}
-        />
-      ) : null}
-      {workDetail && workDetailAllowed && entityKind === "board" ? (
-        <BoardDetail nodeId={id} onClose={() => setWorkDetail(false)} />
-      ) : null}
       {workDetail && workDetailAllowed && entityKind === "pad" ? (
         <WithNode canvas={canvasName} id={id} kind="pad">
           {(node) => (
@@ -651,12 +632,8 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             />
           ) : entityKind === "task" ? (
             <TasksCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
-          ) : entityKind === "requests" ? (
-            <RequestsCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "artifacts" ? (
             <ArtifactsCard nodeId={id} />
-          ) : entityKind === "board" ? (
-            <BoardCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "pad" ? (
             <PadCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "sheet" ? (

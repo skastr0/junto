@@ -1,14 +1,11 @@
-import { useWorkItems } from "../../lib/use-work-item";
 import { WorkPageControls } from "./WorkPageControls";
-import { useArtifactItems, useRequestItems } from "../../lib/use-work-sink";
+import { useArtifactItems } from "../../lib/use-work-sink";
 import { useEffect, useMemo, useState } from "react";
-import { askConfirm } from "../../lib/confirm";
 import { use$ } from "@legendapp/state/react";
+import { askConfirm } from "../../lib/confirm";
 import {
   Archive,
   ArchiveRestore,
-  Ban,
-  Check,
   Download,
   ExternalLink,
   FileBox,
@@ -17,31 +14,24 @@ import {
   Link as LinkIcon,
   Maximize2,
   MessageSquareWarning,
-  PanelRightClose,
   Search,
   Trash2,
   X,
 } from "lucide-react";
-import type { Artifact, Part, Task, TaskState, WorkMetadata } from "@shared/work-model";
+import type { Artifact, Part } from "@shared/work-model";
 import type { WorkOpResult } from "@shared/ipc";
 import { isArtifactArchived } from "@shared/work";
-import { isAttentionTaskState, isTerminalTaskState, taskBrief } from "@shared/task";
-import { needsHuman } from "@shared/attention";
-import { TASKS_ENABLED } from "@shared/features";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
-import { Chip, type ChipTone } from "../ui/Chip";
-import { Input, Textarea } from "../ui/Field";
+import { Chip } from "../ui/Chip";
+import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { openWorkDetail } from "../../lib/work-detail-open";
+import { nodeAt } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
-import { nodeAt, useNodeValue } from "../../lib/use-model";
-import { titleOf } from "@shared/model/title";
 import { getJuntoApi } from "../../lib/junto-api";
-import { modKeyGlyph } from "../../lib/platform";
 import {
   artifactDeletionWarning,
   artifactSearchText,
@@ -49,54 +39,13 @@ import {
 } from "./artifact-reference";
 import { ArtifactMarkdown } from "./ArtifactMarkdown";
 import { ContentMedia } from "./ContentMedia";
-import { PinRulingControl } from "../rules";
 import "./work-ledger.css";
-import { keyAria, keyIs } from "../../lib/key-match";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
 const runWorkMutation = <T,>(
   operation: () => Promise<WorkOpResult<T>>,
 ): Promise<WorkOpResult<T> | undefined> => runCanvasAuthoringOperation(operation);
-
-
-const metadataText = (
-  metadata: WorkMetadata | undefined,
-  key: string,
-): string | undefined => {
-  const value = metadata?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-};
-
-const requestTitle = (request: Task): string =>
-  metadataText(request.metadata, "title") ??
-  taskBrief(request).split(/\r?\n/, 1)[0]?.trim() ??
-  "Untitled request";
-
-const requestDetails = (request: Task): string | undefined =>
-  metadataText(request.metadata, "details");
-
-/** Newer requests first (ULID time order = birth order). */
-const compareRequestsNewestFirst = (a: Task, b: Task): number =>
-  b.id.localeCompare(a.id);
-
-/**
- * Row + chip tone for a request state: attention amber (input-required /
- * auth-required), completed green, failure/cancel crimson, in-flight cyan.
- * The dot and chip take different tone unions, hence the pair.
- */
-const requestTone = (state: TaskState): { dot: StatusTone; chip: ChipTone } => {
-  if (isAttentionTaskState(state)) return { dot: "amber", chip: "amber" };
-  if (state === "completed") return { dot: "green", chip: "green" };
-  if (isTerminalTaskState(state)) return { dot: "crimson", chip: "crimson" };
-  return { dot: "cyan", chip: "steel" };
-};
-
-const textOf = (parts: ReadonlyArray<Part>): string =>
-  parts
-    .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
-    .map((part) => part.text)
-    .join("\n");
 
 const isImagePart = (part: Part): boolean => {
   if (part.kind === "content" && part.ref.mediaType.startsWith("image/")) {
@@ -300,321 +249,6 @@ function PartView({
     <pre className="work-ledger-part work-ledger-part--data">
       {JSON.stringify(part.data, null, 2)}
     </pre>
-  );
-}
-
-function RequestDetail({
-  request,
-  nodeId,
-  pending,
-  onClose,
-  onResolve,
-}: {
-  readonly request: Task;
-  /** Sink node the request lives at — the ruling pin reads its region stack from here. */
-  readonly nodeId: string;
-  readonly pending: boolean;
-  readonly onClose: () => void;
-  readonly onResolve: (request: Task, response: string, disposition: "completed" | "rejected") => void;
-}) {
-  const [response, setResponse] = useState("");
-  const details = requestDetails(request);
-  const attachments = request.history
-    .flatMap((message) => message.parts)
-    .filter((part) => part.kind !== "text");
-  const canSend = !pending && response.trim().length > 0;
-  const answerable = request.state === "input-required";
-  const sendResponse = (): void => {
-    if (!canSend) return;
-    onResolve(request, response.trim(), "completed");
-  };
-
-  return (
-    <aside className="work-ledger-detail" aria-label={`Request details for ${requestTitle(request)}`}>
-      <header>
-        <div>
-          <Chip tone={requestTone(request.state).chip}>
-            {request.state === "input-required" ? "Needs input" : request.state}
-          </Chip>
-          <h2>{requestTitle(request)}</h2>
-        </div>
-        <IconButton aria-label="Close request details" title="Close details" onClick={onClose}>
-          <PanelRightClose size={15} />
-        </IconButton>
-      </header>
-      <div className="work-ledger-detail__meta">#{request.id}</div>
-      {request.state === "auth-required" ? (
-        <p className="work-ledger-detail__note" role="note">
-          This request has an older authorization-wait state. It remains unresolved
-          and cannot be answered here.
-        </p>
-      ) : null}
-      <div className="work-ledger-detail__scroll">
-        <section>
-          <h3>Context</h3>
-          <p className={details ? "" : "work-ledger-empty"}>
-            {details ?? "No additional context was provided."}
-          </p>
-        </section>
-        {attachments.length > 0 ? (
-          <section>
-            <h3>Attachments</h3>
-            <div className="work-ledger-parts">
-              {attachments.map((part, index) => (
-                <PartView key={index} part={part} filename={`${requestTitle(request)}-${index + 1}`} />
-              ))}
-            </div>
-          </section>
-        ) : null}
-        <section>
-          <h3>Activity</h3>
-          <ol className="work-ledger-activity">
-            {request.history.map((message, index) => (
-              <li key={message.messageId}>
-                <StatusDot tone={index === 0 ? "amber" : message.role === "agent" ? "cyan" : "green"} />
-                <div>
-                  <strong>{index === 0 ? "Request opened" : message.role === "agent" ? "Agent" : "Operator"}</strong>
-                  <p>{textOf(message.parts) || "Attached structured context."}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-        {answerable ? (
-          <section>
-            <h3>Your response</h3>
-            <Textarea
-              value={response}
-              onChange={(event) => setResponse(event.target.value)}
-              onKeyDown={(event) => {
-                if (!keyIs(event, "message.send")) return;
-                event.preventDefault();
-                sendResponse();
-              }}
-              placeholder="Provide the decision, information, or authorization the agent needs…"
-              rows={7}
-              aria-label="Your response"
-              aria-keyshortcuts={keyAria("message.send")}
-            />
-            <p className="work-ledger-detail__shortcut-hint">
-              <kbd>{modKeyGlyph()}</kbd>
-              <kbd>↵</kbd>
-              {" "}
-              send response
-            </p>
-            {/* Pin before sending: resolving the request closes this section.
-                Rulings are region rules, which ride the Tasks gate. */}
-            {TASKS_ENABLED ? (
-              <PinRulingControl nodeId={nodeId} text={response} sourceRequestId={request.id} />
-            ) : null}
-          </section>
-        ) : null}
-      </div>
-      {answerable ? (
-        <footer className="work-ledger-detail__actions">
-          <Button
-            variant="danger"
-            disabled={!canSend}
-            onClick={() => onResolve(request, response.trim(), "rejected")}
-          >
-            <Ban size={12} />
-            Reject
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!canSend}
-            onClick={sendResponse}
-            title={`${modKeyGlyph()}+↵`}
-          >
-            <Check size={12} />
-            Send response
-          </Button>
-        </footer>
-      ) : null}
-    </aside>
-  );
-}
-
-export function RequestInbox({
-  nodeId,
-  onClose,
-  initialItemId,
-}: {
-  readonly nodeId: string;
-  readonly onClose: () => void;
-  /** Pre-select this request when opened from jump-to-cause. */
-  readonly initialItemId?: string;
-}) {
-  const title = useNodeValue(use$(state$.canvasName), nodeId, (node) => node ? titleOf(node) : "requests");
-  const work = useRequestItems(use$(state$.canvasName) || "", nodeId);
-  const [selectedId, setSelectedId] = useState<string | null>(initialItemId ?? null);
-  const detailRows = useWorkItems(selectedId ? [{
-    canvasName: canvasName(), nodeId: nodeId, kind: "requests", itemId: selectedId,
-  }] : []);
-  const selectedRow = detailRows[0]?.item;
-  const items = useMemo(() => {
-    const rows = new Map(work.items.map((item) => [item.id, item]));
-    if (selectedRow) rows.set(selectedRow.id, selectedRow);
-    return [...rows.values()].sort(compareRequestsNewestFirst);
-  }, [work.items, selectedRow]);
-  // Honest accounting: attention = input-required + auth-required (anything
-  // that still waits on the operator); resolved = terminal states only.
-  // Intermediate states (submitted / working) get their own section so
-  // nothing is silently bucketed as "resolved".
-  const attentionItems = items.filter((request) => needsHuman(request));
-  const resolvedItems = items.filter((request) => isTerminalTaskState(request.state));
-  const otherItems = items.filter(
-    (request) => !needsHuman(request) && !isTerminalTaskState(request.state),
-  );
-  const [query, setQuery] = useState("");
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const api = getJuntoApi();
-  const name = canvasName();
-  const normalized = query.trim().toLowerCase();
-  const visible = useMemo(() => {
-    const filtered = normalized
-      ? items.filter((request) =>
-          `${requestTitle(request)} ${requestDetails(request) ?? ""}`
-            .toLowerCase()
-            .includes(normalized),
-        )
-      : items;
-    return filtered;
-  }, [items, normalized]);
-  const visibleAttention = visible.filter((request) => needsHuman(request));
-  const visibleResolved = visible.filter((request) => isTerminalTaskState(request.state));
-  const visibleOther = visible.filter(
-    (request) => !needsHuman(request) && !isTerminalTaskState(request.state),
-  );
-  const selected = selectedId ? items.find((request) => request.id === selectedId) : undefined;
-
-  const resolve = async (
-    request: Task,
-    response: string,
-    disposition: "completed" | "rejected",
-  ) => {
-    if (!api) return;
-    setPendingId(request.id);
-    setError("");
-    try {
-      const result = await runWorkMutation(() =>
-        api.workRequestResolve(name, nodeId, request.id, response, disposition),
-      );
-      if (result === undefined) return;
-      if (!result.ok) setError(result.message);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPendingId(null);
-    }
-  };
-
-  return (
-    <FocusSurface
-      measure="workspace"
-      height="immersive"
-      label="Input requests"
-      onClose={onClose}
-      panelClassName="work-ledger-surface nowheel"
-    >
-      <OverlayHeader
-        eyebrow="requests"
-        title={title}
-        status={`${attentionItems.length} need attention - ${resolvedItems.length} resolved`}
-        actions={
-          <>
-              <WorkPageControls {...work} />
-            <div className="work-ledger-search">
-              <Search size={13} aria-hidden />
-              <Input
-                aria-label="Search input requests"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search requests"
-              />
-            </div>
-            <IconButton aria-label="Close input requests" title="Close" onClick={onClose}>
-              <X size={14} />
-            </IconButton>
-          </>
-        }
-      />
-      {error ? (
-        <div className="work-ledger-error" role="alert">
-          <MessageSquareWarning size={14} />
-          {error}
-          <button type="button" onClick={() => setError("")}>
-            Dismiss
-          </button>
-        </div>
-      ) : null}
-      <div className="work-ledger-workspace" data-detail-open={selected ? "true" : "false"}>
-        <div className="work-ledger-list">
-          {[
-            {
-              label: "Needs attention",
-              requests: visibleAttention,
-              empty: normalized ? "No matching requests" : "Nothing needs you right now",
-            },
-            {
-              label: "Resolved",
-              requests: visibleResolved,
-              empty: normalized ? "No matching requests" : "Nothing resolved yet",
-            },
-            ...(visibleOther.length > 0
-              ? [{ label: "Other states", requests: visibleOther, empty: "" }]
-              : []),
-          ].map(({ label, requests, empty }) => (
-            <section key={label}>
-              <header>
-                <h2>{label}</h2>
-                <span>{requests.length}</span>
-              </header>
-              <div role="list">
-                {requests.map((request) => {
-                  const tone = requestTone(request.state);
-                  return (
-                    <div key={request.id} role="listitem">
-                      <button
-                        type="button"
-                        className="work-ledger-row"
-                        aria-current={selectedId === request.id ? "true" : undefined}
-                        onClick={() => setSelectedId(request.id)}
-                      >
-                        <StatusDot tone={tone.dot} />
-                        <span>
-                          <strong className="work-ledger-row__title">{requestTitle(request)}</strong>
-                          <small>{requestDetails(request) ?? `Request ${request.id}`}</small>
-                        </span>
-                        <Chip tone={tone.chip}>
-                          {request.state === "input-required" ? "Needs input" : request.state}
-                        </Chip>
-                      </button>
-                    </div>
-                  );
-                })}
-                {requests.length === 0 ? (
-                  <div className="work-ledger-list__empty">{empty}</div>
-                ) : null}
-              </div>
-            </section>
-          ))}
-        </div>
-        {selected ? (
-          <RequestDetail
-            key={selected.id}
-            request={selected}
-            nodeId={nodeId}
-            pending={pendingId === selected.id}
-            onClose={() => setSelectedId(null)}
-            onResolve={(request, response, disposition) =>
-              void resolve(request, response, disposition)
-            }
-          />
-        ) : null}
-      </div>
-    </FocusSurface>
   );
 }
 

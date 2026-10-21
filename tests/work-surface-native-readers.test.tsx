@@ -11,15 +11,14 @@ import { dock$ } from "../src/renderer/lib/dock-state";
 import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
 import { TaskBoard } from "../src/renderer/components/work/TaskBoard";
 import { TaskEnqueueSurface } from "../src/renderer/components/work/TaskEnqueueSurface";
-import { ArtifactLibrary, RequestInbox } from "../src/renderer/components/work/WorkLedger";
-import { BoardDetail } from "../src/renderer/components/work/WorkSurfaces";
+import { ArtifactLibrary } from "../src/renderer/components/work/WorkLedger";
 import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
 import { PadPinThread } from "../src/renderer/components/pad/PadPinThread";
 import { KindSurface } from "../src/renderer/components/rts/KindSurface";
 import { NodeFieldEditors } from "../src/renderer/components/InspectorFields";
 import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
 import { PadPin } from "../src/shared/pad";
-import type { Artifact, BoardTopicView, Task } from "../src/shared/work-model";
+import type { Artifact, Task } from "../src/shared/work-model";
 import type { WorkSinkQuery } from "../src/shared/work-sinks";
 
 vi.hoisted(() => {
@@ -36,7 +35,6 @@ let oldApi: typeof window.junto;
 let counter = 0;
 let tasks: ReadonlyArray<Task>;
 let artifacts: ReadonlyArray<Artifact>;
-let topics: ReadonlyArray<BoardTopicView>;
 let create: ReturnType<typeof vi.fn>;
 let releaseCanvas: (() => void) | undefined;
 const decodeNode = Schema.decodeUnknownSync(Node);
@@ -77,7 +75,7 @@ const type = async (selector: string, value: string) => {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   canvas = `native-work-${++counter}`;
-  tasks = []; artifacts = []; topics = [];
+  tasks = []; artifacts = [];
   create = vi.fn(async () => ({ ok: true, data: {} }));
   oldApi = window.junto;
   (window as unknown as { junto: unknown }).junto = {
@@ -87,7 +85,6 @@ beforeEach(() => {
     }),
     workTaskPolicy: async () => [],
     workTaskCreate: create,
-    workBoardList: async () => ({ ok: true, data: { topics } }),
   };
   state$.settings.set(EMPTY_SETTINGS);
   state$.canvasName.set(canvas);
@@ -165,15 +162,6 @@ it("unbinds enqueue when its native task node disappears", async () => {
   expect(document.body.textContent).toContain("task enqueue - unbound");
 });
 
-it("reads the request inbox title from its native node and follows rename", async () => {
-  publish("requests", { kind: "requests", name: "Decisions" });
-  await mount(<RequestInbox nodeId="requests" onClose={() => {}} />);
-  expect(document.body.textContent).toContain("Decisions");
-  await act(async () => { publish("requests", { kind: "requests", name: "Questions" }); await flush(); });
-  expect(document.body.textContent).toContain("Questions");
-  expect(document.body.textContent).not.toContain("Decisions");
-});
-
 it("opens artifact provenance from the native task, and refuses after that id changes kind", async () => {
   publish("queue", { kind: "task", name: "Build" });
   publish("outputs", { kind: "artifacts", label: "Results" });
@@ -190,26 +178,6 @@ it("opens artifact provenance from the native task, and refuses after that id ch
   expect(document.body.textContent).toContain("Source task work is no longer");
   expect(close).toHaveBeenCalledOnce();
   expect(workDetailOpen$.nodeId.peek()).toBe("");
-});
-
-it("shows current board author names, follows native rename, and preserves historical labels after removal", async () => {
-  publish("board", { kind: "board", label: "Decisions" });
-  publish("worker", agent("Planner"));
-  const author = { kind: "actor" as const, nodeId: "worker", label: "Original name" };
-  topics = [{
-    topicId: "topic", title: "Release", state: "open", openedBy: author,
-    openedAt: "2026-10-07T12:00:00Z", lastActivityAt: "2026-10-07T12:00:00Z",
-    postCount: 1, unreadPostCount: 0,
-    posts: [{ postId: "post", topicId: "topic", author, position: 0,
-      createdAt: "2026-10-07T12:00:00Z", parts: [{ kind: "text", text: "Ready" }] }],
-  }];
-  await mount(<BoardDetail nodeId="board" onClose={() => {}} />);
-  expect(document.body.textContent).toContain("Decisions");
-  expect(document.querySelector(".board-post strong")?.textContent).toBe("Planner");
-  await act(async () => { publish("worker", agent("Reviewer")); await flush(); });
-  expect(document.querySelector(".board-post strong")?.textContent).toBe("Reviewer");
-  await act(async () => { modelStore.node$(canvas, "worker").delete(); await flush(); });
-  expect(document.querySelector(".board-post strong")?.textContent).toBe("Original name");
 });
 
 it("resolves pad post authors from native nodes instead of a document node list", async () => {

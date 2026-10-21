@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { asCanvasName, Command } from "../src/shared/model";
-import { TasksCard, RequestsCard, ArtifactsCard, BoardCard } from "../src/renderer/components/work/WorkSurfaces";
+import { TasksCard, ArtifactsCard } from "../src/renderer/components/work/WorkSurfaces";
 import { SheetCard } from "../src/renderer/components/sheet/SheetCard";
 import { SheetDetail } from "../src/renderer/components/sheet/SheetDetail";
 import { setSheetCell, emptySheet } from "../src/shared/sheet";
@@ -15,7 +15,7 @@ import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { dock$, taskCreateSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import { flushNodeSheetTyping, setNodeSheet, setNodeSheetTyping, undo, redo, flushPendingCanvasSave } from "../src/renderer/lib/mutations";
-import { taskBoard, requests, artifacts, board, pad, sheet } from "./support/model-nodes";
+import { taskBoard, artifacts, pad, sheet } from "./support/model-nodes";
 
 vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
@@ -32,8 +32,6 @@ const flush = async () => { await flushPendingCanvasSave(); for (let i = 0; i < 
 const place = { x: 110, y: 220, width: 300, height: 160, z: 4 };
 const cards = [
   { id: "task", Card: TasksCard, field: "name" },
-  { id: "requests", Card: RequestsCard, field: "name" },
-  { id: "board", Card: BoardCard, field: "label" },
   { id: "pad", Card: PadCard, field: "label" },
   { id: "sheet", Card: SheetCard, field: "label" },
 ] as const;
@@ -61,8 +59,8 @@ beforeEach(() => {
   state$.canvasName.set(canvas);
   state$.error.set(""); state$.saveState.set("saved"); dock$.registry.set(initialWorkbenchState());
   release = modelStore.adopt({ canvas: asCanvasName(canvas), seq: 0, wires: [], nodes: [
-    taskBoard("task", { ...place, name: "Backlog" }), requests("requests", { ...place, name: "Decisions" }),
-    sheet("sheet", { ...place, label: "Numbers" }), artifacts("artifacts", place), board("board", { ...place, label: "Bulletin" }), pad("pad", { ...place, label: "Sketch" }),
+    taskBoard("task", { ...place, name: "Backlog" }),
+    sheet("sheet", { ...place, label: "Numbers" }), artifacts("artifacts", place), pad("pad", { ...place, label: "Sketch" }),
   ] });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
@@ -76,8 +74,8 @@ afterEach(async () => {
 });
 
 it("reads work card identities from native rows, and enqueue reads the current board", async () => {
-  await act(async () => { root.render(<><TasksCard nodeId="task" /><RequestsCard nodeId="requests" /><ArtifactsCard nodeId="artifacts" /><BoardCard nodeId="board" /><PadCard nodeId="pad" /></>); await flush(); });
-  for (const label of ["Backlog", "Decisions", "artifacts", "Bulletin", "Sketch"]) expect(host.textContent).toContain(label);
+  await act(async () => { root.render(<><TasksCard nodeId="task" /><ArtifactsCard nodeId="artifacts" /><PadCard nodeId="pad" /></>); await flush(); });
+  for (const label of ["Backlog", "artifacts", "Sketch"]) expect(host.textContent).toContain(label);
   await act(async () => { modelStore.node$(canvas, "task").set(taskBoard("task", { ...place, name: "Current board" })); await flush(); });
   await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="tasks-card-enqueue"]')!.click(); await flush(); });
   expect(dock$.taskCreateById[taskCreateSurfaceId("task")].peek()).toMatchObject({ nodeId: "task", title: "Current board" });
