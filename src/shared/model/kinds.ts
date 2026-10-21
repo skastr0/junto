@@ -158,44 +158,6 @@ export const Board = Schema.Struct({
 });
 export type Board = typeof Board.Type;
 
-// ── Things that fire on their own ───────────────────────────────────────────
-//
-// Each fires on one machine, its `host`, the same as a seat runs on one.
-
-export const Cron = Schema.Struct({
-  kind: Schema.Literal("cron"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-  host: HostId,
-  /**
-   * Five fields: minute, hour, day of month, month, day of week. Absent on a
-   * cron that has not been given a schedule yet; it does not fire.
-   */
-  expression: Schema.optionalKey(NonEmpty),
-});
-export type Cron = typeof Cron.Type;
-
-export const Relay = Schema.Struct({
-  kind: Schema.Literal("relay"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-  host: HostId,
-});
-export type Relay = typeof Relay.Type;
-
-/** Fires when a numeric stat of a Hermes agent crosses a threshold. */
-export const Watcher = Schema.Struct({
-  kind: Schema.Literal("watcher"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-  host: HostId,
-  key: Schema.optionalKey(Schema.String),
-  stat: Schema.optionalKey(Schema.String),
-  op: Schema.optionalKey(Schema.Literals(["gt", "lt", "eq"])),
-  value: Schema.optionalKey(Schema.Finite),
-});
-export type Watcher = typeof Watcher.Type;
-
 // ── Things that only sit there ──────────────────────────────────────────────
 
 export const Note = Schema.Struct({
@@ -280,9 +242,6 @@ export const Node = Schema.Union([
   Artifacts,
   Automations,
   Board,
-  Cron,
-  Relay,
-  Watcher,
   Note,
   Label,
   FileCard,
@@ -305,9 +264,6 @@ export const NODE_KINDS = [
   "artifacts",
   "automations",
   "board",
-  "cron",
-  "relay",
-  "watcher",
   "note",
   "label",
   "file",

@@ -20,14 +20,11 @@ import {
   automations,
   board,
   canvasOf,
-  cron,
   page,
-  relay,
   requests,
   seat,
   taskBoard,
   terminal,
-  watcher,
   wire,
 } from "./support/model-nodes";
 
@@ -149,11 +146,7 @@ export const expectedCliAuthorizationCellCount = (): number =>
 
 const at = (x: number) => ({ x, y: 0, width: 160, height: 80 });
 
-/**
- * One node of a well-known kind, as the model holds it. The model has no
- * interval timer: a timer was folded into cron, so the timer cells are built
- * on a cron node, which is what a stored timer is read as.
- */
+/** One node of a well-known kind, as the model holds it. */
 const BUILDERS: { readonly [K in WellKnownKind]: (id: string, x: number) => Node } = {
   agent: (id, x) => seat(id, at(x)),
   page: (id, x) => page(id, at(x)),
@@ -163,10 +156,6 @@ const BUILDERS: { readonly [K in WellKnownKind]: (id: string, x: number) => Node
   automations: (id, x) => automations(id, at(x)),
   board: (id, x) => board(id, at(x)),
   terminal: (id, x) => terminal(id, at(x)),
-  watcher: (id, x) => watcher(id, at(x)),
-  timer: (id, x) => cron(id, at(x)),
-  cron: (id, x) => cron(id, at(x)),
-  relay: (id, x) => relay(id, at(x)),
 };
 
 const nodeOfKind = (id: string, kind: WellKnownKind, x: number): Node => BUILDERS[kind](id, x);

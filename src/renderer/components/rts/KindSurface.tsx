@@ -132,9 +132,6 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
-        kind !== "watcher" &&
-        kind !== "cron" &&
-        kind !== "relay" &&
         kind !== "page" &&
         kind !== "git" &&
         !["note", "file", "link", "region"].includes(node.kind) ? (
@@ -146,9 +143,6 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
-        kind !== "watcher" &&
-        kind !== "cron" &&
-        kind !== "relay" &&
         kind !== "page" &&
         kind !== "git" &&
         node.kind !== "region" &&
@@ -161,9 +155,6 @@ function NodeFormFocus({
         kind !== "requests" &&
         kind !== "artifacts" &&
         kind !== "board" &&
-        kind !== "watcher" &&
-        kind !== "cron" &&
-        kind !== "relay" &&
         kind !== "page" &&
         kind !== "git" &&
         !["note", "file", "link", "region"].includes(node.kind) ? (
@@ -536,9 +527,6 @@ export function KindSurface() {
     kind !== "requests" &&
     kind !== "artifacts" &&
     kind !== "board" &&
-    kind !== "watcher" &&
-    kind !== "cron" &&
-    kind !== "relay" &&
     kind !== "page";
   const stripLabel = kind;
 

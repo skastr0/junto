@@ -77,9 +77,6 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
     case "artifacts":
     case "automations":
     case "board":
-    case "cron":
-    case "relay":
-    case "watcher":
     case "git":
     case "region":
       return edited(canvas, id, node.kind, { label: value });

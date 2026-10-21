@@ -11,8 +11,6 @@ export type MultiSurfaceKey =
   | "kind:task"
   | "kind:requests"
   | "kind:artifacts"
-  | "kind:watcher"
-  | "kind:timer"
   | "kind:page"
   | "type:text"
   | "type:file"

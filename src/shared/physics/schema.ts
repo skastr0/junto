@@ -23,9 +23,7 @@ export const asEdgeId = (id: string): EdgeId => id as EdgeId;
 // ---------------------------------------------------------------------------
 // Roles (derived, not stored)
 
-export const FactoryRole = Schema.Literals(["actor", "sink",
-"scheduler",
-"geography",]);
+export const FactoryRole = Schema.Literals(["actor", "sink", "geography"]);
 export type FactoryRole = typeof FactoryRole.Type;
 
 // ---------------------------------------------------------------------------
@@ -96,24 +94,15 @@ export const SinkKind = Schema.Literals(["page", "task",
 "terminal",]);
 export type SinkKind = typeof SinkKind.Type;
 
-/** Closed scheduler kinds. `timer` remains for decode of older docs; product UI authors `cron`. */
-export const SchedulerKind = Schema.Literals(["watcher", "timer",
-"cron",
-"relay",]);
-export type SchedulerKind = typeof SchedulerKind.Type;
-
-export const WellKnownKind = Schema.Union([ActorKind, SinkKind, SchedulerKind]);
+export const WellKnownKind = Schema.Union([ActorKind, SinkKind]);
 export type WellKnownKind = typeof WellKnownKind.Type;
 
 export const ACTOR_KINDS: ReadonlyArray<ActorKind> = ActorKind.literals;
 export const SINK_KINDS: ReadonlyArray<SinkKind> = SinkKind.literals;
-export const SCHEDULER_KINDS: ReadonlyArray<SchedulerKind> =
-  SchedulerKind.literals;
 
 export const WELL_KNOWN_KINDS: ReadonlyArray<WellKnownKind> = [
   ...ACTOR_KINDS,
   ...SINK_KINDS,
-  ...SCHEDULER_KINDS,
 ];
 
 export const isWellKnownKind = (kind: string): kind is WellKnownKind =>

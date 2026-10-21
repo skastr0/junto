@@ -72,16 +72,6 @@ export const NodeEdit = Schema.Union([
   edit("artifacts", { label }),
   edit("automations", { label }),
   edit("board", { label }),
-  edit("cron", { label, host: set(HostId), expression: setOrClear(NonEmptyLine) }),
-  edit("relay", { label, host: set(HostId) }),
-  edit("watcher", {
-    label,
-    host: set(HostId),
-    key: setOrClear(Schema.String),
-    stat: setOrClear(Schema.String),
-    op: setOrClear(Schema.Literals(["gt", "lt", "eq"])),
-    value: setOrClear(Schema.Finite),
-  }),
   edit("note", { text: set(Schema.String) }),
   edit("label", { text: set(Schema.String) }),
   edit("file", {

@@ -119,7 +119,6 @@ const kindRank = (kind: string): number =>
     Match.tagsExhaustive({
       Actor: () => 0,
       Sink: (spec) => (spec.kind === "task" || spec.kind === "requests" ? 1 : 2),
-      Scheduler: () => 2,
       Geography: () => 2,
     }),
   );

@@ -39,21 +39,11 @@ export const VERBS: ReadonlyArray<Verb> = Verb.literals;
 export type VerbSide = ActorKind | SinkKind;
 
 /**
- * Kind → table side. Unknown, geography or scheduler kinds have no side, which
- * is what makes them unwireable: no side, no row, no verb.
+ * Kind → table side. Unknown or geography kinds have no side, which is what
+ * makes them unwireable: no side, no row, no verb.
  */
-export const verbSideOf = (kind: string | undefined): VerbSide | undefined => {
-  if (kind === undefined || !isWellKnownKind(kind)) return undefined;
-  switch (kind) {
-    case "relay":
-    case "cron":
-    case "timer":
-    case "watcher":
-      return undefined;
-    default:
-      return kind;
-  }
-};
+export const verbSideOf = (kind: string | undefined): VerbSide | undefined =>
+  kind !== undefined && isWellKnownKind(kind) ? kind : undefined;
 
 type VerbTable = {
   readonly [S in VerbSide]?: {

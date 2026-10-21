@@ -52,7 +52,7 @@ region rollups
 team :: idle - 2 members
 
 canvas physics
-roles :: actors=1 sinks=0 schedulers=0 geography=3
+roles :: actors=1 sinks=0 geography=3
 edges :: 0
 
 design
@@ -116,7 +116,7 @@ const expected2 = [
   "unnamed region :: idle - 0 members",
   "",
   "canvas physics",
-  "roles :: actors=0 sinks=0 schedulers=0 geography=8",
+  "roles :: actors=0 sinks=0 geography=8",
   "edges :: 0",
   "",
   "entities",

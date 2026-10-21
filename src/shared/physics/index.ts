@@ -12,9 +12,7 @@ export {
   Port,
   PortGrant,
   PortMode,
-  SCHEDULER_KINDS,
   SINK_KINDS,
-  SchedulerKind,
   SinkKind,
   WELL_KNOWN_KINDS,
   WellKnownKind,
@@ -30,7 +28,6 @@ export type {
   NodeId as NodeIdBrand,
   Port as PortName,
   PortMode as PortModeName,
-  SchedulerKind as SchedulerKindName,
   SinkKind as SinkKindName,
   WellKnownKind as WellKnownKindName,
 } from "./schema";

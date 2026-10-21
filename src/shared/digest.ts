@@ -26,14 +26,12 @@ import { rulesInForce, taskEpoch } from "./rules";
 const ROLE_ORDER: ReadonlyArray<FactoryRole> = [
   "actor",
   "sink",
-  "scheduler",
   "geography",
 ];
 
 const ROLE_COUNT_KEY: Record<FactoryRole, string> = {
   actor: "actors",
   sink: "sinks",
-  scheduler: "schedulers",
   geography: "geography",
 };
 
@@ -136,7 +134,6 @@ export const digestCanvas = (
     const roleCounts: Record<FactoryRole, number> = {
       actor: 0,
       sink: 0,
-      scheduler: 0,
       geography: 0,
     };
     for (const node of nodes) {

@@ -118,8 +118,6 @@ const KIND_HUE: Readonly<Record<string, string>> = {
   plugin: HUE.violet,
   station: HUE.cyan,
   skill: HUE.gold,
-  watcher: HUE.amber,
-  timer: HUE.steel,
   page: HUE.cyan,
   node: HUE.steel,
 };

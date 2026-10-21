@@ -223,9 +223,6 @@ describe("each kind, cut for each machine", () => {
     // The shared builder, so the page keeps compiling when its host field goes (R4).
     page("browser", { ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile" }),
     { kind: "note", id: asNodeId("memo"), ...inRemote(360), text: "Note body stays home." },
-    { kind: "cron", id: asNodeId("nightly"), ...inRemote(410), host: "macbook" as never, label: "Nightly", expression: "0 3 * * *" },
-    { kind: "relay", id: asNodeId("relay"), ...inRemote(460), host: "macbook" as never, label: "Relay" },
-    { kind: "watcher", id: asNodeId("gauge"), ...inRemote(510), host: "macbook" as never, label: "Gauge" },
     { kind: "automations", id: asNodeId("routines"), ...inRemote(660), label: "Morning routines" },
   ];
   const lin = seat("lin", "linux", { x: 2300, y: 50 });
@@ -268,9 +265,6 @@ describe("each kind, cut for each machine", () => {
     // The editing machine's name: pages live where the canvas is edited.
     ["page", "browser", { kind: "stub", of: "page", id: "browser", ...at(310), host: "macbook" }],
     ["note", "memo", undefined],
-    ["cron", "nightly", undefined],
-    ["relay", "relay", undefined],
-    ["watcher", "gauge", undefined],
     // A copy would fire the same mail and tasks twice: automations never cross (07).
     ["automations", "routines", undefined],
   ];

@@ -12,7 +12,6 @@ import {
   type ActorKind,
   type FactoryRole,
   type Port,
-  type SchedulerKind,
   type SinkKind,
   type WellKnownKind,
 } from "./schema";
@@ -88,9 +87,7 @@ type RoleForKind<K extends WellKnownKind> = K extends ActorKind
   ? "actor"
   : K extends SinkKind
     ? "sink"
-    : K extends SchedulerKind
-      ? "scheduler"
-      : never;
+    : never;
 
 type KindSpecTable = {
   readonly [K in WellKnownKind]: {
@@ -117,14 +114,6 @@ export const KindSpecs = {
   board: { kind: "board", role: "sink", offers: boardOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
-  watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },
-  timer: { kind: "timer", role: "scheduler", offers: emptyOffers },
-  cron: { kind: "cron", role: "scheduler", offers: emptyOffers },
-  relay: {
-    kind: "relay",
-    role: "scheduler",
-    offers: portSet("relay.trigger"),
-  },
 } as const satisfies KindSpecTable;
 
 export const KindRegistry: HashMap.HashMap<WellKnownKind, KindSpec> =
@@ -147,10 +136,6 @@ export type NodeSpec = Data.TaggedEnum<{
   };
   Sink: {
     readonly kind: SinkKind;
-    readonly offers: HashSet.HashSet<Port>;
-  };
-  Scheduler: {
-    readonly kind: SchedulerKind;
     readonly offers: HashSet.HashSet<Port>;
   };
   Geography: {
@@ -183,8 +168,6 @@ export const resolveSpec = (input: ResolveSpecInput): NodeSpec => {
         return NodeSpec.Actor({ kind: spec.kind, offers: spec.offers });
       case "sink":
         return NodeSpec.Sink({ kind: spec.kind, offers: spec.offers });
-      case "scheduler":
-        return NodeSpec.Scheduler({ kind: spec.kind, offers: spec.offers });
       default: {
         const exhaustive: never = spec;
         return exhaustive;
@@ -199,7 +182,6 @@ export const roleOf = (spec: NodeSpec): FactoryRole =>
     Match.tagsExhaustive({
       Actor: () => "actor" as const,
       Sink: () => "sink" as const,
-      Scheduler: () => "scheduler" as const,
       Geography: () => "geography" as const,
     }),
   );
@@ -209,7 +191,6 @@ export const offersOf = (spec: NodeSpec): HashSet.HashSet<Port> =>
     Match.tagsExhaustive({
       Actor: (s) => s.offers,
       Sink: (s) => s.offers,
-      Scheduler: (s) => s.offers,
       Geography: (s) => s.offers,
     }),
   );

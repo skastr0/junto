@@ -170,54 +170,6 @@ export const NodeContracts: {
     events: [],
     inputs: [],
   },
-  cron: {
-    kind: "cron",
-    ports: portsOf("cron"),
-    events: [
-      {
-        id: "cron.fired",
-        label: "Fired",
-        word: "completes",
-      },
-    ],
-    inputs: [],
-  },
-  timer: {
-    kind: "timer",
-    ports: portsOf("timer"),
-    events: [
-      {
-        id: "timer.fired",
-        label: "Fired",
-        word: "completes",
-      },
-    ],
-    inputs: [],
-  },
-  watcher: {
-    kind: "watcher",
-    ports: portsOf("watcher"),
-    events: [
-      {
-        id: "watcher.fired",
-        label: "Fired",
-        word: "completes",
-      },
-    ],
-    inputs: [],
-  },
-  relay: {
-    kind: "relay",
-    ports: portsOf("relay"),
-    events: [
-      {
-        id: "relay.fired",
-        label: "Fired",
-        word: "completes",
-      },
-    ],
-    inputs: [],
-  },
 };
 
 export const contractOf = (

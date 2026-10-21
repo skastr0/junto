@@ -87,25 +87,6 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
     case "automations":
     case "board":
       return { ...base, label: node.label ?? null };
-    case "relay":
-      return { ...base, label: node.label ?? null, host: node.host };
-    case "cron":
-      return {
-        ...base,
-        label: node.label ?? null,
-        host: node.host,
-        expression: node.expression ?? null,
-      };
-    case "watcher":
-      return {
-        ...base,
-        label: node.label ?? null,
-        host: node.host,
-        watch_key: node.key ?? null,
-        stat: node.stat ?? null,
-        op: node.op ?? null,
-        value: node.value ?? null,
-      };
     case "note":
     case "label":
       return { ...base, text: node.text };
@@ -192,22 +173,6 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
     case "automations":
     case "board":
       fields = label;
-      break;
-    case "relay":
-      fields = { ...label, host: row.host };
-      break;
-    case "cron":
-      fields = { ...label, host: row.host, ...optional(row, "expression") };
-      break;
-    case "watcher":
-      fields = {
-        ...label,
-        host: row.host,
-        ...optional(row, "watch_key", "key"),
-        ...optional(row, "stat"),
-        ...optional(row, "op"),
-        ...optional(row, "value"),
-      };
       break;
     case "note":
     case "label":

@@ -57,12 +57,6 @@ export const automations = (id: string, more: Partial<NodeOf<"automations">> = {
   ({ kind: "automations", ...placed(id), ...more });
 export const board = (id: string, more: Partial<NodeOf<"board">> = {}): NodeOf<"board"> =>
   ({ kind: "board", ...placed(id), ...more });
-export const cron = (id: string, more: Partial<NodeOf<"cron">> = {}): NodeOf<"cron"> =>
-  ({ kind: "cron", ...placed(id), host: THIS_MACHINE, ...more });
-export const relay = (id: string, more: Partial<NodeOf<"relay">> = {}): NodeOf<"relay"> =>
-  ({ kind: "relay", ...placed(id), host: THIS_MACHINE, ...more });
-export const watcher = (id: string, more: Partial<NodeOf<"watcher">> = {}): NodeOf<"watcher"> =>
-  ({ kind: "watcher", ...placed(id), host: THIS_MACHINE, ...more });
 export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> => ({
   kind: "page",
   ...placed(id),

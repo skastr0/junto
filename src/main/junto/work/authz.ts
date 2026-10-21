@@ -436,7 +436,6 @@ const opsForSpec = (spec: NodeSpecValue): ReadonlyArray<WorkOpName> =>
     Match.tagsExhaustive({
       Actor: () => MSG_OPS,
       Sink: (s): ReadonlyArray<WorkOpName> => opsForSink(s.kind),
-      Scheduler: () => NO_OPS,
       Geography: () => NO_OPS,
     }),
   );
