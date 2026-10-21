@@ -23,13 +23,15 @@ export class RulingRecorder extends Context.Service<
 
 export const RulingRecorderLive: Layer.Layer<RulingRecorder, never, WorkRepository> = Layer.effect(
   RulingRecorder,
-  Effect.map(WorkRepository, (repository) =>
-    RulingRecorder.of({
+  // Read when the layer builds, not when this module loads: repository.ts reaches here through the task fold.
+  Effect.gen(function* () {
+    const repository = yield* WorkRepository;
+    return RulingRecorder.of({
       record: (input) =>
         repository.recordRuling(input).pipe(
           Effect.asVoid,
           Effect.mapError((cause) => new RulingRecordFailed({ message: cause.message, cause })),
         ),
-    }),
-  ),
+    });
+  }),
 );

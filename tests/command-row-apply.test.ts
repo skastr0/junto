@@ -17,6 +17,7 @@ import { InstallationId } from "../src/shared/installation-id";
 import type { CanvasPlacement, RowsFrame } from "../src/shared/work-exchange";
 import { OpId } from "../src/shared/work-ids";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
+import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
 
@@ -223,5 +224,65 @@ describe("the seat's machine queues a command and reads what became of it", () =
       details: { reason: "invalid_transition", opId: queuedOp },
     });
     expect((await load()).rows).toBe(before.rows - 1);
+  });
+});
+
+describe("a machine that does not edit the canvas folds the editing machine's task rulings", () => {
+  const foldOp = Schema.decodeUnknownSync(OpId)("01M5EX7000000000000000000F");
+  const taskId = "01M5EX7000000000000000000T";
+  const task = {
+    state: "backlog",
+    node: "board-1",
+    epoch: 0,
+    stampPolicy: { required: 0 },
+    reviewers: [],
+    stamps: [],
+    id: taskId,
+    number: 1,
+    title: "ship it",
+    dependsOn: [],
+  };
+  const applied = (seq: string, opId: string, facts: ReadonlyArray<unknown>) =>
+    row(EDITOR, seq, { kind: "ruling", itemId: opId, sink: { canvasName: "factory", nodeId: "board-1" } }, {
+      operation: "ruling.applied",
+      writer: MINI,
+      opId,
+      actor: { kind: "seat", seatId, nodeId: "peer" },
+      kind: "task",
+      facts,
+    });
+  // The task tables are not in the state engine yet (c24d95a8e's converter is not wired); this replica holds them.
+  beforeAll(() =>
+    mini.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        Effect.forEach(
+          TASKS_STATE_SCHEMA_SQL.split(";").filter((statement) => statement.trim() !== ""),
+          (statement) => sql.unsafe(statement),
+          { discard: true },
+        )),
+    ));
+  const heads = () =>
+    mini.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql.unsafe<{ task_id: string; title: string; created_at: number }>(
+          "SELECT task_id, title, created_at FROM task_heads WHERE canvas_name = 'factory'",
+        )),
+    );
+
+  it("refuses facts it cannot decode and folds nothing", async () => {
+    const before = await facts(mini);
+    const bad = await apply(mini, EDITOR, frame(EDITOR, [applied("3", foldOp, [{ kind: "task", task: { ...task, state: "lost" }, effects: [] }])], "3"));
+    expect(Exit.isFailure(bad)).toBe(true);
+    expect(await heads()).toEqual([]);
+    expect(await facts(mini)).toBe(before);
+  });
+
+  it("writes the task as the ruling made it, at the ruling's time", async () => {
+    const before = await facts(mini);
+    const facts1 = [{ kind: "task", task, effects: [{ kind: "number-minted", number: 1 }] }];
+    const taken = await apply(mini, EDITOR, frame(EDITOR, [applied("3", foldOp, facts1)], "3"));
+    expect(Exit.isSuccess(taken)).toBe(true);
+    expect(await heads()).toEqual([{ task_id: taskId, title: "ship it", created_at: Date.parse(at) }]);
+    expect(await facts(mini)).toBe(before + 1);
   });
 });

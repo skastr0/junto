@@ -50,7 +50,8 @@ import {
 import type { WorkErrorBody } from "@shared/work-control";
 import { ItemId, type OpId } from "@shared/work-ids";
 import { StateTransactionOperation } from "../state/service";
-import { writeRuling, type RulingRecord } from "./resource-rulings";
+import type { RulingRecord } from "./resource-rulings";
+import { RulingRecorder, type RulingRecordFailed } from "./ruling-recorder";
 
 export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceError>()(
   "TaskPersistenceError",
@@ -207,7 +208,7 @@ const viewOf = (row: HeadRow, task: TaskRecord, layers: ReadonlyArray<ClosedTask
   };
 };
 
-const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | TaskPersistenceError) =>
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | RulingRecordFailed | TaskPersistenceError) =>
   error instanceof TaskPersistenceError ? error : TaskPersistenceError.make({ operation, message: error.message, cause: error });
 
 /** A stored row the ruler cannot read: the write fails rather than rule around it. */
@@ -216,10 +217,48 @@ const unreadable = (what: string, taskId: string) =>
 
 // ── the repository ─────────────────────────────────────────────────────────
 
-export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.SqlClient> = Layer.effect(
+/**
+ * The task domain's projection: fold one ruled fact into `task_heads`,
+ * `task_layers` and `task_numbers`. The ruler writes its facts with it, and a
+ * machine that does not edit the canvas folds the editing machine's facts
+ * with it (`ruling-projection.ts`), at the ruling's time. The caller owns the
+ * transaction.
+ */
+export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: TaskFact, at: number) =>
+  Effect.gen(function* () {
+    const task = fact.task;
+    for (const effect of fact.effects) {
+      if (effect.kind === "sent-on") {
+        const n = (yield* sql<{ readonly n: number }>`
+          SELECT count(*) AS n FROM task_layers WHERE canvas_name = ${canvas} AND task_id = ${task.id}`)[0]?.n ?? 0;
+        yield* sql`
+          INSERT INTO task_layers (canvas_name, task_id, ordinal, node_id, layer_json, closed_at)
+          VALUES (${canvas}, ${task.id}, ${n}, ${effect.from}, ${JSON.stringify(effect.layer)}, ${at})`;
+      }
+      if (effect.kind === "number-minted") {
+        yield* sql`
+          INSERT INTO task_numbers (canvas_name, next_number) VALUES (${canvas}, ${effect.number + 1})
+          ON CONFLICT (canvas_name) DO UPDATE SET next_number = excluded.next_number`;
+      }
+    }
+    yield* sql`
+      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at)
+      VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
+        ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
+        ${JSON.stringify(task.stamps)}, ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at})
+      ON CONFLICT (canvas_name, task_id) DO UPDATE SET
+        node_id = excluded.node_id, title = excluded.title, body = excluded.body, state = excluded.state,
+        assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
+        stamps_required = excluded.stamps_required, reviewers_json = excluded.reviewers_json,
+        stamps_json = excluded.stamps_json, depends_on_json = excluded.depends_on_json,
+        next_node_id = excluded.next_node_id, updated_at = excluded.updated_at`;
+  });
+
+export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.SqlClient | RulingRecorder> = Layer.effect(
   TaskRepository,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const recorder = yield* RulingRecorder;
 
     const headRow = SqlSchema.findOneOption({
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
@@ -276,12 +315,6 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         });
       });
 
-    const layerCount = (canvas: string, id: TaskId) =>
-      Effect.map(
-        sql<{ readonly n: number }>`SELECT count(*) AS n FROM task_layers WHERE canvas_name = ${canvas} AND task_id = ${id}`,
-        (rows) => rows[0]?.n ?? 0,
-      );
-
     const readTask = (canvas: string, id: TaskId) =>
       Effect.map(headRow({ canvas, id }), Option.flatMap((row) => Option.fromNullishOr(taskOfRow(row))));
 
@@ -323,34 +356,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         return rulings;
       });
 
-    const writeFact = (canvas: string, fact: TaskFact, at: number) =>
-      Effect.gen(function* () {
-        const task = fact.task;
-        for (const effect of fact.effects) {
-          if (effect.kind === "sent-on") {
-            const n = yield* layerCount(canvas, task.id);
-            yield* sql`
-              INSERT INTO task_layers (canvas_name, task_id, ordinal, node_id, layer_json, closed_at)
-              VALUES (${canvas}, ${task.id}, ${n}, ${effect.from}, ${JSON.stringify(effect.layer)}, ${at})`;
-          }
-          if (effect.kind === "number-minted") {
-            yield* sql`
-              INSERT INTO task_numbers (canvas_name, next_number) VALUES (${canvas}, ${effect.number + 1})
-              ON CONFLICT (canvas_name) DO UPDATE SET next_number = excluded.next_number`;
-          }
-        }
-        yield* sql`
-          INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at)
-          VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
-            ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
-            ${JSON.stringify(task.stamps)}, ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at})
-          ON CONFLICT (canvas_name, task_id) DO UPDATE SET
-            node_id = excluded.node_id, title = excluded.title, body = excluded.body, state = excluded.state,
-            assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
-            stamps_required = excluded.stamps_required, reviewers_json = excluded.reviewers_json,
-            stamps_json = excluded.stamps_json, depends_on_json = excluded.depends_on_json,
-            next_node_id = excluded.next_node_id, updated_at = excluded.updated_at`;
-      });
+    const writeFact = (canvas: string, fact: TaskFact, at: number) => projectTaskFact(sql, canvas, fact, at);
 
     const list = Effect.fn("tasks.list")(function* (canvasName: string, query: TaskListQuery) {
       if (query.nodeIds.length === 0) return { tasks: [], more: false };
@@ -424,7 +430,15 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       const record: RulingRecord = outcome.kind === "applied"
         ? { kind: "applied", taskId: outcome.task.id }
         : { kind: "refused", error: outcome.error, root: outcome.root };
-      yield* writeRuling(sql, { canvas, writer, command, record });
+      yield* recorder.record({
+        canvasName: canvas,
+        writer,
+        command,
+        kind: "task",
+        record,
+        ruling,
+        at: new Date(at).toISOString(),
+      });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "tasks.submit"), Effect.mapError(persistence("submit")));
 

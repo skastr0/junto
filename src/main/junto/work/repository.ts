@@ -32,6 +32,7 @@ import {
 import type { ResourceCommand, ResourceKind, ResourceRuling } from "@shared/resource-command";
 import { writeRuling, type RulingRecord } from "./resource-rulings";
 import type { OpId } from "@shared/work-ids";
+import { RulingFoldRefused, foldRuling } from "./ruling-projection";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
@@ -7653,6 +7654,13 @@ export const WorkRepositoryLive = Layer.effect(
                   });
                 } else if (fact.body.operation === "delivery.accepted") {
                   yield* writeDelivery(writer, fact.body.receipt, fact, receivedAt);
+                } else if (fact.body.operation === "ruling.applied") {
+                  // The editing machine's ruled facts, folded here as they were ruled there.
+                  yield* foldRuling(writer, frame.canvasName, fact.body, Date.parse(fact.originAt)).pipe(
+                    Effect.catchTag("RulingFoldRefused", (refused: RulingFoldRefused) =>
+                      Effect.fail(refuseExchange(refused.message)),
+                    ),
+                  );
                 }
               }
             }

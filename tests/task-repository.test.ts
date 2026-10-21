@@ -17,6 +17,8 @@ import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/sh
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
+import { writeRuling } from "../src/main/junto/work/resource-rulings";
+import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import {
   TaskRepository,
   TaskRepositoryLive,
@@ -33,7 +35,19 @@ beforeEach(() => {
   database.exec(TASKS_STATE_SCHEMA_SQL);
   database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
   const client = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
-  runtime = ManagedRuntime.make(TaskRepositoryLive.pipe(Layer.provide(client)));
+  // The ruling's row as the recorder writes it; its fact row needs the whole work store (tests/ruling-recorder.test.ts).
+  const recorder = Layer.effect(
+    RulingRecorder,
+    Effect.map(SqlClient.SqlClient, (sql) =>
+      RulingRecorder.of({
+        record: (input) =>
+          writeRuling(sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record }).pipe(
+            Effect.asVoid,
+            Effect.orDie,
+          ),
+      })),
+  );
+  runtime = ManagedRuntime.make(TaskRepositoryLive.pipe(Layer.provide(recorder), Layer.provide(client)));
 });
 
 afterEach(async () => {
