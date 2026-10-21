@@ -204,13 +204,13 @@ test("[fake-tui] a review reaches its seat as one thread, and a mentioned seat g
       "",
       "2 comments follow in this thread, one mail each. The line numbers are from the state named above; check them against your working copy.",
     ].join("\n");
-    const first = ["parser.ts, line 3", "   +  const kept = parts.filter(Boolean);", "Comment: Why keep a second name here?"].join("\n");
-    const second = ["parser.ts, line 4", "   +  return kept;", "Comment: Brook should check this @Brook"].join("\n");
+    const onLine3 = ["parser.ts, line 3", "   +  const kept = parts.filter(Boolean);", "Comment: Why keep a second name here?"].join("\n");
+    const onLine4 = ["parser.ts, line 4", "   +  return kept;", "Comment: Brook should check this @Brook"].join("\n");
     await expect.poll(async () => {
       const log = await seatA.stdinLog();
-      return log.includes(root) && log.includes(first) && log.includes(second);
+      return log.includes(root) && log.includes(onLine3) && log.includes(onLine4);
     }, { timeout: 20_000 }).toBe(true);
-    await expect.poll(async () => (await seatB.stdinLog()).includes(second), { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => (await seatB.stdinLog()).includes(onLine4), { timeout: 20_000 }).toBe(true);
     const a = await seatA.stdinLog();
     const b = await seatB.stdinLog();
     expect(reviewsIn(a)).toBe(1);
