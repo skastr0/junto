@@ -12,7 +12,8 @@ import { MAIL_SENDER_REGIONS_MAX, REGION_NAME_MAX } from "../src/shared/region-b
 import { MAIL_ENVELOPE_BYTES, MAIL_TEXT_INLINE_MAX_BYTES, mailTextBytes } from "../src/shared/mail-text-bound";
 import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
 import { asNodeId } from "../src/shared/physics/schema";
-import { LINES_FILE_MAX, TEXT_QUOTE_MAX, type ResourceSubject, textAnchorOf, threadSubjectMetadata } from "../src/shared/thread-subject";
+import { PAGE_BOX_URL_MAX_BYTES, TEXT_QUOTE_MAX, type ResourceSubject, textAnchorOf, threadSubjectMetadata } from "../src/shared/thread-subject";
+import { ContentRef } from "../src/shared/wire/content-ref";
 import { ItemId } from "../src/shared/work-ids";
 import { ExchangeFact } from "../src/shared/work-exchange";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
@@ -33,10 +34,31 @@ const regions = Array.from({ length: MAIL_SENDER_REGIONS_MAX }, (_, depth) => ({
   name: `${depth % 10}${"語".repeat(REGION_NAME_MAX - 1)}`,
 }));
 
-/** A subject's widest anchors: a quote or a lines file at its bound, in three-byte characters. */
+/** A page's widest address: a host, then three-byte characters percent-encoded, to its bound. */
+const widestPageUrl = (() => {
+  const head = "https://x.example/";
+  const room = PAGE_BOX_URL_MAX_BYTES - head.length;
+  const encoded = "%E8%AA%9E";
+  return `${head}${encoded.repeat(Math.floor(room / encoded.length))}${"a".repeat(room % encoded.length)}`;
+})();
+
+/** A subject's widest anchors: a quote in three-byte characters, and a page box with its url and shot at their bounds. */
 const subjects: ReadonlyArray<ResourceSubject> = [
   { kind: "artifact", nodeId: asNodeId(`artifacts-${ulid}`), artifactId: Schema.decodeSync(ItemId)(ulid), anchor: textAnchorOf("語".repeat(TEXT_QUOTE_MAX + 50), Number.MAX_SAFE_INTEGER) },
-  { kind: "page", nodeId: asNodeId(`page-${ulid}`), anchor: { kind: "lines", file: "語".repeat(LINES_FILE_MAX), from: Number.MAX_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER } },
+  {
+    kind: "page",
+    nodeId: asNodeId(`page-${ulid}`),
+    anchor: {
+      kind: "box",
+      x: -Number.MAX_SAFE_INTEGER,
+      y: -Number.MAX_SAFE_INTEGER,
+      w: Number.MAX_SAFE_INTEGER,
+      h: Number.MAX_SAFE_INTEGER,
+      url: widestPageUrl,
+      scroll: { x: -Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER },
+      shot: Schema.decodeSync(ContentRef)({ sha256: "a".repeat(64), byteLength: Number.MAX_SAFE_INTEGER, mediaType: "image/png" }),
+    },
+  },
 ];
 
 const mailWith = (text: string, subject: ResourceSubject = subjects[0]!) =>

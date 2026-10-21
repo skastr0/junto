@@ -13,6 +13,7 @@ import {
   threadSubjectMetadata,
   threadSubjectOf,
   pageShotOf,
+  PAGE_BOX_URL_MAX_BYTES,
   PageSubject,
 } from "../src/shared/thread-subject";
 import { ContentRef } from "../src/shared/wire/content-ref";
@@ -134,12 +135,19 @@ describe("a page's box", () => {
     expect(is(box({ scroll: undefined }))).toBe(false);
   });
 
-  it("names an http or https page, normalized, with no name or password, at most 16 KiB", () => {
+  it("names an http or https page, normalized, with no name or password, at most 2 KiB", () => {
     expect(is(box({ url: "file:///etc/passwd" }))).toBe(false);
     expect(is(box({ url: "javascript:alert(1)" }))).toBe(false);
     expect(is(box({ url: "https://user:pw@x.example/" }))).toBe(false);
     expect(is(box({ url: "HTTPS://X.example" }))).toBe(false);
-    expect(is(box({ url: `https://x.example/${"a".repeat(16 * 1024)}` }))).toBe(false);
+    const head = "https://x.example/";
+    expect(is(box({ url: `${head}${"a".repeat(PAGE_BOX_URL_MAX_BYTES - head.length)}` }))).toBe(true);
+    expect(is(box({ url: `${head}${"a".repeat(PAGE_BOX_URL_MAX_BYTES - head.length + 1)}` }))).toBe(false);
+  });
+
+  it("holds a PNG shot with no name of its own", () => {
+    expect(is(box({ shot: { ...SHOT, mediaType: "image/svg+xml" } }))).toBe(false);
+    expect(is(box({ shot: { ...SHOT, displayName: "secret-dashboard.png" } }))).toBe(false);
   });
 
   it("gives its shot only to factory mail on a page", () => {

@@ -112,7 +112,6 @@ describe("main authoring architecture", () => {
       // under the companion.* authoring labels (asserted below).
       "src/main/junto/companion/operator-actions.ts",
       "src/main/junto/ipc.ts",
-      "src/main/junto/kernel/service.ts",
       // Closed administrative dispatch is still process-bound and gated.
       "src/main/junto/overseer/work.ts",
       // The copies of an answer to the seats it mentions, written only from
@@ -131,6 +130,9 @@ describe("main authoring architecture", () => {
       // Mail threads read the mailboxes; the operator's send runs only under
       // the classified ipc.work.thread-send handler in ipc.ts.
       "src/main/junto/work/operator-threads.ts",
+      // A page box comment's shot, read for the operator only, under the
+      // trusted preview read in ipc.ts; it reads one row and never writes.
+      "src/main/junto/work/page-shot-read.ts",
       // Seat waits re-read topology and the selected task; they never mutate.
       "src/main/junto/work/seat-observation-live.ts",
       // Prompt mail to a seat, written only under ipc.work.message-append.

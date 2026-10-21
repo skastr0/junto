@@ -255,12 +255,12 @@ export const postSubjectComment = (
         shotOwner = { kind: "message", canvasName, nodeId, recordId: messageId };
         const ref = yield* holdShot(shot, stager, shotOwner);
         const url = withoutQuery(shot.url);
-        const anchor = { ...box, url, scroll: shot.scroll, shot: ref };
+        const anchor = { ...box, url, scroll: shot.scroll, shot: { sha256: ref.sha256, byteLength: ref.byteLength, mediaType: ref.mediaType } };
         if (url === undefined || !isPageBox(anchor)) {
           yield* releaseShot(shotOwner);
           return yield* Effect.fail<WorkErrorBody>({
             type: "InputError",
-            message: "the page's address cannot be named on a comment: open an http or https page",
+            message: "the page's address cannot be named on a comment: it must be http or https, and at most 2 KB without its query",
             details: { path: "anchor", retryable: false },
           });
         }

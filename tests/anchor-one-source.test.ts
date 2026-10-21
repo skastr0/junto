@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { AnchorFor, ArtifactAnchor } from "../src/shared/artifact";
-import { type Anchor, ThreadSubject } from "../src/shared/thread-subject";
+import { type Anchor, type PageBoxAnchor, ThreadSubject } from "../src/shared/thread-subject";
 
 // pty-lead and product-shell, 2026-10-21: thread-subject.ts owns Anchor.
 // artifact.ts defines no anchor shape of its own; it narrows Anchor per type.
@@ -18,10 +18,10 @@ describe("one anchor", () => {
     expectTypeOf<AnchorFor<"file">>().toExtend<Anchor>();
   });
 
-  it("a subject's anchor is a place, never whole, and an artifact's is an artifact anchor", () => {
+  it("a subject's anchor is a place, never whole: an artifact's an artifact anchor, a page's its box", () => {
     type AnchorOf<K extends "artifact" | "page"> = NonNullable<Extract<ThreadSubject, { kind: K }>["anchor"]>;
     expectTypeOf<AnchorOf<"artifact">>().toEqualTypeOf<Exclude<ArtifactAnchor, { readonly kind: "whole" }>>();
-    expectTypeOf<AnchorOf<"page">>().toEqualTypeOf<Exclude<Anchor, { readonly kind: "whole" }>>();
+    expectTypeOf<AnchorOf<"page">>().toEqualTypeOf<PageBoxAnchor>();
   });
 
   it("decodes one spelling per place and refuses what the artifact anchor refuses", () => {
@@ -34,5 +34,6 @@ describe("one anchor", () => {
     expect(is({ ...artifact, anchor: { kind: "cells", range: "C4:A1" } })).toBe(false);
     expect(is({ ...artifact, anchor: { kind: "cells", range: "A1:C4" } })).toBe(true);
     expect(is({ kind: "page", nodeId: "page-1", anchor: { kind: "whole" } })).toBe(false);
+    expect(is({ kind: "page", nodeId: "page-1", anchor: { kind: "lines", file: "a.ts", from: 1, to: 2 } })).toBe(false);
   });
 });

@@ -105,8 +105,17 @@ export const ArtifactSubject = Schema.Struct({
   artifactId: SubjectItemId,
   anchor: Schema.optionalKey(ArtifactPlaceAnchor),
 });
-/** The most a page box's url holds, in UTF-8 bytes: the browser's own bound (`browser-limits.ts`). */
-export const PAGE_BOX_URL_MAX_BYTES = 16 * 1024;
+/**
+ * The most a page box's url holds, in UTF-8 bytes. The comment's row has
+ * room for the box beside its text (mail-text-bound.ts), as for a lines
+ * file at its bound; the url is kept without query or fragment.
+ */
+export const PAGE_BOX_URL_MAX_BYTES = 2 * 1024;
+
+/** A page box's shot: always the PNG main encoded, with no name of its own. */
+const PageShotRef = ContentRef.check(
+  Schema.makeFilter((ref) => (ref.mediaType === "image/png" && ref.displayName === undefined) || "a PNG main took, with no name"),
+);
 
 /** An http or https address with a host and no name or password, as `admitLinkUrl` admits it, already normalized. */
 const isPageUrl = (url: string): boolean => {
@@ -139,9 +148,9 @@ export const PageBoxAnchor = Schema.Struct({
   y: Coordinate,
   w: Extent,
   h: Extent,
-  url: Schema.String.check(Schema.makeFilter((url) => isPageUrl(url) || "an http or https address with a host, no name or password, at most 16 KiB")),
+  url: Schema.String.check(Schema.makeFilter((url) => isPageUrl(url) || "an http or https address with a host, no name or password, at most 2 KiB")),
   scroll: Schema.Struct({ x: Coordinate, y: Coordinate }),
-  shot: ContentRef,
+  shot: PageShotRef,
 });
 export type PageBoxAnchor = typeof PageBoxAnchor.Type;
 
