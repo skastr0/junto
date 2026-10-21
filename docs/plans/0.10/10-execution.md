@@ -168,7 +168,7 @@ everyone else reports by mail and on the needs-you feed.
 | Tasks UI | product-modals; on main's IPC 8d94f7606, 4c49e4f60; old board deleted fc7a66131 (28 files, -8.7k); real-app run product-verify | live |
 | Task op wire, TaskView, machine on contract | canvas cd37581ef, 0b55944dd, 50e5d51ea, fa799aec3; numbers #42 293b8e7aa | landed |
 | Blocked mark on seat ring; C1 reach in admitPure; C2 factory cuts | canvas ba0efac29; 73bf05d6d, 50a67cd60, dab3240b8, c0eecdae4; 3f359eb4b, 0b0ffe50d, 5f82c5de5 | landed |
-| Deletions step | waits on canvas-nodes' pad and sheet batch and the scheduler cut; operator: drop the 4 orphan pads | slipping |
+| Deletions step | migration 32 be53079c9 | landed |
 | Artifacts node UI | product-shell 7687e6b27, ed478fd5e, dc920f3b0, 88638ec11; domain e17595829, e1f8be7e5 | landed on stand-in source |
 | Requests and board UI; chat toolbar; PromptComposer | product-attention 6ae0b773e, a11ae0f19, a1ee80d50 | deleted |
 | Browser contracts: tabs, driver, box | product-attention 6af40a961, 5b35a2a9f; box crop claim with remote-security | landed |
@@ -176,7 +176,10 @@ everyone else reports by mail and on the needs-you feed.
 | Typecheck toolchain | tsrs swap landed (tech-lead fdc1bd867, 1693ef5b4, 9adfc92de): cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; typecheck needs no slot | landed |
 | Sweep repair | fdc1bd867 carried six stale staged paths; restored at ca81a0033, stale copies unstaged | done |
 | Main typecheck | clean at 5489312a0 (tsrs, clean archive, 0 errors); shared index cleared of 40 stale paths; physics ship-profile cases with canvas-edges, remote-core, product-attention | green |
-| remote R5 Hermes host identity | b3543a409; stand-in removal rides the deletions step | done |
+| remote R5 Hermes host identity | 2f4c8d022, 24b4f58ab, f2c54bae8, 5020db286, ffd7d6ef1, b3543a409; last piece in migration 32 be53079c9 | done |
+| remote R6 automation author kind | a530ccc85, e9c311c54 | done |
+| Migration 32: 0.10 deletions, feeds to flows, host registry rebuild | canvas be53079c9 | landed |
+| Main health | tech-lead (tech-checks): full verify on a clean archive of HEAD hourly, reds to owning leads | running |
 | remote R2 ruler | RulingRecorder 75db329b0; task submit and replica fold 7fb8d1e9b; seat queue QueueFull 87d3406c8; reach for rulings 73779cf34; resource notice author 8a7e93ce4. Live once task tables are in the state engine and TaskRepositoryLive is wired (canvas order) | landed, not live |
 | remote R4 browser out | 255613ef8, 2614f3578, 658827b65, c12fe5cf7, 29bb0747a, 8a1d5e3ce, 4947ce9f3, 8f20c2f0c | done |
 | remote R3 canvas copy | 77f7a7134, f65727f16, fe9d7f375, a139bde94, 101f36c40, 1e632c2ec, e997e0706; stubs for file, link, git, page | done |
