@@ -156,21 +156,6 @@ export const isManagedSeatRuntimeLocal = (
   );
 };
 
-/**
- * Claim admission for a local managed seat. Identity locality alone is not
- * enough: the exact live generation must be running and observer-confirmed
- * idle before durable work can move to `working`.
- */
-export const localManagedSeatReadyForClaim = (
-  bindingId: string,
-): boolean => {
-  const live = termPlane.host.get(bindingId);
-  return (
-    live?.status === "running" &&
-    seatStateRuntime.isSeatIdle(bindingId)
-  );
-};
-
 export const ensureManagedSeatRunning = (
   canvasName: string,
   node: Node,

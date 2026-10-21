@@ -88,11 +88,9 @@ describe("actor seat production architecture", () => {
 
     expect(ensure).toContain("actorSeatOccupy.occupy(spec)");
     expect(ensure).not.toContain("termPlane.host.createAgentSeat");
-    expect(kernel.match(/yield\* ensureManagedSeatRunning\(/gu)).toHaveLength(3);
-    expect(kernel).toContain("yield* startManagedSeats(");
-    expect(kernel).toContain(
-      "if (!running || !generationIsActive(generation)) continue;",
-    );
+    // The kernel starts a seat only when a delivery asks for it.
+    expect(kernel.match(/yield\* ensureManagedSeatRunning\(/gu)).toHaveLength(1);
+    expect(kernel).not.toContain("startManagedSeats");
     expect(kernel).toContain("const actorSeatOccupy = yield* ActorSeatOccupy");
     expect(kernel).not.toMatch(
       /import\s+\{[^}]*\bAppRuntime\b[^}]*\}\s+from/u,

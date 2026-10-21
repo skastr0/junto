@@ -1,4 +1,3 @@
-import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delivery-receipts";
 // KernelService — the Effect Tag + Live layer that runs kernel evaluation
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, world resync, the 30s safety interval) and binds
@@ -21,61 +20,37 @@ import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delive
 // async Promise control plane. Importing AppRuntime here is forbidden
 // (circular: RootLayer includes KernelLive).
 
-import { createHash } from "node:crypto";
 import type { SeatStartCause } from "../term/seat-start-cause";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import { asNodeId } from "@shared/model/base";
-import { nodeOf, nodesOf } from "@shared/model/canvas";
-import type { Seat } from "@shared/model/kinds";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import { seatIdentityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
-import { buildFactoryClaimPrompt } from "@shared/factory-claim-prompt";
-import {
-  claimedByOf,
-  makeUserMessage,
-  taskReleaseBoundary,
-} from "@shared/task";
-import { taskAdmissionState } from "@shared/rules";
+import { makeUserMessage } from "@shared/task";
 import { ulid } from "ulid";
-import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorSeatId } from "@shared/actor-seat";
-import {
-  type ActorRef,
-  type SinkRef,
-} from "@shared/work-protocol";
+import type { ActorRef } from "@shared/work-protocol";
 import type {
   KernelSnapshot,
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
-import { ModelRecords } from "../model/records";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
 import { MachineRepository } from "../machines/repository";
-import {
-  actorsNeedingWake,
-  selectFactoryClaims,
-} from "@shared/factory-tick";
 import { WorkService } from "../work/service";
 import {
   ensureManagedSeatRunning,
   isManagedSeatRuntimeLocal,
-  localManagedSeatReadyForClaim,
   type ManagedSeatRuntimeAuthority,
 } from "../term/ensure-managed-seat";
 import { seatStateRuntime } from "../term/agent-state";
 import { ActorSeatOccupy } from "../term/actor-seat-occupy";
-import {
-  managedPulseDeliver,
-  subscribeManagedPulseReady,
-} from "../term/managed-pulse-bridge";
-import { WorkRepository } from "../work/repository";
 import {
   checkTimers,
   getExecutionByCanvas,
@@ -94,7 +69,7 @@ import {
   setPageLoadDeps,
   setRaisedHandDeps,
 } from "./cycle";
-import { withTaskRow, workOf, type World } from "./world";
+import type { World } from "./world";
 import {
   admitSchedulerEffectAutomation,
   setSchedulerEffectDeps,
@@ -217,26 +192,6 @@ export const subscribeKernelPauseWake = (
   subscribe: PauseSubscribe,
   scheduleCycle: () => void,
 ): (() => void) => subscribe(() => scheduleCycle());
-
-/**
- * Keep the kernel's hot Work projection at the exact claim result.
- *
- * WorkService answers a claim with the claimed row. Put it in place of the
- * board's row before the delivery phase so a claim can wake its seat in this
- * cycle instead of waiting for the repository notification/resync repair cycle.
- */
-export const retainClaimedTask = (
-  held: Map<string, World>,
-  canvasName: string,
-  boardId: string,
-  task: Task,
-): boolean => {
-  const world = held.get(canvasName);
-  const next = world === undefined ? undefined : withTaskRow(world, boardId, task);
-  if (next === undefined) return false;
-  held.set(canvasName, next);
-  return true;
-};
 
 /** The simulation lane's single key: one repair pass over the whole world. */
 export const KERNEL_CYCLE_KEY = "cycle";
@@ -382,7 +337,6 @@ type PauseShape = Context.Service.Shape<typeof PausePlane>;
 type SchedulerShape = Context.Service.Shape<typeof SchedulerRepository>;
 type MachinesShape = Context.Service.Shape<typeof MachineRepository>;
 type WorkShape = Context.Service.Shape<typeof WorkService>;
-type WorkRepositoryShape = Context.Service.Shape<typeof WorkRepository>;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
 
 /**
@@ -485,43 +439,6 @@ const runtimeAuthority = (
       };
 };
 
-/** Tasks stay on this machine; a peer never enters local claim selection. */
-export const actorSeatSelectableNow = (
-  canvasName: string,
-  seat: Seat,
-  actor: ActorRef,
-  scope: Extract<ActiveMachineScope, { readonly ready: true }>,
-  isLocalSeatReady: (bindingId: string) => boolean,
-): Effect.Effect<boolean> => Effect.sync(() =>
-  isManagedSeatRuntimeLocal(canvasName, seat, {
-    actor, installationId: scope.installationId, hostId: scope.machineName,
-  }) && isLocalSeatReady(seat.bindingId));
-
-/** Stable restart-safe identity for one managed task-start prompt. */
-export const managedTaskDeliveryId = (
-  sink: SinkRef,
-  taskId: string,
-  actorSeatId: ActorSeatId,
-  claimIdentity: string,
-): string =>
-  `delivery_${createHash("sha256")
-    .update(
-      JSON.stringify([
-        "junto/managed-task-delivery/v1",
-        sink.canvasName,
-        sink.nodeId,
-        taskId,
-        actorSeatId,
-        claimIdentity,
-      ]),
-      "utf8",
-    )
-    .digest("hex")}`;
-
-// Claim delivery never gates on a prior `/compact` harness turn. Optional
-// post-complete compaction is a separate product surface if reintroduced —
-// not a claim-path receipt (see buildFactoryClaimPrompt + canvas physics test).
-
 const makeKernelService = (
   model: ModelShape,
   actorRefs: ActorRefsShape,
@@ -530,20 +447,11 @@ const makeKernelService = (
   scheduler: SchedulerShape,
   machines: MachinesShape,
   work: WorkShape,
-  workRepository: WorkRepositoryShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
-  records: Context.Service.Shape<typeof ModelRecords>,
 ): KernelServiceShape => {
   // What the cycle reads: each canvas as the model holds it, and beside it
   // the work the work service answers for it.
   const worlds = new Map<string, World>();
-  const editingMachineFor = (canvasName: string, scope: ActiveMachineScope) =>
-    Effect.gen(function* () {
-      if (!scope.ready) return undefined;
-      const editor = yield* records.canvasEditor(canvasName);
-      if (editor === scope.installationId) return scope.machineName;
-      return (yield* machines.peers).find((peer) => peer.installationId === editor)?.machineName;
-    }).pipe(Effect.orElseSucceed(() => undefined));
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
   // Host runners bound on first start() from AppRuntime / RemoteRuntime.
@@ -582,56 +490,6 @@ const makeKernelService = (
   // The three lanes. Built once below, beside the cycle they drive; stopped by
   // clearLifecycleScheduling, which has no resume path.
   let kernelTick: KernelTickScheduler | undefined;
-  const reclaimCooldowns = new Map<
-    string,
-    {
-      readonly expiresAt: number;
-      readonly timer: ReturnType<typeof setTimeout>;
-    }
-  >();
-  let wakeAfterReclaimGrace = (): void => {};
-
-  const reclaimCooldownKey = (
-    canvasName: string,
-    sinkNodeId: string,
-    taskId: string,
-    boundaryMessageId: string,
-  ): string =>
-    `${canvasName}\0${sinkNodeId}\0${taskId}\0${boundaryMessageId}`;
-
-  const MANAGED_TASK_RECLAIM_GRACE_MS = 5_000;
-
-  const claimEligibleAfterRelease = (
-    canvasName: string,
-    sinkNodeId: string,
-    task: Task,
-    actorSeatId: ActorSeatId,
-  ): boolean => {
-    const release = taskReleaseBoundary(task);
-    if (release === undefined || release.actorSeatId !== actorSeatId) {
-      return true;
-    }
-    const key = reclaimCooldownKey(
-      canvasName,
-      sinkNodeId,
-      task.id,
-      release.messageId,
-    );
-    const now = Date.now();
-    const existing = reclaimCooldowns.get(key);
-    if (existing !== undefined) {
-      if (now < existing.expiresAt) return false;
-      return true;
-    }
-    const expiresAt = now + MANAGED_TASK_RECLAIM_GRACE_MS;
-    const timer = setTimeout(() => {
-      wakeAfterReclaimGrace();
-    }, MANAGED_TASK_RECLAIM_GRACE_MS);
-    timer.unref?.();
-    reclaimCooldowns.set(key, { expiresAt, timer });
-    return false;
-  };
-
   const clearLifecycleScheduling = (): void => {
     if (safetyInterval !== undefined) {
       clearInterval(safetyInterval);
@@ -639,10 +497,6 @@ const makeKernelService = (
     }
     // Suspension is monotonic: no later slice may start, whatever is queued.
     kernelTick?.stop();
-    for (const cooldown of reclaimCooldowns.values()) {
-      clearTimeout(cooldown.timer);
-    }
-    reclaimCooldowns.clear();
     for (const cleanup of lifecycleCleanups.splice(0)) {
       try {
         cleanup();
@@ -728,344 +582,6 @@ const makeKernelService = (
 
   // --- evaluation cycle --------------------------------------------------------
 
-  /**
-   * A managed actor is lazy: until something wants it, it is only a node on
-   * the canvas. Starting every authored seat on boot (and again on every node
-   * add) charged the whole region's process cost up front, which is the tax
-   * this pre-pass exists to avoid.
-   *
-   * Waking is therefore demand-driven: `actorsNeedingWake` names exactly the
-   * actors that open work would fall to and that no live seat can absorb.
-   *
-   * Explicit operator activation (double-click → terminal open) remains the
-   * other start authority, and it does not route through here.
-   */
-  const startManagedSeats = (
-    scope: ActiveMachineScope,
-    registry: ActiveActorRegistry,
-    generation: number,
-  ): Effect.Effect<void> =>
-    Effect.gen(function* () {
-      for (const [canvasName, world] of worlds) {
-        if (!generationIsActive(generation)) return;
-        const state = pause.stateFor(canvasName);
-        if (!state.playing) continue;
-        const { canvas } = world;
-
-        const editingMachine = yield* editingMachineFor(canvasName, scope);
-        if (editingMachine === undefined) continue;
-        const wanted = actorsNeedingWake(
-          canvas,
-          workOf(world),
-          canvasName,
-          registry.resolve,
-          {
-            editingMachine,
-            claimEligible: (task, actor, sink) =>
-              taskAdmissionState(task, sink.contract, Date.now()) ===
-                "claimable" &&
-              claimEligibleAfterRelease(
-                canvasName,
-                sink.id,
-                task,
-                actor.seatId,
-              ),
-            // Awake covers both "already live here" and "not this station's
-            // seat to start" — a Remote's actor is started by its own
-            // installation.
-            isAwake: (seat) => {
-              const authority = runtimeAuthority(scope, registry, canvasName, seat);
-              if (authority === undefined) return true;
-              if (!isManagedSeatRuntimeLocal(canvasName, seat, authority)) {
-                return true;
-              }
-              return localManagedSeatReadyForClaim(seat.bindingId);
-            },
-          },
-        );
-        if (wanted.size === 0) continue;
-
-        for (const seat of nodesOf(canvas, "agent")) {
-          if (!generationIsActive(generation)) return;
-          if (!wanted.has(seat.id)) continue;
-          const authority = runtimeAuthority(
-            scope,
-            registry,
-            canvasName,
-            seat,
-          );
-          if (authority === undefined) continue;
-          yield* ensureManagedSeatRunning(
-            canvasName,
-            seat,
-            authority,
-            actorSeatOccupy,
-          );
-        }
-      }
-    });
-
-  // V4-PROGRAM: factory control path is Effect, not async Promise chains.
-  const runClaimTicks = (
-    scope: ActiveMachineScope,
-    registry: ActiveActorRegistry,
-    generation: number,
-  ): Effect.Effect<void, unknown> =>
-    Effect.gen(function* () {
-      if (!scope.ready || !generationIsActive(generation)) return;
-      const uniqueActors = new Map<
-        ActorSeatId,
-        {
-          readonly canvasName: string;
-          readonly node: Seat;
-          readonly actor: ActorRef;
-        }
-      >();
-      for (const [canvasName, { canvas }] of worlds) {
-        for (const node of nodesOf(canvas, "agent")) {
-          const actor = registry.resolve({ canvasName, nodeId: node.id });
-          if (actor !== undefined && !uniqueActors.has(actor.seatId)) {
-            uniqueActors.set(actor.seatId, { canvasName, node, actor });
-          }
-        }
-      }
-      const selectableActorSeatIds = new Set<ActorSeatId>();
-      yield* Effect.forEach(
-        [...uniqueActors],
-        ([seatId, candidate]) =>
-          Effect.gen(function* () {
-            if (!generationIsActive(generation)) return;
-            const selectable = yield* actorSeatSelectableNow(
-              candidate.canvasName,
-              candidate.node,
-              candidate.actor,
-              scope,
-              localManagedSeatReadyForClaim,
-            );
-            if (selectable && generationIsActive(generation)) {
-              selectableActorSeatIds.add(seatId);
-            }
-          }),
-        { concurrency: "unbounded" },
-      );
-      if (!generationIsActive(generation)) return;
-
-      const busyActorSeatIds = new Set<ActorSeatId>();
-      for (const world of worlds.values()) {
-        for (const board of nodesOf(world.canvas, "task")) {
-          for (const task of workOf(world).itemsOf(board.id)) {
-            if (
-              task.state !== "working" &&
-              task.state !== "input-required" &&
-              task.state !== "auth-required"
-            ) {
-              continue;
-            }
-            const actorSeatId = claimedByOf(task);
-            if (actorSeatId !== undefined) busyActorSeatIds.add(actorSeatId);
-          }
-        }
-      }
-
-      for (const [canvasName, world] of worlds) {
-        if (!generationIsActive(generation)) return;
-        const state = pause.stateFor(canvasName);
-        if (!state.playing) continue;
-        const editingMachine = yield* editingMachineFor(canvasName, scope);
-        if (editingMachine === undefined) continue;
-        const selections = selectFactoryClaims(
-          world.canvas,
-          workOf(world),
-          canvasName,
-          registry.resolve,
-          {
-            editingMachine,
-            actorEligible: (actor) => {
-              const actorRef = registry.resolve({
-                canvasName,
-                nodeId: actor.id,
-              });
-              return (
-                actorRef !== undefined &&
-                selectableActorSeatIds.has(actorRef.seatId)
-              );
-            },
-            claimEligible: (task, actor, sink) =>
-              // The auto-claim loop skips tasks still waiting, tasks awaiting
-              // approval, and every task on a board set to Me.
-              taskAdmissionState(task, sink.contract, Date.now()) ===
-                "claimable" &&
-              claimEligibleAfterRelease(
-                canvasName,
-                sink.id,
-                task,
-                actor.seatId,
-              ),
-            busyActorSeatIds,
-          },
-        );
-        for (const selection of selections) {
-          // This is the durable claim mutation boundary. A claim already
-          // admitted here may settle after suspension; no later selection may
-          // enter WorkService.
-          if (!generationIsActive(generation)) return;
-          const result = yield* work.workTaskClaim(
-            selection.sink.canvasName,
-            selection.sink.nodeId,
-            selection.task.itemId,
-            selection.actor,
-          );
-          if (
-            !result.ok &&
-            result.code !== "claim_contention" &&
-            result.code !== "illegal_transition"
-          ) {
-            console.error(
-              `[kernel] claim tick failed for ${selection.sink.canvasName}/${selection.sink.nodeId}/${selection.task.itemId}: ${result.message}`,
-            );
-          }
-          if (result.ok) {
-            retainClaimedTask(
-              worlds,
-              selection.sink.canvasName,
-              selection.sink.nodeId,
-              result.data,
-            );
-            busyActorSeatIds.add(selection.actor.seatId);
-          }
-        }
-      }
-    });
-
-  // A claim is the start of work. The durable task row records that claim;
-  // this is only its local managed-seat wake-up. Failed idle-gated writes are
-  // retried when that seat becomes deliverable; the safety cycle is repair.
-  const deliverWorkingClaims = (
-    scope: ActiveMachineScope,
-    registry: ActiveActorRegistry,
-    generation: number,
-  ): Effect.Effect<void, unknown> =>
-    Effect.gen(function* () {
-      if (!scope.ready || !generationIsActive(generation)) return;
-      for (const [canvasName, world] of worlds) {
-        if (!generationIsActive(generation)) return;
-        const state = pause.stateFor(canvasName);
-        if (!state.playing) continue;
-        const { canvas } = world;
-        for (const sink of nodesOf(canvas, "task")) {
-          if (!generationIsActive(generation)) return;
-          for (const task of workOf(world).itemsOf(sink.id)) {
-            if (!generationIsActive(generation)) return;
-            if (task.state !== "working") continue;
-            const actorSeatId = claimedByOf(task);
-            if (actorSeatId === undefined) continue;
-            const actorRef = registry.actorOnCanvas(actorSeatId, canvasName);
-            if (actorRef === undefined) continue;
-            const seat = nodeOf(canvas, asNodeId(actorRef.nodeId), "agent");
-            if (seat === undefined) {
-              continue;
-            }
-            const authority = runtimeAuthority(
-              scope,
-              registry,
-              canvasName,
-              seat,
-            );
-            if (
-              authority === undefined ||
-              !isManagedSeatRuntimeLocal(canvasName, seat, authority)
-            ) {
-              continue;
-            }
-            const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
-            const claim = yield* workRepository.currentTaskClaim(
-              sinkRef, task.id, actorSeatId,
-            );
-            if (claim === undefined) continue;
-            const deliveryId = managedTaskDeliveryId(
-              sinkRef,
-              task.id,
-              actorSeatId,
-              JSON.stringify([
-                claim.id.route.eventHome, claim.id.route.entityHome, claim.id.seq,
-              ]),
-            );
-            let alreadyAccepted = yield* workRepository.hasAcceptedDelivery(
-              sinkRef, deliveryId,
-            );
-            if (!alreadyAccepted) {
-              // Existing receipts used the latest history message. Recognize
-              // those only within this canonical claim's history boundary;
-              // progress/comments must not replay an accepted installed claim.
-              // Describe replaces history[0], so retain the original boundary
-              // as well as its position in the current materialized history.
-              const previousKeys = new Set([
-                claim.historyBoundaryMessageId ?? task.id,
-                ...claim.replacedBriefMessageIds,
-                ...task.history.slice(claim.historyBoundaryIndex)
-                  .map((message) => message.messageId),
-              ]);
-              for (const key of previousKeys) {
-                alreadyAccepted = yield* workRepository.hasAcceptedDelivery(
-                  sinkRef,
-                  managedTaskDeliveryId(sinkRef, task.id, actorSeatId, key),
-                );
-                if (alreadyAccepted) break;
-              }
-            }
-            if (alreadyAccepted) continue;
-            if (!generationIsActive(generation)) return;
-            const running = yield* ensureManagedSeatRunning(
-              canvasName,
-              seat,
-              authority,
-              actorSeatOccupy,
-            );
-            // Claim brief only — never a prior `/compact` gate. Compact is not
-            // part of claim delivery; the seat receives one complete CLI briefing.
-            if (!running || !generationIsActive(generation)) continue;
-            const accepted = yield* Effect.promise(() =>
-              managedPulseDeliver(
-                seat.bindingId,
-                buildFactoryClaimPrompt({
-                  boardId: sink.id,
-                  task,
-                  canvas,
-                }),
-              ),
-            );
-            if (!accepted) continue;
-            // Record only after the managed transport accepted the prompt. This
-            // durably suppresses restart replay. The send→receipt crash window
-            // remains intentionally at-least-once until that transport accepts
-            // an idempotency key; pre-writing would instead risk silent loss.
-            // The receipt names the canvas as it stands now, not as the cycle
-            // read it before the prompt went out.
-            const basis = canvasReceiptBasis({
-              canvasName,
-              seq: (yield* model.canvas(canvasName)).seq,
-            });
-            yield* workRepository.acceptDelivery({
-              sink: sinkRef,
-              basis,
-              receipt: {
-                deliveryId,
-                deliveredItem: {
-                  kind: "task",
-                  itemId: task.id,
-                  sink: sinkRef,
-                },
-                actor: actorRef,
-                acceptedAt: new Date().toISOString(),
-              },
-            }).pipe(Effect.tapError((cause) => Effect.sync(() =>
-              recordDeliveryReceiptRefusal(canvasName, sink.id, cause),
-            )));
-          }
-        }
-      }
-    });
-
   const runCycle: Effect.Effect<void, unknown> = Effect.gen(function* () {
     const generation = activeGeneration();
     if (!generationIsActive(generation)) return;
@@ -1082,8 +598,6 @@ const makeKernelService = (
     const currentSnapshots = yield* snapshots.current;
     if (!generationIsActive(generation)) return;
     __setSnapshotsForTest(currentSnapshots);
-    yield* startManagedSeats(scope, registry, generation);
-    if (!generationIsActive(generation)) return;
     // Evaluation + timers remain Promise-shaped pure-cycle modules; wrap once
     // at the Effect boundary (not factory control plane ownership).
     yield* Effect.all(
@@ -1093,10 +607,6 @@ const makeKernelService = (
       ],
       { concurrency: 2 },
     );
-    if (!generationIsActive(generation)) return;
-    yield* runClaimTicks(scope, registry, generation);
-    if (!generationIsActive(generation)) return;
-    yield* deliverWorkingClaims(scope, registry, generation);
     if (!generationIsActive(generation)) return;
     // Sweep stale watcher/timer runtime entries for nodes removed on a still-
     // existing canvas (whole-canvas deletes are handled by purgeCanvasMemory
@@ -1118,7 +628,6 @@ const makeKernelService = (
   const scheduleResync = (canvasName: string): void => {
     if (!suspended) kernelTick?.mark("immediate", kernelResyncKey(canvasName));
   };
-  wakeAfterReclaimGrace = scheduleCycle;
 
   /**
    * Delivery is another legitimate demand signal for a lazy actor. Board
@@ -1328,10 +837,6 @@ const makeKernelService = (
           (listener) => seatStateRuntime.subscribe(listener),
           scheduleCycle,
         ),
-        // A transport-specific startup guard (currently Grok's verified
-        // post-spawn window) publishes readiness without retaining a prompt.
-        // The fresh cycle re-checks durable Work, intent, edges, and locality.
-        subscribeManagedPulseReady(() => scheduleCycle()),
         // A raised or lowered hand re-evaluates agent → relay announce wires.
         raisedHands.subscribe(() => scheduleCycle()),
       ];
@@ -1510,9 +1015,7 @@ export const KernelLive = Layer.effect(
     const scheduler = yield* SchedulerRepository;
     const machines = yield* MachineRepository;
     const work = yield* WorkService;
-    const workRepository = yield* WorkRepository;
     const actorSeatOccupy = yield* ActorSeatOccupy;
-    const records = yield* ModelRecords;
     // No Runtime capture (V4-KERNEL / V4-PROGRAM / migration/runtime.md).
     // Domain Effects exit only after start(host) binds AppRuntime / RemoteRuntime.
     return makeKernelService(
@@ -1523,9 +1026,7 @@ export const KernelLive = Layer.effect(
       scheduler,
       machines,
       work,
-      workRepository,
       actorSeatOccupy,
-      records,
     );
   }),
 );

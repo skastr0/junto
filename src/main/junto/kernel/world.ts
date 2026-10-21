@@ -29,21 +29,3 @@ export const workOf = (world: World): WorkRead & WatchRead => {
   heldReads.set(world.work, made);
   return made;
 };
-
-/** The world with one board's row of a task put in place of the row it held. */
-export const withTaskRow = (
-  world: World,
-  boardId: string,
-  task: Task,
-): World | undefined => {
-  const rows = world.work.tasks.get(boardId);
-  if (rows === undefined || !rows.some((row) => row.id === task.id)) {
-    return undefined;
-  }
-  const tasks = new Map(world.work.tasks);
-  tasks.set(
-    boardId,
-    rows.map((row) => (row.id === task.id ? task : row)),
-  );
-  return { canvas: world.canvas, work: { ...world.work, tasks } };
-};
