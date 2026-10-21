@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { automationMailId, changesBetween, conditionHolds, performAction, type ConditionView } from "../src/main/junto/automation/live";
+import { automationMailId, changesBetween, conditionHolds, performAction, signalChange, type ConditionView } from "../src/main/junto/automation/live";
 import { type Automation, AutomationId, AutomationVersion, FiringId } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -149,5 +149,14 @@ describe("changesBetween, artifacts", () => {
     expect(changesBetween(one, two, () => false)).toEqual([
       { kind: "artifact", key: `artifact:${A}:edited:2`, nodeId: "artifacts-1", artifactId: A, event: "edited", byAutomation: false },
     ]);
+  });
+});
+
+describe("signalChange", () => {
+  it("hears a signal when it is raised, keyed by its id, and never when it closes", () => {
+    const raised = { signalId: "sig-1", nodeId: "agent-a", kind: "blocked", state: "open" } as const;
+    expect(signalChange(raised)).toEqual({ kind: "signal", key: "signal:sig-1", seat: "agent-a", signal: "blocked" });
+    expect(signalChange({ ...raised, state: "answered" })).toBeUndefined();
+    expect(signalChange({ ...raised, state: "withdrawn" })).toBeUndefined();
   });
 });

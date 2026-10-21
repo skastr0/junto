@@ -2,8 +2,8 @@
  * The automation runner in the running app (plan 0.10/07). One runner for
  * every canvas this machine edits: a loop considers each schedule and poll
  * whose slot came due, every task or artifact write wakes a pass that fires
- * the change triggers its tasks, seats and artifacts moved through, and the
- * pane's Run hands its applied run here.
+ * the change triggers its tasks, seats and artifacts moved through, a raised
+ * signal fires its own, and the pane's Run hands its applied run here.
  *
  * Actions run as the automation, never as the operator. Mail goes from the
  * automation's own node (`automationActorRef`) into the seat's mailbox, with
@@ -41,6 +41,8 @@ import type { NodeId } from "@shared/physics/schema";
 import { rulingContextOf } from "@shared/ruling-context";
 import { checkTaskCommand, type TaskCommandWire } from "@shared/task-model";
 import { noteResourceChanged, onResourceChanged } from "../work/resource-changes";
+import { onAgentSignalChanged } from "../signals/changes";
+import type { AgentSignal } from "@shared/wire/agent-signals";
 import { taskCanvasEnv } from "../work/task-control";
 import { deliverTaskEffects, type TaskDelivery } from "../work/task-delivery";
 import { TaskRepository } from "../work/task-repository";
@@ -342,6 +344,11 @@ export class AutomationRunnerService extends Context.Service<
     readonly tickAll: Effect.Effect<void, AutomationPersistenceError>;
     /** Fire every change trigger a canvas's tasks or seats moved through since the last pass. */
     readonly wake: (canvasName: string) => Effect.Effect<void, AutomationPersistenceError>;
+    /** Fire the change triggers a raised signal matches. */
+    readonly signalled: (
+      canvasName: string,
+      event: Extract<ChangeEvent, { readonly kind: "signal" }>,
+    ) => Effect.Effect<void, AutomationPersistenceError>;
     /** Fire an applied `run` now; undefined when the automation is gone. */
     readonly onRun: (canvasName: string, automationId: AutomationId) => Effect.Effect<Firing | undefined, AutomationPersistenceError>;
   }
@@ -475,20 +482,40 @@ export const AutomationRunnerLive = Layer.effect(
         yield* changed(canvasName, yield* load(canvasName));
       }));
 
+    const signalled = (canvasName: string, event: Extract<ChangeEvent, { readonly kind: "signal" }>) =>
+      turn.withPermits(1)(Effect.gen(function* () {
+        if (!(yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false)))) return;
+        yield* withRepository(runner.onChange(canvasName, event));
+      }));
+
     const onRun = (canvasName: string, automationId: AutomationId) =>
       turn.withPermits(1)(Effect.gen(function* () {
         yield* changed(canvasName, yield* load(canvasName));
         return yield* withRepository(runner.onRun(canvasName, automationId));
       }));
 
-    return AutomationRunnerService.of({ tickAll, wake, onRun });
+    return AutomationRunnerService.of({ tickAll, wake, signalled, onRun });
   }),
 );
 
+/** A signal as a change trigger hears it: only when raised, keyed by its id so a claim dedupes it. */
+export const signalChange = (
+  signal: Pick<AgentSignal, "signalId" | "nodeId" | "kind" | "state">,
+): Extract<ChangeEvent, { readonly kind: "signal" }> | undefined =>
+  signal.state === "open"
+    ? { kind: "signal", key: `signal:${signal.signalId}`, seat: signal.nodeId as NodeId, signal: signal.kind }
+    : undefined;
+
+/** What wakes a pass between ticks: a task or artifact write, or a raised signal. */
+type Wake =
+  | { readonly kind: "write"; readonly canvasName: string }
+  | { readonly kind: "signal"; readonly canvasName: string; readonly event: Extract<ChangeEvent, { readonly kind: "signal" }> };
+
 /**
- * The loop: one pass every AUTOMATION_TICK while the app runs, and a wake on
- * every task or artifact write (resource-changes.ts), so a change trigger
- * fires within moments. A failed pass is logged and the next one runs.
+ * The loop: one pass every AUTOMATION_TICK while the app runs, a wake on
+ * every task or artifact write (resource-changes.ts), and one on every raised
+ * signal (signals/changes.ts), so a change trigger fires within moments. A
+ * failed pass is logged and the next one runs.
  */
 export const AutomationRunnerLoopLive = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -498,13 +525,21 @@ export const AutomationRunnerLoopLive = Layer.effectDiscard(
       Effect.repeat(Schedule.spaced(AUTOMATION_TICK)),
       Effect.forkScoped,
     );
-    const writes = yield* Queue.unbounded<string>();
+    const writes = yield* Queue.unbounded<Wake>();
     const unsubscribe = onResourceChanged((_domain, canvasName) => {
-      Queue.offerUnsafe(writes, canvasName);
+      Queue.offerUnsafe(writes, { kind: "write", canvasName });
     });
-    yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+    // A signal fires when it is raised, once: its id is the key a claim dedupes.
+    const unsubscribeSignals = onAgentSignalChanged((signal) => {
+      const event = signalChange(signal);
+      if (event !== undefined) Queue.offerUnsafe(writes, { kind: "signal", canvasName: signal.canvasName, event });
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(() => {
+      unsubscribe();
+      unsubscribeSignals();
+    }));
     yield* Queue.take(writes).pipe(
-      Effect.flatMap((canvasName) => runner.wake(canvasName)),
+      Effect.flatMap((wake) => (wake.kind === "write" ? runner.wake(wake.canvasName) : runner.signalled(wake.canvasName, wake.event))),
       Effect.catchCause((cause) => Effect.logWarning("automation change pass failed", cause)),
       Effect.forever,
       Effect.forkScoped,
