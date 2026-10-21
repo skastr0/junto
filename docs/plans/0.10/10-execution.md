@@ -175,6 +175,10 @@ everyone else reports by mail and on the needs-you feed.
 | Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
 | Typecheck toolchain | tsrs 0.18 cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; tech-lead swapping, performance-lead measuring | started |
 | Long mail text over 64 KiB | product-feed composers attach as file | assigned |
+| Renderer resource IPC (tasks and artifacts sources) | cli-overseer, one generic contract and main side through the ruler | started |
+| Box comment screenshots | remote-security: yes; main captures, grant holder only, claimed with the row, 2 MiB and 4096 px, read by reach, on-demand bytes | decided |
+| Feed attachments and mentions | product-feed 46408b918, 6ea3aff99, 68eca6caa, 87db4c3fe, 313bc5456 | landed |
+| 0.10 notes | product-releases bd15d7b6f; hermesIntegration flag gone 8f01e3e0a | draft |
 | MentionCombobox, availability hooks | product-keyboard, 8ea979958, b02bb6f06, 6b8de8cee, 30 tests; accessibility approved with fix f42fbf264; typography approved with 3 CSS changes | landed; replacing old copies next |
 | Hermes Providers card | product-settings, 11b9db75b | landed |
 | One id source lock | product-verify, `tests/item-id-one-source.test.ts` | passing, commits after the four contracts land |
