@@ -142,7 +142,7 @@ describe("op show", () => {
   });
 
   it("answers an unknown opId as UnknownTarget through the work op", async () => {
-    const exit = await runtime.runPromiseExit(handleOpOp("op.show", { opId: OTHER_SEAT }, { canvasName: "factory", nodeId: asNodeId("peer") }));
+    const exit = await runtime.runPromiseExit(handleOpOp("op.show", { opId: OTHER_SEAT }, { canvasName: "factory", nodeId: asNodeId("peer"), canvas: { nodes: new Map() } }));
     expect(exit).toMatchObject({ _tag: "Failure" });
     expect(JSON.stringify(exit)).toContain("UnknownTarget");
   });

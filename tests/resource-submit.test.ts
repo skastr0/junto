@@ -173,7 +173,7 @@ describe("a seat's write on a canvas another machine edits", () => {
     const written = { ...command(opId), target: { kind: "task", nodeId: asNodeId("board-1") } } as never;
     const outcome = await runtime.runPromise(liveTaskPorts.submit(written, { inReach: () => true } as never, {} as never));
     expect(outcome).toEqual({ kind: "queued", opId });
-    const show = () => runtime.runPromise(handleOpOp("op.show", { opId }, { canvasName: "factory", nodeId: asNodeId("s1") }));
+    const show = () => runtime.runPromise(handleOpOp("op.show", { opId }, { canvasName: "factory", nodeId: asNodeId("s1"), canvas: { nodes: new Map() } }));
     expect(await show()).toEqual({ op: { state: "queued", opId } });
 
     const taskId = "01M5EY5000000000000000000T";
