@@ -273,6 +273,52 @@ describe("the Threads popup", () => {
     expect(all("seat-threads-message")).toHaveLength(3);
   });
 
+  it("sits in a workspace focus modal that maximizes and folds its list away", async () => {
+    await open();
+    const dialog = document.querySelector('[role="dialog"][aria-label="Threads, pty-lead"]');
+    expect(dialog?.querySelector('[data-measure="workspace"]')).not.toBeNull();
+    const maximize = dialog?.querySelector<HTMLButtonElement>('[aria-label="Maximize"]');
+    await click(maximize ?? null);
+    expect(dialog?.getAttribute("data-maximized")).toBe("true");
+    await click(dialog?.querySelector('[aria-label="Sidebar"]') ?? null);
+    expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBe("collapsed");
+    await click(dialog?.querySelector('[aria-label="Sidebar"]') ?? null);
+  });
+
+  it("draws a message's markdown, with its mention links as chips inside it", async () => {
+    const { state, change } = await open();
+    state.messages.notes = [
+      {
+        messageId: "m1",
+        author: "pty-lead",
+        mine: false,
+        text: "**V** and *I* land in `junto.db`.\nAsk [@cli-lead](junto://canvas/factory?node=seat-cli) first.\n\n- one\n- two",
+        at: at(1, 2),
+      },
+    ];
+    change();
+    await flush();
+    const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__bubble")!;
+    expect(bubble.querySelector("strong")?.textContent).toBe("V");
+    expect(bubble.querySelector("em")?.textContent).toBe("I");
+    expect(bubble.querySelector("code")?.textContent).toBe("junto.db");
+    expect(bubble.querySelectorAll("li")).toHaveLength(2);
+    expect(bubble.textContent).not.toContain("**");
+    expect(chipLabels()).toEqual(["@cli-lead"]);
+  });
+
+  it("lists a thread by its first line as words, and heads it with the whole subject on hover", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Ship **V** with `junto.db` in place" })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    expect(document.querySelector(".seat-threads__row-title")?.textContent).toBe("Ship V with junto.db in place");
+    const title = document.querySelector(".seat-threads__chat-title");
+    expect(title?.textContent).toBe("Ship V with junto.db in place");
+    expect(title?.getAttribute("title")).toBe("Ship **V** with `junto.db` in place");
+  });
+
   it("closes and lets go of the source when nothing holds it", async () => {
     const { listeners } = await open();
     await click(document.querySelector('[aria-label="Close threads"]'));

@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
+import { parseMentionHref } from "@shared/mention";
 import type { NodeId } from "@shared/physics/schema";
 import {
   betweenLine,
@@ -7,19 +8,22 @@ import {
   loadMoreSeatThreads,
   loadOlderMessages,
   participantsLine,
+  previewText,
   threadTime,
   useSeatThreadMessages,
   useSeatThreads,
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
-import { mentionChipParts, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
+import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { useCanvas } from "../../lib/use-model";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
-import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
+import { PaneHeader, TwoPane } from "../ui/TwoPane";
+import { FocusSurface } from "../FocusSurface";
+import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
@@ -69,9 +73,11 @@ const firstThread = (threads: ReadonlyArray<SeatThreadSummary>): string | undefi
 };
 
 /**
- * The seat's threads: the list on the left fifth in two groups, With you and
- * Between seats, under New thread; the chat on the rest, oldest at the top,
- * the operator's own on the right. A thread between seats is read only.
+ * The seat's threads, a workspace focus modal: it sizes to the frame,
+ * maximizes, and its list collapses (TwoPane). The list holds two groups,
+ * With you and Between seats, under New thread; the chat takes the rest,
+ * oldest at the top, the operator's own on the right. A thread between seats
+ * is read only.
  */
 export function SeatThreadsPopup({
   seat,
@@ -122,7 +128,7 @@ export function SeatThreadsPopup({
       >
         <span className="seat-threads__row-title">
           {item.subject ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
-          {item.title}
+          {previewText(item.title)}
         </span>
         <span className="seat-threads__row-meta">
           <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
@@ -132,80 +138,83 @@ export function SeatThreadsPopup({
     </li>
   );
 
+  const close = (
+    <IconButton size="sm" aria-label="Close threads" title="Close" onClick={onClose}>
+      <X size={15} strokeWidth={1.8} />
+    </IconButton>
+  );
+  const sidebar = (
+    <>
+      <PaneHeader eyebrow={`Threads, ${name}`} />
+      <Button
+        size="sm"
+        variant="chrome"
+        className="seat-threads__new"
+        data-selected={shown?.kind === "new" ? "true" : undefined}
+        data-testid="seat-threads-new"
+        onClick={() => setSelection({ kind: "new" })}
+      >
+        <Plus size={13} strokeWidth={1.8} /> New thread
+      </Button>
+      <nav ref={listRef} className="seat-threads__list" aria-label={`Threads of ${name}`} onScroll={() => fillList(true)}>
+        {error ? (
+          <p className="seat-threads__note seat-threads__note--error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {loaded && threads.length === 0 && !error ? <p className="seat-threads__note">No threads yet.</p> : null}
+        {withYou.length > 0 ? (
+          <section aria-label="With you">
+            <Eyebrow tone="steel">With you</Eyebrow>
+            <ul className="seat-threads__group" data-testid="seat-threads-with-you">
+              {withYou.map(row)}
+            </ul>
+          </section>
+        ) : null}
+        {betweenSeats.length > 0 ? (
+          <section aria-label="Between seats">
+            <Eyebrow tone="steel">Between seats</Eyebrow>
+            <ul className="seat-threads__group" data-testid="seat-threads-between-seats">
+              {betweenSeats.map(row)}
+            </ul>
+          </section>
+        ) : null}
+        {next !== undefined ? (
+          <p className="seat-threads__note" data-testid="seat-threads-more">
+            Reading older threads…
+          </p>
+        ) : null}
+      </nav>
+    </>
+  );
+
   return (
-    <Dialog
-      title={
-        <span className="seat-threads__title">
-          <span>Threads</span>
-          <span className="seat-threads__seat">{name}</span>
-          <IconButton size="sm" aria-label="Close threads" title="Close" className="ml-auto" onClick={onClose}>
-            <X size={15} strokeWidth={1.8} />
-          </IconButton>
-        </span>
-      }
-      onClose={onClose}
-      width={1180}
-      className="seat-threads"
-      testId="seat-threads"
-    >
-      <div className="seat-threads__panes">
-        <nav ref={listRef} className="seat-threads__list" aria-label={`Threads of ${name}`} onScroll={() => fillList(true)}>
-          <Button
-            size="sm"
-            variant="chrome"
-            className="seat-threads__new"
-            data-selected={shown?.kind === "new" ? "true" : undefined}
-            data-testid="seat-threads-new"
-            onClick={() => setSelection({ kind: "new" })}
-          >
-            <Plus size={13} strokeWidth={1.8} /> New thread
-          </Button>
-          {error ? (
-            <p className="seat-threads__note seat-threads__note--error" role="alert">
-              {error}
-            </p>
-          ) : null}
-          {loaded && threads.length === 0 && !error ? <p className="seat-threads__note">No threads yet.</p> : null}
-          {withYou.length > 0 ? (
-            <section aria-label="With you">
-              <Eyebrow tone="steel">With you</Eyebrow>
-              <ul className="seat-threads__group" data-testid="seat-threads-with-you">
-                {withYou.map(row)}
-              </ul>
-            </section>
-          ) : null}
-          {betweenSeats.length > 0 ? (
-            <section aria-label="Between seats">
-              <Eyebrow tone="steel">Between seats</Eyebrow>
-              <ul className="seat-threads__group" data-testid="seat-threads-between-seats">
-                {betweenSeats.map(row)}
-              </ul>
-            </section>
-          ) : null}
-          {next !== undefined ? (
-            <p className="seat-threads__note" data-testid="seat-threads-more">
-              Reading older threads…
-            </p>
-          ) : null}
-        </nav>
-        <div className="seat-threads__chat">
-          {shown?.kind === "new" ? (
-            <NewThread
-              seat={seat}
-              name={name}
-              onCancel={() => setSelection(undefined)}
-              onSent={(threadId) => setSelection({ kind: "thread", threadId, sent: true })}
-            />
-          ) : thread ? (
-            <ThreadChat seat={seat} name={name} thread={thread} onLeave={onClose} />
-          ) : shown?.kind === "thread" ? (
-            <p className="seat-threads__empty">Reading threads…</p>
-          ) : (
-            <p className="seat-threads__empty">{loaded ? "Pick a thread, or start one." : "Reading threads…"}</p>
-          )}
-        </div>
+    <FocusSurface measure="workspace" height="immersive" label={`Threads, ${name}`} panelClassName="seat-threads" onClose={onClose}>
+      <div className="seat-threads__shell" data-testid="seat-threads">
+        <TwoPane sidebar={sidebar} sidebarLabel="Threads" mainLabel={thread?.title ?? "Thread"}>
+          <div className="seat-threads__chat">
+            {shown?.kind === "new" ? (
+              <NewThread
+                seat={seat}
+                name={name}
+                close={close}
+                onCancel={() => setSelection(undefined)}
+                onSent={(threadId) => setSelection({ kind: "thread", threadId, sent: true })}
+              />
+            ) : thread ? (
+              <ThreadChat seat={seat} name={name} thread={thread} close={close} onLeave={onClose} />
+            ) : (
+              <>
+                <ChatHead title="Threads" close={close} />
+                <p className="seat-threads__empty">
+                  {loaded && shown?.kind !== "thread" ? "Pick a thread, or start one." : "Reading threads…"}
+                </p>
+              </>
+            )}
+          </div>
+        </TwoPane>
       </div>
-    </Dialog>
+    </FocusSurface>
   );
 }
 
@@ -222,20 +231,60 @@ function MentionChipView({ chip, onLeave, testId }: { readonly chip: MentionChip
   return <ResourceChip {...mark} label={label} number={number} missing={ref === undefined} {...(open === undefined ? {} : { onOpen: open })} data-testid={testId} />;
 }
 
+/**
+ * The chat's head: one line of subject, clamped with the whole of it on
+ * hover, the thread's facts under it, and Close at the corner.
+ */
+function ChatHead({
+  title,
+  full,
+  meta,
+  close,
+}: {
+  readonly title: ReactNode;
+  /** The subject in words, for the hover when the line is cut. */
+  readonly full?: string;
+  readonly meta?: ReactNode;
+  readonly close: ReactNode;
+}) {
+  return (
+    <header className="seat-threads__chat-head">
+      <div className="seat-threads__chat-line">
+        <h3 className="seat-threads__chat-title" title={full}>
+          {title}
+        </h3>
+        {close}
+      </div>
+      {meta ? <div className="seat-threads__chat-meta">{meta}</div> : null}
+    </header>
+  );
+}
+
 function ThreadChat({
   seat,
   name,
   thread,
+  close,
   onLeave,
 }: {
   readonly seat: SeatAddress;
   readonly name: string;
   readonly thread: SeatThreadSummary;
+  readonly close: ReactNode;
   /** Opening a mention leaves the threads for what it names. */
   readonly onLeave: () => void;
 }) {
   const nodes = useCanvas(seat.canvasName).nodes;
-  const kindOf = (id: NodeId) => nodes.get(id)?.kind;
+  const kindOf = useCallback((id: NodeId) => nodes.get(id)?.kind, [nodes]);
+  // A mention link in a message is a chip; any other app link is not drawn as one.
+  const renderLink = useCallback(
+    (href: string, label: string) => {
+      const target = parseMentionHref(href);
+      if (target === undefined) return undefined;
+      return <MentionChipView chip={mentionChipOf({ target, label }, kindOf)} onLeave={onLeave} testId="seat-threads-mention" />;
+    },
+    [kindOf, onLeave],
+  );
   const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
   const streamRef = useRef<HTMLDivElement>(null);
   const held = useRef<{ threadId: string; first?: string; last?: string; height: number } | undefined>(undefined);
@@ -262,19 +311,23 @@ function ThreadChat({
   const lastId = messages.at(-1)?.messageId;
   return (
     <>
-      <header className="seat-threads__chat-head">
-        <h3 className="seat-threads__chat-title">{subject ? <MentionChipView chip={subject} onLeave={onLeave} testId="seat-threads-subject" /> : thread.title}</h3>
-        <div className="seat-threads__chat-meta">
-          {thread.participants.map((who) => (
-            <Chip key={who} tone={who === "you" ? "cyan" : "steel"}>
-              {who}
-            </Chip>
-          ))}
-          <span>
-            {count}, started {threadTime(thread.startedAt)}
-          </span>
-        </div>
-      </header>
+      <ChatHead
+        title={subject ? <MentionChipView chip={subject} onLeave={onLeave} testId="seat-threads-subject" /> : previewText(thread.title)}
+        full={thread.title}
+        close={close}
+        meta={
+          <>
+            {thread.participants.map((who) => (
+              <Chip key={who} tone={who === "you" ? "cyan" : "steel"}>
+                {who}
+              </Chip>
+            ))}
+            <span>
+              {count}, started {threadTime(thread.startedAt)}
+            </span>
+          </>
+        }
+      />
       <div ref={streamRef} className="seat-threads__stream" data-testid="seat-threads-stream" onScroll={() => fillStream(true)}>
         {older !== undefined ? (
           <p className="seat-threads__note seat-threads__note--center" data-testid="seat-threads-older">
@@ -299,10 +352,7 @@ function ThreadChat({
             </div>
             {message.text !== "" || message.attachments === undefined ? (
               <div className="seat-threads__bubble">
-                {mentionChipParts(message.text, kindOf).map((part, index) => {
-                  if ("text" in part) return part.text;
-                  return <MentionChipView key={index} chip={part.chip} onLeave={onLeave} testId="seat-threads-mention" />;
-                })}
+                <ArtifactMarkdown source={message.text} className="seat-threads__prose" renderLink={renderLink} />
               </div>
             ) : null}
             {message.attachments ? <MessageAttachments files={message.attachments} /> : null}
@@ -333,22 +383,19 @@ function ThreadChat({
 function NewThread({
   seat,
   name,
+  close,
   onCancel,
   onSent,
 }: {
   readonly seat: SeatAddress;
   readonly name: string;
+  readonly close: ReactNode;
   readonly onCancel: () => void;
   readonly onSent: (threadId: string) => void;
 }) {
   return (
     <>
-      <header className="seat-threads__chat-head">
-        <h3 className="seat-threads__chat-title">New thread</h3>
-        <div className="seat-threads__chat-meta">
-          <span>Its first line becomes the thread's name in the list.</span>
-        </div>
-      </header>
+      <ChatHead title="New thread" close={close} meta={<span>Its first line becomes the thread's name in the list.</span>} />
       <div className="seat-threads__stream">
         <p className="seat-threads__empty">Nothing sent yet.</p>
       </div>

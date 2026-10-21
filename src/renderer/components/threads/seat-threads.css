@@ -1,55 +1,23 @@
-/* A seat's threads: the list on the left fifth, the chat on the rest.
-   The dialog shell owns the backdrop, the layer, focus and Escape. */
+/* A seat's threads: a workspace focus modal holding a TwoPane, the list in
+   its sidebar and the chat in its main pane. FocusSurface owns the size,
+   Maximize, the layer, focus and Escape; TwoPane owns the collapse. */
 
-.junto-dialog__card.seat-threads {
-  gap: 0;
-  padding: 0;
-  height: min(760px, 100%);
-  overflow: hidden;
+/* The test handle wraps the TwoPane without boxing it. */
+.seat-threads__shell {
+  display: contents;
 }
 
-.seat-threads > .junto-dialog__title {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-stroke);
-}
-
-.seat-threads > .junto-dialog__body {
-  display: flex;
-  flex: 1 1 0;
-  min-height: 0;
-}
-
-.seat-threads__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-mono);
-}
-
-.seat-threads__seat {
-  font-weight: 400;
-  color: var(--color-dim);
-}
-
-.seat-threads__panes {
-  display: grid;
-  grid-template-columns: minmax(200px, 20%) minmax(0, 1fr);
-  flex: 1 1 0;
-  min-height: 0;
-  width: 100%;
-}
-
+/* The list scrolls under its header and New thread, which stay put. */
 .seat-threads__list {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 12px 0;
-  border-right: 1px solid var(--color-stroke);
-  background: var(--color-well);
+  padding: 4px 0 12px;
 }
 
 .seat-threads__list > section > :first-child {
@@ -57,7 +25,8 @@
 }
 
 .seat-threads__new {
-  margin: 0 12px;
+  flex: none;
+  margin: 10px 12px 8px;
 }
 
 .seat-threads__new[data-selected="true"] {
@@ -98,12 +67,17 @@
   background: var(--color-overlay-2);
 }
 
+/* The first line of the thread, as words in the body face, two lines at most. */
 .seat-threads__row-title {
+  display: -webkit-box;
   min-width: 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
-  white-space: normal;
-  font-size: var(--text-body-lg);
-  line-height: var(--leading-dense);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
 }
 
 /* A comment thread's kind, before its resource's name. */
@@ -116,6 +90,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  font-family: var(--font-mono);
   font-size: var(--text-body);
   color: var(--color-dim);
 }
@@ -135,6 +110,7 @@
 
 .seat-threads__chat {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
@@ -148,17 +124,35 @@
   border-bottom: 1px solid var(--color-stroke);
 }
 
+/* The subject and Close on one line. */
+.seat-threads__chat-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* One line, cut with an ellipsis; the whole subject is its hover. */
 .seat-threads__chat-title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--text-title);
   font-weight: 600;
   color: var(--color-ink);
 }
 
-/* A subject chip keeps its own weight, openable or not. */
+/* A subject chip keeps its own weight, openable or not, and cuts its own label. */
 .seat-threads__chat-title .resource-chip {
   font-weight: 400;
+  vertical-align: middle;
+}
+
+.seat-threads__chat-title .resource-chip__label {
+  white-space: nowrap;
 }
 
 .seat-threads__chat-meta {
@@ -180,12 +174,14 @@
   padding: 16px 20px;
 }
 
+/* A message uses the width, to a measure the body face reads at. */
 .seat-threads__message {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  max-width: 70%;
+  max-width: min(92%, 96ch);
+  font-family: var(--font-body);
 }
 
 .seat-threads__message[data-mine="true"] {
@@ -194,6 +190,7 @@
 }
 
 .seat-threads__message-head {
+  font-family: var(--font-mono);
   font-size: var(--text-body);
   color: var(--color-dim);
 }
@@ -210,8 +207,39 @@
   color: var(--color-ink);
   font-size: var(--text-body-lg);
   line-height: var(--leading-body);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* The message's markdown, drawn as prose: the body face in ink, a half line
+   between paragraphs, a line break where the writer broke the line, and
+   headings at the text's own size. Code stays mono (artifact-markdown.css). */
+.seat-threads__prose {
+  color: var(--color-ink);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.seat-threads__prose :is(p, ul, ol, blockquote, pre, table) {
+  margin: 0 0 0.5em;
+}
+
+.seat-threads__prose > :last-child {
+  margin-bottom: 0;
+}
+
+.seat-threads__prose p {
+  white-space: pre-line;
+}
+
+.seat-threads__prose :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.6em 0 0.3em;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-body);
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* A mention chip is taller than the line: it bleeds into the leading so the line keeps its rhythm. */

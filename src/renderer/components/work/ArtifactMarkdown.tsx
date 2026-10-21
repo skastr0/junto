@@ -1,5 +1,5 @@
-import { memo } from "react";
-import Markdown, { type Components, type UrlTransform } from "react-markdown";
+import { memo, useMemo, type ReactNode } from "react";
+import Markdown, { type Components, type ExtraProps, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./artifact-markdown.css";
 
@@ -23,23 +23,25 @@ export const safeArtifactMarkdownUrl = (
 export const artifactMarkdownUrlTransform: UrlTransform = (url) =>
   safeArtifactMarkdownUrl(url) ?? "";
 
+const SafeLink: NonNullable<Components["a"]> = ({ node: _node, href, children, ...props }) => {
+  const safeHref = safeArtifactMarkdownUrl(href);
+  if (!safeHref) {
+    return <span className="artifact-markdown__blocked-link">{children}</span>;
+  }
+  return (
+    <a
+      {...props}
+      href={safeHref}
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      {children}
+    </a>
+  );
+};
+
 const components: Components = {
-  a: ({ node: _node, href, children, ...props }) => {
-    const safeHref = safeArtifactMarkdownUrl(href);
-    if (!safeHref) {
-      return <span className="artifact-markdown__blocked-link">{children}</span>;
-    }
-    return (
-      <a
-        {...props}
-        href={safeHref}
-        target="_blank"
-        rel="noreferrer noopener"
-      >
-        {children}
-      </a>
-    );
-  },
+  a: SafeLink,
   img: ({ node: _node, src, alt, ...props }) => {
     const safeSrc = safeArtifactMarkdownUrl(src);
     if (!safeSrc) {
@@ -62,9 +64,36 @@ const components: Components = {
   ),
 };
 
+/** What a link is drawn as when the app draws it itself: a mention chip, say. */
+export type MarkdownLinkRenderer = (href: string, label: string) => ReactNode | undefined;
+
+/** The plain text under a parsed node: a link's label as the writer typed it, less its markup. */
+const textOf = (node: ExtraProps["node"]): string =>
+  (node?.children ?? [])
+    .map((child) => (child.type === "text" ? child.value : child.type === "element" ? textOf(child) : ""))
+    .join("");
+
+/**
+ * The components and url filter for one renderer. With `renderLink`, a
+ * `junto://` link is kept past the filter and drawn by it; whatever it
+ * declines is drawn blocked, like any other link the filter refuses.
+ */
+const withLinks = (renderLink: MarkdownLinkRenderer): { components: Components; urlTransform: UrlTransform } => ({
+  urlTransform: (url) => (url.startsWith("junto://") ? url : (safeArtifactMarkdownUrl(url) ?? "")),
+  components: {
+    ...components,
+    a: (props) => {
+      if (!props.href?.startsWith("junto://")) return <SafeLink {...props} />;
+      return renderLink(props.href, textOf(props.node)) ?? <span className="artifact-markdown__blocked-link">{props.children}</span>;
+    },
+  },
+});
+
 export type ArtifactMarkdownProps = {
   readonly source: string;
   readonly className?: string;
+  /** Draws the app's own `junto://` links; without it they are blocked. */
+  readonly renderLink?: MarkdownLinkRenderer;
 };
 
 /**
@@ -77,15 +106,20 @@ export type ArtifactMarkdownProps = {
 export const ArtifactMarkdown = memo(function ArtifactMarkdown({
   source,
   className,
+  renderLink,
 }: ArtifactMarkdownProps) {
   const shellClass = ["artifact-markdown", className].filter(Boolean).join(" ");
+  const drawn = useMemo(
+    () => (renderLink === undefined ? { components, urlTransform: artifactMarkdownUrlTransform } : withLinks(renderLink)),
+    [renderLink],
+  );
   return (
     <div className={shellClass} data-testid="artifact-markdown">
       <Markdown
         remarkPlugins={[remarkGfm]}
         skipHtml
-        urlTransform={artifactMarkdownUrlTransform}
-        components={components}
+        urlTransform={drawn.urlTransform}
+        components={drawn.components}
       >
         {source}
       </Markdown>

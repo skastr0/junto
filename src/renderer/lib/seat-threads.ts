@@ -469,6 +469,13 @@ export const participantsLine = (participants: ReadonlyArray<string>): string =>
   return more > 0 ? `${shown}, +${more}` : shown;
 };
 
+/**
+ * A thread's title as a line of words: the markers markdown would draw (bold,
+ * strike, inline code) are dropped, since a list row and a header do not
+ * render markdown. A lone underscore stays: names like snake_case carry it.
+ */
+export const previewText = (title: string): string => title.replace(/\*\*|__|~~|`/g, "");
+
 /** "Between cli-lead and pty-lead.", for a read-only thread. */
 export const betweenLine = (participants: ReadonlyArray<string>): string => {
   if (participants.length === 0) return "Between seats.";
