@@ -719,6 +719,15 @@ describe("the task domain under the ruler", () => {
     expect(ruled.ruling.error.details).toMatchObject({ reason: "invalid_transition", expected: { kind: "not-assignee" } });
   });
 
+  it("says what to do next when a task has no assignee, or its assignee is another seat", () => {
+    const domain = taskDomain(env());
+    const context: RulingContext = { inReach: () => true };
+    const none = rule(domain, emptyRuled(board(record())), writer, command(adaActor, { kind: "start" }, T1), context);
+    expect(none.ruling.kind === "refused" && none.ruling.error.details?.next_step).toContain("junto task assign");
+    const held = rule(domain, emptyRuled(board(record({ state: "working", assignee: bo }))), writer, command(adaActor, { kind: "pause" }, T1), context);
+    expect(held.ruling.kind === "refused" && held.ruling.error.details?.next_step).toContain(bo);
+  });
+
   it("refuses a create whose target names another task", () => {
     const create = { ...command({ kind: "operator" }, { kind: "create", taskId: T1, title: "a" }, T2) };
     const ruled = rule(taskDomain(env()), emptyRuled(emptyTaskBoard()), writer, create, { inReach: () => true });

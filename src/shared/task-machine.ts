@@ -667,11 +667,26 @@ export const taskRefusalWordsOf = (reason: string, token: string | undefined, co
   return undefined;
 };
 
-const toRefusal = ({ reason, detail }: TaskRefusal): Refusal => ({
-  reason,
-  message: taskRefusalMessage(detail),
-  expected: detail,
-});
+/** What to do next, where a refusal's own words do not say it. */
+const taskRefusalNextStep = (detail: TaskRefusalDetail): string | undefined => {
+  if (detail.kind === "seat-busy") {
+    return `a seat holds one open task: finish ${detail.taskId} first, or release it with junto task unassign ${detail.taskId}`;
+  }
+  if (detail.kind !== "not-assignee") return undefined;
+  return detail.assignee === undefined
+    ? "assign it first: junto task assign <task> takes it for this seat; any seat in reach of the task node, or the operator, may assign it"
+    : `ask ${detail.assignee}, the assignee, to move it, or the operator to unassign it`;
+};
+
+const toRefusal = ({ reason, detail }: TaskRefusal): Refusal => {
+  const next = taskRefusalNextStep(detail);
+  return {
+    reason,
+    message: taskRefusalMessage(detail),
+    expected: detail,
+    ...(next === undefined ? {} : { next_step: next }),
+  };
+};
 
 // ── the resource domain ────────────────────────────────────────────────────
 
