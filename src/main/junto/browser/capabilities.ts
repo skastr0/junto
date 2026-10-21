@@ -89,6 +89,8 @@ export interface BrowserCapabilityIssueSpec {
   readonly ttlMs: number;
   readonly maxUses: number;
   readonly maxInFlight: number;
+  /** The seat card the grant is for, which the page's driver mark names. */
+  readonly actorNodeId?: string;
 }
 
 export interface BrowserCapabilityGrant extends BrowserCapabilityHandle {
@@ -139,6 +141,8 @@ export type BrowserCapabilityAbortReason = "expired" | "revoked" | "app_close";
 
 export interface BrowserCapabilityLease extends BrowserCapabilityHandle {
   readonly action: BrowserCapabilityAction;
+  /** The seat card the grant is for, when the issuer named one. */
+  readonly actorNodeId?: string;
   readonly target?: BrowserCapabilityUseTarget;
   readonly scope: ReadonlyArray<BrowserCapabilityTarget>;
   readonly expiresAt: number;
@@ -317,6 +321,7 @@ interface CapabilityRecord {
   targetsByRef: ReadonlyMap<NodeRefKey, BrowserCapabilityTarget>;
   /** Bound generations by page and tab (`generationKey`). */
   readonly generations: Map<string, string>;
+  readonly actorNodeId: string | undefined;
   readonly issuedAt: number;
   readonly expiresAt: number;
   readonly monotonicDeadline: number;
@@ -595,7 +600,11 @@ export class BrowserCapabilityRegistry {
       targets === undefined ||
       !isFinitePositiveInteger(spec?.ttlMs, BROWSER_CAPABILITY_MAX_TTL_MS) ||
       !isFinitePositiveInteger(spec?.maxUses, BROWSER_CAPABILITY_MAX_USES) ||
-      !isFinitePositiveInteger(spec?.maxInFlight, BROWSER_CAPABILITY_MAX_IN_FLIGHT)
+      !isFinitePositiveInteger(spec?.maxInFlight, BROWSER_CAPABILITY_MAX_IN_FLIGHT) ||
+      (spec.actorNodeId !== undefined &&
+        (typeof spec.actorNodeId !== "string" ||
+          spec.actorNodeId.length === 0 ||
+          !isUtf8WithinLimit(spec.actorNodeId, BROWSER_MAX_REF_BYTES)))
     ) {
       throw new BrowserCapabilityIssueDenied("invalid");
     }
@@ -632,6 +641,7 @@ export class BrowserCapabilityRegistry {
       targets,
       targetsByRef,
       generations: new Map(),
+      actorNodeId: spec.actorNodeId,
       issuedAt,
       expiresAt,
       monotonicDeadline: monotonicNow + spec.ttlMs,
@@ -814,6 +824,7 @@ export class BrowserCapabilityRegistry {
     const lease: BrowserCapabilityLease = Object.freeze({
       ...record.handle,
       action: normalized.action,
+      ...(record.actorNodeId === undefined ? {} : { actorNodeId: record.actorNodeId }),
       ...(normalized.target === undefined ? {} : { target: normalized.target }),
       scope: record.targets,
       expiresAt: record.expiresAt,

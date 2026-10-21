@@ -71,6 +71,7 @@ import {
   utf8ByteLength,
 } from "@shared/browser-limits";
 import type { BrowserTabId } from "@shared/browser-tab";
+import type { NodeId } from "@shared/model/base";
 import type { BrowserResult, BrowserSessionAuthorizationSnapshot } from "./sessions";
 import { BROWSER_UI_SESSION_OWNER, BrowserSessionService } from "./sessions";
 import type { PageTargetResolver } from "./page-target";
@@ -737,7 +738,10 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         signal,
         () => deps.resolvePageTarget(input.ref),
         admitsTopLevel,
-        input.tab,
+        // The tab fixed before admission, so an operator's tab switch meanwhile
+        // cannot fail the open (and end the seat's holds).
+        tab,
+        lease.actorNodeId as NodeId | undefined,
       );
       if (!opened.ok) {
         deps.sessions.destroyOwnerSessions(lease.auditId, "browser open failed closed");

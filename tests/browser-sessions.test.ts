@@ -1,3 +1,4 @@
+import type { NodeId } from "../src/shared/model/base";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1419,6 +1420,27 @@ describe("BrowserSessionService", () => {
     expect(service.goto(sessionId, "https://stoppable.example.com/3")).toMatchObject({ ok: false });
     expect(service.traverse(sessionId, "stop")).toMatchObject({ ok: true });
     expect(service.goto(sessionId, "https://stoppable.example.com/3")).toMatchObject({ ok: true });
+  });
+
+  it("names the seat driving the page while its action runs", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("seat-mark");
+    const first = await service.open(page);
+    if (!first.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(first.data.sessionId);
+    const changed: string[] = [];
+    service.subscribePages((ref) => changed.push(ref));
+    await service.openForOwner("job-a", page, undefined, undefined, undefined, undefined, "seat-1" as NodeId);
+    await service.openForOwner("job-b", page);
+
+    const running = service.evalForOwner("job-a", first.data.sessionId, "1");
+    expect(service.drivingFor(first.data.sessionId)?.last).toMatchObject({ kind: "seat", nodeId: "seat-1", running: 1 });
+    expect(await running).toMatchObject({ ok: true });
+    expect(service.drivingFor(first.data.sessionId)?.last).toMatchObject({ kind: "seat", nodeId: "seat-1", running: 0 });
+    expect(changed).toEqual([page.ref, page.ref]);
+    // A guest with no seat card leaves the mark as it is.
+    expect(await service.evalForOwner("job-b", first.data.sessionId, "1")).toMatchObject({ ok: true });
+    expect(changed).toHaveLength(2);
   });
 
   it("takes over every tab of a page at once", async () => {

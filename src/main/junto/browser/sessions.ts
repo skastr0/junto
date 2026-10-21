@@ -16,6 +16,7 @@ import {
 } from "@shared/browser";
 import type { Rect } from "@shared/page-box";
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
+import type { NodeId } from "@shared/model/base";
 import type { BrowserTabId } from "@shared/browser-tab";
 import {
   initialPageTabs,
@@ -243,6 +244,8 @@ interface ActiveOperation {
   readonly signal?: AbortSignal;
   abortListener: (() => void) | undefined;
   reject: ((failure: BrowserOperationFailure) => void) | undefined;
+  /** The seat this operation marks as driving the page while it runs. */
+  readonly seatNodeId?: NodeId;
 }
 
 /** Where a guest's grant lets the page go; absent, the guest is not origin-bound. */
@@ -256,6 +259,8 @@ export const pageOriginGuard = (pageUrl: string): BrowserGuestTopLevelGuard => {
 
 interface GuestHold {
   readonly admitsTopLevel: BrowserGuestTopLevelGuard | undefined;
+  /** The seat card acting, which the page's driver mark names. */
+  readonly nodeId: NodeId | undefined;
 }
 
 /**
@@ -943,6 +948,9 @@ export class BrowserSessionService {
       operation.abortListener = undefined;
     }
     this.activeOperationCount = Math.max(0, this.activeOperationCount - 1);
+    if (operation.seatNodeId !== undefined) {
+      this.markSeat(entry, { kind: "seat-end", nodeId: operation.seatNodeId, at: this.now() });
+    }
     const reject = operation.reject;
     operation.reject = undefined;
     if (failure !== undefined) reject?.(failure);
@@ -1424,6 +1432,7 @@ export class BrowserSessionService {
       );
     }
 
+    const seatNodeId = owner === entry.owner ? undefined : entry.guests.get(owner)?.nodeId;
     const operation: ActiveOperation = {
       kind,
       owner,
@@ -1433,9 +1442,11 @@ export class BrowserSessionService {
       ...(signal !== undefined ? { signal } : {}),
       abortListener: undefined,
       reject,
+      ...(seatNodeId !== undefined ? { seatNodeId } : {}),
     };
     entry.activeOperation = operation;
     this.activeOperationCount += 1;
+    if (seatNodeId !== undefined) this.markSeat(entry, { kind: "seat-start", nodeId: seatNodeId, at: this.now() });
     this.armOperationDeadline(entry, operation);
     if (signal !== undefined) {
       operation.abortListener = () => {
@@ -1779,6 +1790,19 @@ export class BrowserSessionService {
     return page === undefined || page.tabs.active === entry.tab;
   }
 
+  /** A seat's action starts or ends on the page: the chrome's driver mark follows. */
+  private markSeat(
+    entry: SessionEntry,
+    event: { readonly kind: "seat-start" | "seat-end"; readonly nodeId: NodeId; readonly at: number },
+  ): void {
+    const page = this.pages.get(entry.ref);
+    if (page === undefined) return;
+    const next = reducePageDriving(page.driving, event);
+    if (next === page.driving) return;
+    page.driving = next;
+    this.notifyPage(entry.ref);
+  }
+
   private notifyPage(ref: string): void {
     for (const listener of this.pageListeners) listener(ref);
   }
@@ -2039,9 +2063,11 @@ export class BrowserSessionService {
     admitsTopLevel?: BrowserGuestTopLevelGuard,
     /** A seat joins this tab of the page; without it, the tab it holds or the shown one. */
     tab?: BrowserTabId,
+    /** The seat card joining, named by the page's driver mark while it acts. */
+    seatNodeId?: NodeId,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     return this.runUiOperation("open", () =>
-      this.openForOwnerAdmitted(owner, target, signal, revalidateTarget, admitsTopLevel, tab),
+      this.openForOwnerAdmitted(owner, target, signal, revalidateTarget, admitsTopLevel, tab, seatNodeId),
     );
   }
 
@@ -2070,11 +2096,12 @@ export class BrowserSessionService {
     revalidateTarget?: BrowserTargetRevalidator,
     admitsTopLevel?: BrowserGuestTopLevelGuard,
     tab?: BrowserTabId,
+    seatNodeId?: NodeId,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
     if (owner !== BROWSER_UI_SESSION_OWNER) {
-      return this.joinAsGuest(owner, target, signal, revalidateTarget, admitsTopLevel, tab);
+      return this.joinAsGuest(owner, target, signal, revalidateTarget, admitsTopLevel, tab, seatNodeId);
     }
     if (isAborted(signal) || this.refDeleteActive(target.ref)) {
       return err("cancelled", "navigation cancelled");
@@ -2139,6 +2166,7 @@ export class BrowserSessionService {
     revalidateTarget?: BrowserTargetRevalidator,
     admitsTopLevel?: BrowserGuestTopLevelGuard,
     tab?: BrowserTabId,
+    seatNodeId?: NodeId,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     if (exactBrowserOrigin(target.url) === undefined) {
       return err("forbidden", "automation target has no exact browser origin");
@@ -2147,9 +2175,11 @@ export class BrowserSessionService {
       // A named tab: joined where it has a view. Only the shown tab may be
       // reopened by a seat, as a seat never chooses what the operator sees.
       const page = this.pages.get(target.ref);
-      if (page === undefined || !page.tabs.tabs.some((candidate) => candidate.id === tab)) {
-        return err("not_found", `no tab ${tab} on this page`);
-      }
+      // A page not open yet has only its first tab, which the open creates.
+      const known = page === undefined
+        ? tab === initialPageTabs(target.url).active
+        : page.tabs.tabs.some((candidate) => candidate.id === tab);
+      if (!known) return err("not_found", `no tab ${tab} on this page`);
       const named = this.tabEntry(target.ref, tab);
       if (named !== undefined && isWarmBrowserSession(named.machine.state)) {
         if (
@@ -2160,13 +2190,13 @@ export class BrowserSessionService {
           return err("invalid", "canonical page ref changed while its session is warm");
         }
         if (!named.guests.has(guest)) {
-          named.guests.set(guest, { admitsTopLevel });
+          named.guests.set(guest, { admitsTopLevel, nodeId: seatNodeId });
           this.guestStops.delete(`${guest}\0${named.sessionId}`);
         }
         named.lastActiveAt = this.now();
         return { ok: true, data: this.infoFor(named, guest) };
       }
-      if (page.tabs.active !== tab) {
+      if (page !== undefined && page.tabs.active !== tab) {
         return err("not_found", `tab ${tab} has no live view until the operator shows it`);
       }
     } else {
@@ -2193,7 +2223,7 @@ export class BrowserSessionService {
     }
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, opened.data.sessionId);
     if (entry === undefined) return err("not_found", `no session for ${opened.data.sessionId}`);
-    entry.guests.set(guest, { admitsTopLevel });
+    entry.guests.set(guest, { admitsTopLevel, nodeId: seatNodeId });
     // A new hold: this generation's stop receipt no longer speaks for it.
     // Receipts for older generations stay until MAX_STOP_RECEIPTS trims them;
     // they answer only for a generation that is already gone.

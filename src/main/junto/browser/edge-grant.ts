@@ -528,6 +528,7 @@ export const makeEdgeGrantService = (
         ttlMs,
         maxUses: EDGE_GRANT_MAX_USES,
         maxInFlight: EDGE_GRANT_MAX_IN_FLIGHT,
+        actorNodeId: match.callerNodeId,
       });
     } catch (error) {
       const reason =
