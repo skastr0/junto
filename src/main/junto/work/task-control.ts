@@ -39,6 +39,9 @@ import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comm
 import { taskPeopleOf } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
+import type { QueuedCommand } from "@shared/command-row";
+import { decodeTaskFacts } from "@shared/task-fact-wire";
+import { ResourceSubmit } from "./resource-submit";
 import { MachineRepository } from "../machines/repository";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged } from "./resource-changes";
@@ -62,7 +65,8 @@ export type TaskPorts = {
   readonly nodes: (canvas: Canvas) => ReadonlyArray<Node>;
   readonly list: (canvasName: string, query: TaskListPortQuery) => Effect.Effect<{ readonly tasks: ReadonlyArray<TaskView>; readonly more: boolean }, WorkErrorBody>;
   readonly find: (canvas: Canvas, canvasName: string, lookup: TaskLookup) => Effect.Effect<TaskView | undefined, WorkErrorBody>;
-  readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskSubmitOutcome, WorkErrorBody>;
+  /** Rule a command here when this machine edits the canvas; otherwise queue it for the machine that does. */
+  readonly submit: (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) => Effect.Effect<TaskWriteOutcome, WorkErrorBody>;
   /** Mail the ruling owes: assignment notices, stamp requests, defects, sent on (pty P4). */
   readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, WorkErrorBody>;
   /** A comment in the task's thread: pty's one write path, `postSubjectComment` (03). */
@@ -96,6 +100,39 @@ const notBuilt = (what: string): WorkErrorBody => ({
   details: { reason: "not_available", retryable: false },
 });
 
+/** What a task write came to: ruled here or there, or queued for the editing machine (02). */
+export type TaskWriteOutcome = TaskSubmitOutcome | { readonly kind: "queued"; readonly opId: OpId };
+
+/**
+ * A command queued for the editing machine, as the seat's write answers it.
+ * An applied ruling that came back names the task as the editing machine
+ * ruled it; that machine owes and sends its mail, so nothing is owed here,
+ * and the fold that brought the ruling already told the windows.
+ */
+const queuedOutcome = (
+  submit: ResourceSubmit["Service"],
+  command: ResourceCommand<TaskCommand>,
+  editor: Parameters<ResourceSubmit["Service"]["queue"]>[1],
+) =>
+  Effect.flatMap(
+    // The wire form of a task op is the op itself: node ids are plain on the wire.
+    submit.queue(command as QueuedCommand, editor),
+    (outcome): Effect.Effect<TaskWriteOutcome, WorkErrorBody> => {
+      switch (outcome.kind) {
+        case "queued":
+          return Effect.succeed({ kind: "queued", opId: command.opId });
+        case "refused":
+          return Effect.succeed({ kind: "refused", opId: command.opId, error: outcome.error, root: outcome.root });
+        case "applied": {
+          const task = decodeTaskFacts(outcome.ruling.facts)?.at(-1)?.task;
+          return task === undefined
+            ? Effect.fail(storeError({ message: `the ruling of ${command.opId} names no task this build reads` }))
+            : Effect.succeed({ kind: "applied", opId: command.opId, task, effects: [], replay: true });
+        }
+      }
+    },
+  );
+
 /** Every port through the TaskRepository in the running core. */
 export const liveTaskPorts: TaskPorts = (() => {
   const withRepo = <A>(use: (repo: TaskRepository["Service"]) => Effect.Effect<A, { readonly message: string }>) =>
@@ -119,16 +156,20 @@ export const liveTaskPorts: TaskPorts = (() => {
             ({ tasks }) => tasks.find((task) => task.number === lookup.number),
           )),
     submit: (command, context, env) =>
-      Effect.flatMap(Effect.serviceOption(MachineRepository), (machines) =>
-        Option.isNone(machines)
-          ? Effect.fail(notBuilt("this machine's installation id"))
-          : withRepo((repo) =>
-            Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env)))).pipe(
+      Effect.gen(function* () {
+        const remote = yield* Effect.serviceOption(ResourceSubmit);
+        const route = Option.isNone(remote) ? ({ kind: "here" } as const) : yield* remote.value.route(command.canvasName);
+        if (Option.isSome(remote) && route.kind === "editor") return yield* queuedOutcome(remote.value, command, route.editor);
+        const machines = yield* Effect.serviceOption(MachineRepository);
+        if (Option.isNone(machines)) return yield* Effect.fail(notBuilt("this machine's installation id"));
+        return yield* withRepo((repo) =>
+          Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env))).pipe(
           Effect.tap((outcome) =>
             Effect.sync(() => {
               if (outcome.kind === "applied" && !outcome.replay) noteResourceChanged("task", command.canvasName);
             })),
-        ),
+        );
+      }),
     deliver: deliverTaskEffects,
     comment: postSubjectComment,
   };
@@ -149,7 +190,11 @@ const decode = <S extends Schema.Top>(schema: S, args: unknown): Effect.Effect<S
 // The ruler's answer
 
 /** What the ruling made, as the caller reads it; a refusal is the ruler's own error with the opId. */
-export const writeResultOf = (outcome: TaskSubmitOutcome, opId: OpId): Effect.Effect<TaskWriteResult, WorkErrorBody> => {
+export const writeResultOf = (
+  outcome: TaskWriteOutcome,
+  written: Pick<ResourceCommand<TaskCommand>, "opId" | "target">,
+): Effect.Effect<TaskWriteResult, WorkErrorBody> => {
+  const opId = written.opId;
   switch (outcome.kind) {
     case "applied":
       return Effect.succeed({
@@ -161,6 +206,9 @@ export const writeResultOf = (outcome: TaskSubmitOutcome, opId: OpId): Effect.Ef
       });
     case "refused":
       return Effect.fail({ ...outcome.error, details: { ...outcome.error.details, opId } });
+    // Durable and will be ruled: a success. `junto op show` reads what became of it.
+    case "queued":
+      return Effect.succeed({ disposition: "queued", opId, taskId: written.target.itemId! });
   }
 };
 
@@ -367,7 +415,7 @@ const commandOf = (
 const submitted = (caller: TaskCaller, ports: TaskPorts, written: ResourceCommand<TaskCommand>) =>
   Effect.gen(function* () {
     const outcome = yield* ports.submit(written, taskRulingContext(caller.canvas), taskCanvasEnv(caller.canvas));
-    const result = yield* writeResultOf(outcome, written.opId);
+    const result = yield* writeResultOf(outcome, written);
     if (outcome.kind !== "applied" || outcome.replay) return result;
     // The ruling is committed: a lost notice must not turn an applied write
     // into a retry, whose replay owes no mail and would never send it. The
