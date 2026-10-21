@@ -279,6 +279,63 @@ The one interface three seats build against.
   and `inventory` channels. Nothing received over a link is used before its
   closed decode.
 
+## A seat's resource write
+
+How a seat's change to a task or an artifact travels (plan 02). The rows it
+uses are Rule 4's; who gets them is Rule 5's.
+
+- **On the editing machine** the write is ruled at once and the CLI answers
+  `applied` or `refused`. A canvas that names no editor counts as this
+  machine's own.
+- **On any other machine** the seat's machine checks two things first and
+  refuses at once if either fails: the target names a node of its kind on
+  its copy (`unknown_target`), and the canvas's queue has room, at most
+  50,000 unruled rows or 256 MiB (`queue_full`, retryable). Then it writes
+  the command as its own `command.queued` row. Only a seat's command is
+  queued; the operator and automations write on the editing machine
+  (`not_permitted` anywhere else).
+- **The 2 s wait.** While a link to the editing machine is open, the write
+  waits up to 2 s for its ruling to come back. With no link it does not
+  wait. It answers `applied`, `refused` with the ruler's error, its opId and
+  the root opId, or `queued` with the opId. `queued` is a success, exit 0:
+  the command is durable and will be ruled.
+- **Ruling.** Arrival only wakes the editing machine's ruler. The ruler
+  sweeps every held command no ruling answers yet, each writer's in its own
+  order, one at a time, and sweeps every canvas it edits at boot, so a crash
+  or a closed link loses nothing. It refuses only what can never apply: a
+  target that is no longer a node of its kind (`unknown_target`), an op that
+  does not decode (`invalid_input`), or a command built on a refused one
+  (`depends_on_refused`, naming the root). A command built on one not yet
+  ruled, or of a kind with no ruler in this build, stays queued. Each ruling
+  is recorded once, in the domain's own transaction, as its row in
+  `resource_rulings` and a `ruling.applied` or `ruling.refused` row.
+- **Ruling back.** Every machine on the canvas gets every ruling. A machine
+  that does not edit the canvas folds an applied ruling's facts into its own
+  task and artifact tables with the projection the ruler used, at the
+  ruling's time. An artifact body that rode by ref is folded pending and
+  fetched by ref when read. Facts this build cannot decode close the link.
+- **The refusal notice.** When a refusal of one of its own commands comes
+  back, the seat's machine writes one notice into the actor seat's own
+  mailbox, from the refused node (`sentBy` is `noticeActorRef`), in the same
+  transaction. Only the root is told, and its notice names the commands
+  refused with it: never one notice per dependent, and none again when the
+  same ruling arrives twice. A command aimed at a seat's node, or at the
+  actor's own, gets no notice, since the editing machine would refuse that
+  row.
+- **`junto op show <opId>`** reads one write: queued, applied, or refused
+  with its error. **`junto op list`** lists this seat's writes newest first,
+  `--state queued|refused`, `--limit` 1 to 200 (50 when left out), and
+  `--before <opId>` for the next page.
+- **While the link is down** a seat's write answers `queued` at once and
+  stays on its machine. The seat reads tasks and artifacts as its machine
+  last folded them, and its own unruled writes with `op list --state
+  queued`. When a link opens the rows go over, the editing machine rules
+  them in order, and the rulings come back; `op show` then says what became
+  of each.
+- Owners: `remote-work` the queue, the ruler, the seat side and the fold;
+  `remote-send` the content pull; `remote-seats` the refusal notice; each
+  domain its own decode and projection.
+
 ## Failures and logs
 
 Added 16 October, after a seat on the mini failed to start for a reason no
