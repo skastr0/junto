@@ -647,6 +647,9 @@ export const firingWords = (firing: Firing): string => {
     }
     case "skipped":
       return `${cause}, skipped: ${skipWords[firing.outcome.reason]}`;
+    // Claimed and never settled: the run died before its actions were ruled. It still counts toward the hourly limit.
+    case "claimed":
+      return `${cause}, interrupted before its actions were ruled`;
     default:
       return firing.outcome satisfies never;
   }

@@ -193,6 +193,7 @@ describe("automation words", () => {
       "Polled (2 earlier slots missed), skipped: it reached its hourly limit",
     );
     expect(firingWords(skipped)).toBe("Scheduled, skipped: it reached its hourly limit");
+    expect(firingWords(firing("f3", 30, { kind: "claimed" }))).toBe("Scheduled, interrupted before its actions were ruled");
     expect(historyOrder([fired, skipped]).map((entry) => entry.firingId)).toEqual(["f2", "f1"]);
   });
 });
