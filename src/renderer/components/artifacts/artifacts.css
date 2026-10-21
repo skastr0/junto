@@ -125,6 +125,32 @@
   font-variant-numeric: tabular-nums;
 }
 
+.artifact-tasks {
+  display: flex;
+  min-height: 32px;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.artifact-tasks__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.artifact-tasks__picker {
+  width: min(320px, 100%);
+}
+
+.artifact-tasks__none {
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
 .artifact-error,
 .artifact-archived {
   margin: 0;

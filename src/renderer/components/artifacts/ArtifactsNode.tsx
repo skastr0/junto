@@ -27,6 +27,9 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, ListRow, PaneEmpty, PaneHeader, ResourceGlyphMark, TwoPane } from "../ui";
 import { ArtifactComments } from "./ArtifactComments";
 import { ArtifactHistory } from "./ArtifactHistory";
+import { ArtifactTasks } from "./ArtifactTasks";
+import { useCanvasTasks } from "../../lib/tasks-source";
+import { openWorkDetail } from "../../lib/work-detail-open";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
 import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
@@ -193,6 +196,7 @@ export function ArtifactsNode({
           now={now}
           error={error}
           apply={(op) => apply(selected.artifact.artifactId, op)}
+          onClose={onClose}
         />
       )}
     </FocusSurface>
@@ -206,7 +210,9 @@ function SelectedArtifact({
   now,
   error,
   apply,
+  onClose,
 }: {
+  readonly onClose: () => void;
   readonly canvasName: string;
   readonly entry: ArtifactEntry;
   readonly sidebar: React.ReactNode;
@@ -220,6 +226,7 @@ function SelectedArtifact({
   const [title, setTitle] = useState(artifact.title);
   const history = useArtifactHistory(canvasName, mode === "history" ? artifact.artifactId : null);
   const threads = useArtifactThreads(canvasName, artifact.artifactId);
+  const tasks = useCanvasTasks(canvasName);
   const readOnly = artifact.archived;
 
   useEffect(() => setTitle(artifact.title), [artifact.title]);
@@ -351,6 +358,18 @@ function SelectedArtifact({
           {artifact.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
         </IconButton>
       </header>
+      {artifact.taskIds.length > 0 || !readOnly ? (
+        <ArtifactTasks
+          taskIds={artifact.taskIds}
+          tasks={tasks}
+          readOnly={readOnly}
+          onChange={(taskIds) => void apply({ op: "tasks", taskIds: [...taskIds] })}
+          onOpen={(task) => {
+            onClose();
+            openWorkDetail(task.current.node, { itemId: task.taskId });
+          }}
+        />
+      ) : null}
       {error ? (
         <p className="artifact-error" role="alert">
           {error}
