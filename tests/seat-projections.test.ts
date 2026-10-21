@@ -1,4 +1,4 @@
-import { attentionReasonsForSeat, liveAttentionReasonsForSeat } from "../src/renderer/lib/seat-projections";
+import { attentionReasonsForSeat } from "../src/renderer/lib/seat-projections";
 import { describe, expect, it } from "vitest";
 import {
   applyHotbarLeases,
@@ -177,14 +177,6 @@ describe("attentionReasonsForSeat — one seat, its own coarse slice", () => {
   });
 });
 
-describe("liveAttentionReasonsForSeat", () => {
-  it("collects a pending permission", () => {
-    expect(liveAttentionReasonsForSeat("local:pi", { "local:pi": { pendingPermissionId: "p1" } })).toEqual([
-      "permission:pending",
-    ]);
-  });
-});
-
 describe("hotbar eviction from digitLease", () => {
   it("working→idle evicts the chip instead of deleting it", () => {
     let slots = emptyHotbarSlots();
@@ -213,9 +205,5 @@ describe("attention reasons of a seat named by its agent key", () => {
     expect(attentionReasonsForSeat("local:pi", { pendingPermissionId: "p1" })).toEqual(["permission:pending"]);
     expect(attentionReasonsForSeat("local:pi", {})).toEqual([]);
     expect(attentionReasonsForSeat(undefined, { pendingPermissionId: "p1" })).toEqual([]);
-    const chat = { "local:pi": { pendingPermissionId: "p1" }, "local:other": {} };
-    expect(liveAttentionReasonsForSeat("local:pi", chat)).toEqual(["permission:pending"]);
-    expect(liveAttentionReasonsForSeat("local:other", chat)).toEqual([]);
-    expect(liveAttentionReasonsForSeat(undefined, chat)).toEqual([]);
   });
 });

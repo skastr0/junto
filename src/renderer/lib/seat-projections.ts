@@ -60,18 +60,6 @@ export function attentionReasonsForSeat(
   return agentKey && ownCoarse?.pendingPermissionId ? ["permission:pending"] : [];
 }
 
-/**
- * The whole-map form, for a caller that already holds the map and projects
- * many seats at once (RTS rows, the hotbar). A component rendered once per
- * seat uses useSeatAttentionReasons instead (occupancy-feed.ts).
- */
-export function liveAttentionReasonsForSeat(
-  agentKey: string | undefined,
-  chatByAgent?: Readonly<Record<string, { readonly pendingPermissionId?: string } | undefined>>,
-): ReadonlyArray<string> {
-  return attentionReasonsForSeat(agentKey, agentKey ? chatByAgent?.[agentKey] : undefined);
-}
-
 /** Assemble one SeatFacts from the live planes a call site already holds. */
 export function seatFactsForNode(input: SeatFactsInput): SeatFacts {
   const status = input.session?.status;

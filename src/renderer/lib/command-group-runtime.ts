@@ -11,7 +11,6 @@ import { use$ } from "@legendapp/state/react";
 import { asNodeId, nodesOf, regionMembers, type Canvas, type Node } from "@shared/model";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
 import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
-import { chatCoarse$ } from "./chat-state";
 import { focusCanvasNode } from "./command-bar";
 import {
   canvasCommandGroups,
@@ -40,7 +39,7 @@ import {
   slotIndexOf,
   touchActiveMru,
 } from "./hotbar-slots";
-import { digitLease, liveAttentionReasonsForSeat, seatFactsForNode, type SeatFacts } from "./seat-projections";
+import { digitLease, seatFactsForNode, type SeatFacts } from "./seat-projections";
 import { selectNodes, state$ } from "./state";
 import { terminal$ } from "./terminal-state";
 import { modelStore, nodeAt } from "./use-model";
@@ -70,9 +69,6 @@ export const seatFactsOf = (
   node: Node,
   extra: {
     readonly graphBlocked?: boolean;
-    readonly chatByAgent?: Readonly<
-      Record<string, { readonly pendingPermissionId?: string } | undefined>
-    >;
     readonly needsLook?: boolean;
   } = {},
 ): SeatFacts => {
@@ -83,7 +79,6 @@ export const seatFactsOf = (
     seatEvent: seatEventForBinding(bindingId),
     session,
     graphBlocked: extra.graphBlocked,
-    attentionReasons: node.kind === "agent" ? liveAttentionReasonsForSeat(node.agentKey, extra.chatByAgent) : [],
     managedSeat: node.kind === "agent",
     needsLook: extra.needsLook,
   });
@@ -94,12 +89,9 @@ export const seatFactsOf = (
  * demotes to an idle soft-hold.
  */
 const stickyWorkingNodeIds = (canvas: Canvas): string[] => {
-  const chatByAgent = chatCoarse$.peek() as
-    | Record<string, { readonly pendingPermissionId?: string } | undefined>
-    | undefined;
   const out: string[] = [];
   for (const seat of nodesOf(canvas, "agent")) {
-    if (digitLease(seatFactsOf(seat, { chatByAgent }))) out.push(seat.id);
+    if (digitLease(seatFactsOf(seat))) out.push(seat.id);
   }
   return out;
 };

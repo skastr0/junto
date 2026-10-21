@@ -6,7 +6,6 @@ import { asNodeId, nodesOf } from "@shared/model";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { agentSeat$, seatEventForBinding, seatNeedsLook } from "../../lib/agent-seat-state";
 import { seatSignalRollups$ } from "../../lib/agent-signals-state";
-import { chatCoarse$ } from "../../lib/chat-state";
 import {
   focusAndActivate,
   focusNode,
@@ -57,9 +56,6 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
     const signals = seatSignalRollups$.get();
     const execution = kernel$.execution.get();
     const regionSeverity = state$.regionSeverityByNodeId.get();
-    const chatByAgent = chatCoarse$.get() as
-      | Record<string, { readonly pendingPermissionId?: string } | undefined>
-      | undefined;
     modelStore.canvas$(canvasName).nodes.get();
     const canvas = modelStore.canvasOf(canvasName);
 
@@ -67,7 +63,7 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
     // A seat's control state is its live facts, not only its region's rollup.
     const control: Record<string, string> = { ...regionSeverity };
     for (const seat of nodesOf(canvas, "agent")) {
-      control[seat.id] = digitHue(seatFactsOf(seat, { graphBlocked: blocked.has(seat.id), chatByAgent }));
+      control[seat.id] = digitHue(seatFactsOf(seat, { graphBlocked: blocked.has(seat.id) }));
     }
     const seats = seatRollupsForCanvas(canvas, { now, severityByNodeId: control, signalsByNodeId: signals });
     const out = new Map<string, SeatRollup>();
