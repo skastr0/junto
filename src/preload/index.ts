@@ -1,4 +1,5 @@
-import { RESOURCE_IPC_CHANNELS, type ResourceChanged, type ResourceIpcApi } from "@shared/resource-ipc";
+import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
+import type { ResourceChanged, ResourceIpcApi } from "@shared/resource-ipc";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";

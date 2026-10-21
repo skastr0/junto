@@ -141,9 +141,6 @@ describe("main authoring architecture", () => {
       // Mail threads read the mailboxes; the operator's send runs only under
       // the classified ipc.work.thread-send handler in ipc.ts.
       "src/main/junto/work/operator-threads.ts",
-      // The renderer's tasks and artifacts read the canvas topology; their writes
-      // run only under the classified ipc.resource.* labels in ipc.ts.
-      "src/main/junto/work/resource-ipc.ts",
       // Seat waits re-read topology and the selected task; they never mutate.
       "src/main/junto/work/seat-observation-live.ts",
       // Prompt mail to a seat, written only under ipc.work.message-append.

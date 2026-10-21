@@ -43,7 +43,6 @@ import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { liveArtifactPorts, type ArtifactPorts } from "./artifact-control";
 import { onResourceChanged } from "./resource-changes";
-import { WorkService } from "./service";
 import { liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
 
 /** What the handlers read and write through. Live: the CLI's own ports and the work topology. */
@@ -144,6 +143,8 @@ export const applyTask = (
     const command = commandOf(canvasName, "task", nodeId, taskId, opId, checked.command);
     const outcome = yield* ports.tasks.submit(command, taskRulingContext(canvas), taskCanvasEnv(canvas));
     if (outcome.kind === "refused") return { kind: "refused" as const, opId, error: outcome.error };
+    // Queued for the machine that edits the canvas: `junto op show` reads what became of it.
+    if (outcome.kind === "queued") return { kind: "queued" as const, opId };
     // The store port says it changed (resource-changes.ts), for every writer alike.
     if (outcome.replay) return { kind: "applied" as const, opId };
     const delivered = yield* Effect.result(
@@ -212,16 +213,15 @@ export const applyArtifact = (
 
 // ── registration ───────────────────────────────────────────────────────────
 
-/** Runs a handler in the app runtime; the work topology needs WorkService. */
-export type ResourceIpcRun = <A, E>(effect: Effect.Effect<A, E, WorkService>) => Promise<A>;
+/** Runs a handler in the app runtime, which holds the stores. */
+export type ResourceIpcRun = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
-/** The running core's ports: the CLI verbs' own, and the canvas as the work plane reads it. */
-export const liveResourceIpcPorts = (): ResourceIpcPorts => ({
-  topology: (canvasName) =>
-    Effect.flatMap(WorkService, (work) => work.readTopology(canvasName)).pipe(
-      Effect.map((read) => read.canvas),
-      Effect.mapError((error): WorkErrorBody => ({ type: "InternalError", message: error.message, details: { retryable: true } })),
-    ) as Effect.Effect<Canvas, WorkErrorBody>,
+/**
+ * The running core's ports: the CLI verbs' own, and the canvas as ipc.ts
+ * reads it from the work plane (this file reaches no WorkService).
+ */
+export const liveResourceIpcPorts = (topology: ResourceIpcPorts["topology"]): ResourceIpcPorts => ({
+  topology,
   tasks: liveTaskPorts,
   artifacts: liveArtifactPorts,
 });
@@ -253,7 +253,7 @@ export const registerResourceIpc = (
   const on = <S extends Schema.Top, A>(
     channel: string,
     schema: S,
-    handle: (input: S["Type"]) => Effect.Effect<A, WorkErrorBody, WorkService>,
+    handle: (input: S["Type"]) => Effect.Effect<A, WorkErrorBody>,
     authored?: ResourceAuthoring,
   ) =>
     ipc.handle(channel, (_event, input: unknown) => {

@@ -341,7 +341,15 @@ export const registerJuntoIpc = (): void => {
   registerResourceIpc(
     privilegedIpc,
     (effect) => AppRuntime.runPromise(effect),
-    liveResourceIpcPorts(),
+    liveResourceIpcPorts((canvasName) =>
+      Effect.tryPromise({
+        try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+        catch: () => ({
+          type: "InternalError" as const,
+          message: `canvas ${canvasName} could not be read`,
+          details: { retryable: true },
+        }),
+      }).pipe(Effect.map((read) => read.canvas))),
     broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED },
     {
