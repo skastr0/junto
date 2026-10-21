@@ -174,12 +174,13 @@ describe("the text a seat learns commands from", () => {
 
   /**
    * Commands, ops and vocabulary the 0.10 deletions removed from every
-   * surface: the board, requests and reviews with migration 39, and the
-   * waiver a finish no longer takes.
+   * surface: the old task store's claim, update and promote, the board,
+   * requests and reviews with migration 39, and the waiver a finish no
+   * longer takes.
    */
   const DELETED: ReadonlyArray<RegExp> = [
     /\bjunto (?:pad|sheet|tasks)\b/,
-    /\btask verdict\b/,
+    /\btask[ .](?:claim|update|promote|verdict)\b/,
     /\bartifact[ .]publish\b/,
     /\bscheduler[ .](?:fire|status|configure)\b/,
     /\brelay\.trigger\b/,
@@ -192,13 +193,8 @@ describe("the text a seat learns commands from", () => {
     /\bwaivers?\b/i,
   ];
 
-  /**
-   * Deleted for a plain seat, still dispatched for an overseer: task claim,
-   * update and promote until canvas deletes the old task store, and the
-   * automation writes, which are the operator's and an overseer's.
-   */
+  /** Refused to a plain seat, dispatched for an overseer: the automation writes are the operator's and an overseer's. */
   const DELETED_FOR_SEATS: ReadonlyArray<RegExp> = [
-    /(?<!overseer )\btask (?:claim|update|promote)\b/,
     /(?<!overseer )\bautomation (?:create|edit|enable|disable|archive|run)\b/,
   ];
 
