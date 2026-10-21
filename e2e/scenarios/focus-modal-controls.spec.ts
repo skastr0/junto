@@ -241,7 +241,9 @@ test("961c1a053: every focus modal control clicks, sidebars collapse, Maximize a
     await shot(page, "grid-shape-picker-open");
     expect(await windowPosition(app)).toEqual(pos);
     await page.keyboard.press("Escape");
-    await sidebarAndMaximize("grid", false);
+    // The grid already fills the frame, so its header offers no Maximize (6969c116a).
+    await expect(panel.getByRole("button", { name: "Maximize" })).toHaveCount(0);
+    report.push("grid | header offers no Maximize");
     const close = panel.getByRole("button", { name: "Close grid" });
     const [cx, cy] = await centre(close);
     report.push(`grid | Close grid | y=${Math.round(cy)} | region=${await regionAt(page, cx, cy)}`);
