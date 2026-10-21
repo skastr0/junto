@@ -172,30 +172,38 @@ describe("the text a seat learns commands from", () => {
     expect([...new Set(refused)]).toEqual([]);
   });
 
-  /** Commands and ops the 0.10 deletions removed from every surface, and the waiver a finish no longer takes. */
+  /**
+   * Commands, ops and vocabulary the 0.10 deletions removed from every
+   * surface: the board, requests and reviews with migration 39, and the
+   * waiver a finish no longer takes.
+   */
   const DELETED: ReadonlyArray<RegExp> = [
     /\bjunto (?:pad|sheet|tasks)\b/,
+    /\btask verdict\b/,
     /\bartifact[ .]publish\b/,
     /\bscheduler[ .](?:fire|status|configure)\b/,
     /\brelay\.trigger\b/,
-    // The command; the port stays on reviews wires until canvas rewrites them.
-    /\b(?:junto )?verdict post\b/,
+    /\bverdict[ .]post\b/,
+    /\bboard[ .](?:list|topic|post|read|tags|create[-_]topic|mark[-_]read|notify)\b/,
+    /\brequest[ .](?:list|get|create|resolve|comment)\b/,
+    /`(?:board|requests|reviews)`/,
+    /\breviews (?:edges?|wires?|verb|grants?)\b/i,
     /--waive\b/,
     /\bwaivers?\b/i,
   ];
 
   /**
-   * Deleted for a plain seat, still dispatched for an overseer until the old
-   * task store and the reviews edge go: overseer task claim, update and
-   * promote, and overseer automation writes.
+   * Deleted for a plain seat, still dispatched for an overseer: task claim,
+   * update and promote until canvas deletes the old task store, and the
+   * automation writes, which are the operator's and an overseer's.
    */
   const DELETED_FOR_SEATS: ReadonlyArray<RegExp> = [
-    /(?<!overseer )\btask (?:claim|update|promote|verdict)\b/,
+    /(?<!overseer )\btask (?:claim|update|promote)\b/,
     /(?<!overseer )\bautomation (?:create|edit|enable|disable|archive|run)\b/,
   ];
 
   const deletedIn = (text: string, patterns: ReadonlyArray<RegExp>) =>
-    patterns.flatMap((pattern) => text.match(pattern) ?? []);
+    patterns.flatMap((pattern) => [...text.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))].map((match) => match[0]));
 
   it.each(Object.keys(SEAT_SURFACES))("%s names no deleted command or op", (surface) => {
     expect(deletedIn(SEAT_SURFACES[surface]!, [...DELETED, ...DELETED_FOR_SEATS])).toEqual([]);

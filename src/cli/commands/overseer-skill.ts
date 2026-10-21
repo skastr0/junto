@@ -53,14 +53,14 @@ Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit inp
 
 The canvas speaks the model's own types, with flat fields for each kind.
 
-- A **node** is told by its \`kind\`: \`agent\` (a seat), \`terminal\`, \`page\`, \`task\`, \`requests\`, \`artifacts\`, \`automations\`, \`board\`, \`note\`, \`label\`, \`file\`, \`link\`, \`git\`, \`region\`. Each kind has its own flat fields beside \`id\`, \`x\`, \`y\`, \`width\`, \`height\`, \`z\` and an optional \`color\`. A seat has \`agentKey\`, \`label\`, \`host\`, \`overseer\`, \`bindingId\`, \`harness\`, \`launch\`, \`onRemove\`; a region has \`label\`, \`hold\`, \`instruction\`, \`defaults\`, \`contract\`, \`environment\`. \`junto overseer schema show node.create\` prints every kind.
+- A **node** is told by its \`kind\`: \`agent\` (a seat), \`terminal\`, \`page\`, \`task\`, \`artifacts\`, \`automations\`, \`note\`, \`label\`, \`file\`, \`link\`, \`git\`, \`region\`. Each kind has its own flat fields beside \`id\`, \`x\`, \`y\`, \`width\`, \`height\`, \`z\` and an optional \`color\`. A seat has \`agentKey\`, \`label\`, \`host\`, \`overseer\`, \`bindingId\`, \`harness\`, \`launch\`, \`onRemove\`; a region has \`label\`, \`hold\`, \`instruction\`, \`defaults\`, \`contract\`, \`environment\`. \`junto overseer schema show node.create\` prints every kind.
 - A **wire** is \`{id, from, to, verb, mask?, fromSide?, toSide?}\`. \`from\` is the end that acts.
 
 Reads: \`canvas read\` answers \`{name, seq, nodes, wires}\`, nodes in paint order. \`node list\` answers \`{nodes}\`, \`node get\` \`{node}\`, \`wire list\` \`{wires}\`, \`wire get\` \`{wire}\`, \`canvas list\` one \`{name}\` per canvas. \`seq\` is a number that counts committed changes to that canvas.
 
 Every node those reads answer also carries \`regions\`: each region around it as \`{id, name}\`, outermost first, empty when it is in none (a region never lists itself). A seat also carries \`name\`, what it is called on the canvas. \`agent list\` and \`agent get\` answer \`name\` and \`regions\` the same way, so where a seat sits is read, never worked out from geometry.
 
-Reads answer structure, not work. No tasks, requests, artifacts, mail or board topics ride on a node. Read work with its own command: \`task list\`, \`request list\`, \`artifact list\` and \`artifact get\`, \`msg list\`, \`board list\` (each where this build has that family). \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
+Reads answer structure, not work. No tasks, artifacts or mail ride on a node. Read work with its own command: \`task list\`, \`artifact list\` and \`artifact get\`, \`msg list\` (each where this build has that family). \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
 
 Writes:
 
