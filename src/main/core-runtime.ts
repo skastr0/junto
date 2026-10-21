@@ -51,7 +51,11 @@ import { ModelService } from "./junto/model/service";
 import { SqlClient } from "effect/unstable/sql";
 import { shotEntitled } from "./junto/content/shot-entitlement";
 import { sweepPurgedShotCopies, unlessShotPurged } from "./junto/work/shot-purge";
-import { OWNER_ENTITLEMENT, isPullableOwnerKind } from "@shared/content-pull";
+import { OWNER_ENTITLEMENT, isPullableOwnerKind, operatorReachesResource } from "@shared/content-pull";
+import { signalFileEntitled } from "./junto/content/signal-entitlement";
+import { AgentSignalRepository } from "./junto/signals/repository";
+import { SignalFilePuller, judgeArrivedSignalFile } from "./junto/signals/file-puller";
+import { signalFileRefs } from "./junto/signals/taken-attachments";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
 import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
@@ -88,6 +92,12 @@ export class MachineCoreRows extends Context.Service<MachineCoreRows, {
    * it under `owner`. The resource must be in reach of who asked: `reached`.
    */
   readonly pullBody: (input: { readonly ref: ContentRef; readonly owner: PulledOwner; readonly reached: ResourceReached }) => Effect.Effect<void, ContentPullRefused | ContentPullFailed>;
+  /**
+   * On the machine that edits the canvas: bring a file a seat's signal
+   * attached here from the machine the seat lives on, keep it under the
+   * signal, and record it as its own bytes say it is.
+   */
+  readonly pullSignalFile: SignalFilePuller["Service"]["pull"];
   readonly onSignalTaken: (notify: (signal: AgentSignal) => void) => void;
 }>()("@junto/MachineCoreRows") {}
 
@@ -184,6 +194,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   // A purged shot's seat copies a sweep missed go now (B7).
   yield* sweepPurgedShotCopies(sql).pipe(Effect.catchCause((cause) => Effect.logWarning("purged shots' seat copies could not be swept", cause)));
   const model = yield* ModelService;
+  const signals = yield* AgentSignalRepository;
   const content = makeContentChannel({
     root: store.root,
     canvas: (canvasName, peer) => exchange.placement(canvasName).pipe(Effect.map((placement) => ({ edits: placement?.editor === self, peerLinked: placement?.holds(peer) ?? false }))),
@@ -191,14 +202,18 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     owners: (sha256, canvasName, peer) =>
       Effect.gen(function* () {
         const rows = yield* store.listRefs(sha256);
-        const byRow = rows.filter(({ owner }) => isPullableOwnerKind(owner.kind) && OWNER_ENTITLEMENT[owner.kind] === "row" && owner.canvasName === canvasName);
-        const placement = byRow.length === 0 ? undefined : yield* exchange.placement(canvasName);
-        const seats = placement === undefined ? [] : [...(yield* model.canvas(canvasName)).nodes.values()].filter((node) => node.kind === "agent").map((node) => node.id);
+        const ruleOf = (kind: string) => (isPullableOwnerKind(kind) ? OWNER_ENTITLEMENT[kind] : undefined);
+        const byRow = rows.filter(({ owner }) => ruleOf(owner.kind) === "row" && owner.canvasName === canvasName);
+        const bySeat = rows.filter(({ owner }) => ruleOf(owner.kind) === "seat" && owner.canvasName === canvasName);
+        const placement = byRow.length + bySeat.length === 0 ? undefined : yield* exchange.placement(canvasName);
+        const seats = placement === undefined || byRow.length === 0 ? [] : [...(yield* model.canvas(canvasName)).nodes.values()].filter((node) => node.kind === "agent").map((node) => node.id);
         return yield* Effect.forEach(rows, ({ owner }) =>
-          // An owner entitled by row is judged on its own record, with the placement as it is now.
-          byRow.some((row) => row.owner === owner) && placement !== undefined
+          // An owner entitled by its row is judged on its own record, with the placement as it is now.
+          placement !== undefined && byRow.some((row) => row.owner === owner)
             ? Effect.map(shotEntitled(sql, { owner, sha256, machine: peer, placement, seats }), (rowEntitled) => ({ kind: owner.kind, canvasName: owner.canvasName, rowEntitled }))
-            : Effect.succeed({ kind: owner.kind, canvasName: owner.canvasName }));
+            : placement !== undefined && bySeat.some((row) => row.owner === owner)
+              ? Effect.map(signalFileEntitled(signals, { owner, sha256, machine: peer, self, placement }), (rowEntitled) => ({ kind: owner.kind, canvasName: owner.canvasName, rowEntitled }))
+              : Effect.succeed({ kind: owner.kind, canvasName: owner.canvasName }));
       }),
   });
   const pulls = makeContentPulls();
@@ -219,6 +234,36 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     // A shot the operator purged is never pulled again (B7).
     return yield* unlessShotPurged(sql, owner, pull, () => failed("the operator removed this shot"));
   });
+  const pullSignalFile: MachineCoreRows["Service"]["pullSignalFile"] = ({ signal, ref }) => Effect.gen(function* () {
+    const failed = (message: string) => new ContentPullFailed({ sha256: ref.sha256, byteLength: ref.byteLength, message });
+    if (!signalFileRefs(signal.attachments).some((named) => named.sha256 === ref.sha256 && named.byteLength === ref.byteLength)) {
+      return yield* Effect.fail(failed("the signal attached no such file"));
+    }
+    const placement = yield* exchange.placement(signal.canvasName);
+    const home = placement?.seatOf(signal.nodeId)?.machine;
+    if (placement === undefined || home === undefined) return yield* Effect.fail(failed("this machine does not hold the seat's canvas"));
+    // The seat's own machine holds its files already.
+    if (home === self) return;
+    if (placement.editor !== self) return yield* Effect.fail(failed("only the machine that edits the canvas pulls a seat's file"));
+    const seatMachine = (yield* machines.peers.pipe(Effect.orElseSucceed(() => []))).find((peer) => peer.installationId === home);
+    if (seatMachine === undefined) return yield* Effect.fail(failed("the machine the seat lives on is not set up here"));
+    yield* pullContent({
+      root: store.root,
+      ask: (request) => links.request(seatMachine.machineName, "content", request),
+      // Kept as its own bytes say it is, never as its reference stated.
+      keep: (kept, keptOwner) => Effect.gen(function* () {
+        const judged = judgeArrivedSignalFile(store.root, kept, signal);
+        if ("refused" in judged) return yield* Effect.fail(failed(judged.refused));
+        yield* store.keepPublished({ ref: { ...kept, mediaType: judged.mediaType } as ContentRef, owner: keptOwner });
+        yield* signals.judgeFile(signal.signalId, kept, judged.mediaType);
+      }),
+      once: (object, transfer) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit),
+    }, {
+      ref,
+      owner: { kind: "signal", canvasName: signal.canvasName, nodeId: signal.nodeId, recordId: signal.signalId },
+      reached: operatorReachesResource(signal.canvasName, signal.nodeId as never),
+    });
+  });
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {
     stopFollowing();
@@ -227,7 +272,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     messageDelivery.followFiles(undefined);
     files.stop();
   }));
-  return { exchange, handler: makeRowsChannel(exchange), content, pullBody, onSignalTaken: notify => { notifySignal = notify; } };
+  return { exchange, handler: makeRowsChannel(exchange), content, pullBody, pullSignalFile, onSignalTaken: notify => { notifySignal = notify; } };
 }));
 
 export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
@@ -281,7 +326,13 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const links = machineLinkLayer(options.build);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
-  const pulls = Layer.provideMerge(Layer.effect(BodyPuller, Effect.map(MachineCoreRows, (held) => ({ pull: held.pullBody }))), rows);
+  const pulls = Layer.provideMerge(
+    Layer.mergeAll(
+      Layer.effect(BodyPuller, Effect.map(MachineCoreRows, (held) => ({ pull: held.pullBody }))),
+      Layer.effect(SignalFilePuller, Effect.map(MachineCoreRows, (held) => ({ pull: held.pullSignalFile }))),
+    ),
+    rows,
+  );
   // A seat's write on a canvas another machine edits is queued there, and waits for its ruling only while linked to it.
   const submit = Layer.provideMerge(
     Layer.unwrap(Effect.map(MachineCoreRows, (held) => makeResourceSubmitLayer((peer) => held.exchange.linked(peer)))),

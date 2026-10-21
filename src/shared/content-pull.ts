@@ -26,8 +26,8 @@ export const CONTENT_PULL_PIECE_BYTES = 512 * 1024;
 /** Pulls one machine runs at once, well inside the link's 32 requests in flight. */
 export const CONTENT_PULL_MAX_CONCURRENT = 4;
 
-/** The owners whose bodies a peer may pull: an artifact's body, a page comment's shot. */
-export const PULLABLE_OWNER_KINDS = ["artifact", "message"] as const;
+/** The owners whose bodies a peer may pull: an artifact's body, a page comment's shot, a signal's files. */
+export const PULLABLE_OWNER_KINDS = ["artifact", "message", "signal"] as const;
 export type PullableOwnerKind = (typeof PULLABLE_OWNER_KINDS)[number];
 
 /**
@@ -38,10 +38,14 @@ export type PullableOwnerKind = (typeof PULLABLE_OWNER_KINDS)[number];
  * - `row`: only a row that told the asker of these bytes, and crossed to it by
  *   the exchange's own rule, entitles it: a comment's shot is served to a
  *   machine the comment, or a notice of it, reached.
+ * - `seat`: the bytes live on the machine the seat lives on, not the editing
+ *   one. That machine serves them, only while the signal is open there, and
+ *   only to the machine its raise crossed to: the one that edits the canvas.
  */
-export const OWNER_ENTITLEMENT: { readonly [K in PullableOwnerKind]: "linked" | "row" } = {
+export const OWNER_ENTITLEMENT: { readonly [K in PullableOwnerKind]: "linked" | "row" | "seat" } = {
   artifact: "linked",
   message: "row",
+  signal: "seat",
 };
 export const isPullableOwnerKind = (kind: string): kind is PullableOwnerKind =>
   (PULLABLE_OWNER_KINDS as ReadonlyArray<string>).includes(kind);
@@ -68,8 +72,10 @@ export const ContentPullPiece = Schema.Struct({
 export type ContentPullPiece = typeof ContentPullPiece.Type;
 
 /**
- * Why the editing machine would not serve a piece, by what the asker does next:
- * - `not-editor`: this machine does not edit the canvas; ask the one that does.
+ * Why the machine asked would not serve a piece, by what the asker does next:
+ * - `not-editor`: this machine does not edit the canvas and serves the asker
+ *   nothing of it; a resource body is asked of the one that does, and a
+ *   seat's file is not pulled until a new raise names it.
  * - `not-held`: nothing to serve to this machine for this canvas, the body or
  *   its owner is not there or the asker is not linked for the canvas; stop
  *   until a new fact names the body.
@@ -98,7 +104,7 @@ export class ContentPullRefused extends Schema.TaggedError<ContentPullRefused>()
 
 const SENTENCE: Record<ContentPullReason, string> = {
   "not-editor": "the machine asked does not edit this canvas",
-  "not-held": "the machine that edits this canvas holds no body by that digest for this machine",
+  "not-held": "the machine asked holds no body by that digest for this machine",
   range: "the piece asked for is outside the object",
 };
 
@@ -108,7 +114,7 @@ export const contentPullRefusal = (reason: ContentPullReason): ContentPullRefusa
 export const contentPullRefused = (refusal: ContentPullRefusal, ref: { readonly sha256: string; readonly byteLength: number }): ContentPullRefused =>
   new ContentPullRefused({ reason: refusal.reason, sha256: ref.sha256, byteLength: ref.byteLength, message: SENTENCE[refusal.reason] });
 
-/** What the editing machine knows when a piece is asked for. */
+/** What the machine asked knows when a piece is asked for. */
 export type ContentPullFacts = {
   /** This machine edits the canvas named. */
   readonly edits: boolean;
@@ -118,20 +124,25 @@ export type ContentPullFacts = {
   readonly heldVerified: boolean;
   /**
    * Who holds a ref to the object, by owner kind and canvas, as the store
-   * holds them. `rowEntitled` is set for a kind entitled by row: whether a row
-   * naming these bytes for that owner crossed to the asking machine.
+   * holds them. `rowEntitled` is set for a kind entitled by its own row:
+   * whether a row naming these bytes for that owner crossed to the asking
+   * machine (`row`), or whether this machine serves that owner's file to it
+   * (`seat`), judged from this machine's store.
    */
   readonly owners: ReadonlyArray<{ readonly kind: string; readonly canvasName: string; readonly rowEntitled?: boolean }>;
 };
 
 /** Serve the piece, or the one reason not to. Pure. */
 export const admitContentPull = (request: ContentPullRequest, facts: ContentPullFacts): ContentPullReason | undefined => {
-  if (!facts.edits) return "not-editor";
-  const shared = facts.owners.some((owner) =>
-    isPullableOwnerKind(owner.kind) &&
-    owner.canvasName === request.canvasName &&
-    (OWNER_ENTITLEMENT[owner.kind] === "linked" || owner.rowEntitled === true));
-  if (!facts.peerLinked || !facts.heldVerified || !shared) return "not-held";
+  const admits = (owner: ContentPullFacts["owners"][number]): boolean => {
+    if (!isPullableOwnerKind(owner.kind) || owner.canvasName !== request.canvasName) return false;
+    const rule = OWNER_ENTITLEMENT[owner.kind];
+    // A seat's file is served by the seat's machine; every other body by the editing machine.
+    return rule === "seat" ? owner.rowEntitled === true : facts.edits && (rule === "linked" || owner.rowEntitled === true);
+  };
+  const shared = facts.peerLinked && facts.heldVerified && facts.owners.some(admits);
+  // A machine that serves nothing here says only that it does not edit the canvas, as before.
+  if (!shared) return facts.edits ? "not-held" : "not-editor";
   const inside = request.byteLength === 0 ? request.offset === 0 : request.offset < request.byteLength;
   return inside ? undefined : "range";
 };

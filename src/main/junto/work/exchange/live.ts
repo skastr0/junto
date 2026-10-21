@@ -17,7 +17,7 @@ import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
 import type { AgentSignal } from "@shared/agent-signals";
-import type { CanvasPlacement, ExchangeSignal } from "@shared/work-exchange";
+import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
 import { MachineRepository } from "../../machines/repository";
@@ -37,6 +37,8 @@ import { canvasPlacement, machineInstallations } from "../canvas-placement";
 import { makeRowExchange, type CopyInstalled, type ExchangeChange, type RowExchange } from "./session";
 import { encodeFailure } from "../../failure-encode";
 import { logMachine } from "../../observability/logger";
+import { releaseSignalAttachments } from "../../signals/attachments";
+import { takenSignalAttachments } from "../../signals/taken-attachments";
 
 export type LiveRowExchangeOptions = {
   /** Mail that arrived for a seat, for this machine to deliver if the seat is here. */
@@ -57,6 +59,9 @@ const stated = (signal: AgentSignal): ExchangeSignal => ({
   text: signal.text,
   ...(signal.detail === undefined ? {} : { detail: signal.detail }),
   ...(signal.suggestions === undefined ? {} : { suggestions: signal.suggestions }),
+  ...(signal.attachments === undefined || signal.attachments.length === 0
+    ? {}
+    : { attachments: signal.attachments.slice(0, EXCHANGE_MAX_SIGNAL_ATTACHMENTS) }),
   createdAt: signal.createdAt,
   ...(signal.state === "open" || signal.closedAt === undefined
     ? {}
@@ -254,8 +259,15 @@ export const makeLiveRowExchange = (
       copySent,
       installCopy,
       signals: (canvasName) => signals.listCanvas(canvasName).pipe(Effect.map((held) => held.map(stated))),
-      takeSignal: (canvasName, signal, raises) =>
-        signals.take({ ...signal, canvasName, raises }).pipe(
+      takeSignal: (canvasName, { attachments, ...signal }, raises) =>
+        signals.take({
+          ...signal,
+          canvasName,
+          raises,
+          ...(attachments === undefined ? {} : { attachments: takenSignalAttachments(attachments) }),
+        }).pipe(
+          // A signal closed by another machine lets go of its files here too.
+          Effect.tap((taken) => (taken === undefined ? Effect.void : releaseSignalAttachments(taken))),
           Effect.map((taken) => {
             if (taken === undefined) return;
             raisedHands.note(taken);

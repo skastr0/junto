@@ -16,7 +16,8 @@ export type ContentOwnerKind =
   | "task"
   | "message"
   | "artifact"
-  | "other";
+  | "other"
+  | "signal";
 
 export type ContentOwner = {
   readonly kind: ContentOwnerKind;

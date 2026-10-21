@@ -57,7 +57,8 @@ export type RaiseAgentSignal = AgentSignalSeat & {
 /**
  * A signal as another machine wrote it: the raise by the machine its seat
  * lives on, and the closing by the machine entitled to write it. Its words
- * cross; a file it carries stays on the machine that raised it.
+ * cross, and what it attached by reference (`takenSignalAttachments`): a
+ * file's bytes come later, pulled from the seat's machine.
  */
 export type TakenAgentSignal = AgentSignalSeat & {
   readonly signalId: string;
@@ -66,6 +67,8 @@ export type TakenAgentSignal = AgentSignalSeat & {
   readonly detail?: string;
   /** Pre-baked replies the raise carried, when the sender stated them. */
   readonly suggestions?: ReadonlyArray<string>;
+  /** What the raise attached, as kept here: a file of no stated kind until judged. */
+  readonly attachments?: ReadonlyArray<AgentSignalAttachment>;
   readonly createdAt: number;
   /** The closing to take, when the sender is the one that may write it. */
   readonly closing?:
@@ -141,6 +144,16 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
      */
     readonly take: (
       input: TakenAgentSignal,
+    ) => Effect.Effect<AgentSignal | undefined, AgentSignalRepositoryError>;
+    /**
+     * A file a signal attached, now judged from its bytes here: every part of
+     * the signal naming that object is recorded as `mediaType`. Answers the
+     * signal when this changed it, undefined when not.
+     */
+    readonly judgeFile: (
+      signalId: string,
+      object: Pick<ContentRef, "sha256" | "byteLength">,
+      mediaType: string,
     ) => Effect.Effect<AgentSignal | undefined, AgentSignalRepositoryError>;
     /**
      * A seat's answered signals by when they were answered, not raised: from
@@ -527,11 +540,19 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
           VALUES (${input.signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${input.createdAt}, 'open')
         `;
-        // Only the words cross: suggestions land as parts; a file never does.
-        for (const [position, suggestion] of (input.suggestions ?? []).entries()) {
+        // What it attached lands as parts by reference, then the suggestions behind them, as a raise stores them.
+        for (const [position, attachment] of (input.attachments ?? []).entries()) {
+          const part = partOf(attachment);
+          yield* sql`
+            INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption)
+            VALUES (${input.signalId}, ${position}, ${part.kind}, ${part.body}, ${attachment.caption ?? null})
+          `;
+        }
+        const offset = input.attachments?.length ?? 0;
+        for (const [index, suggestion] of (input.suggestions ?? []).entries()) {
           yield* sql`
             INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
-            VALUES (${input.signalId}, ${position}, ${SUGGEST_PART_KIND}, ${JSON.stringify({ text: suggestion })})
+            VALUES (${input.signalId}, ${offset + index}, ${SUGGEST_PART_KIND}, ${JSON.stringify({ text: suggestion })})
           `;
         }
         changed = true;
@@ -553,6 +574,29 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.take"),
     Effect.mapError(persistence("take")));
 
+    const judgeFileRow = Effect.fn("agent-signals.judge-file")(function* (
+      signalId: string,
+      object: Pick<ContentRef, "sha256" | "byteLength">,
+      mediaType: string,
+    ) {
+      // A file's body is its ref; a compare's two sides are refs at before and after.
+      let changed = 0;
+      for (const path of ["$", "$.before", "$.after"] as const) {
+        const updated = yield* sql`
+          UPDATE agent_signal_parts
+          SET body_json = json_set(body_json, ${`${path}.mediaType`}, ${mediaType})
+          WHERE signal_id = ${signalId}
+            AND kind = ${path === "$" ? "file" : "compare"}
+            AND json_extract(body_json, ${`${path}.sha256`}) = ${object.sha256}
+            AND json_extract(body_json, ${`${path}.byteLength`}) = ${object.byteLength}
+            AND json_extract(body_json, ${`${path}.mediaType`}) IS NOT ${mediaType}
+        `.raw.pipe(Effect.flatMap(changes));
+        changed += Number(updated.changes);
+      }
+      return changed > 0 ? yield* readOne(signalId) : undefined;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.judge-file"),
+    Effect.mapError(persistence("judge-file")));
+
     // Listeners hear of a write once it is committed, never from inside it.
     const told = <E, R>(write: Effect.Effect<AgentSignal, E, R>) =>
       write.pipe(Effect.tap((signal) => Effect.sync(() => emitAgentSignalChanged(signal))));
@@ -572,6 +616,10 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       dismiss: (signalId) => told(dismiss(signalId)),
       take: (input) =>
         takeRow(input).pipe(
+          Effect.tap((signal) => Effect.sync(() => (signal === undefined ? undefined : emitAgentSignalChanged(signal)))),
+        ),
+      judgeFile: (signalId, object, mediaType) =>
+        judgeFileRow(signalId, object, mediaType).pipe(
           Effect.tap((signal) => Effect.sync(() => (signal === undefined ? undefined : emitAgentSignalChanged(signal)))),
         ),
       listSeatAnswered,

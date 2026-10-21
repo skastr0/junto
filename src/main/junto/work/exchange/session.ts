@@ -32,6 +32,7 @@ import type { Message } from "@shared/work-model";
 import {
   EXCHANGE_MAX_FACTS_PER_FRAME,
   EXCHANGE_MAX_SIGNALS_PER_FRAME,
+  EXCHANGE_SIGNALS_FRAME_BUDGET,
   compareSequence,
   decodeExchangeFrame,
   entitledTo,
@@ -295,14 +296,30 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       if (placement === undefined || !placement.holds(state.link.peer)) return;
       const fresh: Array<{ readonly key: string; readonly stated: string; readonly signal: ExchangeSignal }> = [];
       for (const held of yield* deps.signals(canvasName).pipe(Effect.mapError(closed))) {
-        const signal = signalStatedTo(deps.self, state.link.peer, held, placement);
-        if (signal === undefined) continue;
+        const stating = signalStatedTo(deps.self, state.link.peer, held, placement);
+        if (stating === undefined) continue;
+        // A signal too large for a frame of its own crosses with its words only.
+        const { attachments: _attachments, ...words } = stating;
+        const signal = Buffer.byteLength(JSON.stringify(stating)) > EXCHANGE_SIGNALS_FRAME_BUDGET ? words : stating;
         const key = `${canvasName}::${signal.signalId}`;
         const stated = JSON.stringify(signal);
         if (state.signals.get(key) !== stated) fresh.push({ key, stated, signal });
       }
-      for (let at = 0; at < fresh.length; at += EXCHANGE_MAX_SIGNALS_PER_FRAME) {
-        const page = fresh.slice(at, at + EXCHANGE_MAX_SIGNALS_PER_FRAME);
+      // Pages of at most so many signals, and of at most so many bytes.
+      const pages: Array<typeof fresh> = [];
+      let bytes = 0;
+      for (const entry of fresh) {
+        const size = Buffer.byteLength(entry.stated);
+        const last = pages.at(-1);
+        if (last === undefined || last.length >= EXCHANGE_MAX_SIGNALS_PER_FRAME || bytes + size > EXCHANGE_SIGNALS_FRAME_BUDGET) {
+          pages.push([entry]);
+          bytes = size;
+        } else {
+          last.push(entry);
+          bytes += size;
+        }
+      }
+      for (const page of pages) {
         yield* send(state, {
           kind: "signals",
           canvasName,

@@ -17,6 +17,10 @@
  * canvas holds every resource fact for it, digests included
  * (docs/plans/0.10/02-universal-resources.md). If that entitlement ever
  * narrows below "linked for the canvas", this serve narrows in the same change.
+ *
+ * A signal's files are the one body that runs the other way: they live on
+ * the machine the seat lives on, which serves them to the editing machine
+ * alone, while the signal is open (OWNER_ENTITLEMENT `seat`).
  */
 import { Effect, Schema } from "effect";
 import {
@@ -61,19 +65,19 @@ const decodePiece = Schema.decodeUnknownSync(ContentPullPiece, { onExcessPropert
 export type ContentServeDeps = {
   /** This machine's content store. */
   readonly root: string;
-  /** Whether this machine edits the canvas, and whether that machine is linked for it. */
+  /** Whether this machine edits the canvas, and whether the asking machine is linked for it. */
   readonly canvas: (canvasName: string, peer: InstallationId) => Effect.Effect<{ readonly edits: boolean; readonly peerLinked: boolean }, unknown>;
   /** The manifest's word that the object is here and verified, at that length. */
   readonly verified: (ref: Pick<ContentRef, "sha256" | "byteLength">) => Effect.Effect<boolean, unknown>;
   /**
    * Who holds a ref to the object, read from this machine's store, never from
-   * the request; an owner entitled by row says whether a row naming these
-   * bytes for it crossed to the asking machine, judged now.
+   * the request; an owner entitled by its row says whether that row entitles
+   * the asking machine to these bytes, judged now from this machine's store.
    */
   readonly owners: (sha256: string, canvasName: string, peer: InstallationId) => Effect.Effect<ContentPullFacts["owners"], unknown>;
 };
 
-/** The editing machine's half: the link's `content` channel. */
+/** The serving half: the link's `content` channel, on the editing machine and on a seat's. */
 export const makeContentChannel = (deps: ContentServeDeps): LinkChannelHandler => ({
   decodeRequest,
   decodeResponse: decodePiece,
@@ -86,7 +90,8 @@ export const makeContentChannel = (deps: ContentServeDeps): LinkChannelHandler =
     const unreadable = () => new ContentServeFailed({ sha256: request.sha256, byteLength: request.byteLength, message: "the body could not be read here; ask again later" });
     return Effect.gen(function* () {
       const canvas = yield* deps.canvas(request.canvasName, context.peer.installationId);
-      const heldVerified = canvas.edits && canvas.peerLinked ? yield* deps.verified(request) : false;
+      // A seat's machine serves its signals' files without editing the canvas (OWNER_ENTITLEMENT).
+      const heldVerified = canvas.peerLinked ? yield* deps.verified(request) : false;
       const owners = heldVerified ? yield* deps.owners(request.sha256, request.canvasName, context.peer.installationId) : [];
       const reason = admitContentPull(request, { ...canvas, heldVerified, owners });
       if (reason !== undefined) return yield* Effect.fail(contentPullRefusal(reason));

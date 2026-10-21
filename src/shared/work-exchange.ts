@@ -14,6 +14,7 @@
 import { Schema } from "effect";
 import type { ActorSeatId } from "./actor-seat";
 import {
+  AgentSignalAttachment,
   AgentSignalDetail,
   AgentSignalKind,
   AgentSignalResponseText,
@@ -136,14 +137,24 @@ export const CopyRefusedFrame = Schema.Struct({
 export type CopyRefusedFrame = typeof CopyRefusedFrame.Type;
 
 export const EXCHANGE_MAX_SIGNALS_PER_FRAME = 32;
+/** What one signal may name when it crosses: more than this, and the rest stay where it was raised. */
+export const EXCHANGE_MAX_SIGNAL_ATTACHMENTS = 64;
+/**
+ * The most a signals frame says, encoded, under the link's 1 MiB frame. A
+ * signal that does not fit alone crosses without what it attached.
+ */
+export const EXCHANGE_SIGNALS_FRAME_BUDGET = 768 * 1024;
 
 const Epoch = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 /**
  * A seat's signal to the operator, as its writer states it. The machine the
  * seat lives on writes the raise and a withdrawal; the machine that edits the
- * canvas writes an answer or a dismissal. Only what the seat and the operator
- * wrote crosses: a file the signal carries stays where it was raised.
+ * canvas writes an answer or a dismissal. What the seat attached crosses with
+ * the raise as references, never bytes: the editing machine pulls a file from
+ * the seat's machine when the operator opens it (content-pull.ts, owner kind
+ * `signal`), and judges what it is from the bytes that arrive, never from the
+ * reference's stated type.
  */
 export const ExchangeSignal = Schema.Struct({
   signalId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
@@ -151,8 +162,10 @@ export const ExchangeSignal = Schema.Struct({
   kind: AgentSignalKind,
   text: AgentSignalText,
   detail: Schema.optionalKey(AgentSignalDetail),
-  /** The seat's pre-baked replies; text crosses where its files cannot. */
+  /** The seat's pre-baked replies. */
   suggestions: Schema.optionalKey(AgentSignalSuggestions),
+  /** What the seat attached, in its order, with the raise. */
+  attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment).pipe(Schema.check(Schema.isMaxLength(EXCHANGE_MAX_SIGNAL_ATTACHMENTS)))),
   createdAt: Epoch,
   closing: Schema.optionalKey(
     Schema.Union([
@@ -219,7 +232,9 @@ export const signalStatedTo = (
     return closing?.state === "withdrawn" ? signal : raised;
   }
   if (from === placement.editor && to === home) {
-    return closing !== undefined && closing.state !== "withdrawn" ? signal : undefined;
+    // The seat's machine wrote what was attached; the operator's closing is all it lacks.
+    const { attachments: _attachments, ...closed } = signal;
+    return closing !== undefined && closing.state !== "withdrawn" ? closed : undefined;
   }
   return undefined;
 };

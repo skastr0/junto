@@ -58,6 +58,22 @@ describe("admitting a pull", () => {
     expect(admitContentPull(request(), { ...held, owners: [{ kind: "artifact", canvasName: "factory", rowEntitled: false }] })).toBeUndefined();
   });
 
+  it("serves a signal's file from the seat's machine, which does not edit the canvas, only as its own row says", () => {
+    const file = { kind: "signal", canvasName: "factory" };
+    const seatMachine = { ...held, edits: false };
+    expect(admitContentPull(request(), { ...seatMachine, owners: [{ ...file, rowEntitled: true }] })).toBeUndefined();
+    expect(admitContentPull(request(), { ...seatMachine, owners: [{ ...file, rowEntitled: false }] })).toBe("not-editor");
+    expect(admitContentPull(request(), { ...seatMachine, owners: [file] })).toBe("not-editor");
+    expect(admitContentPull(request(), { ...seatMachine, heldVerified: false, owners: [{ ...file, rowEntitled: true }] })).toBe("not-editor");
+    expect(admitContentPull(request(), { ...seatMachine, peerLinked: false, owners: [{ ...file, rowEntitled: true }] })).toBe("not-editor");
+    expect(admitContentPull(request(), { ...seatMachine, owners: [{ kind: "signal", canvasName: "other-canvas", rowEntitled: true }] })).toBe("not-editor");
+    // A machine that does not edit the canvas serves no artifact or shot, whatever it holds.
+    expect(admitContentPull(request(), { ...seatMachine, owners: [{ kind: "message", canvasName: "factory", rowEntitled: true }] })).toBe("not-editor");
+    expect(admitContentPull(request(), seatMachine)).toBe("not-editor");
+    // On the editing machine a signal's file is still judged by its row.
+    expect(admitContentPull(request(), { ...held, owners: [{ ...file, rowEntitled: false }] })).toBe("not-held");
+  });
+
   it("refuses a piece outside the object, and takes the one piece of an empty object", () => {
     expect(admitContentPull(request({ offset: 1000 }), held)).toBe("range");
     expect(admitContentPull(request({ offset: 1001 }), held)).toBe("range");

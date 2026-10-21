@@ -5,7 +5,7 @@ import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { WorkItemQuery, WorkActorQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
-import { Effect, Result, Schema, Stream } from "effect";
+import { Effect, Option, Result, Schema, Stream } from "effect";
 import {
   OperatorThreadSend,
   SeatThreadPageQuery,
@@ -72,6 +72,8 @@ import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { appendSeatPrompt, type SeatPromptInput } from "./work/seat-prompt";
 import { AgentSignalRepository } from "./signals/repository";
+import { SignalFilePuller } from "./signals/file-puller";
+import { signalFileRefs } from "./signals/taken-attachments";
 import { onAgentSignalChanged } from "./signals/changes";
 import { wireSeatReports } from "./term/agent-state/seat-reports";
 import {
@@ -351,8 +353,6 @@ export const registerJuntoIpc = (): void => {
     },
   );
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
-  registerObservabilityIpc(privilegedIpc, broadcast);
-  if (FLEET_UI_ENABLED) {
   // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
   registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
     topology: (canvasName) =>
@@ -374,6 +374,8 @@ export const registerJuntoIpc = (): void => {
         }),
       }),
   }, broadcast);
+  registerObservabilityIpc(privilegedIpc, broadcast);
+  if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc);
   }
   registerUpdateIpc(
@@ -703,14 +705,35 @@ export const registerJuntoIpc = (): void => {
         dataUrl: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
       };
     }
-    const signal = await previewSourceSignal(request?.source);
+    let signal = await previewSourceSignal(request?.source);
     // An attachment is served by the signal's own list: its place there, then
     // the content store's file for that reference. No path from anyone.
     if (target?.kind === "attachment") {
-      const attachment = Number.isInteger(target.index) ? signal?.attachments?.[target.index] : undefined;
-      if (!attachment) return { ok: false, reason: "not-named" };
+      let attachment = Number.isInteger(target.index) ? signal?.attachments?.[target.index] : undefined;
+      if (!attachment || !signal) return { ok: false, reason: "not-named" };
       const open = (ref: ContentRef) =>
         AppRuntime.runPromise(Effect.flatMap(ContentService, (content) => content.openForRead(ref))).catch(() => undefined);
+      // A seat's file on another machine is pulled here the first time the
+      // operator opens it, and the signal then reads it as its bytes say.
+      const away: Array<ContentRef> = [];
+      for (const ref of signalFileRefs([attachment])) if ((await open(ref))?.state !== "verified") away.push(ref);
+      if (away.length > 0) {
+        const named = signal;
+        const pulled = await AppRuntime.runPromise(
+          Effect.serviceOption(SignalFilePuller).pipe(
+            Effect.flatMap((puller) =>
+              Option.isNone(puller)
+                ? Effect.succeed(undefined)
+                : Effect.forEach(away, (ref) => puller.value.pull({ signal: named, ref })).pipe(
+                    Effect.andThen(Effect.flatMap(AgentSignalRepository, (signals) => signals.get(named.signalId))),
+                  ),
+            ),
+            Effect.orElseSucceed(() => undefined),
+          ),
+        ).catch(() => undefined);
+        signal = pulled ?? signal;
+        attachment = signal.attachments?.[target.index] ?? attachment;
+      }
       if ("kind" in attachment) {
         if (attachment.kind === "commit") {
           return { ok: true, kind: "commit", name: attachment.sha.slice(0, 7), sha: attachment.sha };
