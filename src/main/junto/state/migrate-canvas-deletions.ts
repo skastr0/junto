@@ -62,7 +62,7 @@ const KEPT_VERBS = {
   feeds: "flows",
 } as const;
 
-const WIRES_V26_SQL = `
+const WIRES_V32_SQL = `
   CREATE TABLE IF NOT EXISTS wires (
     canvas_name TEXT NOT NULL REFERENCES canvases(canvas_name) ON UPDATE CASCADE,
     id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
@@ -102,7 +102,7 @@ const nodeTable = (name: string, fields: string): string => `
 `;
 
 /** Regions without `page_host`: a page lives on the browser's machine (R5). */
-const REGIONS_V26_SQL = nodeTable(
+const REGIONS_V32_SQL = nodeTable(
   "regions",
   `
     label TEXT,
@@ -119,7 +119,7 @@ const REGIONS_V26_SQL = nodeTable(
 );
 
 /** Pages without `host`, for the same reason. */
-const PAGES_V26_SQL = nodeTable(
+const PAGES_V32_SQL = nodeTable(
   "pages",
   `
     url TEXT NOT NULL,
@@ -131,7 +131,7 @@ const PAGES_V26_SQL = nodeTable(
  * The machine list without Hermes (R5): no Hermes identity, and a remote
  * machine's capability mask is terminals only.
  */
-const HOST_REGISTRY_V26_SQL = `
+const HOST_REGISTRY_V32_SQL = `
   CREATE TABLE host_registry (
     id TEXT PRIMARY KEY CHECK (
       length(id) BETWEEN 1 AND 64
@@ -219,12 +219,12 @@ const KEPT = {
       "rules_json", "rulings_json", "environment_json", "background", "background_style",
     ],
     order: "canvas_name, id",
-    sql: REGIONS_V26_SQL,
+    sql: REGIONS_V32_SQL,
   },
   pages: {
     columns: [...GEOMETRY_COLUMNS, "url", "profile", "on_remove"],
     order: "canvas_name, id",
-    sql: PAGES_V26_SQL,
+    sql: PAGES_V32_SQL,
   },
   // This machine first: a remote row is refused until it exists.
   host_registry: {
@@ -234,7 +234,7 @@ const KEPT = {
       "capability_mask", "appearance_color", "appearance_glyph", "sort_order",
     ],
     order: "is_this_machine DESC, sort_order",
-    sql: HOST_REGISTRY_V26_SQL,
+    sql: HOST_REGISTRY_V32_SQL,
   },
 } as const;
 
@@ -308,7 +308,7 @@ const rebuildWires = (database: StateSchemaMigrationDatabase, removedNodes: Read
   });
 
   database.exec("DROP TABLE wires");
-  database.exec(WIRES_V26_SQL);
+  database.exec(WIRES_V32_SQL);
   const insert = database.prepare(
     `INSERT INTO wires(${WIRE_COLUMNS.join(", ")}) VALUES (${WIRE_COLUMNS.map(() => "?").join(", ")})`,
   );

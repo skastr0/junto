@@ -210,8 +210,8 @@ it("validates wire grammar, forbids cycles, and removes incident wires atomicall
           canvas: "factory",
           nodes: [seat, node("t1", "task"), node("t2", "task"), node("t3", "task")],
           wires: [
-            { id: "w", from: "t1", to: "t3", verb: "feeds" },
-            { id: "flow", from: "t1", to: "t2", verb: "feeds" },
+            { id: "w", from: "t1", to: "t3", verb: "flows" },
+            { id: "flow", from: "t1", to: "t2", verb: "flows" },
           ],
         }),
         "operator",
@@ -223,7 +223,7 @@ it("validates wire grammar, forbids cycles, and removes incident wires atomicall
               _tag: "Add",
               canvas: "factory",
               nodes: [],
-              wires: [{ id: "cycle", from: "t2", to: "t1", verb: "feeds" }],
+              wires: [{ id: "cycle", from: "t2", to: "t1", verb: "flows" }],
             }),
             "operator",
           )
@@ -404,7 +404,7 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
           _tag: "Add",
           canvas: "factory",
           nodes: [protectedSeat, node("task", "task"), node("next", "task")],
-          wires: [{ id: "w", from: "task", to: "next", verb: "feeds" }],
+          wires: [{ id: "w", from: "task", to: "next", verb: "flows" }],
         }),
         "operator",
       );
@@ -441,7 +441,7 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
                 id: "duplicate",
                 from: "task",
                 to: "next",
-                verb: "feeds",
+                verb: "flows",
               },
             ],
           },

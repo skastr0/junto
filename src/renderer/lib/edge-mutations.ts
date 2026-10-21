@@ -220,7 +220,7 @@ export type EdgeBatchPlan = {
  * - A pair the verb grammar refuses skips with `refused-pair`.
  * - Each wire is stored in its verb's order, so a duplicate is judged on the
  *   stored pair rather than the order the operator happened to select in.
- * - A `feeds` hop that would close a cycle (against the canvas AND the hops
+ * - A `flows` hop that would close a cycle (against the canvas AND the hops
  *   already planned in this batch) skips with `flow-cycle`.
  */
 /** What a plan needs to know of a card: whether it takes a wire at all, and its kind. */
@@ -303,7 +303,7 @@ const planToTarget = (
       skipped.push({ source: sourceId, reason: "duplicate" });
       continue;
     }
-    if (verb === "feeds") {
+    if (verb === "flows") {
       const probe: PlanWire = { from: fromNode, to: toNode, verb };
       const cycle = loopIn([...prospective, probe]);
       if (cycle) {

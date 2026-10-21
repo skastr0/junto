@@ -20,7 +20,7 @@ export const removalPolicy = (
   removedWires: ReadonlyArray<Wire>,
 ): WorkRead | Promise<WorkRead> =>
   [...removedNodeIds].some((id) => canvas.nodes.get(asNodeId(id))?.kind === "task") ||
-  removedWires.some((wire) => wire.verb === "feeds")
+  removedWires.some((wire) => wire.verb === "flows")
     ? readTaskPolicy(canvasName)
     : taskPolicyRead([]);
 
@@ -70,8 +70,8 @@ export const wireRemovalWarnings = (
 ): ReadonlyArray<string> => {
   const bySource = new Map<string, { nextBoards: Set<string>; tasks: Set<string> }>();
   for (const wire of removedWires) {
-    // A feeds wire runs from the earlier board to its Next board.
-    if (wire.verb !== "feeds" || removedNodeIds.has(wire.from)) continue;
+    // A flows wire runs from the earlier board to its Next board.
+    if (wire.verb !== "flows" || removedNodeIds.has(wire.from)) continue;
     const impact = flowEdgeRemovalImpact(canvas, work, wire.from, wire.to);
     const entry = bySource.get(wire.from) ?? { nextBoards: new Set<string>(), tasks: new Set<string>() };
     entry.nextBoards.add(wire.to);

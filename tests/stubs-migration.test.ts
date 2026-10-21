@@ -16,7 +16,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import { nodeFromRow, nodeToRow } from "../src/main/junto/model/rows";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V29_IDENTITY,
@@ -24,7 +23,6 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { Node } from "../src/shared/model";
 import { STATE_SCHEMA_V29_SQL, STATE_SCHEMA_V30_SQL } from "./fixtures/state-v13/schema";
 
@@ -76,11 +74,9 @@ const stubs = [
 ].map((input) => Schema.decodeUnknownSync(Node)(input));
 
 describe("state migration 29 -> 30 (stubs)", () => {
-  it("freezes the witnesses the step starts from and ends at, and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V29_SQL)).toEqual(STATE_SCHEMA_V29_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V30_SQL)).toEqual(STATE_SCHEMA_V30_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V30_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(

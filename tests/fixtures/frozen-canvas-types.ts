@@ -72,7 +72,7 @@ const inferCandidate = (
   source: WellKnownKind,
   target: WellKnownKind,
 ): Verb | undefined => {
-  if (source === "task" && target === "task") return "feeds";
+  if (source === "task" && target === "task") return "flows";
   if (source === "agent" && target === "agent") return "messages";
 
   const sourceRole = roleOfKind(source);
@@ -931,7 +931,7 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         // drawn order, except a legacy flow config, which named its direction.
         const legacyFlow = eth === undefined ? undefined : asFlowConfig(eth.flow);
         const swap =
-          verb === "feeds" && legacyFlow?.source === toNode
+          verb === "flows" && legacyFlow?.source === toNode
             ? true
             : !verbsForPair(fromKind, toKind).includes(verb);
         const next: Record<string, unknown> = { ...rest };

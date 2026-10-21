@@ -1,37 +1,35 @@
 /**
  * The 0.10 deletions step drops the nodes and wires of removed kinds and
  * verbs, says `flows` where a wire said `feeds`, and drops the tables of
- * removed features. Proven on both fixtures brought to version 25 by the real
+ * removed features. Proven on both fixtures brought to version 31 by the real
  * steps, with rows in every table that goes and wires of every verb: what is
  * kept stays exactly as it was, and nothing else in the database moves.
- *
- * Until the code that reads the dropped tables is gone, the step runs here
- * through a stand-in plan, as the step after version 25.
  */
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import { decodeWire } from "../src/shared/model/wire";
+import { ModelRecords } from "../src/main/junto/model/records";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
-  CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
-  CANVAS_DELETIONS_REPLACED_TABLES,
   CANVAS_DELETIONS_RETIRED_COLUMNS,
-  migrateCanvasDeletions,
 } from "../src/main/junto/state/migrate-canvas-deletions";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  STATE_SCHEMA_CONSOLIDATE_SAFETY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
-  STATE_SCHEMA_V25_IDENTITY,
+  STATE_SCHEMA_V31_IDENTITY,
+  STATE_SCHEMA_V32_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V25_SQL, stepped } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V31_SQL, STATE_SCHEMA_V32_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -39,10 +37,15 @@ afterEach(async () => {
   dir = undefined;
 });
 
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
+const copyOf = async (fixture: string): Promise<string> => {
   dir = await mkdtemp(join(tmpdir(), "junto-canvas-deletions-migration-"));
   const path = join(dir, "junto.db");
   await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
+  return path;
+};
+
+const openCopy = async (fixture: string): Promise<DatabaseSync> => {
+  const path = await copyOf(fixture);
   const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
   database.exec("PRAGMA foreign_keys = ON");
   return database;
@@ -65,38 +68,15 @@ const rows = (database: DatabaseSync, table: string) =>
 const named = <T extends { readonly toVersion: number; readonly migrate: (database: DatabaseSync) => void }>(step: T): T =>
   step.toVersion === 21 ? { ...step, migrate: (database: DatabaseSync) => migrateMachineNames(database, "macbook") } : step;
 
-// From the frozen v25 text the fixtures were brought to, so a head schema in
-// flight cannot move it. A real database is checked on a copy of it.
-const STATE_SCHEMA_V26_SQL = stepped(STATE_SCHEMA_V25_SQL, migrateCanvasDeletions);
-
-const versionTwentyFivePlan: StateSchemaMigrationPlan = {
+const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPlan => ({
   ...STATE_SCHEMA_MIGRATION_PLAN,
-  currentVersion: 25,
-  currentSchemaSql: STATE_SCHEMA_V25_SQL,
-  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 25).map(named),
-};
+  currentVersion: version,
+  currentSchemaSql,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version).map(named),
+});
 
-/** The stand-in: the deletions step appended after version 25. */
-const deletionsPlan: StateSchemaMigrationPlan = {
-  ...versionTwentyFivePlan,
-  currentVersion: 26,
-  currentSchemaSql: STATE_SCHEMA_V26_SQL,
-  migrations: [
-    ...versionTwentyFivePlan.migrations,
-    {
-      fromVersion: 25,
-      toVersion: 26,
-      name: "delete what 0.10 deletes",
-      safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
-      fromIdentity: STATE_SCHEMA_V25_IDENTITY,
-      removesTables: [...CANVAS_DELETIONS_REMOVED_TABLES],
-      replacesTables: [...CANVAS_DELETIONS_REPLACED_TABLES],
-      retiresColumns: CANVAS_DELETIONS_RETIRED_COLUMNS,
-      correctiveWriteTables: [...CANVAS_DELETIONS_CORRECTED_TABLES],
-      migrate: migrateCanvasDeletions,
-    },
-  ],
-};
+const versionThirtyOnePlan = upTo(31, STATE_SCHEMA_V31_SQL);
+const deletionsPlan = upTo(32, STATE_SCHEMA_V32_SQL);
 
 const geometry = (id: string) => ({
   id, x: 0, y: 0, width: 10, height: 10, z_index: 1, color: null, created_at: "t", updated_at: "t",
@@ -162,9 +142,10 @@ const retired = (table: string, list: ReadonlyArray<Record<string, unknown>>) =>
     return kept;
   });
 
-describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
-  it("starts from the version-25 witness", () => {
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V25_SQL)).toEqual(STATE_SCHEMA_V25_IDENTITY);
+describe("state migration 31 -> 32 (the 0.10 deletions)", () => {
+  it("starts from the version-31 witness and ends at the version-32 one", () => {
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V31_SQL)).toEqual(STATE_SCHEMA_V31_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V32_SQL)).toEqual(STATE_SCHEMA_V32_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -172,14 +153,14 @@ describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
     async (fixture) => {
       const database = await openCopy(fixture);
       try {
-        migrateStateSchema(database, versionTwentyFivePlan);
+        migrateStateSchema(database, versionThirtyOnePlan);
         const canvas = firstCanvas(database);
         const wiresBefore = rows(database, "wires");
         seed(database, canvas);
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
 
         const result = migrateStateSchema(database, deletionsPlan);
-        expect(result).toMatchObject({ previousVersion: 25, schemaVersion: 26 });
+        expect(result).toMatchObject({ previousVersion: 31, schemaVersion: 32 });
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 
         const after = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
@@ -233,6 +214,23 @@ describe("state migration 25 -> 26 (the 0.10 deletions)", () => {
       for (const verb of ["messages", "reviews", "participates", "navigates", "flows"]) expect(() => write(verb)).not.toThrow();
     } finally {
       database.close();
+    }
+  });
+
+  it("writes a task to task wire through the model as flows and reads it back", async () => {
+    const path = await copyOf("command-center-v13.db");
+    const runtime = ManagedRuntime.make(Layer.provideMerge(ModelRecords.layer, makeStateEngineLive(path)));
+    try {
+      const wires = await runtime.runPromise(
+        Effect.gen(function* () {
+          const records = yield* ModelRecords;
+          yield* records.insertWire("factory", yield* decodeWire({ id: "path", from: "build", to: "review", verb: "flows" }));
+          return yield* records.listWires("factory");
+        }),
+      );
+      expect(wires.find((wire) => wire.id === "path")).toMatchObject({ from: "build", to: "review", verb: "flows" });
+    } finally {
+      await runtime.dispose();
     }
   });
 });

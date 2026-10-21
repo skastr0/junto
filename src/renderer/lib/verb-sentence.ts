@@ -10,7 +10,7 @@ const VERB_SENTENCE = {
   reviews: "{from} reviews {to}",
   participates: "{from} takes part in {to}",
   navigates: "{from} drives {to}",
-  feeds: "{from} feeds {to}",
+  flows: "{from} flows into {to}",
 } as const satisfies Record<Verb, string>;
 
 export const verbSentence = (verb: Verb, from: string, to: string): string =>

@@ -64,10 +64,10 @@ describe("board wake set", () => {
 describe("task paths", () => {
   const line = canvas(
     [thing("task", "a"), thing("task", "b"), thing("task", "c"), seat("ana")],
-    [wire("feeds", "a", "b"), wire("feeds", "b", "c"), wire("messages", "ana", "a")],
+    [wire("flows", "a", "b"), wire("flows", "b", "c"), wire("messages", "ana", "a")],
   );
 
-  it("follows feeds wires and nothing else", () => {
+  it("follows flows wires and nothing else", () => {
     expect(flowDestinations(line, "a")).toEqual(["b"]);
     expect(flowSources(line, "c")).toEqual(["b"]);
     expect(flowDestinations(line, "ana")).toEqual([]);
@@ -76,7 +76,7 @@ describe("task paths", () => {
   });
 
   it("names the cycle a closing wire would make", () => {
-    const loop = canvas([...line.nodes.values()], [...line.wires.values(), wire("feeds", "c", "a")]);
+    const loop = canvas([...line.nodes.values()], [...line.wires.values(), wire("flows", "c", "a")]);
     expect(validateFlowDag(loop)?.cycle).toEqual(["a", "b", "c"]);
   });
 });

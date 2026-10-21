@@ -45,7 +45,7 @@ import type { Task } from "../src/shared/work-model";
 const topology = (feeds = true): Canvas => {
   const nodes = ["a", "b"].map((id, z) => Schema.decodeUnknownSync(TaskBoard)({ kind: "task", id, x: z * 300, y: 0, width: 200, height: 100, z }));
   return { name: asCanvasName("c"), seq: 1, nodes: new Map(nodes.map((node) => [node.id, node])),
-    wires: feeds ? new Map([[asWireId("path"), { id: asWireId("path"), from: asNodeId("a"), to: asNodeId("b"), verb: "feeds" }]]) : new Map() };
+    wires: feeds ? new Map([[asWireId("path"), { id: asWireId("path"), from: asNodeId("a"), to: asNodeId("b"), verb: "flows" }]]) : new Map() };
 };
 const rows = (entries: ReadonlyArray<readonly [string, Task]>): WorkPolicyRead => ({
   ...work,

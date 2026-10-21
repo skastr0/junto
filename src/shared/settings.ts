@@ -102,10 +102,6 @@ export const CanvasSettings = Schema.Struct({
 export type CanvasSettings = typeof CanvasSettings.Type;
 
 export const KernelSettings = Schema.Struct({
-  // Retired Region Pulse product field. Optional so installed preference rows
-  // that still carry the key decode under onExcessProperty:error; product
-  // ignores the value. Not on KernelPatch / not in defaultKernel.
-  pulseLogRetention: Schema.optionalKey(positiveInt(5, 500)),
   debugVerbose: Schema.Boolean,
 });
 export type KernelSettings = typeof KernelSettings.Type;

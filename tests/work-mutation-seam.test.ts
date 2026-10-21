@@ -100,7 +100,7 @@ describe("work mutation seam — classification", () => {
     );
     const stale = [...classifiedTables].filter((table) => !declared.has(table));
     expect({ unclassified, stale }).toEqual({ unclassified: [], stale: [] });
-    expect(declared.size).toBeGreaterThan(25);
+    expect(declared.size).toBeGreaterThan(15);
   });
 
   it("reads the target table through the shapes the repository actually emits", () => {
@@ -122,7 +122,7 @@ describe("work mutation seam — classification", () => {
       ],
       ["UPDATE OR REPLACE work_artifacts SET a = 1", "work_artifacts"],
       ["DELETE FROM work_task_messages WHERE a = ?", "work_task_messages"],
-      ["REPLACE INTO work_pad_pins(a) VALUES (?)", "work_pad_pins"],
+      ["REPLACE INTO work_board_posts(a) VALUES (?)", "work_board_posts"],
       // formatting must not be a bypass
       ["insert into work_tasks(a) values (?)", "work_tasks"],
       ['INSERT INTO "work_tasks"(a) VALUES (?)', "work_tasks"],
@@ -153,7 +153,7 @@ describe("work mutation seam — classification", () => {
 describe("work mutation seam — the seam is the only route", () => {
   it("rejects a direct write to every work projection table", async () => {
     const projection = tablesWithRole("projection");
-    expect(projection.length).toBeGreaterThan(15);
+    expect(projection.length).toBeGreaterThan(10);
     for (const table of projection) {
       const message = await failure(
         `test.direct-write.${table}`,
@@ -260,7 +260,6 @@ describe("work mutation seam — the seam is the only route", () => {
     await succeeds(
       "test.cursor",
       Effect.gen(function* () {
-        yield* sql`DELETE FROM work_pad_read_cursors WHERE 1 = 0`;
         yield* sql`DELETE FROM work_board_read_cursors WHERE 1 = 0`;
       }),
     );
@@ -502,16 +501,6 @@ describe("work mutation sink attribution", () => {
     // repository supports, then check their sink attribution independently.
     const dynamic: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
       ["${table}", ["work_tasks", "work_requests"]],
-      [
-        "${table}",
-        [
-          "work_pad_images",
-          "work_pad_shapes",
-          "work_pad_edges",
-          "work_pad_inks",
-          "work_pad_pins",
-        ],
-      ],
     ];
 
     const statements: Array<string> = [];

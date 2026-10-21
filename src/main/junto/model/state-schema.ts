@@ -46,9 +46,6 @@ export const KIND_TABLES = {
   artifacts: "artifact_boards",
   automations: "automation_boards",
   board: "boards",
-  cron: "crons",
-  relay: "relays",
-  watcher: "watchers",
   note: "notes",
   label: "labels",
   file: "file_cards",
@@ -134,7 +131,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
     instruction TEXT,
     page_url TEXT,
     page_profile TEXT,
-    page_host TEXT,
     paths_json TEXT CHECK (paths_json IS NULL OR json_valid(paths_json)),
     rules_json TEXT CHECK (rules_json IS NULL OR json_valid(rules_json)),
     rulings_json TEXT CHECK (rulings_json IS NULL OR json_valid(rulings_json)),
@@ -147,7 +143,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
     "pages",
     `
     url TEXT NOT NULL,
-    host TEXT NOT NULL DEFAULT 'local',
     profile TEXT NOT NULL,
     on_remove TEXT NOT NULL CHECK (on_remove IN ('detach', 'kill-session'))`,
   )}
@@ -162,36 +157,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
   ${table("artifact_boards", "label TEXT")}
   ${AUTOMATION_BOARDS_STATE_SCHEMA_SQL}
   ${table("boards", "label TEXT")}
-  ${table("pads", "label TEXT")}
-  ${table("sheets", "label TEXT")}
-  CREATE TABLE IF NOT EXISTS sheet_grids (
-    canvas_name TEXT NOT NULL,
-    id TEXT NOT NULL,
-    columns_json TEXT NOT NULL CHECK (json_valid(columns_json)),
-    rows_json TEXT NOT NULL CHECK (json_valid(rows_json)),
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (canvas_name,id),
-    FOREIGN KEY (canvas_name,id) REFERENCES sheets(canvas_name,id) ON DELETE CASCADE ON UPDATE CASCADE
-  ) STRICT, WITHOUT ROWID;
-
-  ${table(
-    "crons",
-    `
-    label TEXT,
-    host TEXT NOT NULL DEFAULT 'local',
-    expression TEXT CHECK (expression IS NULL OR length(expression) > 0)`,
-  )}
-  ${table("relays", "label TEXT, host TEXT NOT NULL DEFAULT 'local'")}
-  ${table(
-    "watchers",
-    `
-    label TEXT,
-    host TEXT NOT NULL DEFAULT 'local',
-    watch_key TEXT,
-    stat TEXT,
-    op TEXT CHECK (op IN ('gt', 'lt', 'eq')),
-    value REAL`,
-  )}
   ${table("notes", "text TEXT NOT NULL")}
   ${table("labels", "text TEXT NOT NULL")}
   ${table("file_cards", "path TEXT NOT NULL, subpath TEXT")}
@@ -203,11 +168,7 @@ export const MODEL_STATE_SCHEMA_SQL = `
     id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
     from_id TEXT NOT NULL,
     to_id TEXT NOT NULL,
-    verb TEXT NOT NULL CHECK (verb IN (
-      'messages', 'reviews', 'manages', 'contributes', 'publishes',
-      'participates', 'reads', 'edits', 'navigates', 'fires', 'announces',
-      'works', 'feeds', 'wakes', 'enqueues', 'chains'
-    )),
+    verb TEXT NOT NULL CHECK (verb IN ('messages', 'reviews', 'participates', 'navigates', 'flows')),
     from_side TEXT CHECK (from_side IN ('top', 'right', 'bottom', 'left')),
     to_side TEXT CHECK (to_side IN ('top', 'right', 'bottom', 'left')),
     mask_json TEXT CHECK (mask_json IS NULL OR json_valid(mask_json)),

@@ -34,7 +34,7 @@ it("refreshes only changed policy rows and clears rows when their board is delet
 });
 
 it("keeps dependency choices and deletion consequences when topology carries no Work items", () => {
-  const canvas = canvasOf([taskBoard("first"), taskBoard("next")], [wire("path", "first", "next", "feeds")]);
+  const canvas = canvasOf([taskBoard("first"), taskBoard("next")], [wire("path", "first", "next", "flows")]);
   const policy = taskPolicyRead([
     { nodeId: "first", item: { id: "live", state: "working", history: [],
       visits: [{ board: "next", enteredAt: "2026-10-07", epoch: 0 }] } },

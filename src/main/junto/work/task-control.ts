@@ -25,6 +25,7 @@ import {
   parseTaskId,
   parseTaskNumber,
   seatNodeId,
+  TASK_FLOW_VERB,
   taskNodeId,
   type Reviewer,
   type SeatNodeId,
@@ -222,8 +223,7 @@ const noAutomationAuthor: AutomationAuthorOf = () => undefined;
 export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthorOf = noAutomationAuthor): TaskCanvasEnv => ({
   downstream: (node) =>
     [...canvas.wires.values()]
-      // `feeds` becomes `flows` (TASK_FLOW_VERB) with canvas C4; this line fails tsc when it does.
-      .filter((wire) => wire.verb === "feeds" && wire.from === node)
+      .filter((wire) => wire.verb === TASK_FLOW_VERB && wire.from === node)
       .map((wire) => taskNodeId(wire.to)),
   // Task nodes set no stamp default yet (04): none is required.
   stampDefaultOf: () => ({ required: 0 }),

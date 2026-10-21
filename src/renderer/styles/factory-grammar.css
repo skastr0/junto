@@ -198,7 +198,7 @@
 
    Temperature doctrine — hue answers "does this reach the real world?":
 
-   - HOT (manages, contributes, works, feeds, enqueues). The task-bound core:
+   - HOT (manages, contributes, works, flows, enqueues). The task-bound core:
      warm hue at full chroma, 0.145 and up. These five are the only verbs that
      co-occur around a single tasks card, so they were placed first and
      everything else was fitted around them.
@@ -231,7 +231,7 @@
    ground. */
 :root {
   /* Hot: warm hue, chroma 0.145 and up. */
-  --wire-verb-feeds: oklch(0.79 0.15 335);
+  --wire-verb-flows: oklch(0.79 0.15 335);
 
   /* Warm: same hues, half the chroma. */
   --wire-verb-participates: oklch(0.76 0.11 80);
@@ -248,7 +248,7 @@
    paper, where weight comes from darkness instead of light, so the ranks
    within a band are solved fresh rather than mirrored. */
 html[data-theme="bright"] {
-  --wire-verb-feeds: oklch(0.62 0.16 339);
+  --wire-verb-flows: oklch(0.62 0.16 339);
 
   --wire-verb-participates: oklch(0.36 0.065 98);
 

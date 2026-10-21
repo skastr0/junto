@@ -670,7 +670,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     args: ["overseer", "canvas", "batch"],
     input: { expectedSeq: 42, steps: [
       { operation: "node.create", node: { kind: "task", id: "backlog", name: "Backlog", x: 400, y: 0, width: 260, height: 120 } },
-      { operation: "wire.connect", wire: { from: "intake", to: "backlog", verb: "feeds" } },
+      { operation: "wire.connect", wire: { from: "intake", to: "backlog", verb: "flows" } },
     ] },
   },
   {

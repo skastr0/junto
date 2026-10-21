@@ -439,7 +439,7 @@ export const checkTaskCommand = (
 
 // ── pipelines ──────────────────────────────────────────────────────────────
 
-/** The one verb between task nodes, upstream to downstream (replaces `feeds`). */
+/** The one verb between task nodes, upstream to downstream. */
 export const TASK_FLOW_VERB = "flows" as const;
 
 // ── stored rows before 0.10 ────────────────────────────────────────────────

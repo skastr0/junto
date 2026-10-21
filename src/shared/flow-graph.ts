@@ -1,8 +1,8 @@
 import { Schema } from "effect";
 import type { Canvas } from "./model/canvas";
 
-// Task path graph derived from the `feeds` verb. Pure — no I/O.
-// A `feeds` wire runs from the upstream board to the downstream one, so the
+// Task path graph derived from the `flows` verb. Pure — no I/O.
+// A `flows` wire runs from the upstream board to the downstream one, so the
 // hop needs no separate direction config. The flow graph must
 // be a DAG: a hop that would close a cycle is rejected with FlowCycleError at
 // mutation time and at act time.
@@ -31,7 +31,7 @@ export class FlowCycleError extends Schema.TaggedError<FlowCycleError>()(
 export const flowHops = (canvas: Wired): ReadonlyArray<FlowHop> => {
   const hops: FlowHop[] = [];
   for (const wire of canvas.wires.values()) {
-    if (wire.verb === "feeds") {
+    if (wire.verb === "flows") {
       hops.push({ edgeId: wire.id, source: wire.from, destination: wire.to });
     }
   }

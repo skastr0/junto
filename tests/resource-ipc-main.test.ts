@@ -35,7 +35,7 @@ const board = canvasOf(
     taskBoard("T2", { x: 300, y: 300 }),
     artifacts("A", { x: 600, y: 10 }),
   ],
-  [wire("w1", "T", "T2", "feeds")],
+  [wire("w1", "T", "T2", "flows")],
 );
 const TASK = ItemId.make("01M5ESZPWMZZM3TZ88P6FVVK33");
 const OP = OpId.make("01M5ESZPWMZZM3TZ88P6FVVK35");

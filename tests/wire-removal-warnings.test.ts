@@ -11,8 +11,8 @@ const boards = [
   taskBoard("c", { name: "Ship" as never }),
   seat("worker"),
 ];
-const ab = wire("ab", "a", "b", "feeds");
-const ac = wire("ac", "a", "c", "feeds");
+const ab = wire("ab", "a", "b", "flows");
+const ac = wire("ac", "a", "c", "flows");
 const mail = wire("mail", "worker", "a", "messages");
 const canvas = canvasOf(boards, [ab, ac, mail]);
 const noWork = taskPolicyRead([]);

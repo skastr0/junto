@@ -280,7 +280,7 @@ describe("wires", () => {
     const fresh = canvasOf([seat("lead"), seat("nodes")]);
     const result = connected(fresh, { id: "w9", from: "lead", to: "nodes", verb: picked });
     expect(result.ok && result.wire.verb).toBe(picked);
-    const wrong = connected(fresh, { id: "w9", from: "lead", to: "nodes", verb: "feeds" });
+    const wrong = connected(fresh, { id: "w9", from: "lead", to: "nodes", verb: "flows" });
     expect(wrong.ok && wrong.wire.verb).toBe(admitted[0]);
   });
 
@@ -298,8 +298,8 @@ describe("wires", () => {
   });
 
   it.skipIf(!TASKS_ENABLED)("refuses a feed that would close a loop", () => {
-    const looped = canvasOf([board("tasks"), board("done")], [wire("f1", "tasks", "done", { verb: "feeds" })]);
-    const result = connected(looped, { id: "f2", from: "done", to: "tasks", verb: "feeds" });
+    const looped = canvasOf([board("tasks"), board("done")], [wire("f1", "tasks", "done", { verb: "flows" })]);
+    const result = connected(looped, { id: "f2", from: "done", to: "tasks", verb: "flows" });
     expect(result).toMatchObject({ ok: false, why: "cycle" });
   });
 
@@ -313,7 +313,7 @@ describe("wires", () => {
       ]);
     }
     expect(reverbed(masks, "w1", "messages")).toEqual([]);
-    expect(reverbed(masks, "w1", "feeds")).toEqual([]);
+    expect(reverbed(masks, "w1", "flows")).toEqual([]);
     expect(reverbed(masks, "gone", "messages")).toEqual([]);
   });
 

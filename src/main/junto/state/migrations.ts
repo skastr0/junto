@@ -33,6 +33,13 @@ import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { migrateRulingActor } from "./migrate-ruling-actor";
 import { migrateArtifactBodyRefs } from "./migrate-artifact-body-refs";
 import { migrateTaskModel } from "./migrate-task-model";
+import {
+  CANVAS_DELETIONS_CORRECTED_TABLES,
+  CANVAS_DELETIONS_REMOVED_TABLES,
+  CANVAS_DELETIONS_REPLACED_TABLES,
+  CANVAS_DELETIONS_RETIRED_COLUMNS,
+  migrateCanvasDeletions,
+} from "./migrate-canvas-deletions";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   actualStateSchemaSha256,
@@ -366,7 +373,18 @@ export const STATE_SCHEMA_V31_IDENTITY = {
     "b4f31a7c29db5bee02d6d2b851eae5aac95f3a9f061c839d52de60b984e92b3d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 31;
+/**
+ * Version 32 deletes what 0.10 deletes (plan 09): the pad, sheet and
+ * scheduler kinds with their nodes and wires, the verbs no kind says any
+ * more, `feeds` stored as `flows`, the tables of removed features, and
+ * Hermes from the machine list. Consolidate.
+ */
+export const STATE_SCHEMA_V32_IDENTITY = {
+  actualSchemaSha256:
+    "c9311b4af0b6f7dd1293b087cbf4402b67c5f184cd90b951cd8bd2bdd291ffda",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 32;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -374,7 +392,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 31;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V31_IDENTITY;
+  STATE_SCHEMA_V32_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -575,6 +593,18 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V30_IDENTITY,
     migrate: (database) => migrateTaskModel(database),
+  },
+  {
+    fromVersion: 31,
+    toVersion: 32,
+    name: "delete what 0.10 deletes",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V31_IDENTITY,
+    removesTables: [...CANVAS_DELETIONS_REMOVED_TABLES],
+    replacesTables: [...CANVAS_DELETIONS_REPLACED_TABLES],
+    retiresColumns: CANVAS_DELETIONS_RETIRED_COLUMNS,
+    correctiveWriteTables: [...CANVAS_DELETIONS_CORRECTED_TABLES],
+    migrate: migrateCanvasDeletions,
   },
 ];
 

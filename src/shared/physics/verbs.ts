@@ -27,7 +27,7 @@ export const Verb = Schema.Literals([
   "reviews",
   "participates",
   "navigates",
-  "feeds",
+  "flows",
 ]);
 export type Verb = typeof Verb.Type;
 
@@ -66,7 +66,7 @@ export const VERB_TABLE = {
     page: ["navigates"],
   },
   task: {
-    task: ["feeds"],
+    task: ["flows"],
   },
   // Terminal publishes nothing and offers no port: no verb speaks to it yet.
   terminal: {},
@@ -161,7 +161,7 @@ export const compileVerb = (
       return { ports: BOARD_PARTICIPATE_PORTS, wake: true };
     case "navigates":
       return { ports: ["browser.automate"] };
-    case "feeds":
+    case "flows":
       return { ports: NO_PORTS, flow: true };
     default: {
       const exhaustive: never = verb;
@@ -182,5 +182,5 @@ export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   reviews: "--wire-verb-reviews",
   participates: "--wire-verb-participates",
   navigates: "--wire-verb-navigates",
-  feeds: "--wire-verb-feeds",
+  flows: "--wire-verb-flows",
 };

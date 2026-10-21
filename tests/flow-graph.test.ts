@@ -14,14 +14,14 @@ const wired = (...wires: ReadonlyArray<Wire>): Pick<Canvas, "wires"> => ({
   wires: new Map(wires.map((entry) => [entry.id, entry])),
 });
 
-const flow = (from: string, to: string, tag = "") => wire("feeds", from, to, tag);
+const flow = (from: string, to: string, tag = "") => wire("flows", from, to, tag);
 
 describe("flow graph", () => {
   it("reads only task to task flow wires, in wire order", () => {
     const canvas = wired(flow("a", "b"), wire("messages", "a", "c"), flow("a", "d"));
     expect(flowHops(canvas)).toEqual([
-      { edgeId: "feeds:a:b", source: "a", destination: "b" },
-      { edgeId: "feeds:a:d", source: "a", destination: "d" },
+      { edgeId: "flows:a:b", source: "a", destination: "b" },
+      { edgeId: "flows:a:d", source: "a", destination: "d" },
     ]);
     expect(flowDestinations(canvas, "a")).toEqual(["b", "d"]);
   });

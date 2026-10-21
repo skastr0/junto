@@ -18,7 +18,7 @@ beforeEach(() => {
   for (const node of [taskBoard("build", { name: "Build" as never }), taskBoard("review", { name: "Review" as never })]) {
     modelStore.node$(canvas, node.id).set(node);
   }
-  const path = wire("path", "build", "review", "feeds");
+  const path = wire("path", "build", "review", "flows");
   modelStore.wire$(canvas, path.id).set(path);
 });
 afterEach(() => {

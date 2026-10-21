@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { productVerbEnabled } from "../src/shared/features";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -50,7 +51,7 @@ const publish = (id: string, fields: Record<string, unknown>) => {
   return node;
 };
 const wire = (id: string, from: string, to: string) => {
-  modelStore.wire$(canvas, id).set(decodeWire({ id, from, to, verb: "feeds" }));
+  modelStore.wire$(canvas, id).set(decodeWire({ id, from, to, verb: "flows" }));
   modelStore.canvas$(canvas).wireIds.set(Object.keys(modelStore.canvas$(canvas).wires.peek()));
 };
 const mount = async (content: ReactNode) => act(async () => {
@@ -186,6 +187,11 @@ it("changes a native wire verb as one undoable command and returns the old mask"
   (window as unknown as { junto: unknown }).junto = { ...window.junto, modelCommand };
   await mount(<KindSurface />);
   expect(document.body.textContent).toContain("Planner messages Reviewer");
+  // A build with reviews gated off offers no second verb for this pair.
+  if (!productVerbEnabled("reviews")) {
+    expect(document.querySelector('[aria-label="Change to reviews"]')).toBeNull();
+    return;
+  }
   await click('[aria-label="Change to reviews"]');
   await act(async () => { await flushPendingCanvasSave(); await flush(); });
   expect(modelCommand).toHaveBeenCalledOnce();

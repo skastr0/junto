@@ -295,67 +295,6 @@ describe("remote hosts registry", () => {
     expect((await registry.list()).map((host) => host.id)).toEqual(["macbook"]);
   });
 
-  it("reads rows that still carry a Hermes identity as plain hosts and writes none back", async () => {
-    const root = await mkdtemp(join(tmpdir(), "junto-hosts-hermes-retired-"));
-    dirs.push(root);
-    const databasePath = join(root, "junto.db");
-    const { registry } = await testRegistry(databasePath);
-    await registry.list();
-    const database = new DatabaseSync(databasePath);
-    try {
-      database.exec("UPDATE host_registry SET hermes_id = 'fleet-own', effective_hermes_id = 'fleet-own' WHERE is_this_machine = 1");
-      database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, hermes_id, effective_hermes_id, sort_order)
-        VALUES ('fleet-1', 'Fleet One', 0, 'fleet-1', 9, 'f1', 'f1', 1)`);
-      database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, effective_hermes_id, sort_order)
-        VALUES ('hermes-only', 'Hermes only', 0, 'hermes-only', 8, 'hermes-only', 2)`);
-    } finally {
-      database.close();
-    }
-    const fleet = await registry.get("fleet-1");
-    expect(fleet).toEqual({ id: "fleet-1", label: "Fleet One", isThisMachine: false, sshEndpoint: "fleet-1", capabilities: ["terminal"] });
-    expect(await registry.get("macbook")).not.toHaveProperty("hermesId");
-    expect((await registry.get("hermes-only"))?.capabilities).toEqual(["terminal"]);
-
-    await registry.upsert({ ...fleet!, label: "Fleet" });
-    await registry.upsert({ id: "macbook", label: "This Mac", isThisMachine: true, capabilities: ["terminal"] });
-    const after = new DatabaseSync(databasePath);
-    try {
-      expect(after.prepare("SELECT id, capability_mask, hermes_id, effective_hermes_id FROM host_registry ORDER BY sort_order").all()).toEqual([
-        { id: "macbook", capability_mask: null, hermes_id: null, effective_hermes_id: "macbook" },
-        { id: "fleet-1", capability_mask: 1, hermes_id: null, effective_hermes_id: null },
-        { id: "hermes-only", capability_mask: 8, hermes_id: null, effective_hermes_id: "hermes-only" },
-      ]);
-    } finally {
-      after.close();
-    }
-  });
-
-  it("reads a remote stored with the retired browser bit as terminal and writes the bit off", async () => {
-    const root = await mkdtemp(join(tmpdir(), "junto-hosts-browser-retired-"));
-    dirs.push(root);
-    const databasePath = join(root, "junto.db");
-    const { registry } = await testRegistry(databasePath);
-    await registry.list();
-    const database = new DatabaseSync(databasePath);
-    try {
-      database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, sort_order)
-        VALUES ('both', 'Both', 0, 'both', 3, 1), ('browser-only', 'Browser only', 0, 'browser-only', 2, 2)`);
-    } finally {
-      database.close();
-    }
-    const both = await registry.get("both");
-    expect(both?.capabilities).toEqual(["terminal"]);
-    expect((await registry.get("browser-only"))?.capabilities).toEqual(["terminal"]);
-
-    await registry.upsert({ ...both!, label: "Both again" });
-    const after = new DatabaseSync(databasePath);
-    try {
-      expect(after.prepare("SELECT capability_mask FROM host_registry WHERE id = 'both'").get()).toEqual({ capability_mask: 1 });
-    } finally {
-      after.close();
-    }
-  });
-
   it("hydrates persisted hosts before the first normal-boot route", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-hosts-boot-"));
     dirs.push(root);

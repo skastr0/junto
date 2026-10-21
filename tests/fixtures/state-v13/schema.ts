@@ -180,3 +180,9 @@ export const STATE_SCHEMA_V31_SQL = stepped(
   STATE_SCHEMA_V30_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 31)!.migrate,
 );
+
+// Version 32 deleted what 0.10 deletes (31 -> 32).
+export const STATE_SCHEMA_V32_SQL = stepped(
+  STATE_SCHEMA_V31_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 32)!.migrate,
+);

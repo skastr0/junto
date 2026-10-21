@@ -19,7 +19,7 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 const fixture = () => {
   const database = new DatabaseSync(":memory:");
   database.exec(MACHINE_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL);
-  database.exec("INSERT INTO host_registry(id,label,is_this_machine,effective_hermes_id,sort_order) VALUES ('macbook','This Mac',1,'macbook',0)");
+  database.exec("INSERT INTO host_registry(id,label,is_this_machine,sort_order) VALUES ('macbook','This Mac',1,0)");
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const runtime = ManagedRuntime.make(makeMachineRepositoryLive({
     makeInstallationId: () => Schema.decodeUnknownSync(InstallationId)("this-install"),
@@ -131,17 +131,7 @@ describe("machine repository", () => {
       // Log rows carry the new name at once, not after a restart.
       expect(logMachine()).toBe("studio");
       expect(await f.runtime.runPromise(repository.installationId)).toBe("this-install");
-      expect(f.database.prepare("SELECT id,label,effective_hermes_id FROM host_registry").get()).toEqual({ id: "studio", label: "This Mac", effective_hermes_id: "studio" });
-    } finally { await f.close(); }
-  });
-
-  it("clears a retired Hermes alias when a fresh machine is named", async () => {
-    const f = fixture();
-    try {
-      const repository = await f.runtime.runPromise(MachineRepository);
-      f.database.exec("UPDATE host_registry SET hermes_id = 'profiles', effective_hermes_id = 'profiles'");
-      await f.runtime.runPromise(repository.configureName("studio"));
-      expect(f.database.prepare("SELECT id,hermes_id,effective_hermes_id FROM host_registry").get()).toEqual({ id: "studio", hermes_id: null, effective_hermes_id: "studio" });
+      expect(f.database.prepare("SELECT id,label FROM host_registry").get()).toEqual({ id: "studio", label: "This Mac" });
     } finally { await f.close(); }
   });
 
@@ -157,12 +147,12 @@ describe("machine repository", () => {
     } finally { await f.close(); }
   });
 
-  it.each(["macbook", "studio"])("refuses renaming over stored placement %s", async (host) => {
+  it("refuses renaming over a stored page", async () => {
     const f = fixture();
     try {
       const repository = await f.runtime.runPromise(MachineRepository);
       f.database.exec("INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq) VALUES ('canvas','canvas-id','now','now',1)");
-      f.database.prepare("INSERT INTO pages(canvas_name,id,x,y,width,height,z_index,created_at,updated_at,url,host,profile,on_remove) VALUES ('canvas','page',0,0,100,100,0,'now','now','https://example.test',?,'default','detach')").run(host);
+      f.database.exec("INSERT INTO pages(canvas_name,id,x,y,width,height,z_index,created_at,updated_at,url,profile,on_remove) VALUES ('canvas','page',0,0,100,100,0,'now','now','https://example.test','default','detach')");
       await expect(f.runtime.runPromise(repository.configureName("studio"))).rejects.toThrow("a canvas has been authored or received");
       expect(await f.runtime.runPromise(repository.machineName)).toBe("macbook");
     } finally { await f.close(); }

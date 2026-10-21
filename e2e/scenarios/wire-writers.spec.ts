@@ -244,7 +244,7 @@ test.describe("wires between seats", () => {
 test.describe("a task path between two boards", () => {
   test.use({
     juntoOptions: {
-      seedModels: { [CANVAS]: modelFixture(boards, [modelWire("path", "build", "review", "feeds", boards)]) },
+      seedModels: { [CANVAS]: modelFixture(boards, [modelWire("path", "build", "review", "flows", boards)]) },
     },
   });
 
@@ -267,7 +267,7 @@ test.describe("a task path between two boards", () => {
     expect(await confirmsAsked(page)).toEqual([
       "Delete this relation? “Build” has 1 live task that will lose “Review” as its Next board. This removes “Build”’s last Next board, so tasks will complete here.",
     ]);
-    expect(await storedWires(page)).toEqual(["build feeds review"]);
+    expect(await storedWires(page)).toEqual(["build flows review"]);
 
     // Asked again, the operator says yes: one act, and undo puts the path back.
     await answerConfirms(page, true);
@@ -275,6 +275,6 @@ test.describe("a task path between two boards", () => {
     expect(await storedWires(page)).toEqual([]);
     await toCanvas(page);
     await oneAct(page, () => page.keyboard.press(undoKey));
-    expect(await storedWires(page)).toEqual(["build feeds review"]);
+    expect(await storedWires(page)).toEqual(["build flows review"]);
   });
 });

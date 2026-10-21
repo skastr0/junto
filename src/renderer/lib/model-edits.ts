@@ -321,7 +321,7 @@ export const connected = (
     ...(fromSide ? { fromSide } : {}),
     ...(toSide ? { toSide } : {}),
   };
-  if (verb === "feeds") {
+  if (verb === "flows") {
     const wires = new Map(canvas.wires);
     wires.set(wire.id, wire);
     const cycle = validateFlowDag({ wires });

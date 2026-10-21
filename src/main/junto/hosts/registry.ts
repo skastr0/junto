@@ -16,7 +16,6 @@ import {
 
 const MAX_HOSTS = 32;
 
-/** Bits 2 and 8 were the retired browser and Hermes capabilities; reads ignore them until the deletions step clears them. */
 const CAPABILITY_BITS = {
   terminal: 1,
 } as const satisfies Record<HostCapability, number>;
@@ -148,11 +147,9 @@ const capabilitiesFromMask = (
   mask: number | null,
 ): ReadonlyArray<HostCapability> => {
   if (mask === null) return [];
-  const capabilities = CAPABILITIES_IN_STORAGE_ORDER.filter(
+  return CAPABILITIES_IN_STORAGE_ORDER.filter(
     (capability) => (mask & CAPABILITY_BITS[capability]) !== 0,
   );
-  // A remote that claimed only a retired capability reads as terminal, as v26 copies it.
-  return capabilities.length > 0 ? capabilities : ["terminal"];
 };
 
 const rowToHost = (row: HostRow): RemoteHost => {
@@ -271,11 +268,9 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
     }).pipe(Effect.mapError((cause) => hostRowsError("read", cause)));
     const write = Effect.fn("HostRegistryRows.write")(function* (host: RemoteHost, sortOrder: number) {
       const mask = capabilityMask(host);
-      // Stand-in until v26 drops hermes_id and effective_hermes_id: the old CHECK wants the own row's id there.
-      const effectiveHermesId = host.isThisMachine ? host.id : null;
       yield* sql`INSERT INTO host_registry(
         id, label, is_this_machine, ssh_endpoint, ssh_identity_file, ssh_host_key_policy, ssh_port, ssh_known_hosts_file, ssh_host_key_alias, junto_home, install_root,
-        capability_mask, hermes_id, effective_hermes_id, appearance_color, appearance_glyph, sort_order
+        capability_mask, appearance_color, appearance_glyph, sort_order
       ) VALUES (${host.id}, ${host.label}, ${host.isThisMachine ? 1 : 0},
         ${!host.isThisMachine ? host.sshEndpoint ?? null : null},
         ${!host.isThisMachine ? host.sshIdentityFile ?? null : null},
@@ -285,13 +280,12 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
         ${!host.isThisMachine ? host.sshHostKeyAlias ?? null : null},
         ${!host.isThisMachine ? host.juntoHome ?? null : null},
         ${!host.isThisMachine ? host.installRoot ?? null : null},
-        ${mask}, NULL, ${effectiveHermesId},
+        ${mask},
         ${host.appearance?.color ?? null}, ${host.appearance?.glyph ?? null}, ${sortOrder})
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label, ssh_port = excluded.ssh_port, ssh_known_hosts_file = excluded.ssh_known_hosts_file, ssh_host_key_alias = excluded.ssh_host_key_alias, junto_home = excluded.junto_home, install_root = excluded.install_root, ssh_endpoint = excluded.ssh_endpoint,
         ssh_identity_file = excluded.ssh_identity_file, ssh_host_key_policy = excluded.ssh_host_key_policy,
-        capability_mask = excluded.capability_mask, hermes_id = excluded.hermes_id,
-        effective_hermes_id = excluded.effective_hermes_id, appearance_color = excluded.appearance_color,
+        capability_mask = excluded.capability_mask, appearance_color = excluded.appearance_color,
         appearance_glyph = excluded.appearance_glyph, sort_order = excluded.sort_order`;
     });
     const count = SqlSchema.findOne({

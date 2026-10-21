@@ -105,7 +105,7 @@ describe("task refs", () => {
 });
 
 // Region R holds seats alpha and beta and task nodes "CLI tasks" (tasks-1)
-// and "Review" (tasks-3); tasks-1 feeds tasks-3. Sibling region S holds seat
+// and "Review" (tasks-3); tasks-1 flows into tasks-3. Sibling region S holds seat
 // gamma and its own node also named "CLI tasks" (tasks-2).
 const box = (x: number, y: number, width = 50, height = 50) => ({ x, y, width, height });
 const canvas = {
@@ -121,7 +121,7 @@ const canvas = {
       { id: "tasks-2", kind: "task", name: "CLI tasks", ...box(800, 200) },
     ].map((node) => [node.id, node]),
   ),
-  wires: new Map([["w1", { id: "w1", from: "tasks-1", to: "tasks-3", verb: "feeds" }]]),
+  wires: new Map([["w1", { id: "w1", from: "tasks-1", to: "tasks-3", verb: "flows" }]]),
 } as unknown as Canvas;
 
 const caller: TaskCaller = {
@@ -326,7 +326,7 @@ describe("task verbs", () => {
 });
 
 describe("what the ruler reads of the canvas", () => {
-  it("sends on along feeds wires and checks seat reach", () => {
+  it("sends on along flows wires and checks seat reach", () => {
     const env = taskCanvasEnv(canvas);
     expect(env.downstream(tnode)).toEqual(["tasks-3"]);
     expect(env.seatReaches(seatNodeId(asNodeId("seat-b")), tnode)).toBe(true);
