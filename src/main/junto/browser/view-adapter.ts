@@ -55,8 +55,6 @@ interface AttachedElectronView {
 
 /** How long a recorded operator start waits for its navigation to begin. */
 const OPERATOR_START_MS = 5_000;
-/** Refused urls kept for the commit backstop; the oldest goes first. */
-const REFUSED_STARTS_MAX = 64;
 
 export interface ElectronBrowserViewAttachmentTarget extends BrowserCompositionViewBinder {
   readonly adapter: BrowserViewAdapter;
@@ -445,14 +443,14 @@ const makeElectronViewAdapter = (
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   // Main names the operator's own navigations; Electron's initiator does not
-  // (remote-security): a page can start one with none. Set just before the
-  // operator's loadURL or history step, consumed by the first cross-document
-  // start that matches it, and gone after OPERATOR_START_MS unmatched. Any
-  // other start is the page's.
-  let operatorStart: { readonly url: string } | { readonly step: "back" | "forward" | "reload" } | undefined;
+  // (remote-security): a page can start one with none. The exact target url,
+  // set just before the operator's loadURL or history step, consumed by the
+  // first cross-document start to it, and gone after OPERATOR_START_MS
+  // unmatched. Any other start is the page's.
+  let operatorStart: string | undefined;
   let operatorStartTimer: ReturnType<typeof setTimeout> | undefined;
-  const recordOperatorStart = (start: NonNullable<typeof operatorStart>): void => {
-    operatorStart = start;
+  const recordOperatorStart = (url: string): void => {
+    operatorStart = url;
     if (operatorStartTimer !== undefined) clearTimeout(operatorStartTimer);
     operatorStartTimer = setTimeout(() => {
       operatorStart = undefined;
@@ -460,19 +458,41 @@ const makeElectronViewAdapter = (
     }, OPERATOR_START_MS);
   };
   const takeOperatorStart = (url: string): boolean => {
-    const start = operatorStart;
-    if (start === undefined || ("url" in start && start.url !== url)) return false;
+    if (operatorStart === undefined || operatorStart !== url) return false;
     operatorStart = undefined;
     if (operatorStartTimer !== undefined) clearTimeout(operatorStartTimer);
     operatorStartTimer = undefined;
     return true;
   };
+  const admitsCommit = (url: string): boolean => {
+    try {
+      return events.admitsTopLevel(url, true);
+    } catch {
+      return false;
+    }
+  };
+  const stepTarget = (step: "back" | "forward" | "reload"): string | undefined => {
+    try {
+      if (step === "reload") {
+        const current = view.webContents.getURL();
+        return current === "" ? undefined : normalizeUrl(current);
+      }
+      const history = view.webContents.navigationHistory;
+      const entry = history.getEntryAtIndex(history.getActiveIndex() + (step === "back" ? -1 : 1));
+      return typeof entry?.url === "string" && entry.url !== "" ? normalizeUrl(entry.url) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   // Who began the cross-document navigation in flight: its redirects are theirs.
   let inFlightByPage = true;
   // The commit backstop: a refused start can still commit if its stop lands
-  // late (the stop waits a turn). Each refused url is kept until a start to
-  // it is admitted; a commit of one is rolled back to the last admitted url.
-  const refusedStarts = new Set<string>();
+  // late (the stop waits a turn), and nothing else may commit unadmitted. A
+  // main-frame commit stands only if it is the navigation main last admitted
+  // (its start, or a redirect the guard admitted for it), or the guard would
+  // admit it now as a page start. Anything else goes back to the last
+  // committed admitted url.
+  let admittedNavigation: string | undefined;
   let lastAdmittedUrl: string | undefined;
   let currentSessionId: string | undefined;
   let releaseWebPolicy: (() => void) | undefined;
@@ -492,7 +512,11 @@ const makeElectronViewAdapter = (
         },
       },
       testOnlyGrant,
-      (url, hook) => events.admitsTopLevel(url, hook === "frame" || inFlightByPage),
+      (url, hook) => {
+        const admitted = events.admitsTopLevel(url, hook === "frame" || inFlightByPage);
+        if (admitted && hook === "redirect") admittedNavigation = normalizeUrl(url);
+        return admitted;
+      },
     );
   } catch (error) {
     // Return a teardown-capable failed handle instead of throwing after the
@@ -525,14 +549,14 @@ const makeElectronViewAdapter = (
     if (!details.isSameDocument) {
       const byPage = !takeOperatorStart(normalizedUrl);
       if (!events.admitsTopLevel(normalizedUrl, byPage)) {
-        if (refusedStarts.size >= REFUSED_STARTS_MAX) refusedStarts.delete(refusedStarts.values().next().value!);
-        refusedStarts.add(normalizedUrl);
+        // A refused start replaces whatever was in flight: nothing is admitted now.
+        admittedNavigation = undefined;
         setImmediate(() => {
           if (!view.webContents.isDestroyed()) view.webContents.stop();
         });
         return;
       }
-      refusedStarts.delete(normalizedUrl);
+      admittedNavigation = normalizedUrl;
       inFlightByPage = byPage;
     }
     const previousNavigation = activeNavigation;
@@ -565,17 +589,17 @@ const makeElectronViewAdapter = (
   view.webContents.on("did-navigate", (_event, url) => {
     events.onDocumentCommitted(normalizeUrl(url));
     const committed = normalizeUrl(url);
-    if (refusedStarts.has(committed)) {
-      // Committed though refused: leave it for the last admitted page, as
-      // main's own start so the guard lets it through, and say so.
-      refusedStarts.delete(committed);
+    if (committed !== admittedNavigation && !admitsCommit(committed)) {
+      // Committed though nobody admitted it: leave it for the last admitted
+      // page, as main's own start so the guard lets it through, and say so.
+      admittedNavigation = undefined;
       activeNavigation = undefined;
       events.onNavigationBlocked("origin_mismatch");
       setImmediate(() => {
         if (view.webContents.isDestroyed()) return;
         view.webContents.stop();
         const back = lastAdmittedUrl ?? "about:blank";
-        recordOperatorStart({ url: normalizeUrl(back) });
+        recordOperatorStart(normalizeUrl(back));
         view.webContents.loadURL(back).catch(() => undefined);
       });
       return;
@@ -686,7 +710,7 @@ const makeElectronViewAdapter = (
       if (initializationFailure !== undefined) throw initializationFailure;
       const pending = { url: normalizeUrl(url), sessionId: expectedSessionId };
       expectedNavigation = pending;
-      if (byOperator === true) recordOperatorStart({ url: pending.url });
+      if (byOperator === true) recordOperatorStart(pending.url);
 
       const handleRejection = (error: unknown): void => {
         if (isAbortedLoadError(error)) {
@@ -769,7 +793,12 @@ const makeElectronViewAdapter = (
     traverse: (step, byOperator) => {
       if (initializationFailure !== undefined) throw initializationFailure;
       if (view.webContents.isDestroyed()) return;
-      if (byOperator === true && step !== "stop") recordOperatorStart({ step });
+      if (byOperator === true && step !== "stop") {
+        // The exact entry the step goes to; one that cannot be read records
+        // nothing, so the step is the page's and a touched origin refuses it.
+        const target = stepTarget(step);
+        if (target !== undefined) recordOperatorStart(target);
+      }
       switch (step) {
         case "back":
           view.webContents.navigationHistory.goBack();

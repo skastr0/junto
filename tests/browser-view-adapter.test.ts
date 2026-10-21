@@ -82,6 +82,13 @@ const electron = vi.hoisted(() => {
       canGoForward: () => this.navigationHistory.forward,
       goBack: () => this.historySteps.push("back"),
       goForward: () => this.historySteps.push("forward"),
+      entries: [] as string[],
+      active: 0,
+      getActiveIndex: () => this.navigationHistory.active,
+      getEntryAtIndex: (index: number) => {
+        const url = this.navigationHistory.entries[index];
+        return url === undefined ? undefined : { url, title: "" };
+      },
     };
     destroyed = false;
     backgroundThrottling = true;
@@ -736,6 +743,8 @@ describe("electron browser view generation seam", () => {
     handle.loadUrl("https://elsewhere.example.net/", "session-2", true);
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
     webContents.navigationHistory.back = true;
+    webContents.navigationHistory.entries = ["https://example.com/start", "https://elsewhere.example.net/"];
+    webContents.navigationHistory.active = 1;
     handle.traverse!("back", true);
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
     // Each record is used once: the next start to the same place is the page's.
@@ -749,6 +758,42 @@ describe("electron browser view generation seam", () => {
     handle.loadUrl("https://elsewhere.example.net/next", "session-3");
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/next"));
     expect(byPage).toEqual([true]);
+  });
+
+  it("refuses a page start to another url inside the five seconds after the operator's back", async () => {
+    const { handle, webContents, byPage, guard } = await setup();
+    guard.admits = (url, fromPage) => !fromPage || new URL(url).origin === "https://example.com";
+    webContents.navigationHistory.entries = ["https://example.com/start", "https://example.com/here"];
+    webContents.navigationHistory.active = 1;
+    handle.traverse!("back", true);
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    expect(byPage).toEqual([true]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.stopCalls).toBe(1);
+    // The step itself still goes, as the operator's.
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    expect(byPage).toEqual([true, false]);
+    // A step whose entry cannot be read records nothing: it is the page's.
+    byPage.length = 0;
+    webContents.navigationHistory.entries = [];
+    handle.traverse!("forward", true);
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    expect(byPage).toEqual([true]);
+  });
+
+  it("rolls back a commit of a url refused 65 starts earlier", async () => {
+    const { handle, webContents, guard, blocks } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1", true);
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    webContents.emit("did-navigate", {}, "https://example.com/start");
+    guard.admits = (url) => new URL(url).origin === "https://example.com";
+    for (let index = 0; index < 65; index += 1) {
+      webContents.emit("did-start-navigation", navigation(`https://elsewhere-${index}.example.net/`));
+    }
+    webContents.emit("did-navigate", {}, "https://elsewhere-0.example.net/");
+    expect(blocks).toEqual(["origin_mismatch"]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(webContents.loaded.at(-1)).toBe("https://example.com/start");
   });
 
   it("asks will-frame-navigate as the page's, and a redirect as whoever began the navigation", async () => {
