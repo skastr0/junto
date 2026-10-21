@@ -1,0 +1,214 @@
+{
+  "what": "cards board near-pan check for the 0.10 cut",
+  "spec": "e2e/scenarios/canvas-tier-budget.spec.ts -g \"cards board\" with the cards-board diff (nested preset, notesPerRegion [6, 8])",
+  "build": "clean worktree, JUNTO_FEATURE_PROFILE=all-on electron-vite build",
+  "commit": "009fec75d62b584ccd6014822da2e461b87f2e60",
+  "startedAt": "2026-10-21T15:33:53-03:00",
+  "load1AtStart": 9.6,
+  "idlePctAtStart": 64.5,
+  "board": {
+    "regions": 44,
+    "seats": 216,
+    "notes": 302
+  },
+  "baselineNearPanFps": [
+    98,
+    104
+  ],
+  "tiers": [
+    {
+      "tier": "near",
+      "zoom": 0.792,
+      "rest": {
+        "fps": 115,
+        "taskMsPerS": 187,
+        "paints": 20,
+        "rasterTasks": 26,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 30,
+        "motionLayers": 17,
+        "motionDrawn": 17,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 0,
+          "seatRings": 0,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      },
+      "pan": {
+        "fps": 92,
+        "taskMsPerS": 756,
+        "paints": 1340,
+        "rasterTasks": 451,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 30,
+        "motionLayers": 17,
+        "motionDrawn": 17,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 0,
+          "seatRings": 0,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      }
+    },
+    {
+      "tier": "mid",
+      "zoom": 0.455,
+      "rest": {
+        "fps": 114,
+        "taskMsPerS": 238,
+        "paints": 22,
+        "rasterTasks": 27,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 32,
+        "motionLayers": 19,
+        "motionDrawn": 19,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 1,
+          "seatRings": 1,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-node": 1,
+          "junto-mark__part": 1,
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      },
+      "pan": {
+        "fps": 109,
+        "taskMsPerS": 695,
+        "paints": 2774,
+        "rasterTasks": 507,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 29,
+        "motionLayers": 17,
+        "motionDrawn": 17,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 0,
+          "seatRings": 0,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      }
+    },
+    {
+      "tier": "far",
+      "zoom": 0.261,
+      "rest": {
+        "fps": 118,
+        "taskMsPerS": 222,
+        "paints": 25,
+        "rasterTasks": 42,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 46,
+        "motionLayers": 31,
+        "motionDrawn": 31,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 7,
+          "seatRings": 7,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-mark": 7,
+          "junto-mark__part": 7,
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      },
+      "pan": {
+        "fps": 117,
+        "taskMsPerS": 605,
+        "paints": 7302,
+        "rasterTasks": 683,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 47,
+        "motionLayers": 33,
+        "motionDrawn": 33,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 8,
+          "seatRings": 8,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-mark": 8,
+          "junto-mark__part": 8,
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      }
+    },
+    {
+      "tier": "overview",
+      "zoom": 0.15,
+      "rest": {
+        "fps": 119,
+        "taskMsPerS": 203,
+        "paints": 33,
+        "rasterTasks": 70,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 74,
+        "motionLayers": 53,
+        "motionDrawn": 53,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 18,
+          "seatRings": 18,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-mark": 18,
+          "junto-mark__part": 18,
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      },
+      "pan": {
+        "fps": 119,
+        "taskMsPerS": 559,
+        "paints": 368,
+        "rasterTasks": 1294,
+        "starved": 0,
+        "missingTiles": 0,
+        "layers": 70,
+        "motionLayers": 49,
+        "motionDrawn": 49,
+        "motionKinds": {
+          "pings": 17,
+          "parts": 16,
+          "seatRings": 16,
+          "clusterRings": 0
+        },
+        "motionLayerKinds": {
+          "junto-mark": 16,
+          "junto-mark__part": 16,
+          "junto-minimap-ping": 17
+        },
+        "pinned": 0
+      }
+    }
+  ]
+}
