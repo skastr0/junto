@@ -102,19 +102,17 @@ export type ArtifactCommentRow = {
 /** An artifact as a change trigger reads it. */
 export type ArtifactVersionRow = { readonly artifactId: string; readonly node: string; readonly version: number };
 
-/** A task state an automation wrote, so its change never triggers an automation. */
-const writtenKey = (taskId: string, state: string) => `${taskId}:${state}`;
-
 /**
  * The changes between two passes' views: a task that came into a state (a
  * new task too), and a seat whose state moved, gone included. The first pass
  * has nothing before it and is a baseline: it fires nothing. A task state an
- * automation wrote is marked `byAutomation`, so no automation fires on it.
+ * automation wrote, the same state from the same moment (`since`), is marked
+ * `byAutomation`, so no automation fires on it.
  */
 export const changesBetween = (
   before: ConditionView | undefined,
   after: ConditionView,
-  automationWrote: (taskId: string, state: string) => boolean,
+  automationWrote: (taskId: string, state: string, since: number) => boolean,
 ): ReadonlyArray<ChangeEvent> => {
   if (before === undefined) return [];
   const events: Array<ChangeEvent> = [];
@@ -128,7 +126,7 @@ export const changesBetween = (
       nodeId: task.node as NodeId,
       taskId: task.taskId as ItemId,
       becomes: task.state as TaskState,
-      byAutomation: automationWrote(task.taskId, task.state),
+      byAutomation: automationWrote(task.taskId, task.state, task.since),
     });
   }
   // An edit is a new head version of an artifact the pass before knew. Automations write no artifacts.
@@ -236,8 +234,8 @@ export type TaskPort = {
   readonly repository: TaskRepository["Service"];
   readonly writer: Effect.Effect<InstallationId, unknown>;
   readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, unknown>;
-  /** Told each task state an automation wrote. */
-  readonly wrote: (taskId: string, state: string) => void;
+  /** Told each task state an automation wrote, from when (its `stateSince`). */
+  readonly wrote: (taskId: string, state: string, since: number) => void;
 };
 
 type TaskWrite = { readonly opId: OpId; readonly nodeId: NodeId; readonly taskId: ItemId; readonly wire: TaskCommandWire };
@@ -269,7 +267,9 @@ const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automati
     );
     if (outcome.kind === "refused") return refusalReasonOf(outcome.error);
     if (!outcome.replay) {
-      port.wrote(outcome.task.id, outcome.task.state);
+      // Read back when the state it wrote began, so only that exact state is marked as the automation's.
+      const written = yield* port.repository.get(canvasName, outcome.task.id);
+      if (Option.isSome(written)) port.wrote(written.value.taskId, written.value.current.state, written.value.stateSince);
       noteResourceChanged("task", canvasName);
       // The ruling is committed: a lost notice never turns it into a refusal.
       yield* port.deliver({ canvas, canvasName, actor, opId: write.opId, task: outcome.task, effects: outcome.effects }).pipe(
@@ -435,17 +435,24 @@ export const AutomationRunnerLive = Layer.effect(
               Effect.provideService(MachineRepository, machines.value),
               Option.isSome(work) ? Effect.provideService(WorkService, work.value) : (effect) => effect,
             ),
-          wrote: (taskId, state) => {
-            automationWrites.add(writtenKey(taskId, state));
+          wrote: (taskId, state, since) => {
+            automationWrites.set(taskId, { state, since });
           },
         })
       : Option.none();
     // The canvas as it stood when this pass began; the ports read it synchronously.
     const canvases = new Map<string, Canvas>();
     const views = new Map<string, ConditionView>();
-    // Task states automations wrote, each told once to the diff that sees it.
-    const automationWrites = new Set<string>();
-    const automationWrote = (taskId: string, state: string) => automationWrites.delete(writtenKey(taskId, state));
+    // The last state an automation wrote on each task, and when it began. The
+    // diff that sees that task next takes the mark: it is the automation's
+    // only if the row is that state from that moment; anything later is not.
+    const automationWrites = new Map<string, { readonly state: string; readonly since: number }>();
+    const automationWrote = (taskId: string, state: string, since: number) => {
+      const mark = automationWrites.get(taskId);
+      if (mark === undefined) return false;
+      automationWrites.delete(taskId);
+      return mark.state === state && mark.since === since;
+    };
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       holds: (canvasName, condition) => conditionHolds(condition, views.get(canvasName) ?? EMPTY_VIEW),

@@ -124,7 +124,24 @@ describe("changesBetween", () => {
 
   it("marks a state an automation wrote, so no automation fires on it", () => {
     const after = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 5 }]);
-    expect(changesBetween(view([]), after, (taskId, state) => taskId === T && state === "backlog")).toMatchObject([{ byAutomation: true }]);
+    expect(changesBetween(view([]), after, (taskId, state, since) => taskId === T && state === "backlog" && since === 5)).toMatchObject([
+      { byAutomation: true },
+    ]);
+  });
+
+  it("does not mark a later change of a task an automation wrote: the mark is that state from that moment", () => {
+    // The automation assigned T at 5; a seat started it at 6 before the pass ran; a person reassigned it at 9.
+    const marks = new Map([[T, { state: "assigned", since: 5 }]]);
+    const wrote = (taskId: string, state: string, since: number) => {
+      const mark = marks.get(taskId);
+      marks.delete(taskId);
+      return mark !== undefined && mark.state === state && mark.since === since;
+    };
+    const assigned = view([{ taskId: T, node: "tasks-1", state: "backlog", since: 1 }]);
+    const working = view([{ taskId: T, node: "tasks-1", state: "working", since: 6 }]);
+    const reassigned = view([{ taskId: T, node: "tasks-1", state: "assigned", since: 9 }]);
+    expect(changesBetween(assigned, working, wrote)).toMatchObject([{ becomes: "working", byAutomation: false }]);
+    expect(changesBetween(working, reassigned, wrote)).toMatchObject([{ becomes: "assigned", byAutomation: false }]);
   });
 
   it("says a seat that started working, waits, and left", () => {
