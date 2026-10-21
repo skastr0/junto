@@ -19,11 +19,6 @@ export class UsagePreferences extends Context.Service<UsagePreferences,
     readonly subscribeEnabledSources: (
       listener: (enabled: ReadonlySet<string>) => void,
     ) => () => void;
-    /** Local + enrolled-host Hermes profile listing for the snapshot plane. */
-    readonly hermesHostSnapshots: () => boolean;
-    readonly subscribeHermesHostSnapshots: (
-      listener: (enabled: boolean) => void,
-    ) => () => void;
   }>()("@junto/UsagePreferences") {}
 
 export const UsagePreferencesLive = Layer.effect(
@@ -36,22 +31,15 @@ export const UsagePreferencesLive = Layer.effect(
     const enabledListeners = new Set<
       (enabled: ReadonlySet<string>) => void
     >();
-    const hermesHostListeners = new Set<(enabled: boolean) => void>();
     const enabledSources = (): ReadonlySet<string> =>
       new Set(current.enabledSources ?? []);
-    const hermesHostSnapshots = (): boolean => current.hermesHostSnapshots === true;
     const unsubscribe = settings.subscribe(() => {
       const before = (current.enabledSources ?? []).join("\0");
-      const beforeHermesHost = current.hermesHostSnapshots === true;
       const next = Effect.runSync(settings.resolveProviders);
       current = next;
       if ((current.enabledSources ?? []).join("\0") !== before) {
         const enabled = enabledSources();
         for (const listener of enabledListeners) listener(enabled);
-      }
-      if ((current.hermesHostSnapshots === true) !== beforeHermesHost) {
-        const enabled = hermesHostSnapshots();
-        for (const listener of hermesHostListeners) listener(enabled);
       }
     });
     yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
@@ -61,11 +49,6 @@ export const UsagePreferencesLive = Layer.effect(
       subscribeEnabledSources: (listener) => {
         enabledListeners.add(listener);
         return () => enabledListeners.delete(listener);
-      },
-      hermesHostSnapshots,
-      subscribeHermesHostSnapshots: (listener) => {
-        hermesHostListeners.add(listener);
-        return () => hermesHostListeners.delete(listener);
       },
     });
   }),

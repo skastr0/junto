@@ -116,8 +116,6 @@ const serviceRuntime = (
             read: () => ({ enabledSources: [] }),
             enabledSources: () => new Set(sources.map((source) => source.id)),
             subscribeEnabledSources: () => () => undefined,
-            hermesHostSnapshots: () => false,
-            subscribeHermesHostSnapshots: () => () => undefined,
           }),
         ),
       ),
