@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { ContentRef } from "./content-ref";
-import { ResourceSubject } from "../thread-subject";
+import { ResourceSubject } from "./thread-subject";
 
 /**
  * Mail threads as the desktop and the phone read them: the mail that hangs

@@ -483,7 +483,8 @@ Every schema a phone needs lives in modules whose import closure is only
 `src/shared/wire/agent-signals.ts` and the `src/shared/wire/content-ref.ts` its
 attachments use, `src/shared/wire/thread-health.ts`,
 `src/shared/wire/mail-threads.ts` (MailParty, MailThreadMessage,
-MailThreadSummary), `src/shared/wire/rings.ts` (the ring rule and its
+MailThreadSummary) and the `src/shared/wire/thread-subject.ts` its subjects
+use (Anchor and the resource subjects), `src/shared/wire/rings.ts` (the ring rule and its
 timing), `src/shared/wire/seat-activity.ts` (the seat grammar,
 `terminalActivity`, and the seat states it reads),
 `src/shared/wire/seat-ring.ts` (`companionSeatRing`, the ring a seat

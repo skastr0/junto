@@ -1,6 +1,13 @@
 import { Result, Schema } from "effect";
-import { NodeId } from "./physics/schema";
-import { ItemId } from "./work-ids";
+import type { NodeId } from "./physics/schema";
+import {
+  ResourceSubject,
+  TEXT_QUOTE_MAX,
+  ThreadSubject,
+  type Anchor,
+  type PlaceAnchor,
+  type TextAnchor,
+} from "./wire/thread-subject";
 
 /**
  * What a thread is about (plan 0.10, 03 section 4). Today's threads hang off
@@ -8,55 +15,29 @@ import { ItemId } from "./work-ids";
  * whose subject is that resource, and every row in it carries the subject in
  * `metadata.threadSubject`. A reply in a subject thread posts to the subject,
  * never to the sender. Co-owned by product-feed and pty.
+ *
+ * The shapes live in the wire module `wire/thread-subject.ts`, so the phone
+ * reads the same ones; this module re-exports them and holds the rules.
  */
-
-const Coordinate = Schema.Number.check(Schema.isFinite());
-const Extent = Coordinate.check(Schema.isGreaterThan(0));
-const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
-
-const CELL = /^([A-Z]{1,3})([1-9][0-9]{0,4})$/u;
-
-const columnNumber = (letters: string): number =>
-  [...letters].reduce((n, letter) => n * 26 + letter.charCodeAt(0) - 64, 0);
-
-/** An A1 range: `B2` or `A1:C4`, top left first. */
-export const isCellRange = (range: string): boolean => {
-  const [from, to, ...rest] = range.split(":");
-  if (rest.length > 0 || from === undefined) return false;
-  const a = CELL.exec(from);
-  if (a === null) return false;
-  if (to === undefined) return true;
-  const b = CELL.exec(to);
-  if (b === null) return false;
-  return columnNumber(a[1]!) <= columnNumber(b[1]!) && Number(a[2]) <= Number(b[2]);
-};
-
-export const WholeAnchor = Schema.Struct({ kind: Schema.Literal("whole") });
-export const BoxAnchor = Schema.Struct({
-  kind: Schema.Literal("box"),
-  x: Coordinate,
-  y: Coordinate,
-  w: Extent,
-  h: Extent,
-  /** The page the box was drawn on, for a browser page's comments. */
-  url: Schema.optionalKey(Schema.String),
-});
-export const CellsAnchor = Schema.Struct({
-  kind: Schema.Literal("cells"),
-  range: Schema.String.check(Schema.makeFilter((range) => isCellRange(range) || "an A1 range: B2 or A1:C4, top left first")),
-});
-/**
- * The most of a selection a text anchor quotes: enough to find the place
- * again, and bounded so a subject fits a mail's row envelope
- * (`mail-text-bound.ts`). A longer selection is quoted from its start.
- */
-export const TEXT_QUOTE_MAX = 1_000;
-export const TextAnchor = Schema.Struct({
-  kind: Schema.Literal("text"),
-  quote: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(TEXT_QUOTE_MAX)),
-  offset: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-});
-export type TextAnchor = typeof TextAnchor.Type;
+export {
+  Anchor,
+  ArtifactPlaceAnchor,
+  ArtifactSubject,
+  BoxAnchor,
+  CellsAnchor,
+  isCellRange,
+  LINES_FILE_MAX,
+  LinesAnchor,
+  MailboxSubject,
+  PageSubject,
+  PlaceAnchor,
+  ResourceSubject,
+  TaskSubject,
+  TEXT_QUOTE_MAX,
+  TextAnchor,
+  ThreadSubject,
+  WholeAnchor,
+} from "./wire/thread-subject";
 
 /** A quote cut to TEXT_QUOTE_MAX, never through a character's surrogate pair. */
 const cutQuote = (quote: string): string => {
@@ -86,58 +67,12 @@ const withQuoteCut = (held: unknown): unknown => {
   if (kind !== "text" || typeof quote !== "string" || quote.length <= TEXT_QUOTE_MAX) return held;
   return { ...held, anchor: { ...anchor, quote: cutQuote(quote) } };
 };
-/** The longest file path a lines anchor names: a repo path, not prose. */
-export const LINES_FILE_MAX = 1_024;
 /** The most of a file path a notice header prints. */
 const LABEL_FILE_MAX = 80;
-
-/** Git review's: lines of a file. Never an artifact's. */
-export const LinesAnchor = Schema.Struct({
-  kind: Schema.Literal("lines"),
-  file: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(LINES_FILE_MAX)),
-  from: Line,
-  to: Line,
-}).check(Schema.makeFilter((lines) => lines.from <= lines.to || "a lines anchor ends at or after its first line"));
-
-/**
- * Where on a resource a thread hangs: the whole of it, or one place in it.
- * The one Anchor; `artifact.ts` narrows it per artifact type.
- */
-export const Anchor = Schema.Union([WholeAnchor, BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor]);
-export type Anchor = typeof Anchor.Type;
-
-/**
- * The anchor a subject carries: one place, never `whole`. The whole resource
- * is an absent anchor, so one thread has one spelling. {@link subjectAnchorOf}
- * maps an Anchor to it.
- */
-const PlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor]);
-export type PlaceAnchor = typeof PlaceAnchor.Type;
-/** An artifact's places: any but git review's lines. */
-const ArtifactPlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor]);
-export type ArtifactPlaceAnchor = typeof ArtifactPlaceAnchor.Type;
 
 /** A subject's anchor for an Anchor: `whole` is none. */
 export const subjectAnchorOf = <A extends Anchor>(anchor: A): Exclude<A, { readonly kind: "whole" }> | undefined =>
   anchor.kind === "whole" ? undefined : (anchor as Exclude<A, { readonly kind: "whole" }>);
-
-export const MailboxSubject = Schema.Struct({ kind: Schema.Literal("mailbox"), seat: NodeId });
-export const TaskSubject = Schema.Struct({ kind: Schema.Literal("task"), nodeId: NodeId, taskId: ItemId });
-/** The writer runs `admitsAnchor` (artifact.ts) for the artifact's type before it writes one. */
-export const ArtifactSubject = Schema.Struct({
-  kind: Schema.Literal("artifact"),
-  nodeId: NodeId,
-  artifactId: ItemId,
-  anchor: Schema.optionalKey(ArtifactPlaceAnchor),
-});
-export const PageSubject = Schema.Struct({ kind: Schema.Literal("page"), nodeId: NodeId, anchor: Schema.optionalKey(PlaceAnchor) });
-
-export const ThreadSubject = Schema.Union([MailboxSubject, TaskSubject, ArtifactSubject, PageSubject]);
-export type ThreadSubject = typeof ThreadSubject.Type;
-
-/** A subject that is a resource: every subject but a seat's own mailbox. */
-export type ResourceSubject = Exclude<ThreadSubject, { readonly kind: "mailbox" }>;
-export const ResourceSubject = Schema.Union([TaskSubject, ArtifactSubject, PageSubject]);
 
 /** The metadata key a subject thread's rows carry their subject under. */
 export const THREAD_SUBJECT_KEY = "threadSubject";
