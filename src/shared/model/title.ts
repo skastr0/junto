@@ -111,6 +111,9 @@ export const titleOf = (node: Node): string => {
     case "artifacts":
     case "automations":
     case "board":
+    case "cron":
+    case "relay":
+    case "watcher":
       return compact(node.label) ?? node.kind;
   }
 };
