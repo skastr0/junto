@@ -8,7 +8,7 @@
  * never pans/zooms/focuses/resizes/switches the operator viewport.
  */
 import { randomBytes } from "node:crypto";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidProfileId } from "@shared/browser";
 import {
@@ -21,7 +21,7 @@ import {
   type OverseerResult,
   type OverseerArgsFor,
 } from "@shared/overseer-control";
-import type { WorkErrorBody } from "@shared/work-control";
+import { WorkErrorDetails, type WorkErrorBody } from "@shared/work-control";
 import { GIT_LOG_LIMIT_DEFAULT } from "@shared/git";
 import {
   type OverseerDeleteResource,
@@ -197,14 +197,28 @@ const asWorkError = (error: OverseerErrorBody): WorkErrorBody => {
             ? "InvalidTransition"
             : error.type === "Unsupported"
               ? "InputError"
-              : error.type === "RuntimeDown" || error.type === "NeedsUpdate"
+              : error.type === "RuntimeDown"
                 ? "RuntimeDown"
-                : "InternalError";
-  return {
-    type,
-    message: error.message,
-    ...(error.details === undefined ? {} : { details: { hint: String(error.details) } }),
-  };
+                : error.type === "NeedsUpdate"
+                  ? "NeedsUpdate"
+                  : "InternalError";
+  const details = workDetails(error.details);
+  return { type, message: error.message, ...(details === undefined ? {} : { details }) };
+};
+
+const decodeWorkDetails = Schema.decodeUnknownResult(WorkErrorDetails, { onExcessProperty: "error" });
+
+/** Details as data when they fit the work shape; a string is the hint, and anything else its JSON. */
+const workDetails = (details: unknown): WorkErrorDetails | undefined => {
+  if (details === undefined) return undefined;
+  if (typeof details === "string") return { hint: details };
+  const decoded = decodeWorkDetails(details);
+  if (Result.isSuccess(decoded)) return decoded.success;
+  try {
+    return { hint: JSON.stringify(details) ?? String(details) };
+  } catch {
+    return { hint: String(details) };
+  }
 };
 
 const OVERSEER_PAGE_OWNER = "overseer";

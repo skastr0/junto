@@ -91,6 +91,7 @@ const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
     case "RuntimeDown": case "Timeout": return "RuntimeDown";
     case "Paused": return "Conflict";
     case "InternalError": return "InternalError";
+    case "NeedsUpdate": return "NeedsUpdate";
   }
 };
 

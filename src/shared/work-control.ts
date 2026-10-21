@@ -169,7 +169,9 @@ export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
 "Timeout",
 "ReviewerIsAuthor",
 /** Written against an old version; `expected` is the head, and a retry on it may pass. */
-"Stale",]);
+"Stale",
+/** The seat's machine runs another Junto build; `machine` names it. */
+"NeedsUpdate",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
 
 /**
@@ -208,6 +210,8 @@ export const WorkErrorDetails = Schema.Struct({
   candidates: Schema.optionalKey(Schema.Array(TargetCandidate)),
   /** The write this refusal or timeout is about; a retry resends it. */
   opId: Schema.optionalKey(OpId),
+  /** The machine a refusal is about, by its host id, such as the one a NeedsUpdate names. */
+  machine: Schema.optionalKey(Schema.String),
 });
 export type WorkErrorDetails = typeof WorkErrorDetails.Type;
 
