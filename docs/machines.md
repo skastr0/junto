@@ -332,8 +332,9 @@ uses are Rule 4's; who gets them is Rule 5's.
   queued`. For a queued artifact write, `op show` and `op list` also carry
   its overlay: `pending`, `at_risk` with the domain's refusal, or `at_risk`
   waiting `base_not_pulled` with its root when the artifact's head body rode
-  by ref and is not pulled here. The overlay is computed when read and is
-  never a row. When a link opens the rows go over, the editing machine rules
+  by ref and is not pulled here, as does every write whose `after` chain
+  reaches one that waits. The overlay is computed when read and is never a
+  row; a task write has none yet. When a link opens the rows go over, the editing machine rules
   them in order, and the rulings come back; `op show` then says what became
   of each.
 - Owners: `remote-work` the queue, the ruler, the seat side and the fold;
