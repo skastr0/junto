@@ -1,6 +1,6 @@
 # Junto 0.10 — plan
 
-Status: draft for lead review. Owner: product-lead. Started 2026-10-21.
+Status: approved 2026-10-21, in execution ([10-execution.md](10-execution.md)). Owner: product-lead. Started 2026-10-21.
 Nothing here is built yet. Each document states the target, the contracts,
 what in the tree is kept, reshaped or deleted, and the open questions with
 the lead who answers them.
@@ -79,18 +79,8 @@ Ownership is my proposal; each lead confirms or corrects it in their reply.
 
 ## Sequencing
 
-Each phase lands on main behind nothing: a phase is done when its old path
-is deleted, not when the new one works beside it.
-
-0. **Deletions and doctrine.** 09 first. It shrinks every later diff.
-1. **Foundations.** Region reach (01), the resource fact channel (02), the
-   mention and thread core (03), continuity ledger v1 (08).
-2. **Tasks** (04).
-3. **Artifacts and feed associations** (05, 03 section 6).
-4. **Automations** (07).
-5. **Browser** (06).
-
-Phases 2 to 5 can overlap once phase 1 contracts are frozen.
+Superseded 2026-10-21: everything runs in parallel against shared contracts.
+See [10-execution.md](10-execution.md) for tracks, owners and the tracker.
 
 ## Operator decisions already made
 

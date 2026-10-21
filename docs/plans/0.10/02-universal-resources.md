@@ -151,28 +151,174 @@ the set grows by one (cli-lead):
   (`src/main/junto/content/machine-files.ts`). Signal attachments become refs
   and may cross.
 
-## Editing machine away: writes queue (redesign in progress)
+## Editing machine away: writes queue
 
 Operator decision 7: writes never fail because the editing machine is
-unreachable. Remote seats keep writing; the editing machine receives every
-queued change when it returns and rules them. Remote and canvas are
-redesigning this section; the questions it must answer:
+unreachable. Written by canvas-lead and remote-lead; points marked
+**(remote)** are remote-lead's to confirm or change.
 
-- **Local apply.** A queued write must show in the writing machine's reads
-  at once (the seat keeps working on its own result), as a pending state
-  over the last ruled state.
-- **Ruling the queue.** On return the editing machine rules queued commands
-  in a defined order (per machine in seq order, machines interleaved by
-  what?). Idempotence by opId as above.
-- **Refusal after the fact.** A queued write the editing machine refuses
-  (the task was assigned elsewhere meanwhile, an artifact base moved) must
-  reach the seat that wrote it, by mail with the reason, and its pending
-  state must roll back on every machine.
-- **Invariants under partition.** One open task per seat, stamps, task
-  numbers: which are checked locally as pending, which only at ruling.
-- **Rule 4.** Pending rows are the writing machine's own immutable rows;
-  only the editing machine's rulings change resource state.
-- Automations still run only on the editing machine and resume on return.
+### One path, not an offline mode
+
+1. **A command is a row.** The seat's core writes every resource command as
+   its own immutable `command.queued` row `(writer, seq)` carrying the opId,
+   the actor, the op and the basis: the editing machine's fact seq the core
+   had applied when the command was written. The row goes to the editing
+   machine on `rows` like any other row. The editing machine rules it and
+   writes `ruling.applied` or `ruling.refused` with its facts in one
+   transaction (condition 3), keyed by (writer, opId).
+2. **The same path whether the link is up or not.** With the link up, the
+   ruling comes back in milliseconds and the queue is invisible. With it
+   down, the row waits, as mail waits (`docs/machines.md:82-85`). No branch
+   decides "offline".
+3. **(remote)** This replaces the request and ruling channel proposed under
+   Contracts. A machine that does not edit the canvas offers only its own
+   rows, and only to the editing machine
+   (`src/main/junto/work/exchange/session.ts:273-276`). Cursors, catch up
+   and credit drain the backlog after a return, so the 32-in-flight and 30 s
+   bounds (`session.ts:32,281,284`) no longer apply to commands. Command rows
+   are not resource state, so Rule 4 holds. The exchange filter admits
+   `command.queued` only from the machine that placement says the actor is
+   on (condition 1), the same rule as mail. `operator` commands are written
+   on the editing machine itself, so the operator never queues.
+4. **The CLI says which happened**, as mail does. It waits briefly for the
+   ruling (**(remote)**: about 2 s) and then returns `applied`, `refused`
+   (the typed error) or `queued` with the opId. `queued` is a success. A
+   later `junto task show` or `junto queue list` shows the outcome.
+
+### Pending state
+
+- The writing machine reads **last ruled state plus its own pending
+  commands**, applied in seq order by the same pure domain reducer that the
+  editing machine rules with (`src/shared/`, one function for both). Pending
+  items are marked `pending: true` with their opId in CLI output, and drawn
+  dashed in the UI. The overlay is computed at read time. It is never a row
+  and never state.
+- Pending commands are visible only on the machine that wrote them. In v1
+  every link runs between the editing machine and one other machine, so no
+  other machine receives them before they are ruled. **(remote)**: this
+  stays true if machines ever link to each other directly. Pending rows are
+  for the editing machine only and are never relayed for display.
+- Ids are minted by the writer and never change at ruling: task ids are
+  already ULIDs (`src/main/junto/work/service.ts:213`), and artifact ids and
+  thread ids follow the same pattern. A mention written against a pending
+  task uses the id link form (03) and stays valid after the task is ruled.
+
+### What happens only at ruling
+
+Nothing derived from a resource command leaves the writing machine before it
+is ruled:
+
+- **Mail derived from a resource command:** mention mail, assignment
+  notices, stamp requests and comment delivery to a resource's people. The
+  applied ruling names the recipients. The actor's own machine then writes
+  that mail when its cursor covers the ruling, so mail is still written by
+  the machine of the seat it is from (`docs/security-doctrine.md:245`), and a
+  refused command never leaves delivered mail behind. Plain seat-to-seat
+  mail on a `messages` edge is not a resource command and works as today.
+- **Derived transitions:** stamps met moves the task to `done`, a task sent
+  on arrives at the next node, an unassign returns the task to `backlog`.
+  Locally a pending approve that would meet the count shows as
+  `in-review, 2 of 2 approvals pending`, never as `done`.
+- **Automations** fire only on ruled facts, run only on the editing machine,
+  and resume when it returns (07). On return a schedule fires once for its
+  latest missed slot, with its `when` conditions rechecked. Earlier missed
+  slots are recorded as skipped, as today's cron coalesces them
+  (`src/main/junto/kernel/cycle.ts:406`).
+- **Short task numbers** (`T-42`) are minted only by the editing machine,
+  from a per-canvas counter, when it rules the create. A pending task has no
+  number; it is named by id. `#T-42` resolves only ruled numbers.
+
+### Invariants under partition
+
+Every invariant is checked twice, with the same code. On the writing
+machine, against its pending view, the check refuses at once a command that
+is already wrong there; that refusal comes from the domain, not from the
+editing machine being away. At ruling, against the editing machine's state,
+the check is the only one that counts.
+
+How much the local check is worth depends on whose actions it covers.
+All of a seat's own pending work is on its own machine, so a check on the
+seat's own actions is reliable unless another machine acted on the same
+seat or task meanwhile. A check on what others do (assigning another seat,
+stamps, dependencies across nodes) runs against ruled state that may be
+old, so it is advisory and the ruling decides (remote-lead).
+
+| Invariant | Local check | Ruled | When the two disagree |
+|---|---|---|---|
+| Ids unique | By construction (ULID) | Yes | Cannot collide |
+| Task numbers | Not minted | Minted | Nothing to disagree |
+| One open task per seat (04 inv. 2), own start or self-assign | Reliable | Yes | First ruled wins |
+| One open task per seat, assigned by another seat | Advisory | Yes | First ruled wins |
+| One assignee per task (04 inv. 1) | Advisory | Yes | First ruled wins |
+| Only the assignee transitions (04 inv. 3) | Reliable | Yes, against the ruled assignee | Refused, dependents refused |
+| Reach (01) | On the local copy | Yes, at the ruling seq (01 rule 3) | Refused, except the assignee's own transitions (01) |
+| Stamp counts at current epoch | Advisory | Yes | Refused `Stale`, `expected` is the epoch |
+| Assignee cannot stamp its own task | Reliable | Yes | Refused |
+| Dependencies stay a DAG | Advisory | Yes | Refused (a cycle can form only across machines) |
+| Finish checks pass for this epoch | Run in the seat's environment, as today | Epoch compared | Refused `Stale` when the epoch moved |
+| Artifact `replace` on `baseVersion` | Advisory | Yes | Refused `Stale` with the head; the body is kept |
+| Artifact `patch` | Advisory | Rebased onto the head (05) | Refused only when the rebase conflicts; the patch is kept |
+
+**First ruled wins** is the honest rule for one open task per seat. Seat S
+on a machine that is away starts task X; meanwhile, on the editing machine,
+the operator assigns Z to S. When S's machine returns, S's start of X is
+refused, and S's pending work on X rolls back in Junto's record (not in git:
+commits and files are the seat's, and Junto never touches them). The refusal
+tells S exactly what to do: unassign Z or ask for it to move, then start X
+again. Ruling order puts nothing above "first": the operator, the seat's own
+machine and wall-clock time get no priority, because clocks across machines
+are not trusted and a priority rule would only move the surprise elsewhere.
+
+### Ruling order
+
+- **Within one writer:** strictly in seq order, which is the order that
+  writer's seats saw.
+- **Across writers:** the order rows reach the editing machine. A machine's
+  backlog drains in its seq order while live commands from other machines
+  interleave with it. There is no fairness promise and no wall-clock merge.
+- Each command is ruled against the **current** ruled state, not against
+  its basis. An old basis alone is never a refusal; a domain rule that fails
+  now is. The basis is recorded so a refusal can say what changed since.
+
+### Refusal and rollback
+
+1. **Cascade within a queue.** When the overlay applies a pending command
+   that touches an entity created or changed by an earlier pending command
+   of the same writer, the command records that opId as its `after`. When
+   the editing machine refuses a command, it refuses every later command of
+   that writer whose `after` chain reaches it, with
+   `details.reason: "depends_on_refused"` and the root opId. Unrelated
+   pending commands from the same queue are still ruled on their own merits.
+2. **Rollback is the ruling arriving.** Pending rows are immutable and never
+   deleted. The overlay drops a pending command once the writer's cursor
+   covers its ruling: if applied, the ruled facts take its place; if
+   refused, it disappears. No other machine ever showed it, so there is
+   nothing to undo anywhere else. Rulings, applied or refused, are editing
+   machine facts keyed by (writer installation, opId) and go to every
+   machine.
+3. **Nothing written is lost.** A refused artifact edit keeps its body or
+   patch as a content ref, named in the refusal, so the seat can rebase and
+   send it again (remote-lead).
+4. **The seat is told.** For each refused command, and for the root of each
+   chain of refused dependents, the seat's own machine writes one notice to
+   the actor seat in the resource's thread (03), from the ruling fact. That
+   means no new mail author crosses machines. The notice carries the typed
+   error, what changed since the basis (who assigned what, the new epoch or
+   head), the opIds of the refused dependents and a `next_step`.
+   `junto queue list` shows the pending and refused commands of the seat's
+   own machine.
+5. **Bounded.** **(remote)** The pending queue per machine and canvas has
+   a count and byte bound, as every buffer must
+   (`docs/security-doctrine.md:194-196`). Size it so no realistic absence
+   reaches it. Hitting it is the only write refusal related to the editing
+   machine being away, and it is typed and retryable.
+
+### Moving the editing machine
+
+**(remote)** A queued command names the canvas, not a machine, so it
+drains to whichever machine edits when a link exists. Rulings rebuild from
+facts (condition 3), so an opId ruled before the move is answered from
+facts and is not ruled twice.
 
 ## Kept, reshaped, deleted
 

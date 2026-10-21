@@ -123,8 +123,11 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 
 - ~~**canvas**: runner~~ Answered: the runner stays single; seat occupancy
   facts start on each seat's own machine. Cost: with the editing machine's
-  lid closed, schedules stop for every machine; missed slots are recorded as
-  skipped with the reason on wake, never fired in a burst. The automation
+  lid closed, schedules stop for every machine. On return a schedule fires
+  once for its latest missed slot, with `when` rechecked and `limits`
+  applied. It never fires in a burst; the earlier missed slots are recorded
+  as skipped. This is today's cron coalescing
+  (`src/main/junto/kernel/cycle.ts:406`). The automation
   node is the mail and ruling principal. Loop safety catches direct facts
   only; a loop through a seat (mail, the seat acts, its fact fires the
   automation) is caught only by `limits`.
