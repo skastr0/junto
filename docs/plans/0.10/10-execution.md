@@ -173,7 +173,13 @@ everyone else reports by mail and on the needs-you feed.
 | Requests and board UI; chat toolbar; PromptComposer | product-attention 6ae0b773e, a11ae0f19, a1ee80d50 | deleted |
 | Browser contracts: tabs, driver, box | product-attention 6af40a961, 5b35a2a9f; box crop claim with remote-security | landed |
 | Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
-| Typecheck toolchain | tsrs 0.18 cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; tech-lead swapping, performance-lead measuring | started |
+| Typecheck toolchain | tsrs swap landed (tech-lead fdc1bd867, 1693ef5b4, 9adfc92de): cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; typecheck needs no slot | landed |
+| Sweep repair | fdc1bd867 carried six stale staged paths; restored at ca81a0033, stale copies unstaged | done |
+| Main typecheck red | 31 errors at b3543a409, routed: canvas (magnifier phase, pad and sheet tests), remote (browser hostId tests), cli (work-ports, pad.read), product-modals (toSorted) | fixing |
+| remote R5 Hermes host identity | b3543a409; stand-in removal rides the deletions step | done |
+| remote R4 browser out | 255613ef8, 2614f3578, 658827b65; commit 3 page host readers next, deletions step waits on it | started |
+| Pinning deletion | product-shell b7aaeeb54, 34dd02699, 3b5841794 (flag out) | done |
+| Anchor lock, target resolution tests | product-verify f30bdc9cd, bcd7a9e40 | landed |
 | Long mail text over 64 KiB | product-feed 5a299a18e, bound in `mail-text-bound.ts` (48 KiB text); thread composer with product-keyboard; envelope bound confirming with remote-send | landed, confirming |
 | Renderer resource IPC (tasks and artifacts sources) | cli-overseer, one generic contract and main side through the ruler | started |
 | Box comment screenshots | remote-security: yes; main captures, grant holder only, claimed with the row, 2 MiB and 4096 px, read by reach, on-demand bytes | decided |
