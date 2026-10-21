@@ -581,8 +581,9 @@ describe("the thread composer", () => {
     await flush();
     const [taskChip, gone] = all("seat-threads-mention");
     expect(taskChip?.querySelector(".resource-chip__number")?.textContent).toBe("#42");
-    expect(chipLabels()).toEqual(["fix tabs", "@gone"]);
-    expect(gone?.tagName).toBe("SPAN");
+    expect(chipLabels()).toEqual(["fix tabs", undefined]);
+    expect(gone?.tagName).toBe("DEL");
+    expect(gone?.textContent).toBe("gone");
     expect(gone?.getAttribute("data-missing")).toBe("true");
     await click(taskChip!);
     expect(workDetailOpen$.get()).toEqual({ nodeId: "board", itemId: task });

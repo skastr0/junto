@@ -29,7 +29,7 @@ describe("mention chips", () => {
     const text = `[@old](${href("x")}) [#7 done](${href("y", ITEM)}) [#doc](${href("z", ITEM)})`;
     const chips = mentionChipParts(text, kindOf).flatMap((part) => ("chip" in part ? [part.chip] : []));
     expect(chips).toEqual([
-      { kind: "seat", label: "old" },
+      { kind: undefined, label: "old" },
       { kind: "task", label: "done", number: 7 },
       { kind: "artifact", label: "doc" },
     ]);

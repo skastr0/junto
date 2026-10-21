@@ -19,6 +19,7 @@ import type { MentionRef } from "@shared/mention";
 import type { NodeId } from "@shared/physics/schema";
 import {
   automationTargets,
+  isResourceKind,
   reaches,
   resourcesInReach,
   seatsInReach,
@@ -115,7 +116,7 @@ export const resourceNodesInReach = (
 ): ReadonlyArray<ReachNode> => {
   const found = canvas.nodes.get(from)?.kind === "agent"
     ? [...resourcesInReach(canvas, from)]
-    : [...canvas.nodes.values()].filter((node) => (node.kind === "task" || node.kind === "artifacts") && node.id !== from && reaches(canvas, from, node.id));
+    : [...canvas.nodes.values()].filter((node) => isResourceKind(node.kind) && node.id !== from && reaches(canvas, from, node.id));
   for (const node of canvas.nodes.values()) {
     if (node.kind === "page" && node.id !== from && reaches(canvas, from, node.id)) found.push(node);
   }

@@ -3,7 +3,7 @@
  * 2): `mention-sources` makes candidates of the nodes in reach, but a task
  * board or an Artifacts node offers only the items it is handed. This reads
  * every task on the canvas and the artifacts of every Artifacts node, and
- * groups them by node; reach still decides which nodes are asked.
+ * groups them by node; reach then filters which of them are offered.
  *
  * Archived items are left out: an archived task or artifact is not
  * something to point a seat at.
@@ -66,10 +66,13 @@ const useCanvasArtifacts = (canvasName: string): ReadonlyArray<ArtifactHead> => 
   const [held, setHeld] = useState<{ readonly key: string; readonly heads: ReadonlyArray<ArtifactHead> }>({ key, heads: NONE });
   useEffect(() => {
     let live = true;
+    // Only the latest read lands: an older one resolving late never overwrites it.
+    let generation = 0;
     const refresh = (): void => {
+      const read = ++generation;
       void Promise.all(nodesRef.current.map((nodeId) => artifactsSource().list(canvasName, nodeId))).then(
         (lists) => {
-          if (live) setHeld({ key, heads: lists.flat() });
+          if (live && read === generation) setHeld({ key, heads: lists.flat() });
         },
         () => undefined,
       );

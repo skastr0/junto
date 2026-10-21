@@ -211,12 +211,14 @@ export function SeatThreadsPopup({
 
 /** One mention or subject, drawn as a chip; opening it leaves the threads first. */
 function MentionChipView({ chip, onLeave, testId }: { readonly chip: MentionChip; readonly onLeave: () => void; readonly testId: string }) {
-  const { ref, ...drawn } = chip;
+  const { ref, kind, ...drawn } = chip;
+  // A gone seat or page: its link cannot say which, so it is its words, struck.
+  if (kind === undefined) return <del data-testid={testId} data-missing="true">{drawn.label}</del>;
   const open = ref === undefined ? undefined : () => {
     onLeave();
     openMention(ref);
   };
-  return <ResourceChip {...drawn} missing={ref === undefined} {...(open === undefined ? {} : { onOpen: open })} data-testid={testId} />;
+  return <ResourceChip {...drawn} kind={kind} missing={ref === undefined} {...(open === undefined ? {} : { onOpen: open })} data-testid={testId} />;
 }
 
 function ThreadChat({

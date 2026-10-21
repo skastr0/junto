@@ -15,7 +15,8 @@ import { openWorkDetail } from "./work-detail-open";
 
 /** What a `ResourceChip` needs to draw one mention. */
 export type MentionChip = {
-  readonly kind: ResourceKind;
+  /** Undefined when the node is gone and the link cannot say: a seat and a page are both `@`. */
+  readonly kind: ResourceKind | undefined;
   /** Without the `@` or `#` the link's label carries: the chip adds what its kind needs. */
   readonly label: string;
   readonly number?: number;
@@ -29,7 +30,8 @@ const bare = (label: string): string => label.replace(/^[@#]/u, "");
 
 /**
  * The chip for one link. With its node gone the kind is read off the link:
- * an item and a number is a task, an item alone an artifact, no item a seat.
+ * an item and a number is a task, an item alone an artifact; with no item it
+ * was a seat or a page, and the chip does not guess.
  */
 export const mentionChipOf = (
   link: Pick<MentionLinkAt, "target" | "label">,
@@ -37,7 +39,7 @@ export const mentionChipOf = (
 ): MentionChip => {
   const ref = mentionRefOf(link.target, nodeKindOf);
   const numbered = NUMBERED.exec(link.label);
-  const kind: ResourceKind = ref?.kind ?? (link.target.item === undefined ? "seat" : numbered ? "task" : "artifact");
+  const kind: ResourceKind | undefined = ref?.kind ?? (link.target.item === undefined ? undefined : numbered ? "task" : "artifact");
   const chip = kind === "task" && numbered
     ? { kind, label: numbered[2]!, number: Number(numbered[1]) }
     : { kind, label: bare(link.label) };
