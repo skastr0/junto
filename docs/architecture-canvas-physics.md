@@ -206,13 +206,15 @@ edges may still run closed `overseer` ops after live grant admission.
 ### 4a. Machines and claims
 
 A seat's machine is where it runs, not a capability tier
-([`machines.md`](machines.md)). An actor process, browser page, terminal
-process, watcher, or timer runs only on its own machine.
+([`machines.md`](machines.md)). An actor process, terminal process, watcher,
+or timer runs only on its own machine. A browser page names no machine: it is
+on the machine that edits its canvas, and the browser never leaves it.
 
 - claim is task start (`submitted → working`);
 - one actor has at most one pending claim attempt or active task;
-- browser page control stays on one machine: actor and page share it because
-  the page is a physical runtime.
+- browser page control stays on the machine that edits the canvas: only a
+  seat on that machine automates a page. Browser admission judges the machine
+  (edge-grant); physics judges the edge and the port.
 
 Reach, edges and ports authorize each operation. Sharing a machine, or being
 able to get to one, authorizes nothing. A resource write travels to the machine

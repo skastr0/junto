@@ -408,15 +408,15 @@ machine that runs it.
 
 Tasks, board, pad, sheet, requests, artifacts, cron and relay are off. They get
 no cross-machine design and no support work here; if one returns it is
-redesigned. Browser pages are not placed on other machines at all.
+redesigned. The browser is local: a page names no machine, it is on the
+machine that edits its canvas, and only a seat on that machine automates it.
+No machine offers a browser to another, and the machine's `junto` carries no
+browser commands.
 
 ## Later, and not to be blocked
 
 - A signal's file attachments. Its words and detail cross to the editing
   machine; attached files stay on the machine that raised it.
-- Browser control by a seat. Its socket admission was cut when the peer
-  process read was removed and answers "not available in this build"; it
-  comes back on the generation credential when the browser is enabled.
 - A briefing or an app-wide reference taken with a copy replaces the taking
   machine's own of the same name. Harmless while a machine that takes copies
   edits no canvas of its own; to be decided before one does both.

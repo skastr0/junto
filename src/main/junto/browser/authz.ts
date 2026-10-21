@@ -125,8 +125,10 @@ export const admitBrowserPage = (
   callerId: string,
   pageNodeId: string,
 ): boolean => {
-  // A seat or terminal and a page each name their machine, so the machine of
-  // a kind that names none never enters here; the caller's own stands in.
+  // This judges the edge and the port, not the machine: a page names no
+  // machine, so with the caller's machine as the editing one the page is
+  // always beside it. Browser admission judges the machine in edge-grant
+  // (admitsCallerOnThisMachine, editsCanvas).
   const caller = findNode(doc, callerId);
   if (caller === undefined || !("host" in caller)) return false;
   const view = canvasToCapabilityView(doc, { editingMachine: caller.host });
