@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { KIND_ICON_KINDS, type KindIconKind } from "@shared/kind-icon";
+import { SeatUrgency } from "@shared/wire/urgency";
 import type { KindLedger, KindState } from "../../lib/kind-band";
 import { ensureMarkAtlas } from "../../lib/activity-atlas";
 import { startSurfaceMotionGate } from "../../lib/surface-motion";
@@ -12,12 +13,15 @@ import { Button, Eyebrow } from "../ui";
  * the shell recipe in kind-seat.css shows too; a row's Select shows the selected wash.
  */
 
-const STATES: ReadonlyArray<{ readonly state: KindState; readonly head: string }> = [
-  { state: "idle", head: "Quiet" },
-  { state: "working", head: "Working" },
-  { state: "needs", head: "Needs you" },
-  { state: "blocked", head: "Blocked or failed" },
-  { state: "done", head: "Done" },
+const S = SeatUrgency.group;
+
+/** The columns, in the order each row's `lines` are written. */
+const COLUMNS: ReadonlyArray<{ readonly state: KindState; readonly head: string }> = [
+  { state: S.resting, head: "Quiet" },
+  { state: S.working, head: "Working" },
+  { state: S.waiting, head: "Needs you" },
+  { state: S.blocked, head: "Blocked or failed" },
+  { state: S.done, head: "Done" },
 ];
 
 type Row = {
@@ -25,30 +29,29 @@ type Row = {
   readonly word: string;
   readonly name: string;
   readonly ledger?: KindLedger;
-  readonly line: Record<KindState, string>;
+  /** One line per column. */
+  readonly lines: readonly [string, string, string, string, string];
 };
 
-const same = (line: string): Record<KindState, string> => ({ idle: line, off: line, working: line, needs: line, blocked: line, done: line });
-
 const ROWS: ReadonlyArray<Row> = [
-  { kind: "task", word: "Tasks", name: "Ship 0.10", ledger: { kind: "task", done: 6, open: 3, needs: 1, blocked: 0, backlog: 4 },
-    line: { idle: "14 tasks, none open", off: "board is off", working: "14 tasks, 3 open", needs: "14 tasks, 1 needs you", blocked: "14 tasks, 1 blocked", done: "14 tasks, all done" } },
+  { kind: "task", word: "Tasks", name: "Ship 0.10", ledger: { kind: "task", finished: 6, open: 3, asks: 1, stuck: 0, backlog: 4 },
+    lines: ["14 tasks, none open", "14 tasks, 3 open", "14 tasks, 1 needs you", "14 tasks, 1 blocked", "14 tasks, all done"] },
   { kind: "artifacts", word: "Artifacts", name: "Shelf", ledger: { kind: "artifacts", count: 9 },
-    line: { idle: "9 artifacts", off: "9 artifacts", working: "9 artifacts, one being written", needs: "a comment awaits you", blocked: "9 artifacts, sync stopped", done: "9 artifacts, new version" } },
+    lines: ["9 artifacts", "9 artifacts, one being written", "a comment awaits you", "9 artifacts, sync stopped", "9 artifacts, new version"] },
   { kind: "automations", word: "Automations", name: "Nightly", ledger: { kind: "automations", on: 2, off: 1, failed: 0 },
-    line: { idle: "2 on, 1 off", off: "all off", working: "firing nightly review", needs: "a run asks you", blocked: "last run failed", done: "ran clean at 09:00" } },
+    lines: ["2 on, 1 off", "firing nightly review", "a run asks you", "last run failed", "ran clean at 09:00"] },
   { kind: "page", word: "Page", name: "docs.example.com", ledger: { kind: "page", tabs: 3 },
-    line: { idle: "no session", off: "closed", working: "page, builder drives", needs: "paused, over to you", blocked: "load failed", done: "session live" } },
+    lines: ["no session", "page, builder drives", "paused, over to you", "load failed", "session live"] },
   { kind: "terminal", word: "Terminal", name: "dev server",
-    line: { idle: "idle shell", off: "stopped", working: "bun test", needs: "prompt waits", blocked: "exited 1", done: "finished" } },
+    lines: ["idle shell", "bun test", "prompt waits", "exited 1", "finished"] },
   { kind: "git", word: "Git", name: "junto", ledger: { kind: "git" },
-    line: { idle: "main, clean", off: "no repo", working: "pushing main", needs: "conflict, needs you", blocked: "push rejected", done: "main, up to date" } },
+    lines: ["main, clean", "pushing main", "conflict, needs you", "push rejected", "main, up to date"] },
   { kind: "file", word: "File", name: "plan.pdf",
-    line: { idle: "docs/plan.pdf", off: "retired", working: "being edited", needs: "changed on disk", blocked: "file is missing", done: "saved" } },
+    lines: ["docs/plan.pdf", "being edited", "changed on disk", "file is missing", "saved"] },
   { kind: "link", word: "Link", name: "RFC 42",
-    line: { idle: "example.com", off: "retired", working: "checking the link", needs: "asks you to sign in", blocked: "link is dead", done: "link is good" } },
+    lines: ["example.com", "checking the link", "asks you to sign in", "link is dead", "link is good"] },
   { kind: "note", word: "Note", name: "Ship Friday",
-    line: { idle: "Freeze copy Wed.", off: "Freeze copy Wed.", working: "a seat is editing", needs: "mentions you", blocked: "edit conflict", done: "saved" } },
+    lines: ["Freeze copy Wed.", "a seat is editing", "mentions you", "edit conflict", "saved"] },
 ];
 
 export function KindSeatGallery() {
@@ -77,15 +80,15 @@ export function KindSeatGallery() {
         </header>
         <div className="grid items-center gap-x-4 gap-y-2" style={{ gridTemplateColumns: "110px repeat(5, 216px)" }}>
           <span />
-          {STATES.map((s) => (
-            <span key={s.state} className="text-label text-dim">{s.head}</span>
+          {COLUMNS.map((c) => (
+            <span key={c.state} className="text-label text-dim">{c.head}</span>
           ))}
           {ROWS.map((row) => (
             <div key={row.kind} className="contents">
               <span className="text-body font-semibold text-ink">{row.word}</span>
-              {STATES.map((s) => (
-                <div key={s.state} className={["junto-node react-flow__node", selected ? "selected" : ""].join(" ")} style={{ position: "relative", width: 216, height: 56 }}>
-                  <KindSeat kind={row.kind} name={row.name} line={row.line[s.state] ?? same("")[s.state]} state={s.state} ledger={row.ledger} />
+              {COLUMNS.map((c, column) => (
+                <div key={c.state} className={["junto-node react-flow__node", selected ? "selected" : ""].join(" ")} style={{ position: "relative", width: 216, height: 56 }}>
+                  <KindSeat kind={row.kind} name={row.name} line={row.lines[column] ?? ""} state={c.state} ledger={row.ledger} />
                 </div>
               ))}
             </div>

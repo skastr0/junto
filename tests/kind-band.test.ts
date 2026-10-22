@@ -11,10 +11,12 @@ import {
 } from "../src/renderer/lib/kind-band";
 import { KIND_ICON_KINDS } from "../src/shared/kind-icon";
 import { MARK_PHASE_MS, RING_FRAME_MS } from "../src/shared/wire/rings";
+import { SeatUrgency } from "../src/shared/wire/urgency";
 import { THEME_MODES } from "../src/shared/theme";
 
 const css = readFileSync(join(resolve(__dirname, ".."), "src/renderer/components/nodes/kind-seat.css"), "utf8");
-const STATES: readonly KindState[] = ["idle", "working", "needs", "blocked", "done", "off"];
+const G = SeatUrgency.group;
+const STATES: readonly KindState[] = [G.resting, G.working, G.waiting, G.blocked, G.done, G.offline];
 const MOTIONS = Object.keys(BAND_PERIOD_FRAMES) as BandMotion[];
 
 describe("the ledger band", () => {
@@ -33,7 +35,7 @@ describe("the ledger band", () => {
           const layers = kindBandLayers(kind, state, mode);
           const moving = layers.filter((layer) => layer.motion !== undefined);
           expect(moving.length, `${kind} ${state} ${mode}`).toBeLessThanOrEqual(1);
-          if (state === "idle" || state === "off") expect(moving, `${kind} ${state}`).toHaveLength(0);
+          if (state === G.resting || state === G.offline) expect(moving, `${kind} ${state}`).toHaveLength(0);
         }
       }
     }
@@ -51,16 +53,16 @@ describe("the ledger band", () => {
   });
 
   it("a task band with a ledger draws its arcs under the track", () => {
-    const layers = kindBandLayers("task", "idle", "dark", { kind: "task", done: 6, open: 0, needs: 0, blocked: 0, backlog: 8 });
+    const layers = kindBandLayers("task", G.resting, "dark", { kind: "task", finished: 6, open: 0, asks: 0, stuck: 0, backlog: 8 });
     expect(layers.length).toBeGreaterThanOrEqual(2);
   });
 
   it("the ledger moves with the board: a task band redraws its arcs as tasks move", () => {
-    const board = { kind: "task" as const, done: 6, open: 3, needs: 1, blocked: 0, backlog: 4 };
-    const before = kindBandLayers("task", "needs", "dark", board)[1]!.svg;
-    const after = kindBandLayers("task", "needs", "dark", { ...board, done: 7, open: 2 })[1]!.svg;
+    const board = { kind: "task" as const, finished: 6, open: 3, asks: 1, stuck: 0, backlog: 4 };
+    const before = kindBandLayers("task", G.waiting, "dark", board)[1]!.svg;
+    const after = kindBandLayers("task", G.waiting, "dark", { ...board, finished: 7, open: 2 })[1]!.svg;
     expect(before).not.toBe(after);
-    expect(kindBandLayers("task", "done", "dark", board)[1]!.svg).toMatch(/stroke-linecap/);
+    expect(kindBandLayers("task", G.done, "dark", board)[1]!.svg).toMatch(/stroke-linecap/);
   });
 
   it("the sheet animates transform and opacity only, forever, on the ring's clock, with no steps", () => {

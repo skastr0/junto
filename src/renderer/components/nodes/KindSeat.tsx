@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { kindIconSrc, type KindIconKind } from "@shared/kind-icon";
+import { SeatUrgency } from "@shared/wire/urgency";
 import type { ActivitySpec } from "../../lib/activity";
 import { bandBackground, kindBandLayers, type BandMotion, type KindLedger, type KindState } from "../../lib/kind-band";
 import { themeMode$ } from "../../lib/theme-mode";
@@ -8,24 +9,47 @@ import { ActivityMarkFromSpec } from "../ActivityMark";
 import { SEAT_PORTRAIT_PX, SeatName } from "./AgentSeat";
 import "./kind-seat.css";
 
+const S = SeatUrgency.group;
+
+/** Every state a kind seat says, the seat rail's groups in its own order. */
+export const KIND_STATES: readonly KindState[] = SeatUrgency.groups;
+
 /** The seat's ring grammar for a kind's state: the same tones and motion a seat's ring uses. */
-export const KIND_RING: Readonly<Record<KindState, ActivitySpec>> = {
-  idle: { mode: "static", tone: "steel", label: "idle" },
-  off: { mode: "static", tone: "steel", glyph: "off", label: "off" },
-  working: { mode: "wave", tone: "cyan", label: "working" },
-  needs: { mode: "wave", tone: "amber", label: "needs you" },
-  blocked: { mode: "wave", tone: "crimson", pattern: "arrow-up", label: "blocked" },
-  done: { mode: "pulse", tone: "green", label: "done" },
+export const kindRing = (state: KindState): ActivitySpec => {
+  switch (state) {
+    case S.working:
+      return { mode: "wave", tone: "cyan", label: "working" };
+    case S.waiting:
+    case S.review:
+      return { mode: "wave", tone: "amber", label: "needs you" };
+    case S.blocked:
+      return { mode: "wave", tone: "crimson", pattern: "arrow-up", label: "blocked" };
+    case S.done:
+      return { mode: "pulse", tone: "green", label: "done" };
+    case S.offline:
+      return { mode: "static", tone: "steel", glyph: "off", label: "off" };
+    default:
+      return { mode: "static", tone: "steel", label: "idle" };
+  }
 };
 
 /** Words take a hue's text form, as a seat's line does. */
-const LINE_TONE: Readonly<Record<KindState, string>> = {
-  idle: "text-dim",
-  off: "text-faint",
-  working: "text-cyan-fg",
-  needs: "text-amber-fg",
-  blocked: "text-crimson-fg",
-  done: "text-green",
+const lineTone = (state: KindState): string => {
+  switch (state) {
+    case S.working:
+      return "text-cyan-fg";
+    case S.waiting:
+    case S.review:
+      return "text-amber-fg";
+    case S.blocked:
+      return "text-crimson-fg";
+    case S.done:
+      return "text-green";
+    case S.offline:
+      return "text-faint";
+    default:
+      return "text-dim";
+  }
 };
 
 /** A node status as the seat's states say it; `done` is for a kind that finished (a board with nothing left, a live session). */
@@ -36,16 +60,16 @@ export const kindStateOf = (
   switch (status) {
     case "blocked":
     case "failed":
-      return "blocked";
+      return S.blocked;
     case "needs-you":
-      return "needs";
+      return S.waiting;
     case "working":
-      return "working";
+      return S.working;
     case "off":
     case "retired":
-      return "off";
+      return S.offline;
     default:
-      return done ? "done" : "idle";
+      return done ? S.done : S.resting;
   }
 };
 
@@ -73,12 +97,12 @@ const MOTION_NAMES: ReadonlySet<BandMotion> = new Set(["chase", "shimmer", "hand
  * stays the icon. Rows, notes and settings live in the detail view, not on the canvas. Pure: a
  * card hands it data, and the same props draw the same node.
  */
-export function KindSeat({ kind, name, line, state = "idle", ledger, trailing, lineTitle }: KindSeatProps) {
+export function KindSeat({ kind, name, line, state = S.resting, ledger, trailing, lineTitle }: KindSeatProps) {
   const mode = use$(themeMode$);
   const layers = useMemo(() => kindBandLayers(kind, state, mode, ledger).map((layer) => ({ ...layer, background: bandBackground(layer.svg) })), [kind, state, mode, ledger]);
   return (
     <div className="junto-seat kind-seat flex h-full w-full items-center gap-2" data-testid="kind-seat" data-kind={kind} data-state={state}>
-      <ActivityMarkFromSpec spec={KIND_RING[state]} size="seat">
+      <ActivityMarkFromSpec spec={kindRing(state)} size="seat">
         <span className="kind-band" aria-hidden>
           {layers.map((layer, index) => (
             <i
@@ -98,7 +122,7 @@ export function KindSeat({ kind, name, line, state = "idle", ledger, trailing, l
           {trailing}
         </div>
         <div className="junto-seat__line max-h-[1lh] overflow-hidden text-label leading-snug">
-          <span className={`block truncate ${LINE_TONE[state]}`} title={lineTitle} data-testid="kind-seat-line">
+          <span className={`block truncate ${lineTone(state)}`} title={lineTitle} data-testid="kind-seat-line">
             {line}
           </span>
         </div>
