@@ -8,12 +8,13 @@ import { REGION_WORD_SHARE, regionWordContrast, regionWordShare } from "../src/r
 const BAD = ["#ffff66", "#f5f5f5", "#c8ff00", "#80ffff", "#202020", "#000080", "#3a0000", "#1b1b3a"];
 
 describe("region word ink", () => {
-  it("holds every preset at its theme's share, at rest and picked", () => {
+  it("holds every preset, the main accent and steel at its theme's share, on every fill", () => {
+    const tokens = [...CANVAS_SWATCHES.map((swatch) => swatch.token), "main", "steel"];
     for (const mode of THEME_MODES) {
       const theme = themeRuntime(mode);
-      for (const swatch of CANVAS_SWATCHES) {
-        const contrast = regionWordContrast(theme[swatch.token]!, mode, REGION_WORD_SHARE[mode]);
-        expect(contrast, `${swatch.label} in ${mode}`).toBeGreaterThanOrEqual(4.5);
+      for (const token of tokens) {
+        const contrast = regionWordContrast(theme[token]!, mode, REGION_WORD_SHARE[mode]);
+        expect(contrast, `${token} in ${mode}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

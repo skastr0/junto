@@ -3,10 +3,10 @@ import { contrastRatio, hexToOklch, oklchToHex, themeRuntime, type ThemeMode } f
 /**
  * How much of a region's own colour goes into the words that name it (a feed
  * region chip's name and count), mixed with ink in oklab the way
- * feed-region-strip.css mixes them. These shares hold 4.5:1 for every preset
- * in its theme; tests/region-word-ink.test.ts keeps them honest.
+ * feed-region-strip.css mixes them. These shares hold 4.5:1 for every preset,
+ * the main accent and steel, on every fill, in its theme; tests/region-word-ink.test.ts keeps them honest.
  */
-export const REGION_WORD_SHARE: Readonly<Record<ThemeMode, number>> = { dark: 72, bright: 45 };
+export const REGION_WORD_SHARE: Readonly<Record<ThemeMode, number>> = { dark: 72, bright: 43 };
 
 /** The contrast a region's words must keep against the chip they sit on. */
 const READABLE = 4.5;
@@ -38,12 +38,23 @@ const over = (top: string, alpha: number, under: string): string => {
   return `#${mixed.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 };
 
-/** The surfaces a chip's words sit on: the chip at rest, and picked with its region's tint. */
+/** A mix token's alpha, the last number of its runtime projection. */
+const alphaOf = (rgba: string): number => Number(/,([\d.]+)\)$/.exec(rgba)?.[1] ?? 0);
+
+/**
+ * The surfaces a chip's words sit on: the chip at rest, hovered, and picked
+ * with its region's tint; and the count pill, the tint laid once more over
+ * each of those.
+ */
 const chipFills = (region: string, mode: ThemeMode): ReadonlyArray<string> => {
   const theme = RUNTIME[mode];
   const raise = theme.raise!;
-  const restAlpha = Number(/,([\d.]+)\)$/.exec(theme["overlay-1"]!)?.[1] ?? 0);
-  return [over(theme.ink!, restAlpha, raise), over(region, 0.16, raise)];
+  const chip = [
+    over(theme.ink!, alphaOf(theme["overlay-1"]!), raise),
+    over(theme.ink!, alphaOf(theme["overlay-2"]!), raise),
+    over(region, 0.16, raise),
+  ];
+  return [...chip, ...chip.map((fill) => over(region, 0.16, fill))];
 };
 
 /** Each free hex's share per theme, worked out once. */
@@ -51,7 +62,7 @@ const shares = new Map<string, number>();
 
 /**
  * The share of a region colour its words can take in a theme and still read
- * at 4.5:1 on the chip, at rest and picked: the theme's own share, lowered
+ * at 4.5:1 on every fill of the chip and its count: the theme's own share, lowered
  * toward ink a point at a time until they do. A preset already holds at the
  * theme's share; a free hex an operator typed, too pale for bright or too
  * dark for dark, gets less of itself and more ink.

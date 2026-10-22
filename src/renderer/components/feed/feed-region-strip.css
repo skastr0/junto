@@ -1,8 +1,8 @@
 /* The Needs you feed's region filter: a strip of chips, like the phone's
    region bar, in desktop tokens. Each chip's colours mix from its region's
    base (--chip-region): ink 72% toward ink, tint 16%, halo 20%. On the
-   bright ground the words take more ink, 45% region, so the palest preset
-   (yellow) still reads at 4.5:1 on its selected tint; the dot and halo stay
+   bright ground the words take more ink, 43% region, so the palest preset
+   (yellow) still reads at 4.5:1 on the count pill of a picked chip; the dot and halo stay
    on the base. A free hex sets its own lower shares (region-word-ink.ts). */
 
 .feed-region-strip {
@@ -95,7 +95,7 @@
 }
 
 html[data-theme="bright"] .feed-region-chip {
-  --chip-ink: color-mix(in oklab, var(--chip-region) var(--chip-share-bright, 45%), var(--color-ink));
+  --chip-ink: color-mix(in oklab, var(--chip-region) var(--chip-share-bright, 43%), var(--color-ink));
 }
 
 .feed-region-chip[aria-checked="true"] {

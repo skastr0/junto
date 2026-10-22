@@ -78,7 +78,7 @@ it("gives a free hex region its own word shares per theme, and leaves a preset o
   const pale = chip(["Pale"], 1, "#ffff66");
   await act(async () => root.render(<FeedRegionStrip chips={[pale, cli]} chosen={undefined} total={3} onPick={() => {}} />));
   const [, paleChip, presetChip] = radios();
-  expect(paleChip?.style.getPropertyValue("--chip-share-bright")).toBe("33%");
+  expect(paleChip?.style.getPropertyValue("--chip-share-bright")).toBe("31%");
   expect(paleChip?.style.getPropertyValue("--chip-share-dark")).toBe("72%");
   expect(presetChip?.style.getPropertyValue("--chip-share-bright")).toBe("");
 });
