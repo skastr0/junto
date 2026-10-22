@@ -45,7 +45,11 @@ const TIERS: ReadonlyArray<readonly [Tier, number]> = [
  * guards against overlap blowups like the 809. Motion is not headroom. The
  * motion law keeps every ring and ping moving on the compositor, and each
  * moving thing is a layer the board cannot give back: one per minimap ping,
- * one per turning ring part, and one holder per turning seat ring. The
+ * one per turning ring part, one holder per turning seat ring, and one per
+ * sliding run of a flows track in view, with at most one more for the run's
+ * clip, which holds no paint (measured on the flows board: 39 runs and 13
+ * clips at near, 98 and 41 at mid). A run out of view slides nothing and
+ * holds no layer, as a ring off screen turns nothing. The
  * holder is the design, asserted as such: up close the card (its own layer,
  * styles.css), at far and overview the scaled mark and never the card
  * (ba5b78088); a cluster's mark has none. Nothing paints over a turning
@@ -88,8 +92,11 @@ type PhaseReading = {
   readonly pinned: number;
 };
 
-/** A layer for a moving thing (a ping, a ring part, a ring's holder), or for what must never be one (the signal button). */
-const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark__flag|junto-mark|junto-node)[' ]/;
+/**
+ * A layer for a moving thing (a ping, a ring part, a ring's holder, a flows
+ * track's sliding run), or for what must never be one (the signal button).
+ */
+const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark__flag|junto-mark|junto-node|junto-flow-track__mover|junto-flow-track__run)[' ]/;
 
 /**
  * The motion kind a layer is, if any. A seat's mark is relatively placed; a
@@ -123,7 +130,10 @@ const motionDrawn = (page: Page): Promise<Record<string, number>> =>
       if (mark.closest(".react-flow__node .junto-node")) seatRings += 1;
       else clusterRings += 1;
     }
-    return { pings, parts, seatRings, clusterRings };
+    // A run slides while its observer has it in view (48px margin, FlowTrack.tsx).
+    const tracks = [...document.querySelectorAll(".junto-flow-track__run[data-track-visible] > .junto-flow-track__mover")]
+      .filter((el) => getComputedStyle(el).animationName !== "none").length;
+    return { pings, parts, seatRings, clusterRings, tracks };
   });
 
 const scale = (page: Page): Promise<number> =>
@@ -238,7 +248,7 @@ const traced = async (
       .reduce((sum, e) => sum + Number(e.args?.["missing_tile_count"] ?? 0), 0),
     layers: layers.length,
     motionLayers: layers.filter((l) => motionKind(l.layer_name ?? "") !== undefined).length,
-    motionDrawn: drawn.pings! + drawn.parts! + drawn.seatRings!,
+    motionDrawn: drawn.pings! + drawn.parts! + drawn.seatRings! + drawn.tracks!,
     motionKinds: drawn,
     motionLayerKinds: layers.reduce<Record<string, number>>((kinds, l) => {
       const kind = motionKind(l.layer_name ?? "");
@@ -253,7 +263,7 @@ const traced = async (
   };
 };
 
-for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvasPresetName[]) {
+for (const preset of ["nested", "deep", "flows"] as const satisfies readonly NestedCanvasPresetName[]) {
   test(`${preset} board: every tier inside its paint, layer and tile budget`, async () => {
     test.setTimeout(300_000);
     const fixture = buildNestedCanvasFixture(preset);
@@ -302,9 +312,17 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
           expect(layerOf("junto-mark__flag"), `${label}: the signal button paints under the parts`).toBe(0);
           expect(Math.abs(layerOf("junto-minimap-ping") - drawnOf("pings")), `${label}: a layer per moving ping`)
             .toBeLessThanOrEqual(PING_SLACK);
+
           expect(phase.layers - phase.motionLayers, `${label}: compositor layers beside the motion`)
             .toBeLessThanOrEqual(LAYER_BUDGET);
         }
+        // A layer per sliding track run in view, and none for a run out of
+        // view. At rest only: a pan carries runs in and out between the
+        // compositor's last snapshot and the DOM read.
+        expect(row.rest.motionLayerKinds["junto-flow-track__mover"] ?? 0, `${label}: a layer per sliding track run in view`)
+          .toBe(row.rest.motionKinds["tracks"] ?? 0);
+        expect(row.rest.motionLayerKinds["junto-flow-track__run"] ?? 0, `${label}: at most one clip per sliding run`)
+          .toBeLessThanOrEqual(row.rest.motionKinds["tracks"] ?? 0);
         // At rest only the clock repaints: the rings in view, a few tiles a tick.
         expect(row.rest.paints, `${label}: paints at rest`).toBeLessThanOrEqual(REST_PAINT_BUDGET);
         expect(row.rest.rasterTasks, `${label}: raster tasks at rest`).toBeLessThanOrEqual(REST_RASTER_BUDGET);
