@@ -28,10 +28,12 @@ version 49, no backup note and no migration run. Reconfirm at the cut.
 - [ ] tech-lead's verify is green at the cut hash. Receipt:
 - [x] Notes cover the wiring (bullet is in CHANGELOG, worded from
       bb021a3eb and 9eb512093; re-check if the wiring changes).
-- [ ] Notes cover the task-edge style. No bullet yet: canvas-edges is still
-      trialing previews, so word it from the style that lands, and add it
-      under `## Unreleased` once it is on main. Check whether it changes a
-      stored setting or only drawing (a stored change needs a state check).
+- [ ] Notes cover the task-edge style. Operator picked B, moving, colour 4
+      (ink). Bullet drafted from the picks and canvas-edges' in-progress
+      `WireEdge.tsx` comment (verb `flows`, open chevrons, half again a wire's
+      weight, opaque at every tier); re-check its words against the committed
+      build. Still to confirm: drawing only, no stored setting (else a state
+      check).
 - [ ] `git status` clean of other seats' staged paths. Today's tree carries
       another seat's `docs/research/tooling/measure-runs.ndjson` and
       `e2e/scenarios/zz-kinds-gallery-check.spec.ts`; neither goes in the cut.

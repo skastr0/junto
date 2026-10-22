@@ -18,6 +18,8 @@
   terminal still shows its claimed task under the name. Plain files and links
   rest as a ring, an image file keeps its own size, notes keep their card, and
   far out each one shrinks to its ring alone, as a seat does.
+- A dependency between tasks draws as a track of open chevrons in ink, a
+  little heavier than other wires, sliding toward the task that depends on it.
 
 ## 0.10.1 — 2026-10-21
 
