@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.2 — 2026-10-22
+
 - Needs you filters by region with a strip of chips, like the phone's region
   bar. All comes first, then each region with its colour dot and a count of
   what waits. Pick a chip to filter, press it again to show everything. The
@@ -18,8 +20,9 @@
   terminal still shows its claimed task under the name. Plain files and links
   rest as a ring, an image file keeps its own size, notes keep their card, and
   far out each one shrinks to its ring alone, as a seat does.
-- A dependency between tasks draws as a track of open chevrons in ink, a
-  little heavier than other wires, sliding toward the task that depends on it.
+- A dependency between tasks draws as a track of open chevrons in ink, half
+  again as heavy as other wires, sliding toward the dependent task at every
+  zoom and in every state. It stands still when reduced motion is on.
 
 ## 0.10.1 — 2026-10-21
 
