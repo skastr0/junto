@@ -147,3 +147,10 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .kind-band {
   background: color-mix(in oklab, var(--kind-hue) 10%, var(--color-raise)) !important;
   box-shadow: 0 8px 22px var(--color-shadow-2) !important;
 }
+
+/* The ring is the one blocked signal: a blocked kind seat draws no second crimson ring round its pill. */
+.junto-node:has(.kind-seat).junto-blocker::after,
+.junto-node:has(.kind-seat)[data-seat-attention="true"]::after,
+.junto-node:has(.kind-seat)[data-attention="fire"]::after {
+  display: none;
+}

@@ -88,6 +88,10 @@ describe("the ledger band", () => {
     expect(css).toContain('html:not([data-surface-motion="paused"]) .junto-mark[data-mark-visible] .kind-band__layer[data-motion]');
   });
 
+  it("the ring is the one blocked signal: no second ring round the pill", () => {
+    expect(css).toMatch(/\.junto-node:has\(\.kind-seat\)\.junto-blocker::after[^{]*\{\s*display:\s*none/);
+  });
+
   it("at far and overview a kind seat is its ring alone", () => {
     expect(css).toMatch(/html:is\(\[data-canvas-tier="far"\], \[data-canvas-tier="overview"\]\) \.kind-band\s*\{\s*display:\s*none/);
   });
