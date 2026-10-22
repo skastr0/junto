@@ -77,3 +77,16 @@ verify, and publish waits for verify green.
       a parent and child region, a free hex region in both themes, and the
       kind seats on the canvas. Frames to the needs-you feed.
 - [ ] Website download page is not touched by this lane.
+
+## Result
+
+0.10.2 shipped from bump commit 8e17f666a on cut hash 092e131cf, on the
+operator's order with no verify gate. Shared unit lane 691 of 692 files, isolated
+and ship lanes ok. The first build run failed on a second React from a
+`node_modules` clone that kept a link back into the shared tree (my script
+missed the `find ... -type l -name node_modules -delete` step that
+`scripts/preview.sh` has); fixed and rerun. Notarization submission
+91761015-d4e9-4e51-92c9-5cef53bd7d30 accepted, published 2026-10-22, machine
+build fc41cc36...; feed serves 0.10.2 and its zip hashes to the stapled sha256
+3d3c98ba...f6c. Known for 0.10.3: 2 layers pinned at far rest on a board of
+about 80 task wires; chevrons overlap where two task edges leave the same side.
