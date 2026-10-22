@@ -1,6 +1,9 @@
 /* The Needs you feed's region filter: a strip of chips, like the phone's
    region bar, in desktop tokens. Each chip's colours mix from its region's
-   base (--chip-region): ink 72% toward ink, tint 16%, halo 20%. */
+   base (--chip-region): ink 72% toward ink, tint 16%, halo 20%. On the
+   bright ground the words take more ink, 45% region, so the palest preset
+   (yellow) still reads at 4.5:1 on its selected tint; the dot and halo stay
+   on the base. */
 
 .feed-region-strip {
   position: relative;
@@ -11,8 +14,29 @@
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 2px 0;
+  /* Room for the focus ring, which the scroller would otherwise clip; the
+     negative margin keeps the chips on the row's edge and height. */
+  margin: -2px -4px;
+  padding: 4px;
   scrollbar-width: none;
+  /* Chips that run past an edge fade out instead of cutting hard. */
+  --strip-fade-start: 0px;
+  --strip-fade-end: 0px;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    var(--color-ink) var(--strip-fade-start),
+    var(--color-ink) calc(100% - var(--strip-fade-end)),
+    transparent 100%
+  );
+}
+
+.feed-region-strip[data-more-start="true"] {
+  --strip-fade-start: 24px;
+}
+
+.feed-region-strip[data-more-end="true"] {
+  --strip-fade-end: 24px;
 }
 
 .feed-region-strip::-webkit-scrollbar {
@@ -68,6 +92,10 @@
   --chip-ink: color-mix(in oklab, var(--chip-region) 72%, var(--color-ink));
   --chip-tint: color-mix(in oklab, var(--chip-region) 16%, transparent);
   max-width: 360px;
+}
+
+html[data-theme="bright"] .feed-region-chip {
+  --chip-ink: color-mix(in oklab, var(--chip-region) 45%, var(--color-ink));
 }
 
 .feed-region-chip[aria-checked="true"] {

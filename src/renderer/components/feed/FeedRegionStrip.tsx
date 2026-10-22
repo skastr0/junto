@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type CSSProperties, type WheelEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { FeedRegionChip } from "../../lib/operator-feed";
 import { accentColor } from "../../lib/theme";
 import "./feed-region-strip.css";
@@ -47,12 +47,35 @@ export function FeedRegionStrip({
     if (left < bar.scrollLeft) bar.scrollLeft = Math.max(0, left);
     else if (right > bar.scrollLeft) bar.scrollLeft = right;
   }, [chosen]);
-  // A mouse wheel scrolls the strip sideways; a trackpad's own sideways swipe is left alone.
-  const onWheel = (event: WheelEvent<HTMLDivElement>): void => {
-    if (event.deltaX !== 0 || event.deltaY === 0) return;
-    event.currentTarget.scrollLeft += event.deltaY;
-  };
-  if (chips.length < 2 && chosen === undefined) return null;
+  const drawn = chips.length >= 2 || chosen !== undefined;
+  useEffect(() => {
+    const bar = strip.current;
+    if (!bar) return;
+    // Which edges have chips past them, for the fades in feed-region-strip.css.
+    const edges = (): void => {
+      bar.dataset.moreStart = String(bar.scrollLeft > 0);
+      bar.dataset.moreEnd = String(bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1);
+    };
+    // A mouse wheel scrolls the strip sideways, and only the strip; a
+    // trackpad's own sideways swipe is left alone. Not passive, so the feed
+    // around it does not scroll too.
+    const onWheel = (event: WheelEvent): void => {
+      if (event.deltaX !== 0 || event.deltaY === 0 || bar.scrollWidth <= bar.clientWidth) return;
+      event.preventDefault();
+      bar.scrollLeft += event.deltaY;
+    };
+    const resized = typeof ResizeObserver === "function" ? new ResizeObserver(edges) : undefined;
+    resized?.observe(bar);
+    bar.addEventListener("scroll", edges, { passive: true });
+    bar.addEventListener("wheel", onWheel, { passive: false });
+    edges();
+    return () => {
+      resized?.disconnect();
+      bar.removeEventListener("scroll", edges);
+      bar.removeEventListener("wheel", onWheel);
+    };
+  }, [drawn, chips]);
+  if (!drawn) return null;
   return (
     <div
       ref={strip}
@@ -60,7 +83,6 @@ export function FeedRegionStrip({
       role="radiogroup"
       aria-label="Filter needs by region"
       data-testid="feed-region-strip"
-      onWheel={onWheel}
     >
       <button
         type="button"
