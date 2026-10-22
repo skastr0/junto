@@ -84,7 +84,8 @@ export const spokenNodeName = (
 const flowType = (kind: NodeKind): "group" | "file" | "link" | "text" =>
   kind === "region" ? "group" : kind === "file" ? "file" : kind === "link" || kind === "page" ? "link" : "text";
 
-const ringPxOf = (kind: NodeKind): number | undefined => (holdsSeatRing(kind) ? SEAT_RING_PX : undefined);
+const ringPxOf = (node: Node): number | undefined =>
+  holdsSeatRing(node.kind, node.kind === "file" ? node.path : undefined) ? SEAT_RING_PX : undefined;
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
@@ -137,7 +138,7 @@ const regionFacts = (
     list.push({ x: node.x, y: node.y, width: size.width, height: size.height });
     // A far seat's ring reaches past its card: the name keeps clear of the
     // ring as drawn mid-way through the far tier, or of its room if less.
-    const ringPx = ringPxOf(node.kind);
+    const ringPx = ringPxOf(node);
     const cap = ringCaps.get(node.id);
     if (ringPx !== undefined && cap !== undefined) {
       const side = ringPx * Math.min(cap, FAR_RING_SLOT_SCALE);
@@ -175,7 +176,7 @@ export const flowNodesFromModel = (
   const room: RoomNode[] = nodes
     .filter((node) => node.kind !== "region")
     .map((node) => {
-      const ringPx = ringPxOf(node.kind);
+      const ringPx = ringPxOf(node);
       return { id: node.id, x: node.x, y: node.y, ...renderedNodeSize(node.kind, node), ...(ringPx !== undefined ? { ringPx } : {}) };
     });
   const roomCaps = seatRingCaps(room);

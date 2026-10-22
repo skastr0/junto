@@ -17,9 +17,10 @@
      (region-name-slot.ts), in its colour at under a third of its strength,
      as ground.
      Wires step back to 40%.
-   - overview: regions and seats. Cards and wires are not painted; every
-     agent stays, as at far, gathered into counted clusters where crowded
-     (SeatClusterLayer). Regions three levels in go.
+   - overview: regions, seats and kind seats. Cards and wires are not
+     painted; every agent stays, as at far, gathered into counted clusters
+     where crowded (SeatClusterLayer), and a kind seat stays as its ring.
+     Regions three levels in go.
 
    At every tier a region holding a seat that is blocked, needs the
    operator or has work for review says so: its colour leans toward the
@@ -99,8 +100,9 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 
 /* React Flow writes an inline visibility on every node once it is measured,
    so only an important rule outranks it. Agents stay: the operator works
-   them from here (canvas-lod.css, SeatClusterLayer). */
-html[data-canvas-tier="overview"] .react-flow__viewport :is(.react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent), .react-flow__edges, .react-flow__edgelabel-renderer) {
+   them from here (canvas-lod.css, SeatClusterLayer). Kind seats stay too,
+   their ring alone, as a seat is drawn. */
+html[data-canvas-tier="overview"] .react-flow__viewport :is(.react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent):not(:has(.kind-seat)), .react-flow__edges, .react-flow__edgelabel-renderer) {
   visibility: hidden !important;
 }
 html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region-depth="3"] {

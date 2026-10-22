@@ -21,7 +21,8 @@
      gathered. A note or card is a faint block marked with its kind's glyph.
    - overview: agents stay, drawn as at far, shrinking toward a 22px floor
      where crowded and gathered into counted clusters below it or past the
-     ring budget. Other cards and wires go (canvas-lod-regions.css).
+     ring budget. Kind seats stay as their ring; other cards and wires go
+     (canvas-lod-regions.css).
 
    Hidden detail uses visibility or display inside fixed-size shells, so no
    node changes size and no wire moves when the tier changes. Scoped to the

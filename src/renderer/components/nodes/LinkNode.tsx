@@ -94,7 +94,7 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
   return (
     <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} resizable={false}>
       <div className="h-full w-full" title={url}>
-        <KindCard kind="link" name={host} status="retired" line={hostAndTail(url) || host} />
+        <KindCard kind="link" name={host} line={hostAndTail(url) || host} />
       </div>
     </NodeShell>
   );

@@ -166,10 +166,12 @@ export type KindCardProps = {
   readonly trailing?: ReactNode;
   /** What a screen reader calls the node in place of its kind word. */
   readonly spokenKind?: string;
+  /** Rows under the line, inside the seat (a terminal's task strip). */
+  readonly children?: ReactNode;
 };
 
 /** A kind's node body: KindSeat, with the node's status published. Rows live in the detail view. */
-export function KindCard({ kind, name, nameEditor, status: reported, done = false, line, lineTitle, ledger, trailing, spokenKind }: KindCardProps) {
+export function KindCard({ kind, name, nameEditor, status: reported, done = false, line, lineTitle, ledger, trailing, spokenKind, children }: KindCardProps) {
   const status = usePublishedStatus(reported, spokenKind);
   return (
     <KindSeat
@@ -180,7 +182,9 @@ export function KindCard({ kind, name, nameEditor, status: reported, done = fals
       {...(ledger === undefined ? {} : { ledger })}
       {...(trailing === undefined ? {} : { trailing })}
       {...(lineTitle === undefined ? {} : { lineTitle })}
-    />
+    >
+      {children}
+    </KindSeat>
   );
 }
 

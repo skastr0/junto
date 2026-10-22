@@ -120,7 +120,7 @@ export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   return (
     <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} resizable={false}>
       <div className="h-full w-full" title={path}>
-        <KindCard kind="file" name={base} status="retired" line={pathTail(path)} lineTitle={path} />
+        <KindCard kind="file" name={base} line={pathTail(path)} lineTitle={path} />
       </div>
     </NodeShell>
   );

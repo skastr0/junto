@@ -8,6 +8,7 @@ import { canvasFromOpened, inPaintOrder } from "../src/shared/model/canvas";
 import { note, region, seat, terminal } from "./support/model-nodes";
 import { titleOf } from "../src/shared/model/title";
 import { flowNodesFromModel, type ModelFlowCache } from "../src/renderer/lib/flow-nodes";
+import { contentObjectUrl } from "../src/shared/content-url";
 
 const at = (x: number, y: number, width = 216, height = 96) => ({ x, y, width, height });
 
@@ -28,6 +29,11 @@ const nodes: ReadonlyArray<Node> = [
   { kind: "git", ...place("git", at(1500, 900, 300, 200)), cwd: "/repo" } as Node,
   { kind: "file", ...place("file", at(2600, 100, 300, 200)), path: "docs/readme.md" } as Node,
   { kind: "link", ...place("link", at(2600, 400, 300, 200)), url: "https://example.com/a" } as Node,
+  {
+    kind: "file",
+    ...place("image", at(2600, 700, 300, 200)),
+    path: contentObjectUrl({ sha256: "a".repeat(64), byteLength: 10, mediaType: "image/png" } as never),
+  } as Node,
 ];
 
 const model = (source: ReadonlyArray<Node>) => {
@@ -70,6 +76,11 @@ describe("React Flow nodes from the model", () => {
     expect(flow.get("term")?.style).toMatchObject({ width: 216, height: 56 });
     expect(flow.get("git")?.style).toMatchObject({ width: 216, height: 56 });
     expect(flow.get("term")?.data.ringCap).toBeGreaterThan(0);
+    // A plain path file and a link are kind seats at the seat size; an image file keeps the size it stores.
+    expect(flow.get("file")?.style).toMatchObject({ width: 216, height: 56 });
+    expect(flow.get("link")?.style).toMatchObject({ width: 216, height: 56 });
+    expect(flow.get("image")?.style).toMatchObject({ width: 300, height: 200 });
+    expect(flow.get("image")?.data.ringCap).toBeUndefined();
     expect(flow.get("note")?.style).toEqual({ width: 220, height: 84 });
     // A bare label and a git card take no wire.
     expect(flow.get("label")?.connectable).toBe(false);

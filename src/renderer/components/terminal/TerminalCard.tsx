@@ -192,8 +192,9 @@ export function TerminalCard({
           ) : undefined
         }
         line={seatState === "attention" && seatEvent?.reason ? seatEvent.reason : line}
-      />
-      {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
+      >
+        {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
+      </KindCard>
     </div>
   );
 }

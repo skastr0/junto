@@ -185,6 +185,11 @@ describe("KindCard", () => {
     }
   });
 
+  it("draws its children inside the seat, under the line", () => {
+    render(<KindCard kind="terminal" name="shell" line="zsh"><span data-testid="strip">#12</span></KindCard>);
+    expect(seat()?.querySelector('[data-testid="strip"]')?.textContent).toBe("#12");
+  });
+
   it("says done only when nothing else is said", () => {
     render(<KindCard kind="task" name="Board" line="0 open" done />);
     expect(seat()?.dataset["state"]).toBe(kindStateOf(undefined, true));
