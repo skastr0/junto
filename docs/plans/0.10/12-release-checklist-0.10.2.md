@@ -43,6 +43,15 @@ version 49, no backup note and no migration run. Reconfirm at the cut.
 - [ ] Motion law: `tests/motion-law.test.ts` passes (kind seat bands move on
       transform and opacity only).
 
+Pre-staged 2026-10-21, nothing run: Developer ID identity in the keychain
+(4452968868), `asc` notarization credentials present, Orb builder
+`vellum-v015-build-clean` running, build script written (same recipe as
+0.10.1: archive export, cloned node_modules, wait for load under 40, then
+`app:build:ship`). Disk has 34 GiB free at 98% full; the export and build need
+room, so the export is deleted after publish. Per product-lead the bump,
+export and build start together on the cut hash, in parallel with tech-lead's
+verify, and publish waits for verify green.
+
 ## 2. The cut (on product-lead's word only)
 
 1. `bun scripts/bump-version.ts --dry-run` shows 0.10.1 to 0.10.2.
