@@ -1,0 +1,149 @@
+/* A kind seat: a non-seat canvas kind in the seat's language (KindSeat.tsx). The ring is the seat's;
+   the icon sits where a portrait would; the ledger band lies outside the ring, inside the ring's
+   own cell, so it is clipped by nothing and shares the ring's clock. Tokens only. */
+
+.kind-seat .kind-icon {
+  display: block;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.kind-band {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.kind-band__layer {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+/* A moving part shows only while the ring around it moves, on screen, with the surface's motion on:
+   the same gate the ring's own parts use. Each one turns or fades with transform and opacity alone,
+   forever, on the ring's clock (--mark-t0), at a period that divides the ring's phase cycle. */
+.kind-band__layer[data-motion] {
+  display: none;
+}
+
+html:not([data-surface-motion="paused"]) .junto-mark[data-mark-visible] .kind-band__layer[data-motion] {
+  display: block;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+  animation-delay: var(--mark-t0, 0ms);
+}
+
+.kind-band__layer[data-motion="chase"] { animation-name: kind-band-turn; animation-duration: 10080ms; }
+.kind-band__layer[data-motion="shimmer"] { animation-name: kind-band-turn; animation-duration: 5760ms; }
+.kind-band__layer[data-motion="hand"] { animation-name: kind-band-turn; animation-duration: 11520ms; }
+.kind-band__layer[data-motion="scan"] { animation-name: kind-band-turn; animation-duration: 2880ms; }
+.kind-band__layer[data-motion="orbit"] { animation-name: kind-band-turn; animation-duration: 5040ms; }
+.kind-band__layer[data-motion="blink"] { animation-name: kind-band-blink; animation-duration: 1260ms; }
+.kind-band__layer[data-motion="blink-fast"] { animation-name: kind-band-blink; animation-duration: 720ms; }
+.kind-band__layer[data-motion="pulse"] { animation-name: kind-band-breathe; animation-duration: 1440ms; }
+.kind-band__layer[data-motion="breathe"] { animation-name: kind-band-breathe; animation-duration: 2880ms; }
+.kind-band__layer[data-motion="ripple"] { animation-name: kind-band-ripple; animation-duration: 2880ms; }
+.kind-band__layer[data-motion="glint"] { animation-name: kind-band-glint; animation-duration: 2520ms; }
+.kind-band__layer[data-motion="shake"] { animation-name: kind-band-shake; animation-duration: 720ms; }
+
+@keyframes kind-band-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes kind-band-breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes kind-band-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.1;
+  }
+}
+
+@keyframes kind-band-ripple {
+  0% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+
+@keyframes kind-band-glint {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.9;
+  }
+  60% {
+    opacity: 0;
+  }
+}
+
+@keyframes kind-band-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1px);
+  }
+  75% {
+    transform: translateX(1px);
+  }
+}
+
+/* At far and overview a kind seat is its ring alone, as a seat is. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .kind-band {
+  display: none;
+}
+
+/* The node's shell: the seat's recipe (no chrome at rest, a ground wash, a half round left end
+   concentric with the ring), the selected wash taking the kind's own hue. */
+.junto-node:has(.kind-seat[data-kind="task"]) { --kind-hue: var(--color-green); }
+.junto-node:has(.kind-seat[data-kind="artifacts"]) { --kind-hue: var(--color-violet); }
+.junto-node:has(.kind-seat[data-kind="automations"]) { --kind-hue: var(--color-amber); }
+.junto-node:has(.kind-seat[data-kind="page"]) { --kind-hue: var(--color-indigo); }
+.junto-node:has(.kind-seat[data-kind="terminal"]) { --kind-hue: var(--color-steel); }
+.junto-node:has(.kind-seat[data-kind="git"]) { --kind-hue: var(--color-orange); }
+.junto-node:has(.kind-seat[data-kind="file"]) { --kind-hue: var(--color-gold); }
+.junto-node:has(.kind-seat[data-kind="link"]) { --kind-hue: var(--color-cyan); }
+.junto-node:has(.kind-seat[data-kind="note"]) { --kind-hue: var(--color-gold); }
+
+.junto-node:has(.kind-seat):not([data-bare]) {
+  border-radius: var(--radius-pill) var(--radius-xl) var(--radius-xl) var(--radius-pill);
+  padding: 1px 10px 1px 1px;
+  border-color: transparent !important;
+  background: color-mix(in oklab, var(--color-ground) 72%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.react-flow__node:hover .junto-node:has(.kind-seat):not([data-bare]) {
+  border-color: var(--color-stroke) !important;
+  background: color-mix(in oklab, var(--color-raise) 90%, transparent) !important;
+}
+
+.react-flow__node.selected .junto-node:has(.kind-seat):not([data-bare]) {
+  border-color: color-mix(in oklab, var(--kind-hue) 60%, transparent) !important;
+  background: color-mix(in oklab, var(--kind-hue) 10%, var(--color-raise)) !important;
+  box-shadow: 0 8px 22px var(--color-shadow-2) !important;
+}
