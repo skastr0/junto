@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Needs you filters by region with a strip of chips, like the phone's region
+  bar. All comes first, then each region with its colour dot and a count of
+  what waits. Pick a chip to filter, press it again to show everything. The
+  strip scrolls sideways with the wheel and fades at its edges.
+- Picking a parent region takes in the regions inside it, and its count adds
+  theirs up. The open field matches only itself.
+- Region chip words stay readable at 4.5:1 in both themes, hovered and on the
+  count pill, including for a region colour typed as a free hex.
+
 ## 0.10.1 — 2026-10-21
 
 Opening the database with 0.10.1 moves it to version 49, and 0.10.0 then
