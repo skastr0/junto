@@ -22,6 +22,10 @@
      where crowded (SeatClusterLayer), and a kind seat stays as its ring.
      Regions three levels in go.
 
+   Flows tracks are the exception at every tier: a task-to-task dependency
+   is drawn in full, never faded and never hidden. They live in the viewport
+   portal, which no rule here reaches (flow-track.css).
+
    At every tier a region holding a seat that is blocked, needs the
    operator or has work for review says so: its colour leans toward the
    state's, and it wears an inner frame and glow in it. The region the seat

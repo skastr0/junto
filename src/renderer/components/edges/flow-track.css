@@ -1,0 +1,59 @@
+/* Flow track: open chevrons sliding along a flows wire (FlowTrack.tsx).
+
+   Opaque at every tier and in every state: the track sits in the viewport
+   portal, outside the wire group that rest, impact and the far tier fade,
+   and nothing here sets an opacity. Each straight run is a clip; the mover
+   inside it is one period wide and translates 100% (one period) and loops,
+   so the chevrons slide on the compositor every frame and never repaint.
+   The period is TRACK_PERIOD_MS (lib/flow-track.ts), and every run starts
+   at the same wall-clock phase (--flow-track-t0). A run slides while it is
+   in view (data-track-visible), as a ring turns only on screen. */
+/* Above every card (CARD_Z 32), so nothing paints over a sliding run and
+   none is lifted into a layer for overlapping one; under a hovered far seat
+   (2000) and the seat clusters (3000), which ride above everything. */
+.junto-flow-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  color: var(--wire-verb-flows);
+}
+.junto-flow-track__run {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  transform-origin: 0 50%;
+}
+.junto-flow-track__mover {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+.junto-flow-track__run[data-track-visible] > .junto-flow-track__mover {
+  animation: junto-flow-track 450ms linear var(--flow-track-t0, 0ms) infinite;
+}
+.junto-flow-track__marks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background-color: currentColor;
+  mask-image: var(--flow-track-tile);
+  mask-size: var(--flow-track-size);
+  mask-repeat: repeat-x;
+}
+@keyframes junto-flow-track {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+/* Selected: the track deepens in its own ink, as a selected wire blooms. */
+.junto-flow-track[data-selected] .junto-flow-track__run {
+  filter: drop-shadow(0 0 2px color-mix(in oklab, currentColor 60%, transparent));
+}
+/* The two exceptions the motion law allows: a hidden window, reduced motion. */
+html[data-surface-motion="paused"] .junto-flow-track__run > .junto-flow-track__mover {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .junto-flow-track__run[data-track-visible] > .junto-flow-track__mover { animation: none; }
+}

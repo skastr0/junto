@@ -129,18 +129,23 @@
 
 /* --- Wire paint: one stroke, one variable -------------------------------
 
-   Every wire is the same solid hairline. Weight, dash, halo, and travelling
-   light carry nothing, because an edge already says exactly one thing: its
-   verb. Hue is the only variable, and these are the custom properties named by
+   Every wire but flows is the same solid hairline. Weight, dash, halo, and
+   travelling light carry nothing, because an edge already says exactly one
+   thing: its verb. Hue is the only variable, and these are the custom properties named by
    VERB_COLOR_TOKEN in src/shared/physics/verbs.ts — the module maps verb to
    token and holds no colour, so the palette lives here.
 
    Temperature doctrine — hue answers "does this reach the real world?":
 
-   - HOT (manages, contributes, works, flows, enqueues). The task-bound core:
-     warm hue at full chroma, 0.145 and up. These five are the only verbs that
+   - HOT (manages, contributes, works, enqueues). The task-bound core:
+     warm hue at full chroma, 0.145 and up. These were the only verbs that
      co-occur around a single tasks card, so they were placed first and
      everything else was fitted around them.
+   - INK (flows). The operator's pick: a task-to-task dependency is drawn as
+     a moving track of chevrons (flow-track.css), in near-white on the dark
+     ground and near-black on paper, so it reads against every coloured
+     region and tells itself from a seat's blue wire by lightness, chroma and
+     shape, not by hue.
    - COLD (messages, reviews, reads, edits, navigates, publishes,
      announces, chains). Nothing here leaves the canvas world, so nothing is
      warm: teal through violet, several of them near-grey. reviews shares the
@@ -167,8 +172,8 @@
    identity across the theme switch even though lightness re-anchors to the
    ground. */
 :root {
-  /* Hot: warm hue, chroma 0.145 and up. */
-  --wire-verb-flows: oklch(0.79 0.15 335);
+  /* Ink: the flows track. */
+  --wire-verb-flows: oklch(0.9 0.01 250);
 
   /* Cold: teal through violet, several near-grey. */
   --wire-verb-navigates: oklch(0.5 0.02 190);
@@ -181,7 +186,7 @@
    paper, where weight comes from darkness instead of light, so the ranks
    within a band are solved fresh rather than mirrored. */
 html[data-theme="bright"] {
-  --wire-verb-flows: oklch(0.62 0.16 339);
+  --wire-verb-flows: oklch(0.3 0.01 250);
 
   --wire-verb-navigates: oklch(0.44 0.025 192);
   --wire-verb-messages: oklch(0.53 0.07 236);
@@ -248,6 +253,12 @@ path.junto-edge {
 }
 @media (prefers-reduced-motion: reduce) {
   path.junto-edge { transition: none; }
+}
+/* A flows wire draws its track instead (flow-track.css). The path stays,
+   unpainted, as the hit target and the anchor for the bloom's hue. */
+.react-flow .react-flow__edge path.junto-edge.junto-edge--track {
+  stroke-opacity: 0 !important;
+  filter: none;
 }
 
 /* A node focused by keyboard shows it. React Flow removes the outline from

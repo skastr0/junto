@@ -6,10 +6,19 @@ import { loomLanes$, loomRoutes$, loomStrands$ } from "../../lib/loom-view";
 import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
 import { WIRE_PULSE_TOKEN, wirePulses$, wirePulseScheduler } from "../../lib/wire-pulse";
+import { WIRE_WIDTH } from "../../lib/flow-track";
+import { FlowTrack } from "./FlowTrack";
 import "./wire-pulse.css";
 
 /**
- * One stroke for every wire: a solid hairline whose only variable is hue.
+ * One stroke for every wire but flows: a solid hairline whose only variable
+ * is hue.
+ *
+ * Flows, the task-to-task dependency, is the one wire drawn otherwise, at the
+ * operator's ask: a track of open chevrons in ink, half again a wire's weight,
+ * opaque at every tier and in every state, sliding toward the dependent board
+ * (FlowTrack, lib/flow-track.ts). Its own path stays, unpainted, as the hit
+ * target. Everything below is about the hairline.
  *
  * Weight, dash, halo, and travelling light all used to encode something — wire
  * family, worded config, live traffic — and stacked into a picture that had to
@@ -34,7 +43,6 @@ import "./wire-pulse.css";
  * wires and lets them be picked while the loupe is held, while a node's
  * connections are shown, and while a wire is being drawn.
  */
-const WIRE_WIDTH = 1.2;
 /** No verb means no relationship compiled: draw it, quietly, in neutral ink. */
 const UNSET_COLOR = "var(--wire-verb-unset)";
 
@@ -87,9 +95,12 @@ export function WireEdge({
   const labelX = stitched?.labelX ?? plannedRoute?.labelX ?? fallbackLabelX;
   const labelY = stitched?.labelY ?? plannedRoute?.labelY ?? fallbackLabelY;
 
+  const track = data?.verb === "flows";
+
   const className = [
     "junto-edge",
     selected ? "junto-edge--selected" : "",
+    track ? "junto-edge--track" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -112,6 +123,7 @@ export function WireEdge({
           ["--wire-hue" as string]: color,
         }}
       />
+      {track ? <FlowTrack id={id} path={path} selected={Boolean(selected)} /> : null}
       {pulse ? (
         // A transient second path, only while traffic crosses: at idle the
         // wire is still one hairline. pathLength 1 lets the stylesheet run
