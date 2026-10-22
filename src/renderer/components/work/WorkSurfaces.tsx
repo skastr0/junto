@@ -3,7 +3,7 @@ import { useAutomations } from "../../lib/automations-source";
 import { useWorkMail } from "../../lib/use-work-mail";
 import { type CSSProperties, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ListChecks, Package, Plus, Workflow } from "lucide-react";
+import { Plus, Workflow } from "lucide-react";
 import type { Part } from "@shared/work-model";
 import { TASKS_ENABLED } from "@shared/features";
 import { taskBoardTitle } from "@shared/model/title";
@@ -21,8 +21,7 @@ import { tasksCardBody } from "../tasks/tasks-pane-model";
 import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { markColor } from "../../lib/resource-visuals";
 import { RegionUrgency } from "@shared/wire/urgency";
-import { ResourceGlyphMark, TaskStateMark } from "../ui";
-import { SpineCard, type SpineStatus } from "../nodes/SpineCard";
+import { KindCard, type SpineStatus } from "../nodes/SpineCard";
 import { seatChoicesInReach } from "../tasks/tasks-canvas";
 import { installIpcTasksSource, useNodeTasks } from "../../lib/tasks-source";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -100,7 +99,7 @@ function SinkGlanceHead({
 
 // --- Cards -----------------------------------------------------------------
 
-/** The Tasks node on the canvas, in the Spines language: a chip with its count, a status tag when a seat waits or the operator owes a stamp, and the tasks that matter on a spine. */
+/** The Tasks node on the canvas, a kind seat: its counts on the line and the band, the ring saying a seat waits or the operator owes a stamp. The tasks are in the detail view. */
 export function TasksCard({
   nodeId,
   renaming = false,
@@ -122,12 +121,13 @@ export function TasksCard({
   const status: SpineStatus | undefined = body.status;
   return (
     <div data-testid="tasks-card">
-      <SpineCard
-        glyph={<ListChecks />}
-        hue="green"
+      <KindCard
+        kind="task"
         name={name}
-        count={body.count}
         status={status}
+        done={body.count > 0 && body.ledger.finished === body.count}
+        line={body.meta}
+        ledger={{ kind: "task", ...body.ledger }}
         {...(renaming && onRenameDone
           ? {
               nameEditor: (
@@ -166,21 +166,6 @@ export function TasksCard({
             </button>
           ) : undefined
         }
-        body={{
-          kind: "spine",
-          meta: body.meta,
-          rows: body.rows.map((row) => ({
-            key: row.taskId,
-            mark: <TaskStateMark state={row.state} />,
-            ...(row.flag === undefined ? {} : { tone: row.flag === "blocked" ? ("crimson" as const) : ("amber" as const) }),
-            text: (
-              <>
-                <span className="tabular-nums">{row.number}</span> {row.title}
-              </>
-            ),
-          })),
-          more: body.more,
-        }}
       />
     </div>
   );
@@ -192,20 +177,11 @@ export function ArtifactsCard({ nodeId }: { readonly nodeId: string }) {
   const items = useNodeArtifacts(canvasName, asNodeId(nodeId)).filter((entry) => !entry.artifact.archived);
   return (
     <div data-testid="artifacts-card">
-      <SpineCard
-        glyph={<Package />}
-        hue="violet"
+      <KindCard
+        kind="artifacts"
         name={name}
-        count={items.length}
-        body={{
-          kind: "spine",
-          meta: items.length === 1 ? "1 artifact" : `${items.length} artifacts`,
-          rows: items.map(({ artifact }) => ({
-            key: artifact.artifactId,
-            mark: <ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={12} />,
-            text: artifact.title,
-          })),
-        }}
+        line={items.length === 1 ? "1 artifact" : `${items.length} artifacts`}
+        ledger={{ kind: "artifacts", count: items.length }}
       />
     </div>
   );

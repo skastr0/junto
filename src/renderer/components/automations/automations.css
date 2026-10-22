@@ -177,17 +177,3 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-faint);
 }
-
-/* The canvas card's row mark (AutomationsCard): on is a filled dot, off a
-   hollow ring, in the spine's mark colour. A shape, never colour alone. */
-.automation-card__mark {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border: 1.5px solid currentColor;
-  border-radius: var(--radius-pill);
-}
-
-.automation-card__mark[data-on="true"] {
-  background: currentColor;
-}

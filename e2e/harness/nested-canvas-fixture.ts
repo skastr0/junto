@@ -189,7 +189,7 @@ const drawCount = (random: () => number, count: NestedCount): number =>
 /** Stored footprints (what membership reads), matching the sandbox builders. */
 const SEAT = { width: 240, height: 96 } as const;
 const TERMINAL = { width: 260, height: 110 } as const;
-const GIT = { width: 176, height: 44 } as const;
+const GIT = { width: 216, height: 56 } as const;
 const NOTE = { width: 220, height: 84 } as const;
 
 const CELL_W = 290;

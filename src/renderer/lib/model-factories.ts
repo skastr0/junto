@@ -6,7 +6,7 @@ import {
 import { asNodeId, type NodeOf } from "@shared/model";
 import type { Region } from "@shared/model/region";
 import { newBinding, requireHostId, seatParts, type SeatChoices } from "@shared/model/seat-parts";
-import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
+import { AGENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
 
 // Each kind of thing the operator can put on a canvas, as it is when new: its
 // id, its size, and the values it starts with. Nothing here adds it; `added`
@@ -69,7 +69,7 @@ export const newRegion = (spot: Spot, size?: Size): Region => ({
 /** A commit browser over the repository at `cwd`. */
 export const newGit = (spot: Spot, cwd: string, label?: string): NodeOf<"git"> => ({
   kind: "git",
-  ...placed("git", spot, INSTRUMENT_NODE_SIZE),
+  ...placed("git", spot, AGENT_NODE_SIZE),
   ...(label?.trim() ? { label: label.trim() } : {}),
   cwd,
 });
@@ -90,7 +90,7 @@ export const newTerminal = (
   options: { readonly host: string; readonly launch?: Launch; readonly label?: string },
 ): NodeOf<"terminal"> => ({
   kind: "terminal",
-  ...placed("terminal", spot, INSTRUMENT_NODE_SIZE),
+  ...placed("terminal", spot, AGENT_NODE_SIZE),
   ...(options.label?.trim() ? { label: options.label.trim() } : {}),
   host: requireHostId(options.host),
   bindingId: newBinding(),

@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { FileText, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { imageContentRefFromFile } from "../../lib/image-content";
 import { state$ } from "../../lib/state";
@@ -15,7 +15,7 @@ import { ContentMedia } from "../work/ContentMedia";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
 import { NodeShell } from "./NodeShell";
-import { SpineCard } from "./SpineCard";
+import { KindCard } from "./SpineCard";
 
 /** The folders a path sits in, the nearest last: what the leaf line names, its start giving way. */
 const pathTail = (path: string): string => {
@@ -118,9 +118,9 @@ export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   // Legacy plain path furniture — decode-admits-history only.
   const base = path.split("/").filter(Boolean).pop() ?? (path || "retired file");
   return (
-    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} look="spine">
-      <div title={path}>
-        <SpineCard glyph={<FileText />} hue="dim" name={base} status="retired" dashed body={{ kind: "leaf", line: pathTail(path), tail: true }} />
+    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} resizable={false}>
+      <div className="h-full w-full" title={path}>
+        <KindCard kind="file" name={base} status="retired" line={pathTail(path)} lineTitle={path} />
       </div>
     </NodeShell>
   );

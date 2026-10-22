@@ -66,8 +66,10 @@ describe("React Flow nodes from the model", () => {
     expect(flow.get("term")?.data.homeRegion).toBe("outer");
     expect(flow.get("lead")?.data.homeRegion).toBeUndefined();
     expect(flow.get("file")?.data.homeRegion).toBeUndefined();
-    // An instrument: the instrument size. A note: the size it stores.
-    expect(flow.get("term")?.style).toMatchObject({ width: 176, height: 44 });
+    // A kind seat (terminal, git): the seat size and the seat's ring room. A note: the size it stores.
+    expect(flow.get("term")?.style).toMatchObject({ width: 216, height: 56 });
+    expect(flow.get("git")?.style).toMatchObject({ width: 216, height: 56 });
+    expect(flow.get("term")?.data.ringCap).toBeGreaterThan(0);
     expect(flow.get("note")?.style).toEqual({ width: 220, height: 84 });
     // A bare label and a git card take no wire.
     expect(flow.get("label")?.connectable).toBe(false);

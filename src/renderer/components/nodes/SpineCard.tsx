@@ -1,14 +1,19 @@
 /**
- * A canvas node in the Spines language (docs/node-card-language.md): one head
- * chip, a status tag when the status is notable, and what the node holds
- * hanging from the chip on a thin spine. A kind hands over data, never
- * markup; the same props draw the far disc (the chip, its glyph and its
- * status pip), so near and far cannot disagree.
+ * A canvas node's body. Every kind with an icon (task, artifacts,
+ * automations, page, terminal, git, file, link) is a KindCard: a thin wrapper
+ * over KindSeat, the seat's ring around the kind's icon, the name and one
+ * line. Peer and stub keep the Spines card (docs/node-card-language.md): one
+ * head chip, a status tag when the status is notable, and what the node holds
+ * hanging from the chip on a thin spine.
  *
- * Paint is spine-card.css, tokens only. Tiers hide by visibility, so the
- * node's size never changes with zoom.
+ * Both publish the node's status and spoken kind, so the node's spoken name
+ * says what its ring or tag shows. Paint is kind-seat.css and
+ * spine-card.css, tokens only. Tiers hide by visibility, so the node's size
+ * never changes with zoom.
  */
 import { useContext, useEffect, type ReactNode } from "react";
+import type { KindIconKind } from "@shared/kind-icon";
+import type { KindLedger } from "../../lib/kind-band";
 import {
   NodeBlockedContext,
   nodeStatusWord,
@@ -19,6 +24,7 @@ import {
   type NodeStatus,
 } from "../../lib/node-status";
 import { RegionUrgency, SeatUrgency } from "@shared/wire/urgency";
+import { KindSeat, kindStateOf } from "./KindSeat";
 import "./spine-card.css";
 
 /** A glyph hue: a theme token, worn by the mark only, never by a word. */
@@ -116,12 +122,12 @@ export function SpineStatusTag({ status }: { readonly status: SpineStatus }) {
   );
 }
 
-export function SpineCard({ glyph, hue, name, count, status: reported, trailing, body, dashed = false, portrait, nameEditor, spokenKind }: SpineCardProps) {
-  const rows = body?.kind === "spine" ? body.rows.slice(0, SPINE_ROWS_MAX) : [];
-  const more = body?.kind === "spine" ? (body.more ?? 0) + Math.max(0, body.rows.length - SPINE_ROWS_MAX) : 0;
+/**
+ * The status a node shows (its own, else blocked when the graph holds it),
+ * published so the node's spoken name says it too (Canvas flowNodeLabel).
+ */
+const usePublishedStatus = (reported: SpineStatus | undefined, spokenKind: string | undefined): SpineStatus | undefined => {
   const status = shownStatus(reported, useContext(NodeBlockedContext));
-  const look = status === undefined ? undefined : spineStatusLook(status);
-  // The node's spoken name says the tag too (Canvas flowNodeLabel).
   const nodeId = useContext(NodeIdContext);
   useEffect(() => {
     if (nodeId === "") return;
@@ -139,6 +145,51 @@ export function SpineCard({ glyph, hue, name, count, status: reported, trailing,
     },
     [nodeId],
   );
+  return status;
+};
+
+export type KindCardProps = {
+  readonly kind: KindIconKind;
+  readonly name: string;
+  /** Stands in for the name while it is being renamed (a FirstLineRenameInput). */
+  readonly nameEditor?: ReactNode;
+  readonly status?: SpineStatus;
+  /** The kind finished: a board with nothing left. The ring says done when nothing else is said. */
+  readonly done?: boolean;
+  /** The one line beneath the name: a leaf's line, a holder's counts. */
+  readonly line: string;
+  /** Full text of the line when it truncates. */
+  readonly lineTitle?: string;
+  /** What the kind holds, drawn as the ledger band. */
+  readonly ledger?: KindLedger;
+  /** The one on-card instrument, at the end of the name row (the task enqueue). */
+  readonly trailing?: ReactNode;
+  /** What a screen reader calls the node in place of its kind word. */
+  readonly spokenKind?: string;
+};
+
+/** A kind's node body: KindSeat, with the node's status published. Rows live in the detail view. */
+export function KindCard({ kind, name, nameEditor, status: reported, done = false, line, lineTitle, ledger, trailing, spokenKind }: KindCardProps) {
+  const status = usePublishedStatus(reported, spokenKind);
+  return (
+    <KindSeat
+      kind={kind}
+      name={nameEditor ?? name}
+      line={line}
+      state={kindStateOf(status, done)}
+      {...(ledger === undefined ? {} : { ledger })}
+      {...(trailing === undefined ? {} : { trailing })}
+      {...(lineTitle === undefined ? {} : { lineTitle })}
+    />
+  );
+}
+
+/** Peer and stub: the Spines card. */
+export function SpineCard({ glyph, hue, name, count, status: reported, trailing, body, dashed = false, portrait, nameEditor, spokenKind }: SpineCardProps) {
+  const rows = body?.kind === "spine" ? body.rows.slice(0, SPINE_ROWS_MAX) : [];
+  const more = body?.kind === "spine" ? (body.more ?? 0) + Math.max(0, body.rows.length - SPINE_ROWS_MAX) : 0;
+  const status = usePublishedStatus(reported, spokenKind);
+  const look = status === undefined ? undefined : spineStatusLook(status);
   return (
     <div className="spine-card" data-status={status} data-tone={look?.tone}>
       <div className="spine-head">

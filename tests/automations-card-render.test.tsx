@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The Automations node's card in the Spines language: what the operator reads
- * on the canvas, from the node's one list read and its last outcomes.
+ * The Automations node's kind seat: what the operator reads on the canvas,
+ * from the node's one list read and its last outcomes. The rows are in the
+ * detail view, so the card says the counts and the ring says the state.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,6 +11,7 @@ import { DEFAULT_AUTOMATION_LIMITS, type AutomationDefinition } from "@shared/au
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import { AutomationsCard } from "../src/renderer/components/automations/AutomationsCard";
+import { kindStateOf } from "../src/renderer/components/nodes/KindSeat";
 import { makeLocalAutomationsSource, setAutomationsSource } from "../src/renderer/lib/automations-source";
 import { nodeUrgency$ } from "../src/renderer/lib/region-urgency";
 import { state$ } from "../src/renderer/lib/state";
@@ -35,6 +37,7 @@ const render = async (): Promise<void> => {
   await act(async () => root.render(<AutomationsCard nodeId={node} renaming={false} onRenameDone={() => undefined} />));
 };
 const text = (): string => document.body.textContent ?? "";
+const seatState = (): string | undefined => document.body.querySelector<HTMLElement>('[data-testid="kind-seat"]')?.dataset["state"];
 
 beforeEach(() => {
   state$.canvasName.set(canvas);
@@ -54,23 +57,20 @@ describe("Automations card", () => {
   it("an empty node says so, with no tag", async () => {
     await render();
     expect(text()).toContain("No automations yet");
-    expect(document.body.querySelector(".spine-tag")).toBeNull();
+    expect(seatState()).toBe(kindStateOf(undefined));
   });
 
-  it("shows the count, on and off, and each row's name and trigger in words", async () => {
+  it("is a kind seat that says on and off, with no rows on the canvas", async () => {
     await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: true, definition: definition("Morning standup") });
     await source.apply(canvas, node, second, { kind: "create", automationId: second, enabled: false, definition: definition("Evening digest") });
     await render();
-    expect(document.body.querySelector(".spine-chip__count")?.textContent).toBe("2");
-    expect(text()).toContain("1 on, 1 off");
-    expect(text()).toContain("Morning standup");
-    expect(text()).toContain("weekdays 09:00, UTC");
-    expect(document.body.querySelector('[data-on="false"]')).not.toBeNull();
-    // Off is said in words to a screen reader, not by the hollow mark alone.
-    expect(text()).toContain("Evening digest, off");
+    expect(document.body.querySelector('[data-testid="kind-seat"]')?.getAttribute("data-kind")).toBe("automations");
+    expect(document.body.querySelector('[data-testid="kind-seat-line"]')?.textContent).toBe("1 on, 1 off");
+    expect(text()).not.toContain("Morning standup");
+    expect(seatState()).toBe(kindStateOf(undefined));
   });
 
-  it("Failed when the last firing had an action refused; the row and the region say so, and it clears", async () => {
+  it("Failed when the last firing had an action refused: the ring says blocked, the region leans to it, and it clears", async () => {
     await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: true, definition: definition("Morning standup") });
     source.record(canvas, {
       firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF1"),
@@ -80,15 +80,14 @@ describe("Automations card", () => {
       outcome: { kind: "fired", actions: [{ index: 0, ruling: "refused", reason: "not_in_reach" }] },
     });
     await render();
-    expect(document.body.querySelector(".spine-tag")?.textContent).toBe("Failed");
-    expect(document.body.querySelector('.spine__row[data-tone="crimson"]')).not.toBeNull();
+    expect(seatState()).toBe(kindStateOf("failed"));
     expect(nodeUrgency$[node].peek()).toBe("blocked");
     await act(async () => root.unmount());
     expect(nodeUrgency$[node].peek()).toBeUndefined();
     root = createRoot(host);
   });
 
-  it("renaming keeps the card, with the field in the chip", async () => {
+  it("renaming keeps the card, with the field in place of the name", async () => {
     await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: true, definition: definition("Morning standup") });
     await act(async () => root.render(<AutomationsCard nodeId={node} renaming onRenameDone={() => undefined} />));
     expect(document.body.querySelector('input[aria-label="Rename automations"]')).not.toBeNull();
@@ -98,7 +97,7 @@ describe("Automations card", () => {
   it("Off when every one is off", async () => {
     await source.apply(canvas, node, first, { kind: "create", automationId: first, enabled: false, definition: definition("Morning standup") });
     await render();
-    expect(document.body.querySelector(".spine-tag")?.textContent).toBe("Off");
+    expect(seatState()).toBe(kindStateOf("off"));
     expect(nodeUrgency$[node].peek()).toBeUndefined();
   });
 });

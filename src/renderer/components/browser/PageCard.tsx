@@ -3,14 +3,13 @@ import { use$ } from "@legendapp/state/react";
 import type { NodeOf } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
 import { RegionUrgency } from "@shared/wire/urgency";
-import { Globe } from "lucide-react";
 import { refreshBrowserSession, subscribeBrowserSessionEvents, browser$ } from "../../lib/browser-state";
 import { dock$ } from "../../lib/dock-state";
 import { pageDriving$, refreshPageDriving, subscribePageDriving } from "../../lib/page-driving";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { useNodeUrgency } from "../../lib/use-node-urgency";
-import { SpineCard } from "../nodes/SpineCard";
+import { KindCard } from "../nodes/SpineCard";
 
 /**
  * Page, in the Spines language (docs/node-card-language.md): a leaf chip, the
@@ -58,12 +57,11 @@ export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
   return (
     // A failure's hover title leads with the error, which the leaf line cuts short.
     <div className="h-full w-full" title={err !== undefined ? `${err}\n${url || host}` : url || host}>
-      <SpineCard
-        glyph={<Globe />}
-        hue="indigo"
+      <KindCard
+        kind="page"
         name={host}
         {...(err !== undefined ? { status: "failed" as const } : working ? { status: "working" as const } : {})}
-        body={{ kind: "leaf", line: err ?? `browser page, ${node.profile}` }}
+        line={err ?? `browser page, ${node.profile}`}
       />
     </div>
   );

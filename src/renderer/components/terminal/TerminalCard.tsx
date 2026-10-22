@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { SquareTerminal } from "lucide-react";
 import { TASKS_ENABLED } from "@shared/features";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
@@ -19,7 +18,7 @@ import { renameTerminalNode } from "../../lib/mutations";
 import { useNodeFieldOf } from "../../lib/use-model";
 import { SeatTaskStrip } from "../nodes/SeatTaskStrip";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { SpineCard, type SpineStatus } from "../nodes/SpineCard";
+import { KindCard, type SpineStatus } from "../nodes/SpineCard";
 import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { RegionUrgency } from "@shared/wire/urgency";
 
@@ -178,9 +177,8 @@ export function TerminalCard({
       data-process-name={status.processName}
       data-seat-complete={complete ? "true" : undefined}
     >
-      <SpineCard
-        glyph={<SquareTerminal strokeWidth={1.8} />}
-        hue="steel"
+      <KindCard
+        kind="terminal"
         name={label}
         status={spineStatus}
         nameEditor={
@@ -193,7 +191,7 @@ export function TerminalCard({
             />
           ) : undefined
         }
-        body={{ kind: "leaf", line: seatState === "attention" && seatEvent?.reason ? seatEvent.reason : line }}
+        line={seatState === "attention" && seatEvent?.reason ? seatEvent.reason : line}
       />
       {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
     </div>

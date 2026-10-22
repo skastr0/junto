@@ -177,15 +177,16 @@ test("spines: every kind beside seats, near, fit and far, dark and bright, block
     expect((await apply("board", review, { kind: "assign", seat: asNodeId("builder") } as TaskCommand)).kind).toBe("applied");
     await seatCli("builder", ["task", "start", review]);
     await seatCli("builder", ["task", "finish", review, "--note", "Wire spec merged, ready for your stamp"]);
-    await expect(card("board2")).toContainText(/Blocked/i, { timeout: 20_000 });
-    await expect(card("board")).toContainText(/Needs you/i, { timeout: 20_000 });
-    // A leaf line clips at its own node's box: a long path never prints over a neighbour.
-    for (const id of ["pkg"]) {
+    // A kind seat's ring says the state, and its spoken name says it in words.
+    await expect(card("board2")).toHaveAttribute("aria-label", /blocked/i, { timeout: 20_000 });
+    await expect(card("board")).toHaveAttribute("aria-label", /needs you/i, { timeout: 20_000 });
+    // A kind seat's line clips at its own node's box: a long path never prints over a neighbour.
+    for (const id of ["pkg", "repo"]) {
       const node = await card(id).boundingBox();
-      const leaf = await card(id).locator(".spine-leaf").boundingBox();
+      const line = await card(id).getByTestId("kind-seat-line").boundingBox();
       expect(node, `${id} node`).not.toBeNull();
-      expect(leaf, `${id} leaf`).not.toBeNull();
-      expect(leaf!.x + leaf!.width, `${id} leaf right edge`).toBeLessThanOrEqual(node!.x + node!.width + 0.5);
+      expect(line, `${id} line`).not.toBeNull();
+      expect(line!.x + line!.width, `${id} line right edge`).toBeLessThanOrEqual(node!.x + node!.width + 0.5);
     }
 
     // Spoken names, once: what a screen reader says for each card.
@@ -208,13 +209,17 @@ test("spines: every kind beside seats, near, fit and far, dark and bright, block
       const fit = await scaleOf(page);
       await page.locator(".react-flow").screenshot({ path: join(SHOTS, `${theme}-fit-${fit.toFixed(2)}.png`) });
       const far = await zoomTo(page, 0.26);
-      // Every far disc is one size, whatever its node's box (terminal and git are short and wide).
-      const discs = await page.locator(".junto-node[data-look=\"spine\"] .spine-chip").evaluateAll((chips) =>
-        chips.map((chip) => ({ id: chip.closest(".react-flow__node")?.getAttribute("data-id") ?? "", size: chip.getBoundingClientRect().width })),
+      // At far a kind seat is its ring alone, as a seat is: the ring shows, the band and the words do not.
+      const kindSeats = await page.locator(".react-flow__node .kind-seat").evaluateAll((seats) =>
+        seats.map((seat) => ({
+          id: seat.closest(".react-flow__node")?.getAttribute("data-id") ?? "",
+          ring: (seat.querySelector(":scope > .junto-mark")?.getBoundingClientRect().width ?? 0) > 0,
+          band: [...seat.querySelectorAll(".kind-band")].some((band) => getComputedStyle(band).display !== "none"),
+          line: [...seat.querySelectorAll(".junto-seat__line")].some((line) => getComputedStyle(line).display !== "none"),
+        })),
       );
-      expect(discs.length, "spine discs at far").toBeGreaterThan(8);
-      const sizes = discs.map((disc) => disc.size);
-      expect(Math.max(...sizes) - Math.min(...sizes), `${theme} far disc sizes ${JSON.stringify(discs)}`).toBeLessThanOrEqual(1);
+      expect(kindSeats.length, "kind seats at far").toBeGreaterThan(8);
+      expect(kindSeats.filter((seat) => !seat.ring || seat.band || seat.line), `${theme} far kind seats`).toEqual([]);
       await page.mouse.move(5, 5);
       await page.locator(".react-flow").screenshot({ path: join(SHOTS, `${theme}-far-${far.toFixed(2)}.png`) });
       console.log(`${theme}: near ${near.toFixed(2)}, fit ${fit.toFixed(2)}, far ${far.toFixed(2)}`);

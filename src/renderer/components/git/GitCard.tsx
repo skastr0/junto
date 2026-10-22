@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { GitBranch } from "lucide-react";
 import type { NodeOf } from "@shared/model";
 import type { GitStatus } from "@shared/git";
 import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { SpineCard } from "../nodes/SpineCard";
+import { KindCard } from "../nodes/SpineCard";
 import { editText } from "../../lib/mutations";
 import "./git.css";
 
@@ -75,9 +74,8 @@ export function GitCard({
 
   return (
     <div className="git-glance h-full w-full" data-testid="git-card">
-      <SpineCard
-        glyph={<GitBranch strokeWidth={1.8} />}
-        hue="orange"
+      <KindCard
+        kind="git"
         name={label}
         status={error && !status ? "off" : undefined}
         nameEditor={
@@ -85,7 +83,8 @@ export function GitCard({
             <FirstLineRenameInput initial={label} ariaLabel="Rename git" onCommit={commitRename} onDone={onRenameDone} />
           ) : undefined
         }
-        body={{ kind: "leaf", line }}
+        line={line}
+        lineTitle={line}
       />
     </div>
   );

@@ -4,7 +4,7 @@ import type { Node, NodeKind, Region } from "@shared/model";
 import { regionStack, type Canvas } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
 import { nodeStatusWord, type NodeStatus } from "./node-status";
-import { INSTRUMENT_KINDS, INSTRUMENT_RING_PX, renderedNodeSize, SEAT_RING_PX } from "./node-geometry";
+import { holdsSeatRing, renderedNodeSize, SEAT_RING_PX } from "./node-geometry";
 import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
 
@@ -84,8 +84,7 @@ export const spokenNodeName = (
 const flowType = (kind: NodeKind): "group" | "file" | "link" | "text" =>
   kind === "region" ? "group" : kind === "file" ? "file" : kind === "link" || kind === "page" ? "link" : "text";
 
-const ringPxOf = (kind: NodeKind): number | undefined =>
-  kind === "agent" ? SEAT_RING_PX : INSTRUMENT_KINDS.has(kind) ? INSTRUMENT_RING_PX : undefined;
+const ringPxOf = (kind: NodeKind): number | undefined => (holdsSeatRing(kind) ? SEAT_RING_PX : undefined);
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 

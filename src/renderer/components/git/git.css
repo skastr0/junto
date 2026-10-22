@@ -1,13 +1,3 @@
-/* The canvas card is an instrument seat (InstrumentSeat); only its line's
-   parts are styled here. */
-.git-glance__branch {
-  font-weight: 650;
-}
-
-.git-glance__sync {
-  font-variant-numeric: tabular-nums;
-}
-
 .git-browser {
   display: grid;
   grid-template-columns: 20% 80%;

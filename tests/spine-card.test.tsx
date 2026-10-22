@@ -7,7 +7,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SpineCard, spineStatusLook } from "../src/renderer/components/nodes/SpineCard";
+import { KindCard, SpineCard, spineStatusLook } from "../src/renderer/components/nodes/SpineCard";
+import { kindStateOf } from "../src/renderer/components/nodes/KindSeat";
 import { nodeScale } from "../src/renderer/lib/canvas-tier";
 import { spokenNodeName } from "../src/renderer/lib/flow-nodes";
 import { NODE_STATUSES, NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/renderer/lib/node-status";
@@ -166,5 +167,43 @@ describe("peer and stub", () => {
     expect(host.querySelector(".spine-chip")?.getAttribute("data-dashed")).toBe("true");
     expect(host.querySelector(".spine-leaf")?.textContent).toBe("page on studio");
     expect(nodeSpokenKind$.s1.peek()).toBe("page copy on studio");
+  });
+});
+
+describe("KindCard", () => {
+  const seat = () => host.querySelector<HTMLElement>('[data-testid="kind-seat"]');
+
+  it("is a kind seat: the kind, the name, the one line, and the status as the ring's state", () => {
+    render(<KindCard kind="git" name="junto" line="main 3985235 fix" />);
+    expect(seat()?.dataset["kind"]).toBe("git");
+    expect(seat()?.dataset["state"]).toBe(kindStateOf(undefined));
+    expect(host.textContent).toContain("junto");
+    expect(host.querySelector('[data-testid="kind-seat-line"]')?.textContent).toBe("main 3985235 fix");
+    for (const status of NODE_STATUSES) {
+      render(<KindCard kind="task" name="Board" line="1 open" status={status} />);
+      expect(seat()?.dataset["state"]).toBe(kindStateOf(status));
+    }
+  });
+
+  it("says done only when nothing else is said", () => {
+    render(<KindCard kind="task" name="Board" line="0 open" done />);
+    expect(seat()?.dataset["state"]).toBe(kindStateOf(undefined, true));
+    render(<KindCard kind="task" name="Board" line="0 open" status="needs-you" done />);
+    expect(seat()?.dataset["state"]).toBe(kindStateOf("needs-you"));
+  });
+
+  it("shows and publishes graph blocked, and clears it when it goes", () => {
+    render(
+      <NodeIdContext.Provider value="k1">
+        <NodeBlockedContext.Provider value>
+          <KindCard kind="terminal" name="shell" line="zsh" spokenKind="terminal on studio" />
+        </NodeBlockedContext.Provider>
+      </NodeIdContext.Provider>,
+    );
+    expect(seat()?.dataset["state"]).toBe(kindStateOf("blocked"));
+    expect(nodeStatus$.k1.peek()).toBe("blocked");
+    expect(nodeSpokenKind$.k1.peek()).toBe("terminal on studio");
+    render(null);
+    expect(nodeStatus$.k1.peek()).toBeUndefined();
   });
 });

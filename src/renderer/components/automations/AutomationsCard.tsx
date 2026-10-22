@@ -1,14 +1,12 @@
 /**
- * The Automations node on the canvas, in the Spines language
- * (docs/node-card-language.md): the chip with its count, a meta line of how
- * many are on and off, a row per automation (on or off, name, trigger in
- * words), and Failed or Off as the tag. All of it from the node's one list
- * read (automations-card.ts): no firing read per automation, at any zoom.
- * A Failed tag also tells the region, so its frame leans to it far out.
+ * The Automations node on the canvas, a kind seat: a line of how many are on
+ * and off, the band's on, off and failed marks, and the ring saying failed or
+ * off. The automations themselves are in the detail view. All of it from the
+ * node's one list read (automations-card.ts): no firing read per automation,
+ * at any zoom. Failed also tells the region, so its frame leans to it far out.
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Workflow } from "lucide-react";
 import { asNodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import type { LastOutcome } from "@shared/automation";
@@ -22,7 +20,7 @@ import { state$ } from "../../lib/state";
 import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { SpineCard } from "../nodes/SpineCard";
+import { KindCard } from "../nodes/SpineCard";
 import { useTargetNames } from "../../lib/automation-names";
 import "./automations.css";
 
@@ -30,11 +28,6 @@ import "./automations.css";
 const OPERATOR = { kind: "operator" } as const;
 // Until the read lands: one object, so the facts are not recomputed each render.
 const NO_OUTCOMES: Readonly<Record<string, LastOutcome>> = {};
-
-/** On is a filled dot, off a hollow ring: a shape, never colour alone. */
-function OnMark({ on }: { readonly on: boolean }) {
-  return <span className="automation-card__mark" data-on={on ? "true" : "false"} />;
-}
 
 export function AutomationsCard({
   nodeId,
@@ -58,11 +51,10 @@ export function AutomationsCard({
 
   return (
     <div data-testid="automations-card">
-      <SpineCard
-        glyph={<Workflow />}
-        hue="amber"
+      <KindCard
+        kind="automations"
         name={name}
-        // Renaming keeps the card: the field stands in for the name in the chip.
+        // Renaming keeps the card: the field stands in for the name.
         {...(renaming
           ? {
               nameEditor: (
@@ -75,31 +67,9 @@ export function AutomationsCard({
               ),
             }
           : {})}
-        count={facts.count}
         status={facts.status}
-        body={{
-          kind: "spine",
-          meta: facts.meta,
-          rows: facts.rows.map((row) => ({
-            key: row.automationId,
-            mark: <OnMark on={row.on} />,
-            // The mark is hidden from a screen reader, so off and failed are said in
-            // words; the closing comma parts the name from the trigger after it.
-            text: (
-              <>
-                {row.name}
-                <span className="sr-only">
-                  {row.on ? "" : ", off"}
-                  {row.failed ? ", failed" : ""}
-                  {", "}
-                </span>
-              </>
-            ),
-            detail: row.trigger,
-            ...(row.failed ? { tone: "crimson" as const } : {}),
-          })),
-          more: facts.more,
-        }}
+        line={facts.meta}
+        ledger={{ kind: "automations", ...facts.ledger }}
       />
     </div>
   );

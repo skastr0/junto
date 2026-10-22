@@ -2,7 +2,6 @@
 import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { Link2 } from "lucide-react";
 import { formatNodeRef } from "@shared/node-ref";
 import { PageCard } from "../browser/PageCard";
 import { PageToolbarActions } from "../browser/PageToolbarActions";
@@ -13,7 +12,7 @@ import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { NodeShell } from "./NodeShell";
-import { SpineCard } from "./SpineCard";
+import { KindCard } from "./SpineCard";
 
 /** An address as its host and the last step of its path: "effect.website/…/docs". */
 const hostAndTail = (url: string): string => {
@@ -73,7 +72,7 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
         id={id}
         selected={selected}
         blocked={data.blocked}
-        look="spine"
+        resizable={false}
         toolbarExtras={node ? <PageToolbarActions node={node} /> : undefined}
       >
         <div
@@ -93,9 +92,9 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
 
   const host = hostOf(url) || "retired link";
   return (
-    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} look="spine">
-      <div title={url}>
-        <SpineCard glyph={<Link2 />} hue="cyan" name={host} status="retired" dashed body={{ kind: "leaf", line: hostAndTail(url) || host }} />
+    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked} resizable={false}>
+      <div className="h-full w-full" title={url}>
+        <KindCard kind="link" name={host} status="retired" line={hostAndTail(url) || host} />
       </div>
     </NodeShell>
   );

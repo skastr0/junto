@@ -51,7 +51,7 @@ import {
   TasksDetail,
 } from "../work/WorkSurfaces";
 import { GitCard } from "../git/GitCard";
-import { INSTRUMENT_KINDS } from "../../lib/node-geometry";
+import { holdsSeatRing } from "../../lib/node-geometry";
 import { GitDetail } from "../git/GitDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 
@@ -63,14 +63,11 @@ import { keyIs } from "../../lib/key-match";
 
 /**
  * Kinds drawn in the Spines language (docs/node-card-language.md): the shell
- * paints nothing and the body is a SpineCard. A kind joins when its body moves.
+ * paints nothing and the body is a SpineCard. Kind seats (task, artifacts,
+ * automations, terminal, git) take the card shell, which kind-seat.css draws
+ * in the seat's recipe.
  */
 const SPINE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
-  "artifacts",
-  "task",
-  "terminal",
-  "git",
-  "automations",
   "peer",
   "stub",
   "note",
@@ -269,7 +266,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
       selected={selected}
       blocked={data.blocked}
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
-      resizable={!isAgent && !INSTRUMENT_KINDS.has(entityKind ?? "")}
+      resizable={!holdsSeatRing(kind)}
       showHandles={!isLabel && kind !== "git"}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
