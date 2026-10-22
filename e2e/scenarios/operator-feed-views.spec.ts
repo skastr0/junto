@@ -3,7 +3,7 @@
  *   bun run test:e2e:fast e2e/scenarios/operator-feed-views.spec.ts
  *
  * Asserts:
- *   - the controls row carries the region and order dropdowns
+ *   - the controls row carries the region chip strip and the order dropdown
  *   - narrowing to one region drops the rest and the status reads "N of M waiting in X"
  *   - ordering by newest and oldest reorders the cards the way it says
  *   - a region that empties while picked shows the filtered empty state
@@ -103,15 +103,17 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     await expect(cards).toHaveCount(5);
     await shot(page, "views-controls.png");
 
-    // The region menu lists every waiting region and the open field.
-    await page.getByRole("button", { name: "Filter needs by region" }).click();
-    const menu = page.getByRole("listbox", { name: "Filter needs by region" });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole("option")).toHaveText(["All regions", "Build (3)", "Docs (1)", "open field (1)"]);
-    await shot(page, "views-region-menu.png");
+    // The region strip lists All, every waiting region and the open field.
+    const strip = page.getByRole("radiogroup", { name: "Filter needs by region" });
+    await expect(strip).toBeVisible();
+    const names = await strip.getByRole("radio").evaluateAll((chips) => chips.map((chip) => chip.getAttribute("aria-label")));
+    expect(names[0]).toBe("All regions, 5 waiting");
+    expect(names.slice(1).sort()).toEqual(["Build, 3 waiting", "Docs, 1 waiting", "open field, 1 waiting"]);
+    await shot(page, "views-region-strip.png");
 
     // Picking Build keeps only its three, and says so in the status line.
-    await menu.getByRole("option", { name: "Build (3)" }).click();
+    await strip.getByRole("radio", { name: "Build, 3 waiting" }).click();
+    await expect(strip.getByRole("radio", { name: "Build, 3 waiting" })).toHaveAttribute("aria-checked", "true");
     await expect(cards).toHaveCount(3);
     await expect(page.locator(".operator-feed__status")).toHaveText("3 of 5 waiting in Build");
     await shot(page, "views-filtered-build.png");
@@ -181,11 +183,7 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     await openFeed(page);
     await expect(cards).toHaveCount(2);
     await shot(page, "views-controls-bright.png");
-    await page.getByRole("button", { name: "Filter needs by region" }).click();
-    await page
-      .getByRole("listbox", { name: "Filter needs by region" })
-      .getByRole("option", { name: "Docs (1)" })
-      .click();
+    await page.getByRole("radiogroup", { name: "Filter needs by region" }).getByRole("radio", { name: "Docs, 1 waiting" }).click();
     await expect(cards).toHaveCount(1);
     await expect(page.locator(".operator-feed__status")).toHaveText("1 of 2 waiting in Docs");
     const grovePane = await paneFor(page, feed, "signal:sig-grove-0");
