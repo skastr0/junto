@@ -1,0 +1,139 @@
+/* The Needs you feed's region filter: a strip of chips, like the phone's
+   region bar, in desktop tokens. Each chip's colours mix from its region's
+   base (--chip-region): ink 72% toward ink, tint 16%, halo 20%. */
+
+.feed-region-strip {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  scrollbar-width: none;
+}
+
+.feed-region-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.feed-region-strip__all,
+.feed-region-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-pill);
+  background: var(--color-overlay-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.feed-region-strip__all:hover,
+.feed-region-chip:hover {
+  background: var(--color-overlay-2);
+}
+
+.feed-region-strip__all:focus-visible,
+.feed-region-chip:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.feed-region-strip__all {
+  color: var(--color-ink-2);
+}
+
+.feed-region-strip__all[aria-checked="true"] {
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+}
+
+.feed-region-strip__all-count {
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-region-chip {
+  --chip-region: var(--color-steel);
+  --chip-ink: color-mix(in oklab, var(--chip-region) 72%, var(--color-ink));
+  --chip-tint: color-mix(in oklab, var(--chip-region) 16%, transparent);
+  max-width: 360px;
+}
+
+.feed-region-chip[aria-checked="true"] {
+  border-color: var(--chip-region);
+  background: var(--chip-tint);
+}
+
+/* An 8px dot on a 14px halo plate; the open field is hollow, with no halo. */
+.feed-region-chip__swatch {
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--chip-region) 20%, transparent);
+}
+
+.feed-region-chip__swatch::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--chip-region);
+}
+
+.feed-region-chip[data-open-field="true"] .feed-region-chip__swatch {
+  background: transparent;
+}
+
+.feed-region-chip[data-open-field="true"] .feed-region-chip__swatch::before {
+  box-sizing: border-box;
+  border: 1.5px solid var(--chip-ink);
+  background: transparent;
+}
+
+/* The outer regions dim, then the region's own name in its ink; the name
+   gives way first when the chip runs out of room. */
+.feed-region-chip__text {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.feed-region-chip__outer {
+  flex: none;
+  color: var(--color-dim);
+  white-space: pre;
+}
+
+.feed-region-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--chip-ink);
+}
+
+.feed-region-chip__count {
+  flex: none;
+  min-width: 18px;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--chip-tint);
+  color: var(--chip-ink);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}

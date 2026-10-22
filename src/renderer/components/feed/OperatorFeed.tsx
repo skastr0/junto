@@ -50,6 +50,7 @@ import type { Node, Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
   needsOperatorCount,
+  orderFeedSections,
   type FeedItem,
   type FeedItemKind,
   type FeedSortOrder,
@@ -61,10 +62,13 @@ import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
 import { isOperatorTyping } from "../../lib/focus-ownership";
 import {
   feedItemsInOrder,
+  feedRegionChips,
   feedStatusLine,
   feedView$,
   holdFeedPlaces,
   reconcileSelection,
+  regionPickKey,
+  regionPickName,
   stepFeedSelection,
   useOperatorFeed,
   viewFeedSections,
@@ -96,6 +100,7 @@ import { SignalResourceChips } from "../signals/SignalResourceChips";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd, StatusDot } from "../ui";
+import { FeedRegionStrip } from "./FeedRegionStrip";
 import "./operator-feed.css";
 
 const LEAVE_MS = 280;
@@ -504,9 +509,6 @@ function FeedRegionSection({
   );
 }
 
-/** Dropdown values for the region pick; canvas region ids never collide. */
-const ALL_REGIONS = "all";
-const OPEN_FIELD = "open-field";
 
 const FEED_ORDER_OPTIONS: ReadonlyArray<{ readonly value: FeedSortOrder; readonly label: string }> = [
   { value: "urgency", label: "Most urgent first" },
@@ -562,7 +564,7 @@ export function OperatorFeed() {
   // commit ever draws the list without a card that is still fading: one that
   // did remounted the card, a reply box open on it took focus again, and the
   // list scrolled to it.
-  const pick = `${canvasName}\n${activeRegion ? (activeRegion.regionId ?? OPEN_FIELD) : ALL_REGIONS}\n${feedOrder}`;
+  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}`;
   const drawn = useRef<{ readonly pick: string; readonly sections: ReadonlyArray<ShownFeedSection> }>({ pick, sections: [] });
   // Cards whose fade is over: the next draw leaves them out.
   const [faded, setFaded] = useState<ReadonlySet<string>>(NO_IDS);
@@ -665,9 +667,11 @@ export function OperatorFeed() {
     if (event.target instanceof Element && event.target.closest('[data-testid="signal-reply"]')) return;
     // A task or artifact chip is a button: Enter opens it, and no answer key acts from it.
     if (event.target instanceof Element && event.target.closest('[data-testid="signal-resource-chips"]')) return;
-    // The region and order menus read letters as type-ahead: keys that land
-    // inside a listbox are the menu's, never j/k movement.
+    // The order menu reads letters as type-ahead: keys that land inside a
+    // listbox are the menu's, never j/k movement.
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
+    // A region chip is a button: Enter picks it, and no answer key acts from it.
+    if (event.target instanceof Element && event.target.closest('[data-testid="feed-region-strip"]')) return;
     if (event.key === "j" || event.key === "ArrowDown" || event.key === "k" || event.key === "ArrowUp") {
       event.preventDefault();
       const next = stepFeedSelection(items, selected, event.key === "j" || event.key === "ArrowDown" ? 1 : -1);
@@ -698,39 +702,15 @@ export function OperatorFeed() {
     setReplyFor(null);
     return true;
   };
-  // Regions the feed can be narrowed to, with how many are waiting in each.
-  // A pick whose region emptied out stays listed so it can be seen and cleared.
-  const regionChoices = useMemo(() => {
-    const choices = feed.sections.map((section) => ({
-      regionId: section.region.regionId,
-      label: section.region.label,
-      count: needsOperatorCount(section.items),
-    }));
-    if (activeRegion && !choices.some((choice) => choice.regionId === activeRegion.regionId)) {
-      choices.push({ regionId: activeRegion.regionId, label: activeRegion.label, count: 0 });
-    }
-    return choices;
-  }, [feed.sections, activeRegion]);
-  const regionOptions = useMemo(
-    () => [
-      { value: ALL_REGIONS, label: "All regions" },
-      ...regionChoices.map((choice) => ({
-        value: choice.regionId ?? OPEN_FIELD,
-        label: `${choice.label} (${choice.count})`,
-      })),
-    ],
-    [regionChoices],
+  // The region chips, in the order the feed's sections run, each parent just
+  // before its first child; a pick that emptied out stays so it can be seen
+  // and cleared.
+  const regionChips = useMemo(
+    () => feedRegionChips(orderFeedSections(feed.sections, feedOrder), activeRegion?.path),
+    [feed.sections, feedOrder, activeRegion],
   );
-  const onRegionChange = (value: string): void => {
-    if (value === ALL_REGIONS) {
-      feedView$.region.set(undefined);
-      return;
-    }
-    const regionId = value === OPEN_FIELD ? null : value;
-    const choice = regionChoices.find((candidate) => candidate.regionId === regionId);
-    feedView$.region.set({ canvasName, regionId, label: choice?.label ?? "" });
-  };
-  const regionName = activeRegion?.regionId === null ? "the open field" : (activeRegion?.label ?? "");
+  const chosenRegion = activeRegion ? regionPickKey(activeRegion.path) : undefined;
+  const regionName = activeRegion ? regionPickName(activeRegion.path) : "";
   const status = activeRegion
     ? feedStatusLine(feed, { label: regionName, count: needsOperatorCount(items) })
     : feedStatusLine(feed);
@@ -752,17 +732,12 @@ export function OperatorFeed() {
     >
       {feed.count > 0 || activeRegion !== undefined ? (
         <div className="operator-feed__controls">
-          <span className="operator-feed__control-label" aria-hidden>
-            Region
-          </span>
-          <Dropdown
-            aria-label="Filter needs by region"
-            value={activeRegion ? (activeRegion.regionId ?? OPEN_FIELD) : ALL_REGIONS}
-            options={regionOptions}
-            onChange={onRegionChange}
-            triggerClassName="operator-feed__control"
+          <FeedRegionStrip
+            chips={regionChips}
+            chosen={chosenRegion}
+            total={feed.count}
+            onPick={(chip) => feedView$.region.set(chip ? { canvasName, path: chip.path } : undefined)}
           />
-          <span className="operator-feed__controls-spread" aria-hidden />
           <span className="operator-feed__control-label" aria-hidden>
             Order
           </span>

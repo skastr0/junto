@@ -140,8 +140,9 @@
   color: var(--color-ink);
 }
 
-.operator-feed__controls-spread {
-  flex: 1 1 auto;
+/* Order keeps the right edge whether or not the region strip is drawn. */
+.operator-feed__controls > .operator-feed__control-label {
+  margin-left: auto;
 }
 
 /* Region sections --------------------------------------------------------- */
