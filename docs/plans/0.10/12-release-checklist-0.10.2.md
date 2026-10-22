@@ -11,7 +11,9 @@ before the go.
 In: Needs you region chip strip with parent-region rollup (a3b51ada9,
 95e057b76, 6d33811fa, 649bc1cb6), free hex contrast clamp (2bdf377b3,
 a20bb2345), Ledger kind-seat kit (803a4b1e7, 9f463b13c, 60fd6b687, c4c083bd9)
-and its canvas wiring from canvas-window (hashes not yet known).
+and its canvas wiring from canvas-window, and a new task-edge style (operator
+ask; canvas-edges is trialing previews first). Hashes for the wiring and the
+edge style are not yet known.
 
 Out of scope: no state change in the listed commits (`git diff
 42d006da3..HEAD -- src/main/junto/state` is empty), so the database stays at
@@ -27,6 +29,10 @@ version 49, no backup note and no migration run. Reconfirm at the cut.
       links on the canvas draw as kind seats: the seat's ring around a plain
       icon, with a band of the node's state outside it." Check the list of
       kinds against canvas-window's diff; notes kind stays unused (product-typography).
+- [ ] Notes cover the task-edge style. No bullet yet: canvas-edges is still
+      trialing previews, so word it from the style that lands, and add it
+      under `## Unreleased` once it is on main. Check whether it changes a
+      stored setting or only drawing (a stored change needs a state check).
 - [ ] `git status` clean of other seats' staged paths. Today's tree carries
       another seat's `docs/research/tooling/measure-runs.ndjson` and
       `e2e/scenarios/zz-kinds-gallery-check.spec.ts`; neither goes in the cut.
