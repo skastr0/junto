@@ -21,14 +21,13 @@ version 49, no backup note and no migration run. Reconfirm at the cut.
 
 ## 1. Before the cut
 
-- [ ] canvas-window's wiring is committed; product-lead names the cut hash.
+- [x] canvas-window's wiring is on main and cleared by canvas, automation and
+      verify (product-lead): 642c999bc, bb021a3eb, e32c25610, 9eb512093,
+      c47d976b0, with the kit 803a4b1e7, 9f463b13c, 60fd6b687, c4c083bd9,
+      b1c85c01d. Product-lead still names the cut hash.
 - [ ] tech-lead's verify is green at the cut hash. Receipt:
-- [ ] Notes cover the wiring. Draft bullet, to add under `## Unreleased` only
-      once the wiring is on main, worded from what it does on the canvas:
-      "Tasks, artifacts, automations, browsers, terminals, commits, files and
-      links on the canvas draw as kind seats: the seat's ring around a plain
-      icon, with a band of the node's state outside it." Check the list of
-      kinds against canvas-window's diff; notes kind stays unused (product-typography).
+- [x] Notes cover the wiring (bullet is in CHANGELOG, worded from
+      bb021a3eb and 9eb512093; re-check if the wiring changes).
 - [ ] Notes cover the task-edge style. No bullet yet: canvas-edges is still
       trialing previews, so word it from the style that lands, and add it
       under `## Unreleased` once it is on main. Check whether it changes a

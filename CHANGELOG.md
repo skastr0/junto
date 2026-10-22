@@ -10,6 +10,14 @@
   theirs up. The open field matches only itself.
 - Region chip words stay readable at 4.5:1 in both themes, hovered and on the
   count pill, including for a region colour typed as a free hex.
+- Tasks, artifacts, automations, pages, terminals, git, files and links draw
+  on the canvas the way a seat does: its ring round a plain icon of the kind,
+  with the node's state in a band outside the ring (finished, open, asks,
+  stuck and backlog for tasks; on, off and failed for automations). They are
+  the seat's size, so terminals and git nodes are larger than before. A
+  terminal still shows its claimed task under the name. Plain files and links
+  rest as a ring, an image file keeps its own size, notes keep their card, and
+  far out each one shrinks to its ring alone, as a seat does.
 
 ## 0.10.1 — 2026-10-21
 
