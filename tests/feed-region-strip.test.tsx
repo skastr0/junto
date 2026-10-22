@@ -73,3 +73,12 @@ it("is not drawn when there is one region and nothing picked, and shows no count
   expect(radios().map((radio) => radio.getAttribute("aria-label"))).toEqual(["All regions", "Junto > CLI"]);
   expect(host.querySelector(".feed-region-chip__count")).toBeNull();
 });
+
+it("gives a free hex region its own word shares per theme, and leaves a preset on the theme's", async () => {
+  const pale = chip(["Pale"], 1, "#ffff66");
+  await act(async () => root.render(<FeedRegionStrip chips={[pale, cli]} chosen={undefined} total={3} onPick={() => {}} />));
+  const [, paleChip, presetChip] = radios();
+  expect(paleChip?.style.getPropertyValue("--chip-share-bright")).toBe("33%");
+  expect(paleChip?.style.getPropertyValue("--chip-share-dark")).toBe("72%");
+  expect(presetChip?.style.getPropertyValue("--chip-share-bright")).toBe("");
+});

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { FeedRegionChip } from "../../lib/operator-feed";
+import { regionWordShare } from "../../lib/region-word-ink";
 import { accentColor } from "../../lib/theme";
 import "./feed-region-strip.css";
 
@@ -9,10 +10,19 @@ const REVEAL_INSET = 32;
 /**
  * The region's colours as the phone draws them: a preset or hex is the base,
  * a region with no colour of its own the main accent, the open field steel.
- * Ink, tint and halo mix from the base in feed-region-strip.css.
+ * Ink, tint and halo mix from the base in feed-region-strip.css. A free hex
+ * is no preset tuned per theme, so its words take only as much of it as
+ * still reads at 4.5:1 in each theme.
  */
-const chipStyle = (chip: FeedRegionChip): CSSProperties =>
-  ({ "--chip-region": chip.open ? "var(--color-steel)" : accentColor(chip.color) }) as CSSProperties;
+const chipStyle = (chip: FeedRegionChip): CSSProperties => {
+  const base = chip.open ? "var(--color-steel)" : accentColor(chip.color);
+  if (!base.startsWith("#")) return { "--chip-region": base } as CSSProperties;
+  return {
+    "--chip-region": base,
+    "--chip-share-dark": `${regionWordShare(base, "dark")}%`,
+    "--chip-share-bright": `${regionWordShare(base, "bright")}%`,
+  } as CSSProperties;
+};
 
 /**
  * The Needs you feed's region filter, a strip of chips like the phone's

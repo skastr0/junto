@@ -3,7 +3,7 @@
    base (--chip-region): ink 72% toward ink, tint 16%, halo 20%. On the
    bright ground the words take more ink, 45% region, so the palest preset
    (yellow) still reads at 4.5:1 on its selected tint; the dot and halo stay
-   on the base. */
+   on the base. A free hex sets its own lower shares (region-word-ink.ts). */
 
 .feed-region-strip {
   position: relative;
@@ -89,13 +89,13 @@
 
 .feed-region-chip {
   --chip-region: var(--color-steel);
-  --chip-ink: color-mix(in oklab, var(--chip-region) 72%, var(--color-ink));
+  --chip-ink: color-mix(in oklab, var(--chip-region) var(--chip-share-dark, 72%), var(--color-ink));
   --chip-tint: color-mix(in oklab, var(--chip-region) 16%, transparent);
   max-width: 360px;
 }
 
 html[data-theme="bright"] .feed-region-chip {
-  --chip-ink: color-mix(in oklab, var(--chip-region) 45%, var(--color-ink));
+  --chip-ink: color-mix(in oklab, var(--chip-region) var(--chip-share-bright, 45%), var(--color-ink));
 }
 
 .feed-region-chip[aria-checked="true"] {
