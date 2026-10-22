@@ -6,6 +6,7 @@ import {
   type FeedSection,
 } from "../src/shared/operator-feed";
 import {
+  feedRegionChips,
   feedStatusLine,
   holdFeedPlaces,
   reconcileSelection,
@@ -35,18 +36,18 @@ const itemAt = (
   ...item(itemId),
   kind,
   urgency: feedItemRank(kind),
-  region: { regionId, label: regionId ?? "open field", path: [] },
+  region: { regionId, label: regionId ?? "open field", path: regionId === null ? [] : [regionId] },
   ...(since === undefined ? { since: undefined } : { since }),
 });
 
 const region = (regionId: string | null, items: ReadonlyArray<FeedItem>): FeedSection => ({
-  region: { regionId, label: regionId ?? "open field", path: [] },
+  region: { regionId, label: regionId ?? "open field", path: regionId === null ? [] : [regionId] },
   items: [...items],
   worstUrgency: [...items].sort((a, b) => b.urgency - a.urgency)[0]?.urgency ?? feedItemRank("feedback"),
 });
 
 const section = (regionId: string | null, ids: ReadonlyArray<string>): FeedSection => ({
-  region: { regionId, label: regionId ?? "open field", path: [] },
+  region: { regionId, label: regionId ?? "open field", path: regionId === null ? [] : [regionId] },
   items: ids.map(item),
   worstUrgency: feedItemRank("feedback"),
 });
@@ -139,6 +140,64 @@ describe("feedStatusLine", () => {
   });
 });
 
+/** A region section at a path, outer to inner, with its own colour when given. */
+const nested = (path: ReadonlyArray<string>, kinds: ReadonlyArray<FeedItemKind>, color?: string): FeedSection => ({
+  region: { regionId: path.join("/") || null, label: path.at(-1) ?? "open field", path: [...path], ...(color ? { color } : {}) },
+  items: kinds.map((kind, index) => ({ ...item(`${path.join("/")}#${index}`), kind, urgency: feedItemRank(kind) })),
+  worstUrgency: kinds.map(feedItemRank).sort((a, b) => b - a)[0]!,
+});
+
+describe("region chips and the parent pick", () => {
+  const security = nested(["sobcontrole", "Cloud", "Security"], ["escalate", "blocked"], "3");
+  const cloud = nested(["sobcontrole", "Cloud"], ["feedback"], "5");
+  const vouch = nested(["Vouch"], ["escalate"]);
+  const open = nested([], ["escalate"]);
+
+  it("lists every region and each one around it, a parent just before its first child, in section order", () => {
+    const chips = feedRegionChips([security, vouch, cloud, open]);
+    expect(chips.map((chip) => [...chip.outer, chip.label].join(" > "))).toEqual([
+      "sobcontrole",
+      "sobcontrole > Cloud",
+      "sobcontrole > Cloud > Security",
+      "Vouch",
+      "open field",
+    ]);
+    expect(chips.map((chip) => chip.open)).toEqual([false, false, false, false, true]);
+  });
+
+  it("rolls a parent's count up from its children, and keeps a colour only a region's own section gave", () => {
+    const chips = feedRegionChips([security, vouch, cloud, open]);
+    const count = (label: string) => chips.find((chip) => chip.label === label)?.count;
+    expect(count("Security")).toBe(2);
+    expect(count("Cloud")).toBe(3);
+    expect(count("sobcontrole")).toBe(3);
+    expect(count("Vouch")).toBe(1);
+    expect(count("open field")).toBe(1);
+    expect(chips.find((chip) => chip.label === "sobcontrole")?.color).toBeUndefined();
+    expect(chips.find((chip) => chip.label === "Cloud")?.color).toBe("5");
+    expect(chips.find((chip) => chip.label === "Security")?.color).toBe("3");
+  });
+
+  it("does not count an AI reading, though it lists it", () => {
+    const quiet = nested(["Vouch"], ["health"]);
+    expect(feedRegionChips([quiet]).find((chip) => chip.label === "Vouch")?.count).toBe(0);
+  });
+
+  it("keeps a pick with nothing left in it, at the end, so the strip says what is chosen", () => {
+    const chips = feedRegionChips([vouch], ["sobcontrole", "Cloud"]);
+    expect(chips.at(-1)).toMatchObject({ label: "Cloud", outer: ["sobcontrole"], count: 0, color: undefined });
+  });
+
+  it("narrows to a parent and every region inside it, and the open field to itself", () => {
+    const sections = [security, vouch, cloud, open];
+    const shown = (path: ReadonlyArray<string>) =>
+      viewFeedSections(sections, { canvasName: "main", path }, "main", "urgency").map((s) => s.region.path.join(" > "));
+    expect(shown(["sobcontrole"]).sort()).toEqual(["sobcontrole > Cloud", "sobcontrole > Cloud > Security"]);
+    expect(shown(["sobcontrole", "Cloud", "Security"])).toEqual(["sobcontrole > Cloud > Security"]);
+    expect(shown([])).toEqual([""]);
+  });
+});
+
 describe("viewFeedSections", () => {
   const sections = [
     region("build", [itemAt("b-old", "build", 100), itemAt("b-new", "build", 300)]),
@@ -150,13 +209,13 @@ describe("viewFeedSections", () => {
     expect(viewFeedSections(sections, undefined, "main", "urgency")).toHaveLength(3);
     const picked = viewFeedSections(
       sections,
-      { canvasName: "main", regionId: "product", label: "product" },
+      { canvasName: "main", path: ["product"] },
       "main",
       "urgency",
     );
     expect(picked.map((s) => s.region.regionId)).toEqual(["product"]);
     expect(
-      viewFeedSections(sections, { canvasName: "main", regionId: null, label: "open field" }, "main", "newest").map(
+      viewFeedSections(sections, { canvasName: "main", path: [] }, "main", "newest").map(
         (s) => s.region.regionId,
       ),
     ).toEqual([null]);
@@ -164,7 +223,7 @@ describe("viewFeedSections", () => {
 
   it("ignores a pick made on another canvas", () => {
     expect(
-      viewFeedSections(sections, { canvasName: "other", regionId: "build", label: "build" }, "main", "urgency"),
+      viewFeedSections(sections, { canvasName: "other", path: ["build"] }, "main", "urgency"),
     ).toHaveLength(3);
   });
 

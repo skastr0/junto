@@ -8,14 +8,15 @@ import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { canvasTasks$, seatTasks$ } from "./seat-tasks";
 import type { TaskView } from "@shared/task-model";
 import {
+  OPEN_FIELD,
   buildOperatorFeed,
-  feedSectionsInRegion,
   feedSeatsFromCanvas,
   needsOperatorCount,
   orderFeedSections,
   type FeedCanvasNeed,
   type FeedItem,
   type FeedMailWait,
+  type FeedRegion,
   type FeedSection,
   type FeedSortOrder,
   type OperatorFeed,
@@ -216,14 +217,82 @@ export const feedStatusLine = (
 // --- view state -------------------------------------------------------------
 
 /**
- * The region the operator narrowed the feed to. `regionId` null names the
- * open field. The label is a display copy kept for the option row and empty
- * state; the pick is ignored on another canvas.
+ * The region the operator narrowed the feed to, named as the phone names it:
+ * by its canvas and its path, outer to inner, itself last. The empty path is
+ * the open field. A parent takes in its children: their paths start with its
+ * own. The pick is ignored on another canvas.
  */
 export type FeedRegionPick = {
   readonly canvasName: string;
-  readonly regionId: string | null;
+  readonly path: ReadonlyArray<string>;
+};
+
+/** One key per pick on a canvas; the open field is the empty path. */
+export const regionPickKey = (path: ReadonlyArray<string>): string => path.join("\u0000");
+
+/** Whether a region falls under a picked path: itself or a child. The open field matches only itself. */
+export const regionMatches = (path: ReadonlyArray<string>, region: Pick<FeedRegion, "path">): boolean =>
+  path.length === 0
+    ? region.path.length === 0
+    : path.length <= region.path.length && path.every((label, index) => region.path[index] === label);
+
+/** What a pick is called in a sentence: its own name, or the open field. */
+export const regionPickName = (path: ReadonlyArray<string>): string => path.at(-1) ?? "the open field";
+
+/**
+ * A region as a filter chip (mirrors the phone's regionChips): its own name,
+ * the regions around it, its colour when the feed carries one, and how many
+ * needs wait on the operator in it and its children.
+ */
+export type FeedRegionChip = {
+  readonly key: string;
+  readonly path: ReadonlyArray<string>;
   readonly label: string;
+  /** Containing regions, outer to inner. */
+  readonly outer: ReadonlyArray<string>;
+  /** The region's own colour; a parent known only from a child's path has none. */
+  readonly color: string | undefined;
+  readonly open: boolean;
+  /** Needs waiting on the operator here and in its children; AI readings are listed, not counted. */
+  readonly count: number;
+};
+
+/**
+ * The strip's chips: every region a need sits in and every region that
+ * contains one, in the order the sections give them, a parent just before its
+ * first child. A pick with nothing left in it stays, at the end, so the strip
+ * still says what is chosen.
+ */
+export const feedRegionChips = (
+  sections: ReadonlyArray<FeedSection>,
+  pick?: ReadonlyArray<string>,
+): ReadonlyArray<FeedRegionChip> => {
+  const chips = new Map<string, { path: ReadonlyArray<string>; label: string; color: string | undefined; open: boolean }>();
+  for (const { region } of sections) {
+    if (region.path.length === 0) {
+      if (!chips.has("")) chips.set("", { path: [], label: region.label, color: undefined, open: true });
+      continue;
+    }
+    region.path.forEach((label, index) => {
+      const path = region.path.slice(0, index + 1);
+      const own = index === region.path.length - 1;
+      const known = chips.get(regionPickKey(path));
+      if (!known) chips.set(regionPickKey(path), { path, label, color: own ? region.color : undefined, open: false });
+      else if (own && known.color === undefined && region.color !== undefined) known.color = region.color;
+    });
+  }
+  if (pick !== undefined && !chips.has(regionPickKey(pick))) {
+    chips.set(regionPickKey(pick), { path: pick, label: pick.at(-1) ?? OPEN_FIELD.label, color: undefined, open: pick.length === 0 });
+  }
+  return [...chips.entries()].map(([key, chip]) => ({
+    key,
+    path: chip.path,
+    label: chip.label,
+    outer: chip.path.slice(0, -1),
+    color: chip.color,
+    open: chip.open,
+    count: needsOperatorCount(sections.filter((section) => regionMatches(chip.path, section.region)).flatMap((section) => section.items)),
+  }));
 };
 
 /**
@@ -247,7 +316,7 @@ export const viewFeedSections = (
   order: FeedSortOrder,
 ): ReadonlyArray<FeedSection> =>
   orderFeedSections(
-    feedSectionsInRegion(sections, pick?.canvasName === canvasName ? pick.regionId : undefined),
+    pick?.canvasName === canvasName ? sections.filter((section) => regionMatches(pick.path, section.region)) : sections,
     order,
   );
 
