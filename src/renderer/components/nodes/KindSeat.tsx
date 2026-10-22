@@ -86,6 +86,8 @@ export type KindSeatProps = {
   readonly trailing?: ReactNode;
   /** Full text of the line when it truncates. */
   readonly lineTitle?: string;
+  /** Extra rows under the line, as a seat shows its claimed task. */
+  readonly children?: ReactNode;
 };
 
 const MOTION_NAMES: ReadonlySet<BandMotion> = new Set(["chase", "shimmer", "hand", "scan", "orbit", "blink", "blink-fast", "pulse", "breathe", "ripple", "glint", "shake"]);
@@ -97,7 +99,7 @@ const MOTION_NAMES: ReadonlySet<BandMotion> = new Set(["chase", "shimmer", "hand
  * stays the icon. Rows, notes and settings live in the detail view, not on the canvas. Pure: a
  * card hands it data, and the same props draw the same node.
  */
-export function KindSeat({ kind, name, line, state = S.resting, ledger, trailing, lineTitle }: KindSeatProps) {
+export function KindSeat({ kind, name, line, state = S.resting, ledger, trailing, lineTitle, children }: KindSeatProps) {
   const mode = use$(themeMode$);
   const layers = useMemo(() => kindBandLayers(kind, state, mode, ledger).map((layer) => ({ ...layer, background: bandBackground(layer.svg) })), [kind, state, mode, ledger]);
   return (
@@ -126,6 +128,7 @@ export function KindSeat({ kind, name, line, state = S.resting, ledger, trailing
             {line}
           </span>
         </div>
+        {children}
       </div>
     </div>
   );

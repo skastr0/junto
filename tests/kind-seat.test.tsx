@@ -54,6 +54,11 @@ describe("KindSeat", () => {
     expect(kindStateOf("retired")).toBe(G.offline);
   });
 
+  it("extra rows sit under the line, as a seat shows its claimed task", () => {
+    const html = renderToStaticMarkup(<KindSeat kind="terminal" name="zsh" line="idle shell"><div data-row="claimed">#2 Ship</div></KindSeat>);
+    expect(html.indexOf("idle shell")).toBeLessThan(html.indexOf('data-row="claimed"'));
+  });
+
   it("the trailing instrument sits on the name row", () => {
     const html = renderToStaticMarkup(<KindSeat kind="task" name="Ship" line="1" trailing={<button type="button">+</button>} />);
     expect(html.indexOf("Ship")).toBeLessThan(html.indexOf("<button"));
