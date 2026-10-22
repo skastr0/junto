@@ -69,6 +69,12 @@ const BrowserChromeGallery = lazy(() =>
   import("./components/gallery/BrowserChromeGallery").then((m) => ({ default: m.BrowserChromeGallery })),
 );
 
+// Dev gallery for the kind seats (`#/gallery/kinds`).
+const KINDS_GALLERY = "#/gallery/kinds";
+const KindSeatGallery = lazy(() =>
+  import("./components/gallery/KindSeatGallery").then((m) => ({ default: m.KindSeatGallery })),
+);
+
 function AppRoot() {
   const api = window.junto;
 
@@ -82,6 +88,14 @@ function AppRoot() {
     return (
       <Suspense fallback={null}>
         <ActivityMarkGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(KINDS_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <KindSeatGallery />
       </Suspense>
     );
   }
