@@ -141,7 +141,16 @@ describe("local tasks source", () => {
     ]);
     expect(body.more).toBe(1);
     expect(body.status).toBe("blocked");
-    expect(tasksCardBody([])).toEqual({ count: 0, meta: "0 backlog, 0 open, 0 done", rows: [], more: 0, status: undefined });
+    // The ledger band counts by state; blocked counts the flagged task.
+    expect(body.ledger).toEqual({ finished: 0, open: 2, asks: 0, stuck: 1, backlog: 3 });
+    expect(tasksCardBody([])).toEqual({
+      count: 0,
+      meta: "0 backlog, 0 open, 0 done",
+      rows: [],
+      more: 0,
+      status: undefined,
+      ledger: { finished: 0, open: 0, asks: 0, stuck: 0, backlog: 0 },
+    });
   });
 
   it("flags a task in review that the operator owes a stamp on, until it stamps", async () => {

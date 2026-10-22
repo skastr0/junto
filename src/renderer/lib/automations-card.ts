@@ -36,6 +36,8 @@ export type AutomationsCardFacts = {
   /** Automations past the shown rows, for `+N more`; 0 shows no row. */
   readonly more: number;
   readonly status: AutomationsCardStatus | undefined;
+  /** On, off and failed counts, for the kind seat's ledger band. */
+  readonly ledger: { readonly on: number; readonly off: number; readonly failed: number };
 };
 
 export const automationsCardFacts = (
@@ -63,5 +65,6 @@ export const automationsCardFacts = (
     rows,
     more: Math.max(0, automations.length - AUTOMATIONS_CARD_ROWS),
     status: failed.size > 0 ? "failed" : automations.length > 0 && on === 0 ? "off" : undefined,
+    ledger: { on, off: automations.length - on, failed: failed.size },
   };
 };

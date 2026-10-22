@@ -250,6 +250,8 @@ export type TasksCardBody = {
   /** Rows beyond `limit`, for the `+N more` row. */
   readonly more: number;
   readonly status: CardStatus;
+  /** The board's counts by state, for the kind seat's ledger band; asks and stuck count flagged tasks. */
+  readonly ledger: { readonly finished: number; readonly open: number; readonly asks: number; readonly stuck: number; readonly backlog: number };
 };
 
 const OPERATOR = { kind: "operator" } as const;
@@ -298,5 +300,12 @@ export const tasksCardBody = (views: ReadonlyArray<TaskView>, limit = 4): TasksC
     rows: ordered.slice(0, limit),
     more: Math.max(0, ordered.length - limit),
     status: flags.includes("blocked") ? "blocked" : flags.includes("needs-you") ? "needs-you" : undefined,
+    ledger: {
+      finished: done,
+      open,
+      asks: flags.filter((flag) => flag === "needs-you").length,
+      stuck: flags.filter((flag) => flag === "blocked").length,
+      backlog,
+    },
   };
 };

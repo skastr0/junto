@@ -25,13 +25,21 @@ const nameOf = () => "a seat";
 
 describe("Automations card facts", () => {
   it("an empty node says so, with no tag", () => {
-    expect(automationsCardFacts([], never, nameOf)).toEqual({ count: 0, meta: "No automations yet", rows: [], more: 0, status: undefined });
+    expect(automationsCardFacts([], never, nameOf)).toEqual({
+      count: 0,
+      meta: "No automations yet",
+      rows: [],
+      more: 0,
+      status: undefined,
+      ledger: { on: 0, off: 0, failed: 0 },
+    });
   });
 
   it("counts every automation, says on and off, and gives each row its trigger in words", () => {
     const facts = automationsCardFacts([automation(1), automation(2, false)], never, nameOf);
     expect(facts.count).toBe(2);
     expect(facts.meta).toBe("1 on, 1 off");
+    expect(facts.ledger).toEqual({ on: 1, off: 1, failed: 0 });
     expect(facts.rows.map((row) => [row.name, row.on, row.trigger])).toEqual([
       ["Auto 1", true, "weekdays 09:00, UTC"],
       ["Auto 2", false, "weekdays 09:00, UTC"],
@@ -53,6 +61,7 @@ describe("Automations card facts", () => {
     const all = [1, 2, 3, 4, 5, 6].map((n) => automation(n, false));
     const facts = automationsCardFacts(all, { [idOf(6)]: "failed" }, nameOf);
     expect(facts.status).toBe("failed");
+    expect(facts.ledger).toEqual({ on: 0, off: 6, failed: 1 });
     expect(facts.rows[0]).toMatchObject({ name: "Auto 6", failed: true });
     expect(facts.rows.filter((row) => row.failed)).toHaveLength(1);
   });
