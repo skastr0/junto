@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { SheetPatch } from "../src/shared/artifact";
-import { artifactLink } from "../src/shared/artifact-link";
+import { ARTIFACT_GONE_LINE, artifactLink } from "../src/shared/artifact-link";
 import type { MentionOf } from "../src/shared/mention";
 import type { SheetGrid } from "../src/shared/model/sheet";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -13,7 +13,7 @@ import type { LinkableArtifact } from "../src/renderer/lib/artifact-link-draft";
 const { opened, heads } = vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   Element.prototype.scrollIntoView = function scrollIntoView() {};
-  return { opened: [] as unknown[], heads: new Map<string, ReadonlyArray<{ artifact: { artifactId: string; title: string; archived: boolean } }>>() };
+  return { opened: [] as unknown[], heads: new Map<string, ReadonlyArray<{ artifact: { artifactId: string; title: string; archived: boolean; type: string } }>>() };
 });
 
 vi.mock("../src/renderer/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
@@ -74,7 +74,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   opened.length = 0;
   heads.clear();
-  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan", archived: false } }]);
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan", archived: false, type: "document" } }]);
   host = document.createElement("div");
   host.setAttribute("data-focus-surface", "");
   document.body.append(host);
@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 it("a link in a cell reads as its words, the artifact's title as it is now, never its address", async () => {
-  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: false } }]);
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: false, type: "document" } }]);
   await render();
   expect(cell("B1")!.value).toBe("see Launch plan v2 first");
   expect(cell("B1")!.dataset.links).toBe("true");
@@ -99,33 +99,41 @@ it("a link in a cell reads as its words, the artifact's title as it is now, neve
   expect(words("A1")).toBeNull();
 });
 
-it("a link to an artifact gone keeps the title it was written with", async () => {
+it("a link to an artifact gone claims no title", async () => {
   heads.set(shelf, []);
   await render();
-  expect(cell("B1")!.value).toBe("see Launch plan, unavailable first");
+  expect(cell("B1")!.value).toBe("see Missing artifact first");
+});
+
+it("a link into a node that is no Artifacts node now is missing without a read", async () => {
+  await act(async () =>
+    root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} cellLinks={{ ...cellLinks, nodeKindOf: () => undefined }} />),
+  );
+  await act(async () => {});
+  expect(cell("B1")!.value).toBe("see Missing artifact first");
 });
 
 it("a link to an archived artifact says so after its title, and still opens", async () => {
-  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: true } }]);
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: true, type: "document" } }]);
   await render();
-  expect(cell("B1")!.value).toBe("see Launch plan, archived first");
+  expect(cell("B1")!.value).toBe("see Launch plan v2, archived first");
   const link = words("B1")!.querySelector(".junto-artifact-sheet__link")!;
   expect(link.getAttribute("data-state")).toBe("archived");
-  expect(link.textContent).toBe("Launch plan");
+  expect(link.textContent).toBe("Launch plan v2");
   await act(async () => cell("B1")!.focus());
   key(cell("B1")!, { key: "Enter", metaKey: true });
   expect(opened).toEqual([plan.ref]);
 });
 
-it("a link to an artifact its node does not hold reads unavailable, and Cmd+Enter says why rather than opening", async () => {
-  heads.set(shelf, [{ artifact: { artifactId: "01M5ZBT64KHP4JGH67RV1YCS6C", title: "Other", archived: false } }]);
+it("a link to an artifact its node does not hold reads missing, and Cmd+Enter says why rather than opening", async () => {
+  heads.set(shelf, [{ artifact: { artifactId: "01M5ZBT64KHP4JGH67RV1YCS6C", title: "Other", archived: false, type: "document" } }]);
   await render();
-  expect(cell("B1")!.value).toBe("see Launch plan, unavailable first");
-  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.getAttribute("data-state")).toBe("unavailable");
+  expect(cell("B1")!.value).toBe("see Missing artifact first");
+  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.getAttribute("data-state")).toBe("missing");
   await act(async () => cell("B1")!.focus());
   key(cell("B1")!, { key: "Enter", metaKey: true });
   expect(opened).toEqual([]);
-  expect(host.querySelector(".junto-artifact-sheet__refusal")!.textContent).toBe("Launch plan is unavailable, so its link opens nothing.");
+  expect(host.querySelector(".junto-artifact-sheet__refusal")!.textContent).toBe(ARTIFACT_GONE_LINE);
 });
 
 it("a link whose node cannot be read draws as written, with no state", async () => {

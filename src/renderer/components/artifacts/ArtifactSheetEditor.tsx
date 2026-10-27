@@ -16,7 +16,7 @@ import { Result } from "effect";
 import { Copy, MessageSquare, Plus, Trash2 } from "lucide-react";
 import { ulid } from "ulid";
 import { applySheetPatch, type SheetPatch } from "@shared/artifact";
-import { artifactLinkTitle } from "@shared/artifact-link";
+import { ARTIFACT_GONE_LINE } from "@shared/artifact-link";
 import { mentionLinksOf, mentionRefOf } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { SheetGrid } from "@shared/model/sheet";
@@ -35,7 +35,7 @@ import { IconButton } from "../ui/IconButton";
 import { MentionCombobox, type ComboboxLinks } from "../ui/MentionCombobox";
 import "./artifact-sheet.css";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
-import { linkPiecesOf, useLinkTargets, type LinkPiece, type LinkStateOf, type LinkTitleOf } from "../../lib/link-titles";
+import { linkPiecesOf, useLinkStates, type LinkPiece, type LinkStateOf } from "../../lib/link-titles";
 import { openMention } from "../../lib/mention-open";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { markColor, RESOURCE_KIND_VISUAL } from "../../lib/resource-visuals";
@@ -69,6 +69,8 @@ const LINK_LIST_ROOM_PX = 240;
 const withoutPickSpace = (text: string): string =>
   text.endsWith(" ") && mentionLinksOf(text).some((link) => link.end === text.length - 1) ? text.slice(0, -1) : text;
 
+const noNodeKind = (): undefined => undefined;
+
 /** The first link in a cell's text that names something on the canvas, to open, with where it stands. */
 const firstLinkOf = (text: string, nodeKindOf: SheetCellLinks["nodeKindOf"]) => {
   for (const link of mentionLinksOf(text)) {
@@ -78,9 +80,8 @@ const firstLinkOf = (text: string, nodeKindOf: SheetCellLinks["nodeKindOf"]) => 
   return undefined;
 };
 
-/** What a link adds after its title when its artifact is not there as it was linked, as a document's chip says it. */
-const linkStateWords = (piece: LinkPiece): string =>
-  piece.state === "archived" ? ", archived" : piece.state === "unavailable" ? ", unavailable" : "";
+/** What a link adds after its title when its artifact is archived, as a document's chip says it; a missing one's words say so already. */
+const linkStateWords = (piece: LinkPiece): string => (piece.state === "archived" ? ", archived" : "");
 
 /** Ids the writer mints for new rows and columns: unique without reading the grid. */
 export const mintSheetRowId = (): string => `r${ulid()}`;
@@ -485,9 +486,9 @@ export function ArtifactSheetEditor({
     if (!row || !column || cellLinks === undefined) return;
     const first = firstLinkOf(row.cells[column.id] ?? "", cellLinks.nodeKindOf);
     if (first === undefined) return;
-    // An artifact its node does not hold has nothing to open: say so rather than nothing at all.
-    if (stateOfRef.current(first.target) === "unavailable") {
-      setRefusal(`${artifactLinkTitle(first.label) ?? first.label} is unavailable, so its link opens nothing.`);
+    // A missing artifact has nothing to open: say so rather than nothing at all.
+    if (stateOfRef.current(first.target, first.label)?.state === "missing") {
+      setRefusal(ARTIFACT_GONE_LINE);
       return;
     }
     openMention(first.ref);
@@ -500,7 +501,7 @@ export function ArtifactSheetEditor({
     () => (cellLinks === undefined ? [] : draft.rows.flatMap((row) => Object.values(row.cells).filter((text) => text.includes("](junto:")))),
     [cellLinks, draft],
   );
-  const { titleOf, stateOf } = useLinkTargets(cellLinks?.canvasName, cellTexts);
+  const stateOf = useLinkStates(cellLinks?.canvasName, cellTexts, cellLinks?.nodeKindOf ?? noNodeKind);
   const stateOfRef = useRef(stateOf);
   stateOfRef.current = stateOf;
 
@@ -674,7 +675,6 @@ export function ArtifactSheetEditor({
                   onStartEdit={startEditRef}
                   onDeleteRow={onDeleteRow}
                   cellLinks={readOnly ? undefined : cellLinks}
-                  titleOf={cellLinks === undefined ? undefined : titleOf}
                   stateOf={cellLinks === undefined ? undefined : stateOf}
                   listPlacement={listPlacement}
                   onEditChange={onEditChange}
@@ -783,7 +783,6 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
   onStartEdit,
   onDeleteRow,
   cellLinks,
-  titleOf,
   stateOf,
   listPlacement,
   onEditChange,
@@ -812,9 +811,7 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
   readonly onDeleteRow: (rowId: string) => void;
   /** Present when cells take links and can be edited: an edit is the link field. */
   readonly cellLinks: SheetCellLinks | undefined;
-  /** Present when cells draw links: each link's words. */
-  readonly titleOf: LinkTitleOf | undefined;
-  /** Where each link's artifact stands, so an archived or unavailable one says so. */
+  /** Present when cells draw links: where each link stands, so it reads as its title now, archived or missing. */
   readonly stateOf: LinkStateOf | undefined;
   readonly listPlacement: "below" | "above";
   readonly onEditChange: (at: CellAt, rowId: string, columnId: string, value: string) => void;
@@ -854,7 +851,7 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
         const raw = row.cells[column.id] ?? "";
         const label = `${column.name || column.id} row ${String(index + 1)}`;
         // Out of an edit a link draws as its words over the cell's own text, which reads the same words.
-        const pieces = titleOf === undefined || inEdit || typing !== null ? null : linkPiecesOf(raw, titleOf, stateOf);
+        const pieces = stateOf === undefined || inEdit || typing !== null ? null : linkPiecesOf(raw, stateOf);
         const linked = pieces !== null && pieces.some((piece) => piece.link !== undefined);
         return (
           <td
@@ -929,12 +926,12 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
                     <span key={at}>
                       <span
                         className="junto-artifact-sheet__link"
-                        data-state={piece.state === "live" ? undefined : piece.state}
+                        data-state={piece.state === "archived" || piece.state === "missing" ? piece.state : undefined}
                         style={{ "--mark": markColor(RESOURCE_KIND_VISUAL.artifact.tone) } as CSSProperties}
                       >
                         {piece.text}
                       </span>
-                      {piece.state === "archived" || piece.state === "unavailable" ? (
+                      {piece.state === "archived" ? (
                         <span className="junto-artifact-sheet__link-state">{linkStateWords(piece)}</span>
                       ) : null}
                     </span>

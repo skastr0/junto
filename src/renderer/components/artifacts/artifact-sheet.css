@@ -92,12 +92,12 @@
   background: var(--color-overlay-3);
   box-shadow: inset 0 -1px 0 var(--mark);
 }
-/* A link whose artifact is archived or unavailable says so after its title, in
-   the secondary ink; an unavailable one is struck, as a document's chip is. */
+/* A link whose artifact is archived says so after its title, in the secondary
+   ink; a missing one reads Missing artifact, struck, as a document's chip is. */
 .junto-artifact-sheet__link[data-state] {
   box-shadow: none;
 }
-.junto-artifact-sheet__link[data-state="unavailable"] {
+.junto-artifact-sheet__link[data-state="missing"] {
   text-decoration: line-through;
 }
 .junto-artifact-sheet__link-state {
