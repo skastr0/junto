@@ -53,7 +53,7 @@ const baseName = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
  * read the key as pressed outside it and close as well.
  */
 const keepUsedEscape = ViewPlugin.define((view) => {
-  const stop = (event: KeyboardEvent): void => {
+  const stop = (event: globalThis.KeyboardEvent): void => {
     if (event.key === "Escape" && event.defaultPrevented) event.stopPropagation();
   };
   view.dom.addEventListener("keydown", stop);
