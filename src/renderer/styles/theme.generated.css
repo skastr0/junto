@@ -108,7 +108,7 @@ html[data-theme="bright"] {
   --color-shadow-2: color-mix(in oklab, var(--color-umbra) 18%, transparent);
   --color-amber: oklch(0.63000 0.18000 72.00);
   --color-amber-hi: oklch(0.57000 0.13000 68.00);
-  --color-amber-fg: oklch(0.53000 0.11000 60.00);
+  --color-amber-fg: oklch(0.51000 0.11000 60.00);
   --color-cyan: oklch(0.60000 0.09000 220.00);
   --color-cyan-fg: oklch(0.48000 0.07500 225.00);
   --color-crimson: oklch(0.56000 0.19000 25.00);
