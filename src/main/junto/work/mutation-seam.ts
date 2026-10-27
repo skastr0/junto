@@ -82,6 +82,8 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     // a mail row's backlinks, written with it (mention-backlinks.ts)
     ["work_mentions", "projection"],
     ["work_artifacts", "projection"],
+    // body links, rewritten with an artifact's head row (artifact-links.ts)
+    ["work_artifact_links", "projection"],
     ["work_delivery_receipts", "projection"],
     // Crew review stores: durable Command Center-local operational state
     // written directly (never materialized from the replicated journal), so
