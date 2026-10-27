@@ -122,3 +122,13 @@ await allMustPass([
 await allMustPass([
   { name: "check:overlay-bundle", cmd: ["bun", "scripts/lint-overlay.ts", "--bundle"] },
 ]);
+
+// The app built above reaches its first window: a real launch, so a preload
+// that throws in the sandbox or a main that throws while registering IPC
+// fails here (4cd57bdc3, 3776924fc). CI runs the same spec as its own job
+// (verify.yml, free-startup-e2e), with the display and browser deps it needs.
+if (process.env.CI !== "true") {
+  await allMustPass([
+    { name: "first window", cmd: ["scripts/run-e2e.sh", "e2e/scenarios/free-startup.spec.ts"] },
+  ]);
+}
