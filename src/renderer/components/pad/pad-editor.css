@@ -100,6 +100,11 @@
   cursor: crosshair;
 }
 
+.pad-svg:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
 .pad-svg[data-tool="select"] {
   cursor: default;
 }
@@ -208,6 +213,13 @@
   color: var(--color-crimson);
   font-size: 11px;
   padding: 4px 8px;
+}
+
+/* The status line stays mounted so a screen reader hears each notice; empty, it draws nothing. */
+.pad-hint[data-empty="true"] {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
 }
 
 .pad-image-input {

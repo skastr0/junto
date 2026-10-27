@@ -6,6 +6,7 @@ import {
   type Pad,
   type PadElementId,
   type PadImage,
+  type PadPoint,
   type PadShape,
   type PadShapeStatus,
 } from "./pad";
@@ -65,7 +66,9 @@ const svgPalette = (mode: ThemeMode) => {
     text: tokens.ink!,
     dim: tokens.dim!,
     stroke: tokens.stroke!,
-    fill: tokens["overlay-1"]!,
+    /** A shape's outline when it names no stroke and no status. */
+    outline: tokens["ink-2"]!,
+    fill: tokens["overlay-2"]!,
     amber: tokens.amber!,
     crimson: tokens.crimson!,
     cyan: tokens.cyan!,
@@ -144,7 +147,7 @@ export const padStatusStroke = (
     case "blocked":
       return pal.crimson;
     default:
-      return pal.stroke;
+      return pal.outline;
   }
 };
 
@@ -162,6 +165,135 @@ export const padInkStroke = (
   color: string,
   pal: PadSvgPalette,
 ): string => resolvePadPaint(color, pal.text);
+
+/**
+ * How the pad draws, in pad units, one look for the editor, the read-only
+ * view and the export: outlines heavy enough to read at a glance, text
+ * inside its shape, an arrowhead where an edge lands.
+ */
+export const PAD_LOOK = {
+  stroke: 2,
+  selectedStroke: 2.5,
+  edge: 2,
+  arrow: 10,
+  text: 14,
+  labelText: 16,
+  edgeText: 12,
+  leading: 1.3,
+  inset: 8,
+  /** Advance of one character of the pad's mono face, in ems. */
+  advance: 0.6,
+} as const;
+
+export type PadTextLayout = {
+  readonly lines: ReadonlyArray<string>;
+  readonly x: number;
+  /** Baseline of the first line. */
+  readonly y: number;
+  readonly anchor: "start" | "middle";
+  readonly size: number;
+  /** Baseline to baseline. */
+  readonly step: number;
+};
+
+const wrapWords = (text: string, perLine: number): string[] => {
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let line = "";
+    for (const word of paragraph.split(/\s+/u).filter((part) => part.length > 0)) {
+      let rest = word;
+      while (rest.length > perLine) {
+        if (line.length > 0) {
+          lines.push(line);
+          line = "";
+        }
+        lines.push(rest.slice(0, perLine));
+        rest = rest.slice(perLine);
+      }
+      if (line.length === 0) line = rest;
+      else if (line.length + 1 + rest.length <= perLine) line = `${line} ${rest}`;
+      else {
+        lines.push(line);
+        line = rest;
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+};
+
+/**
+ * A shape's words laid out inside it: wrapped to its width, cut with an
+ * ellipsis where its height ends, centred in an outline and read from the
+ * top left in a label.
+ */
+export const padTextLayout = (shape: PadShape, text: string): PadTextLayout => {
+  const label = shape.type === "label";
+  const size = label ? PAD_LOOK.labelText : PAD_LOOK.text;
+  const step = size * PAD_LOOK.leading;
+  const inset = label ? 0 : PAD_LOOK.inset;
+  const perLine = Math.max(1, Math.floor((shape.w - inset * 2) / (size * PAD_LOOK.advance)));
+  const room = label ? Number.POSITIVE_INFINITY : Math.max(1, Math.floor((shape.h - inset * 2) / step));
+  const wrapped = wrapWords(text, perLine);
+  const lines =
+    wrapped.length <= room
+      ? wrapped
+      : [...wrapped.slice(0, room - 1), `${wrapped[room - 1]!.slice(0, Math.max(0, perLine - 1))}…`];
+  if (label) return { lines, x: shape.x, y: shape.y + size * 0.85, anchor: "start", size, step };
+  // A triangle's room is low and wide; a cylinder's starts under its rim.
+  const middle =
+    shape.type === "triangle"
+      ? shape.y + shape.h * 0.64
+      : shape.type === "cylinder"
+        ? shape.y + shape.h * 0.56
+        : shape.y + shape.h / 2;
+  const block = lines.length * step;
+  return {
+    lines,
+    x: shape.x + shape.w / 2,
+    y: middle - block / 2 + step / 2 + size * 0.35,
+    anchor: "middle",
+    size,
+    step,
+  };
+};
+
+/** The arrowhead where an edge lands: tip, then the two barbs, or undefined for a route too short to aim. */
+export const padArrowHead = (
+  points: ReadonlyArray<PadPoint>,
+  size: number = PAD_LOOK.arrow,
+): readonly [PadPoint, PadPoint, PadPoint] | undefined => {
+  const tip = points[points.length - 1];
+  if (!tip) return undefined;
+  for (let i = points.length - 2; i >= 0; i -= 1) {
+    const from = points[i]!;
+    const dx = tip.x - from.x;
+    const dy = tip.y - from.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 0.5) continue;
+    const ux = dx / length;
+    const uy = dy / length;
+    const baseX = tip.x - ux * size;
+    const baseY = tip.y - uy * size;
+    const half = size * 0.5;
+    return [
+      tip,
+      { x: baseX - uy * half, y: baseY + ux * half },
+      { x: baseX + uy * half, y: baseY - ux * half },
+    ];
+  }
+  return undefined;
+};
+
+/** Where an edge's label sits: the middle of its route. */
+export const padEdgeMid = (points: ReadonlyArray<PadPoint>): PadPoint => {
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  if (points.length % 2 === 1) return points[(points.length - 1) / 2]!;
+  const a = points[points.length / 2 - 1] ?? first;
+  const b = points[points.length / 2] ?? last;
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+};
 
 /** The words a shape shows: its text, or for a card the name its writer saw, else its link. */
 export const padShapeText = (shape: PadShape): string | undefined =>
@@ -187,31 +319,35 @@ const emitShape = (shape: PadShape, pal: PadSvgPalette): string[] => {
   const parts: string[] = [];
   if (shape.type === "ellipse") {
     parts.push(
-      `<ellipse cx="${fmt(shape.x + shape.w / 2)}" cy="${fmt(shape.y + shape.h / 2)}" rx="${fmt(shape.w / 2)}" ry="${fmt(shape.h / 2)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
+      `<ellipse cx="${fmt(shape.x + shape.w / 2)}" cy="${fmt(shape.y + shape.h / 2)}" rx="${fmt(shape.w / 2)}" ry="${fmt(shape.h / 2)}" fill="${fill}" stroke="${stroke}" stroke-width="${PAD_LOOK.stroke}"/>`,
     );
   } else if (shape.type === "triangle") {
     const [a, b, c] = trianglePoints(shape);
     parts.push(
-      `<polygon points="${fmt(a.x)},${fmt(a.y)} ${fmt(b.x)},${fmt(b.y)} ${fmt(c.x)},${fmt(c.y)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
+      `<polygon points="${fmt(a.x)},${fmt(a.y)} ${fmt(b.x)},${fmt(b.y)} ${fmt(c.x)},${fmt(c.y)}" fill="${fill}" stroke="${stroke}" stroke-width="${PAD_LOOK.stroke}"/>`,
     );
   } else if (shape.type === "diamond") {
     const points = diamondPoints(shape).map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(" ");
-    parts.push(`<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`);
+    parts.push(`<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${PAD_LOOK.stroke}"/>`);
   } else if (shape.type === "cylinder") {
     const { outline, rim } = cylinderPaths(shape);
     parts.push(
-      `<path d="${esc(outline)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
-      `<path d="${esc(rim)}" fill="none" stroke="${stroke}" stroke-width="1"/>`,
+      `<path d="${esc(outline)}" fill="${fill}" stroke="${stroke}" stroke-width="${PAD_LOOK.stroke}"/>`,
+      `<path d="${esc(rim)}" fill="none" stroke="${stroke}" stroke-width="${PAD_LOOK.stroke}"/>`,
     );
   } else {
     parts.push(
-      `<rect x="${fmt(shape.x)}" y="${fmt(shape.y)}" width="${fmt(shape.w)}" height="${fmt(shape.h)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
+      `<rect x="${fmt(shape.x)}" y="${fmt(shape.y)}" width="${fmt(shape.w)}" height="${fmt(shape.h)}" fill="${fill}" stroke="${stroke}" stroke-width="${PAD_LOOK.stroke}"/>`,
     );
   }
   const text = padShapeText(shape);
   if (text) {
+    const layout = padTextLayout(shape, padClipText(text));
+    const lines = layout.lines
+      .map((line, index) => `<tspan x="${fmt(layout.x)}" y="${fmt(layout.y + index * layout.step)}">${esc(line)}</tspan>`)
+      .join("");
     parts.push(
-      `<text x="${fmt(shape.x + 8)}" y="${fmt(shape.y + 16)}" fill="${esc(pal.text)}" font-size="12">${esc(padClipText(text))}</text>`,
+      `<text fill="${esc(pal.text)}" font-size="${layout.size}" text-anchor="${layout.anchor}">${lines}</text>`,
     );
   }
   return parts;
@@ -251,12 +387,18 @@ export const padToSvg = (
     const points = edgePoints(pad, edge);
     if (!points) continue;
     parts.push(
-      `<path d="${esc(strokePath(points, 1.5))}" fill="none" stroke="${esc(pal.steel)}" stroke-width="1.5"/>`,
+      `<path d="${esc(strokePath(points, PAD_LOOK.edge))}" fill="none" stroke="${esc(pal.steel)}" stroke-width="${PAD_LOOK.edge}"/>`,
     );
-    if (edge.label) {
-      const mid = points[Math.floor(points.length / 2)] ?? points[0]!;
+    const head = padArrowHead(points);
+    if (head) {
       parts.push(
-        `<text x="${fmt(mid.x)}" y="${fmt(mid.y)}" fill="${esc(pal.dim)}" font-size="10" text-anchor="middle">${esc(edge.label)}</text>`,
+        `<polygon points="${head.map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(" ")}" fill="${esc(pal.steel)}"/>`,
+      );
+    }
+    if (edge.label) {
+      const mid = padEdgeMid(points);
+      parts.push(
+        `<text x="${fmt(mid.x)}" y="${fmt(mid.y + PAD_LOOK.edgeText * 0.35)}" fill="${esc(pal.text)}" font-size="${PAD_LOOK.edgeText}" text-anchor="middle" stroke="${esc(pal.ground)}" stroke-width="4" paint-order="stroke">${esc(edge.label)}</text>`,
       );
     }
   }

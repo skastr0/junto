@@ -4,13 +4,7 @@
  * Serialized `padToSvg` is for export only.
  */
 import type { Pad, PadImage, PadInk, PadShape } from "@shared/pad";
-import {
-  cylinderPaths,
-  diamondPoints,
-  edgePoints,
-  strokePath,
-  trianglePoints,
-} from "@shared/pad-geom";
+import { edgePoints, strokePath } from "@shared/pad-geom";
 import {
   padClipText,
   padElementsByZ,
@@ -26,57 +20,7 @@ import {
 } from "@shared/pad-project";
 import type { ThemeMode } from "@shared/theme";
 
-const FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
-
-const ShapeEl = ({
-  shape,
-  pal,
-}: {
-  readonly shape: PadShape;
-  readonly pal: PadSvgPalette;
-}) => {
-  const fill = padShapeFill(shape, pal);
-  const stroke = padShapeStroke(shape, pal);
-  const common = { fill, stroke, strokeWidth: 1 };
-  if (shape.type === "ellipse") {
-    return (
-      <ellipse
-        cx={shape.x + shape.w / 2}
-        cy={shape.y + shape.h / 2}
-        rx={shape.w / 2}
-        ry={shape.h / 2}
-        {...common}
-      />
-    );
-  }
-  if (shape.type === "triangle") {
-    const [a, b, c] = trianglePoints(shape);
-    return (
-      <polygon points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`} {...common} />
-    );
-  }
-  if (shape.type === "diamond") {
-    return <polygon points={diamondPoints(shape).map((p) => `${p.x},${p.y}`).join(" ")} {...common} />;
-  }
-  if (shape.type === "cylinder") {
-    const { outline, rim } = cylinderPaths(shape);
-    return (
-      <g>
-        <path d={outline} {...common} />
-        <path d={rim} fill="none" stroke={stroke} strokeWidth={common.strokeWidth} />
-      </g>
-    );
-  }
-  return (
-    <rect
-      x={shape.x}
-      y={shape.y}
-      width={shape.w}
-      height={shape.h}
-      {...common}
-    />
-  );
-};
+import { PAD_FONT as FONT, PadEdgeMark, PadShapeOutline, PadShapeWords } from "./PadMarks";
 
 const ImageEl = ({
   image,
@@ -176,50 +120,14 @@ export function PadSvg({
       ))}
       {pad.edges.map((edge) => {
         const points = edgePoints(pad, edge);
-        if (!points) return null;
-        const mid = points[Math.floor(points.length / 2)] ?? points[0]!;
-        return (
-          <g key={edge.id}>
-            <path
-              d={strokePath(points, 1.5)}
-              fill="none"
-              stroke={pal.steel}
-              strokeWidth={1.5}
-            />
-            {edge.label ? (
-              <text
-                x={mid.x}
-                y={mid.y}
-                fill={pal.dim}
-                fontSize={10}
-                textAnchor="middle"
-                fontFamily={FONT}
-              >
-                {edge.label}
-              </text>
-            ) : null}
-          </g>
-        );
+        return points ? <PadEdgeMark key={edge.id} edge={edge} points={points} pal={pal} /> : null;
       })}
-      {padElementsByZ(pad.shapes).map((shape) => {
-        const text = padShapeText(shape);
-        return (
-          <g key={shape.id}>
-            <ShapeEl shape={shape} pal={pal} />
-            {text ? (
-              <text
-                x={shape.x + 8}
-                y={shape.y + 16}
-                fill={pal.text}
-                fontSize={12}
-                fontFamily={FONT}
-              >
-                {padClipText(text)}
-              </text>
-            ) : null}
-          </g>
-        );
-      })}
+      {padElementsByZ(pad.shapes).map((shape) => (
+        <g key={shape.id}>
+          <PadShapeOutline shape={shape} pal={pal} />
+          <PadShapeWords shape={shape} pal={pal} />
+        </g>
+      ))}
       {padElementsByZ(pad.inks).map((ink) => (
         <InkEl key={ink.id} ink={ink} pal={pal} />
       ))}

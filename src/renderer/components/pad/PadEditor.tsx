@@ -30,35 +30,28 @@ import {
   type PadImage,
   type PadPatch,
   type PadPoint,
-  type PadShape,
   type PadSide,
 } from "@shared/pad";
 import {
   anchorPoint,
   contentBounds,
-  cylinderPaths,
-  diamondPoints,
   edgePoints,
   hitTest,
   identityCamera,
   sceneToView,
   strokePath,
-  trianglePoints,
   type Camera,
 } from "@shared/pad-geom";
 import {
   padInkStroke,
-  padShapeFill,
-  padShapeStroke,
-  padShapeText,
   padSvgPalette,
-  type PadSvgPalette,
 } from "@shared/pad-project";
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
 import { IconButton, Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
+import { PadEdgeMark, PadShapeOutline, PadShapeWords } from "./PadMarks";
 import "./pad-editor.css";
 import {
   DEFAULT_IMAGE_SIZE,
@@ -185,65 +178,6 @@ const PRE_APPLY_CODES = new Set([
   "illegal_transition",
   "wrong_home",
 ]);
-
-const ShapeEl = ({
-  shape,
-  selected,
-  pal,
-}: {
-  readonly shape: PadShape;
-  readonly selected: boolean;
-  readonly pal: PadSvgPalette;
-}) => {
-  const fill = padShapeFill(shape, pal);
-  const stroke = padShapeStroke(shape, pal);
-  const common = {
-    fill,
-    stroke,
-    strokeWidth: selected ? 1.75 : 1,
-  };
-  if (shape.type === "ellipse") {
-    return (
-      <ellipse
-        cx={shape.x + shape.w / 2}
-        cy={shape.y + shape.h / 2}
-        rx={shape.w / 2}
-        ry={shape.h / 2}
-        {...common}
-      />
-    );
-  }
-  if (shape.type === "triangle") {
-    const [a, b, c] = trianglePoints(shape);
-    return (
-      <polygon
-        points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`}
-        {...common}
-      />
-    );
-  }
-  if (shape.type === "diamond") {
-    return <polygon points={diamondPoints(shape).map((p) => `${p.x},${p.y}`).join(" ")} {...common} />;
-  }
-  if (shape.type === "cylinder") {
-    const { outline, rim } = cylinderPaths(shape);
-    return (
-      <g>
-        <path d={outline} {...common} />
-        <path d={rim} fill="none" stroke={stroke} strokeWidth={common.strokeWidth} />
-      </g>
-    );
-  }
-  return (
-    <rect
-      x={shape.x}
-      y={shape.y}
-      width={shape.w}
-      height={shape.h}
-      {...common}
-    />
-  );
-};
 
 const PadImageEl = ({
   image,
@@ -1172,38 +1106,17 @@ export function PadEditor({
               ))}
             {shown.edges.map((edge) => {
               const points = edgePoints(shown, edge);
-              if (!points) return null;
-              return (
-                <path
-                  key={edge.id}
-                  d={strokePath(points, 1.5)}
-                  fill="none"
-                  stroke={edge.id === selectedId ? "var(--color-amber)" : "var(--color-steel)"}
-                  strokeWidth={edge.id === selectedId ? 2 : 1.5}
-                />
-              );
+              return points ? (
+                <PadEdgeMark key={edge.id} edge={edge} points={points} pal={pal} selected={edge.id === selectedId} />
+              ) : null;
             })}
             {shown.shapes
               .slice()
               .sort((a, b) => a.z - b.z)
               .map((shape) => (
-                <g key={shape.id}>
-                  <ShapeEl
-                    shape={shape}
-                    selected={shape.id === selectedId}
-                    pal={pal}
-                  />
-                  {padShapeText(shape) ? (
-                    <text
-                      x={shape.x + 8}
-                      y={shape.y + 16}
-                      fill="var(--color-ink)"
-                      fontSize={12}
-                      fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-                    >
-                      {padShapeText(shape)}
-                    </text>
-                  ) : null}
+                <g key={shape.id} data-testid="pad-shape" data-shape-id={shape.id} data-shape-type={shape.type}>
+                  <PadShapeOutline shape={shape} pal={pal} selected={shape.id === selectedId} />
+                  {editingLabel && shape.id === selectedId ? null : <PadShapeWords shape={shape} pal={pal} />}
                 </g>
               ))}
             {shown.inks
@@ -1302,7 +1215,9 @@ export function PadEditor({
             </div>
           </div>
         ) : null}
-        {hint ? <div className="pad-hint">{hint}</div> : null}
+        <div className="pad-hint" role="status" aria-live="polite" data-empty={hint ? undefined : "true"}>
+          {hint}
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -1379,6 +1294,7 @@ function SelectionChrome({
         fill="none"
         stroke="var(--color-amber)"
         strokeWidth={1}
+        strokeDasharray="4 3"
         vectorEffect="non-scaling-stroke"
       />
       {ticks.map((side) => (
@@ -1401,9 +1317,10 @@ function SelectionChrome({
           y={handle.y - half}
           width={size}
           height={size}
+          rx={2 / Math.max(zoom, 0.0001)}
           fill="var(--color-raise-2)"
           stroke="var(--color-amber)"
-          strokeWidth={1}
+          strokeWidth={1.5}
           vectorEffect="non-scaling-stroke"
         />
       ))}
