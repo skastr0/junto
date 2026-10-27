@@ -171,30 +171,27 @@ export function TasksNode({
       </div>
       <div className="tasks-list" role="list" aria-label="Tasks">
         {queuedNew.map((entry) => (
-          <ListRow
-            key={entry.taskId}
-            leading={<TaskStateMark state="backlog" pending />}
-            title={entry.title}
-            meta="queued"
-            pending
-          />
+          <div key={entry.taskId} role="listitem">
+            <ListRow leading={<TaskStateMark state="backlog" pending />} title={entry.title} meta="queued" pending />
+          </div>
         ))}
         {listed.map((view) => {
           const waits = view.pending !== undefined || queued.has(view.taskId);
           return (
-            <ListRow
-              key={view.taskId}
-              leading={<TaskStateMark state={view.current.state} pending={waits} />}
-              title={view.title}
-              meta={numberLabel(view)}
-              selected={view.taskId === selected?.taskId}
-              pending={waits}
-              onClick={() => setSelectedId(view.taskId)}
-            />
+            <div key={view.taskId} role="listitem">
+              <ListRow
+                leading={<TaskStateMark state={view.current.state} pending={waits} />}
+                title={view.title}
+                meta={numberLabel(view)}
+                selected={view.taskId === selected?.taskId}
+                pending={waits}
+                onClick={() => setSelectedId(view.taskId)}
+              />
+            </div>
           );
         })}
-        {listed.length === 0 && queuedNew.length === 0 && tasks.length > 0 ? <p className="tasks-list__none">No task matches.</p> : null}
       </div>
+      {listed.length === 0 && queuedNew.length === 0 && tasks.length > 0 ? <p className="tasks-list__none">No task matches.</p> : null}
     </>
   );
 
