@@ -3,14 +3,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { ensureSyntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { EditorSelection, EditorState, type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { NodeKind } from "../src/shared/model/kinds";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
 import type { MentionCandidate } from "../src/renderer/lib/mention-draft";
-import { mentionPicker, pickerQueryAt } from "../src/renderer/components/artifacts/mention-picker";
+import { mentionPicker, mentionSourceChanged, pickerQueryAt } from "../src/renderer/components/artifacts/mention-picker";
 
 const opened = vi.hoisted(() => [] as unknown[]);
 vi.mock("../src/renderer/lib/mention-open", async (load) => ({
@@ -59,6 +59,11 @@ describe("where a mention can be typed", () => {
   it("never in code, a link, an address, a word or a selection", () => {
     expect(pickerQueryAt(stateAt("run `npm @sc` now", 12))).toBeNull();
     expect(pickerQueryAt(stateAt("```\n@here\n```", 9))).toBeNull();
+    // A fence past what the first parse covers is still code.
+    const long = `${"para\n\n".repeat(1_500)}\`\`\`\n@here`;
+    const cold = EditorState.create({ doc: long, selection: EditorSelection.cursor(long.length), extensions: [markdown({ base: markdownLanguage })] });
+    expect(syntaxTree(cold).length).toBeLessThan(long.length);
+    expect(pickerQueryAt(cold)).toBeNull();
     expect(pickerQueryAt(stateAt("[see @there](https://example.com)", 11))).toBeNull();
     expect(pickerQueryAt(stateAt("mail me@host"))).toBeNull();
     const selected = stateAt("Ask @prod").update({ selection: EditorSelection.range(4, 9) }).state;
@@ -172,8 +177,16 @@ describe("the @ and # list in a live document", () => {
     expect(picker()?.hidden).toBe(true);
     expect((await press("Enter")).defaultPrevented).toBe(false);
     source = { canvasName: "factory", candidates };
-    await type("p");
+    await act(async () => mentionSourceChanged(view));
     expect(picker()?.hidden).toBe(false);
+  });
+
+  it("shows no empty box before its rows are drawn", async () => {
+    view.dispatch({ changes: { from: 0, insert: "@" }, selection: { anchor: 1 }, userEvent: "input.type" });
+    expect(picker()?.hidden).toBe(true);
+    await act(async () => undefined);
+    expect(picker()?.hidden).toBe(false);
+    expect(options().length).toBe(2);
   });
 });
 

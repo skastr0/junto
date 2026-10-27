@@ -1,8 +1,8 @@
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { type EditorState, type Extension, Facet, Prec, StateEffect, StateField } from "@codemirror/state";
 import { EditorView, ViewPlugin, type Tooltip, type TooltipView, showTooltip } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
-import type { CSSProperties } from "react";
+import { useLayoutEffect, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { mentionLink } from "@shared/mention";
 import { listboxAnnouncement, listboxAria, optionAria, optionId, listboxId, type ListboxAriaState } from "../../lib/listbox-aria";
@@ -30,8 +30,8 @@ import "./mention-picker.css";
  * editor's.
  *
  * It knows nothing about who may be mentioned: the source is read at the
- * moment the list draws or a key lands, so a list that loads late is offered
- * as soon as it is there.
+ * moment the list draws or a key lands. A host whose candidates arrive while
+ * the caret rests calls `mentionSourceChanged` so the list draws them then.
  */
 
 /** What may be mentioned, read when it is needed. */
@@ -47,6 +47,8 @@ export type PickerQuery = {
   readonly to: number;
   readonly query: string;
 };
+
+const PARSE_BUDGET_MS = 25;
 
 /** Where a mention cannot go: code, and a link's own text or address. */
 const OFF_LIMITS = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText", "Link", "Image", "URL", "Autolink"]);
@@ -64,7 +66,9 @@ export const pickerQueryAt = (state: EditorState): PickerQuery | null => {
   const found = mentionQueryAt([{ kind: "text", text: before }], before.length);
   if (found === undefined) return null;
   if (found.trigger === "#" && found.query === "" && before.slice(0, found.start).trim() === "") return null;
-  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(caret.head, -1); node; node = node.parent) {
+  // Parsed up to the caret, so a fence far down a long document is still seen; bounded so a keystroke never waits long.
+  const tree = ensureSyntaxTree(state, caret.head, PARSE_BUDGET_MS) ?? syntaxTree(state);
+  for (let node: SyntaxNode | null = tree.resolveInner(caret.head, -1); node; node = node.parent) {
     if (OFF_LIMITS.has(node.name)) return null;
   }
   return { trigger: found.trigger, from: line.from + found.start, to: caret.head, query: found.query };
@@ -80,7 +84,7 @@ type Picker = {
   /** This editor's list ids. */
   readonly baseId: string;
   readonly query: PickerQuery | null;
-  /** Escape closed the list for the query that starts here. */
+  /** Escape closed the list for the query that starts here, until the next edit, as the house field does. */
   readonly dismissed: number | null;
   readonly active: string | undefined;
   /** What the live region says after a pick, until the next edit. */
@@ -177,8 +181,20 @@ const LIST_LABEL: Readonly<Record<MentionTrigger, string>> = {
   "#": "Tasks and artifacts to mention",
 };
 
-function PickerList({ view, shown }: { readonly view: EditorView; readonly shown: Shown }) {
+function PickerList({
+  view,
+  shown,
+  onDrawn,
+}: {
+  readonly view: EditorView;
+  readonly shown: Shown;
+  /** Runs once these rows are in the DOM, before paint. */
+  readonly onDrawn: () => void;
+}) {
   const { aria, offered, query } = shown;
+  useLayoutEffect(() => {
+    onDrawn();
+  });
   if (query === null) return null;
   return (
     <>
@@ -222,11 +238,14 @@ function listView(view: EditorView): TooltipView {
   dom.className = "mention-picker";
   dom.dataset.testid = "document-mention-picker";
   const root = createRoot(dom);
+  dom.hidden = true;
   const draw = (): void => {
     const shown = shownOf(view.state);
     // Off the document, the list waits hidden for the operator to come back to it.
-    dom.hidden = !shown.open || !view.hasFocus;
-    root.render(<PickerList view={view} shown={shown} />);
+    const visible = shown.open && view.hasFocus;
+    // Hiding is at once; showing waits for React to commit the rows, so an empty box never paints.
+    if (!visible) dom.hidden = true;
+    root.render(<PickerList view={view} shown={shown} onDrawn={() => (dom.hidden = !visible)} />);
   };
   draw();
   return {
@@ -305,6 +324,9 @@ const pickerKeys = Prec.highest(
     },
   }),
 );
+
+/** The candidates changed while nothing else did: the list draws what is offered now. */
+export const mentionSourceChanged = (view: EditorView): void => view.dispatch({});
 
 /** The @ and # list for a live markdown document. */
 export const mentionPicker = (source: MentionPickerSource): Extension => [
