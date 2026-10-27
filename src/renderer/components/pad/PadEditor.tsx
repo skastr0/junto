@@ -416,7 +416,6 @@ export function PadEditor({
             expectedRevRef.current = outcome.pad.revision;
             undoRef.current = [];
             redoRef.current = [];
-      redoRef.current = [];
             setUndoDepth(0);
             notice("Pad changed elsewhere. Local undo history was cleared.");
           }
@@ -438,7 +437,6 @@ export function PadEditor({
             pendingInverseRef.current = [];
             undoRef.current = [];
             redoRef.current = [];
-      redoRef.current = [];
             setUndoDepth(0);
             expectedRevRef.current = fresh.revision;
             setLocalPad(fresh);
