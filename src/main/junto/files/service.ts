@@ -250,6 +250,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     }
     index.removeUnder(gone);
     const ignoredWalked = holder.repo === true ? await names.gitIgnored(holder.root, walked, signal) : new Set<string>();
+    if (holder.index !== index) return;
     for (const path of walked) if (!ignoredWalked.has(path)) index.add(path);
     if (index.drift > COMPACT_AFTER) holder.stale = true;
   };
