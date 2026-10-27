@@ -163,12 +163,17 @@
   line-height: var(--leading-body);
 }
 
+/* The body is a live markdown field; it grows with its text, the pane scrolls. */
 .task-body {
-  margin: 0;
-  color: var(--color-ink);
+  min-width: 0;
+}
+
+.task-body .live-markdown .cm-editor {
   font-size: var(--text-body);
-  line-height: var(--leading-body);
-  white-space: pre-wrap;
+}
+
+.task-body .live-markdown .cm-content {
+  padding: 4px 0;
 }
 
 .task-deps {

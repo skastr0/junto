@@ -30,6 +30,7 @@ import { TaskDependencies } from "./TaskDependencies";
 import { TaskDerivation } from "./TaskDerivation";
 import { TaskEvidence } from "./TaskEvidence";
 import { TaskThread } from "./TaskThread";
+import { TaskBody } from "./TaskBody";
 import { TaskLayers } from "./TaskLayers";
 import {
   agoLabel,
@@ -361,7 +362,16 @@ export function SelectedTask({
         nodeName={nodeName}
         onCommand={apply}
       />
-      {view.body ? <p className="task-body">{view.body}</p> : null}
+      <TaskBody
+        canvasName={canvasName}
+        node={current.node}
+        taskId={view.taskId}
+        title={view.title}
+        body={view.body ?? ""}
+        all={all}
+        readOnly={archived}
+        apply={apply}
+      />
       <TaskDerivation view={view} all={all} />
       <TaskDependencies view={view} all={all} closed={isClosed} onCommand={apply} />
       <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} nameOf={seatName} onCommand={apply} />

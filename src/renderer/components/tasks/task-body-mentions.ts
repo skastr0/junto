@@ -7,7 +7,7 @@ import { artifactsSource } from "../../lib/artifacts-source";
 import { resourceNodesInReach, useResourcesInReach, useSeatsInReach, type MentionItem } from "../../lib/mention-sources";
 import { stateLabel } from "../../lib/task-ui";
 import { nodeAt, useCanvas } from "../../lib/use-model";
-import type { DocumentMentions } from "../artifacts/DocumentEditor";
+import type { DocumentMentions } from "../artifacts/LiveMarkdownField";
 
 /** The live artifacts on every Artifacts node in reach, by node, read again on every artifact change on the canvas. */
 const useArtifactsInReach = (canvasName: string, from: NodeId): ReadonlyMap<NodeId, ReadonlyArray<ArtifactHead>> => {
