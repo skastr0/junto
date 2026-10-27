@@ -140,3 +140,39 @@ describe("MentionCombobox [[ links", () => {
     expect(host.querySelector('[role="listbox"]')).toBeNull();
   });
 });
+
+describe("MentionCombobox [[ create, while typing goes on", () => {
+  it("links where the query now stands when text was typed before it", async () => {
+    type("[[Roadmap");
+    press("Enter");
+    // Text typed in front of the query while the document is made.
+    act(() => {
+      const element = field();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, `Plan: ${element.value}`);
+      element.setSelectionRange(0, 0);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => landCreate!(made));
+    expect(written).toBe(`Plan: ${artifactLink(made, "Roadmap", "factory")} `);
+    expect(live()).toBe("Created and linked Roadmap");
+  });
+
+  it("says it made the document but did not link it when the query is gone", async () => {
+    type("[[Roadmap");
+    press("Enter");
+    act(() => {
+      const element = field();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, "gone");
+      element.setSelectionRange(4, 4);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => landCreate!(made));
+    expect(field().value).toBe("gone");
+    expect(live()).toBe("Created Roadmap, not linked");
+  });
+
+  it("names the create row by what it does: New is hidden from its name", () => {
+    type("[[Roadmap");
+    expect(options()[0]!.querySelector(".mention-combobox__kind")!.getAttribute("aria-hidden")).toBe("true");
+  });
+});

@@ -712,10 +712,10 @@ export function PadEditor({
   }, [selectedId]);
 
   const finishLabelEdit = useCallback(
-    async (save: boolean) => {
+    async (save: boolean, written: string = labelDraft) => {
       setEditingLabel(false);
       if (!save || !selectedId) return;
-      const text = labelDraft.trim();
+      const text = written.trim();
       const shape = shapeById(padRef.current, selectedId);
       if (shape) {
         if (shape.type === "card" || text === (shape.text ?? "")) return;
@@ -729,6 +729,27 @@ export function PadEditor({
     },
     [commit, labelDraft, selectedId],
   );
+
+  // A [[ create in flight holds the finish: the text keeps its link once the document is made.
+  const linkCreating = useRef(false);
+  const finishHeld = useRef(false);
+  // The draft as last written, ahead of the render that shows it: a held finish saves the linked text.
+  const linkedDraft = useRef(labelDraft);
+  linkedDraft.current = labelDraft;
+  const finishLinkedEdit = (save: boolean): void => {
+    if (save && linkCreating.current) {
+      finishHeld.current = true;
+      return;
+    }
+    finishHeld.current = false;
+    void finishLabelEdit(save, linkedDraft.current);
+  };
+  const linkCreatingChanged = (busy: boolean): void => {
+    linkCreating.current = busy;
+    if (busy || !finishHeld.current) return;
+    finishHeld.current = false;
+    void finishLabelEdit(true, linkedDraft.current);
+  };
 
   const restyleSelected = useCallback(
     (style: PadShapeStyle) => {
@@ -1547,7 +1568,10 @@ export function PadEditor({
           >
             <MentionCombobox
               value={labelDraft}
-              onValueChange={(value) => setLabelDraft(value)}
+              onValueChange={(value) => {
+                linkedDraft.current = value;
+                setLabelDraft(value);
+              }}
               canvasName={textLinks.canvasName}
               // Only [[ opens a list here: @ on the pad places a card, not a mention in words.
               candidates={NO_TEXT_MENTIONS}
@@ -1559,15 +1583,16 @@ export function PadEditor({
               fieldRef={claimFocusOnMount}
               aria-label={editedEdge ? "Edge label" : "Shape text"}
               data-testid="pad-label-edit"
-              onBlur={() => void finishLabelEdit(true)}
+              onCreating={linkCreatingChanged}
+              onBlur={() => finishLinkedEdit(true)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  void finishLabelEdit(true);
+                  finishLinkedEdit(true);
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  void finishLabelEdit(false);
+                  finishLinkedEdit(false);
                 }
               }}
             />

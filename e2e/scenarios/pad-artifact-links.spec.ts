@@ -103,6 +103,22 @@ test("[[ in a pad's shape text links an artifact, draws its current title, and m
       new RegExp(`^See \\[\\\\\\[\\\\\\[Launch plan\\\\\\]\\\\\\]\\]\\(junto://canvas/${CANVAS}\\?node=shelf&item=${planId}\\) and \\[\\\\\\[\\\\\\[Q3 review`),
     );
 
+    // Enter on the create row and Enter again at once to finish: the finish waits, and the link is kept.
+    const last = pad.locator('[data-shape-id="box-bright"]');
+    await last.dblclick();
+    const again = pad.getByRole("combobox", { name: "Shape text" });
+    await expect(again).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" [[Q5 plan");
+    await expect(page.getByRole("listbox", { name: "Artifacts to link" }).getByRole("option", { name: "Create document Q5 plan" })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await expect(again).toHaveCount(0, { timeout: 15_000 });
+    await expect(last.locator("text")).toHaveText("See Launch plan and Q4 review Q5 plan", { timeout: 15_000 });
+    await expect
+      .poll(async () => (await heads(page)).find((head) => head.artifact.title === "Map")?.body?.pad?.shapes.find((s) => s.id === "box-bright")?.text, { timeout: 15_000 })
+      .toMatch(/\[\\\[\\\[Q5 plan\\\]\\\]\]\(junto:\/\/canvas\//);
+
     // A rename shows on the pad at once: the link is by id, the words are the title now.
     await apply(page, planId, { op: "retitle", title: "Launch plan v2" });
     await expect(pad.locator('[data-shape-id="box-dark"] text')).toHaveText("See Launch plan v2 and Q3 review", { timeout: 15_000 });

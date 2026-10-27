@@ -83,6 +83,22 @@ export type ComboboxLinks = {
 
 const LINK_LIST_LABEL = "Artifacts to link";
 
+/**
+ * Where the `[[` query typed at `was` stands in the draft now: the
+ * occurrence nearest its old place that no placed mention covers, since
+ * text typed before it moves it along. Undefined once it is gone.
+ */
+export const typedQueryNear = (draft: MentionDraft, typed: string, was: number): number | undefined => {
+  const shown = shownText(draft);
+  const spans = mentionSpans(draft);
+  let best: number | undefined;
+  for (let at = shown.indexOf(typed); at >= 0; at = shown.indexOf(typed, at + 1)) {
+    if (spans.some((span) => span.start < at + typed.length && at < span.end)) continue;
+    if (best === undefined || Math.abs(at - was) < Math.abs(best - was)) best = at;
+  }
+  return best;
+};
+
 /** A `[[` row: the artifact's glyph, title and place, or the create row in the words it does. */
 export function LinkRowContent({ row }: { readonly row: LinkCandidate }) {
   if (row.kind === "create") {
@@ -90,7 +106,10 @@ export function LinkRowContent({ row }: { readonly row: LinkCandidate }) {
       <>
         <ResourceGlyphMark kind="artifact" artifactType="document" />
         <span className="mention-combobox__label">{linkCandidateLabel(row)}</span>
-        <span className="mention-combobox__kind">New</span>
+        {/* The row is named by what it does; New is only its kind column. */}
+        <span className="mention-combobox__kind" aria-hidden>
+          New
+        </span>
       </>
     );
   }
@@ -141,6 +160,7 @@ export function MentionCombobox({
   fieldRef,
   onKeyDown,
   onBlur,
+  onCreating,
   dense = false,
   rows,
   placeholder,
@@ -177,6 +197,8 @@ export function MentionCombobox({
   readonly onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   /** The field lost the keyboard: a host that commits on leaving does it here. */
   readonly onBlur?: (event: FocusEvent<HTMLTextAreaElement>) => void;
+  /** A `[[` create started (true) or ended (false, after its link went in): a host that commits waits for it. */
+  readonly onCreating?: (busy: boolean) => void;
   readonly dense?: boolean;
   readonly rows?: number;
   readonly placeholder?: string;
@@ -330,25 +352,29 @@ export function MentionCombobox({
     const typed = `[[${linkQuery.query}`;
     setCreating(row.title);
     setPicked(`Creating ${row.title}`);
+    onCreating?.(true);
+    const done = (line: string): void => {
+      setCreating(undefined);
+      setPicked(line);
+      onCreating?.(false);
+    };
     void make(row.title).then(
       (ref) => {
-        setCreating(undefined);
         if (ref === null) {
-          setPicked(`${row.title} could not be created`);
+          done(`${row.title} could not be created`);
           return;
         }
-        // Typing went on while it was made: the link replaces the `[[` query only if that is still where it was.
+        // Typing may have gone on while it was made: the link replaces the `[[` query where it now stands.
         const now = draftNow.current;
-        const stillTyped =
-          shownText(now).startsWith(typed, at.start) &&
-          !mentionSpans(now).some((span) => span.start < at.start + typed.length && at.start < span.end);
-        if (stillTyped) placeLink(now, at, at.start + typed.length, ref, row.title);
-        setPicked(`Created and linked ${row.title}`);
+        const start = typedQueryNear(now, typed, at.start);
+        if (start === undefined) {
+          done(`Created ${row.title}, not linked`);
+          return;
+        }
+        placeLink(now, { ...at, start }, start + typed.length, ref, row.title);
+        done(`Created and linked ${row.title}`);
       },
-      () => {
-        setCreating(undefined);
-        setPicked(`${row.title} could not be created`);
-      },
+      () => done(`${row.title} could not be created`),
     );
   };
 
