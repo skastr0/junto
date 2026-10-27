@@ -55,12 +55,15 @@ test("the code editor opens, types, finds and undoes, and Markdown opens live, b
       await expect(modal.locator(".code-editor .tok-keyword").first()).toBeVisible({ timeout: 15_000 });
       console.log(`EDITOR ${theme} open to highlighted, from the row press: ${String(Date.now() - started)} ms`);
       await frame(page, `${theme}-code`);
-      expect(await axeIds(page, ".code-editor")).toEqual([]);
       // The scroller keeps a keyboard stop inside it: the text, named by the path.
       await expect(modal.locator(".code-editor .cm-scroller .cm-content")).toHaveAttribute("tabindex", "0");
 
-      // Typing on line 4 marks the file unsaved. (The comment plus comes with F7's wiring; tests/code-editor.test.tsx holds it.)
+      // With the caret on line 4, its comment plus is a named button in the a11y tree, and axe is clean with it drawn.
       await editor.locator(".cm-line").nth(3).click();
+      await expect(modal.getByRole("button", { name: "Comment on line 4" })).toBeVisible();
+      expect(await axeIds(page, ".code-editor")).toEqual([]);
+
+      // Typing on line 4 marks the file unsaved.
       await page.keyboard.press("End");
       await page.keyboard.type(" // edited");
       await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toBeVisible();
@@ -86,6 +89,8 @@ test("the code editor opens, types, finds and undoes, and Markdown opens live, b
       // Markdown opens in the live Markdown field.
       await openInTree(modal, "README.md");
       await expect(modal.locator(".live-markdown")).toBeVisible({ timeout: 15_000 });
+      await modal.locator(".live-markdown .cm-line").nth(2).click();
+      await expect(modal.getByRole("button", { name: "Comment on line 3" })).toBeVisible();
       await frame(page, `${theme}-markdown`);
       expect(await axeIds(page, ".files-main")).toEqual([]);
       await expect(modal.locator(".live-markdown .cm-scroller .cm-content")).toHaveAttribute("tabindex", "0");
