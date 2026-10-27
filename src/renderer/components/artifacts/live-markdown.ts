@@ -109,6 +109,22 @@ class HiddenSpan extends WidgetType {
   }
 }
 
+/** Hidden markup that is still spoken: a heading's level, where its `#`s were. */
+class Spoken extends WidgetType {
+  constructor(readonly words: string) {
+    super();
+  }
+  override eq(other: Spoken): boolean {
+    return other.words === this.words;
+  }
+  override toDOM(): HTMLElement {
+    const spoken = document.createElement("span");
+    spoken.className = "sr-only";
+    spoken.textContent = this.words;
+    return spoken;
+  }
+}
+
 class Bullet extends WidgetType {
   override eq(): boolean {
     return true;
@@ -116,7 +132,10 @@ class Bullet extends WidgetType {
   override toDOM(): HTMLElement {
     const bullet = document.createElement("span");
     bullet.className = "cm-md-bullet";
-    bullet.setAttribute("aria-hidden", "true");
+    const spoken = document.createElement("span");
+    spoken.className = "sr-only";
+    spoken.textContent = "Bullet, ";
+    bullet.append(spoken);
     return bullet;
   }
 }
@@ -431,7 +450,12 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Decoratio
           if (name.startsWith("Setext")) {
             hide(child.from, child.to);
             out.push(line("cm-md-collapsed").range(doc.lineAt(child.from).from));
-          } else if (child.from === doc.lineAt(child.from).from) hideWithSpace(child);
+          } else if (child.from === doc.lineAt(child.from).from) {
+            const end = doc.lineAt(child.from).to;
+            let to = child.to;
+            while (to < end && doc.sliceString(to, to + 1) === " ") to += 1;
+            out.push(Decoration.replace({ widget: new Spoken(`Heading ${heading[1]}, `) }).range(child.from, to));
+          }
           else {
             let from = child.from;
             while (from > node.from && doc.sliceString(from - 1, from) === " ") from -= 1;
