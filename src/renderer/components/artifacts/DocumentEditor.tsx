@@ -125,6 +125,11 @@ export function DocumentEditor({
     ...(mentions === undefined
       ? {}
       : {
+          openMention: (href) => {
+            const target = parseMentionHref(href);
+            const ref = target === undefined ? undefined : mentionRefOf(target, mentions.nodeKindOf);
+            if (ref !== undefined) openMention(ref);
+          },
           mount: (host, mention) => setMounts((prior) => new Map(prior).set(host, mention)),
           unmount: (host) =>
             setMounts((prior) => {

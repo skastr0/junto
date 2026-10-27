@@ -45,6 +45,8 @@ export type LiveMarkdownHandlers = {
     /** Draw a mention into the host a widget made; without it the label is drawn as words. */
     readonly mount?: ((host: HTMLElement, mention: MentionMount) => void) | undefined;
     readonly unmount?: ((host: HTMLElement) => void) | undefined;
+    /** Open what a mention link names. */
+    readonly openMention?: ((href: string) => void) | undefined;
   };
 };
 
@@ -677,14 +679,22 @@ export const toggleWrap =
     return true;
   };
 
-/** Mod-Enter opens the web link at the caret. */
-const openLinkAtCaret = (view: EditorView): boolean => {
-  const link = around(view.state, "Link") ?? around(view.state, "Autolink");
-  const url = link?.getChild("URL");
-  if (!url) return false;
-  openLink(view.state.sliceDoc(url.from, url.to));
-  return true;
-};
+/** Mod-Enter opens the link at the caret: a mention opens what it names, a web link its page. */
+const openLinkAtCaret =
+  (handlers: LiveMarkdownHandlers) =>
+  (view: EditorView): boolean => {
+    const link = around(view.state, "Link") ?? around(view.state, "Image") ?? around(view.state, "Autolink");
+    const url = link?.getChild("URL");
+    if (!url) return false;
+    const href = view.state.sliceDoc(url.from, url.to);
+    if (isMention(href)) {
+      if (handlers.current.openMention === undefined) return false;
+      handlers.current.openMention(href);
+      return true;
+    }
+    openLink(href);
+    return true;
+  };
 
 /** Mod-Alt-M opens the comment thread whose quote holds the caret. */
 const openThreadAtCaret =
@@ -713,7 +723,7 @@ export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
     keymap.of([
       { key: "Tab", run: stepCell(1) },
       { key: "Shift-Tab", run: stepCell(-1) },
-      { key: "Mod-Enter", run: openLinkAtCaret },
+      { key: "Mod-Enter", run: openLinkAtCaret(handlers) },
       { key: "Mod-b", run: toggleWrap("**") },
       { key: "Mod-Alt-m", run: openThreadAtCaret(handlers) },
     ]),

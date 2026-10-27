@@ -314,6 +314,7 @@
 
 .artifact-document .cm-content {
   max-width: 880px;
+  margin: 0 auto;
   padding: 16px 20px 40vh;
   caret-color: var(--color-amber);
 }
@@ -522,9 +523,6 @@
 .artifact-document .artifact-document__anchor {
   position: relative;
   border-bottom: 1px dashed var(--color-cyan);
-}
-
-.artifact-document .artifact-document__anchor {
   cursor: pointer;
 }
 
