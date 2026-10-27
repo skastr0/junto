@@ -27,8 +27,12 @@ const ENTRY_SELECTORS = [
 
 const isShown = (element: HTMLElement): boolean => element.closest("[hidden]") === null && element.getClientRects().length > 0;
 
-/** It can hold the keyboard: a host div with no tab stop cannot, focus() on it moves nothing. */
-const isFocusable = (element: HTMLElement): boolean => element.tabIndex >= 0 || element.isContentEditable;
+/**
+ * It can hold the keyboard: a host div with no tabindex cannot, focus() on it
+ * moves nothing. An explicit tabindex of -1 can, and hands focus on itself.
+ */
+const isFocusable = (element: HTMLElement): boolean =>
+  element.tabIndex >= 0 || element.isContentEditable || element.hasAttribute("tabindex");
 
 /** The pane's landing, or null when nothing in it can hold the keyboard. */
 export const paneEntryOf = (pane: HTMLElement): HTMLElement | null => {

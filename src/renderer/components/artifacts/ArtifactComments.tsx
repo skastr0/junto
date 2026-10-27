@@ -12,10 +12,14 @@ import { PostText } from "../tasks/TaskThread";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel, ageLabel, anchorLabel } from "./artifacts-pane-model";
 import { commentCount, commentSeats } from "./comments-rail-model";
+import { isMac } from "../../lib/platform";
 import "./artifact-comments.css";
 
 /** Faces the collapsed edge stacks before it says "+N". */
 const EDGE_SEATS = 4;
+
+/** The rail toggle's chord, as assistive tech names it here (`comments.toggle`). */
+const RAIL_KEYS = (): string => (isMac() ? "Meta+Shift+M" : "Control+Shift+M");
 
 /**
  * The comments rail collapsed: a thin edge that says whether the artifact has
@@ -43,7 +47,7 @@ export function ArtifactCommentsEdge({
       data-has-comments={count > 0 ? "true" : undefined}
       aria-label={count > 0 ? `Comments, ${String(count)}` : "Comments"}
       aria-expanded={false}
-      aria-keyshortcuts="Meta+Shift+M"
+      aria-keyshortcuts={RAIL_KEYS()}
       title={names.length > 0 ? `Open comments, from ${names.join(", ")}` : "Open comments"}
       onClick={onOpen}
     >
@@ -135,7 +139,7 @@ export function ArtifactComments({
               data-comments-toggle=""
               aria-label="Comments"
               aria-expanded
-              aria-keyshortcuts="Meta+Shift+M"
+              aria-keyshortcuts={RAIL_KEYS()}
               title="Collapse comments"
               size="sm"
               onClick={onCollapse}

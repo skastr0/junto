@@ -11,6 +11,7 @@ import { HelpMap, HelpMapGroup, HelpMapKeys, IconButton, Popover, type HelpMapKe
 /** The editor's own keys, by the type in front. A type with none shows the pane's keys only. */
 const TYPE_AREA: Partial<Record<ArtifactType, ShortcutArea>> = {
   document: "Inside a document",
+  sheet: "Inside a sheet",
   pad: "Inside the drawing pad",
 };
 
@@ -48,7 +49,7 @@ export const artifactKeyRows = (
   return { pane: [...inArea("Inside an artifact"), ...borrowed], editor: inArea(TYPE_AREA[type]) };
 };
 
-const EDITOR_LABEL: Partial<Record<ArtifactType, string>> = { document: "document", pad: "pad" };
+const EDITOR_LABEL: Partial<Record<ArtifactType, string>> = { document: "document", sheet: "sheet", pad: "pad" };
 
 /** The artifact's keys, one press away in its header. */
 export function ArtifactKeys({ type }: { readonly type: ArtifactType }) {

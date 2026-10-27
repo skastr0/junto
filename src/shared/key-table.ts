@@ -67,6 +67,7 @@ export type ShortcutArea =
   | "Inside a preview"
   | "Inside an artifact"
   | "Inside a document"
+  | "Inside a sheet"
   | "Inside the drawing pad"
   | "Inside a page"
   | "Writing a message";
@@ -81,6 +82,7 @@ export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Inside a preview",
   "Inside an artifact",
   "Inside a document",
+  "Inside a sheet",
   "Inside the drawing pad",
   "Inside a page",
   "Writing a message",
@@ -150,6 +152,14 @@ export type SurfaceKeyId =
   | "inDocument.write"
   | "inDocument.stop"
   | "inDocument.mention"
+  | "inSheet.move"
+  | "inSheet.extend"
+  | "inSheet.edit"
+  | "inSheet.commit"
+  | "inSheet.cancel"
+  | "inSheet.across"
+  | "inSheet.type"
+  | "inSheet.clear"
   | "inPad.tool"
   | "inPad.order"
   | "inPad.delete"
@@ -689,6 +699,73 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     keys: [],
     shown: [["@"]],
     where: ["field"],
+  }),
+  surfaceKey({
+    id: "inSheet.move",
+    area: "Inside a sheet",
+    name: "Move the cell",
+    does: "Move to the next cell up, down, left or right",
+    keys: [...ARROWS],
+    shown: [["Arrow keys"]],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inSheet.extend",
+    area: "Inside a sheet",
+    name: "Extend the selection",
+    does: "Grow the selection by a cell",
+    keys: ARROWS.map((key) => `Shift+${key}`),
+    shown: [["Shift", "Arrow keys"]],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inSheet.edit",
+    area: "Inside a sheet",
+    name: "Edit the cell",
+    does: "Edit the cell",
+    keys: ["Enter", "F2"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inSheet.commit",
+    area: "Inside a sheet",
+    name: "Keep the edit",
+    does: "Keep the edit and move down a cell",
+    keys: ["Enter"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inSheet.cancel",
+    area: "Inside a sheet",
+    name: "Drop the edit",
+    does: "Drop the edit, the cell as it was",
+    keys: ["Escape"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inSheet.across",
+    area: "Inside a sheet",
+    name: "Move across",
+    does: "Move to the next or previous cell in the row, keeping an edit first",
+    keys: ["Tab", "Shift+Tab"],
+    where: ["working", "field"],
+  }),
+  surfaceKey({
+    id: "inSheet.type",
+    area: "Inside a sheet",
+    name: "Type over the cell",
+    does: "Start an edit with the character typed",
+    keys: [],
+    shown: [["Any letter or digit"]],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inSheet.clear",
+    area: "Inside a sheet",
+    name: "Clear the cell",
+    does: "Clear the cell",
+    keys: ["Delete", "Backspace"],
+    where: ["working"],
   }),
   surfaceKey({
     id: "inPad.tool",
