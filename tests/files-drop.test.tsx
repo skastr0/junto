@@ -198,9 +198,9 @@ describe("the modal's drops", () => {
     { path: "src/index.ts", type: "file", parent: "src/" },
   ]);
 
-  const mount = (port: FilesDropPort) => {
+  const mount = (port: FilesDropPort, onTreeDragEnd?: () => void) => {
     function Modal() {
-      drop = useFilesDrop({ port, node: NODE, describe: describeErr, rootLabel: "junto" });
+      drop = useFilesDrop({ port, node: NODE, describe: describeErr, rootLabel: "junto", ...(onTreeDragEnd ? { onTreeDragEnd } : {}) });
       return (
         <section {...drop.surface} ref={(el) => void (el && (surfaceEl = el))}>
           <div ref={(el) => void (el && !el.contains(tree.host) && el.append(tree.host))} />
@@ -371,6 +371,38 @@ describe("the modal's drops", () => {
       });
     });
     expect(drop.isTreeDragging()).toBe(false);
+  });
+
+  it("says a tree drag ended once, after the tree's own handlers, whether the drop or the dragend comes first", async () => {
+    vi.useFakeTimers();
+    try {
+      const ended = vi.fn();
+      mount(fakePort().port, ended);
+      const treeDrag = (type: string) => {
+        const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+        Object.defineProperty(event, "dataTransfer", { value: { types: [], files: [] } });
+        act(() => {
+          tree.at("src/index.ts").dispatchEvent(event);
+        });
+      };
+      treeDrag("dragstart");
+      treeDrag("dragend");
+      expect(ended).not.toHaveBeenCalled();
+      act(() => void vi.runAllTimers());
+      expect(ended).toHaveBeenCalledTimes(1);
+
+      treeDrag("dragstart");
+      act(() => drop.treeDragAndDrop.onDropError?.("destination-collision", {} as never));
+      treeDrag("dragend");
+      act(() => void vi.runAllTimers());
+      expect(ended).toHaveBeenCalledTimes(2);
+
+      treeDrag("dragend");
+      act(() => void vi.runAllTimers());
+      expect(ended).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a Finder drag is not a tree drag", () => {

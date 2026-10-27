@@ -77,6 +77,7 @@ export const useFilesDrop = ({
   node,
   describe,
   rootLabel,
+  onTreeDragEnd,
 }: {
   readonly port: FilesDropPort;
   readonly node: FilesNodeRef;
@@ -84,6 +85,8 @@ export const useFilesDrop = ({
   readonly describe: (error: FilesError) => string;
   /** The root folder's name, as the operator knows it. */
   readonly rootLabel: string;
+  /** A tree drag is over, once the tree has settled its rows and selection: moved, refused or let go. */
+  readonly onTreeDragEnd?: () => void;
 }): FilesDrop => {
   const [target, setTarget] = useState<FilesDropTarget | null>(null);
   const [notice, setNotice] = useState<FilesDrop["notice"]>();
@@ -96,8 +99,8 @@ export const useFilesDrop = ({
   // handler starts the drag and selects the row.
   const treeDragging = useRef(false);
   // The latest props, so the tree's config stays one object for the tree's life.
-  const live = useRef({ port, node, describe, rootLabel });
-  live.current = { port, node, describe, rootLabel };
+  const live = useRef({ port, node, describe, rootLabel, onTreeDragEnd });
+  live.current = { port, node, describe, rootLabel, onTreeDragEnd };
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -114,6 +117,15 @@ export const useFilesDrop = ({
 
   const say = useCallback((text: string, failed: boolean) => {
     if (mounted.current) setNotice({ text, failed });
+  }, []);
+
+  // A drop and its dragend both end the drag; the first one to come says so, after the tree's own handlers.
+  const endTreeDrag = useCallback(() => {
+    if (!treeDragging.current) return;
+    treeDragging.current = false;
+    setTimeout(() => {
+      if (mounted.current) live.current.onTreeDragEnd?.();
+    }, 0);
   }, []);
 
   const targetAt = useCallback((event: DragEvent<HTMLElement>): FilesDropTarget => {
@@ -163,9 +175,7 @@ export const useFilesDrop = ({
         if (hasFinderFiles(event.dataTransfer?.types)) return;
         treeDragging.current = true;
       },
-      onDragEndCapture: () => {
-        treeDragging.current = false;
-      },
+      onDragEndCapture: endTreeDrag,
       onDragEnter: (event) => {
         if (!hasFinderFiles(event.dataTransfer?.types)) return;
         event.preventDefault();
@@ -196,14 +206,14 @@ export const useFilesDrop = ({
       },
       "data-files-drop": "true",
     }),
-    [targetAt, copyInto],
+    [targetAt, copyInto, endTreeDrag],
   );
 
   const treeDragAndDrop = useMemo<FileTreeDragAndDropConfig>(
     () => ({
       // The tree has already moved its rows; each one the service refuses goes back.
       onDropComplete: (result: FileTreeDropResult) => {
-        treeDragging.current = false;
+        endTreeDrag();
         const moves = movesForDrop(result.draggedPaths, result.target);
         void (async () => {
           const { port, node, describe } = live.current;
@@ -229,11 +239,11 @@ export const useFilesDrop = ({
       },
       // The tree refuses a move onto a name that is taken, before anything moves.
       onDropError: () => {
-        treeDragging.current = false;
+        endTreeDrag();
         say("That folder already holds something with the same name. Nothing moved.", true);
       },
     }),
-    [say],
+    [say, endTreeDrag],
   );
 
   const bindModel = useCallback((next: FilesDropModel | null) => {

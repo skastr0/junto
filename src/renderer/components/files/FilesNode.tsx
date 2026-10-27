@@ -132,7 +132,23 @@ export function FilesNode({
     }
     setSelected((open) => (open === null ? open : (moved(open) ?? open)));
   };
-  const drop = useFilesDrop({ port: filesSource(), node: ref, describe: filesErrorLine, rootLabel: folderName });
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  /** After a tree drag the highlight goes back to the open file, or to nothing: a drag never opens one. */
+  const reselectOpenFile = useCallback(() => {
+    const tree = modelRef.current;
+    if (tree === null) return;
+    const open = selectedRef.current === null ? null : treePathOf({ path: selectedRef.current, dir: false });
+    for (const path of tree.getSelectedPaths()) if (path !== open) tree.getItem(path)?.deselect();
+    if (open !== null) tree.getItem(open)?.select();
+  }, []);
+  const drop = useFilesDrop({
+    port: filesSource(),
+    node: ref,
+    describe: filesErrorLine,
+    rootLabel: folderName,
+    onTreeDragEnd: reselectOpenFile,
+  });
   const { model } = useFileTree({
     paths: [],
     dragAndDrop: drop.treeDragAndDrop,
