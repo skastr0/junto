@@ -57,6 +57,8 @@ import {
 } from "../ui";
 import { FocusSurface } from "../FocusSurface";
 import { claimFocus } from "../../lib/focus-ownership";
+import { itemsQuickOpen } from "../../lib/quick-open";
+import { useQuickOpen } from "../quick-open/use-quick-open";
 import { AutomationEditor } from "./AutomationEditor";
 import { useTargetNames } from "../../lib/automation-names";
 import "./automations.css";
@@ -362,6 +364,28 @@ export function AutomationsPane({
     (automation) => automation.automationId === selectedId,
   );
 
+  /** A pick in the palette opens that automation; unsaved edits still ask first. */
+  const quickOpen = useQuickOpen({
+    nodeId,
+    enabled: automations.length > 0,
+    source: useMemo(
+      () =>
+        itemsQuickOpen({
+          kind: "automation",
+          items: automations,
+          itemOf: (automation) => ({
+            row: { id: automation.automationId, title: automation.name },
+            match: { identity: [automation.name] },
+          }),
+        }),
+      [automations],
+    ),
+    onOpen: (item) => {
+      const picked = automations.find((automation) => automation.automationId === item.id);
+      if (picked !== undefined && picked.automationId !== selectedId) leave(() => open(editingOf(picked)));
+    },
+  });
+
   return (
     <FocusSurface
       measure="workspace"
@@ -369,6 +393,7 @@ export function AutomationsPane({
       label="Automations"
       onClose={() => leave(onClose)}
     >
+      {quickOpen.palette}
       <div className="automations-node" data-testid="automations-node">
         <TwoPane
           sidebarLabel="Automations"
@@ -382,16 +407,19 @@ export function AutomationsPane({
               <PaneHeader
                 eyebrow="Automations"
                 actions={
-                  <Button
-                    ref={newButton}
-                    size="xs"
-                    variant="subtle"
-                    onClick={create}
-                    aria-label="New automation"
-                  >
-                    <Plus size={12} aria-hidden />
-                    New
-                  </Button>
+                  <>
+                    {quickOpen.trigger}
+                    <Button
+                      ref={newButton}
+                      size="xs"
+                      variant="subtle"
+                      onClick={create}
+                      aria-label="New automation"
+                    >
+                      <Plus size={12} aria-hidden />
+                      New
+                    </Button>
+                  </>
                 }
               />
               <div className="automations-node__list">
