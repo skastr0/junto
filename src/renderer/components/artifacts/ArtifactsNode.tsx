@@ -37,7 +37,7 @@ import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
-import { useSeatsInReach } from "../../lib/mention-sources";
+import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import { MentionedIn } from "../threads/MentionedIn";
 import { newPostOpId, subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
@@ -53,7 +53,7 @@ import {
   type TypeFilter,
   visibleArtifacts,
 } from "./artifacts-pane-model";
-import { DocumentEditor } from "./DocumentEditor";
+import { DocumentEditor, type DocumentMentions } from "./DocumentEditor";
 import "./artifacts.css";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
@@ -313,6 +313,29 @@ function SelectedArtifact({
   const mentionable = useSeatsInReach(canvasName, artifact.nodeId);
   const tasks = useCanvasTasks(canvasName);
   const readOnly = artifact.archived;
+  const siblings = useNodeArtifacts(canvasName, artifact.nodeId);
+  // What a document may mention: seats in reach, and the tasks and this node's other artifacts on @ and #.
+  const tasksOf = useMemo(
+    () => (nodeId: NodeId) =>
+      tasks
+        .filter((view) => view.current.node === nodeId)
+        .map((view) => ({ id: view.taskId, title: view.title, ...(view.number === undefined ? {} : { number: view.number }) })),
+    [tasks],
+  );
+  const artifactsOf = useMemo(
+    () => (nodeId: NodeId) =>
+      nodeId !== artifact.nodeId
+        ? []
+        : siblings
+            .filter((sibling) => !sibling.artifact.archived && sibling.artifact.artifactId !== artifact.artifactId)
+            .map((sibling) => ({ id: sibling.artifact.artifactId, title: sibling.artifact.title })),
+    [siblings, artifact.nodeId, artifact.artifactId],
+  );
+  const resources = useResourcesInReach(canvasName, artifact.nodeId, { tasksOf, artifactsOf });
+  const documentMentions = useMemo<DocumentMentions>(
+    () => ({ canvasName, candidates: [...mentionable, ...resources], nodeKindOf: (id) => nodeAt(canvasName, id)?.kind }),
+    [canvasName, mentionable, resources],
+  );
 
   useEffect(() => setTitle(artifact.title), [artifact.title]);
 
@@ -418,6 +441,7 @@ function SelectedArtifact({
             anchors={textAnchors}
             onAnchor={revealThread}
             revealAnchor={revealAnchor}
+            mentions={documentMentions}
           />
         );
       case "sheet":
