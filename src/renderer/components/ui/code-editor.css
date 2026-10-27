@@ -13,6 +13,7 @@
   min-height: 0;
   background: var(--code-view-surface, var(--color-ground));
   color-scheme: dark;
+  --code-row-height: calc(var(--text-body-lg) * 1.5);
 }
 
 html[data-theme="bright"] .code-editor {
@@ -38,7 +39,7 @@ html[data-theme="bright"] .code-editor {
 /* One row height with CodeView: 1.5 times the code size. */
 .code-editor .cm-scroller {
   font-family: var(--font-mono);
-  line-height: calc(var(--text-body-lg) * 1.5);
+  line-height: var(--code-row-height);
 }
 
 .code-editor .cm-content {
