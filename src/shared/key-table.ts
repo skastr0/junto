@@ -759,8 +759,9 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     area: "Inside a document",
     name: "Open the comment",
     does: "Open the comment thread on the quote at the caret",
-    keys: ["Cmd+Alt+M"],
-    keysOther: ["Ctrl+Alt+M"],
+    // Not Cmd+Alt+M: macOS can read it as Minimize All.
+    keys: ["Cmd+Shift+O"],
+    keysOther: ["Ctrl+Shift+O"],
     where: ["field"],
   }),
   surfaceKey({

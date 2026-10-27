@@ -830,7 +830,7 @@ const openLinkAtCaret =
     return true;
   };
 
-/** Mod-Alt-M opens the comment thread whose quote holds the caret. */
+/** Mod-Shift-O opens the comment thread whose quote holds the caret. */
 const openThreadAtCaret =
   (handlers: LiveMarkdownHandlers) =>
   (view: EditorView): boolean => {
@@ -857,7 +857,7 @@ export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
       { key: "Mod-Enter", run: openLinkAtCaret(handlers) },
       { key: "Mod-b", run: toggleWrap("**") },
       { key: "Mod-e", run: toggleWrap("*") },
-      { key: "Mod-Alt-m", run: openThreadAtCaret(handlers) },
+      { key: "Mod-Shift-o", run: openThreadAtCaret(handlers) },
     ]),
   ),
   EditorView.domEventHandlers({

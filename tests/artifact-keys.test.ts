@@ -14,7 +14,7 @@ describe("an artifact's keys, from the key table", () => {
   });
 
   it("adds the editor's own keys for a document, a sheet and a pad", () => {
-    expect(artifactKeyRows("document", true).editor.map((row) => row.keys)).toEqual(["↵", "Esc", "@", "⌘B", "⌘E", "⌘↵", "⌘⌥M"]);
+    expect(artifactKeyRows("document", true).editor.map((row) => row.keys)).toEqual(["↵", "Esc", "@", "⌘B", "⌘E", "⌘↵", "⌘⇧O"]);
     expect(artifactKeyRows("pad", true).editor.length).toBeGreaterThan(0);
     expect(artifactKeyRows("sheet", true).editor.find((row) => row.action.startsWith("Edit the cell"))?.keys).toBe("↵ - F2");
     expect(artifactKeyRows("pad", true).editor.find((row) => row.action.startsWith("Hold Space"))?.keys).toBe("Space and drag");
