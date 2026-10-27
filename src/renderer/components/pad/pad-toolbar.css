@@ -1,15 +1,21 @@
 /* The pad's selection strip: status, fill, stroke and text of the selected
-   shape, or an edge's label. It sits under the toolbar while something is
-   selected and wraps on a narrow pane instead of scrolling. */
+   shape, or an edge's label. It floats at the top of the stage while
+   something is selected, so the drawing never moves, and wraps on a narrow
+   pane instead of scrolling. */
 .pad-selbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
   display: flex;
-  flex: none;
+  max-width: calc(100% - 16px);
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 6px;
-  border-bottom: 1px solid var(--color-stroke);
-  background: var(--color-raise);
-  padding: 4px 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise-2);
+  padding: 4px 8px;
 }
 
 .pad-selbar__kind {

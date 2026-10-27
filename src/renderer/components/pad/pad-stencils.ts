@@ -32,7 +32,7 @@ const hexOf = (channels: ReadonlyArray<number>): string =>
 /** The hue's token, halfway between the dark and the bright theme. */
 const midHue = (hue: SwatchHue): string => {
   const dark = hexChannels(themeRuntime("dark")[hue]!);
-  const light = hexChannels(themeRuntime("light")[hue]!);
+  const light = hexChannels(themeRuntime("bright")[hue]!);
   return hexOf(dark.map((n, index) => (n + light[index]!) / 2));
 };
 

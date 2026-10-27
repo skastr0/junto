@@ -35,6 +35,7 @@ import {
 import {
   PAD_LOOK,
   padArrowHead,
+  padEdgeMid,
   padInkStroke,
   padSvgPalette,
   type PadSvgPalette,
@@ -1179,8 +1180,8 @@ export function PadEditor({
       return { left: view.x, top: view.y, width: shownSelected.w * camera.zoom };
     }
     const points = editedEdge ? edgePoints(shown, editedEdge) : undefined;
-    const mid = points?.[Math.floor(points.length / 2)];
-    if (!mid) return undefined;
+    if (!points || points.length === 0) return undefined;
+    const mid = padEdgeMid(points);
     const view = sceneToView(camera, mid);
     return { left: view.x - 60, top: view.y - 12, width: 120 };
   })();
@@ -1207,13 +1208,6 @@ export function PadEditor({
         onFit={fit}
         onStencil={insertStencil}
       />
-      {toolbarSelection && gesture.kind === "idle" ? (
-        <PadSelectionBar
-          selection={toolbarSelection}
-          onRestyle={restyleSelected}
-          onEditText={() => beginLabelEdit()}
-        />
-      ) : null}
       <div className="pad-workspace">
       <div
         className="pad-stage"
@@ -1390,6 +1384,14 @@ export function PadEditor({
               <span><Kbd>D</Kbd> ink</span>
             </div>
           </div>
+        ) : null}
+        {toolbarSelection && gesture.kind === "idle" ? (
+          // Floats over the stage, so selecting never moves the drawing.
+          <PadSelectionBar
+            selection={toolbarSelection}
+            onRestyle={restyleSelected}
+            onEditText={() => beginLabelEdit()}
+          />
         ) : null}
         <div className="pad-hint" role="status" aria-live="polite" data-empty={hint ? undefined : "true"}>
           {hint}
