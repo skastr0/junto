@@ -18,7 +18,7 @@ import {
 import { ModelDependents } from "./dependents";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import { normalizeNode } from "@shared/model/normalize";
-import { compileVerb } from "@shared/physics/verbs";
+import { compileVerb, isTaskPathVerb } from "@shared/physics/verbs";
 import {
   afterSqlCommit,
   sqlTransactionLocal,
@@ -365,7 +365,22 @@ export class ModelService extends Context.Service<ModelService>()(
                       "These objects already have this relationship.",
                     );
                   }
-                  if (wire.verb === "flows") {
+                  // A pair of task boards holds one path at most: the task moves on, or a new one is made there.
+                  if (
+                    isTaskPathVerb(wire.verb) &&
+                    [...wiresById.values()].some(
+                      (other) =>
+                        other.id !== wire.id &&
+                        other.from === wire.from &&
+                        other.to === wire.to &&
+                        isTaskPathVerb(other.verb),
+                    )
+                  ) {
+                    return yield* refused(
+                      "These boards are already joined; change how instead.",
+                    );
+                  }
+                  if (isTaskPathVerb(wire.verb)) {
                     const pending = [wire.to];
                     const seen = new Set<string>();
                     while (pending.length > 0) {

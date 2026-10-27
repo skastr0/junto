@@ -26,6 +26,7 @@ export const Verb = Schema.Literals([
   "messages",
   "navigates",
   "flows",
+  "derives",
 ]);
 export type Verb = typeof Verb.Type;
 
@@ -63,7 +64,7 @@ export const VERB_TABLE = {
     page: ["navigates"],
   },
   task: {
-    task: ["flows"],
+    task: ["flows", "derives"],
   },
   // Terminal publishes nothing and offers no port: no verb speaks to it yet.
   terminal: {},
@@ -72,6 +73,16 @@ export const VERB_TABLE = {
 } as const satisfies VerbTable;
 
 const NO_VERBS: ReadonlyArray<Verb> = [];
+
+/**
+ * The verbs that join two task boards. Each keeps its own graph a DAG, and a
+ * pair of boards holds one of them at most: a task either moves on or makes
+ * a new task there, never both.
+ */
+export const TASK_PATH_VERBS = ["flows", "derives"] as const satisfies ReadonlyArray<Verb>;
+export type TaskPathVerb = (typeof TASK_PATH_VERBS)[number];
+export const isTaskPathVerb = (verb: Verb | undefined): verb is TaskPathVerb =>
+  verb === "flows" || verb === "derives";
 
 /** Verbs legal for this ordered pair. Empty = connect refused. */
 export const verbsForPair = (
@@ -103,6 +114,8 @@ export type VerbGrant = {
   readonly ports: ReadonlyArray<Port>;
   /** Task path hop between Tasks nodes (DAG-guarded). */
   readonly flow?: boolean;
+  /** Finishing a task on the source board makes a new one on the target (DAG-guarded). */
+  readonly derive?: boolean;
 };
 
 const MSG_PORTS = [
@@ -129,6 +142,8 @@ export const compileVerb = (
       return { ports: ["browser.automate"] };
     case "flows":
       return { ports: NO_PORTS, flow: true };
+    case "derives":
+      return { ports: NO_PORTS, derive: true };
     default: {
       const exhaustive: never = verb;
       return exhaustive;
@@ -147,4 +162,5 @@ export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   messages: "--wire-verb-messages",
   navigates: "--wire-verb-navigates",
   flows: "--wire-verb-flows",
+  derives: "--wire-verb-derives",
 };

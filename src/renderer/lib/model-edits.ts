@@ -12,7 +12,7 @@ import {
   type Wire,
 } from "@shared/model";
 import { nodeOf, wiresAt, type Canvas } from "@shared/model/canvas";
-import { defaultVerbForPair, verbsForPair, type Port, type Verb } from "@shared/physics";
+import { defaultVerbForPair, isTaskPathVerb, verbsForPair, type Port, type Verb } from "@shared/physics";
 import { physicsKind } from "./model-kind";
 
 // Everything the operator can do to what is on a canvas, as the commands that
@@ -363,7 +363,7 @@ export const connected = (
     ...(fromSide ? { fromSide } : {}),
     ...(toSide ? { toSide } : {}),
   };
-  if (verb === "flows") {
+  if (isTaskPathVerb(verb)) {
     const wires = new Map(canvas.wires);
     wires.set(wire.id, wire);
     const cycle = validateFlowDag({ wires });

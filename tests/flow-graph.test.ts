@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flowDestinations, flowHops, flowSources, reachableBoards, validateFlowDag } from "../src/shared/flow-graph";
+import { deriveTargets, flowDestinations, flowHops, flowSources, reachableBoards, validateFlowDag } from "../src/shared/flow-graph";
 import { asNodeId, asWireId, type Wire } from "../src/shared/model";
 import type { Canvas } from "../src/shared/model/canvas";
 
@@ -54,5 +54,15 @@ describe("flow graph", () => {
 
   it("terminates on cyclic input when walking reach", () => {
     expect([...reachableBoards(wired(flow("a", "b"), flow("b", "a")), "a")]).toEqual(["a", "b"]);
+  });
+
+  it("keeps the derives graph a DAG on its own, apart from flows", () => {
+    const derive = (from: string, to: string) => wire("derives", from, to);
+    const canvas = wired(flow("a", "b"), derive("a", "c"), derive("a", "d"), derive("b", "a"));
+    expect(deriveTargets(canvas, "a")).toEqual(["c", "d"]);
+    expect(flowDestinations(canvas, "a")).toEqual(["b"]);
+    // a flows into b and b derives into a: two graphs, neither loops.
+    expect(validateFlowDag(canvas)).toBeUndefined();
+    expect(validateFlowDag(wired(derive("a", "b"), derive("b", "a")))?.cycle).toEqual(["a", "b"]);
   });
 });

@@ -1,11 +1,13 @@
 import { Schema } from "effect";
 import type { Canvas } from "./model/canvas";
+import { TASK_PATH_VERBS, type TaskPathVerb } from "./physics/verbs";
 
 // Task path graph derived from the `flows` verb. Pure — no I/O.
 // A `flows` wire runs from the upstream board to the downstream one, so the
 // hop needs no separate direction config. The flow graph must
 // be a DAG: a hop that would close a cycle is rejected with FlowCycleError at
-// mutation time and at act time.
+// mutation time and at act time. The `derives` graph is held to the same, on
+// its own: a board may flow into one board and derive back from it.
 
 /** All the path reads of a canvas: its wires. A whole Canvas is one. */
 type Wired = Pick<Canvas, "wires">;
@@ -38,22 +40,35 @@ export const flowHops = (canvas: Wired): ReadonlyArray<FlowHop> => {
   return hops;
 };
 
-const adjacency = (canvas: Wired): ReadonlyMap<string, ReadonlyArray<string>> => {
+const adjacency = (canvas: Wired, verb: TaskPathVerb = "flows"): ReadonlyMap<string, ReadonlyArray<string>> => {
   const next = new Map<string, string[]>();
-  for (const hop of flowHops(canvas)) {
-    const out = next.get(hop.source);
-    if (out === undefined) next.set(hop.source, [hop.destination]);
-    else if (!out.includes(hop.destination)) out.push(hop.destination);
+  for (const wire of canvas.wires.values()) {
+    if (wire.verb !== verb) continue;
+    const out = next.get(wire.from);
+    if (out === undefined) next.set(wire.from, [wire.to]);
+    else if (!out.includes(wire.to)) out.push(wire.to);
   }
   return next;
 };
 
+/** The boards a board derives into, deduped in wire order. */
+export const deriveTargets = (canvas: Wired, nodeId: string): ReadonlyArray<string> =>
+  adjacency(canvas, "derives").get(nodeId) ?? [];
+
 /**
- * Reject any cycle in the flow graph. Returns the first cycle found (walk
- * order, deterministic in wire order), or undefined for a valid DAG.
+ * Reject any cycle in the flow graph or the derives graph, each on its own.
+ * Returns the first cycle found (walk order, deterministic in wire order), or
+ * undefined for a valid DAG.
  */
 export const validateFlowDag = (canvas: Wired): FlowCycleError | undefined => {
-  const next = adjacency(canvas);
+  for (const verb of TASK_PATH_VERBS) {
+    const cycle = cycleIn(adjacency(canvas, verb));
+    if (cycle !== undefined) return cycle;
+  }
+  return undefined;
+};
+
+const cycleIn = (next: ReadonlyMap<string, ReadonlyArray<string>>): FlowCycleError | undefined => {
   // Iterative DFS with three colors: unvisited, on-stack, done.
   const done = new Set<string>();
   const onStack = new Set<string>();

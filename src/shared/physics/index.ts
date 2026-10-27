@@ -102,13 +102,16 @@ export {
   VERBS,
   VERB_COLOR_TOKEN,
   VERB_TABLE,
+  TASK_PATH_VERBS,
   Verb,
   compileVerb,
+  isTaskPathVerb,
   defaultVerbForPair,
   verbSideOf,
   verbsForPair,
 } from "./verbs";
 export type {
+  TaskPathVerb,
   VerbGrant,
   VerbSide,
 } from "./verbs";

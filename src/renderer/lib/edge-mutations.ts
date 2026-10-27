@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
+import { defaultVerbForPair, isTaskPathVerb, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { removalTasks, removalWarnings } from "./deletion-impact";
@@ -306,7 +306,7 @@ const planToTarget = (
       skipped.push({ source: sourceId, reason: "duplicate" });
       continue;
     }
-    if (verb === "flows") {
+    if (isTaskPathVerb(verb)) {
       const probe: PlanWire = { from: fromNode, to: toNode, verb };
       const cycle = loopIn([...prospective, probe]);
       if (cycle) {

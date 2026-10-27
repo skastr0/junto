@@ -9,6 +9,7 @@ const VERB_SENTENCE = {
   messages: "{from} messages {to}",
   navigates: "{from} drives {to}",
   flows: "{from} flows into {to}",
+  derives: "{from} derives into {to}",
 } as const satisfies Record<Verb, string>;
 
 export const verbSentence = (verb: Verb, from: string, to: string): string =>
