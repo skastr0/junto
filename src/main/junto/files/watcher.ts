@@ -9,17 +9,18 @@ import { inSkippedDir } from "./sources";
  *
  * A busy window (at least `BUSY` paths) continues a streak; a quiet one, or
  * no window at all, ends it. A streak past `BURST` paths (a checkout or an
- * install, even one spread over seconds) goes out as one `burst`, for one
- * rebuild instead of thousands of deltas; while it lasts, another `burst`
- * goes out every `BURST_EVERY` windows that saw a change, and once more when
- * it ends if anything changed since. A file written many times a second (a
- * log) is one path a window, never busy, so it never holds a burst open.
+ * install, even one spread over seconds) sends no more paths: the index
+ * keeps answering with the names it has, and one `burst` (one rebuild, one
+ * renderer reset) goes out when the streak ends. A streak that never ends
+ * sends one at most every `BURST_EVERY_MS`, and only if something changed.
+ * A file written many times a second (a log) is one path a window, never
+ * busy, so it never holds a burst open.
  */
 
 export const COALESCE_MS = 100;
 export const BURST = 1000;
 export const BUSY = 100;
-export const BURST_EVERY = 10;
+export const BURST_EVERY_MS = 10_000;
 
 export type WatchBatch =
   | { readonly kind: "paths"; readonly paths: ReadonlyArray<string> }
@@ -62,23 +63,36 @@ export const watchRoot = (
   /** Paths in this streak's earlier busy windows. */
   let streak = 0;
   let burst = false;
-  /** Windows with a change since the last burst went out. */
-  let changedWindows = 0;
+  /** Something changed since the last burst went out. */
+  let changed = false;
+  /** While a burst holds: the next time it may send one. */
+  let every: unknown;
   let window: unknown;
   /** Armed after a window while a streak is open: no window within it ends the streak. */
   let quiet: unknown;
   let closed = false;
 
   const sendBurst = (): void => {
-    changedWindows = 0;
+    changed = false;
     onBatch({ kind: "burst" });
   };
 
+  const armEvery = (): void => {
+    every = timers.set(() => {
+      every = undefined;
+      if (closed || !burst) return;
+      if (changed) sendBurst();
+      armEvery();
+    }, BURST_EVERY_MS);
+  };
+
   const endStreak = (): void => {
-    if (burst && changedWindows > 0) sendBurst();
+    if (burst && changed) sendBurst();
+    if (every !== undefined) timers.clear(every);
+    every = undefined;
     streak = 0;
     burst = false;
-    changedWindows = 0;
+    changed = false;
   };
 
   const armQuiet = (): void => {
@@ -104,15 +118,15 @@ export const watchRoot = (
     const busy = count >= BUSY || unnamed;
     if (!burst && (unnamed || streak + count > BURST)) {
       burst = true;
+      changed = true;
       unnamed = false;
-      sendBurst();
+      armEvery();
       return;
     }
+    if (burst && (count > 0 || unnamed)) changed = true;
     unnamed = false;
     if (burst) {
-      if (count > 0) changedWindows += 1;
       if (!busy) endStreak();
-      else if (changedWindows >= BURST_EVERY) sendBurst();
       return;
     }
     streak = busy ? streak + count : 0;
@@ -146,6 +160,7 @@ export const watchRoot = (
     closed = true;
     if (window !== undefined) timers.clear(window);
     if (quiet !== undefined) timers.clear(quiet);
+    if (every !== undefined) timers.clear(every);
     handle.close();
   };
   return { close };

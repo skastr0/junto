@@ -505,102 +505,105 @@ describe("search", () => {
   });
 });
 
+/** A watcher on a virtual clock: timers run in time order, nothing waits on a real one. */
+const clockedWatch = () => {
+  let now = 0;
+  let next = 0;
+  const timers = new Map<number, { at: number; fn: () => void }>();
+  let listener: ((event: string, filename: string | null) => void) | undefined;
+  const batches: WatchBatch[] = [];
+  watchRoot("/r", (batch) => batches.push(batch), (_root, l) => {
+    listener = l;
+    return { close: () => undefined };
+  }, {
+    set: (fn, ms) => {
+      next += 1;
+      timers.set(next, { at: now + ms, fn });
+      return next;
+    },
+    clear: (handle) => timers.delete(handle as number),
+  });
+  const advanceTo = (until: number): void => {
+    for (;;) {
+      let id = -1;
+      let at = Number.POSITIVE_INFINITY;
+      for (const [key, timer] of timers) if (timer.at < at) [id, at] = [key, timer.at];
+      if (at > until) break;
+      const timer = timers.get(id)!;
+      timers.delete(id);
+      now = at;
+      timer.fn();
+    }
+    now = until;
+  };
+  const fire = (name: string | null): void => listener?.("change", name);
+  const kinds = (): string[] => batches.map((batch) => batch.kind);
+  const sent = (): string[] => batches.flatMap((batch) => (batch.kind === "paths" ? batch.paths : []));
+  return { batches, advanceTo, fire, kinds, sent, now: () => now };
+};
+
 describe("watcher", () => {
   it("coalesces, skips .git and node_modules, and folds a burst into one", () => {
-    let listener: ((event: string, filename: string | null) => void) | undefined;
-    const factory: WatchFactory = (_root, l) => {
-      listener = l;
-      return { close: () => undefined };
-    };
-    const queued: Array<() => void> = [];
-    const batches: unknown[] = [];
-    watchRoot("/r", (batch) => batches.push(batch), factory, {
-      set: (fn) => queued.push(fn),
-      clear: () => undefined,
-    });
-    listener?.("change", "a.ts");
-    listener?.("change", "a.ts");
-    listener?.("change", ".git/index");
-    listener?.("change", "web/node_modules/x/y.js");
-    expect(queued).toHaveLength(1);
-    queued.shift()?.();
-    expect(batches).toEqual([{ kind: "paths", paths: ["a.ts"] }]);
-    queued.length = 0; // the next event cancels the quiet timer
-    for (let i = 0; i <= BURST; i += 1) listener?.("change", `f${String(i)}`);
-    queued.shift()?.();
-    expect(batches.at(-1)).toEqual({ kind: "burst" });
+    const watch = clockedWatch();
+    watch.fire("a.ts");
+    watch.fire("a.ts");
+    watch.fire(".git/index");
+    watch.fire("web/node_modules/x/y.js");
+    watch.advanceTo(100);
+    expect(watch.batches).toEqual([{ kind: "paths", paths: ["a.ts"] }]);
+    for (let i = 0; i <= BURST; i += 1) watch.fire(`f${String(i)}`);
+    watch.advanceTo(1_000);
+    expect(watch.kinds()).toEqual(["paths", "burst"]);
+  });
+
+  it("an unnamed event is a burst", () => {
+    const watch = clockedWatch();
+    watch.fire(null);
+    watch.advanceTo(1_000);
+    expect(watch.kinds()).toEqual(["burst"]);
   });
 
   it("a log written every 50 ms never holds a burst open: edits keep going out", () => {
-    // A virtual clock: timers run in time order, nothing waits on a real one.
-    let now = 0;
-    let next = 0;
-    const timers = new Map<number, { at: number; fn: () => void }>();
-    const advanceTo = (until: number): void => {
-      for (;;) {
-        let id = -1;
-        let at = Number.POSITIVE_INFINITY;
-        for (const [key, timer] of timers) if (timer.at < at) [id, at] = [key, timer.at];
-        if (at > until) break;
-        const timer = timers.get(id)!;
-        timers.delete(id);
-        now = at;
-        timer.fn();
-      }
-      now = until;
-    };
-    let listener: ((event: string, filename: string | null) => void) | undefined;
-    const batches: WatchBatch[] = [];
-    watchRoot("/r", (batch) => batches.push(batch), (_root, l) => {
-      listener = l;
-      return { close: () => undefined };
-    }, {
-      set: (fn, ms) => {
-        next += 1;
-        timers.set(next, { at: now + ms, fn });
-        return next;
-      },
-      clear: (handle) => timers.delete(handle as number),
-    });
+    const watch = clockedWatch();
     // A checkout first: one burst.
-    for (let i = 0; i <= BURST; i += 1) listener?.("change", `f${String(i)}`);
+    for (let i = 0; i <= BURST; i += 1) watch.fire(`f${String(i)}`);
     const edits = [120_000, 300_000, 480_000];
     for (let t = 0; t < 600_000; t += 50) {
-      advanceTo(t);
-      listener?.("change", "app.log");
-      if (edits.includes(t)) listener?.("change", `edit-${String(t)}.ts`);
+      watch.advanceTo(t);
+      watch.fire("app.log");
+      if (edits.includes(t)) watch.fire(`edit-${String(t)}.ts`);
     }
-    advanceTo(600_500);
-    const sent = batches.flatMap((batch) => (batch.kind === "paths" ? batch.paths : []));
-    for (const t of edits) expect(sent).toContain(`edit-${String(t)}.ts`);
-    expect(batches.filter((batch) => batch.kind === "burst").length).toBeLessThanOrEqual(2);
+    watch.advanceTo(600_500);
+    for (const t of edits) expect(watch.sent()).toContain(`edit-${String(t)}.ts`);
+    expect(watch.kinds().filter((kind) => kind === "burst")).toHaveLength(1);
   });
 
-  it("folds a burst spread over back-to-back windows into one, and one more at its end", () => {
-    let listener: ((event: string, filename: string | null) => void) | undefined;
-    const factory: WatchFactory = (_root, l) => {
-      listener = l;
-      return { close: () => undefined };
-    };
-    const queued: Array<() => void> = [];
-    const batches: Array<{ kind: string }> = [];
-    watchRoot("/r", (batch) => batches.push(batch), factory, {
-      set: (fn) => queued.push(fn),
-      clear: () => undefined,
-    });
-    // Ten windows of 150 paths each, no quiet between them: 1,500 in one streak.
-    for (let window = 0; window < 10; window += 1) {
-      for (let i = 0; i < 150; i += 1) listener?.("change", `w${String(window)}/f${String(i)}`);
-      queued.shift()?.(); // the window closes; its quiet timer is queued
-      queued.length = 0; // the next window's first event cancels the quiet timer
+  it("a checkout spread over seconds is one burst, sent when it ends", () => {
+    const watch = clockedWatch();
+    // 300 paths a window for 3 s: past BURST in the fourth window.
+    for (let t = 0; t < 3_000; t += 100) {
+      watch.advanceTo(t);
+      for (let i = 0; i < 300; i += 1) watch.fire(`t${String(t)}/f${String(i)}`);
     }
-    const kinds = batches.map((batch) => batch.kind);
-    expect(kinds.filter((kind) => kind === "paths").length).toBe(6);
-    expect(kinds.filter((kind) => kind === "burst").length).toBe(1);
-    listener?.("change", "late.ts");
-    queued.shift()?.(); // window
-    queued.shift()?.(); // quiet: the streak ends
-    expect(batches.at(-1)).toEqual({ kind: "burst" });
-    expect(batches.filter((batch) => batch.kind === "burst").length).toBe(2);
+    watch.advanceTo(2_950);
+    expect(watch.kinds()).toEqual(["paths", "paths", "paths"]);
+    watch.advanceTo(3_500);
+    expect(watch.kinds()).toEqual(["paths", "paths", "paths", "burst"]);
+    watch.fire("late.ts");
+    watch.advanceTo(4_000);
+    expect(watch.batches.at(-1)).toEqual({ kind: "paths", paths: ["late.ts"] });
+  });
+
+  it("an install that never pauses sends a burst at most every 10 s", () => {
+    const watch = clockedWatch();
+    for (let t = 0; t < 25_000; t += 100) {
+      watch.advanceTo(t);
+      for (let i = 0; i < 400; i += 1) watch.fire(`t${String(t)}/f${String(i)}`);
+    }
+    watch.advanceTo(24_950);
+    expect(watch.kinds().filter((kind) => kind === "burst")).toHaveLength(2);
+    watch.advanceTo(26_000);
+    expect(watch.kinds().filter((kind) => kind === "burst")).toHaveLength(3);
+    expect(watch.kinds().filter((kind) => kind === "paths")).toHaveLength(2);
   });
 });
