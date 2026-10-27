@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { carriedPath, carriedSubject, carryFileThreads, pathUnder } from "../src/main/junto/work/file-thread-paths";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+import { onThreadChanged } from "../src/main/junto/work/resource-changes";
 import { threadSubjectOf } from "../src/shared/thread-subject";
 
 const NODE = "files-1";
@@ -119,6 +120,8 @@ describe("the carry in the store", () => {
   it("moves the moved file's rows, leaves the neighbour's and the other node's, and reads back as a subject", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-file-thread-paths-"));
     const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
+    const notices: Array<string> = [];
+    const off = onThreadChanged((kind, canvas) => notices.push(`${kind}/${canvas}`));
     try {
       const sql = await runtime.runPromise(SqlClient.SqlClient);
       await runtime.runPromise(
@@ -130,6 +133,8 @@ describe("the carry in the store", () => {
       );
       const moved = await runtime.runPromise(carryFileThreads(sql, "factory", "files-1", "src/a.ts", "src/b.ts"));
       expect(moved).toBe(1);
+      // Every window reads the threads again: one notice, after the commit.
+      expect(notices).toEqual(["file/factory"]);
       const rows = await runtime.runPromise(
         sql.unsafe<{ message_id: string; metadata_json: string }>(
           "SELECT message_id, metadata_json FROM work_messages ORDER BY message_id",
@@ -147,7 +152,10 @@ describe("the carry in the store", () => {
       expect(subject("m3")).toEqual({ kind: "file", nodeId: "files-2", path: "src/a.ts" });
       // A second carry of the same move finds nothing: the rows are already there.
       expect(await runtime.runPromise(carryFileThreads(sql, "factory", "files-1", "src/a.ts", "src/b.ts"))).toBe(0);
+      // Nothing moved, so nothing is announced.
+      expect(notices).toEqual(["file/factory"]);
     } finally {
+      off();
       await runtime.dispose();
       await rm(root, { recursive: true, force: true });
     }

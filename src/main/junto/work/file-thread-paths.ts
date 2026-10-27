@@ -16,6 +16,7 @@ import { Effect } from "effect";
 import type { SqlClient, SqlError } from "effect/unstable/sql";
 import { isRelativePath, THREAD_SUBJECT_KEY } from "@shared/thread-subject";
 import { unjournaledWorkMutationEffect } from "./mutation-seam";
+import { noteThreadChanged } from "./resource-changes";
 
 /** A path under `from` or equal to it, as a folder move carries what is inside it. */
 export const pathUnder = (path: string, from: string): boolean => path === from || path.startsWith(`${from}/`);
@@ -65,32 +66,40 @@ export const carryFileThreads = (
   from: string,
   to: string,
 ): Effect.Effect<number, SqlError.SqlError> =>
-  sql.withTransaction(
-    unjournaledWorkMutationEffect(
-      "files.thread-carry",
-      Effect.gen(function* () {
-        if (from === to) return 0;
-        const rows = yield* sql.unsafe<{ readonly message_id: string; readonly metadata_json: string }>(
-          `SELECT message_id AS message_id, metadata_json AS metadata_json
-           FROM work_messages
-           WHERE canvas_name = ? AND node_id = ? AND metadata_json IS NOT NULL
-             AND json_extract(metadata_json, '$.threadSubject.kind') = 'file'
-             AND json_extract(metadata_json, '$.threadSubject.nodeId') = ?
-             AND (json_extract(metadata_json, '$.threadSubject.path') = ?
-                  OR substr(json_extract(metadata_json, '$.threadSubject.path'), 1, length(?) + 1) = ? || '/')`,
-          [canvasName, nodeId, nodeId, from, from, from],
-        );
-        let moved = 0;
-        for (const row of rows) {
-          const metadata = JSON.parse(row.metadata_json) as Readonly<Record<string, unknown>>;
-          const carried = carriedSubject(metadata, nodeId, from, to);
-          if (carried === undefined) continue;
-          yield* sql`
-            UPDATE work_messages SET metadata_json = ${JSON.stringify(carried)}
-            WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND message_id = ${row.message_id}`;
-          moved += 1;
-        }
-        return moved;
-      }),
+  // Reported after the transaction committed, so every window reads the new
+  // subject once: another open rail, Mentioned in, Linked from (F7).
+  Effect.tap(
+    sql.withTransaction(
+      unjournaledWorkMutationEffect(
+        "files.thread-carry",
+        Effect.gen(function* () {
+          if (from === to) return 0;
+          const rows = yield* sql.unsafe<{ readonly message_id: string; readonly metadata_json: string }>(
+            `SELECT message_id AS message_id, metadata_json AS metadata_json
+             FROM work_messages
+             WHERE canvas_name = ? AND node_id = ? AND metadata_json IS NOT NULL
+               AND json_extract(metadata_json, '$.threadSubject.kind') = 'file'
+               AND json_extract(metadata_json, '$.threadSubject.nodeId') = ?
+               AND (json_extract(metadata_json, '$.threadSubject.path') = ?
+                    OR substr(json_extract(metadata_json, '$.threadSubject.path'), 1, length(?) + 1) = ? || '/')`,
+            [canvasName, nodeId, nodeId, from, from, from],
+          );
+          let moved = 0;
+          for (const row of rows) {
+            const metadata = JSON.parse(row.metadata_json) as Readonly<Record<string, unknown>>;
+            const carried = carriedSubject(metadata, nodeId, from, to);
+            if (carried === undefined) continue;
+            yield* sql`
+              UPDATE work_messages SET metadata_json = ${JSON.stringify(carried)}
+              WHERE canvas_name = ${canvasName} AND node_id = ${nodeId} AND message_id = ${row.message_id}`;
+            moved += 1;
+          }
+          return moved;
+        }),
+      ),
     ),
+    (moved) =>
+      Effect.sync(() => {
+        if (moved > 0) noteThreadChanged("file", canvasName);
+      }),
   );
