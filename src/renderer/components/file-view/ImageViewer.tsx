@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BoxLayer } from "./BoxLayer";
 import { BoxActions, useBoxTools, ViewerToolbar, type FileViewProps } from "./box-tools";
 import { imageBoxShot } from "./extract";
@@ -23,12 +23,15 @@ export function ImageViewer({ canvasName, nodeId, path, url, boxes = [], onComme
   const zoom = zoomOf(mode, size.width, paneWidth, 1);
   const width = Math.round(size.width * zoom);
   const height = Math.round(size.height * zoom);
+  // An image has no pages: its threads are the ones that name none.
+  const threads = useMemo(() => boxes.filter((entry) => entry.page === undefined), [boxes]);
   const tools = useBoxTools({
     canvasName,
     nodeId,
     path,
     onComment,
     onDraft,
+    boxes: threads,
     stage: paneElement,
     shoot: (draft) => imageBoxShot(url, draft.box),
   });
@@ -80,7 +83,7 @@ export function ImageViewer({ canvasName, nodeId, path, url, boxes = [], onComme
               width={width}
               height={height}
               drawing={tools.drawing}
-              boxes={boxes.filter((entry) => entry.page === undefined)}
+              boxes={threads}
               draft={tools.draft?.box ?? null}
               onDraw={(box) => tools.draw({ box })}
               actions={<BoxActions tools={tools} />}

@@ -114,6 +114,7 @@ export function PdfViewer({
     path,
     onComment,
     onDraft,
+    boxes,
     stage: paneElement,
     shoot: async (draft) => {
       if (loading.kind !== "ready" || draft.page === undefined) throw new Error("The PDF is not open.");

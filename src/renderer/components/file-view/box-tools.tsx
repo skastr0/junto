@@ -38,6 +38,13 @@ export type FileViewProps = {
   readonly initialPage?: number;
 };
 
+const NO_BOXES: ReadonlyArray<FileThreadBox> = [];
+
+/** A thread on the very box drawn: the same page (an image has one) and the same fractions, as a post sends them. */
+const sameBox = (thread: FileThreadBox, draft: BoxDraft): boolean =>
+  (thread.page ?? 1) === (draft.page ?? 1) &&
+  (["x", "y", "w", "h"] as const).every((side) => Math.abs(thread.box[side] - draft.box[side]) < 1e-6);
+
 /** Said when the area could not be drawn as an image; the reason stays in the console. */
 const SHOT_FAILED = "This area could not be made into an image.";
 /** Said when the image was made but the artifact was not; the reason stays in the console. */
@@ -59,9 +66,10 @@ export const useBoxTools = ({
   path,
   onComment,
   onDraft,
+  boxes = NO_BOXES,
   shoot,
   stage,
-}: Pick<FileViewProps, "canvasName" | "nodeId" | "path" | "onComment" | "onDraft"> & {
+}: Pick<FileViewProps, "canvasName" | "nodeId" | "path" | "onComment" | "onDraft" | "boxes"> & {
   readonly shoot: (draft: BoxDraft) => Promise<BoxShot>;
   /** The viewer's stage: the keyboard goes back to it when the box's buttons go away. */
   readonly stage: HTMLElement | null;
@@ -82,6 +90,13 @@ export const useBoxTools = ({
     },
     [],
   );
+  // A thread that lands on the drawn box spends it, however it was posted: the box is a comment now, not a draft.
+  const seenThreads = useRef<ReadonlySet<string>>(new Set(boxes.map((thread) => thread.id)));
+  useEffect(() => {
+    const landed = boxes.filter((thread) => !seenThreads.current.has(thread.id));
+    seenThreads.current = new Set(boxes.map((thread) => thread.id));
+    if (draft !== null && landed.some((thread) => sameBox(thread, draft))) setDraftState(null);
+  }, [boxes, draft]);
   /** The box's buttons are gone with the box: the keyboard returns to the stage, so B, arrows and Escape still work. */
   const backToStage = (cause: "gesture" | "async"): void => {
     claimFocus(stage, cause, { preventScroll: true });

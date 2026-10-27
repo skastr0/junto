@@ -135,6 +135,14 @@ test("PDF and image preview and Extract as artifact, dark and bright", async () 
       facts.imageZoom = await image.getByTestId("file-view-zoom").innerText();
       expect(facts.imageZoom).toBe("100%");
       await image.getByTestId("file-view-box-tool").click();
+      // A box comment posted from the rail spends the drawn box: it shows as the thread, not as a draft with Extract.
+      await drag(page, image.locator(".file-view__surface"), [200, 140], [300, 190]);
+      await expect(modal.getByText(/area on the image/iu).first()).toBeVisible({ timeout: 10_000 });
+      await modal.getByPlaceholder(/^Comment on this place/u).fill(`The corner, ${theme}`);
+      await modal.getByRole("button", { name: "Comment", exact: true }).click();
+      await expect(image.getByTestId("file-box-thread")).toHaveCount(1 + (theme === "bright" ? 1 : 0), { timeout: 15_000 });
+      await expect(image.getByTestId("file-box-draft")).toHaveCount(0);
+      facts.postedBoxSpent = true;
       await drag(page, image.locator(".file-view__surface"), [20, 20], [180, 120]);
       await image.getByTestId("file-box-extract").click();
       await expect(image.getByTestId("file-view-said")).toHaveText("Extracted to Shelf.", { timeout: 15_000 });
