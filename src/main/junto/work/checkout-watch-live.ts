@@ -50,6 +50,7 @@
  * silently, because attach never synthesizes history.
  */
 
+import { GIT_GUARD_ARGS } from "../adapters/git-guard";
 import { stat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -230,7 +231,7 @@ export const gitProbeOverRunCli = (
   const timeoutMs = options.timeoutMs ?? GIT_PROBE_TIMEOUT_MS;
   const run = options.run ?? runCli;
   const git = (worktree: string, args: ReadonlyArray<string>) =>
-    run("git", ["-C", worktree, ...args], timeoutMs);
+    run("git", ["-C", worktree, ...GIT_GUARD_ARGS, ...args], timeoutMs);
 
   return {
     async head(worktree) {

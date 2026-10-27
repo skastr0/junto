@@ -30,6 +30,7 @@ import {
   type GitSummaryResult,
 } from "@shared/git";
 import { runCli } from "./exec";
+import { filterDriverNames, filterGuardArgs, GIT_FILTER_CONFIG_ARGS, GIT_GUARD_ARGS } from "./git-guard";
 
 const expandHome = (input: string): string => {
   const requested = input.trim();
@@ -58,8 +59,24 @@ const resolveRepoCwd = async (input: string): Promise<string> => {
   return root;
 };
 
-const git = (cwd: string, args: ReadonlyArray<string>, timeoutMs?: number) =>
-  runCli("git", ["-C", cwd, ...args], timeoutMs);
+/**
+ * The overrides for one folder: the fixed ones plus an empty command for
+ * every filter driver its config names (`git-guard.ts`). Reads that start
+ * together share one config read.
+ */
+const guarding = new Map<string, Promise<ReadonlyArray<string>>>();
+const guardFor = (cwd: string, timeoutMs?: number): Promise<ReadonlyArray<string>> => {
+  const held = guarding.get(cwd);
+  if (held !== undefined) return held;
+  const read = runCli("git", ["-C", cwd, ...GIT_FILTER_CONFIG_ARGS], timeoutMs)
+    .then((config) => [...GIT_GUARD_ARGS, ...filterGuardArgs(filterDriverNames(config.stdout))])
+    .finally(() => guarding.delete(cwd));
+  guarding.set(cwd, read);
+  return read;
+};
+
+const git = async (cwd: string, args: ReadonlyArray<string>, timeoutMs?: number) =>
+  runCli("git", ["-C", cwd, ...(await guardFor(cwd, timeoutMs)), ...args], timeoutMs);
 
 const fail = (error: string): { readonly ok: false; readonly error: string } => ({
   ok: false,
