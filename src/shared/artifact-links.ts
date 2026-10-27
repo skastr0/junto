@@ -46,17 +46,40 @@ export type LinkedFromBody = {
 /** A link's key, as a projection stores the pair: the two ids, never a title. */
 export const artifactLinkKeyOf = (ref: ArtifactLinkRef): string => `${ref.nodeId}\u0000${ref.artifactId}`;
 
-/** A line of text as a link keeps it: trimmed, on one line, cut at the bound. */
-const lineOf = (text: string): string => {
-  const flat = text.replace(/\s+/gu, " ").trim();
-  return flat.length <= ARTIFACT_LINK_LINE_MAX ? flat : `${flat.slice(0, ARTIFACT_LINK_LINE_MAX - 1)}…`;
+/** `text` cut at `max`, never through a character's surrogate pair. */
+const cutAt = (text: string, max: number): string => {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 };
 
-/** The line of `text` that holds `at`. */
-const lineHolding = (text: string, at: number): string => {
-  const before = text.lastIndexOf("\n", Math.max(0, at - 1));
-  const after = text.indexOf("\n", at);
-  return lineOf(text.slice(before + 1, after < 0 ? text.length : after));
+/** A line as a link keeps it: one line, trimmed, cut at the bound. */
+const lineOf = (text: string): string => {
+  const flat = text.replace(/\s+/gu, " ").trim();
+  return flat.length <= ARTIFACT_LINK_LINE_MAX ? flat : `${cutAt(flat, ARTIFACT_LINK_LINE_MAX - 1)}…`;
+};
+
+/**
+ * The text a link is read in: its line when the line fits, else a window of
+ * the line around the link itself, never cut inside the link (a cut link is
+ * no link to a reader that would parse it back). An ellipsis marks each side
+ * the window left out.
+ */
+const lineHolding = (text: string, link: { readonly start: number; readonly end: number }): string => {
+  const lineFrom = text.lastIndexOf("\n", Math.max(0, link.start - 1)) + 1;
+  const lineTo = text.indexOf("\n", link.end);
+  const line = text.slice(lineFrom, lineTo < 0 ? text.length : lineTo);
+  const start = link.start - lineFrom;
+  const stop = link.end - lineFrom;
+  const flat = line.replace(/\s+/gu, " ").trim();
+  if (flat.length <= ARTIFACT_LINK_LINE_MAX) return flat;
+  const room = Math.max(0, ARTIFACT_LINK_LINE_MAX - (stop - start) - 2);
+  const before = Math.min(start, Math.floor(room / 2));
+  const after = Math.min(line.length - stop, room - before);
+  const head = start - before > 0 ? "…" : "";
+  const tail = stop + after < line.length ? "…" : "";
+  return lineOf(`${head}${line.slice(start - before, stop + after)}${tail}`);
 };
 
 /** A link target as an artifact link, or undefined when it names no item (a seat, a page). */
@@ -67,7 +90,7 @@ const artifactTargetOf = (target: MentionTarget): ArtifactLinkRef | undefined =>
 const linksInText = (text: string): ReadonlyArray<BodyLinkAt> =>
   mentionLinksOf(text).flatMap((link) => {
     const target = artifactTargetOf(link.target);
-    return target === undefined ? [] : [{ target, line: lineHolding(text, link.start) }];
+    return target === undefined ? [] : [{ target, line: lineHolding(text, link) }];
   });
 
 /** Every link in a pad: a shape's text, and a card's own href. */
@@ -77,8 +100,9 @@ const linksInPad = (body: Extract<ArtifactBody, { readonly type: "pad" }>): Read
   for (const shape of shapes) {
     if (shape.text !== undefined) found.push(...linksInText(shape.text));
     if (shape.href !== undefined) {
-      const parsed = mentionLinksOf(`[${shape.label ?? "a card"}](${shape.href})`);
-      for (const link of parsed) {
+      // A fixed label: the href is the link, and a card's own label may hold a
+      // bracket that would end the markdown link early.
+      for (const link of mentionLinksOf(`[card](${shape.href})`)) {
         const target = artifactTargetOf(link.target);
         if (target !== undefined) found.push({ target, line: lineOf(shape.text ?? shape.label ?? "") });
       }
@@ -87,7 +111,7 @@ const linksInPad = (body: Extract<ArtifactBody, { readonly type: "pad" }>): Read
   return found;
 };
 
-/** Every link in a sheet: each cell's text, columns then rows, as the grid reads. */
+/** Every link in a sheet: each cell's text, row by row, columns in their own order. */
 const linksInSheet = (body: Extract<ArtifactBody, { readonly type: "sheet" }>): ReadonlyArray<BodyLinkAt> => {
   const found: BodyLinkAt[] = [];
   for (const row of body.grid.rows) {

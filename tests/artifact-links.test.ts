@@ -109,4 +109,30 @@ describe("the links in an artifact's body", () => {
     if (cut._tag === "Failure") throw new Error("body");
     expect(bodyLinksOf(cut.success)[0]?.line.length).toBeLessThanOrEqual(240);
   });
+
+  it("windows a long line around its own link, never cutting the link", () => {
+    const before = "y".repeat(300);
+    const markdown = `${before} ${artifact(SHELF, BUDGET, "Budget")} then the tail ${"z".repeat(300)}`;
+    const body = decodeArtifactBody({ type: "document", markdown });
+    if (body._tag === "Failure") throw new Error("body");
+    const line = bodyLinksOf(body.success)[0]!.line;
+    expect(line.length).toBeLessThanOrEqual(240);
+    // The link is whole in the window, so a reader can still find it, and both cut sides say so.
+    expect(line).toContain(artifact(SHELF, BUDGET, "Budget"));
+    expect(line.startsWith("…")).toBe(true);
+    expect(line.endsWith("…")).toBe(true);
+    // A window, not the line: most of the 300 y's before it are gone.
+    expect(line.indexOf("y")).toBe(1);
+  });
+
+  it("keeps a second link on the same line as its own row, each windowed on itself", () => {
+    const markdown = `${"a".repeat(200)} ${artifact(SHELF, BUDGET, "Budget")} ${"b".repeat(200)} ${artifact(SHELF, PLAN, "Plan")} ${"c".repeat(200)}`;
+    const body = decodeArtifactBody({ type: "document", markdown });
+    if (body._tag === "Failure") throw new Error("body");
+    const found = bodyLinksOf(body.success);
+    expect(found.map((one) => one.target.artifactId)).toEqual([BUDGET, PLAN]);
+    expect(found[0]?.line).toContain(artifact(SHELF, BUDGET, "Budget"));
+    expect(found[0]?.line).not.toContain(artifact(SHELF, PLAN, "Plan"));
+    expect(found[1]?.line).toContain(artifact(SHELF, PLAN, "Plan"));
+  });
 });
