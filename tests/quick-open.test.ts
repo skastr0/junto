@@ -10,6 +10,8 @@ import {
   type QuickOpenSource,
 } from "../src/renderer/lib/quick-open";
 import { registerQuickOpenHost, toggleQuickOpenFor } from "../src/renderer/lib/quick-open-host";
+import { artifactQuickOpen, labelsOf } from "../src/renderer/components/artifacts/artifacts-pane-model";
+import type { ArtifactHead } from "../src/shared/resource-ipc";
 
 const node = asNodeId("shelf");
 const ref: FilesNodeRef = { canvas: "canvas", node };
@@ -113,6 +115,30 @@ describe("file names ranked by main", () => {
     expect(source.find).toBe(QUICK_OPEN_WORDS.file.find);
     expect(source.find).toBe("Find a file");
     expect(source.placeholder).toBe(QUICK_OPEN_WORDS.file.placeholder);
+  });
+});
+
+describe("artifact labels in the palette", () => {
+  /** The palette reads only these fields off a head: the rest is not its business. */
+  const head = (title: string, type: "document" | "sheet", labels: ReadonlyArray<string> = []): ArtifactHead =>
+    ({ artifact: { artifactId: title, title, type, labels } }) as unknown as ArtifactHead;
+
+  it("finds an artifact by a label, and ranks a title hit above it", () => {
+    const entries = [head("Sprint notes", "sheet", ["project/junto/release"]), head("Release plan", "document")];
+    const source = artifactQuickOpen(entries);
+    expect(rowsOf(source, "release").map((row) => row.title)).toEqual(["Release plan", "Sprint notes"]);
+    // The label alone finds its artifact, with no title match at all.
+    expect(rowsOf(source, "junto").map((row) => row.title)).toEqual(["Sprint notes"]);
+  });
+
+  it("reads a label as one whole word, never as letters scattered through it", () => {
+    const source = artifactQuickOpen([head("Sprint notes", "sheet", ["project/junto/release"])]);
+    expect(rowsOf(source, "pjr")).toEqual([]);
+  });
+
+  it("reads no labels off a head that carries none yet, as every head does until T1 lands", () => {
+    const bare = { artifact: { artifactId: "a1", title: "Launch brief", type: "document" } } as unknown as ArtifactHead;
+    expect(labelsOf(bare.artifact)).toEqual([]);
   });
 });
 

@@ -2,12 +2,13 @@
  * The Artifacts node's pure parts: which rows the sidebar shows, the text
  * patch a document edit becomes, and how an anchor and an author read.
  */
-import type { ArtifactOp, ArtifactType, TextPatch } from "@shared/artifact";
+import type { Artifact, ArtifactOp, ArtifactType, TextPatch } from "@shared/artifact";
 import type { ArtifactPendingWrite } from "../../lib/artifacts-source";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { ResourceActor } from "@shared/resource-command";
 import type { ThreadAuthor } from "../../lib/subject-threads-source";
 import type { Anchor } from "@shared/thread-subject";
+import { itemsQuickOpen, type QuickOpenSource } from "../../lib/quick-open";
 
 export type TypeFilter = ArtifactType | "all";
 
@@ -132,6 +133,30 @@ export const TYPE_NOUN: { readonly [T in ArtifactType]: string } = {
   sheet: "Sheet",
   file: "File",
 };
+
+/**
+ * The labels an artifact carries. The contract lands in 0.11 T1
+ * (`Artifact.labels`, `{ op: "labels" }`); until the head carries them this
+ * reads none, and it is the one place that changes when it does.
+ */
+export const labelsOf = (artifact: Artifact): ReadonlyArray<string> =>
+  (artifact as { readonly labels?: ReadonlyArray<string> }).labels ?? [];
+
+/**
+ * The Artifacts modal's quick open (0.11 F4): the title names a row, and the
+ * type and the labels only help it be found. That is the matcher's metadata
+ * tier on purpose: a typed word that is a label ranks under every title hit,
+ * and a row never outranks a name because of a label it carries.
+ */
+export const artifactQuickOpen = (entries: ReadonlyArray<ArtifactHead>): QuickOpenSource =>
+  itemsQuickOpen({
+    kind: "artifact",
+    items: entries,
+    itemOf: ({ artifact }) => ({
+      row: { id: artifact.artifactId, title: artifact.title, detail: TYPE_NOUN[artifact.type] },
+      match: { identity: [artifact.title], metadata: [TYPE_NOUN[artifact.type], ...labelsOf(artifact)] },
+    }),
+  });
 
 /** Is this an http(s) URL a link may point at. */
 export const isLinkUrl = (value: string): boolean => {

@@ -50,6 +50,7 @@ import { FilePreview, LinkPreview } from "./ArtifactPreview";
 import { ArtifactSheetEditor, type SheetCellLinks } from "./ArtifactSheetEditor";
 import {
   ageLabel,
+  artifactQuickOpen,
   isLinkUrl,
   pendingWriteLine,
   postAfterSave,
@@ -65,7 +66,6 @@ import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { paneEntryOf } from "../../lib/pane-focus";
 import { useListNav } from "../../lib/list-nav";
 import { topModal } from "../../lib/modal-stack";
-import { itemsQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 
 /** Ages in the list move on without a write; a minute is fine enough. */
@@ -172,18 +172,8 @@ export function ArtifactsNode({
   const quickOpen = useQuickOpen({
     nodeId,
     enabled: entries.length > 0,
-    source: useMemo(
-      () =>
-        itemsQuickOpen({
-          kind: "artifact",
-          items: entries,
-          itemOf: ({ artifact }) => ({
-            row: { id: artifact.artifactId, title: artifact.title, detail: TYPE_NOUN[artifact.type] },
-            match: { identity: [artifact.title], metadata: [TYPE_NOUN[artifact.type]] },
-          }),
-        }),
-      [entries],
-    ),
+    // The title names a row; the type and the labels help it be found.
+    source: useMemo(() => artifactQuickOpen(entries), [entries]),
     onOpen: (item) => {
       setSelectedId(item.id);
       setError(null);
