@@ -58,7 +58,7 @@ const pass = async (page: Page, cdp: CDPSession, tag: string) => {
   await page.mouse.down();
   await page.mouse.move(box.x + 560, box.y + 150, { steps: 3 });
   await page.mouse.up();
-  const input = page.getByRole("textbox", { name: "Label text" });
+  const input = page.getByRole("textbox", { name: "Shape text" });
   await expect(input).toBeFocused({ timeout: 10_000 });
   const keystroke: InputBudget[] = [];
   for (const key of "budgets") keystroke.push(await measureInput(page, cdp, () => page.keyboard.press(key), keystroke.length === 0 ? raw("key") : undefined));
