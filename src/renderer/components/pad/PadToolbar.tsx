@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { PadEdge, PadShape, PadShapeStatus } from "@shared/pad";
 import { IconButton, Kbd } from "../ui";
+import { claimFocus } from "../../lib/focus-ownership";
 import type { PadTool } from "./pad-editor-model";
 import {
   PAD_FILL_SWATCHES,
@@ -136,8 +137,8 @@ export const padToolbarKey = (event: KeyboardEvent): boolean => {
     : event.key === "End"
       ? stops.length - 1
       : (index + (event.key === "ArrowRight" ? 1 : -1) + stops.length) % stops.length;
-  stops[next]!.focus();
-  return true;
+  // A refused claim leaves the key to pass on.
+  return claimFocus(stops[next], "gesture", { event });
 };
 
 export function PadToolbar({
