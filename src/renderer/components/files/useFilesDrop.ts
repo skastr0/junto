@@ -79,6 +79,10 @@ export const useFilesDrop = ({
   const [target, setTarget] = useState<FilesDropTarget | null>(null);
   const [notice, setNotice] = useState<FilesDrop["notice"]>();
   const model = useRef<FilesDropModel | null>(null);
+  // Finder drag enters minus leaves under the surface. Every child the drag
+  // crosses sends one of each (a shadow root's rows as its host), so the drag
+  // has left only at zero; dragleave's relatedTarget is not reliable here.
+  const depth = useRef(0);
   // The latest props, so the tree's config stays one object for the tree's life.
   const live = useRef({ port, node, describe, rootLabel });
   live.current = { port, node, describe, rootLabel };
@@ -146,6 +150,7 @@ export const useFilesDrop = ({
       onDragEnter: (event) => {
         if (!hasFinderFiles(event.dataTransfer?.types)) return;
         event.preventDefault();
+        depth.current += 1;
         setNotice(undefined);
         const next = targetAt(event);
         setTarget((current) => (sameTarget(current, next) ? current : next));
@@ -158,14 +163,15 @@ export const useFilesDrop = ({
         setTarget((current) => (sameTarget(current, next) ? current : next));
       },
       onDragLeave: (event) => {
-        // Moving onto a child, the tree's shadow host among them, is not leaving.
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        setTarget(null);
+        if (!hasFinderFiles(event.dataTransfer?.types)) return;
+        depth.current = Math.max(0, depth.current - 1);
+        if (depth.current === 0) setTarget(null);
       },
       onDrop: (event) => {
         if (!hasFinderFiles(event.dataTransfer?.types)) return;
         event.preventDefault();
         const dir = finderDropTargetOf(event.nativeEvent.composedPath()).dir;
+        depth.current = 0;
         setTarget(null);
         void copyInto(dir, [...event.dataTransfer.files]);
       },

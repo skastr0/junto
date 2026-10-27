@@ -98,13 +98,21 @@ export const folderLabel = (dir: FolderPath, rootLabel: string): string => (dir.
 
 /**
  * What a finished copy says. A name that was taken lands with a suffix
- * (" 2"), so a renamed copy is named; the rest are counted.
+ * (" 2"), so a renamed copy is named; the rest are counted. A source is
+ * paired with a landed name only when there is one landed per source:
+ * the contract does not promise it (`FileImported`, src/shared/files.ts),
+ * and a wrong pairing would name the wrong file, so otherwise it counts.
  */
 export const importNotice = (
   sources: ReadonlyArray<string>,
   landed: ReadonlyArray<string>,
   into: string,
 ): string => {
+  if (landed.length !== sources.length) {
+    return landed.length === 1
+      ? `Copied ${basenameOf(landed[0]!)} into ${into}.`
+      : `Copied ${landed.length} items into ${into}.`;
+  }
   const renamed = landed.flatMap((path, index) => {
     const source = sources[index];
     if (source === undefined) return [];

@@ -133,6 +133,11 @@ describe("what a copy says", () => {
     );
   });
 
+  it("counts what landed when it is not one per source, rather than pair the wrong names", () => {
+    expect(importNotice(["/x/site"], ["site/a.md", "site/b.md"], "docs")).toBe("Copied 2 items into docs.");
+    expect(importNotice(["/x/a.md", "/x/b.md"], ["a 2.md"], "docs")).toBe("Copied a 2.md into docs.");
+  });
+
   it("counts many, naming a single rename", () => {
     expect(importNotice(["/x/a.md", "/x/b.md"], ["a.md", "b.md"], "site")).toBe("Copied 2 files into site.");
     expect(importNotice(["/x/a.md", "/x/b.md"], ["a.md", "b 2.md"], "site")).toBe(
@@ -266,12 +271,17 @@ describe("the modal's drops", () => {
     );
   });
 
-  it("clears the mark when the drag leaves the surface, not when it crosses into the tree", () => {
+  it("keeps the mark while the drag crosses children, and clears it when the last one is left", () => {
     mount(fakePort().port);
+    // Into the surface, then onto a row: an enter on the row comes before the leave of what it left.
+    drag("dragenter", surfaceEl);
+    drag("dragenter", tree.at("src/"));
     drag("dragover", tree.at("src/"));
-    drag("dragleave", surfaceEl, [], tree.host);
-    expect(surfaceEl.getAttribute("data-drop")).toBe("folder");
+    // Chromium may send dragleave with no relatedTarget; the mark must not depend on it.
     drag("dragleave", surfaceEl, [], null);
+    expect(surfaceEl.getAttribute("data-drop")).toBe("folder");
+    // Out of the row and the surface (or Escape on the drag): the last leave.
+    drag("dragleave", tree.at("src/"), [], null);
     expect(surfaceEl.getAttribute("data-drop")).toBeNull();
   });
 
