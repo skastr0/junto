@@ -120,7 +120,8 @@ describe("a drop on the card", () => {
   it("says a refusal, and that only Finder files drop", () => {
     expect(cardDropNotice(["/a/x"], { ok: false, error: "root-missing" }, "proj", describeError))
       .toEqual({ text: "Nothing was copied.", full: "Nothing was copied into proj. Refused.", failed: true });
-    expect(cardDropNotice([], undefined, "proj", describeError)?.failed).toBe(true);
+    expect(cardDropNotice([], undefined, "proj", describeError))
+      .toEqual({ text: "Finder files only.", full: "Only files from Finder can be dropped here.", failed: true });
   });
 });
 

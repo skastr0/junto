@@ -79,6 +79,25 @@ test("the palette offers Files, the card takes a drop and opens the modal, dark 
     const names = await readdir(root);
     expect(names).toContain("README 2.md");
     expect(names).toContain("README 3.md");
+
+    // A File made in the page has no path on disk: the card copies nothing and says so.
+    const before = (await readdir(root)).length;
+    const made = await page.evaluateHandle(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["not from Finder"], "made.txt", { type: "text/plain" }));
+      return transfer;
+    });
+    await drop(card.getByTestId("files-card"), made);
+    await expect(card).toContainText("Finder files only.");
+    await card.screenshot({ path: join(SHOTS, "card-not-finder.png") });
+    // A path the preload never saw on a dropped File is denied by main, whatever the renderer asks.
+    const outsider = await stage.incoming("outsider.md", "never dropped\n");
+    const denied = await page.evaluate(
+      ([canvas, node, source]) => window.junto!.files.import({ canvas, node } as never, "" as never, [source]),
+      [CANVAS, FILES_ID, outsider] as const,
+    );
+    expect(denied).toEqual({ ok: false, error: "denied" });
+    expect((await readdir(root)).length).toBe(before);
     expect(errors).toEqual([]);
   } finally {
     await junto.close();

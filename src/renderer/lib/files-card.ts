@@ -34,7 +34,7 @@ export const cardDropNotice = (
   describe: (error: FilesError) => string,
 ): CardDropNotice | undefined => {
   if (sources.length === 0) {
-    return { text: "Only Finder files drop here.", full: "Only files from Finder can be dropped here.", failed: true };
+    return { text: "Finder files only.", full: "Only files from Finder can be dropped here.", failed: true };
   }
   if (outcome === undefined) return undefined;
   if (!outcome.ok) {
