@@ -46,7 +46,7 @@ export const artifactKeyRows = (
     const row = rowOf(id, does, mac, overrides);
     return row === null ? [] : [row];
   });
-  return { pane: [...inArea("Inside an artifact"), ...borrowed], editor: inArea(TYPE_AREA[type]) };
+  return { pane: [...inArea("Inside an artifact"), ...inArea("Inside a list"), ...borrowed], editor: inArea(TYPE_AREA[type]) };
 };
 
 /** The widest chord here is three caps; the words get the rest of the panel. */

@@ -85,6 +85,7 @@ describe("keyboard shortcuts section", () => {
       "Agent and terminal",
       "Inside search",
       "Inside the needs-you feed",
+      "Inside a list",
       "Inside a preview",
       "Inside an artifact",
       "Inside a document",
@@ -190,7 +191,7 @@ describe("keyboard shortcuts section", () => {
   });
 
   it("shows the keys a screen handles itself, and offers no way to change them", () => {
-    for (const name of ["Pan the canvas", "Next item", "Pick a tool", "Send"]) {
+    for (const name of ["Pan the canvas", "Next row", "Pick a tool", "Send"]) {
       expect(host.textContent).toContain(name);
       expect(host.querySelector(`button[aria-label="Change the keys for ${name}"]`)).toBeNull();
     }

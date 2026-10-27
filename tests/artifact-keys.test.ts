@@ -9,7 +9,8 @@ describe("an artifact's keys, from the key table", () => {
     expect(keysFor("Move the keyboard to the previous pane")).toBe("⌘⌥←");
     expect(keysFor("Open or close the artifact's comments")).toBe("⌘⇧M");
     expect(keysFor("Send the comment")).toBe("⌘↵");
-    expect(keysFor("Move through the artifacts")).toBe("↓ - ↑");
+    expect(keysFor("Move to the next row")).toBe("J - ↓");
+    expect(keysFor("Move to the first row")).toBe("Home");
   });
 
   it("adds the editor's own keys for a document, a sheet and a pad", () => {

@@ -159,22 +159,9 @@ export const useOperatorFeed = (): OperatorFeed => {
   );
 };
 
-/** Items in reading order, for j/k movement. */
+/** Items in reading order, for list movement (lib/list-nav). */
 export const feedItemsInOrder = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedItem> =>
   sections.flatMap((section) => section.items);
-
-/** The next selection after a j/k step, clamped to the list. */
-export const stepFeedSelection = (
-  items: ReadonlyArray<Pick<FeedItem, "itemId">>,
-  current: string | null,
-  step: 1 | -1,
-): string | null => {
-  if (items.length === 0) return null;
-  const index = current === null ? -1 : items.findIndex((item) => item.itemId === current);
-  if (index === -1) return items[step === 1 ? 0 : items.length - 1]!.itemId;
-  const next = Math.min(items.length - 1, Math.max(0, index + step));
-  return items[next]!.itemId;
-};
 
 /**
  * Keep a selection through a feed change. When the selected item leaves

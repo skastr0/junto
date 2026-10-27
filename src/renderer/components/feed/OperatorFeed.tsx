@@ -21,6 +21,7 @@
  * only while open, so selection and reply reset on every open. The shell
  * owns the frame, the header, focus and Escape.
  */
+import { listIntentOf, stepList } from "../../lib/list-nav";
 import {
   useEffect,
   useMemo,
@@ -69,7 +70,6 @@ import {
   reconcileSelection,
   regionPickKey,
   regionPickName,
-  stepFeedSelection,
   useOperatorFeed,
   viewFeedSections,
   type ShownFeedSection,
@@ -672,9 +672,15 @@ export function OperatorFeed() {
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
     // A region chip is a button: Enter picks it, and no answer key acts from it.
     if (event.target instanceof Element && event.target.closest('[data-testid="feed-region-strip"]')) return;
-    if (event.key === "j" || event.key === "ArrowDown" || event.key === "k" || event.key === "ArrowUp") {
+    // The moves every list shares (lib/list-nav). Enter is the feed's own: it replies.
+    const intent = listIntentOf(event.nativeEvent);
+    if (intent !== null && intent !== "open") {
       event.preventDefault();
-      const next = stepFeedSelection(items, selected, event.key === "j" || event.key === "ArrowDown" ? 1 : -1);
+      const next = stepList(
+        items.map((item) => item.itemId),
+        selected,
+        intent,
+      );
       setSelected(next);
       setRevealId(next);
       return;

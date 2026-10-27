@@ -46,7 +46,7 @@ describe("proposeRebind", () => {
       kind: "refused",
       why: "Needs Cmd: letting Cmd go opens the agent",
     });
-    expect(proposeRebind("urgency.next", "Cmd+E", true).kind).toBe("ok");
+    expect(proposeRebind("urgency.next", "Cmd+Y", true).kind).toBe("ok");
     expect(proposeRebind("switcher.next", "Cmd+N", true)).toEqual({
       kind: "refused",
       why: "Cmd is held while the switcher is up",

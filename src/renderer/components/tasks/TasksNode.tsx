@@ -6,7 +6,10 @@ import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-mod
 import { MentionedIn } from "../threads/MentionedIn";
 import { tasksSource, useCanvasTasks, useNodePending, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
-import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
+import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
+import { useListNav } from "../../lib/list-nav";
+import { topModal } from "../../lib/modal-stack";
+import { paneEntryOf } from "../../lib/pane-focus";
 import { FocusSurface } from "../FocusSurface";
 import { BoardSettings } from "../rules/BoardSettings";
 import {
@@ -101,6 +104,19 @@ export function TasksNode({
   const selected = tasks.find((view) => view.taskId === selectedId) ?? visible[0] ?? null;
   const listed = useMemo(() => listedTasks(visible, selected), [visible, selected]);
   const seatName = (id: string): string => seats.find((seat) => seat.node === id)?.name ?? seatLabel(id);
+  /** The list's keys (lib/list-nav): a move picks the task, Enter puts the keyboard in it. */
+  const listNav = useListNav({
+    ids: listed.map((view) => view.taskId),
+    selected: selected?.taskId ?? null,
+    onSelect: setSelectedId,
+    onOpen: (id) => {
+      setSelectedId(id);
+      requestAnimationFrame(() => {
+        const main = topModal()?.container()?.querySelector<HTMLElement>(".two-pane > .two-pane__main");
+        claimFocus(main ? paneEntryOf(main) : null, "gesture");
+      });
+    },
+  });
 
   const apply = async (taskId: TaskId, command: TaskCommand): Promise<string | undefined> => {
     const ruling = await tasksSource().apply(canvasName, node, taskId, command);
@@ -168,7 +184,7 @@ export function TasksNode({
           ))}
         </div>
       </div>
-      <div className="tasks-list" role="list" aria-label="Tasks">
+      <div className="tasks-list" role="list" aria-label="Tasks" onKeyDown={listNav.onKeyDown}>
         {queuedNew.map((entry) => (
           <div key={entry.taskId} role="listitem">
             <ListRow leading={<TaskStateMark state="backlog" pending />} title={entry.title} meta="queued" pending />
@@ -185,6 +201,7 @@ export function TasksNode({
                 selected={view.taskId === selected?.taskId}
                 pending={waits}
                 onClick={() => setSelectedId(view.taskId)}
+                {...listNav.rowProps(view.taskId)}
               />
             </div>
           );

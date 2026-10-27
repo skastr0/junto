@@ -64,6 +64,7 @@ export type ShortcutArea =
   | "Agent and terminal"
   | "Inside search"
   | "Inside the needs-you feed"
+  | "Inside a list"
   | "Inside a preview"
   | "Inside an artifact"
   | "Inside a document"
@@ -79,6 +80,7 @@ export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Agent and terminal",
   "Inside search",
   "Inside the needs-you feed",
+  "Inside a list",
   "Inside a preview",
   "Inside an artifact",
   "Inside a document",
@@ -136,8 +138,11 @@ export type SurfaceKeyId =
   | "inSearch.mode"
   | "inSearch.go"
   | "inSearch.open"
-  | "inFeed.next"
-  | "inFeed.previous"
+  | "inList.next"
+  | "inList.previous"
+  | "inList.first"
+  | "inList.last"
+  | "inList.open"
   | "inFeed.reply"
   | "inFeed.openAgent"
   | "inFeed.quickReply"
@@ -147,8 +152,6 @@ export type SurfaceKeyId =
   | "inPreview.step"
   | "inPreview.compare"
   | "inPreview.zoom"
-  | "inArtifact.list"
-  | "inArtifact.open"
   | "inDocument.write"
   | "inDocument.stop"
   | "inDocument.mention"
@@ -579,21 +582,48 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     keysOther: ["Ctrl+Enter"],
     where: ["operator"],
   }),
+
+  // Every list: the feed, the artifacts, the tasks (lib/list-nav). A list
+  // adds its own keys under its own area.
   surfaceKey({
-    id: "inFeed.next",
-    area: "Inside the needs-you feed",
-    name: "Next item",
-    does: "Move to the next item in the needs-you feed",
+    id: "inList.next",
+    area: "Inside a list",
+    name: "Next row",
+    does: "Move to the next row in a list",
     keys: ["J", "ArrowDown"],
-    where: ["operator"],
+    where: ["working", "operator"],
   }),
   surfaceKey({
-    id: "inFeed.previous",
-    area: "Inside the needs-you feed",
-    name: "Previous item",
-    does: "Move to the previous item in the needs-you feed",
+    id: "inList.previous",
+    area: "Inside a list",
+    name: "Previous row",
+    does: "Move to the previous row in a list",
     keys: ["K", "ArrowUp"],
-    where: ["operator"],
+    where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inList.first",
+    area: "Inside a list",
+    name: "First row",
+    does: "Move to the first row in a list",
+    keys: ["Home"],
+    where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inList.last",
+    area: "Inside a list",
+    name: "Last row",
+    does: "Move to the last row in a list",
+    keys: ["End"],
+    where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inList.open",
+    area: "Inside a list",
+    name: "Open the row",
+    does: "Open the row and put the keyboard in it",
+    keys: ["Enter"],
+    where: ["working", "operator"],
   }),
   surfaceKey({
     id: "inFeed.reply",
@@ -667,22 +697,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     keys: ["Z"],
     where: ["working", "operator"],
   }),
-  surfaceKey({
-    id: "inArtifact.list",
-    area: "Inside an artifact",
-    name: "Move through the artifacts",
-    does: "Move through the artifacts in the list",
-    keys: ["ArrowDown", "ArrowUp"],
-    where: ["working"],
-  }),
-  surfaceKey({
-    id: "inArtifact.open",
-    area: "Inside an artifact",
-    name: "Open the artifact",
-    does: "Open the artifact and put the keyboard in it",
-    keys: ["Enter"],
-    where: ["working"],
-  }),
+
   surfaceKey({
     id: "inDocument.write",
     area: "Inside a document",

@@ -59,6 +59,8 @@ import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-own
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { paneEntryOf } from "../../lib/pane-focus";
+import { useListNav } from "../../lib/list-nav";
+import { topModal } from "../../lib/modal-stack";
 
 /** Ages in the list move on without a write; a minute is fine enough. */
 const CLOCK_MS = 60_000;
@@ -125,38 +127,24 @@ export function ArtifactsNode({
     }
   };
 
-  /**
-   * The list's keys: Up and Down move the pick and the keyboard with it,
-   * Enter opens the picked artifact and puts the keyboard in its content.
-   */
-  const onListKey = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    // The row with the keyboard, else the picked one. Rows still being created are not buttons.
-    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(":scope > [role='listitem'] > button")];
-    const focused = rows.findIndex((row) => row.contains(event.target as Node));
-    const at = focused >= 0 ? focused : visible.findIndex(({ artifact }) => artifact.artifactId === selected?.artifact.artifactId);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      const next = visible[Math.min(visible.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)))];
-      if (next === undefined) return;
-      event.preventDefault();
-      setSelectedId(next.artifact.artifactId);
+  /** The list's keys (lib/list-nav): a move picks the row, Enter opens it into the content. */
+  const listNav = useListNav({
+    ids: visible.map(({ artifact }) => artifact.artifactId),
+    selected: selected?.artifact.artifactId ?? null,
+    onSelect: (id) => {
+      setSelectedId(id);
       setError(null);
-      // A new pick mounts a new pane, list included: find it again once it shows.
-      const surface = event.currentTarget.closest<HTMLElement>(".two-pane")?.parentElement ?? null;
-      requestAnimationFrame(() => claimFocus(surface?.querySelector<HTMLElement>(".artifacts-list [data-selected='true']"), "gesture"));
-      return;
-    }
-    if (event.key === "Enter" && visible[at] !== undefined) {
-      event.preventDefault();
-      setSelectedId(visible[at].artifact.artifactId);
+    },
+    onOpen: (id) => {
+      setSelectedId(id);
       setError(null);
-      const surface = event.currentTarget.closest<HTMLElement>(".two-pane")?.parentElement ?? null;
+      // A new pick mounts a new pane: find its content once it shows.
       requestAnimationFrame(() => {
-        const main = surface?.querySelector<HTMLElement>(":scope > .two-pane > .two-pane__main");
+        const main = topModal()?.container()?.querySelector<HTMLElement>(".two-pane > .two-pane__main");
         claimFocus(main ? paneEntryOf(main) : null, "gesture");
       });
-    }
-  };
+    },
+  });
 
   const sidebar = (
     <>
@@ -213,7 +201,7 @@ export function ArtifactsNode({
       </div>
       {/* A list holds list items only: each row sits in one, and the empty line sits outside it, where the rows would be. */}
       {visible.length === 0 && entries.length > 0 ? <p className="artifacts-list__none">No artifact matches.</p> : null}
-      <div className="artifacts-list" role="list" aria-label="Artifacts" onKeyDown={onListKey}>
+      <div className="artifacts-list" role="list" aria-label="Artifacts" onKeyDown={listNav.onKeyDown}>
         {archived
           ? null
           : pendingCreates.map((write) => (
@@ -234,6 +222,7 @@ export function ArtifactsNode({
               meta={ageLabel(artifact.updatedAt, now)}
               selected={artifact.artifactId === selected?.artifact.artifactId}
               pending={pending.some((write) => write.artifactId === artifact.artifactId)}
+              {...listNav.rowProps(artifact.artifactId)}
               onClick={() => {
                 setSelectedId(artifact.artifactId);
                 setError(null);

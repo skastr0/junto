@@ -10,7 +10,6 @@ import {
   feedStatusLine,
   holdFeedPlaces,
   reconcileSelection,
-  stepFeedSelection,
   viewFeedSections,
 } from "../src/renderer/lib/operator-feed";
 import { mergedQuickReplies, moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
@@ -50,21 +49,6 @@ const section = (regionId: string | null, ids: ReadonlyArray<string>): FeedSecti
   region: { regionId, label: regionId ?? "open field", path: regionId === null ? [] : [regionId] },
   items: ids.map(item),
   worstUrgency: feedItemRank("feedback"),
-});
-
-describe("stepFeedSelection", () => {
-  const items = [item("a"), item("b"), item("c")];
-  it("starts at the ends and clamps", () => {
-    expect(stepFeedSelection(items, null, 1)).toBe("a");
-    expect(stepFeedSelection(items, null, -1)).toBe("c");
-    expect(stepFeedSelection(items, "c", 1)).toBe("c");
-    expect(stepFeedSelection(items, "a", -1)).toBe("a");
-    expect(stepFeedSelection(items, "a", 1)).toBe("b");
-  });
-  it("recovers when the selected item left", () => {
-    expect(stepFeedSelection(items, "gone", 1)).toBe("a");
-    expect(stepFeedSelection([], "a", 1)).toBeNull();
-  });
 });
 
 describe("holdFeedPlaces", () => {
