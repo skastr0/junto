@@ -7,23 +7,26 @@
  * answers empty, and tests install their own.
  */
 import { useEffect, useRef, useState } from "react";
-import type { ArtifactType } from "@shared/artifact";
-import type { NodeId } from "@shared/physics/schema";
-import type { ItemId } from "@shared/resource-command";
+import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
+import { mentionLinksOf } from "@shared/mention";
 import { getJuntoApi } from "./junto-api";
 
-export type ArtifactTarget = { readonly nodeId: NodeId; readonly artifactId: ItemId };
+export type ArtifactTarget = ArtifactLinkRef;
+export type BodyLink = LinkedFromBody;
 
-/** One artifact whose head body links to the target. */
-export type BodyLink = {
-  readonly source: ArtifactTarget;
-  /** The source's title now. */
-  readonly title: string;
-  readonly type: ArtifactType;
-  /** The line of text the link sits in, plain. */
-  readonly line: string;
-  /** Epoch ms of the source's head version. */
-  readonly at: number;
+/**
+ * A body's line as a reader sees it: each link shows its label, as the
+ * document draws it. A link the line bound cut through keeps the label it got.
+ */
+export const readableLine = (line: string): string => {
+  let shown = "";
+  let at = 0;
+  for (const link of mentionLinksOf(line)) {
+    shown += line.slice(at, link.start) + link.label;
+    at = link.end;
+  }
+  shown += line.slice(at);
+  return shown.replace(/\[([^\]\n]*)\]\([^)\s]*$/u, "$1…").trim();
 };
 
 export type BodyLinksSource = {

@@ -1,7 +1,7 @@
 import { Link2 } from "lucide-react";
 import type { MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
-import { useBodyLinks, type ArtifactTarget, type BodyLink } from "../../lib/linked-from";
+import { readableLine, useBodyLinks, type ArtifactTarget, type BodyLink } from "../../lib/linked-from";
 import { useMentionedIn } from "../../lib/mentioned-in";
 import { openMention } from "../../lib/mention-open";
 import { useCanvas } from "../../lib/use-model";
@@ -84,7 +84,7 @@ export function LinkedFrom({
                   />
                   <span className="mentioned-in__meta">in its text, {agoLabel(link.at, now)}</span>
                 </span>
-                {link.line.trim() === "" ? null : <span className="linked-from__line">{link.line.trim()}</span>}
+                {readableLine(link.line) === "" ? null : <span className="linked-from__line">{readableLine(link.line)}</span>}
               </li>
             );
           }

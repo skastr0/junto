@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LinkedFrom } from "../src/renderer/components/artifacts/LinkedFrom";
-import { installBodyLinks, type BodyLink } from "../src/renderer/lib/linked-from";
+import { installBodyLinks, readableLine, type BodyLink } from "../src/renderer/lib/linked-from";
+import { mentionLink } from "../src/shared/mention";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
 import type { MentionedIn as Entry, MentionPage } from "../src/shared/mention-ipc";
@@ -97,7 +98,10 @@ describe("linked from", () => {
       ],
     });
     const linkedFrom = installBodies([
-      [link(PLAN, { title: "Plan", line: "  Ship after [[Notes]] lands  ", at: 3_000 }), link(NOTES, { title: "Notes", type: "pad", at: 1_000 })],
+      [
+        link(PLAN, { title: "Plan", line: `Ship after ${mentionLink({ kind: "artifact", nodeId: shelf, artifactId: HERE }, "[[Notes]]", CANVAS)} lands`, at: 3_000 }),
+        link(NOTES, { title: "Notes", type: "pad", at: 1_000 }),
+      ],
     ]);
     act(() => root.render(<LinkedFrom canvasName={CANVAS} target={target} now={4_000} />));
     await flush();
@@ -124,5 +128,12 @@ describe("linked from", () => {
     act(() => bodiesChanged?.({ canvasName: CANVAS }));
     await flush();
     expect(rows()).toHaveLength(1);
+  });
+
+  it("shows a body's line with each link as its label, a link the bound cut through as the label it got", () => {
+    const stored = mentionLink({ kind: "artifact", nodeId: shelf, artifactId: PLAN }, "Plan", CANVAS);
+    expect(readableLine(`  See ${stored} and more  `)).toBe("See Plan and more");
+    expect(readableLine(`See ${stored.slice(0, 30)}…`)).toBe("See Plan…");
+    expect(readableLine("plain words")).toBe("plain words");
   });
 });
