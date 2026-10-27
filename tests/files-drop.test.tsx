@@ -4,7 +4,7 @@
  * under the pointer (a folder row, a file row's folder, else the root), with
  * that folder marked and named while the drag is over it; a copy never
  * overwrites, and a taken name that landed as " 2" is said. A tree drag moves,
- * one rename per item, and an item the service refuses goes back in the tree.
+ * one move per item, and an item the service refuses goes back in the tree.
  *
  * The rows are built the way @pierre/trees draws them inside its shadow root
  * (data-type="item", data-item-path, data-item-type, data-item-parent-path;
@@ -21,20 +21,21 @@ import {
   movesForDrop,
   parentOf,
 } from "../src/renderer/lib/files-drop";
+import type { FilePath, FilesError, FilesResult } from "../src/shared/files";
+import type { NodeId } from "../src/shared/physics/schema";
 import {
   FILES_DROP_NOTICE_MS,
   useFilesDrop,
   type FilesDrop,
   type FilesDropModel,
-  type FilesDropOutcome,
   type FilesDropPort,
 } from "../src/renderer/components/files/useFilesDrop";
 import { FilesDropHighlight } from "../src/renderer/components/files/FilesDropHighlight";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type Err = "exists" | "denied";
-const describeErr = (error: Err): string => (error === "exists" ? "The name is taken." : "Not allowed.");
+const describeErr = (error: FilesError): string => (error === "denied" ? "Not allowed." : `Refused ${error}.`);
+const NODE = { canvas: "factory", node: "files-1" as NodeId };
 
 /** A tree host whose shadow root holds rows as the library draws them. */
 const treeHost = (rows: ReadonlyArray<{ path: string; type: "folder" | "file"; parent?: string; segments?: string[] }>) => {
@@ -106,14 +107,14 @@ describe("a tree drop's renames", () => {
     expect(
       movesForDrop(["README.md", "src/index.ts", "lib/"], { kind: "directory", directoryPath: "src/" }),
     ).toEqual([
-      { from: "README.md", to: "src/README.md", treeFrom: "README.md", treeTo: "src/README.md" },
-      { from: "lib", to: "src/lib", treeFrom: "lib/", treeTo: "src/lib/" },
+      { from: "README.md", intoDir: "src", treeFrom: "README.md", treeTo: "src/README.md" },
+      { from: "lib", intoDir: "src", treeFrom: "lib/", treeTo: "src/lib/" },
     ]);
   });
 
   it("moves to the root by name", () => {
     expect(movesForDrop(["src/deep/x.ts"], { kind: "root", directoryPath: null })).toEqual([
-      { from: "src/deep/x.ts", to: "x.ts", treeFrom: "src/deep/x.ts", treeTo: "x.ts" },
+      { from: "src/deep/x.ts", intoDir: "", treeFrom: "src/deep/x.ts", treeTo: "x.ts" },
     ]);
   });
 
@@ -149,31 +150,35 @@ describe("the modal's drops", () => {
   let drop: FilesDrop;
   let surfaceEl: HTMLElement;
 
-  const ok = <A,>(value: A): FilesDropOutcome<A, Err> => ({ ok: true, value });
+  const ok = <A,>(value: A): FilesResult<A> => ({ ok: true, value });
 
   const fakePort = () => {
     const imports: Array<{ dir: string; sources: ReadonlyArray<string> }> = [];
-    const moves: Array<{ from: string; to: string }> = [];
+    const moves: Array<{ from: string; intoDir: string }> = [];
+    const refs: unknown[] = [];
     let refuseMove: string | undefined;
     let landed: ((dir: string, sources: ReadonlyArray<string>) => string[]) | undefined;
-    const port: FilesDropPort<Err> = {
-      pathForFile: (file) => (file.name.startsWith("web-") ? "" : `/Users/me/Desktop/${file.name}`),
-      importFiles: async (dir, sources) => {
+    const port: FilesDropPort = {
+      pathForDroppedFile: (file) => (file.name.startsWith("web-") ? "" : `/Users/me/Desktop/${file.name}`),
+      import: async (ref, dir, sources) => {
+        refs.push(ref);
         imports.push({ dir, sources });
-        return ok(
+        const paths =
           landed?.(dir, sources) ??
-            sources.map((source) => `${dir.length > 0 ? `${dir}/` : ""}${source.slice(source.lastIndexOf("/") + 1)}`),
-        );
+          sources.map((source) => `${dir.length > 0 ? `${dir}/` : ""}${source.slice(source.lastIndexOf("/") + 1)}`);
+        return ok(paths.map((path) => ({ path: path as FilePath, dir: false })));
       },
-      move: async (from, to) => {
-        moves.push({ from, to });
-        return from === refuseMove ? { ok: false, error: "denied" } : ok(undefined);
+      move: async (ref, from, intoDir) => {
+        refs.push(ref);
+        moves.push({ from, intoDir });
+        return from === refuseMove ? { ok: false, error: "denied" } : ok(`${intoDir}/${from}` as FilePath);
       },
     };
     return {
       port,
       imports,
       moves,
+      refs,
       refuse: (from: string) => {
         refuseMove = from;
       },
@@ -188,9 +193,9 @@ describe("the modal's drops", () => {
     { path: "src/index.ts", type: "file", parent: "src/" },
   ]);
 
-  const mount = (port: FilesDropPort<Err>) => {
+  const mount = (port: FilesDropPort) => {
     function Modal() {
-      drop = useFilesDrop({ port, describe: describeErr, rootLabel: "junto" });
+      drop = useFilesDrop({ port, node: NODE, describe: describeErr, rootLabel: "junto" });
       return (
         <section {...drop.surface} ref={(el) => void (el && (surfaceEl = el))}>
           <div ref={(el) => void (el && !el.contains(tree.host) && el.append(tree.host))} />
@@ -237,6 +242,7 @@ describe("the modal's drops", () => {
     drag("drop", tree.at("src/"), [new File(["x"], "notes.md")]);
     await act(async () => {});
     expect(main.imports).toEqual([{ dir: "src", sources: ["/Users/me/Desktop/notes.md"] }]);
+    expect(main.refs).toEqual([NODE]);
     expect(surfaceEl.getAttribute("data-drop")).toBeNull();
     expect(container.querySelector("[role=status]")?.textContent).toContain("Copied notes.md into src.");
   });
@@ -297,7 +303,7 @@ describe("the modal's drops", () => {
     expect(container.querySelector("[role=status]")).toBeNull();
   });
 
-  it("renames each moved row on disk, and puts back the ones the service refuses", async () => {
+  it("moves each dragged row on disk, and puts back the ones the service refuses", async () => {
     const main = fakePort();
     main.refuse("lib");
     mount(main.port);
@@ -316,8 +322,8 @@ describe("the modal's drops", () => {
       });
     });
     expect(main.moves).toEqual([
-      { from: "README.md", to: "src/README.md" },
-      { from: "lib", to: "src/lib" },
+      { from: "README.md", intoDir: "src" },
+      { from: "lib", intoDir: "src" },
     ]);
     expect(model.calls).toEqual([
       ["src/lib/", "lib/"],

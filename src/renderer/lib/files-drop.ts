@@ -66,16 +66,16 @@ export const finderDropTargetOf = (eventPath: ReadonlyArray<EventTarget>): Finde
   return ROOT_TARGET;
 };
 
-/** One planned rename, in the service's names and the tree's. */
+/** One planned move, in the service's names and the tree's. */
 export type FileMove = {
   readonly from: string;
-  readonly to: string;
+  readonly intoDir: FolderPath;
   readonly treeFrom: string;
   readonly treeTo: string;
 };
 
 /**
- * The renames a tree drop asks for: each dragged path into the target folder
+ * The moves a tree drop asks for: each dragged path into the target folder
  * under its own name. A path already in that folder is no move.
  */
 export const movesForDrop = (
@@ -88,8 +88,7 @@ export const movesForDrop = (
     const from = filePathOfTree(treeFrom);
     if (parentOf(from) === dir) continue;
     const isDir = treeFrom.endsWith("/");
-    const to = joinPath(dir, basenameOf(from));
-    moves.push({ from, to, treeFrom, treeTo: treePathOf(to, isDir) });
+    moves.push({ from, intoDir: dir, treeFrom, treeTo: treePathOf(joinPath(dir, basenameOf(from)), isDir) });
   }
   return moves;
 };

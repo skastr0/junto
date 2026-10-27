@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import type { FileTreeDragAndDropConfig, FileTreeDropResult } from "@pierre/trees";
+import { parseFilePath, type FilesError, type FilesNodeRef, type JuntoFilesApi } from "@shared/files";
 import {
   basenameOf,
   finderDropTargetOf,
@@ -13,7 +14,7 @@ import {
 /**
  * Drops on the Files modal (0.11, F5). Finder files dropped on the modal
  * copy into the folder under the pointer, with that folder marked while the
- * drag is over it; a tree row dragged onto a folder moves there, one rename
+ * drag is over it; a tree row dragged onto a folder moves there, one move
  * per item through the Files service. Copies never overwrite: the service
  * gives a taken name a " 2", and the notice says so.
  *
@@ -22,18 +23,8 @@ import {
  * `treeDragAndDrop` to the tree and hands `bindModel` the tree's model.
  */
 
-export type FilesDropOutcome<A, E extends string> =
-  | { readonly ok: true; readonly value: A }
-  | { readonly ok: false; readonly error: E };
-
-/** What drops need from the Files service; every path but a Finder source is relative to the node's root. */
-export interface FilesDropPort<E extends string> {
-  /** The Finder file's own path (`webUtils.getPathForFile`); "" when it is not a file on disk. */
-  readonly pathForFile: (file: File) => string;
-  /** Copy `sources` into `dir`; the value is where each one landed, in order. */
-  readonly importFiles: (dir: FolderPath, sources: ReadonlyArray<string>) => Promise<FilesDropOutcome<ReadonlyArray<string>, E>>;
-  readonly move: (from: string, to: string) => Promise<FilesDropOutcome<unknown, E>>;
-}
+/** What drops need from the Files service (`window.junto.files`). */
+export type FilesDropPort = Pick<JuntoFilesApi["files"], "import" | "move" | "pathForDroppedFile">;
 
 /** The tree model's one call drops make: put a row back after a refused move. */
 export type FilesDropModel = { readonly move: (fromPath: string, toPath: string) => void };
@@ -72,14 +63,16 @@ const sameTarget = (left: FilesDropTarget | null, right: FilesDropTarget | null)
   return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
 };
 
-export const useFilesDrop = <E extends string>({
+export const useFilesDrop = ({
   port,
+  node,
   describe,
   rootLabel,
 }: {
-  readonly port: FilesDropPort<E>;
+  readonly port: FilesDropPort;
+  readonly node: FilesNodeRef;
   /** A refusal in the operator's words. */
-  readonly describe: (error: E) => string;
+  readonly describe: (error: FilesError) => string;
   /** The root folder's name, as the operator knows it. */
   readonly rootLabel: string;
 }): FilesDrop => {
@@ -87,8 +80,8 @@ export const useFilesDrop = <E extends string>({
   const [notice, setNotice] = useState<FilesDrop["notice"]>();
   const model = useRef<FilesDropModel | null>(null);
   // The latest props, so the tree's config stays one object for the tree's life.
-  const live = useRef({ port, describe, rootLabel });
-  live.current = { port, describe, rootLabel };
+  const live = useRef({ port, node, describe, rootLabel });
+  live.current = { port, node, describe, rootLabel };
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -122,20 +115,28 @@ export const useFilesDrop = <E extends string>({
 
   const copyInto = useCallback(
     async (dir: FolderPath, files: ReadonlyArray<File>) => {
-      const { port, describe, rootLabel } = live.current;
-      const sources = files.map((file) => port.pathForFile(file)).filter((path) => path.length > 0);
+      const { port, node, describe, rootLabel } = live.current;
+      const sources = files.map((file) => port.pathForDroppedFile(file)).filter((path) => path.length > 0);
       if (sources.length === 0) {
         say("Only files from Finder can be dropped here.", true);
         return;
       }
       const into = folderLabel(dir, rootLabel);
-      const outcome = await port.importFiles(dir, sources);
+      const intoDir = parseFilePath(dir);
+      const outcome = intoDir === undefined ? ({ ok: false, error: "invalid-path" } as const) : await port.import(node, intoDir, sources);
       if (!outcome.ok) {
         say(`Nothing was copied into ${into}. ${describe(outcome.error)}`, true);
         return;
       }
       if (outcome.value.length === 0) return;
-      say(importNotice(sources, outcome.value, into), false);
+      say(
+        importNotice(
+          sources,
+          outcome.value.map((landed) => landed.path),
+          into,
+        ),
+        false,
+      );
     },
     [say],
   );
@@ -179,9 +180,14 @@ export const useFilesDrop = <E extends string>({
       onDropComplete: (result: FileTreeDropResult) => {
         const moves = movesForDrop(result.draggedPaths, result.target);
         void (async () => {
-          const { port, describe } = live.current;
+          const { port, node, describe } = live.current;
           for (const [index, move] of moves.entries()) {
-            const outcome = await port.move(move.from, move.to);
+            const from = parseFilePath(move.from);
+            const intoDir = parseFilePath(move.intoDir);
+            const outcome =
+              from === undefined || intoDir === undefined
+                ? ({ ok: false, error: "invalid-path" } as const)
+                : await port.move(node, from, intoDir);
             if (outcome.ok) continue;
             for (const back of moves.slice(index)) {
               try {
