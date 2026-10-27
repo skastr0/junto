@@ -12,11 +12,13 @@ import type { ContentRef } from "@shared/content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
   applyPatches,
+  asPadElementId,
   type Pad,
   type PadElementId,
   type PadImage,
   type PadPatch,
   type PadPoint,
+  type PadShape,
   type PadSide,
 } from "@shared/pad";
 import {
@@ -25,13 +27,17 @@ import {
   edgePoints,
   hitTest,
   identityCamera,
+  routeEdge,
   sceneToView,
   strokePath,
   type Camera,
 } from "@shared/pad-geom";
 import {
+  PAD_LOOK,
+  padArrowHead,
   padInkStroke,
   padSvgPalette,
+  type PadSvgPalette,
 } from "@shared/pad-project";
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
@@ -39,6 +45,15 @@ import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-co
 import { Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
 import { PadEdgeMark, PadShapeOutline, PadShapeWords } from "./PadMarks";
+import {
+  PORT_VIEW_PX,
+  SNAP_VIEW_PX,
+  connectEdge,
+  portAt,
+  shapePorts,
+  snapTarget,
+  type SnapTarget,
+} from "./pad-connect";
 import { PadSelectionBar, PadToolbar, type PadToolbarSelection } from "./PadToolbar";
 import { imageRow, restyleShape, stencilPatches, type PadShapeStyle, type PadStencilId } from "./pad-stencils";
 import { openMention } from "../../lib/mention-open";
@@ -60,7 +75,6 @@ import {
   DEFAULT_INK_WIDTH,
   HANDLE_VIEW_PX,
   HIT_VIEW_PX,
-  SIDE_VIEW_PX,
   appendInkPoint,
   applyLocalUndo,
   canDelete,
@@ -77,6 +91,7 @@ import {
   areaFromDrag,
   finishInkStroke,
   draftShapeFromDrag,
+  duplicateOf,
   editableLayer,
   editorKeyAction,
   fitCamera,
@@ -95,7 +110,6 @@ import {
   resizeImage,
   resizeShape,
   shapeById,
-  sideHit,
   upsertEdgePatch,
   upsertImagePatch,
   upsertInkPatch,
@@ -147,8 +161,10 @@ type Gesture =
   | {
       readonly kind: "edge";
       readonly from: PadElementId;
-      readonly fromSide: PadSide;
+      /** Set when the edge left from a port; the connect tool lets the route choose. */
+      readonly fromSide?: PadSide;
       readonly current: PadPoint;
+      readonly target?: SnapTarget;
     };
 
 type PendingImage = {
@@ -253,6 +269,7 @@ export function PadEditor({
     setGestureState(next);
   }, []);
   const [spaceDown, setSpaceDown] = useState(false);
+  const [hoverId, setHoverId] = useState<string | undefined>();
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
@@ -516,6 +533,21 @@ export function PadEditor({
     [commit, selectedId, selectedLayer],
   );
 
+  const applyDuplicate = useCallback(async () => {
+    if (!selectedId || !canMove(selectedLayer)) return;
+    const shape = shapeById(padRef.current, selectedId);
+    if (shape) {
+      const copy = duplicateOf(shape, newPadElementId(shape.type), nextLayerZ(padRef.current.shapes));
+      if (await commit([upsertShapePatch(copy)])) setSelectedId(copy.id);
+      return;
+    }
+    const image = imageById(padRef.current, selectedId);
+    if (image) {
+      const copy = duplicateOf(image, newPadElementId("image"), nextLayerZ(padRef.current.images));
+      if (await commit([upsertImagePatch(copy)])) setSelectedId(copy.id);
+    }
+  }, [commit, selectedId, selectedLayer]);
+
   const applyNudge = useCallback(
     async (dx: number, dy: number) => {
       if (!selectedId || !canMove(selectedLayer)) return;
@@ -750,6 +782,9 @@ export function PadEditor({
         case "undo":
           undo();
           return;
+        case "duplicate":
+          void applyDuplicate();
+          return;
         case "z":
           void applyZ(action.delta);
           return;
@@ -766,6 +801,10 @@ export function PadEditor({
           }
           if (gesture.kind !== "idle") {
             setGesture({ kind: "idle" });
+            return;
+          }
+          if (tool !== "select") {
+            setTool("select");
             return;
           }
           if (selectedId) {
@@ -786,6 +825,7 @@ export function PadEditor({
     };
   }, [
     applyDelete,
+    applyDuplicate,
     applyNudge,
     applyZ,
     beginLabelEdit,
@@ -796,6 +836,7 @@ export function PadEditor({
     gesture.kind,
     onClose,
     selectedId,
+    tool,
     undo,
   ]);
 
@@ -849,6 +890,14 @@ export function PadEditor({
       setSelectedId(undefined);
       return;
     }
+    if (tool === "connect") {
+      // The connect tool starts an edge from anywhere on a shape; the route picks its side.
+      const hit = hitTest(pad, scene, viewSlop(camera, HIT_VIEW_PX));
+      const from = hit ? shapeById(pad, hit.id) : undefined;
+      if (from) setGesture({ kind: "edge", from: from.id, current: scene });
+      else setSelectedId(undefined);
+      return;
+    }
     if (tool !== "select") {
       const id = newPadElementId(tool);
       setGesture({ kind: "draw", tool, start: scene, current: scene, id });
@@ -862,19 +911,16 @@ export function PadEditor({
         return;
       }
     }
+    // An edge starts from a port, the middle of any shape's side, selected or not.
+    const port = portAt(pad, scene, viewSlop(camera, PORT_VIEW_PX));
+    if (port) {
+      setGesture({ kind: "edge", from: port.shape.id, fromSide: port.side, current: scene });
+      return;
+    }
     const hit = hitTest(pad, scene, viewSlop(camera, HIT_VIEW_PX));
     if (!hit) {
       setSelectedId(undefined);
       return;
-    }
-    // Edge gestures start from any shape's side, selected or not.
-    const hitShape = shapeById(pad, hit.id);
-    if (hitShape) {
-      const side = sideHit(hitShape, scene, viewSlop(camera, SIDE_VIEW_PX));
-      if (side) {
-        setGesture({ kind: "edge", from: hitShape.id, fromSide: side, current: scene });
-        return;
-      }
     }
     setSelectedId(hit.id);
     const layer = editableLayer(pad, hit.id);
@@ -893,7 +939,16 @@ export function PadEditor({
   };
 
   const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (gesture.kind === "idle") return;
+    if (gesture.kind === "idle") {
+      // The shape under the pointer shows its ports, so an edge is found by looking.
+      if (tool !== "select" && tool !== "connect") return;
+      const scene = sceneOf(event);
+      const port = portAt(pad, scene, viewSlop(camera, PORT_VIEW_PX));
+      const hit = port ? undefined : hitTest(pad, scene, viewSlop(camera, HIT_VIEW_PX));
+      const id = port?.shape.id ?? (hit?.layer === "shape" ? hit.id : undefined);
+      setHoverId(id);
+      return;
+    }
     if (gesture.kind === "pan") {
       setCamera((current) =>
         panBy(current, event.clientX - gesture.last.x, event.clientY - gesture.last.y),
@@ -911,7 +966,11 @@ export function PadEditor({
       return;
     }
     if (gesture.kind === "edge") {
-      setGesture({ ...gesture, current: scene });
+      const target = snapTarget(pad, scene, gesture.from, {
+        port: viewSlop(camera, PORT_VIEW_PX),
+        snap: viewSlop(camera, SNAP_VIEW_PX),
+      });
+      setGesture({ kind: "edge", from: gesture.from, current: scene, ...(gesture.fromSide ? { fromSide: gesture.fromSide } : {}), ...(target ? { target } : {}) });
       return;
     }
     if (gesture.kind === "move" || gesture.kind === "resize") {
@@ -1003,17 +1062,15 @@ export function PadEditor({
       return;
     }
     if (current.kind === "edge") {
-      const hit = hitTest(pad, scene, viewSlop(camera, HIT_VIEW_PX));
-      if (!hit || hit.layer !== "shape" || hit.id === current.from) return;
-      const to = shapeById(pad, hit.id);
-      if (!to) return;
-      const edge = {
-        id: newPadElementId("edge"),
-        from: current.from,
-        to: to.id,
-        fromSide: current.fromSide,
-        toSide: nearestSide(to, scene),
-      };
+      const target =
+        current.target ??
+        snapTarget(pad, scene, current.from, {
+          port: viewSlop(camera, PORT_VIEW_PX),
+          snap: viewSlop(camera, SNAP_VIEW_PX),
+        });
+      if (!target) return;
+      const edge = connectEdge(pad, newPadElementId("edge"), current.from, current.fromSide, target);
+      if (!edge) return;
       void commit([upsertEdgePatch(edge)]);
       setSelectedId(edge.id);
     }
@@ -1077,6 +1134,7 @@ export function PadEditor({
   const shownSelected = selectedId
     ? shapeById(shown, selectedId) ?? imageById(shown, selectedId)
     : undefined;
+  const hoverShape = hoverId ? shapeById(shown, hoverId) : undefined;
 
   const editedEdge = editingLabel && !shownSelected && selectedId
     ? shown.edges.find((edge) => edge.id === selectedId)
@@ -1159,6 +1217,7 @@ export function PadEditor({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={() => setGesture({ kind: "idle" })}
+          onPointerLeave={() => setHoverId(undefined)}
           onDoubleClick={(event) => {
             const hit = hitTest(pad, sceneOf(event), viewSlop(camera, HIT_VIEW_PX));
             const shape = hit ? shapeById(pad, hit.id) : undefined;
@@ -1258,23 +1317,8 @@ export function PadEditor({
                 );
               })()
             ) : null}
-            {gesture.kind === "edge" ? (
-              <line
-                x1={(() => {
-                  const from = shapeById(shown, gesture.from);
-                  return from ? anchorPoint(from, gesture.fromSide).x : gesture.current.x;
-                })()}
-                y1={(() => {
-                  const from = shapeById(shown, gesture.from);
-                  return from ? anchorPoint(from, gesture.fromSide).y : gesture.current.y;
-                })()}
-                x2={gesture.current.x}
-                y2={gesture.current.y}
-                stroke="var(--color-amber)"
-                strokeWidth={1.5}
-                strokeDasharray="4 3"
-              />
-            ) : null}
+            {gesture.kind === "edge" ? <EdgeDraft pad={shown} gesture={gesture} pal={pal} zoom={camera.zoom} /> : null}
+            {gesture.kind === "idle" && hoverShape ? <PortMarks shape={hoverShape} zoom={camera.zoom} /> : null}
             {shownSelected && canResize(selectedLayer) ? (
               <SelectionChrome item={shownSelected} zoom={camera.zoom} />
             ) : null}
@@ -1359,6 +1403,101 @@ export function PadEditor({
   );
 }
 
+/** A shape's four ports, where edges join it; the one an edge is snapped to fills. */
+function PortMarks({
+  shape,
+  zoom,
+  active,
+}: {
+  readonly shape: PadShape;
+  readonly zoom: number;
+  readonly active?: PadSide | undefined;
+}) {
+  const r = 4.5 / Math.max(zoom, 0.0001);
+  return (
+    <g className="pad-ports" style={{ pointerEvents: "none" }}>
+      {shapePorts(shape).map((port) => (
+        <circle
+          key={port.side}
+          data-testid="pad-port"
+          data-side={port.side}
+          data-active={port.side === active ? "true" : undefined}
+          cx={port.at.x}
+          cy={port.at.y}
+          r={r}
+          fill={port.side === active ? "var(--color-amber)" : "var(--color-raise-2)"}
+          stroke="var(--color-amber)"
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </g>
+  );
+}
+
+/**
+ * The edge being dragged: snapped, it draws as the edge a release writes,
+ * its target ringed and the pinned port filled; loose, a dashed line follows
+ * the pointer.
+ */
+function EdgeDraft({
+  pad,
+  gesture,
+  pal,
+  zoom,
+}: {
+  readonly pad: Pad;
+  readonly gesture: Extract<Gesture, { readonly kind: "edge" }>;
+  readonly pal: PadSvgPalette;
+  readonly zoom: number;
+}) {
+  const from = shapeById(pad, gesture.from);
+  if (!from) return null;
+  const target = gesture.target;
+  if (target) {
+    const points = routeEdge(from, target.shape, gesture.fromSide, target.side);
+    const ring = 6 / Math.max(zoom, 0.0001);
+    const draft = { id: asPadElementId("edge-draft"), from: from.id, to: target.shape.id };
+    return (
+      <g data-testid="pad-edge-draft" data-target={target.shape.id}>
+        <rect
+          x={target.shape.x - ring}
+          y={target.shape.y - ring}
+          width={target.shape.w + ring * 2}
+          height={target.shape.h + ring * 2}
+          rx={ring}
+          fill="none"
+          stroke="var(--color-amber)"
+          strokeWidth={1}
+          strokeDasharray="4 3"
+          vectorEffect="non-scaling-stroke"
+        />
+        <PortMarks shape={target.shape} zoom={zoom} active={target.side} />
+        <PortMarks shape={from} zoom={zoom} active={gesture.fromSide} />
+        <PadEdgeMark edge={draft} points={points} pal={pal} selected />
+      </g>
+    );
+  }
+  const start = anchorPoint(from, gesture.fromSide ?? nearestSide(from, gesture.current));
+  const head = padArrowHead([start, gesture.current]);
+  return (
+    <g data-testid="pad-edge-draft">
+      <PortMarks shape={from} zoom={zoom} active={gesture.fromSide} />
+      <line
+        x1={start.x}
+        y1={start.y}
+        x2={gesture.current.x}
+        y2={gesture.current.y}
+        stroke="var(--color-amber)"
+        strokeWidth={PAD_LOOK.edge}
+        strokeDasharray="6 4"
+        strokeLinecap="round"
+      />
+      {head ? <polygon points={head.map((p) => `${p.x},${p.y}`).join(" ")} fill="var(--color-amber)" /> : null}
+    </g>
+  );
+}
+
 function SelectionChrome({
   item,
   zoom,
@@ -1368,18 +1507,11 @@ function SelectionChrome({
 }) {
   const size = HANDLE_VIEW_PX / Math.max(zoom, 0.0001);
   const half = size / 2;
-  const tick = Math.max(1.25 / Math.max(zoom, 0.0001), 0.35);
   const handles: Array<{ readonly k: ResizeHandle; readonly x: number; readonly y: number }> = [
     { k: "nw", x: item.x, y: item.y },
     { k: "ne", x: item.x + item.w, y: item.y },
     { k: "sw", x: item.x, y: item.y + item.h },
     { k: "se", x: item.x + item.w, y: item.y + item.h },
-  ];
-  const ticks: Array<{ readonly k: string; readonly x: number; readonly y: number }> = [
-    { k: "t", x: item.x + item.w / 2, y: item.y },
-    { k: "r", x: item.x + item.w, y: item.y + item.h / 2 },
-    { k: "b", x: item.x + item.w / 2, y: item.y + item.h },
-    { k: "l", x: item.x, y: item.y + item.h / 2 },
   ];
   return (
     <g data-testid="pad-selection" className="pad-chrome">
@@ -1395,16 +1527,6 @@ function SelectionChrome({
         strokeDasharray="4 3"
         vectorEffect="non-scaling-stroke"
       />
-      {ticks.map((side) => (
-        <circle
-          key={side.k}
-          className="pad-chrome__tick"
-          cx={side.x}
-          cy={side.y}
-          r={tick}
-          fill="var(--color-amber)"
-        />
-      ))}
       {handles.map((handle) => (
         <rect
           key={handle.k}

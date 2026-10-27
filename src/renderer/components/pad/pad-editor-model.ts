@@ -31,7 +31,7 @@ import { keyIs } from "../../lib/key-match";
 export const PAD_SHAPE_TOOLS = ["box", "ellipse", "triangle", "diamond", "cylinder", "label"] as const;
 export type PadShapeTool = (typeof PAD_SHAPE_TOOLS)[number];
 
-export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "area", "image", "ink"] as const;
+export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "connect", "area", "image", "ink"] as const;
 export type PadTool = (typeof PAD_TOOLS)[number];
 
 /**
@@ -48,6 +48,7 @@ export const PAD_TOOL_KEYS: Readonly<Record<string, PadTool>> = {
   o: "ellipse",
   t: "triangle",
   l: "label",
+  a: "connect",
   p: "area",
   i: "image",
   d: "ink",
@@ -110,6 +111,8 @@ export type EditorKeyAction =
   | { readonly type: "tool"; readonly tool: PadTool }
   | { readonly type: "delete" }
   | { readonly type: "undo" }
+  | { readonly type: "redo" }
+  | { readonly type: "duplicate" }
   | { readonly type: "z"; readonly delta: 1 | -1 }
   | { readonly type: "nudge"; readonly dx: number; readonly dy: number }
   | { readonly type: "edit-label" }
@@ -145,7 +148,9 @@ export const editorKeyAction = (
     return event.key === "Escape" ? { type: "cancel" } : undefined;
   }
   if (event.altKey) return undefined;
+  if (keyIs(event, "inPad.redo")) return { type: "redo" };
   if (keyIs(event, "inPad.undo")) return { type: "undo" };
+  if (keyIs(event, "inPad.duplicate")) return { type: "duplicate" };
   if (event.metaKey || event.ctrlKey) return undefined;
   const tool = toolFromKey(event.key);
   if (tool) return { type: "tool", tool };
@@ -318,14 +323,35 @@ export const resizeAabb = (
   }
 };
 
+/** The smallest a card is drawn: its live face needs the room. */
+export const CARD_MIN_SIZE = { w: 160, h: 56 } as const;
+
 export const resizeShape = (
   shape: PadShape,
   handle: ResizeHandle,
   point: PadPoint,
 ): PadShape => {
   const box = resizeAabb(shape, handle, point);
-  return { ...shape, x: box.x, y: box.y, w: box.w, h: box.h };
+  if (shape.type !== "card") return { ...shape, x: box.x, y: box.y, w: box.w, h: box.h };
+  // The corner across from the handle holds still while the card stops at its floor.
+  const w = Math.max(box.w, CARD_MIN_SIZE.w);
+  const h = Math.max(box.h, CARD_MIN_SIZE.h);
+  const x = handle === "nw" || handle === "sw" ? box.x + box.w - w : box.x;
+  const y = handle === "nw" || handle === "ne" ? box.y + box.h - h : box.y;
+  return { ...shape, x, y, w, h };
 };
+
+/** How far a duplicate lands from its original, down and right. */
+export const DUPLICATE_OFFSET = 10;
+
+/** A copy of a shape or an image under a new id, offset and on top of its layer. */
+export const duplicateOf = <T extends PadShape | PadImage>(item: T, id: PadElementId, z: number): T => ({
+  ...item,
+  id,
+  x: item.x + DUPLICATE_OFFSET,
+  y: item.y + DUPLICATE_OFFSET,
+  z,
+});
 
 export const resizeImage = (
   image: PadImage,
