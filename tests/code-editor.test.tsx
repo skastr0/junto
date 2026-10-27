@@ -17,13 +17,6 @@ const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe() {}
-      disconnect() {}
-    },
-  );
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -36,8 +29,10 @@ afterEach(() => {
 });
 
 it("names its text box by the path and opens on the value", async () => {
-  await act(async () => root.render(<CodeEditor value={SOURCE} path="src/sum.ts" />));
+  await act(async () => root.render(<CodeEditor value={SOURCE} path="src/sum.ts" readOnly />));
   expect(host.querySelector('[role="textbox"]')?.getAttribute("aria-label")).toBe("src/sum.ts");
+  // The scroller keeps a focusable inside, read-only too.
+  expect(host.querySelector(".cm-scroller .cm-content")?.getAttribute("tabindex")).toBe("0");
   expect(host.querySelector(".code-editor")?.getAttribute("aria-label")).toBe("File");
   expect(editor().state.doc.toString()).toBe(SOURCE);
 });

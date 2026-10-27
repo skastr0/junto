@@ -191,7 +191,8 @@ export function LiveMarkdownField({
           keymap.of([{ key: "Escape", run: stopWriting }]),
           access.current.of(editable(readOnly)),
           placeholderText(placeholder),
-          EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "true" }),
+          // An explicit tab stop on the text: no second stop, but the scroller around it has a focusable inside even read-only (axe scrollable-region-focusable).
+          EditorView.contentAttributes.of({ "aria-label": label, tabindex: "0", spellcheck: "true" }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !update.transactions.every((tr) => tr.annotation(fromHost) === true)) {
               const text = update.state.doc.toString();

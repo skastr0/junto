@@ -153,7 +153,8 @@ export function CodeEditor({
           syntaxHighlighting(classHighlighter),
           lineRows(handlers),
           access.current.of(editable(readOnly)),
-          EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
+          // An explicit tab stop on the text: no second stop, but the scroller around it has a focusable inside even read-only (axe scrollable-region-focusable).
+          EditorView.contentAttributes.of({ "aria-label": label, tabindex: "0", spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !update.transactions.every((tr) => tr.annotation(fromHost) === true)) {
               heard.current.onChange?.(update.state.doc.toString());

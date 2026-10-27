@@ -260,10 +260,12 @@ class RowWidget extends WidgetType {
     const element = document.createElement("div");
     element.className = "cm-lineRow";
     element.dataset.row = this.key;
-    // What the host draws grows and shrinks; the editor measures again.
-    const sizes = new ResizeObserver(() => view.requestMeasure());
-    sizes.observe(element);
-    observers.set(element, sizes);
+    // What the host draws grows and shrinks; the editor measures again. Where there is no observer (jsdom), it is measured as drawn.
+    if (typeof ResizeObserver !== "undefined") {
+      const sizes = new ResizeObserver(() => view.requestMeasure());
+      sizes.observe(element);
+      observers.set(element, sizes);
+    }
     this.handlers.current.mount?.(this.key, element);
     return element;
   }
