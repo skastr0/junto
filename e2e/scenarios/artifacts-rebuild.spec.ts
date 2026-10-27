@@ -287,6 +287,28 @@ test("sheet (product-sheet): a typed cell saves a version and the grid fits its 
     const fit = await page.getByTestId("artifact-sheet-grid").evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
     expect(fit.scroll, "a new sheet's grid needs no sideways scroll").toBeLessThanOrEqual(fit.client + 1);
     await shot(page, "sheet-1-typed");
+
+    // The keyboard: Enter on the last row commits and stays; arrows move, a typed key edits, Tab commits across, Escape puts it back.
+    const at = (a1: string) => sheet.locator(`[data-cell="${a1}"]`);
+    await expect(at("A1")).toBeFocused();
+    await expect(at("A1")).toHaveAttribute("readonly", "");
+    await page.keyboard.press("ArrowRight");
+    await expect(at("B1")).toBeFocused();
+    await page.keyboard.type("42");
+    // Tab past the last column leaves the grid, so Enter commits this one.
+    await page.keyboard.press("Enter");
+    await expect(at("B1")).toHaveValue("42");
+    await expect(at("B1")).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect(sheet.locator('td[aria-selected="true"]')).toHaveCount(2);
+    await expect(page.getByTestId("artifact-sheet-comment")).toContainText("A1:B1");
+    await page.keyboard.press("F2");
+    await page.keyboard.type(" draft");
+    await page.keyboard.press("Escape");
+    await expect(at("B1")).toHaveValue("42");
+    await expect(page.getByTestId("artifact-sheet")).toBeVisible();
+    await shot(page, "sheet-2-keyboard");
   } finally {
     await junto.close();
   }
