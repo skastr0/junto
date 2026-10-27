@@ -153,6 +153,8 @@ import {
   installContentProtocol,
 } from "./junto/content/protocol";
 import { remoteVideos } from "./junto/preview/remote-video";
+import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/files/protocol";
+import { registerFilesIpc } from "./junto/files/ipc";
 import { ContentService } from "./junto/content/service";
 import {
   resolveTrustedRendererOrigin,
@@ -262,7 +264,7 @@ if (isPreview) {
   app.setPath("userData", unpackagedElectronUserDataPath(resolveJuntoHome()));
   app.setName(`${PRODUCT_NAME} PREVIEW`);
 }
-registerTrustedRendererScheme(protocol, [CONTENT_PROTOCOL_SCHEME_REGISTRATION]);
+registerTrustedRendererScheme(protocol, [CONTENT_PROTOCOL_SCHEME_REGISTRATION, FILE_PROTOCOL_SCHEME_REGISTRATION]);
 
 // electron-vite (and some launchd/stdio handoffs) can close the parent pipe
 // while main still logs. A bare console.* write then throws EPIPE as an
@@ -392,6 +394,7 @@ applyE2eMacOsFocusIsolation({
 let trustedMainWindow: BrowserWindow | undefined;
 /** Desktop notifications; registered with the product IPC, follows each main window. */
 let notificationPlane: NotificationPlane | undefined;
+let filesService: ReturnType<typeof registerFilesIpc> | undefined;
 /** The Command Center is a trusted renderer identity, never "the first window". */
 const currentTrustedMainWindow = (): BrowserWindow | undefined => {
   const candidate = trustedMainWindow;
@@ -1618,6 +1621,18 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     } catch (error) {
       console.error("[content-protocol] failed to install:", error);
       exitAfterDetach(1, "content-protocol-startup-failure");
+      return;
+    }
+
+    // Files node bytes (junto-file://<node>/<relpath>): served only for a node
+    // a window opened, inside its root after realpath (src/main/junto/files/).
+    try {
+      filesService ??= registerFilesIpc();
+      const files = filesService;
+      installFileProtocol(session.defaultSession.protocol, (node, path) => files.bytes(node, path));
+    } catch (error) {
+      console.error("[files-protocol] failed to install:", error);
+      exitAfterDetach(1, "files-protocol-startup-failure");
       return;
     }
 
