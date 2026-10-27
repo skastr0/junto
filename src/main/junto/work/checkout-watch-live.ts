@@ -110,7 +110,7 @@ export type CheckoutWatchFacts = {
   readonly canvasName: string;
   /** This machine's name. Only a seat on it has a checkout here. */
   readonly thisMachine: string;
-  /** The canvas's tasks, oldest first: a later task for the same seat and checkout wins. */
+  /** The canvas's tasks, oldest first: each open one claims, and the latest a seat holds on a checkout attributes. */
   readonly tasks: ReadonlyArray<TaskView>;
   /** Live process-bound seats for this canvas (`canvas.actorRefs`). */
   readonly actorRefs: ReadonlyArray<ActorRef>;
@@ -142,9 +142,11 @@ export type CheckoutWatchFacts = {
  *
  * A seat binds one checkout: its process-bound node's proven worktree (the
  * first `actorRef` for a node wins, so a duplicated ref cannot bind twice).
- * Several tasks for the same seat on the same checkout resolve to the later
- * task; several distinct seats on one checkout is the ambiguity the
- * watcher refuses to attribute.
+ * A seat holds any number of open tasks, and each yields its own claim, so a
+ * receipt for any of them is admitted; observations attribute to the latest
+ * (`applyContext` binds the last claim per seat and checkout). Several
+ * distinct seats on one checkout is the ambiguity the watcher refuses to
+ * attribute.
  */
 export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContext => {
   const nodesById = new Map(facts.nodes.map((node) => [node.id, node]));
@@ -167,7 +169,7 @@ export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContex
     if (checkoutKey === undefined || checkoutKey.length === 0) continue;
     const process = facts.observedProcessFor(ref.nodeId);
     if (process === undefined || process.generation.length === 0) continue;
-    claims.set(`${checkoutKey}\u0000${ref.seatId}`, {
+    claims.set(`${checkoutKey}\u0000${ref.seatId}\u0000${task.taskId}`, {
       seatId: ref.seatId,
       taskId: task.taskId,
       epoch: task.current.epoch,
@@ -431,6 +433,8 @@ export const makeCheckoutWatchLive = (
   /** Track, bind and release so the watcher's view equals the live claims. */
   const applyContext = (claims: ReadonlyArray<CheckoutWatchClaim>): void => {
     const desired = new Map<string, CheckoutWatchClaim>();
+    // A seat holding several tasks on one checkout claims each, oldest first:
+    // the last, its latest task, is the one observations attribute to.
     for (const claim of claims) {
       if (claim.checkoutKey.length === 0) continue;
       desired.set(bindingKey(claim.checkoutKey, claim.seatId), claim);

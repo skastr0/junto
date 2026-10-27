@@ -30,6 +30,7 @@ const fixture = async () => {
     updatedAt: 1,
     stateSince: 1,
   };
+  const others: TaskView[] = [];
   let head = "a".repeat(40);
   const receipts: Array<Parameters<CheckoutWatchCompositionOptions["workRepository"]["publishCheckoutReceipts"]>[0]> = [];
   const records: unknown[] = [];
@@ -41,7 +42,7 @@ const fixture = async () => {
     settings: { get: Effect.succeed({ ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }) },
     host: { get: () => session },
     crew: { recordCheckoutObservation: (input) => Effect.sync(() => { records.push(input); return true; }) },
-    tasks: { list: () => Effect.succeed({ tasks: [task], more: false }) },
+    tasks: { list: () => Effect.succeed({ tasks: [task, ...others], more: false }) },
     workRepository: {
       publishCheckoutReceipts: (input) => Effect.sync(() => { receipts.push(input); return []; }),
     },
@@ -51,7 +52,7 @@ const fixture = async () => {
     write: Effect.runPromise,
     probe: { head: async () => ({ branch: "main", head }), newCommits: async () => [head] },
   };
-  return { root, options, receipts, records, advance: () => { head = "b".repeat(40); }, resequence: () => { canvas = { ...canvas, seq: canvas.seq + 1 }; }, complete: () => { task = { ...task, current: { ...task.current, state: "done" } }; } };
+  return { root, options, receipts, records, advance: () => { head = "b".repeat(40); }, resequence: () => { canvas = { ...canvas, seq: canvas.seq + 1 }; }, complete: () => { task = { ...task, current: { ...task.current, state: "done" } }; }, takeAnother: () => { others.push({ ...task, taskId: "later" as TaskId, title: "Later", createdAt: 2 }); } };
 };
 
 it("checkout receipts use exact task rows and the canvas sequence at commit", async () => {
@@ -79,6 +80,19 @@ it("a claim completed while waiting for the authoring gate cannot emit checkout 
     expect(f.receipts).toEqual([]);
     expect(f.records).toEqual([]);
     expect(result[0]?.receipt.failed).toBe(1);
+  } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+it("a seat that takes a newer task while a receipt waits still delivers it on the older open task", async () => {
+  const f = await fixture();
+  const watch = makeCheckoutWatchComposition({ ...f.options, write: (effect) => { f.takeAnother(); return Effect.runPromise(effect); } });
+  try {
+    await Effect.runPromise(watch.scanOnce());
+    f.advance();
+    const result = await Effect.runPromise(watch.scanOnce());
+    expect(result[0]?.receipt.failed).toBe(0);
+    expect(f.receipts).toHaveLength(1);
+    expect(f.receipts[0]).toMatchObject({ taskId: "task", shas: ["b".repeat(40)] });
   } finally { watch.stop(); await rm(f.root, { recursive: true, force: true }); }
 });
 
