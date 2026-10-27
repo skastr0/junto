@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import { applyPatches, asPadElementId, emptyPad, type Pad } from "../src/shared/pad";
 import { padSvgPalette } from "../src/shared/pad-project";
-import { padDiff, padToScene, sceneToPad, type SceneElement } from "../src/renderer/components/pad/excalidraw/pad-excalidraw-model";
+import { padDiff, padToScene, sceneToPad, settle, type SceneElement } from "../src/renderer/components/pad/excalidraw/pad-excalidraw-model";
 
 const pal = padSvgPalette("dark");
 const id = asPadElementId;
@@ -65,7 +65,7 @@ describe("pad and excalidraw scene", () => {
     const diamond = { ...padToScene(pad, pal).find((e) => e.id === "a")!, id: "z", type: "diamond", boundElements: null };
     const loose = { ...padToScene(pad, pal).find((e) => e.id === "e")!, id: "y", startBinding: null, boundElements: null };
     const read = sceneToPad(emptyPad(), [...scene, diamond, loose], pal);
-    expect(read.unsaved.sort()).toEqual(["y", "z"]);
+    expect([...read.unsaved].sort()).toEqual(["y", "z"]);
     expect(padDiff(emptyPad(), read.pad)).toEqual([]);
   });
 
@@ -74,5 +74,14 @@ describe("pad and excalidraw scene", () => {
     const patches = padDiff(pad, sceneToPad(pad, scene, pal).pad);
     expect(patches).toEqual([{ op: "delete", id: "a" }]);
     expect(Result.isSuccess(applyPatches(pad, patches))).toBe(true);
+  });
+});
+
+describe("settle", () => {
+  it("keeps the stored item for an element the operator did not touch", () => {
+    const measured = sceneToPad(pad, padToScene(pad, pal).map((e) => (e.id === "d" ? { ...e, width: 61, height: 21 } : e)), pal).pad;
+    expect(padDiff(pad, measured).length).toBe(1);
+    expect(padDiff(pad, settle(pad, measured, new Set()))).toEqual([]);
+    expect(padDiff(pad, settle(pad, measured, new Set(["d"]))).length).toBe(1);
   });
 });

@@ -1,0 +1,125 @@
+/* The pad on Excalidraw, in Junto's look (spike). Excalidraw's own variables
+   take our tokens, scoped to the pad, so both themes follow the app's. Its
+   dark mode inverts the canvas with a filter; we paint real dark colors
+   instead, so the filter is off. Tokens only. */
+
+.excalidraw-pad {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+}
+
+.excalidraw-pad .excalidraw {
+  --ui-font: var(--font-mono);
+  --color-primary: var(--color-amber);
+  --color-primary-darker: var(--color-amber-hi);
+  --color-primary-darkest: var(--color-amber-hi);
+  --color-primary-hover: var(--color-amber-hi);
+  --color-primary-light: color-mix(in oklab, var(--color-amber) 18%, transparent);
+  --color-primary-light-darker: color-mix(in oklab, var(--color-amber) 26%, transparent);
+  --color-brand-hover: var(--color-amber-hi);
+  --color-brand-active: var(--color-amber);
+  --color-on-primary-container: var(--color-ink);
+  --color-surface-primary-container: color-mix(in oklab, var(--color-amber) 22%, transparent);
+  --color-selection: var(--color-amber);
+  --default-bg-color: var(--color-ground);
+  --island-bg-color: var(--color-raise-2);
+  --popup-bg-color: var(--color-raise-2);
+  --popup-text-color: var(--color-ink-2);
+  --text-primary-color: var(--color-ink);
+  --color-on-surface: var(--color-ink);
+  --color-surface-lowest: var(--color-ground);
+  --color-surface-low: var(--color-raise);
+  --color-surface-mid: var(--color-raise-2);
+  --color-surface-high: var(--color-overlay-3);
+  --color-border-outline: var(--color-stroke-hi);
+  --color-border-outline-variant: var(--color-stroke);
+  --input-bg-color: var(--color-inset);
+  --input-border-color: var(--color-stroke);
+  --input-hover-bg-color: var(--color-overlay-2);
+  --button-gray-1: var(--color-overlay-2);
+  --button-gray-2: var(--color-overlay-3);
+  --button-gray-3: var(--color-overlay-4);
+  --focus-highlight-color: var(--color-cyan);
+  --link-color: var(--color-cyan);
+  --dialog-border-color: var(--color-stroke);
+  --shadow-island: 0 0 0 1px var(--color-stroke);
+  --border-radius-lg: var(--radius-md);
+  --theme-filter: none;
+}
+
+/* Real colors in both themes: never the inverting filter. */
+.excalidraw-pad .excalidraw.theme--dark canvas {
+  filter: none;
+}
+
+/* Chrome the pad does not offer: the app menu, the library, the help and
+   the welcome hints. */
+.excalidraw-pad .main-menu-trigger,
+.excalidraw-pad .sidebar-trigger,
+.excalidraw-pad .default-sidebar-trigger,
+.excalidraw-pad .help-icon,
+.excalidraw-pad .welcome-screen-center,
+.excalidraw-pad .welcome-screen-decor {
+  display: none;
+}
+
+.excalidraw-pad__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.excalidraw-pad__status {
+  max-width: 28ch;
+  color: var(--color-amber-fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+
+.excalidraw-pad__tool {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-raise-2);
+  color: var(--color-dim);
+}
+
+.excalidraw-pad__tool:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.excalidraw-pad__tool[aria-pressed="true"] {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+
+.excalidraw-pad__tool:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+/* Picking an area to comment on: a layer over the scene takes the drag. */
+.excalidraw-pad__area-layer {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+
+.excalidraw-pad__area {
+  position: absolute;
+  border: 1px dashed var(--color-amber);
+  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
+  pointer-events: none;
+}
+
+.excalidraw-pad__card {
+  width: 100%;
+  height: 100%;
+}

@@ -65,8 +65,8 @@ export type SceneElement = {
   readonly originalText?: string;
   readonly containerId?: string | null;
   readonly points?: ReadonlyArray<readonly [number, number]>;
-  readonly startBinding?: { readonly elementId: string } | null;
-  readonly endBinding?: { readonly elementId: string } | null;
+  readonly startBinding?: { readonly elementId: string; readonly focus?: number; readonly gap?: number } | null;
+  readonly endBinding?: { readonly elementId: string; readonly focus?: number; readonly gap?: number } | null;
   readonly fileId?: string | null;
   readonly [key: string]: unknown;
 };
@@ -504,4 +504,24 @@ export const padDiff = (from: Pad, to: Pad): PadPatch[] => {
     if (!same(wasEdges.get(edge.id), edge)) patches.push({ op: "upsert", layer: "edge", edge });
   }
   return patches;
+};
+
+/**
+ * Keep the base's item wherever the operator changed nothing: Excalidraw
+ * measures and routes on its own (a label's box, an arrow's path), and that
+ * must not become a write. `changed` holds the ids whose scene element moved
+ * on since the last sync; a bound text counts for its container.
+ */
+export const settle = (base: Pad, read: Pad, changed: ReadonlySet<string>): Pad => {
+  const keep = <T extends { readonly id: string }>(before: ReadonlyArray<T>, after: ReadonlyArray<T>): T[] => {
+    const was = keyed(before);
+    return after.map((item) => (changed.has(item.id) ? item : (was.get(item.id) ?? item)));
+  };
+  return {
+    ...read,
+    shapes: keep(base.shapes, read.shapes),
+    edges: keep(base.edges, read.edges),
+    images: keep(base.images, read.images),
+    inks: keep(base.inks, read.inks),
+  };
 };
