@@ -7,7 +7,8 @@
  * symlinks, so the scoping checks have something real to refuse. Every file is
  * generated here, so the repo carries no binaries: a 5,000-line TypeScript
  * file for the editor budget, Markdown, a two-page PDF with text (and the same
- * PDF in pure ASCII, which still has to open as a PDF), a PNG, an
+ * PDF in pure ASCII, which still has to open as a PDF), a four-page PDF for
+ * page links, a PNG, an
  * unknown binary, a text file over the 5 MB read cap, deep folders, names with
  * spaces and accents, and a `node_modules` the index must skip.
  */
@@ -25,6 +26,8 @@ export interface FilesFixture {
   readonly paths: Readonly<Record<keyof typeof PATHS, FilePath>>;
   /** Text the PDF carries on each page, for selection and search checks. */
   readonly pdfPageText: readonly [string, string];
+  /** Text on each page of `paths.pagesPdf`, four pages, for page links. */
+  readonly pagesPdfText: ReadonlyArray<string>;
   readonly bigTsLines: number;
 }
 
@@ -33,6 +36,7 @@ const PATHS = {
   markdown: "README.md",
   pdf: "docs/sample.pdf",
   asciiPdf: "docs/plain.pdf",
+  pagesPdf: "docs/pages.pdf",
   png: "img/gradient.png",
   unknownBinary: "data/blob.bin",
   tooLarge: "logs/huge.log",
@@ -48,6 +52,7 @@ const PATHS = {
 const BIG_TS_LINES = 5000;
 const TOO_LARGE_BYTES = 5 * 1024 * 1024 + 1024;
 const PDF_PAGE_TEXT = ["Junto fixture page one", "Junto fixture page two"] as const;
+const PAGES_PDF_TEXT = [1, 2, 3, 4].map((n) => `Junto fixture pages, page ${n}`);
 
 const bigTypeScript = (lines: number): string => {
   const out: string[] = ["// Generated for the Files editor budget.", ""];
@@ -169,6 +174,7 @@ export const buildFilesFixture = async (parent: string): Promise<FilesFixture> =
   await put(join(root, paths.markdown), "# Fixture\n\nA root for the Files node.\n\n- one\n- two\n");
   await put(join(root, paths.pdf), textPdf(PDF_PAGE_TEXT, true));
   await put(join(root, paths.asciiPdf), textPdf(PDF_PAGE_TEXT, false));
+  await put(join(root, paths.pagesPdf), textPdf(PAGES_PDF_TEXT, true));
   await put(join(root, paths.png), gradientPng(320, 200));
   await put(join(root, paths.unknownBinary), Buffer.from([0x00, 0xff, 0x13, 0x37, 0x00, 0x01, 0x02, 0x03]));
   await put(join(root, paths.tooLarge), "x".repeat(TOO_LARGE_BYTES));
@@ -180,5 +186,5 @@ export const buildFilesFixture = async (parent: string): Promise<FilesFixture> =
   await symlink(outside, join(root, paths.symlinkDirOut));
   await symlink(join(root, paths.markdown), join(root, paths.symlinkInside));
 
-  return { root, outside, paths, pdfPageText: PDF_PAGE_TEXT, bigTsLines: BIG_TS_LINES };
+  return { root, outside, paths, pdfPageText: PDF_PAGE_TEXT, pagesPdfText: PAGES_PDF_TEXT, bigTsLines: BIG_TS_LINES };
 };
