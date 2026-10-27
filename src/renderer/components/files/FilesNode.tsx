@@ -6,7 +6,6 @@ import { CircleAlert, ExternalLink, Search, FileCode, FileQuestion, FileText, Fo
 import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
-import { fileUrl } from "@shared/file-url";
 import { nodeAt } from "../../lib/use-model";
 import {
   changeTouches,
@@ -20,7 +19,7 @@ import {
   useDraftsVersion,
   useFileThreads,
   useFilesRoot,
-  type FileView,
+  type FileView as FileViewKind,
   type Loaded,
 } from "../../lib/files-source";
 import { FocusSurface } from "../FocusSurface";
@@ -38,10 +37,11 @@ import { registerFileEditorSave } from "../../lib/file-editor-keys";
 import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
+import { FileView } from "../file-view/FileView";
 import "../ui/file-tree.css";
 import "./files.css";
 
-const VIEW_GLYPH: Record<FileView, LucideIcon> = {
+const VIEW_GLYPH: Record<FileViewKind, LucideIcon> = {
   markdown: FileText,
   code: FileCode,
   image: Image,
@@ -349,13 +349,9 @@ function SelectedFile({
       case "code":
         return value.kind === "text" ? <FileCodeEditor label={name} value={draft?.text ?? value.text} onChange={edit} /> : null;
       case "image":
-        return (
-          <div className="files-media">
-            <img className="files-media__image" src={fileUrl(nodeId, path, value.kind === "binary" ? value.stamp.mtimeMs : undefined)} alt={name} />
-          </div>
-        );
       case "pdf":
-        return <PaneEmpty glyph={<FileText size={20} />} title="A PDF" hint="Its preview opens here once the viewer lands." action={elsewhere} />;
+      case "other":
+        return <FileView canvasName={canvasName} nodeId={nodeId} path={path} {...(value.kind === "binary" ? { version: value.stamp.mtimeMs } : {})} />;
       case "too-large":
         return (
           <PaneEmpty
@@ -366,7 +362,7 @@ function SelectedFile({
           />
         );
       default:
-        return <PaneEmpty glyph={<FileQuestion size={20} />} title="Junto does not open this kind of file" action={elsewhere} />;
+        return null;
     }
   })();
 

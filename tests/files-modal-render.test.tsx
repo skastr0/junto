@@ -103,7 +103,7 @@ describe("the Files modal", () => {
     installFilesSource(makeLocalFiles({ "a.zip": { size: 10 } }));
     await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={parseFilePath("a.zip")!} onClose={() => undefined} />));
     await flush();
-    expect(document.body.textContent).toContain("Junto does not open this kind of file");
+    expect(document.querySelector("[data-testid=\"file-view-other\"]")).not.toBeNull();
     expect(buttonNamed("Open in default app")).toBeDefined();
     expect(buttonNamed("Reveal in Finder")).toBeDefined();
   });
