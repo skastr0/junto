@@ -9,12 +9,13 @@
  *   comments rail (product-sheet): collapsed by default, toggles by click and key, count, faces
  *   sidebar and room (product-sheet): narrow sidebar, the open sheet and pad get the width
  *   sheet (product-sheet): a typed cell saves a version and the grid fits
- *   pad (product-pad): draw, pan three ways, tool change inside one frame budget
+ *   pad (product-pad): draw, pan three ways
+ *   pad tool change (product-shell): 60 changes, p95 under budget, load logged
  *
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/artifacts-rebuild.spec.ts
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { Schema } from "effect";
@@ -314,7 +315,7 @@ test("sheet (product-sheet): a typed cell saves a version and the grid fits its 
   }
 });
 
-test("pad (product-pad): draw a box, pan by space-drag, trackpad and middle drag, tool change inside budget", async () => {
+test("pad (product-pad): every shape tool, draw a box, pan by space-drag, trackpad and middle drag", async () => {
   test.setTimeout(240_000);
   const canvas = "rebuild-pad";
   const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [canvas]: modelFixture([shelfAt(60, 60)], []) } });
@@ -373,11 +374,24 @@ test("pad (product-pad): draw a box, pan by space-drag, trackpad and middle drag
       await page.mouse.up({ button: "middle" });
     });
     await shot(page, "pad-2-panned");
+  } finally {
+    await junto.close();
+  }
+});
 
-    // Tool change paints inside the budget: the brief's pain was about a second.
+test("pad tool change (product-shell): 60 changes paint inside the budget at p95, with the machine load beside it", async () => {
+  test.setTimeout(240_000);
+  const canvas = "rebuild-pad-timing";
+  const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [canvas]: modelFixture([shelfAt(60, 60)], []) } });
+  try {
+    const { page } = junto;
+    await openShelf(page);
+    await create(page, "Pad");
+    await expect(page.getByTestId("pad-svg")).toBeVisible();
+    // Ten rounds of six: with fewer samples the p95 is the single slowest frame.
     const tools = ["box", "ellipse", "triangle", "label", "ink", "select"];
     const ms: number[] = [];
-    for (let round = 0; round < 3; round += 1) {
+    for (let round = 0; round < 10; round += 1) {
       for (const tool of tools) {
         const button = page.getByTestId(`pad-tool-${tool}`);
         ms.push(await frameAfter(page, () => button.click()));
@@ -386,8 +400,9 @@ test("pad (product-pad): draw a box, pan by space-drag, trackpad and middle drag
     }
     const sorted = [...ms].sort((a, b) => a - b);
     const p95 = sorted[Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length))]!;
-    console.log("PAD TOOL CHANGE ms", JSON.stringify({ p50: Math.round(sorted[Math.floor(sorted.length / 2)]!), p95: Math.round(p95), max: Math.round(sorted.at(-1)!) }));
-    expect(p95, `tool change p95 under ${TOOL_CHANGE_P95_MS}ms`).toBeLessThan(TOOL_CHANGE_P95_MS);
+    const result = { n: sorted.length, p50: Math.round(sorted[Math.floor(sorted.length / 2)]!), p95: Math.round(p95), max: Math.round(sorted.at(-1)!), load: loadavg().map((l) => Math.round(l)) };
+    console.log("PAD TOOL CHANGE ms", JSON.stringify(result));
+    expect(p95, `tool change p95 under ${TOOL_CHANGE_P95_MS}ms ${JSON.stringify(result)}`).toBeLessThan(TOOL_CHANGE_P95_MS);
   } finally {
     await junto.close();
   }
