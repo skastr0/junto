@@ -3,8 +3,6 @@
  * node's root, and the items of Artifacts, Tasks and Automations. Real app,
  * seeded canvases, and the fixture folder from e2e/harness/files-fixture.ts.
  *   bun run test:e2e:fast e2e/scenarios/files-quick-open.spec.ts
- * Fixme until F4 is on main: the palette and its rows are in the working tree
- * only. Drop the describe.fixme when they land.
  */
 import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -26,7 +24,7 @@ const titles = (page: Page) => palette(page).locator(".quick-open__row-title");
 const details = (page: Page) => palette(page).locator(".quick-open__row-detail");
 const active = (page: Page) => palette(page).locator('[data-active="true"]');
 
-test.describe.fixme("quick open in every node that has items (F4)", () => {
+test.describe("quick open in every node that has items (F4)", () => {
   test("Cmd+P filters file names, Enter opens the pick, and Escape closes only the palette", async () => {
     test.setTimeout(120_000);
     const stage = await stageFiles();
@@ -175,7 +173,9 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
     const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([board]) } });
     try {
       const { page } = junto;
-      await page.locator('.react-flow__node[data-id="board"]').dblclick();
+      // The card's centre is its enqueue control, so the double-click lands on
+      // a corner to open the board (as board-targets.spec.ts does).
+      await page.locator('.react-flow__node[data-id="board"]').dblclick({ position: { x: 10, y: 10 } });
       for (const title of ["Review the draft", "Ship it"]) {
         await page.getByRole("button", { name: "New task", exact: true }).first().click();
         await page.getByLabel("Task title").fill(title);
