@@ -134,6 +134,16 @@ describe("the chord reaches the node in front", () => {
     expect(toggleQuickOpenFor("empty")).toBe(false);
   });
 
+  it("answers for the node in front even when the workbench names another, as a card overlay is not a dock surface", () => {
+    const { host, showing } = hostOf("shelf");
+    const unregister = registerQuickOpenHost(host);
+    // The key's action names the front node the workbench knows: a terminal.
+    expect(toggleQuickOpenFor("terminal-1")).toBe(true);
+    expect(showing()).toBe(true);
+    unregister();
+    expect(toggleQuickOpenFor("terminal-1")).toBe(false);
+  });
+
   it("keeps the newest registration for a node when an older one unmounts late", () => {
     const older = hostOf("shelf");
     const registerOlder = registerQuickOpenHost(older.host);
