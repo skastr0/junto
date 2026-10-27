@@ -100,7 +100,13 @@ test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
         await openInTree(modal, "docs/sample.pdf");
         found.push(...(await scan(page, `${theme}-pdf`, MODAL)));
 
-        await modal.locator(".artifact-comments-edge").click();
+        // The rail's open state is one setting for every rail: a rail opened in bright is open here already,
+        // and the collapsed edge is there only while it is shut.
+        const composer = modal.getByLabel("New comment");
+        const edge = modal.locator(".artifact-comments-edge");
+        await expect(composer.or(edge)).toBeVisible({ timeout: 15_000 });
+        if (await edge.isVisible()) await edge.click();
+        await expect(composer).toBeVisible({ timeout: 10_000 });
         found.push(...(await scan(page, `${theme}-comments-rail`, MODAL)));
 
         await page.keyboard.press("Meta+p");
