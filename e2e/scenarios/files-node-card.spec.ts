@@ -10,7 +10,7 @@
 import { mkdirSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { THIS_MACHINE } from "../../tests/support/machines";
 import { FILES_ID, filesCard, openFilesModal, stageFiles, transferOf, drop } from "../harness/files-scenario";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -23,6 +23,24 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
   await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
   if (theme === "bright") await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
   else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
+};
+
+/**
+ * A surface that has finished opening: every finite animation on it or its
+ * ancestors is done and the opacity up the chain is whole. Rings turn forever
+ * (the motion law), so an infinite animation is not waited on.
+ */
+const settled = async (surface: Locator): Promise<void> => {
+  const handle = await surface.elementHandle();
+  await surface.page().waitForFunction((element) => {
+    if (element === null) return false;
+    for (let at: Element | null = element; at !== null; at = at.parentElement) {
+      if (Number(getComputedStyle(at).opacity) < 1) return false;
+    }
+    return element.getAnimations({ subtree: true }).every(
+      (animation) => animation.effect?.getComputedTiming().iterations === Infinity || animation.playState !== "running",
+    );
+  }, handle);
 };
 
 test("the palette offers Files, the card takes a drop and opens the modal, dark and bright", async () => {
@@ -50,11 +68,13 @@ test("the palette offers Files, the card takes a drop and opens the modal, dark 
       await page.getByRole("button", { name: "Add canvas item" }).click();
       const catalog = page.getByRole("region", { name: "Node catalog" });
       await expect(catalog.getByText("Files", { exact: true })).toBeVisible();
+      await settled(catalog);
       await page.screenshot({ path: join(SHOTS, `palette-${theme}.png`) });
       // No region holds a folder for this machine here, so the wizard asks for one.
       await catalog.getByText("Files", { exact: true }).click();
       const wizard = page.getByRole("dialog", { name: "New files" });
       await expect(wizard).toBeVisible();
+      await settled(wizard);
       await page.screenshot({ path: join(SHOTS, `wizard-${theme}.png`) });
       await wizard.getByRole("button", { name: "cancel" }).click();
       await expect(wizard).toBeHidden();
@@ -71,6 +91,7 @@ test("the palette offers Files, the card takes a drop and opens the modal, dark 
       await card.screenshot({ path: join(SHOTS, `card-count-after-drop-${theme}.png`) });
 
       const modal = await openFilesModal(page);
+      await settled(modal);
       await page.screenshot({ path: join(SHOTS, `modal-${theme}.png`) });
       await page.keyboard.press("Escape");
       await expect(modal).toBeHidden();
