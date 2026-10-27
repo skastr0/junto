@@ -1,6 +1,6 @@
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { type EditorState, type Extension, Facet, Prec, StateEffect, StateField } from "@codemirror/state";
-import { EditorView, ViewPlugin, type Tooltip, type TooltipView, showTooltip } from "@codemirror/view";
+import { EditorView, ViewPlugin, type Tooltip, type TooltipView, showTooltip, tooltips } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import { useLayoutEffect, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
@@ -339,6 +339,8 @@ export const mentionSourceChanged = (view: EditorView): void => view.dispatch({}
 /** The @ and # list for a live markdown document. */
 export const mentionPicker = (source: MentionPickerSource): Extension => [
   pickerSource.of(source),
+  // The list keeps inside the document's own box: near its right edge it slides left, never over the pane beside it.
+  tooltips({ tooltipSpace: (view) => view.dom.getBoundingClientRect() }),
   pickerField,
   pickerKeys,
   fieldAria,
