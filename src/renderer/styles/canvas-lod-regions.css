@@ -109,6 +109,12 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 html[data-canvas-tier="overview"] .react-flow__viewport :is(.react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent):not(:has(.kind-seat)), .react-flow__edges, .react-flow__edgelabel-renderer) {
   visibility: hidden !important;
 }
+/* A flows track is drawn here too (FlowTrack), so its wire stays: the path
+   is unpainted (factory-grammar.css), and the loupe picks it as at every
+   other tier. */
+html[data-canvas-tier="overview"] .react-flow__viewport .react-flow__edge:has(> path.junto-edge--track) {
+  visibility: visible !important;
+}
 html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region-depth="3"] {
   visibility: hidden;
 }
