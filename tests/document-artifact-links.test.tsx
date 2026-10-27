@@ -117,6 +117,7 @@ describe("the [[ list in a live document", () => {
   it("a title that matches nothing creates the document on its press, then links it where [[ was", async () => {
     await type("See [[Q3 review");
     expect(rows()).toEqual(["Create document Q3 reviewNew"]);
+    expect(host.querySelector("[data-testid=link-create-option] .mention-combobox__kind")?.getAttribute("aria-hidden")).toBe("true");
     await press("Enter");
     expect(created).toEqual(["Q3 review"]);
     // Nothing is linked until the document exists; the list closes meanwhile and typing goes on.
