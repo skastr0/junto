@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+Opening the database with 0.10.3 moves it to version 50, and 0.10.2 then
+refuses it as newer than supported. To go back to 0.10.2, open the backup
+taken at the upgrade. The step rebuilds the wires table and adds a column to
+tasks; every wire and task is kept as it was.
+
+- Artifacts: a document is one live markdown surface. Headings, bold, links,
+  lists and tables draw as you type; click a line to edit it, move off and it
+  renders. Type @ or # for seats, tasks and the artifacts in reach; a mention
+  stays a chip on the caret's line and steps over or deletes as one unit, and
+  a bang mention draws a preview card of a task, seat, artifact or page.
+- Artifacts: the list is a narrow sidebar so an open artifact gets the room,
+  the header is one row (title, kind and version, history, tasks, archive),
+  and the comments rail opens collapsed to an edge showing the count and the
+  faces of the seats that took part. A comment mark in the text opens the
+  rail on its thread. A version in History reads rendered.
+- Keys: J and K, the arrows, Home, End and Enter move through the feed,
+  artifacts and tasks lists alike. In a document Cmd+B bolds, Cmd+E italicises
+  (Cmd+I stays the Needs you feed), and Cmd+Shift+M opens the comments rail.
+  The Keys button in Artifacts lists the pane's and the editor's keys.
+  Stepping between panes skips a collapsed sidebar.
+- Artifacts are checked for accessibility: lists hold list items, a heading
+  speaks its level, the sheet is one Tab stop with an edit mode, and a removed
+  row or cleared cell is said aloud.
+- The pad keeps its own drawing engine and gets a toolbar with stencils
+  (including a diamond for a decision and a cylinder for a store), a
+  selection strip for status, fill, stroke and text, text on any shape, and
+  edge labels. A shape shows four ports on hover, and a dragged edge snaps to
+  a port or a shape and lands on its facing side with an arrowhead. Paste,
+  drop, @ or double-click puts a Junto thing on the pad as a live preview
+  card. Pan with two fingers or Space, zoom with a pinch or Cmd and the
+  wheel, undo with Cmd+Z and redo with Cmd+Shift+Z. Tab walks the shapes in
+  reading order, and the connect tool walks targets by keyboard. Drawing is
+  lighter: pointer moves land once per frame.
+- Tasks: a task's details are written and read as live markdown, with chips,
+  embeds and the @ and # list, in the task pane and when you make a task.
+- Tasks: a seat can hold and take any number of open tasks. The
+  one-open-task limit is gone, so a seat that finds a missing dependency can
+  take it, and a receipt is accepted on any task the seat holds.
+- Tasks: a task board can derive into another. In a board's settings, list
+  its targets and flip a wire between Flows and Derives. When a task closes
+  done, each board it derives into gets a new backlog task with the same
+  title, unassigned, and task detail shows where a task came from and what
+  was made from it. A derived task fires the target board's task-created
+  automations. A derives loop is refused, and two boards hold one wire at
+  most. A derives wire draws as still filled arrowheads that breathe;
+  flows chevrons keep sliding.
+- Task wires: chevrons from side-by-side flows shrink to fit the room between
+  them, and the loupe picks a flows wire at the overview as at near and far.
+
 ## 0.10.2 — 2026-10-22
 
 - Needs you filters by region with a strip of chips, like the phone's region
