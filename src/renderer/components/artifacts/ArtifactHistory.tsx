@@ -31,15 +31,17 @@ export function ArtifactHistory({
     <div className="artifact-history">
       <div className="artifact-history__body">
         <div className="artifact-history__list" role="list" aria-label="Versions">
+          {/* A list holds list items only: each row sits in one. */}
           {versions.map((record) => (
-            <ListRow
-              key={record.version}
-              leading={<History size={12} aria-hidden />}
-              title={`Version ${record.version}${record.version === head ? ", head" : ""}`}
-              meta={`${actorLabel(record.author)} ${ageLabel(record.at, now)}`}
-              selected={record.version === picked}
-              onClick={() => setPicked(record.version)}
-            />
+            <div role="listitem" key={record.version}>
+              <ListRow
+                leading={<History size={12} aria-hidden />}
+                title={`Version ${record.version}${record.version === head ? ", head" : ""}`}
+                meta={`${actorLabel(record.author)} ${ageLabel(record.at, now)}`}
+                selected={record.version === picked}
+                onClick={() => setPicked(record.version)}
+              />
+            </div>
           ))}
         </div>
         <div className="artifact-history__view">

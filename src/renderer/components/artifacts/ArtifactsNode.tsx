@@ -132,7 +132,7 @@ export function ArtifactsNode({
   const onListKey = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     // The row with the keyboard, else the picked one. Rows still being created are not buttons.
-    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(":scope > button")];
+    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(":scope > [role='listitem'] > button")];
     const focused = rows.findIndex((row) => row.contains(event.target as Node));
     const at = focused >= 0 ? focused : visible.findIndex(({ artifact }) => artifact.artifactId === selected?.artifact.artifactId);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -211,33 +211,36 @@ export function ArtifactsNode({
           ))}
         </div>
       </div>
+      {/* A list holds list items only: each row sits in one, and the empty line sits outside it, where the rows would be. */}
+      {visible.length === 0 && entries.length > 0 ? <p className="artifacts-list__none">No artifact matches.</p> : null}
       <div className="artifacts-list" role="list" aria-label="Artifacts" onKeyDown={onListKey}>
         {archived
           ? null
           : pendingCreates.map((write) => (
-              <ListRow
-                key={write.opId}
-                leading={write.op.op === "create" ? <ResourceGlyphMark kind="artifact" artifactType={write.op.body.type} size={12} /> : null}
-                title={write.op.op === "create" ? write.op.title : write.artifactId}
-                meta={pendingWriteLine(write).tone === "risk" ? "At risk" : undefined}
-                pending
-              />
+              <div role="listitem" key={write.opId}>
+                <ListRow
+                  leading={write.op.op === "create" ? <ResourceGlyphMark kind="artifact" artifactType={write.op.body.type} size={12} /> : null}
+                  title={write.op.op === "create" ? write.op.title : write.artifactId}
+                  meta={pendingWriteLine(write).tone === "risk" ? "At risk" : undefined}
+                  pending
+                />
+              </div>
             ))}
         {visible.map(({ artifact }) => (
-          <ListRow
-            key={artifact.artifactId}
-            leading={<ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={12} />}
-            title={artifact.title}
-            meta={ageLabel(artifact.updatedAt, now)}
-            selected={artifact.artifactId === selected?.artifact.artifactId}
-            pending={pending.some((write) => write.artifactId === artifact.artifactId)}
-            onClick={() => {
-              setSelectedId(artifact.artifactId);
-              setError(null);
-            }}
-          />
+          <div role="listitem" key={artifact.artifactId}>
+            <ListRow
+              leading={<ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={12} />}
+              title={artifact.title}
+              meta={ageLabel(artifact.updatedAt, now)}
+              selected={artifact.artifactId === selected?.artifact.artifactId}
+              pending={pending.some((write) => write.artifactId === artifact.artifactId)}
+              onClick={() => {
+                setSelectedId(artifact.artifactId);
+                setError(null);
+              }}
+            />
+          </div>
         ))}
-        {visible.length === 0 && entries.length > 0 ? <p className="artifacts-list__none">No artifact matches.</p> : null}
       </div>
       {archivedCount > 0 || archived ? (
         <Button size="xs" variant="subtle" className="artifacts-archived-toggle" aria-pressed={archived} onClick={() => setArchived(!archived)}>
