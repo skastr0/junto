@@ -2,7 +2,9 @@
  * The subject comment contract: a comment names its resource and, beside it,
  * an anchor narrowed to that kind, so an anchor that does not fit fails tsc.
  */
+import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { ContentRef } from "../src/shared/wire/content-ref";
 import type { MailMessageId } from "../src/shared/crew";
 import { asNodeId } from "../src/shared/physics/schema";
 import {
@@ -38,6 +40,9 @@ describe("subject comment contract", () => {
     expect(subjectReplyOf({ kind: "artifact", nodeId: NODE, artifactId: ID, anchor: { kind: "cells", range: "B2" } }, write))
       .toEqual({ ...write, subject: { kind: "artifact", nodeId: NODE, artifactId: ID } });
     expect(subjectReplyOf({ kind: "page", nodeId: NODE }, write).subject).toEqual({ kind: "page", nodeId: NODE });
+    const shot = Schema.decodeUnknownSync(ContentRef)({ sha256: "a".repeat(64), byteLength: 10, mediaType: "image/png" });
+    const box = { kind: "box", x: 0, y: 0, w: 1, h: 1, url: "https://x.example/", scroll: { x: 0, y: 0 }, shot } as const;
+    expect(subjectReplyOf({ kind: "page", nodeId: NODE, anchor: box }, write)).toEqual({ ...write, subject: { kind: "page", nodeId: NODE } });
   });
 
   it("derives the comment's id from (installation, opId), and its thread from the subject", () => {
