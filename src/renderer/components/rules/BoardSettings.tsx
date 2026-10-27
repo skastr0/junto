@@ -5,6 +5,7 @@ import { useNodeOf } from "../../lib/use-model";
 import type { Check, Rule, TasksContract } from "@shared/work-model";
 import { setBoardSettings } from "../../lib/mutations";
 import { StampDefaultControl } from "../tasks/StampDefaultControl";
+import { BoardTargets } from "./BoardTargets";
 import { ChecksEditor } from "./ChecksEditor";
 import { RuleList } from "./RuleList";
 import { formatWait, normalizeBoardSettings, parseWait } from "./board-settings";
@@ -152,6 +153,7 @@ export function BoardSettings({
           />
         </div>
       ) : null}
+      {focusSide !== "incoming" ? <BoardTargets nodeId={nodeId} /> : null}
     </>
   );
 }

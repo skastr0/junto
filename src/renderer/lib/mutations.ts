@@ -117,15 +117,23 @@ const settled = (name: string): void => {
 };
 
 /** Send one act for the open canvas. A refusal is shown and the canvas read again. */
-const sendAct = (name: string, commands: ReadonlyArray<Command>, remember: boolean): void => {
+/** What the caller of an edit hears back: the change was taken, or main refused it with a reason. */
+export type ActOutcome = {
+  readonly onTaken?: () => void;
+  readonly onRefused?: (reason: string) => void;
+};
+
+const sendAct = (name: string, commands: ReadonlyArray<Command>, remember: boolean, outcome: ActOutcome = {}): void => {
   if (commands.length === 0) return;
   state$.saveState.set("saving");
   void authoring.act(name, commands, { remember }).then(
     () => {
       state$.error.set("");
       settled(name);
+      outcome.onTaken?.();
     },
     (error: unknown) => {
+      outcome.onRefused?.(messageOf(error));
       if (state$.canvasName.peek() === name) {
         state$.saveState.set("error");
         state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
@@ -241,7 +249,7 @@ export const canvasAsItStands = (): Canvas => modelStore.canvasOf(state$.canvasN
  */
 export const commitCommands = (
   edit: (canvas: Canvas) => ReadonlyArray<Command>,
-  options: { readonly remember?: boolean } = {},
+  options: { readonly remember?: boolean } & ActOutcome = {},
 ): void => {
   if (!canvasMutationAdmissionOpen) return;
   const name = state$.canvasName.peek();
@@ -256,7 +264,7 @@ export const commitCommands = (
     state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
     return;
   }
-  sendAct(name, commands, remember);
+  sendAct(name, commands, remember, options);
 };
 
 /**
