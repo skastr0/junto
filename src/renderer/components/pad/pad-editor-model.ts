@@ -195,6 +195,34 @@ export const panBy = (camera: Camera, viewDx: number, viewDy: number): Camera =>
   y: camera.y - viewDy / camera.zoom,
 });
 
+/**
+ * A wheel event on the pad, as the design tools read it: a pinch (Ctrl, which
+ * a trackpad pinch sets) or Cmd wheel zooms at the pointer, and a plain
+ * wheel or two-finger scroll pans.
+ */
+export const wheelCamera = (
+  camera: Camera,
+  wheel: {
+    readonly deltaX: number;
+    readonly deltaY: number;
+    readonly deltaMode: number;
+    readonly ctrlKey: boolean;
+    readonly metaKey: boolean;
+  },
+  viewPt: PadPoint,
+): Camera => {
+  // Line mode (a notched mouse on some systems) reports lines, not pixels.
+  const unit = wheel.deltaMode === 1 ? 16 : wheel.deltaMode === 2 ? 400 : 1;
+  const dx = wheel.deltaX * unit;
+  const dy = wheel.deltaY * unit;
+  if (wheel.ctrlKey || wheel.metaKey) {
+    const factor = Math.exp(-clamp(dy, -50, 50) / 100);
+    if (camera.zoom * factor < CAMERA_ZOOM_MIN || camera.zoom * factor > CAMERA_ZOOM_MAX) return camera;
+    return zoomAt(camera, viewPt, factor);
+  }
+  return panBy(camera, -dx, -dy);
+};
+
 export const fitCamera = (
   content: GeomRect,
   viewport: { readonly w: number; readonly h: number },

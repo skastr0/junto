@@ -58,8 +58,6 @@ import { IconButton, Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
 import "./pad-editor.css";
 import {
-  CAMERA_ZOOM_MAX,
-  CAMERA_ZOOM_MIN,
   DEFAULT_IMAGE_SIZE,
   DEFAULT_INK_WIDTH,
   HANDLE_VIEW_PX,
@@ -105,9 +103,9 @@ import {
   upsertInkPatch,
   upsertShapePatch,
   viewSlop,
+  wheelCamera,
   zOf,
   zPatch,
-  zoomAt,
   type PadCommitOutcome,
   type PadShapeTool,
   type PadTool,
@@ -402,12 +400,7 @@ export function PadEditor({
       // Zooming mid-gesture corrupts in-flight drag geometry.
       if (gestureRef.current.kind !== "idle") return;
       const view = clientToView({ x: event.clientX, y: event.clientY }, originOf());
-      const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
-      setCamera((current) => {
-        const next = current.zoom * factor;
-        if (next < CAMERA_ZOOM_MIN || next > CAMERA_ZOOM_MAX) return current;
-        return zoomAt(current, view, factor);
-      });
+      setCamera((current) => wheelCamera(current, event, view));
     };
     svg.addEventListener("wheel", onNativeWheel, { passive: false });
     return () => {
