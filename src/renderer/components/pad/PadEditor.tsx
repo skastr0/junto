@@ -185,8 +185,11 @@ type CommitTask = {
   readonly base: Pad;
   /** Revision the frames were computed against. */
   readonly expectedRev: number;
-  readonly retried: boolean;
+  readonly kind: CommitKind;
 };
+
+/** An operator's edit, or a step along the undo or redo trail. */
+type CommitKind = "edit" | "undo" | "redo";
 
 /** Patch failure codes raised before the server mutates anything. */
 const PRE_APPLY_CODES = new Set([
@@ -275,9 +278,8 @@ export function PadEditor({
   const [labelDraft, setLabelDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
   const undoRef = useRef<PadPatch[][]>([]);
-  const pendingInverseRef = useRef<PadPatch[]>([]);
-  // Each undone frame with the patches that put it back; any new change clears it.
-  const redoRef = useRef<Array<{ readonly forward: ReadonlyArray<PadPatch>; readonly back: ReadonlyArray<PadPatch> }>>([]);
+  // Frames that put back what undo took; any new edit clears them.
+  const redoRef = useRef<Array<ReadonlyArray<PadPatch>>>([]);
   const [undoDepth, setUndoDepth] = useState(0);
   const [localPad, setLocalPad] = useState<Pad | undefined>();
   const remotePadRef = useRef(remotePad);
@@ -313,11 +315,9 @@ export function PadEditor({
     } else if (remotePad.revision === expected) {
       // Confirms the current base; keep the undo history and preview.
     } else {
-      const hadHistory =
-        undoRef.current.length > 0 || pendingInverseRef.current.length > 0;
+      const hadHistory = undoRef.current.length > 0 || redoRef.current.length > 0;
       undoRef.current = [];
       redoRef.current = [];
-      pendingInverseRef.current = [];
       setUndoDepth(0);
       expectedRevRef.current = remotePad.revision;
       if (hadHistory) {
@@ -388,27 +388,20 @@ export function PadEditor({
   const dispatchCommit = useCallback(
     async (task: CommitTask): Promise<boolean> => {
       const expected = expectedRevRef.current;
-      const hadPending = pendingInverseRef.current.length > 0;
-      const flushed = hadPending
-        ? [...pendingInverseRef.current, ...task.operatorPatches]
-        : task.operatorPatches;
       commitBusyRef.current = true;
       setCommitBusy(true);
       try {
-        const outcome = await onCommit(flushed);
+        const outcome = await onCommit(task.operatorPatches);
         if (outcome.ok) {
-          // The batch is durable, so any frames computed before it are spent.
-          pendingInverseRef.current = [];
-          const nextExpected = expected + flushed.length;
+          const nextExpected = expected + task.operatorPatches.length;
           if (outcome.pad.revision === nextExpected) {
-            // Contiguous own ack: every frame in the batch was applied on a
-            // base that still exists, so undo history remains valid.
+            // Contiguous own ack: every frame we hold was computed on a base
+            // that still exists, so the history stays valid. An undo's
+            // inverse is what a redo writes; any other write's is an undo.
             expectedRevRef.current = nextExpected;
-            if (
-              task.expectedRev === expected &&
-              task.inverse.length > 0
-            ) {
-              undoRef.current = [...undoRef.current, [...task.inverse]];
+            if (task.expectedRev === expected && task.inverse.length > 0) {
+              if (task.kind === "undo") redoRef.current = [...redoRef.current, [...task.inverse]];
+              else undoRef.current = [...undoRef.current, [...task.inverse]];
               setUndoDepth(undoRef.current.length);
             }
           } else {
@@ -423,39 +416,20 @@ export function PadEditor({
           setLocalPad(outcome.pad);
           return true;
         }
-        if (hadPending && outcome.code === "illegal_transition" && !task.retried) {
-          // The rejected batch carried pending inverse frames: an undo was
-          // replayed against a stale base. Prove it with a fresh read, then
-          // retry the operator's patches alone once.
+        if (task.kind !== "edit" && outcome.code === "illegal_transition") {
+          // An undo or redo replayed against a base that moved: adopt a
+          // fresh read and drop the history it was computed on.
           const fresh = await onReadPad();
+          undoRef.current = [];
+          redoRef.current = [];
+          setUndoDepth(0);
           if (fresh !== null) {
-            const inverseApplicable = Result.isSuccess(
-              applyPatches(fresh, pendingInverseRef.current),
-            );
-            const operatorApplicable = Result.isSuccess(
-              applyPatches(fresh, task.operatorPatches),
-            );
-            pendingInverseRef.current = [];
-            undoRef.current = [];
-            redoRef.current = [];
-            setUndoDepth(0);
             expectedRevRef.current = fresh.revision;
             setLocalPad(fresh);
-            if (!inverseApplicable && operatorApplicable) {
-              notice("Pad changed elsewhere. Undo history was cleared.");
-              const retryInverse = inversePatches(fresh, task.operatorPatches);
-              return dispatchCommit({
-                operatorPatches: task.operatorPatches,
-                inverse: Result.isSuccess(retryInverse)
-                  ? [...retryInverse.success]
-                  : [],
-                base: fresh,
-                expectedRev: fresh.revision,
-                retried: true,
-              });
-            }
+          } else {
+            setLocalPad(task.base);
           }
-          notice(outcome.message);
+          notice(`Pad changed elsewhere. That change can no longer be ${task.kind === "undo" ? "undone" : "redone"}.`);
           return false;
         }
         if (outcome.code !== undefined && PRE_APPLY_CODES.has(outcome.code)) {
@@ -473,9 +447,10 @@ export function PadEditor({
   );
 
   const commit = useCallback(
-    (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
+    (patches: ReadonlyArray<PadPatch>, kind: CommitKind = "edit"): Promise<boolean> => {
       if (patches.length === 0) return Promise.resolve(true);
-      redoRef.current = [];
+      // A new change ends the redo trail; an undo or a redo walks it.
+      if (kind === "edit") redoRef.current = [];
       const base = padRef.current;
       const inverse = inversePatches(base, patches);
       // Optimistic display; the authoritative pad replaces it at ack.
@@ -486,7 +461,7 @@ export function PadEditor({
         inverse: Result.isSuccess(inverse) ? [...inverse.success] : [],
         base,
         expectedRev: expectedRevRef.current,
-        retried: false,
+        kind,
       };
       const run = commitQueueRef.current.then(() => dispatchCommit(task));
       commitQueueRef.current = run.then(
@@ -498,9 +473,9 @@ export function PadEditor({
     [dispatchCommit],
   );
 
+  // Undo writes the top frame at once, as its own version; never during a
+  // drag or an in-flight commit. Its inverse joins the redo trail at ack.
   const undo = useCallback(() => {
-    // Undo is a local view change; never interleave with a drag or an
-    // in-flight commit.
     if (gestureRef.current.kind !== "idle" || commitBusyRef.current) return;
     const applied = applyLocalUndo(padRef.current, undoRef.current);
     if (!applied) return;
@@ -512,39 +487,27 @@ export function PadEditor({
       notice("That change can no longer be undone.");
       return;
     }
-    const forward = inversePatches(padRef.current, applied.success.frame);
-    redoRef.current = Result.isSuccess(forward)
-      ? [...redoRef.current, { forward: forward.success, back: applied.success.frame }]
-      : [];
     undoRef.current = applied.success.stack.map((frame) => [...frame]);
-    pendingInverseRef.current = [
-      ...pendingInverseRef.current,
-      ...applied.success.frame,
-    ];
     setUndoDepth(undoRef.current.length);
-    setLocalPad(applied.success.pad);
     if (selectedId && !editableLayer(applied.success.pad, selectedId)) {
       setSelectedId(undefined);
     }
-  }, [notice, selectedId]);
+    void commit(applied.success.frame, "undo");
+  }, [commit, notice, selectedId]);
 
-  // Redo mirrors undo: a local view change, written with the next commit.
+  // Redo writes what the last undo took back; its inverse returns to undo at ack.
   const redo = useCallback(() => {
     if (gestureRef.current.kind !== "idle" || commitBusyRef.current) return;
     const top = redoRef.current[redoRef.current.length - 1];
     if (!top) return;
     redoRef.current = redoRef.current.slice(0, -1);
-    const next = applyPatches(padRef.current, top.forward);
-    if (Result.isFailure(next)) {
+    if (Result.isFailure(applyPatches(padRef.current, top))) {
       redoRef.current = [];
       notice("That change can no longer be redone.");
       return;
     }
-    pendingInverseRef.current = [...pendingInverseRef.current, ...top.forward];
-    undoRef.current = [...undoRef.current, [...top.back]];
-    setUndoDepth(undoRef.current.length);
-    setLocalPad(next.success);
-  }, [notice]);
+    void commit(top, "redo");
+  }, [commit, notice]);
 
   const applyDelete = useCallback(async () => {
     if (!selectedId || !canDelete(selectedLayer)) return;
