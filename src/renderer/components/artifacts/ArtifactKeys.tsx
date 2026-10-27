@@ -49,6 +49,9 @@ export const artifactKeyRows = (
   return { pane: [...inArea("Inside an artifact"), ...borrowed], editor: inArea(TYPE_AREA[type]) };
 };
 
+/** The widest chord here is three caps; the words get the rest of the panel. */
+const KEY_WIDTH = "88px";
+
 const EDITOR_LABEL: Partial<Record<ArtifactType, string>> = { document: "document", sheet: "sheet", pad: "pad" };
 
 /** The artifact's keys, one press away in its header. */
@@ -69,14 +72,14 @@ export function ArtifactKeys({ type }: { readonly type: ArtifactType }) {
         <Keyboard size={14} />
       </IconButton>
       {anchor !== null ? (
-        <Popover anchor={anchor} onClose={() => setAnchor(null)} label="Artifact keys" sides={["below", "left"]} width={360}>
+        <Popover anchor={anchor} onClose={() => setAnchor(null)} label="Artifact keys" sides={["below", "left"]} width={440}>
           <HelpMap role="group" title="keys" eyebrow="artifact" aria-label="Artifact keys" closeLabel="Close keys" onClose={() => setAnchor(null)}>
             <HelpMapGroup label="pane">
-              <HelpMapKeys rows={pane} />
+              <HelpMapKeys rows={pane} keyWidth={KEY_WIDTH} />
             </HelpMapGroup>
             {editor.length > 0 ? (
               <HelpMapGroup label={EDITOR_LABEL[type] ?? type}>
-                <HelpMapKeys rows={editor} />
+                <HelpMapKeys rows={editor} keyWidth={KEY_WIDTH} />
               </HelpMapGroup>
             ) : null}
           </HelpMap>

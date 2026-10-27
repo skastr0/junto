@@ -109,7 +109,7 @@ for (const theme of ["dark", "bright"] as const) {
       await expect(page.locator(".artifact-comments-edge")).toBeFocused();
 
       // The Keys button lists the pane's keys and the document's.
-      await page.getByRole("button", { name: "Keys" }).click();
+      await page.locator(".artifact-head").getByRole("button", { name: "Keys", exact: true }).click();
       const keys = page.getByRole("dialog", { name: "Artifact keys" });
       await expect(keys).toBeVisible();
       await expect(keys).toContainText("Open or close the artifact's comments");
