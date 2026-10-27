@@ -227,9 +227,9 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       latestSeq.set(key, Math.max(seq, latestSeq.get(key) ?? seq));
       const root = await rootOf(ref);
       if (!root.ok) return root;
-      // Only on a node this window opened (and has not closed meanwhile).
-      if (!sessions.has(key)) return refused("no-node");
-      track(subscriber, ref, root.value);
+      // Only on a node this window opened, on the root it opened: a root
+      // that moved since needs `open` again (the contract says so).
+      if (sessions.get(key)?.root !== root.value) return refused("no-node");
       const open = (): boolean => sessions.get(key)?.root === root.value;
       // One search per session in the index at a time: one that waited past
       // a newer keystroke, or past a close, answers superseded without running.

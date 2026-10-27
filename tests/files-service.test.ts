@@ -424,6 +424,17 @@ describe("search", () => {
     expect(files.heldRoots()).toEqual([]);
   });
 
+  it("a search after the node's root moved asks for open again", async () => {
+    const { files } = service({ names: fakeNames(() => ["a.ts"]) });
+    value(await files.open(1, ref));
+    facts = { host: "studio", root: outside };
+    expect(errorOf(await files.search(1, ref, "a", 1))).toBe("no-node");
+    expect(files.heldRoots()).toEqual([root]);
+    value(await files.open(1, ref));
+    expect(files.heldRoots()).toEqual([outside]);
+    expect(value(await files.search(1, ref, "secret", 2))).toMatchObject({ kind: "results" });
+  });
+
   it("a close during a search already in the index leaves no watcher behind", async () => {
     let watchers = 0;
     let release: (() => void) | undefined;
