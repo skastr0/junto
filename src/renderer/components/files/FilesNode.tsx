@@ -32,9 +32,9 @@ import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
-import { fileOfSelection, filePathOfTree, treePathOf, useFolderTree } from "./files-tree";
+import { fileOfSelection, filePathOfTree, movedPath, treePathOf, useFolderTree } from "./files-tree";
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
-import { useFilesDrop } from "./useFilesDrop";
+import { useFilesDrop, type FilesMoved } from "./useFilesDrop";
 import { registerFileEditorSave } from "../../lib/file-editor-keys";
 import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
@@ -121,24 +121,34 @@ export function FilesNode({
       return;
     }
     setTreeError(null);
-    const moved = (path: FilePath): FilePath | undefined =>
-      path === from ? result.value : path.startsWith(`${from}/`) ? (parseFilePath(`${result.value}${path.slice(from.length)}`) ?? undefined) : undefined;
-    // Unsaved text and the open file follow the new name.
+    follow([{ from, to: result.value }]);
+  };
+  /** Unsaved text and the open file follow a rename or a move, a folder's everything under it; the open file's new path, or null. */
+  const follow = (moves: ReadonlyArray<{ readonly from: FilePath; readonly to: FilePath }>): FilePath | null => {
+    const moved = (path: FilePath): FilePath | undefined => movedPath(moves, path);
     for (const path of dirtyPaths(nodeId)) {
       const next = moved(path);
       if (next === undefined) continue;
       setFileDraft(nodeId, next, fileDraft(nodeId, path));
       setFileDraft(nodeId, path, undefined);
     }
-    setSelected((open) => (open === null ? open : (moved(open) ?? open)));
+    const open = selectedRef.current === null ? null : (moved(selectedRef.current) ?? selectedRef.current);
+    if (open !== selectedRef.current) setSelected(open);
+    return open;
   };
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
-  /** After a tree drag the highlight goes back to the open file, or to nothing: a drag never opens one. */
-  const reselectOpenFile = useCallback(() => {
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  /**
+   * After a tree drag the open file follows what moved, and the highlight goes
+   * back to it, or to nothing: a drag never opens one.
+   */
+  const reselectOpenFile = useCallback((moves: ReadonlyArray<FilesMoved>) => {
+    const after = followRef.current(moves);
     const tree = modelRef.current;
     if (tree === null) return;
-    const open = selectedRef.current === null ? null : treePathOf({ path: selectedRef.current, dir: false });
+    const open = after === null ? null : treePathOf({ path: after, dir: false });
     for (const path of tree.getSelectedPaths()) if (path !== open) tree.getItem(path)?.deselect();
     if (open !== null) tree.getItem(open)?.select();
   }, []);

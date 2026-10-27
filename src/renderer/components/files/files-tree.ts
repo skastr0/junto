@@ -19,6 +19,15 @@ export const fileOfSelection = (selected: ReadonlyArray<string>): FilePath | nul
   return null;
 };
 
+/** Where `path` is after `moves` (a file's own move, or a folder's carrying it along), or undefined when none touched it. */
+export const movedPath = (moves: ReadonlyArray<{ readonly from: FilePath; readonly to: FilePath }>, path: FilePath): FilePath | undefined => {
+  for (const { from, to } of moves) {
+    if (path === from) return to;
+    if (path.startsWith(`${from}/`)) return parseFilePath(`${to}${path.slice(from.length)}`);
+  }
+  return undefined;
+};
+
 /**
  * The tree edits that make a folder's children match a fresh listing: an add
  * for each new entry, a remove (recursive for a folder) for each one gone.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath, ROOT_PATH, type FileEntry, type FilePath } from "../src/shared/files";
-import { fileOfSelection, folderOps, treePathOf } from "../src/renderer/components/files/files-tree";
+import { fileOfSelection, folderOps, movedPath, treePathOf } from "../src/renderer/components/files/files-tree";
 import { changeTouches, dirtyPaths, fileDraft, fileViewOf, filesErrorLine, foldersTouched, makeLocalFiles, setFileDraft } from "../src/renderer/lib/files-source";
 
 const node = asNodeId("files-test");
@@ -51,6 +51,14 @@ describe("the tree", () => {
       { type: "add", path: "src/new/" },
     ]);
     expect([...children]).toEqual(["src/a.ts", "src/c.ts", "src/new/"]);
+  });
+
+  it("follows a file's own move and a folder's move to everything under it, and leaves the rest", () => {
+    const moves = [{ from: path("a.md"), to: path("docs/a.md") }, { from: path("src"), to: path("lib/src") }];
+    expect(movedPath(moves, path("a.md"))).toBe("docs/a.md");
+    expect(movedPath(moves, path("src/deep/x.ts"))).toBe("lib/src/deep/x.ts");
+    expect(movedPath(moves, path("srcs/x.ts"))).toBeUndefined();
+    expect(movedPath([], path("a.md"))).toBeUndefined();
   });
 
   it("re-lists only the folders a change names, and every listed one on a reset", () => {
