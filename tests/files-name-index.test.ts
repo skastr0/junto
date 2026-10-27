@@ -1,8 +1,14 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MessageChannel } from "node:worker_threads";
 import { describe, expect, it } from "vitest";
 import { foldForSearch, scoreFilePath } from "@shared/files";
-import { MessageChannel } from "node:worker_threads";
 import { NameIndexBuilder, scoreCodes } from "../src/main/junto/files/name-index";
-import { portEngine, serveIndex, SWEEP_MAX } from "../src/main/junto/files/index-engine";
+import { spawnGit } from "../src/main/junto/files/git-spawn";
+import type { RootEvent } from "../src/main/junto/files/root-index";
+import { portRootIndex, serveRootIndex } from "../src/main/junto/files/root-index-port";
 
 describe("name index", () => {
   it("removes, adds and sweeps folders by delta", async () => {
@@ -98,37 +104,66 @@ describe("names with a unit above U+00FF", () => {
   });
 });
 
-describe("index engine over a message port", () => {
-  it("builds, searches with narrowing, applies deltas and drops, as the worker does", async () => {
+describe("root index across a message port", () => {
+  /** Poll on loop turns (git and lstat are real I/O), never on a clock. */
+  const settled = async (check: () => Promise<boolean>): Promise<void> => {
+    for (let turn = 0; turn < 20_000; turn += 1) {
+      if (await check()) return;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    throw new Error("never settled");
+  };
+
+  it("holds, searches, counts and releases a git root, git spawned on the main side", async () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "junto-root-port-")));
     const { port1, port2 } = new MessageChannel();
-    serveIndex(port2);
-    const engine = portEngine(port1);
     try {
-      engine.begin(1);
-      engine.names(1, ["src/app.ts", "src/lib/util.ts"]);
-      engine.names(1, ["README.md", "docs/guide.md"]);
-      expect(await engine.finish(1)).toEqual({ size: 4, drift: 0 });
-      expect((await engine.search(1, "s", "ts")).matches.map((match) => match.path)).toEqual(["src/app.ts", "src/lib/util.ts"]);
-      expect(await engine.search(1, "s", "")).toEqual({ matches: [], total: 4 });
-      const applied = await engine.apply(1, { adds: ["src/new.ts"], gone: ["docs", "README.md"], drop: ["src/app.ts"] });
-      expect(applied).toMatchObject({ size: 2, overflow: false });
-      expect((await engine.search(1, "s", "ts")).matches.map((match) => match.path).sort()).toEqual(["src/lib/util.ts", "src/new.ts"]);
-      const many = Array.from({ length: SWEEP_MAX + 1 }, (_, i) => `gone-${String(i)}`);
-      expect(await engine.apply(1, { adds: [], gone: many, drop: [] })).toMatchObject({ overflow: true });
-      engine.drop(1);
-      await expect(engine.search(1, "s", "ts")).rejects.toThrow("no index in slot 1");
-      engine.lost(new Error("stopped"));
+      mkdirSync(join(base, "src"));
+      writeFileSync(join(base, "src", "app.ts"), "");
+      writeFileSync(join(base, "README.md"), "");
+      writeFileSync(join(base, ".gitignore"), "dist/\n");
+      execFileSync("git", ["init", "-q", base]);
+      let fire: ((event: string, filename: string | null) => void) | undefined;
+      const queued: Array<() => void> = [];
+      serveRootIndex(port2, {
+        watch: (_root, listener) => {
+          fire = listener;
+          return { close: () => undefined };
+        },
+        timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      });
+      const events: RootEvent[] = [];
+      const gitRuns: string[][] = [];
+      const index = portRootIndex(port1, {
+        git: (cwd, args, onBytes, signal, stdin) => {
+          gitRuns.push([...args]);
+          return spawnGit(cwd, args, onBytes, signal, stdin);
+        },
+        emit: (_root, event) => events.push(event),
+      });
+      expect(await index.hold(base, "s")).toEqual({ repo: true });
+      expect((await index.search(base, "s", "app")).matches.map((match) => match.path)).toEqual(["src/app.ts"]);
+      expect(await index.count(base)).toEqual({ files: 3, capped: false });
+      expect(gitRuns.some((args) => args.includes("ls-files"))).toBe(true);
+      writeFileSync(join(base, "src", "late.ts"), "");
+      fire?.("rename", "src/late.ts");
+      queued.shift()?.();
+      await settled(async () => (await index.search(base, "s", "late")).matches.length === 1);
+      expect(events.some((event) => event.kind === "paths")).toBe(true);
+      expect(await index.release(base, "s")).toEqual({ files: 4, capped: false });
+      expect(index.idle()).toBe(true);
     } finally {
       port1.close();
       port2.close();
+      rmSync(base, { recursive: true, force: true });
     }
   });
 
   it("a lost worker rejects every pending call", async () => {
     const { port1, port2 } = new MessageChannel();
-    const engine = portEngine(port1);
-    const pending = engine.finish(7);
-    engine.lost(new Error("files index worker exited 1"));
+    const index = portRootIndex(port1, { git: async () => 0, emit: () => undefined });
+    const pending = index.count("/nowhere");
+    index.lost(new Error("files index worker exited 1"));
     await expect(pending).rejects.toThrow("exited 1");
     port1.close();
     port2.close();

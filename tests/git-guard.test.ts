@@ -9,7 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readGitLog, readGitReview, readGitStatus, readGitSummary } from "../src/main/junto/adapters/git";
 import { filterDriverNames, filterGuardArgs } from "../src/main/junto/adapters/git-guard";
-import { gitNames, isGitRoot } from "../src/main/junto/files/sources";
+import { mainNameSources } from "../src/main/junto/files/git-spawn";
+
+const { gitNames, isGitRoot } = mainNameSources;
 
 let dir: string;
 let marker: string;

@@ -14,7 +14,8 @@ import {
 import { fileUrl } from "@shared/file-url";
 import { asNodeId } from "@shared/physics/schema";
 import { COUNT_KEEP_MS, makeFilesService, type FilesNodeFacts, type NameSources } from "../src/main/junto/files/service";
-import { gitNames, walkNames } from "../src/main/junto/files/sources";
+import { walkNames } from "../src/main/junto/files/sources";
+import { mainNameSources } from "../src/main/junto/files/git-spawn";
 import { execFileSync } from "node:child_process";
 import { numberedName } from "../src/main/junto/files/fs-ops";
 import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
@@ -125,7 +126,7 @@ describe("symlinks that point out of the root", () => {
     await symlink(join(root, "src", "a.ts"), join(root, "untracked-in.ts"));
     await writeFile(join(root, "notes.txt"), "n\n");
     const signal = new AbortController().signal;
-    expect(await listed((sink) => gitNames(root, sink, signal))).toEqual([
+    expect(await listed((sink) => mainNameSources.gitNames(root, sink, signal))).toEqual([
       "README.md", "link-in.md", "notes.txt", "src/a.ts", "untracked-in.ts",
     ]);
   });

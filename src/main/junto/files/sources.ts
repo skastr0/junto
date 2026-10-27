@@ -1,8 +1,6 @@
 import { lstat, opendir, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
 import { GIT_GUARD_ARGS } from "../adapters/git-guard";
-import { spawnServiceChild } from "../../services/process";
 
 /**
  * Where a Files root's filenames come from: `git ls-files` when the root is
@@ -11,6 +9,10 @@ import { spawnServiceChild } from "../../services/process";
  * file. Both stream into `sink` in chunks, so a 200k root never blocks the
  * loop. A symlink is listed only when it resolves inside the root: one that
  * points out could only answer `outside-root`.
+ *
+ * Git is reached through a `GitRun`: in the app main spawns it on the
+ * process plane (`git-spawn.ts`) and hands its stdout over as bytes, and
+ * this module, in the index worker, decodes and splits them.
  */
 
 export type NameSink = (names: ReadonlyArray<string>) => void;
@@ -25,15 +27,33 @@ export const inSkippedDir = (path: string): boolean => path.split("/").some((seg
 export const WALK_CAP = 1_000_000;
 const WALK_BATCH = 2048;
 
-const SOURCE = "files-index";
-
-const spawnEnv = (): Promise<NodeJS.ProcessEnv> => resolvedSpawnEnv().catch(() => resolvedSpawnEnvSync());
-
 /**
- * Run git in `cwd` and stream its NUL-separated stdout to `onNames`.
- * Resolves with the exit code; aborting terminates the child.
+ * Run git in `cwd` with `args` (the guard is already in them), stream its
+ * stdout bytes to `onBytes`, and resolve with the exit code. Aborting ends
+ * the child.
  */
+export type GitRun = (
+  cwd: string,
+  args: ReadonlyArray<string>,
+  onBytes: (chunk: Uint8Array) => void,
+  signal: AbortSignal,
+  stdin?: string,
+) => Promise<number | null>;
+
+/** The names a root's index is built from; swapped in tests. */
+export type NameSources = {
+  readonly isGitRoot: (root: string, signal: AbortSignal) => Promise<boolean>;
+  readonly gitNames: (root: string, sink: NameSink, signal: AbortSignal) => Promise<void>;
+  readonly walkNames: (root: string, sink: NameSink, signal: AbortSignal, cap?: number, within?: string) => Promise<void>;
+  readonly gitIgnored: (root: string, paths: ReadonlyArray<string>, signal: AbortSignal) => Promise<ReadonlySet<string>>;
+};
+
+/** ls-files, check-ignore and rev-parse run no filter: the fixed overrides suffice. */
+const guarded = (args: ReadonlyArray<string>): ReadonlyArray<string> => [...GIT_GUARD_ARGS, "-c", "core.quotepath=off", ...args];
+
+/** Run git and stream its NUL-separated stdout to `onNames`, decoded here. */
 const streamGit = async (
+  run: GitRun,
   cwd: string,
   args: ReadonlyArray<string>,
   onNames: NameSink,
@@ -41,42 +61,31 @@ const streamGit = async (
   stdin?: string,
 ): Promise<number | null> => {
   if (signal.aborted) return null;
-  const child = spawnServiceChild({
-    source: SOURCE,
-    purpose: "files name index",
-    command: "git",
-    // ls-files, check-ignore and rev-parse run no filter: the fixed overrides suffice.
-    args: [...GIT_GUARD_ARGS, "-c", "core.quotepath=off", ...args],
-    cwd,
-    env: await spawnEnv(),
-  });
-  const abort = (): void => {
-    void child.requestTermination();
-  };
-  signal.addEventListener("abort", abort, { once: true });
+  const decoder = new TextDecoder("utf-8");
   let rest = "";
-  child.io.stdout.setEncoding("utf8");
-  child.io.stdout.on("data", (chunk: string) => {
-    const parts = (rest + chunk).split("\0");
+  const take = (text: string): void => {
+    const parts = (rest + text).split("\0");
     rest = parts.pop() ?? "";
     if (parts.length > 0) onNames(parts);
-  });
-  child.io.stderr.resume();
-  child.io.stdin.on("error", () => undefined);
-  child.io.stdin.end(stdin);
-  try {
-    const exit = await child.io.exited;
-    if (rest !== "") onNames([rest]);
-    return exit.code;
-  } finally {
-    signal.removeEventListener("abort", abort);
-  }
+  };
+  const code = await run(cwd, guarded(args), (chunk) => take(decoder.decode(chunk, { stream: true })), signal, stdin);
+  take(decoder.decode());
+  if (rest !== "") onNames([rest]);
+  return code;
 };
 
+/** The git-backed sources over `run`, with the plain walk. */
+export const makeNameSources = (run: GitRun): NameSources => ({
+  isGitRoot: (root, signal) => isGitRoot(run, root, signal),
+  gitNames: (root, sink, signal) => gitNames(run, root, sink, signal),
+  walkNames,
+  gitIgnored: (root, paths, signal) => gitIgnored(run, root, paths, signal),
+});
+
 /** Whether `root` is inside a git work tree. */
-export const isGitRoot = async (root: string, signal: AbortSignal): Promise<boolean> => {
+const isGitRoot = async (run: GitRun, root: string, signal: AbortSignal): Promise<boolean> => {
   let answer = "";
-  const code = await streamGit(root, ["rev-parse", "--is-inside-work-tree"], (parts) => {
+  const code = await streamGit(run, root, ["rev-parse", "--is-inside-work-tree"], (parts) => {
     answer += parts.join("");
   }, signal).catch(() => null);
   return code === 0 && answer.trim() === "true";
@@ -99,10 +108,11 @@ const UNTRACKED_LSTATS = 64;
  * are resolved; untracked ones (few, outside ignored folders) take an lstat
  * each to find theirs.
  */
-export const gitNames = async (root: string, sink: NameSink, signal: AbortSignal): Promise<void> => {
+const gitNames = async (run: GitRun, root: string, sink: NameSink, signal: AbortSignal): Promise<void> => {
   const links: string[] = [];
   let last = "";
   const tracked = await streamGit(
+    run,
     root,
     // --format cannot combine with --others; an unmerged path repeats, adjacent.
     ["ls-files", "-z", "--cached", "--format=%(objectmode) %(path)"],
@@ -124,6 +134,7 @@ export const gitNames = async (root: string, sink: NameSink, signal: AbortSignal
   if (tracked !== 0 && !signal.aborted) throw new Error(`git ls-files exited ${String(tracked)}`);
   const untracked: string[] = [];
   const others = await streamGit(
+    run,
     root,
     ["ls-files", "-z", "--others", "--exclude-standard"],
     (names) => untracked.push(...names.filter((name) => !inSkippedDir(name))),
@@ -144,7 +155,8 @@ export const gitNames = async (root: string, sink: NameSink, signal: AbortSignal
 };
 
 /** Which of `paths` (relative to `root`) git ignores, for deltas in a git root. */
-export const gitIgnored = async (
+const gitIgnored = async (
+  run: GitRun,
   root: string,
   paths: ReadonlyArray<string>,
   signal: AbortSignal,
@@ -155,7 +167,7 @@ export const gitIgnored = async (
   // --no-index: by pattern alone, 0.01 s instead of about 3 ms a path on a
   // 200k repo. A force-added file under an ignore pattern reads as ignored;
   // it stays in the index if it was there, and the next rebuild restores it.
-  await streamGit(root, ["check-ignore", "--no-index", "-z", "--stdin"], (names) => {
+  await streamGit(run, root, ["check-ignore", "--no-index", "-z", "--stdin"], (names) => {
     for (const name of names) if (name !== "") ignored.add(name);
   }, signal, `${paths.join("\0")}\0`).catch(() => null);
   return ignored;

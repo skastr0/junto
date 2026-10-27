@@ -7,7 +7,7 @@ import { parseFilePath, type FilePath, type FilesNodeRef, type FilesResult, type
 import { asNodeId } from "@shared/physics/schema";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
-import { workerIndexEngine } from "./index-worker-host";
+import { workerRootIndex } from "./index-worker-host";
 import { makeFilesService, type FilesNodeFacts, type FilesService } from "./service";
 
 /**
@@ -107,7 +107,7 @@ export const registerFilesIpc = (): FilesService => {
       const target = webContents.fromId(subscriber);
       if (target !== undefined && !target.isDestroyed()) target.send(IPC_CHANNELS.filesChanged, event);
     },
-    engine: workerIndexEngine(),
+    index: workerRootIndex,
   });
 
   const watched = new Set<number>();
