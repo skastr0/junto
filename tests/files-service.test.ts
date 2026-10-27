@@ -130,6 +130,22 @@ describe("symlinks that point out of the root", () => {
     ]);
   });
 
+  it("the tree lists a link only when it resolves inside the root and outside Junto's home", async () => {
+    await symlink(join(root, "README.md"), join(root, "link-in.md"));
+    await symlink(join(root, "src"), join(root, "src-link"));
+    await symlink(join(root, "gone.txt"), join(root, "dangling.txt"));
+    await mkdir(join(root, ".junto"));
+    await symlink(join(root, ".junto"), join(root, "home-link"));
+    const { files } = service();
+    const listing = value(await files.list(ref, ROOT_PATH)).map((entry) => [entry.path, entry.dir]);
+    expect(listing).toEqual([
+      ["src", true],
+      ["src-link", true],
+      ["link-in.md", false],
+      ["README.md", false],
+    ]);
+  });
+
   it("a link that appears pointing out is never indexed", async () => {
     const watch = manualWatch();
     const queued: Array<() => void> = [];
@@ -207,14 +223,12 @@ describe("root scoping", () => {
 });
 
 describe("list and read", () => {
-  it("lists folders first, symlinks as what they point at, .git hidden", async () => {
+  it("lists folders first, .git hidden, links out of the root left out", async () => {
     await mkdir(join(root, ".git"));
     const { files } = service();
     const entries = value(await files.list(ref, ROOT_PATH));
     expect(entries.map((entry) => [entry.path, entry.dir])).toEqual([
-      ["dir-out", true],
       ["src", true],
-      ["link-out.txt", false],
       ["README.md", false],
     ]);
   });

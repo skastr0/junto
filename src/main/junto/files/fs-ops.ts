@@ -140,10 +140,16 @@ export const listDir = (scope: Scope, dir: FilePath): Promise<FilesResult<Readon
         const path = joinFilePath(dir, name);
         if (path === undefined) return;
         try {
+          if (denied(scope, join(real.value, name))) return;
           const own = await lstat(join(real.value, name));
-          // A symlink shows as what it points at; a broken one, or one out of
-          // the root, still shows (as a file) and refuses when opened.
-          const target = own.isSymbolicLink() ? await stat(join(real.value, name)).catch(() => own) : own;
+          let target = own;
+          if (own.isSymbolicLink()) {
+            // A symlink shows as what it points at. A broken one, or one out
+            // of the root or into Junto's home, could only refuse: no row.
+            const resolved = await realpath(join(real.value, name)).catch(() => undefined);
+            if (resolved === undefined || !inside(scope.root, resolved) || denied(scope, resolved)) return;
+            target = await stat(resolved);
+          }
           entries.push({ path, dir: target.isDirectory(), stamp: stampOf(target) });
         } catch {
           // gone between readdir and lstat
