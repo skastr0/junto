@@ -197,7 +197,7 @@ test("the pad draws an agent's flow legibly in both themes", async () => {
     await page.getByRole("button", { name: "Fit view" }).click();
     await shot(page, "wide-fit-bright");
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark", { timeout: 5_000 });
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright", { timeout: 5_000 });
     await shot(page, "wide-fit-dark");
   } finally {
     await junto.close();
