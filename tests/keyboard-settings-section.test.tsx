@@ -86,6 +86,8 @@ describe("keyboard shortcuts section", () => {
       "Inside search",
       "Inside the needs-you feed",
       "Inside a preview",
+      "Inside an artifact",
+      "Inside a document",
       "Inside the drawing pad",
       "Inside a page",
       "Writing a message",

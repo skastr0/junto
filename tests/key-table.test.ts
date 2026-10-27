@@ -365,10 +365,21 @@ describe("the agent view and the canvas", () => {
   it("widens or narrows the connections list with Cmd+B where an agent is in front", () => {
     expect(resolveKey(key({ key: "b", metaKey: true }), at("terminal"))).toEqual({ id: "rail.toggle" });
     expect(resolveKey(key({ key: "b", metaKey: true }), at("working"))).toEqual({ id: "rail.toggle" });
-    // In a field Cmd+B belongs to the text.
-    expect(resolveKey(key({ key: "b", metaKey: true }), at("field"))).toBeNull();
+    // In a field the table names it; the action takes it only for an artifact's rail.
+    expect(resolveKey(key({ key: "b", metaKey: true }), at("field"))).toEqual({ id: "rail.toggle" });
     expect(resolveKey(key({ key: "b", metaKey: true }), at("canvas"))).toBeNull();
     expect(resolveKey(key({ key: "b", ctrlKey: true }), at("terminal"))).toBeNull();
+  });
+
+  it("steps the keyboard between an artifact's panes with Cmd+Alt and an arrow, typing or not", () => {
+    for (const context of ["working", "field"] as const) {
+      expect(resolveKey(key({ key: "ArrowRight", metaKey: true, altKey: true }), at(context))).toEqual({ id: "pane.next" });
+      expect(resolveKey(key({ key: "ArrowLeft", metaKey: true, altKey: true }), at(context))).toEqual({ id: "pane.previous" });
+    }
+    // Cmd+Arrow alone moves the caret in a field; Shift selects.
+    expect(resolveKey(key({ key: "ArrowRight", metaKey: true }), at("field"))).toBeNull();
+    expect(resolveKey(key({ key: "ArrowRight", metaKey: true, altKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "ArrowRight", metaKey: true, altKey: true }), at("terminal"))).toBeNull();
   });
 
   it("opens the selected agent from the canvas with Cmd+Enter, and nowhere else", () => {

@@ -65,6 +65,8 @@ export type ShortcutArea =
   | "Inside search"
   | "Inside the needs-you feed"
   | "Inside a preview"
+  | "Inside an artifact"
+  | "Inside a document"
   | "Inside the drawing pad"
   | "Inside a page"
   | "Writing a message";
@@ -77,6 +79,8 @@ export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Inside search",
   "Inside the needs-you feed",
   "Inside a preview",
+  "Inside an artifact",
+  "Inside a document",
   "Inside the drawing pad",
   "Inside a page",
   "Writing a message",
@@ -106,6 +110,8 @@ export type ShortcutId =
   | "canvas.zoomReset"
   | "front.close"
   | "rail.toggle"
+  | "pane.next"
+  | "pane.previous"
   | "canvas.open"
   | "page.address"
   | "page.reload"
@@ -138,6 +144,11 @@ export type SurfaceKeyId =
   | "inPreview.step"
   | "inPreview.compare"
   | "inPreview.zoom"
+  | "inArtifact.list"
+  | "inArtifact.open"
+  | "inDocument.write"
+  | "inDocument.stop"
+  | "inDocument.mention"
   | "inPad.tool"
   | "inPad.order"
   | "inPad.delete"
@@ -392,7 +403,28 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Widen or narrow the list of connected agents beside the agent in front, or open or close an artifact's comments",
     mac: ["Cmd+B"],
     other: [],
-    where: ["terminal", "working"],
+    // A field too: the caret in a document or a comment still reaches the rail.
+    where: ["terminal", "field", "working"],
+  },
+  // An artifact's list, content and comments, or an automation's list and
+  // detail: the keyboard steps between the panes that show.
+  {
+    id: "pane.next",
+    area: "Inside an artifact",
+    name: "Next pane",
+    does: "Move the keyboard to the next pane: the list, the content, the comments",
+    mac: ["Cmd+Alt+ArrowRight"],
+    other: ["Ctrl+Alt+ArrowRight"],
+    where: ["working", "field"],
+  },
+  {
+    id: "pane.previous",
+    area: "Inside an artifact",
+    name: "Previous pane",
+    does: "Move the keyboard to the previous pane",
+    mac: ["Cmd+Alt+ArrowLeft"],
+    other: ["Ctrl+Alt+ArrowLeft"],
+    where: ["working", "field"],
   },
   {
     id: "canvas.open",
@@ -606,6 +638,47 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Zoom the preview",
     keys: ["Z"],
     where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inArtifact.list",
+    area: "Inside an artifact",
+    name: "Move through the artifacts",
+    does: "Move through the artifacts in the list",
+    keys: ["ArrowDown", "ArrowUp"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inArtifact.open",
+    area: "Inside an artifact",
+    name: "Open the artifact",
+    does: "Open the artifact and put the keyboard in it",
+    keys: ["Enter"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inDocument.write",
+    area: "Inside a document",
+    name: "Write",
+    does: "Write in the document, the caret back where it was",
+    keys: ["Enter"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inDocument.stop",
+    area: "Inside a document",
+    name: "Stop writing",
+    does: "Stop writing and read the document; Escape again closes",
+    keys: ["Escape"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inDocument.mention",
+    area: "Inside a document",
+    name: "Name a seat or page",
+    does: "Name a seat or a page; Enter or Tab picks it",
+    keys: [],
+    shown: [["@"]],
+    where: ["field"],
   }),
   surfaceKey({
     id: "inPad.tool",

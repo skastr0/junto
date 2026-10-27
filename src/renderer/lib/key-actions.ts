@@ -15,10 +15,11 @@ import {
 } from "./focus-switcher";
 import { closeFront } from "./front-close";
 import { toggleSeatGitDetail } from "./git-summary";
-import type { KeyActions } from "./key-dispatcher";
+import { keySituation, type KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { runPageChromeKey } from "./page-chrome-keys";
+import { movePaneFocus } from "./pane-focus";
 import { state$ } from "./state";
 import { spacePressesControl, stepToNextAgent } from "./urgency-step";
 import { modelStore, nodeAt } from "./use-model";
@@ -92,8 +93,11 @@ export const KEY_ACTIONS: KeyActions = {
   // With no connections list in front the key passes, and the choice it
   // would have flipped for every other agent is left alone.
   // An artifact's comments rail in front takes it the same way.
-  "rail.toggle": () => {
-    if (railInFront()) {
+  // In a field Cmd+B belongs to the text, except in an artifact, where no
+  // text binds it and the caret in the document still reaches the rail.
+  "rail.toggle": (_hit, event) => {
+    const typing = keySituation(event.target).context === "field";
+    if (!typing && railInFront()) {
       setActorRailExpanded(!actorRailExpanded());
       return true;
     }
@@ -101,6 +105,9 @@ export const KEY_ACTIONS: KeyActions = {
     setCommentsRailOpen(!commentsRailOpen());
     return true;
   },
+  // No panes in front, or only one: the key passes.
+  "pane.next": (_hit, event) => movePaneFocus(1, event),
+  "pane.previous": (_hit, event) => movePaneFocus(-1, event),
   // Nothing selected, or nothing it can open: the key passes.
   "canvas.open": () => activateSelectedNodeSurface().opened,
   // Always ours: a press held back by the overshoot guard must not fall
