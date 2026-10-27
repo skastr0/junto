@@ -40,7 +40,11 @@ not, add that the Files stub on other machines comes later.)
   config names. A repository you open in the git node or a Files node, a
   downloaded one included, cannot run a file system monitor, a filter driver,
   a signature check or a hooks folder on a read. The git node no longer
-  reports dirty work in submodules.
+  reports dirty work in submodules. A repository whose config names a filter
+  driver Junto cannot switch off is refused: Junto does not run git in it and
+  says why.
+- Security: dropping files into Files copies only the files you actually
+  dropped, and never anything from Junto's own folder.
 
 ## 0.10.3 — 2026-10-27
 

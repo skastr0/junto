@@ -75,6 +75,13 @@ canvas-lead).
       before the notes claim more: a repo whose filter is required (Git LFS)
       may read as modified in the git node now that its filter commands are
       emptied. Ask remote-lead or the git node's owner.
+- [ ] A repo whose config names a filter driver with an `=` in its name is
+      refused (`unguardableDrivers`, 3776924fc): Junto runs no git in it and
+      the git node shows the error. Receipt: `tests/git-guard.test.ts` at the
+      cut. Unverified: what a seat's checkout in such a repo does.
+- [ ] Files import copies only paths a real drop carried and never Junto's
+      home (3776924fc). Receipt: `tests/files-service.test.ts` at the cut, and
+      the F5 drop run in the real app.
 
 ## 4. Before the cut
 
