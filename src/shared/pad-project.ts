@@ -347,7 +347,7 @@ const emitShape = (shape: PadShape, pal: PadSvgPalette): string[] => {
       .map((line, index) => `<tspan x="${fmt(layout.x)}" y="${fmt(layout.y + index * layout.step)}">${esc(line)}</tspan>`)
       .join("");
     parts.push(
-      `<text fill="${esc(pal.text)}" font-size="${layout.size}" text-anchor="${layout.anchor}">${lines}</text>`,
+      `<text fill="${esc(pal.text)}" font-size="${layout.size}" text-anchor="${layout.anchor}"${shape.type === "label" ? ` stroke="${esc(pal.ground)}" stroke-width="4" paint-order="stroke"` : ""}>${lines}</text>`,
     );
   }
   return parts;

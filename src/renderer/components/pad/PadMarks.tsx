@@ -83,7 +83,7 @@ export function PadShapeOutline({
   }
 }
 
-/** A shape's words, wrapped inside it. */
+/** A shape's words, wrapped inside it; a free label is ringed in the ground so it reads over a line. */
 export function PadShapeWords({ shape, pal }: { readonly shape: PadShape; readonly pal: PadSvgPalette }) {
   const text = padShapeText(shape);
   if (!text) return null;
@@ -94,6 +94,7 @@ export function PadShapeWords({ shape, pal }: { readonly shape: PadShape; readon
       fontSize={layout.size}
       fontFamily={PAD_FONT}
       textAnchor={layout.anchor}
+      {...(shape.type === "label" ? { stroke: pal.ground, strokeWidth: 4, paintOrder: "stroke" } : {})}
       style={{ pointerEvents: "none" }}
     >
       {layout.lines.map((line, index) => (
