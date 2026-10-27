@@ -178,3 +178,30 @@ it("draws inline marks for the visible part of a long document only", () => {
   expect(hiddenStars).toBeGreaterThan(0);
   expect(hiddenStars).toBeLessThan(8_000);
 });
+
+it("draws a link whose title or label crosses a line as source, without a widget over the break", () => {
+  const titled = viewOf('Read [the notes](https://example.com\n"Notes") today.');
+  expect(replaced(titled).some((span) => span.includes("\n"))).toBe(false);
+  // The plugin still draws: a crashed plugin would leave the marks shown.
+  expect(replaced(titled)).toContain("[");
+  const wrapped = viewOf("Ask [Atlas\nseat](junto://canvas/factory?node=atlas) now.", { handlers: { mount: () => undefined } });
+  expect(replaced(wrapped).some((span) => span.includes("\n"))).toBe(false);
+  expect(replaced(wrapped)).toContain("[");
+});
+
+it("moves anchors an edit misses, and finds a touched quote again", () => {
+  const view = viewOf(DOC);
+  view.dispatch({ effects: anchorsEffect([{ id: "t1", quote: "bold", offset: 0, count: 1 }]) });
+  const quoteAt = (): string[] => {
+    const out: string[] = [];
+    each(view, (from, to, spec) => {
+      if ((spec.attributes as Record<string, string> | undefined)?.["data-anchor-id"]) out.push(view.state.sliceDoc(from, to));
+    });
+    return out;
+  };
+  view.dispatch({ changes: { from: 0, insert: "New " } });
+  expect(quoteAt()).toEqual(["bold"]);
+  const at = view.state.doc.toString().indexOf("bold");
+  view.dispatch({ changes: { from: at, to: at + 4, insert: "bald" } });
+  expect(quoteAt()).toEqual([]);
+});

@@ -86,18 +86,24 @@ const anchors = StateField.define<{
   update: (value, tr) => {
     // A flash is one reveal: the next edit or caret move ends it, so a redrawn line never replays it.
     let next = value.flash !== null && (tr.docChanged || tr.selection !== undefined) ? { ...value, flash: null } : value;
-    let moved = tr.docChanged;
+    let listed = false;
     for (const effect of tr.effects) {
       if (effect.is(setAnchors)) {
         next = { ...next, list: effect.value };
-        moved = true;
+        listed = true;
       }
       if (effect.is(flashQuote)) {
         const range = resolveAnchor(tr.state.doc.toString(), effect.value.quote, effect.value.offset);
         next = { ...next, flash: range === null ? null : { ...effect.value, ...range } };
       }
     }
-    return moved ? { ...next, placed: placeAnchors(tr.state.doc, next.list) } : next;
+    if (listed) return { ...next, placed: placeAnchors(tr.state.doc, next.list) };
+    if (!tr.docChanged || next.list.length === 0) return next;
+    // An edit that misses every quote only moves them; the text is read only when a quote was touched.
+    if (next.placed.length === next.list.length && !next.placed.some((anchor) => tr.changes.touchesRange(anchor.from, anchor.to))) {
+      return { ...next, placed: next.placed.map((anchor) => ({ ...anchor, from: tr.changes.mapPos(anchor.from, 1), to: tr.changes.mapPos(anchor.to, -1) })) };
+    }
+    return { ...next, placed: placeAnchors(tr.state.doc, next.list) };
   },
 });
 
@@ -471,8 +477,13 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers, scope: Sco
     const end = doc.lineAt(to).to;
     return state.selection.ranges.some((range) => range.from <= end && range.to >= start);
   };
+  /** Hide a span line by line: a line break stays, since only a state field may replace one. */
   const hide = (from: number, to: number): void => {
-    if (to > from) out.push(hidden.range(from, to));
+    for (let at = from; at < to; ) {
+      const end = Math.min(to, doc.lineAt(at).to);
+      if (end > at) out.push(hidden.range(at, end));
+      at = end + 1;
+    }
   };
   const lines = (from: number, to: number, className: string): void => {
     for (let n = doc.lineAt(from).number; n <= doc.lineAt(to).number; n += 1) out.push(line(className).range(doc.line(n).from));
@@ -542,6 +553,8 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers, scope: Sco
           const href = doc.sliceString(url.from, url.to);
           const labelFrom = marks[0]!.to;
           const labelTo = marks[1]!.from;
+          // A wrapped label or a title on the next line keeps its source: a widget may not take a line break.
+          const oneLine = doc.lineAt(node.from).number === doc.lineAt(node.to).number;
           if (isMention(href)) {
             const label = doc.sliceString(labelFrom, labelTo);
             const row = doc.lineAt(node.from);
@@ -554,16 +567,18 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers, scope: Sco
               return false;
             }
             if (scope.blocks) return false;
-            // A chip stays a chip on the caret's line too: one unit the caret steps over and Backspace takes whole.
-            const chip = Decoration.replace({ widget: new Mention({ kind: "chip", href, label }, handlers) }).range(node.from, node.to);
-            out.push(chip);
-            atomic.push(chip);
-            return false;
+            if (oneLine) {
+              // A chip stays a chip on the caret's line too: one unit the caret steps over and Backspace takes whole.
+              const chip = Decoration.replace({ widget: new Mention({ kind: "chip", href, label }, handlers) }).range(node.from, node.to);
+              out.push(chip);
+              atomic.push(chip);
+              return false;
+            }
           }
           if (scope.blocks) return false;
           if (name === "Image") {
             const src = safeArtifactMarkdownUrl(href);
-            if (src && !open(node.from, node.to)) {
+            if (src && oneLine && !open(node.from, node.to)) {
               out.push(Decoration.replace({ widget: new Picture(src, doc.sliceString(labelFrom, labelTo)) }).range(node.from, node.to));
               return false;
             }
