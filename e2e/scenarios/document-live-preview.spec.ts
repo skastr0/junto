@@ -6,6 +6,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { Schema } from "effect";
+import { mentionHref } from "../../src/shared/mention";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -49,10 +50,17 @@ test("click a line to edit its markdown in place, move off and it renders, typin
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
+    const pricingId = mintItemId();
+    await page.evaluate(
+      ({ canvas, node, artifactId, opId }) =>
+        window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, { op: "create", title: "Pricing pages", body: { type: "document", markdown: "Superset Pro is $16 to $20 a user per month." } }),
+      { canvas: CANVAS, node: asNodeId("shelf"), artifactId: pricingId, opId: mintOpId() },
+    );
+    const embed = `![Pricing pages](${mentionHref({ kind: "artifact", nodeId: asNodeId("shelf"), artifactId: pricingId }, CANVAS)})`;
     await page.evaluate(
       ({ canvas, node, artifactId, opId, markdown }) =>
         window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, { op: "create", title: "Live doc", body: { type: "document", markdown } }),
-      { canvas: CANVAS, node: asNodeId("shelf"), artifactId: mintItemId(), opId: mintOpId(), markdown: MARKDOWN },
+      { canvas: CANVAS, node: asNodeId("shelf"), artifactId: mintItemId(), opId: mintOpId(), markdown: `${MARKDOWN}\n\n${embed}\n` },
     );
     await page.locator('.react-flow__node[data-id="shelf"]').dblclick();
     await expect(page.getByRole("list", { name: "Artifacts" })).toBeVisible({ timeout: 20_000 });
@@ -65,16 +73,12 @@ test("click a line to edit its markdown in place, move off and it renders, typin
     await expect(page.locator(".cm-md-table table")).toBeVisible();
     await expect(source).not.toContainText("**the desktop app**");
     await expect(source).not.toContainText("# Junto");
+    // The bang mention alone on its line is the preview card of that artifact.
+    await expect(page.locator(".cm-md-embed")).toContainText("Pricing pages");
     await shot(page, "1-rendered");
 
     // Click the paragraph: that line shows its markdown, the heading stays rendered.
-    const box = await page.locator(".cm-md-strong").boundingBox();
-    console.log("STRONG BOX", JSON.stringify(box));
     await page.locator(".cm-md-strong").click();
-    console.log("AFTER CLICK", await page.evaluate(() => {
-      const sel = document.getSelection();
-      return JSON.stringify({ active: document.activeElement?.className, node: sel?.anchorNode?.textContent?.slice(0, 60), offset: sel?.anchorOffset });
-    }));
     await expect(source).toContainText("**the desktop app**");
     await expect(source).toContainText("[pricing](https://example.com/pricing)");
     await expect(source).not.toContainText("# Junto");
