@@ -210,6 +210,29 @@ describe("a draft over a deleted file, a root that goes and comes back", () => {
   });
 });
 
+describe("two nodes on one folder", () => {
+  it("tells both of a change, in one window and across two", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    const { files, sent } = service({ watch: watch.factory, timers: { set: (fn) => queued.push(fn), clear: () => undefined } });
+    const twin: FilesNodeRef = { canvas: "main", node: asNodeId("files-01M5Z6HYFZY0C19XKP9Y1GY5RJ") };
+    value(await files.open(1, ref));
+    value(await files.open(1, twin));
+    value(await files.open(2, twin));
+    const stamp = value(await files.read(ref, p("README.md"))).stamp;
+    value(await files.write(ref, p("README.md"), "# saved\n", stamp));
+    watch.fire("README.md");
+    while (queued.length > 0) queued.shift()?.();
+    await files.settle();
+    const told = sent.filter(({ event }) => event.kind === "paths" && event.paths.includes(p("README.md")));
+    expect(told.map(({ subscriber, event }) => [subscriber, event.node])).toEqual([
+      [1, ref.node],
+      [1, twin.node],
+      [2, twin.node],
+    ]);
+  });
+});
+
 describe("comment threads follow a move", () => {
   it("carries from the old path to the new after a rename or move lands, and answers even if carrying fails", async () => {
     const carried: Array<[string, string]> = [];
