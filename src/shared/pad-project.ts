@@ -21,6 +21,7 @@ import {
   trianglePoints,
   type GeomRect as GeomRectValue,
 } from "./pad-geom";
+import { artifactLinkTitle } from "./artifact-link";
 import { mentionLinksOf, type MentionTarget } from "./mention";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "./theme";
 
@@ -299,8 +300,6 @@ export const padEdgeMid = (points: ReadonlyArray<PadPoint>): PadPoint => {
 /** The current title of what a link names, when the reader knows it. */
 export type PadLinkTitleOf = (target: MentionTarget) => string | undefined;
 
-/** A link's written label as words: an artifact link `[[Title]]` reads as Title. */
-const linkLabelWords = (label: string): string => /^\[\[(.+)\]\]$/su.exec(label)?.[1] ?? label;
 
 /**
  * Text as the pad shows it: each mention link drawn as its words, never its
@@ -313,7 +312,7 @@ export const padLinkWords = (text: string, titleOf?: PadLinkTitleOf): string => 
   let words = "";
   let at = 0;
   for (const link of links) {
-    words += text.slice(at, link.start) + (titleOf?.(link.target) ?? linkLabelWords(link.label));
+    words += text.slice(at, link.start) + (titleOf?.(link.target) ?? artifactLinkTitle(link.label) ?? link.label);
     at = link.end;
   }
   return words + text.slice(at);

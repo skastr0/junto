@@ -26,7 +26,7 @@ describe("links in pad text", () => {
   });
 
   it("reaches shape words and the focus list", () => {
-    const shape = { id: "s1", type: "rect", x: 0, y: 0, w: 120, h: 60, z: 0, text: `Read ${link}` } as const;
+    const shape = { id: "s1", type: "box", x: 0, y: 0, w: 120, h: 60, z: 0, text: `Read ${link}` } as const;
     expect(padShapeText(shape as never)).toBe("Read Launch plan");
     const focused = padToFocused({
       revision: 0,

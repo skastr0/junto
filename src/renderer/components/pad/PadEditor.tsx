@@ -43,7 +43,10 @@ import {
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
+import type { NodeKind } from "@shared/model/kinds";
+import type { NodeId } from "@shared/physics/schema";
 import { Kbd } from "../ui";
+import { MentionCombobox, type ComboboxLinks } from "../ui/MentionCombobox";
 import { PadGlyph } from "./PadGlyph";
 import { PadEdgeMark, PadShapeOutline, PadShapeWords } from "./PadMarks";
 import {
@@ -249,6 +252,7 @@ export function PadEditor({
   onReadPad,
   onClose,
   cards,
+  textLinks,
 }: {
   readonly pad: Pad;
   readonly pins: PadPins;
@@ -259,6 +263,16 @@ export function PadEditor({
   readonly onClose: () => void;
   /** What the @ list offers to put on the pad as a card. Absent, @ opens nothing; paste and drop still make cards. */
   readonly cards?: { readonly candidates: ReadonlyArray<MentionCandidate> };
+  /**
+   * Shape text and edge labels as link fields: `[[` links an artifact in
+   * reach (or makes a document by the title), and a link already in the text
+   * stays one unit while it is edited. Absent, the text is a plain field.
+   */
+  readonly textLinks?: {
+    readonly canvasName: string;
+    readonly links: ComboboxLinks;
+    readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  };
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1526,7 +1540,39 @@ export function PadEditor({
             void ingestImageFile(file, pending);
           }}
         />
-        {editingLabel && labelView ? (
+        {editingLabel && labelView && textLinks ? (
+          <div
+            className="pad-label-links"
+            style={{ left: labelView.left, top: labelView.top, width: Math.max(160, labelView.width) }}
+          >
+            <MentionCombobox
+              value={labelDraft}
+              onValueChange={(value) => setLabelDraft(value)}
+              canvasName={textLinks.canvasName}
+              // Only [[ opens a list here: @ on the pad places a card, not a mention in words.
+              candidates={NO_TEXT_MENTIONS}
+              listLabel={() => ""}
+              nodeKindOf={textLinks.nodeKindOf}
+              links={textLinks.links}
+              dense
+              rows={1}
+              fieldRef={claimFocusOnMount}
+              aria-label={editedEdge ? "Edge label" : "Shape text"}
+              data-testid="pad-label-edit"
+              onBlur={() => void finishLabelEdit(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void finishLabelEdit(true);
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  void finishLabelEdit(false);
+                }
+              }}
+            />
+          </div>
+        ) : editingLabel && labelView ? (
           <input
             className="pad-label-edit"
             style={{ left: labelView.left, top: labelView.top, width: Math.max(72, labelView.width) }}
@@ -1552,6 +1598,8 @@ export function PadEditor({
     </div>
   );
 }
+
+const NO_TEXT_MENTIONS: ReadonlyArray<MentionCandidate> = [];
 
 /** A shape's four ports, where edges join it; the one an edge is snapped to fills. */
 function PortMarks({

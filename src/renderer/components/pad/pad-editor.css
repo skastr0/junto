@@ -193,6 +193,12 @@
   padding: 2px 6px;
 }
 
+/* The link field (MentionCombobox) sits where the plain field would; its own field and list carry the look. */
+.pad-label-links {
+  position: absolute;
+  z-index: 2;
+}
+
 .pad-label-edit:focus-visible {
   outline: 2px solid var(--color-cyan);
   outline-offset: 1px;

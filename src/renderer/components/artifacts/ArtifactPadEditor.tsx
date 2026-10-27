@@ -2,13 +2,13 @@ import { useCallback, useMemo, useRef } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import type { ArtifactPadPatch } from "@shared/artifact";
-import type { MentionCandidate } from "../../lib/mention-draft";
 import { applyPatches, type Pad, type PadPatch } from "@shared/pad";
 import { themeMode$ } from "../../lib/theme-mode";
 import { PadEditor, type PadArea, type PadPins } from "../pad/PadEditor";
 import { PadSvg } from "../pad/PadSvg";
 import { PadLinkTitlesProvider, usePadLinkTitles } from "../pad/pad-link-titles";
 import type { PadCommitOutcome } from "../pad/pad-editor-model";
+import type { DocumentMentions } from "./LiveMarkdownField";
 
 export type PadCommentBox = PadArea;
 
@@ -36,8 +36,8 @@ export function ArtifactPadEditor({
   /** Resolves with the refusal line, or null when the patches landed. */
   readonly onPatch: (patches: ReadonlyArray<ArtifactPadPatch>) => Promise<string | null>;
   readonly onCommentBox?: (box: PadCommentBox) => void;
-  /** The seats, tasks and artifacts in reach, as the document's @ offers them. */
-  readonly mentions?: { readonly candidates: ReadonlyArray<MentionCandidate> };
+  /** The seats, tasks and artifacts in reach, as the document's @ offers them, and what its [[ links to. */
+  readonly mentions?: Pick<DocumentMentions, "candidates"> & Partial<Omit<DocumentMentions, "candidates">>;
 }) {
   const theme = use$(themeMode$);
   const titleOf = usePadLinkTitles(canvasName, pad);
@@ -95,6 +95,9 @@ export function ArtifactPadEditor({
           onReadPad={onReadPad}
           onClose={onClose}
           {...(mentions === undefined ? {} : { cards: { candidates: mentions.candidates } })}
+          {...(mentions?.links === undefined || mentions.canvasName === undefined || mentions.nodeKindOf === undefined
+            ? {}
+            : { textLinks: { canvasName: mentions.canvasName, links: mentions.links, nodeKindOf: mentions.nodeKindOf } })}
         />
       </div>
     </PadLinkTitlesProvider>
