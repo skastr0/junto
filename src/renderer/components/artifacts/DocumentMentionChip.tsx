@@ -4,7 +4,7 @@ import { matchMention, parseMentionHref, type MentionOf } from "@shared/mention"
 import type { NodeKind } from "@shared/model/kinds";
 import { parseNodeRef } from "@shared/node-ref";
 import type { NodeId } from "@shared/physics/schema";
-import { useNodeArtifacts } from "../../lib/artifacts-source";
+import { useNodeArtifactsRead } from "../../lib/artifacts-source";
 import { mentionChipOf, openMention } from "../../lib/mention-open";
 import type { ArtifactType } from "../../lib/resource-visuals";
 import { ResourceChip, mentionMark } from "../ui/ResourceChip";
@@ -43,6 +43,7 @@ function Chip({ mark, label, number, open, artifactType }: ChipProps) {
 /**
  * An artifact wears its type's glyph: a document its page, a sheet its grid. Until the node is read, the generic mark.
  * A `[[ ]]` link says the artifact's title now, so a rename never leaves it stale; until the node is read, the title it was written with.
+ * Once the node is read, an artifact it does not hold is drawn unavailable and does not open; an archived one opens, and says so.
  */
 function ArtifactChip({
   refOf,
@@ -50,9 +51,11 @@ function ArtifactChip({
   linked,
   ...chip
 }: ChipProps & { readonly refOf: MentionOf<"artifact">; readonly canvasName: string; readonly linked: boolean }) {
-  const heads = useNodeArtifacts(canvasName, refOf.nodeId);
-  const artifact = heads.find((head) => head.artifact.artifactId === refOf.artifactId)?.artifact;
-  return <Chip {...chip} label={linked && artifact !== undefined ? artifact.title : chip.label} artifactType={artifact?.type} />;
+  const heads = useNodeArtifactsRead(canvasName, refOf.nodeId);
+  const artifact = heads?.find((head) => head.artifact.artifactId === refOf.artifactId)?.artifact;
+  if (heads !== undefined && artifact === undefined) return <Chip {...chip} open={undefined} />;
+  const title = linked && artifact !== undefined ? artifact.title : chip.label;
+  return <Chip {...chip} label={artifact?.archived ? `${title}, archived` : title} artifactType={artifact?.type} />;
 }
 
 /**

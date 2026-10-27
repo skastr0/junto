@@ -242,6 +242,10 @@ const NONE: ReadonlyArray<never> = [];
 export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> =>
   useSourced(() => artifactsSource().list(canvasName, nodeId), NONE, canvasName, nodeId);
 
+/** The node's artifacts once read, undefined until then: "none there" told apart from "not read yet". */
+export const useNodeArtifactsRead = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> | undefined =>
+  useSourced<ReadonlyArray<ArtifactHead> | undefined>(() => artifactsSource().list(canvasName, nodeId), undefined, canvasName, nodeId);
+
 /**
  * How many live (unarchived) artifacts a node holds, for its card's glance.
  * Any artifact change on the canvas re-reads, but only a change of this

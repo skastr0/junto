@@ -186,6 +186,27 @@ describe("a [[ link drawn in a document", () => {
     expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan");
   });
 
+  const listing = (heads: ReadonlyArray<object>) =>
+    setArtifactsSource({ ...original, list: async () => heads as ReadonlyArray<ArtifactHead>, onChanged: () => () => undefined } as unknown as ArtifactsSource);
+
+  it("an archived artifact still opens, and says it is archived", async () => {
+    listing([{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan", type: "document", archived: true } }]);
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds[id]} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, archived");
+  });
+
+  it("an artifact its node does not hold is unavailable and does not open, once the node is read", async () => {
+    listing([]);
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Ghost doc\]\]" nodeKindOf={(id) => kinds[id]} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.dataset.missing).toBe("true");
+    expect(chip.textContent).toContain("Ghost doc");
+    expect(chip.textContent).toContain("unavailable");
+  });
+
   it("an artifact that is gone keeps its written title, unavailable", async () => {
     await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={() => undefined} />));
     const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
