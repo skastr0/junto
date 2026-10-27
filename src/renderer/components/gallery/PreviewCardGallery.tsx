@@ -5,8 +5,12 @@ import { applyPatches, type Pad, type PadPatch } from "@shared/pad";
 import { SeatUrgency } from "@shared/wire/urgency";
 import type { TaskNumber } from "@shared/task-model";
 import { ensureMarkAtlas } from "../../lib/activity-atlas";
+import type { MentionCandidate } from "../../lib/mention-draft";
 import type { PreviewCardFace } from "../../lib/preview-face";
+import type { NodeId } from "@shared/physics/schema";
+import type { ItemId } from "@shared/work-ids";
 import { startSurfaceMotionGate } from "../../lib/surface-motion";
+import { state$ } from "../../lib/state";
 import { PreviewCard, PREVIEW_CARD_BOX } from "../embeds/PreviewCard";
 import { padCardFor } from "../pad/pad-card";
 import { PadEditor, type PadPins } from "../pad/PadEditor";
@@ -68,6 +72,15 @@ const SECTIONS: ReadonlyArray<{ readonly word: string; readonly faces: ReadonlyA
 
 const NO_PINS: PadPins = { kind: "none" };
 
+/** What the gallery pad's @ offers: fixtures, so they draw missing once placed. */
+const PAD_CANDIDATES: ReadonlyArray<MentionCandidate> = [
+  { ref: { kind: "seat", nodeId: SEAT as NodeId }, label: "@product-attention" },
+  { ref: { kind: "seat", nodeId: BUILDER as NodeId }, label: "@product-automation" },
+  { ref: { kind: "task", nodeId: "task-01M5G1KYYMFQASGJKGBDQZA2D3" as NodeId, taskId: ITEM as ItemId }, label: "#42 Fix the tab strip" },
+  { ref: { kind: "artifact", nodeId: "artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0" as NodeId, artifactId: ITEM as ItemId }, label: "#0.10.3 plan" },
+];
+const PAD_CARDS = { candidates: PAD_CANDIDATES };
+
 /** A pad with two cards joined to a box: the editor's own gestures move, resize and connect them. */
 const seedPad = (): Pad => {
   const empty: Pad = { revision: 0, images: [], shapes: [], edges: [], inks: [] };
@@ -85,6 +98,8 @@ const seedPad = (): Pad => {
 
 /** The pad editor over local state: cards here name nothing on this page, so they draw missing under their labels. */
 function GalleryPad() {
+  // A pick names its thing on a canvas: the gallery stands in one, as the app always is.
+  if (!state$.canvasName.peek()) state$.canvasName.set("gallery");
   const [pad, setPad] = useState<Pad>(seedPad);
   const padRef = useRef(pad);
   padRef.current = pad;
@@ -98,7 +113,7 @@ function GalleryPad() {
   const onClose = useCallback(() => {}, []);
   return (
     <div className="pad-surface relative flex h-[460px] min-h-0 flex-col overflow-hidden rounded-lg border border-stroke" data-testid="gallery-pad">
-      <PadEditor pad={pad} pins={NO_PINS} onCommit={onCommit} onReadPad={onReadPad} onClose={onClose} cards={{ candidates: [] }} />
+      <PadEditor pad={pad} pins={NO_PINS} onCommit={onCommit} onReadPad={onReadPad} onClose={onClose} cards={PAD_CARDS} />
     </div>
   );
 }
