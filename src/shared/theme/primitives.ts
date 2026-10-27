@@ -102,7 +102,8 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     // Display variants stay in the same families; fg variants darken to the
     // functional inks of the daylight edition (rust, slate blue, deep red).
     amber: { l: 0.63, c: 0.18, h: 72 },
-    "amber-hi": { l: 0.57, c: 0.13, h: 68 },
+    // Emphasis on paper is darker, not lighter: 5.0 on the primary button's hover fill, 6.5 on the ground.
+    "amber-hi": { l: 0.45, c: 0.11, h: 62 },
     "amber-fg": { l: 0.51, c: 0.11, h: 60 }, // burnished rust, 4.5 on well
     cyan: { l: 0.60, c: 0.09, h: 220 },
     "cyan-fg": { l: 0.48, c: 0.075, h: 225 }, // slate blue
