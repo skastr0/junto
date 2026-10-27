@@ -5,8 +5,11 @@ import { inSkippedDir } from "./sources";
  * One recursive watch per Files root (FSEvents on macOS): never a watcher
  * per folder, never polling, about no CPU while idle. Events under `.git`
  * and `node_modules` are dropped. Paths coalesce for `COALESCE_MS` and go out
- * as one batch; more than `BURST` in a window (a checkout, an install) goes
- * out as one `burst`, for one rebuild instead of thousands of deltas.
+ * as one batch. Windows that follow each other with less than
+ * `COALESCE_MS` of quiet between them are one streak; a streak past `BURST`
+ * paths (a checkout, an install, even one spread over seconds) goes out as
+ * one `burst`, for one rebuild instead of thousands of deltas, and once more
+ * when the streak ends if anything changed after the first.
  */
 
 export const COALESCE_MS = 100;
@@ -47,35 +50,73 @@ export const watchRoot = (
   timers: Timers = realTimers,
 ): { readonly close: () => void } => {
   let pending = new Set<string>();
+  /** Paths sent in this streak's earlier windows. */
+  let streak = 0;
+  /** The streak passed BURST: paths are no longer kept. */
   let burst = false;
-  let timer: unknown;
+  /** This streak's burst went out. */
+  let burstSent = false;
+  /** Something changed after it went out. */
+  let changedSince = false;
+  let window: unknown;
+  let quiet: unknown;
   let closed = false;
-  const flush = (): void => {
-    timer = undefined;
+
+  const endStreak = (): void => {
+    quiet = undefined;
     if (closed) return;
-    const batch: WatchBatch = burst ? { kind: "burst" } : { kind: "paths", paths: [...pending] };
-    pending = new Set();
+    const again = burstSent && changedSince;
+    streak = 0;
     burst = false;
-    onBatch(batch);
+    burstSent = false;
+    changedSince = false;
+    if (again) onBatch({ kind: "burst" });
   };
+
+  const flush = (): void => {
+    window = undefined;
+    if (closed) return;
+    if (burst) {
+      if (!burstSent) {
+        burstSent = true;
+        changedSince = false;
+        onBatch({ kind: "burst" });
+      }
+    } else if (pending.size > 0) {
+      streak += pending.size;
+      const paths = [...pending];
+      pending = new Set();
+      onBatch({ kind: "paths", paths });
+    }
+    quiet = timers.set(endStreak, COALESCE_MS);
+  };
+
   const handle = factory(
     root,
     (_event, filename) => {
       if (closed) return;
+      let path: string | undefined;
       // FSEvents may drop the name when it coalesces itself: treat it as a burst.
-      if (filename === null || filename === "") burst = true;
-      else {
-        const path = filename.split("\\").join("/");
+      if (filename !== null && filename !== "") {
+        path = filename.split("\\").join("/");
         if (inSkippedDir(path)) return;
-        if (!burst) {
-          pending.add(path);
-          if (pending.size > BURST) {
-            burst = true;
-            pending = new Set();
-          }
+      }
+      if (quiet !== undefined) {
+        timers.clear(quiet);
+        quiet = undefined;
+      }
+      if (path === undefined) {
+        burst = true;
+        pending = new Set();
+      } else if (!burst) {
+        pending.add(path);
+        if (streak + pending.size > BURST) {
+          burst = true;
+          pending = new Set();
         }
       }
-      timer ??= timers.set(flush, COALESCE_MS);
+      if (burstSent) changedSince = true;
+      window ??= timers.set(flush, COALESCE_MS);
     },
     () => {
       if (closed) return;
@@ -86,7 +127,8 @@ export const watchRoot = (
   const close = (): void => {
     if (closed) return;
     closed = true;
-    if (timer !== undefined) timers.clear(timer);
+    if (window !== undefined) timers.clear(window);
+    if (quiet !== undefined) timers.clear(quiet);
     handle.close();
   };
   return { close };

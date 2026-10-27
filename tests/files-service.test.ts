@@ -333,11 +333,45 @@ describe("search", () => {
     const { files } = service({ names: fakeNames(() => listed) });
     expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
     expect(files.heldRoots()).toEqual([]);
+    listed = ["a.ts", "b.ts"];
+    // Kept: a canvas of cards does not rescan.
+    expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
     value(await files.open(1, ref));
     listed = ["a.ts"];
     expect(value(await files.count(ref))).toEqual({ files: 1, capped: false });
+    value(files.close(1, ref));
+    listed = ["x", "y", "z", "w"];
+    expect(value(await files.count(ref))).toEqual({ files: 1, capped: false });
     facts = { host: "laptop", root };
     expect(errorOf(await files.count(ref))).toBe("elsewhere");
+  });
+
+  it("sweeps a folder that went away and skips ignored paths", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    const ignoredAsked: string[] = [];
+    const { files } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      names: {
+        isGitRoot: async () => true,
+        gitNames: async (_root, sink) => sink(["src/a.ts", "src/deep/b.ts", "README.md"]),
+        walkNames: async () => undefined,
+        gitIgnored: async (_root, paths) => {
+          ignoredAsked.push(...paths);
+          return new Set(paths.filter((path) => path.startsWith("dist/")));
+        },
+      },
+    });
+    value(await files.open(1, ref));
+    expect(value(await files.search(1, ref, "ts", 1))).toMatchObject({ total: 3 });
+    await rm(join(root, "src"), { recursive: true });
+    watch.fire("src");
+    watch.fire("dist/out.js");
+    queued.shift()?.();
+    const after = value(await files.search(1, ref, "ts", 2));
+    expect(after).toMatchObject({ total: 1, matches: [] });
+    expect(ignoredAsked).toContain("dist/out.js");
   });
 
   it("drops the root's watcher and index with the last session", async () => {
@@ -372,8 +406,37 @@ describe("watcher", () => {
     expect(queued).toHaveLength(1);
     queued.shift()?.();
     expect(batches).toEqual([{ kind: "paths", paths: ["a.ts"] }]);
+    queued.length = 0; // the next event cancels the quiet timer
     for (let i = 0; i <= BURST; i += 1) listener?.("change", `f${String(i)}`);
     queued.shift()?.();
     expect(batches.at(-1)).toEqual({ kind: "burst" });
+  });
+
+  it("folds a burst spread over back-to-back windows into one, and one more at its end", () => {
+    let listener: ((event: string, filename: string | null) => void) | undefined;
+    const factory: WatchFactory = (_root, l) => {
+      listener = l;
+      return { close: () => undefined };
+    };
+    const queued: Array<() => void> = [];
+    const batches: Array<{ kind: string }> = [];
+    watchRoot("/r", (batch) => batches.push(batch), factory, {
+      set: (fn) => queued.push(fn),
+      clear: () => undefined,
+    });
+    // Ten windows of 150 paths each, no quiet between them: 1,500 in one streak.
+    for (let window = 0; window < 10; window += 1) {
+      for (let i = 0; i < 150; i += 1) listener?.("change", `w${String(window)}/f${String(i)}`);
+      queued.shift()?.(); // the window closes; its quiet timer is queued
+      queued.length = 0; // the next window's first event cancels the quiet timer
+    }
+    const kinds = batches.map((batch) => batch.kind);
+    expect(kinds.filter((kind) => kind === "paths").length).toBe(6);
+    expect(kinds.filter((kind) => kind === "burst").length).toBe(1);
+    listener?.("change", "late.ts");
+    queued.shift()?.(); // window
+    queued.shift()?.(); // quiet: the streak ends
+    expect(batches.at(-1)).toEqual({ kind: "burst" });
+    expect(batches.filter((batch) => batch.kind === "burst").length).toBe(2);
   });
 });

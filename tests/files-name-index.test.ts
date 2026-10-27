@@ -10,7 +10,7 @@ describe("name index", () => {
     expect(index.size).toBe(3);
     index.remove("b/z.ts");
     index.add("c/w.ts");
-    index.removeUnder("a");
+    index.removeUnder(["a"]);
     expect(index.size).toBe(1);
     expect(index.search("w").matches.map((match) => match.path)).toEqual(["c/w.ts"]);
     expect(index.search("ts").matches.map((match) => match.path)).toEqual(["c/w.ts"]);

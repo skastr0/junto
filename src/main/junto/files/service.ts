@@ -94,6 +94,8 @@ type Holder = {
   stale: boolean;
   /** Deltas apply one batch at a time. */
   deltas: Promise<void>;
+  /** Paths waiting in `deltas`. */
+  queued: number;
   readonly matchSets: Map<string, MatchSet>;
 };
 
@@ -131,6 +133,8 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
   };
 
   const dropHolder = (holder: Holder): void => {
+    // The last count a card sees until the root is opened again.
+    if (holder.index !== undefined && !holder.stale) counts.set(holder.root, { files: holder.index.size, capped: false });
     holder.abort.abort();
     holder.watcher.close();
     holders.delete(holder.root);
@@ -188,26 +192,43 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     return buildIndex(holder);
   };
 
-  /** Fold one batch of changed paths into a built index. A folder that appeared is walked; one that went is swept. */
+  /** Folders gone in one batch past which a rebuild is cheaper than a sweep. */
+  const SWEEP_MAX = 64;
+
+  /**
+   * Fold one batch of changed paths into a built index. Ignored paths drop
+   * first, deletes included (check-ignore matches by pattern, so a gone
+   * `dist/` file needs no lookup). A folder that appeared is walked; folders
+   * that went are swept in one pass. A stale index takes no deltas.
+   */
   const applyDeltas = async (holder: Holder, index: NameIndex, paths: ReadonlyArray<string>): Promise<void> => {
     const signal = holder.abort.signal;
-    const added: string[] = [];
+    if (holder.stale || signal.aborted) return;
+    const ignoredNow = holder.repo === true ? await names.gitIgnored(holder.root, paths, signal) : new Set<string>();
+    const walked: string[] = [];
+    const gone: string[] = [];
     for (const path of paths) {
-      if (signal.aborted) return;
+      if (holder.stale || signal.aborted) return;
+      if (ignoredNow.has(path)) continue;
       const info = await lstat(join(holder.root, path)).catch(() => undefined);
       if (info === undefined) {
         if (index.has(path)) index.remove(path);
-        else index.removeUnder(path);
+        else gone.push(path);
       } else if (info.isDirectory()) {
         await names.walkNames(join(holder.root, path), (batch) => {
-          for (const name of batch) added.push(`${path}/${name}`);
+          for (const name of batch) walked.push(`${path}/${name}`);
         }, signal);
-      } else if (!index.has(path)) {
-        added.push(path);
+      } else {
+        index.add(path);
       }
     }
-    const ignored = holder.repo === true ? await names.gitIgnored(holder.root, added, signal) : new Set<string>();
-    for (const path of added) if (!ignored.has(path)) index.add(path);
+    if (gone.length > SWEEP_MAX) {
+      holder.stale = true;
+      return;
+    }
+    index.removeUnder(gone);
+    const ignoredWalked = holder.repo === true ? await names.gitIgnored(holder.root, walked, signal) : new Set<string>();
+    for (const path of walked) if (!ignoredWalked.has(path)) index.add(path);
     if (index.drift > COMPACT_AFTER) holder.stale = true;
   };
 
@@ -235,15 +256,29 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     }
     const index = holder.index;
     if (index === undefined || holder.stale) return;
+    // More queued than a rebuild costs: go stale now and drop the queue.
+    holder.queued += paths.length;
+    if (index.drift + holder.queued > COMPACT_AFTER) {
+      holder.stale = true;
+      return;
+    }
     holder.deltas = holder.deltas
       .then(() => applyDeltas(holder, index, paths))
       .catch((cause: unknown) => {
         console.error("[files] index delta failed; rebuilding on next search", cause);
         holder.stale = true;
+      })
+      .finally(() => {
+        holder.queued -= paths.length;
       });
   };
 
-  /** Cards on the same unheld root share one count. */
+  /**
+   * Counts of roots no window holds: taken once, then kept, so a canvas of
+   * Files cards never rescans on a render. Opening the root refreshes it
+   * (from the index); cards on one root share one count in flight.
+   */
+  const counts = new Map<string, FilesCount>();
   const counting = new Map<string, Promise<FilesCount>>();
 
   /** Count names without keeping them: one git ls-files, or a walk that stops at the cap. */
@@ -280,6 +315,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       abort: new AbortController(),
       stale: false,
       deltas: Promise.resolve(),
+      queued: 0,
       matchSets: new Map(),
     };
     holders.set(root, holder);
@@ -330,8 +366,9 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       const root = await rootOf(ref);
       if (!root.ok) return root;
       const holder = hold(subscriber, ref, root.value);
+      // A stale index rebuilds; a fresh one first takes the deltas queued for it.
+      if (!holder.stale) await holder.deltas;
       const index = await ensureIndex(holder);
-      await holder.deltas;
       if (latestSeq.get(key) !== seq) return ok({ kind: "superseded", query });
       if (query.trim() === "") return ok({ kind: "results", query, matches: [], total: index.size });
       const { matches, set } = index.search(query, holder.matchSets.get(key));
@@ -343,13 +380,21 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       withRoot(ref, async ({ root }) => {
         const holder = holders.get(root);
         if (holder !== undefined) {
+          if (!holder.stale) await holder.deltas;
           const index = await ensureIndex(holder);
-          await holder.deltas;
+          counts.delete(root);
           return ok({ files: index.size, capped: false });
         }
+        const known = counts.get(root);
+        if (known !== undefined) return ok(known);
         const running = counting.get(root);
         if (running !== undefined) return ok(await running);
-        const once = countOnce(root).finally(() => counting.delete(root));
+        const once = countOnce(root)
+          .then((count) => {
+            counts.set(root, count);
+            return count;
+          })
+          .finally(() => counting.delete(root));
         counting.set(root, once);
         return ok(await once);
       }),

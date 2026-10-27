@@ -318,21 +318,25 @@ export class NameIndex {
     this.generation += 1;
   }
 
-  /** Every path under `dir/` (or equal to it), for a folder that went away. */
-  removeUnder(dir: string): void {
-    const prefix = `${dir}/`;
+  /** Every path under any of `dirs`, for folders that went away: one pass for the batch. */
+  removeUnder(dirs: ReadonlyArray<string>): void {
+    if (dirs.length === 0) return;
+    const prefixes = dirs.map((dir) => `${dir}/`);
     for (let id = 0; id < this.base; id += 1) {
       if (this.dead[id] !== 0) continue;
       const from = this.starts[id]!;
       const to = this.starts[id + 1]! - 1;
-      if (sliceEquals(this.packed, from, Math.min(to, from + prefix.length), prefix)) {
-        this.dead[id] = 1;
-        this.deadCount += 1;
-        this.generation += 1;
+      for (const prefix of prefixes) {
+        if (to - from > prefix.length && sliceEquals(this.packed, from, from + prefix.length, prefix)) {
+          this.dead[id] = 1;
+          this.deadCount += 1;
+          this.generation += 1;
+          break;
+        }
       }
     }
     for (let at = this.overlay.length - 1; at >= 0; at -= 1) {
-      if (this.overlay[at]!.startsWith(prefix)) {
+      if (prefixes.some((prefix) => this.overlay[at]!.startsWith(prefix))) {
         this.overlay.splice(at, 1);
         this.overlayFolded.splice(at, 1);
         this.generation += 1;

@@ -177,7 +177,8 @@ export interface JuntoFilesApi {
     /**
      * Files under the root, for the card; no `open` needed and none made. It
      * reads the index when a window holds the root, else counts once (git
-     * ls-files, or a walk up to `FILES_COUNT_CAP`). Ask again on `onChange`.
+     * ls-files, or a walk up to `FILES_COUNT_CAP`) and keeps that count until
+     * the root is opened again. Ask again on `onChange`.
      */
     readonly count: (ref: FilesNodeRef) => Promise<FilesResult<FilesCount>>;
     /** One folder's entries, folders first, then by name. */
