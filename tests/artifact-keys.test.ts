@@ -7,7 +7,7 @@ describe("an artifact's keys, from the key table", () => {
     const keysFor = (start: string) => pane.find((row) => row.action.startsWith(start))?.keys;
     expect(keysFor("Move the keyboard to the next pane")).toBe("⌘⌥→");
     expect(keysFor("Move the keyboard to the previous pane")).toBe("⌘⌥←");
-    expect(keysFor("Open or close the comments")).toBe("⌘B");
+    expect(keysFor("Open or close the artifact's comments")).toBe("⌘⇧M");
     expect(keysFor("Send the comment")).toBe("⌘↵");
     expect(keysFor("Move through the artifacts")).toBe("↓ - ↑");
   });

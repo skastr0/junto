@@ -4,7 +4,7 @@ import { sectionOpen, setSectionOpen, type SectionOpenMap } from "./sidebar-sect
 /**
  * The Artifacts node's comments rail: collapsed to an edge by default, open
  * or closed as one choice for every artifact, kept with the other sidebar
- * state for the session. Cmd+B (`rail.toggle`) flips it while a rail shows
+ * state for the session. Cmd+Shift+M (`comments.toggle`) flips it while a rail shows
  * in the modal in front.
  */
 
@@ -17,7 +17,7 @@ export const setCommentsRailOpen = (open: boolean): void => setSectionOpen(RAIL_
 /** Rails on screen, open or as an edge. */
 const shown = new Set<HTMLElement>();
 
-/** A ref for the rail's root: while it is mounted, Cmd+B can reach it. */
+/** A ref for the rail's root: while it is mounted, the toggle's chord can reach it. */
 export const commentsRailRef = (element: HTMLElement | null): (() => void) | undefined => {
   if (element === null) return undefined;
   shown.add(element);
@@ -26,7 +26,7 @@ export const commentsRailRef = (element: HTMLElement | null): (() => void) | und
   };
 };
 
-/** A rail shows inside the modal in front, so Cmd+B is its to take. */
+/** A rail shows inside the modal in front, so the toggle's chord is its to take. */
 export const commentsRailInFront = (): boolean => {
   const front = topModal()?.container();
   if (front === null || front === undefined) return false;

@@ -27,11 +27,14 @@ const ENTRY_SELECTORS = [
 
 const isShown = (element: HTMLElement): boolean => element.closest("[hidden]") === null && element.getClientRects().length > 0;
 
+/** It can hold the keyboard: a host div with no tab stop cannot, focus() on it moves nothing. */
+const isFocusable = (element: HTMLElement): boolean => element.tabIndex >= 0 || element.isContentEditable;
+
 /** The pane's landing, or null when nothing in it can hold the keyboard. */
 export const paneEntryOf = (pane: HTMLElement): HTMLElement | null => {
   for (const selector of ENTRY_SELECTORS) {
     for (const element of pane.querySelectorAll<HTMLElement>(selector)) {
-      if (isShown(element)) return element;
+      if (isShown(element) && isFocusable(element)) return element;
     }
   }
   return null;
@@ -66,6 +69,6 @@ export const movePaneFocus = (direction: 1 | -1, event?: KeyboardEvent): boolean
   const from = panes.findIndex((pane) => active !== null && pane.contains(active));
   const to = panes[stepPane(panes.length, from, direction)];
   if (to === undefined) return false;
-  claimFocus(paneEntryOf(to), "gesture", { event, preventScroll: false });
-  return true;
+  // A refused claim moved nothing: the key passes.
+  return claimFocus(paneEntryOf(to), "gesture", { event, preventScroll: false });
 };

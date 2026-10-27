@@ -110,6 +110,7 @@ export type ShortcutId =
   | "canvas.zoomReset"
   | "front.close"
   | "rail.toggle"
+  | "comments.toggle"
   | "pane.next"
   | "pane.previous"
   | "canvas.open"
@@ -400,11 +401,20 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     id: "rail.toggle",
     area: "Agent and terminal",
     name: "Show or hide the agent's connections",
-    does: "Widen or narrow the list of connected agents beside the agent in front, or open or close an artifact's comments",
+    does: "Widen or narrow the list of connected agents beside the agent in front",
     mac: ["Cmd+B"],
     other: [],
-    // A field too: the caret in a document or a comment still reaches the rail.
-    where: ["terminal", "field", "working"],
+    where: ["terminal", "working"],
+  },
+  // Not Cmd+B: in a document that is bold, as every editor has it.
+  {
+    id: "comments.toggle",
+    area: "Inside an artifact",
+    name: "Show or hide the comments",
+    does: "Open or close the artifact's comments",
+    mac: ["Cmd+Shift+M"],
+    other: ["Ctrl+Shift+M"],
+    where: ["working", "field"],
   },
   // An artifact's list, content and comments, or an automation's list and
   // detail: the keyboard steps between the panes that show.

@@ -16,7 +16,6 @@ const TYPE_AREA: Partial<Record<ArtifactType, ShortcutArea>> = {
 
 /** Shortcuts named elsewhere in the table that an artifact answers too, in its own words. */
 const BORROWED: ReadonlyArray<{ readonly id: ShortcutId; readonly does: string }> = [
-  { id: "rail.toggle", does: "Open or close the comments" },
   { id: "message.send", does: "Send the comment being written" },
 ];
 
@@ -62,6 +61,7 @@ export function ArtifactKeys({ type }: { readonly type: ArtifactType }) {
         aria-label="Keys"
         title="Keys"
         size="sm"
+        aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         onClick={(event) => setAnchor(anchor === null ? event.currentTarget : null)}
       >
@@ -69,7 +69,7 @@ export function ArtifactKeys({ type }: { readonly type: ArtifactType }) {
       </IconButton>
       {anchor !== null ? (
         <Popover anchor={anchor} onClose={() => setAnchor(null)} label="Artifact keys" sides={["below", "left"]} width={360}>
-          <HelpMap title="keys" eyebrow="artifact" aria-label="Artifact keys" closeLabel="Close keys" onClose={() => setAnchor(null)}>
+          <HelpMap role="group" title="keys" eyebrow="artifact" aria-label="Artifact keys" closeLabel="Close keys" onClose={() => setAnchor(null)}>
             <HelpMapGroup label="pane">
               <HelpMapKeys rows={pane} />
             </HelpMapGroup>

@@ -20,7 +20,7 @@ const EDGE_SEATS = 4;
 /**
  * The comments rail collapsed: a thin edge that says whether the artifact has
  * comments, how many, and which seats took part, by their portraits. The
- * whole edge is one toggle; Cmd+B is the same toggle from the keyboard.
+ * whole edge is one toggle; Cmd+Shift+M is the same toggle from the keyboard.
  */
 export function ArtifactCommentsEdge({
   threads,
@@ -43,7 +43,7 @@ export function ArtifactCommentsEdge({
       data-has-comments={count > 0 ? "true" : undefined}
       aria-label={count > 0 ? `Comments, ${String(count)}` : "Comments"}
       aria-expanded={false}
-      aria-keyshortcuts="Meta+B"
+      aria-keyshortcuts="Meta+Shift+M"
       title={names.length > 0 ? `Open comments, from ${names.join(", ")}` : "Open comments"}
       onClick={onOpen}
     >
@@ -135,7 +135,7 @@ export function ArtifactComments({
               data-comments-toggle=""
               aria-label="Comments"
               aria-expanded
-              aria-keyshortcuts="Meta+B"
+              aria-keyshortcuts="Meta+Shift+M"
               title="Collapse comments"
               size="sm"
               onClick={onCollapse}

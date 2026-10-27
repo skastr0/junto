@@ -15,7 +15,7 @@ import {
 } from "./focus-switcher";
 import { closeFront } from "./front-close";
 import { toggleSeatGitDetail } from "./git-summary";
-import { keySituation, type KeyActions } from "./key-dispatcher";
+import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { runPageChromeKey } from "./page-chrome-keys";
@@ -92,15 +92,13 @@ export const KEY_ACTIONS: KeyActions = {
   "canvas.zoomReset": () => resetCanvasZoom(),
   // With no connections list in front the key passes, and the choice it
   // would have flipped for every other agent is left alone.
-  // An artifact's comments rail in front takes it the same way.
-  // In a field Cmd+B belongs to the text, except in an artifact, where no
-  // text binds it and the caret in the document still reaches the rail.
-  "rail.toggle": (_hit, event) => {
-    const typing = keySituation(event.target).context === "field";
-    if (!typing && railInFront()) {
-      setActorRailExpanded(!actorRailExpanded());
-      return true;
-    }
+  "rail.toggle": () => {
+    if (!railInFront()) return false;
+    setActorRailExpanded(!actorRailExpanded());
+    return true;
+  },
+  // With no artifact's comments in front the key passes.
+  "comments.toggle": () => {
     if (!commentsRailInFront()) return false;
     setCommentsRailOpen(!commentsRailOpen());
     return true;
