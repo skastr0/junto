@@ -7,13 +7,14 @@ import "./files-drop.css";
  * What a drop on the Files modal shows, drawn inside the surface the hook
  * is spread on: the folder row a Finder drag is over, marked with the house
  * drop edge (the whole surface takes that edge when the drop goes to the
- * root), a line naming the folder the copy lands in, and the outcome once
+ * root, drawn over the panes so neither covers it), a line naming the folder the copy lands in, and the outcome once
  * it is done.
  */
 export function FilesDropHighlight({ drop }: { readonly drop: FilesDrop }) {
   const { target, notice } = drop;
   return (
     <>
+      {target !== null && target.rect === null && <div aria-hidden="true" className="files-drop__root" />}
       {target?.rect != null && (
         <div
           aria-hidden="true"
@@ -54,7 +55,7 @@ export function FilesDropHighlight({ drop }: { readonly drop: FilesDrop }) {
  */
 export const FILES_DROP_TREE_CSS = `
   [data-item-drag-target="true"] {
-    outline: 1px dashed var(--color-cyan);
+    outline: 1px dashed var(--files-drop-edge, var(--color-cyan));
     outline-offset: -1px;
     background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
   }

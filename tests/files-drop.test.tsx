@@ -237,6 +237,7 @@ describe("the modal's drops", () => {
     expect(over.defaultPrevented).toBe(true);
     expect(surfaceEl.getAttribute("data-drop")).toBe("folder");
     expect(container.querySelector(".files-drop__row")).not.toBeNull();
+    expect(container.querySelector(".files-drop__root")).toBeNull();
     expect(container.querySelector(".files-drop__caption")?.textContent).toBe("Copy into src");
 
     drag("drop", tree.at("src/"), [new File(["x"], "notes.md")]);
@@ -253,6 +254,7 @@ describe("the modal's drops", () => {
     mount(main.port);
     drag("dragenter", surfaceEl);
     expect(surfaceEl.getAttribute("data-drop")).toBe("root");
+    expect(container.querySelector(".files-drop__root")).not.toBeNull();
     expect(container.querySelector(".files-drop__row")).toBeNull();
     expect(container.querySelector(".files-drop__caption")?.textContent).toBe("Copy into junto");
 
