@@ -275,7 +275,7 @@ export function ArtifactSheetEditor({
         ref={scrollerRef}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
-        <table>
+        <table style={{ "--sheet-columns": draft.columns.length } as CSSProperties}>
           <thead>
             <tr>
               <th className="junto-artifact-sheet__gutter" aria-hidden />

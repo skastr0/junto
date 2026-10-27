@@ -8,10 +8,12 @@
   overflow: auto;
   padding: 10px 12px;
 }
+/* Columns share the pane's width up to 280px each: a two-column sheet in a
+   wide pane stays a sheet, not two strips across the screen. */
 .junto-artifact-sheet__grid table {
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 100%;
+  min-width: min(100%, calc(var(--sheet-columns, 1) * 280px + 56px));
 }
 /* Keep in lockstep with SHEET_ROW_HEIGHT_PX. */
 .junto-artifact-sheet__grid tbody tr {
