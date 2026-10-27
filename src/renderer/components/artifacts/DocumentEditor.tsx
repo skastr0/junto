@@ -1,20 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
+import { EditorView, keymap, placeholder } from "@codemirror/view";
 import type { ArtifactVersion, DocumentBody, TextPatch } from "@shared/artifact";
-import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { Button } from "../ui";
 import { textSplice } from "./artifacts-pane-model";
+import {
+  anchorsEffect,
+  type DocumentAnchor,
+  liveMarkdown,
+  type LiveMarkdownHandlers,
+  revealAnchorEffects,
+} from "./live-markdown";
 
 /** How long typing rests before it is sent as one version. */
 const SAVE_REST_MS = 800;
 
-type View = "write" | "split" | "read";
+/** Marks a change that came from a head, not from the operator's typing. */
+const fromHead = Annotation.define<boolean>();
+
+const editable = (readOnly: boolean) => [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
 
 /**
- * A document artifact: markdown typed on the left, read on the right. Typing
- * is sent as one splice per rest against the version it started from; the
- * draft is never thrown away by a refusal, so a stale write can be read,
- * then sent again on the new head.
+ * A document artifact: one surface, always rendered, where the lines under
+ * the caret show their markdown to edit in place. Typing is sent as one
+ * splice per rest against the version it started from; the draft is never
+ * thrown away by a refusal, so a stale write can be read, then sent again on
+ * the new head.
  */
 export function DocumentEditor({
   body,
@@ -22,6 +35,9 @@ export function DocumentEditor({
   readOnly = false,
   onPatch,
   onCommentText,
+  anchors,
+  onAnchor,
+  revealAnchor,
 }: {
   readonly body: DocumentBody;
   readonly version: ArtifactVersion;
@@ -34,9 +50,13 @@ export function DocumentEditor({
    * in the draft is sent first. The save resolves to a refusal line, or null.
    */
   readonly onCommentText?: (quote: string, offset: number, save: () => Promise<string | null>) => void;
+  /** Text-anchored comments, drawn as marks on their quotes. */
+  readonly anchors?: ReadonlyArray<DocumentAnchor>;
+  /** A press on an anchor's mark, with its id. */
+  readonly onAnchor?: (id: string) => void;
+  /** Scroll to an anchor and flash it; a new nonce asks again. */
+  readonly revealAnchor?: { readonly id: string; readonly nonce: number };
 }) {
-  const [draft, setDraft] = useState(body.markdown);
-  const [view, setView] = useState<View>("split");
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ readonly quote: string; readonly offset: number } | null>(null);
   /** The head the draft was last in step with: what a splice is computed from. */
@@ -44,11 +64,27 @@ export function DocumentEditor({
   /** The newest head seen, which may be ahead of `synced` while the draft holds unsent text. */
   const head = useRef({ markdown: body.markdown, version });
   head.current = { markdown: body.markdown, version };
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
+  const draftRef = useRef(body.markdown);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Sends run one after another, each reading the base when it starts. */
   const chain = useRef<Promise<void>>(Promise.resolve());
+  const host = useRef<HTMLDivElement>(null);
+  const view = useRef<EditorView | null>(null);
+  const access = useRef(new Compartment());
+  const handlers = useRef<LiveMarkdownHandlers["current"]>({});
+  handlers.current = { onAnchor };
+
+  /** Put text in the editor as a head, not as typing: it is not sent, and undo does not reach it. */
+  const setDoc = (text: string): void => {
+    const editor = view.current;
+    if (editor === null) return;
+    const patch = textSplice(editor.state.doc.toString(), text);
+    if (patch === null) return;
+    editor.dispatch({
+      changes: { from: patch.at, to: patch.at + patch.remove, insert: patch.insert },
+      annotations: [fromHead.of(true), Transaction.addToHistory.of(false)],
+    });
+  };
 
   // A head that is not our own write is taken only when nothing is unsent.
   // With unsent text, `synced` stays on the old base, so the next send is
@@ -57,7 +93,8 @@ export function DocumentEditor({
     if (version === synced.current.version) return;
     if (draftRef.current !== synced.current.markdown) return;
     synced.current = { markdown: body.markdown, version };
-    setDraft(body.markdown);
+    draftRef.current = body.markdown;
+    setDoc(body.markdown);
   }, [version, body.markdown]);
 
   /** Send what is unsent; resolves to the refusal line, or null when nothing is left unsent. */
@@ -85,11 +122,66 @@ export function DocumentEditor({
   };
 
   const type = (text: string): void => {
-    setDraft(text);
     draftRef.current = text;
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => void send(), SAVE_REST_MS);
   };
+  const latest = useRef({ type, send });
+  latest.current = { type, send };
+
+  useEffect(() => {
+    const editor = new EditorView({
+      parent: host.current!,
+      state: EditorState.create({
+        doc: draftRef.current,
+        extensions: [
+          history(),
+          keymap.of([...defaultKeymap, ...historyKeymap]),
+          liveMarkdown(handlers),
+          access.current.of(editable(readOnly)),
+          placeholder("Nothing written yet."),
+          EditorView.contentAttributes.of({ "aria-label": "Markdown", spellcheck: "true" }),
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged && !update.transactions.every((tr) => tr.annotation(fromHead) === true)) {
+              latest.current.type(update.state.doc.toString());
+            }
+            if (update.docChanged || update.selectionSet) {
+              const { from, to } = update.state.selection.main;
+              const quote = update.state.sliceDoc(from, to);
+              setSelection((prior) =>
+                quote.trim().length === 0
+                  ? null
+                  : prior?.quote === quote && prior.offset === from
+                    ? prior
+                    : { quote, offset: from },
+              );
+            }
+            if (update.focusChanged && !update.view.hasFocus) void latest.current.send();
+          }),
+        ],
+      }),
+    });
+    view.current = editor;
+    return () => {
+      editor.destroy();
+      view.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: access.current.reconfigure(editable(readOnly)) });
+  }, [readOnly]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: anchorsEffect(anchors ?? []) });
+  }, [anchors]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (editor === null || revealAnchor === undefined) return;
+    const effects = revealAnchorEffects(editor.state, revealAnchor.id, revealAnchor.nonce);
+    if (effects !== null) editor.dispatch({ effects: [...effects] });
+  }, [revealAnchor?.id, revealAnchor?.nonce]);
 
   const mounted = useRef(true);
   // Closing with typing still resting sends it rather than dropping it.
@@ -114,47 +206,15 @@ export function DocumentEditor({
     void send();
   };
 
-  const select = (target: HTMLTextAreaElement): void => {
-    const quote = target.value.slice(target.selectionStart, target.selectionEnd);
-    setSelection(quote.trim().length > 0 ? { quote, offset: target.selectionStart } : null);
-  };
-
   const takeHead = (): void => {
     synced.current = head.current;
     draftRef.current = head.current.markdown;
-    setDraft(head.current.markdown);
+    setDoc(head.current.markdown);
     setRefusal(null);
   };
 
   return (
-    <div className="artifact-document" data-view={view}>
-      <div className="artifact-document__bar" role="toolbar" aria-label="Document view">
-        {(["write", "split", "read"] as const).map((option) => (
-          <Button
-            key={option}
-            size="sm"
-            variant={view === option ? "chrome" : "subtle"}
-            aria-pressed={view === option}
-            onClick={() => setView(option)}
-          >
-            {option === "write" ? "Write" : option === "split" ? "Split" : "Read"}
-          </Button>
-        ))}
-        <span className="artifact-document__spacer" />
-        {selection && onCommentText ? (
-          <Button
-            size="sm"
-            variant="subtle"
-            onClick={() => {
-              onCommentText(selection.quote, selection.offset, saveForComment);
-              setSelection(null);
-            }}
-          >
-            <MessageSquarePlus size={13} aria-hidden />
-            Comment on selection
-          </Button>
-        ) : null}
-      </div>
+    <div className="artifact-document" data-readonly={readOnly ? "true" : undefined}>
       {refusal ? (
         <div className="artifact-document__refusal" role="status">
           <span>{refusal}</span>
@@ -166,26 +226,23 @@ export function DocumentEditor({
           </Button>
         </div>
       ) : null}
-      <div className="artifact-document__panes">
-        {view !== "read" ? (
-          <textarea
-            className="artifact-document__source"
-            aria-label="Markdown"
-            spellCheck
-            readOnly={readOnly}
-            value={draft}
-            onChange={(event) => type(event.target.value)}
-            onSelect={(event) => select(event.currentTarget)}
-            onBlur={() => void send()}
-          />
-        ) : null}
-        {view !== "write" ? (
-          <div className="artifact-document__read">
-            {draft.trim().length > 0 ? (
-              <ArtifactMarkdown source={draft} />
-            ) : (
-              <p className="artifact-document__blank">Nothing written yet.</p>
-            )}
+      <div className="artifact-document__surface">
+        <div ref={host} className="artifact-document__live" />
+        {selection && onCommentText ? (
+          <div className="artifact-document__float">
+            <Button
+              size="sm"
+              variant="chrome"
+              // Pressing keeps the selection where it is.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onCommentText(selection.quote, selection.offset, saveForComment);
+                setSelection(null);
+              }}
+            >
+              <MessageSquarePlus size={13} aria-hidden />
+              Comment on selection
+            </Button>
           </div>
         ) : null}
       </div>

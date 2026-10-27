@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { EditorView } from "@codemirror/view";
 import type { ArtifactVersion, TextPatch } from "../src/shared/artifact";
 import { DocumentEditor } from "../src/renderer/components/artifacts/DocumentEditor";
 import { postAfterSave } from "../src/renderer/components/artifacts/artifacts-pane-model";
@@ -9,19 +10,15 @@ import { postAfterSave } from "../src/renderer/components/artifacts/artifacts-pa
 let root: Root;
 let host: HTMLDivElement;
 
-const source = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Markdown"]')!;
+const editor = () => EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor")!)!;
 const type = async (text: string) => {
-  const el = source();
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(el, text);
-  await act(async () => el.dispatchEvent(new Event("input", { bubbles: true })));
+  const view = editor();
+  await act(async () => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input.type" }));
 };
 const selectText = async (quote: string) => {
-  const el = source();
-  const start = el.value.indexOf(quote);
-  // React synthesizes onSelect from a mouseup on the focused field.
-  el.focus();
-  el.setSelectionRange(start, start + quote.length);
-  await act(async () => el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })));
+  const view = editor();
+  const start = view.state.doc.toString().indexOf(quote);
+  await act(async () => view.dispatch({ selection: { anchor: start, head: start + quote.length }, userEvent: "select" }));
 };
 const commentButton = () =>
   [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Comment on selection"))!;
@@ -145,4 +142,24 @@ it("posts a whole, cells or unanchored comment without saving", async () => {
   await postAfterSave(anchorText, null, post);
   expect(save).not.toHaveBeenCalled();
   expect(post).toHaveBeenCalledTimes(4);
+});
+
+it("takes a new head into the surface without sending it back", async () => {
+  const onPatch = vi.fn(async (): Promise<string | null> => null);
+  await mount(onPatch);
+  await act(async () =>
+    root.render(<DocumentEditor body={{ type: "document", markdown: "Ship it today" }} version={2 as ArtifactVersion} onPatch={onPatch} />),
+  );
+  expect(editor().state.doc.toString()).toBe("Ship it today");
+  expect(onPatch).not.toHaveBeenCalled();
+});
+
+it("draws a read-only version with nothing to type into and no tabs", async () => {
+  await act(async () =>
+    root.render(
+      <DocumentEditor body={{ type: "document", markdown: "# Old" }} version={1 as ArtifactVersion} readOnly onPatch={async () => null} />,
+    ),
+  );
+  expect(editor().contentDOM.getAttribute("contenteditable")).toBe("false");
+  expect(host.textContent).not.toMatch(/Split|Write/u);
 });
