@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
-import { MessageSquare, PanelRightClose } from "lucide-react";
+import { Link2, MessageSquare, PanelRightClose } from "lucide-react";
 import type { Anchor } from "@shared/thread-subject";
 import type { SubjectThread } from "../../lib/subject-threads-source";
 import type { MentionCandidate } from "../../lib/mention-draft";
@@ -49,10 +49,13 @@ const RAIL_KEYS = (): string => (isMac() ? "Meta+Shift+M" : "Control+Shift+M");
 export function ArtifactCommentsEdge({
   threads,
   seatName,
+  linkedFrom,
   onOpen,
 }: {
   readonly threads: ReadonlyArray<SubjectThread>;
   readonly seatName?: (nodeId: string) => string | undefined;
+  /** How many places link the artifact ("3", "20+"); absent or none, the edge says nothing of links. */
+  readonly linkedFrom?: string;
   readonly onOpen: () => void;
 }) {
   const count = commentCount(threads);
@@ -64,8 +67,8 @@ export function ArtifactCommentsEdge({
       type="button"
       data-comments-toggle=""
       className="artifact-comments-edge"
-      data-has-comments={count > 0 ? "true" : undefined}
-      aria-label={count > 0 ? `Comments, ${String(count)}` : "Comments"}
+      data-has-comments={count > 0 || linkedFrom !== undefined ? "true" : undefined}
+      aria-label={`${count > 0 ? `Comments, ${String(count)}` : "Comments"}${linkedFrom === undefined ? "" : `, linked from ${linkedFrom}`}`}
       aria-expanded={false}
       aria-keyshortcuts={RAIL_KEYS()}
       title={names.length > 0 ? `Open comments, from ${names.join(", ")}` : "Open comments"}
@@ -77,6 +80,12 @@ export function ArtifactCommentsEdge({
           {count}
         </span>
       ) : null}
+      {linkedFrom === undefined ? null : (
+        <span className="artifact-comments-edge__links" data-testid="comments-edge-links" aria-hidden>
+          <Link2 size={14} className="artifact-comments-edge__mark" />
+          <span className="artifact-comments-edge__count">{linkedFrom}</span>
+        </span>
+      )}
       {shown.length > 0 ? (
         <span className="artifact-comments-edge__seats" aria-hidden>
           {shown.map((id) => (

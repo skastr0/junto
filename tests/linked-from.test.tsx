@@ -2,7 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LinkedFrom } from "../src/renderer/components/artifacts/LinkedFrom";
+import { ArtifactCommentsEdge } from "../src/renderer/components/artifacts/ArtifactComments";
+import { LinkedFrom, linkedFromCount } from "../src/renderer/components/artifacts/LinkedFrom";
 import { installBodyLinks, readableLine, type BodyLink } from "../src/renderer/lib/linked-from";
 import { mentionLink } from "../src/shared/mention";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -108,7 +109,8 @@ describe("linked from", () => {
     expect(linkedFrom).toHaveBeenCalledWith(CANVAS, target);
     expect(host.querySelector('[data-testid="linked-from"]')?.textContent).toContain("Linked from, 3");
     expect(rows().map((row) => row.getAttribute("data-kind"))).toEqual(["body", "post", "body"]);
-    expect(rows()[0]!.querySelector(".linked-from__line")?.textContent).toBe("Ship after [[Notes]] lands");
+    // A [[ ]] link reads as its title, without brackets: the one it was written with until the artifact is known.
+    expect(rows()[0]!.querySelector(".linked-from__line")?.textContent).toBe("Ship after Notes lands");
     expect(rows()[1]!.textContent).toContain("mail by brook");
     expect(rows()[2]!.querySelector(".linked-from__line")).toBeNull();
 
@@ -135,6 +137,9 @@ describe("linked from", () => {
     expect(readableLine(`  See ${stored} and more  `)).toBe("See Plan and more");
     expect(readableLine(`See ${stored.slice(0, 30)}…`)).toBe("See Plan…");
     expect(readableLine("plain words")).toBe("plain words");
+    const linked = mentionLink({ kind: "artifact", nodeId: shelf, artifactId: PLAN }, "[[Old plan]]", CANVAS);
+    expect(readableLine(`See ${linked} first`)).toBe("See Old plan first");
+    expect(readableLine(`See ${linked} first`, (target) => (target.artifactId === PLAN ? "Launch plan" : undefined))).toBe("See Launch plan first");
   });
 
   it("says you for the operator's own comment, whatever name main gives it", async () => {
@@ -155,5 +160,19 @@ describe("linked from", () => {
     await flush();
     expect(rows()[0]!.textContent).toContain("Research notes");
     expect(rows()[0]!.textContent).toContain("comment by you");
+  });
+
+  it("the closed rail's edge says how many places link the artifact, and nothing when none do", () => {
+    expect(linkedFromCount({ rows: [], more: false, loadMore: () => undefined })).toBeUndefined();
+    const row = { kind: "body", key: "k", at: 0, link: link(PLAN, {}) } as const;
+    expect(linkedFromCount({ rows: [row, row], more: false, loadMore: () => undefined })).toBe("2");
+    expect(linkedFromCount({ rows: [row], more: true, loadMore: () => undefined })).toBe("1+");
+    act(() => root.render(<ArtifactCommentsEdge threads={[]} linkedFrom="2" onOpen={() => undefined} />));
+    const edge = host.querySelector("button")!;
+    expect(edge.getAttribute("aria-label")).toBe("Comments, linked from 2");
+    expect(host.querySelector('[data-testid="comments-edge-links"]')?.textContent).toBe("2");
+    act(() => root.render(<ArtifactCommentsEdge threads={[]} onOpen={() => undefined} />));
+    expect(host.querySelector('[data-testid="comments-edge-links"]')).toBeNull();
+    expect(host.querySelector("button")!.getAttribute("aria-label")).toBe("Comments");
   });
 });

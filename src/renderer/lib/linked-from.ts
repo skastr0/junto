@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
 import type { ArtifactLinksApi } from "@shared/artifact-links-ipc";
+import { artifactLinkTitle } from "@shared/artifact-link";
 import { mentionLinksOf } from "@shared/mention";
 import { getJuntoApi } from "./junto-api";
 
@@ -15,14 +16,18 @@ export type ArtifactTarget = ArtifactLinkRef;
 export type BodyLink = LinkedFromBody;
 
 /**
- * A body's line as a reader sees it: each link shows its label, as the
- * document draws it. A link the line bound cut through keeps the label it got.
+ * A body's line as a reader sees it, as the editors draw it: a `[[ ]]` link
+ * says its artifact's title now (`titleOf`), or the title it was written with
+ * until that is known, without the brackets; any other link shows its label.
+ * A link the line bound cut through keeps the label it got.
  */
-export const readableLine = (line: string): string => {
+export const readableLine = (line: string, titleOf?: (target: ArtifactTarget) => string | undefined): string => {
   let shown = "";
   let at = 0;
   for (const link of mentionLinksOf(line)) {
-    shown += line.slice(at, link.start) + link.label;
+    const written = artifactLinkTitle(link.label);
+    const now = written === undefined || link.target.item === undefined ? undefined : titleOf?.({ nodeId: link.target.nodeId, artifactId: link.target.item });
+    shown += line.slice(at, link.start) + (written === undefined ? link.label : (now ?? written));
     at = link.end;
   }
   shown += line.slice(at);

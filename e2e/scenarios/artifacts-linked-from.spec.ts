@@ -67,8 +67,17 @@ test("an artifact lists the artifacts whose text links it and the comments that 
     const list = page.getByRole("list", { name: "Artifacts" });
     await expect(list).toBeVisible({ timeout: 20_000 });
     await list.locator("button").filter({ hasText: "Pricing pages" }).first().click();
+    // Closed, the rail's edge already says the artifact is linked.
     const edge = page.locator(".artifact-comments-edge");
-    if ((await edge.count()) > 0) await edge.click();
+    if ((await edge.count()) === 0) await page.locator("[data-comments-toggle][aria-expanded=\"true\"]").first().click();
+    await expect(edge).toHaveAttribute("aria-label", "Comments, linked from 2", { timeout: 15_000 });
+    for (const theme of ["dark", "bright"] as const) {
+      await page.evaluate((next) => window.junto!.settingsPatch({ appearance: { theme: next } }), theme);
+      mkdirSync(SHOTS, { recursive: true });
+      await page.waitForTimeout(400);
+      await edge.screenshot({ path: join(SHOTS, `edge-${theme}.png`) });
+    }
+    await edge.click();
     const panel = page.getByTestId("linked-from");
     await expect(panel).toBeVisible({ timeout: 15_000 });
     const rows = panel.getByTestId("linked-from-row");
@@ -79,7 +88,9 @@ test("an artifact lists the artifacts whose text links it and the comments that 
     // A comment's place is the artifact it is on, by its title.
     await expect(rows.nth(0).locator(".resource-chip__label")).toHaveText("Research notes");
     await expect(rows.nth(0)).toContainText("comment by you");
-    await expect(rows.nth(1).locator(".linked-from__line")).toHaveText("Numbers come from [[Pricing pages]] before we set the tiers.");
+    // Its chip wears the artifact's type, as a body row's does.
+    await expect(rows.nth(0).locator(".resource-chip__glyph")).toHaveCount(1);
+    await expect(rows.nth(1).locator(".linked-from__line")).toHaveText("Numbers come from Pricing pages before we set the tiers.");
 
     for (const theme of ["dark", "bright"] as const) {
       await page.evaluate((next) => window.junto!.settingsPatch({ appearance: { theme: next } }), theme);
@@ -90,6 +101,15 @@ test("an artifact lists the artifacts whose text links it and the comments that 
       await page.screenshot({ path: join(SHOTS, `linked-from-${theme}.png`) });
       await panel.screenshot({ path: join(SHOTS, `linked-from-panel-${theme}.png`) });
     }
+
+    // A rename of the linked artifact: the quoted line says its title now, as the editors do.
+    const renamed = await page.evaluate(
+      ({ canvas, node, artifactId, opId }) => window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, { op: "retitle", title: "Pricing, 2026" }),
+      { canvas: CANVAS, node, artifactId: pricingId, opId: mintOpId() },
+    );
+    expect(renamed.kind).toBe("applied");
+    await expect(rows.nth(1).locator(".linked-from__line")).toHaveText("Numbers come from Pricing, 2026 before we set the tiers.", { timeout: 15_000 });
+    await panel.screenshot({ path: join(SHOTS, "linked-from-after-rename.png") });
 
     // The body row opens the artifact whose text holds the link.
     await rows.nth(1).getByRole("button").first().click();

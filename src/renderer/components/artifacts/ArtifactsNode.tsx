@@ -12,7 +12,7 @@ import {
   type FileSource,
   padOf,
 } from "@shared/artifact";
-import type { MentionOf } from "@shared/mention";
+import type { MentionOf, MentionRef } from "@shared/mention";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
 import { type ItemId, mintItemId } from "@shared/resource-command";
@@ -33,7 +33,7 @@ import {
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, ListRow, PaneEmpty, PaneHeader, ResourceGlyphMark, TwoPane } from "../ui";
 import { ArtifactComments, ArtifactCommentsEdge } from "./ArtifactComments";
-import { LinkedFrom } from "./LinkedFrom";
+import { LinkedFromList, linkedFromCount, useLinkedFrom } from "./LinkedFrom";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactKeys } from "./ArtifactKeys";
 import { ArtifactTasks } from "./ArtifactTasks";
@@ -590,28 +590,38 @@ function SelectedArtifact({
       }}
     />
   );
+  // One read of what links here, for the rail's list and its collapsed edge.
+  const linked = useLinkedFrom(canvasName, { nodeId: artifact.nodeId, artifactId: artifact.artifactId }, now);
+  /** An artifact place in reach, by its title and type; a task's title; else nothing, and the chip names its node. */
+  const artifactAt = (place: MentionRef) =>
+    place.kind !== "artifact"
+      ? undefined
+      : (inReach.find((other) => other.ref.nodeId === place.nodeId && other.ref.artifactId === place.artifactId) ??
+        siblings
+          .filter((sibling) => sibling.artifact.artifactId === place.artifactId)
+          .map((sibling) => ({ title: sibling.artifact.title, type: sibling.artifact.type }))[0]);
   const rail = (
     <div className="artifact-rail" ref={railRef}>
       {railOpen ? (
         <>
           {comments}
-          <LinkedFrom
+          <LinkedFromList
+            read={linked}
             canvasName={canvasName}
-            target={{ nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
             now={now}
-            nameOf={(place) =>
-              place.kind === "task"
-                ? tasks.find((task) => task.taskId === place.taskId)?.title
-                : place.kind === "artifact"
-                  ? (inReach.find((other) => other.ref.nodeId === place.nodeId && other.ref.artifactId === place.artifactId)?.title ??
-                    siblings.find((sibling) => sibling.artifact.artifactId === place.artifactId)?.artifact.title)
-                  : undefined
-            }
+            nameOf={(place) => (place.kind === "task" ? tasks.find((task) => task.taskId === place.taskId)?.title : artifactAt(place)?.title)}
+            artifactTypeOf={(place) => artifactAt(place)?.type}
+            artifactTitleOf={(target) => artifactAt({ kind: "artifact", ...target })?.title}
             beforeOpen={onClose}
           />
         </>
       ) : (
-        <ArtifactCommentsEdge threads={threads} seatName={seatName} onOpen={() => toggleRail(true)} />
+        <ArtifactCommentsEdge
+          threads={threads}
+          seatName={seatName}
+          {...(linkedFromCount(linked) === undefined ? {} : { linkedFrom: linkedFromCount(linked) })}
+          onOpen={() => toggleRail(true)}
+        />
       )}
     </div>
   );

@@ -51,6 +51,15 @@
   line-height: var(--leading-compact);
 }
 
+/* Links to the artifact, under the comment count: what the closed rail's Linked from holds. */
+.artifact-comments-edge__links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .artifact-comments-edge__seats {
   display: flex;
   flex-direction: column;
