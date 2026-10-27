@@ -14,7 +14,7 @@ import {
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
 import { type ItemId, mintItemId } from "@shared/resource-command";
-import { textAnchorOf, type Anchor } from "@shared/thread-subject";
+import { textAnchorOf, type Anchor, type TextAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
 import { nodeAt } from "../../lib/use-model";
 import {
@@ -344,6 +344,16 @@ function SelectedArtifact({
     setCommentsRailOpen(true);
     setReveal((last) => ({ threadId, nonce: (last?.nonce ?? 0) + 1 }));
   };
+  /** Text-anchored threads, marked in the document so they stay findable with the rail collapsed. */
+  const textAnchors = useMemo(
+    () =>
+      threads.flatMap((thread) =>
+        thread.anchor?.kind === "text" ? [{ threadId: thread.threadId, anchor: thread.anchor, count: thread.posts.length }] : [],
+      ),
+    [threads],
+  );
+  /** A thread's anchor pressed in the rail: the document brings its quote into view. */
+  const [revealAnchor, setRevealAnchor] = useState<{ readonly anchor: TextAnchor; readonly nonce: number } | undefined>(undefined);
   const seatName = (id: string): string | undefined => {
     const node = nodeAt(canvasName, id);
     return node === undefined ? undefined : titleOf(node);
@@ -405,6 +415,9 @@ function SelectedArtifact({
               saveDocument.current = save;
               setDraftAnchor(textAnchorOf(quote, offset));
             }}
+            anchors={textAnchors}
+            onAnchor={revealThread}
+            revealAnchor={revealAnchor}
           />
         );
       case "sheet":
@@ -450,6 +463,9 @@ function SelectedArtifact({
       onClearAnchor={() => setDraftAnchor(undefined)}
       onCollapse={() => toggleRail(false)}
       reveal={reveal}
+      onFocusAnchor={(anchor) => {
+        if (anchor?.kind === "text") setRevealAnchor((last) => ({ anchor, nonce: (last?.nonce ?? 0) + 1 }));
+      }}
     />
   );
   const rail = (

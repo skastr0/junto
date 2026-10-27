@@ -73,6 +73,12 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
       await expect(page.locator(".artifact-head__title")).toHaveValue(title);
     };
     const meta = page.locator(".artifact-head__meta");
+    /** The comments rail starts as its edge; pressing the edge opens it. */
+    const edge = page.locator(".artifact-comments-edge");
+    const openRail = async (): Promise<void> => {
+      await edge.click();
+      await expect(page.getByLabel("New comment")).toBeVisible();
+    };
 
     await open();
     await shot(page, "01-empty");
@@ -141,6 +147,12 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     const staleCli = await cli(["edit", docId, "--base", "1", "--markdown", "# from a stale base"]);
     expect(staleCli.ok, "the CLI's stale edit is refused").toBe(false);
 
+    // The rail is collapsed to its edge: no comments yet, so no count and no faces.
+    await expect(edge).toBeVisible();
+    await expect(page.getByTestId("comments-edge-count")).toHaveCount(0);
+    await expect(page.getByTestId("comments-edge-seat")).toHaveCount(0);
+    await openRail();
+
     // An operator comment with a seat mention.
     const field = page.getByLabel("New comment");
     await field.click();
@@ -150,7 +162,7 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     await shot(page, "06-at-options");
     await options.filter({ hasText: "Scout" }).click();
     await field.pressSequentially(" for the merge");
-    await page.locator(".artifact-comments").getByRole("button", { name: "Comment" }).first().click();
+    await page.locator(".artifact-comments").getByRole("button", { name: "Comment", exact: true }).first().click();
     const threads = page.getByRole("list", { name: "Threads" });
     await expect(threads.locator(".artifact-thread__post")).toHaveCount(1, { timeout: 20_000 });
     console.log("OPERATOR POST:", await threads.locator(".artifact-thread__post").first().innerText());
@@ -161,6 +173,7 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     await expect(card).toBeVisible({ timeout: 30_000 });
     await open();
     await pick("Untitled document");
+    await openRail();
     await expect(threads.locator(".artifact-thread__post")).toHaveCount(1, { timeout: 20_000 });
     await expect(threads.locator(".artifact-thread__post").first()).toContainText("for the merge");
     await shot(page, "08-comment-after-reload");
@@ -172,6 +185,38 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     const seatPost = threads.locator(".artifact-thread__post").filter({ hasText: "fine by me" });
     console.log("SEAT POST:", await seatPost.innerText());
     await shot(page, "09-seat-cli-comment");
+
+    // Collapsed again, the edge counts both posts and wears the one seat that took part.
+    await page.locator(".artifact-comments").getByRole("button", { name: "Comments", exact: true }).click();
+    await expect(edge).toBeVisible();
+    await expect(page.getByTestId("comments-edge-count")).toHaveText("2");
+    await expect(page.getByTestId("comments-edge-seat")).toHaveCount(1);
+    await expect(page.getByTestId("comments-edge-seat").first()).toHaveAttribute("data-seat-id", "scout");
+    await expect(edge.locator("img, svg").first()).toBeVisible();
+    await shot(page, "09b-rail-edge");
+    await page.keyboard.press("Meta+B");
+    await expect(page.getByLabel("New comment")).toBeVisible();
+    await page.keyboard.press("Meta+B");
+    await expect(edge).toBeVisible();
+
+    // A text comment keeps a mark on its quote while the rail is collapsed; pressing it opens the rail on its thread.
+    const posted = await page.evaluate(
+      ({ canvas, node, artifactId, opId }) =>
+        window.junto!.resource!.thread!.post(canvas, { kind: "artifact", nodeId: node, artifactId }, {
+          opId,
+          text: "This heading reads right",
+          anchor: { kind: "text", quote: "Release notes", offset: 2 },
+        }),
+      { canvas: CANVAS, node: asNodeId("shelf"), artifactId: docId, opId: mintOpId() },
+    );
+    expect(posted.kind, JSON.stringify(posted)).toBe("applied");
+    const mark = page.locator(".artifact-document__anchor");
+    await expect(mark).toHaveCount(1, { timeout: 20_000 });
+    await expect(page.getByTestId("comments-edge-count")).toHaveText("3");
+    await shot(page, "09c-text-mark");
+    await mark.click();
+    await expect(threads.locator(".artifact-thread[data-revealed='true']")).toHaveCount(1);
+    await expect(threads.locator(".artifact-thread[data-revealed='true']")).toContainText("This heading reads right");
 
     // Archive and restore.
     await page.getByRole("button", { name: "Archive", exact: true }).click();

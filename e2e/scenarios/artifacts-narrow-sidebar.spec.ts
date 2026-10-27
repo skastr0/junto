@@ -79,6 +79,9 @@ test("a6510c1bb: narrow artifacts sidebar fits, collapses, expands; rail unchang
       });
 
     await expect(page.locator(".two-pane__rail")).toBeVisible();
+    // The comments rail opens collapsed to its edge; open it to measure its column.
+    await page.locator(".artifact-comments-edge").click();
+    await expect(page.getByLabel("New comment")).toBeVisible();
     const open = await measure();
     console.log("OPEN", JSON.stringify(open, null, 1));
     await shot(page, "1-open");
