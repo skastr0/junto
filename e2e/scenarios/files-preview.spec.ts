@@ -105,7 +105,6 @@ test("PDF and image preview and Extract as artifact, dark and bright", async () 
       await expect(first.getByTestId("file-box-draft")).toBeVisible();
       const drawn = (await first.getByTestId("file-box-draft").boundingBox())!.width / (await first.boundingBox())!.width;
       await expect(pdf.getByTestId("file-box-extract")).toBeEnabled();
-      facts.extractTarget = await pdf.getByTestId("file-box-extract").getAttribute("title");
       await shot(theme, "3-pdf-box");
       await pdf.getByTestId("file-box-extract").click();
       await expect(pdf.getByTestId("file-view-said")).toHaveText("Extracted to Shelf.", { timeout: 15_000 });

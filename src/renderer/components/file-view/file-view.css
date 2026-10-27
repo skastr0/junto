@@ -254,3 +254,9 @@
   pointer-events: auto;
   cursor: default;
 }
+
+.file-box__hint {
+  padding: 0 4px;
+  color: var(--color-dim);
+  font-size: var(--text-caption);
+}

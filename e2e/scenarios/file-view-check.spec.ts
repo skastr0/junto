@@ -94,8 +94,8 @@ test("file viewers in the real app, dark and bright", async () => {
       const draft = first.getByTestId("file-box-draft");
       await expect(draft).toBeVisible();
       await expect(first.getByTestId("file-box-thread")).toHaveCount(1);
-      await expect(pdf.getByTestId("file-box-extract")).toBeDisabled();
-      facts.extractTitle = await pdf.getByTestId("file-box-extract").getAttribute("title");
+      await expect(pdf.getByTestId("file-box-extract")).toHaveCount(0);
+      facts.noTarget = await pdf.getByTestId("file-box-no-target").innerText();
       await page.screenshot({ path: join(SHOTS, theme, "4-pdf-box.png") });
       const drawnWidth = (await draft.boundingBox())!.width;
       const pageWidth = (await first.boundingBox())!.width;

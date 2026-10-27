@@ -180,17 +180,24 @@ export function BoxActions({ tools }: { readonly tools: BoxTools }) {
           Comment
         </Button>
       )}
-      <Button
-        size="xs"
-        variant="primary"
-        data-testid="file-box-extract"
-        onClick={tools.extractBox}
-        disabled={pending || tools.target === null}
-        title={tools.target === null ? "No Artifacts node is in reach of this Files node" : `Make an image artifact in ${tools.target.title}`}
-      >
-        <Crop size={12} aria-hidden />
-        {pending ? "Extracting" : "Extract as artifact"}
-      </Button>
+      {tools.target === null ? (
+        // Said, not a disabled button's tooltip: a disabled button takes no pointer, so its title never shows.
+        <span className="file-box__hint" data-testid="file-box-no-target">
+          No Artifacts node in reach to extract to
+        </span>
+      ) : (
+        <Button
+          size="xs"
+          variant="primary"
+          data-testid="file-box-extract"
+          onClick={tools.extractBox}
+          disabled={pending}
+          title={`Make an image artifact in ${tools.target.title}`}
+        >
+          <Crop size={12} aria-hidden />
+          {pending ? "Extracting" : "Extract as artifact"}
+        </Button>
+      )}
       <IconButton size="sm" aria-label="Discard the box" title="Discard the box (Esc)" onClick={tools.discard} disabled={pending}>
         <X size={12} aria-hidden />
       </IconButton>
