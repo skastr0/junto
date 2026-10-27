@@ -7,8 +7,17 @@ import { artifactsSource } from "./artifacts-source";
 /** The current title of what a link names, when the reader knows it. */
 export type LinkTitleOf = (target: MentionTarget) => string | undefined;
 
-/** A run of text as a reader draws it: plain words, or a link's words and what it names. */
-export type LinkPiece = { readonly text: string; readonly link?: MentionTarget };
+/**
+ * Where a link's artifact stands, once its node has been read: there,
+ * archived, or unavailable (the node does not hold it), as a document's chip
+ * says it (DocumentMentionChip). Unknown until the read lands, and for a link
+ * that names no artifact.
+ */
+export type LinkState = "live" | "archived" | "unavailable";
+export type LinkStateOf = (target: MentionTarget) => LinkState | undefined;
+
+/** A run of text as a reader draws it: plain words, or a link's words, what it names and where that stands. */
+export type LinkPiece = { readonly text: string; readonly link?: MentionTarget; readonly state?: LinkState };
 
 /**
  * Text split into its words and its mention links, each link as its words,
@@ -16,31 +25,42 @@ export type LinkPiece = { readonly text: string; readonly link?: MentionTarget }
  * so a rename shows at once, else the title it was written with (a `[[ ]]`
  * link's label without its brackets).
  */
-export const linkPiecesOf = (text: string, titleOf?: LinkTitleOf): ReadonlyArray<LinkPiece> => {
+export const linkPiecesOf = (text: string, titleOf?: LinkTitleOf, stateOf?: LinkStateOf): ReadonlyArray<LinkPiece> => {
   const links = mentionLinksOf(text);
   if (links.length === 0) return [{ text }];
   const pieces: LinkPiece[] = [];
   let at = 0;
   for (const link of links) {
     if (link.start > at) pieces.push({ text: text.slice(at, link.start) });
-    pieces.push({ text: titleOf?.(link.target) ?? artifactLinkTitle(link.label) ?? link.label, link: link.target });
+    const state = stateOf?.(link.target);
+    pieces.push({
+      text: titleOf?.(link.target) ?? artifactLinkTitle(link.label) ?? link.label,
+      link: link.target,
+      ...(state === undefined ? {} : { state }),
+    });
     at = link.end;
   }
   if (at < text.length) pieces.push({ text: text.slice(at) });
   return pieces;
 };
 
-const EMPTY: ReadonlyMap<string, string> = new Map();
+type Held = { readonly title: string; readonly archived: boolean };
+type Read = { readonly nodes: ReadonlySet<string>; readonly heads: ReadonlyMap<string, Held> };
+const EMPTY: Read = { nodes: new Set(), heads: new Map() };
 
 const titleKey = (nodeId: string, artifactId: string): string => `${nodeId}/${artifactId}`;
 
 /**
- * The current title of each artifact the texts link, read from the
- * Artifacts nodes those links name and read again on any artifact change on
- * the canvas. An archived artifact, or one gone, has none, so its link keeps
- * the title it was written with.
+ * The current title of each live artifact the texts link, and where each
+ * linked artifact stands, read from the Artifacts nodes those links name and
+ * read again on any artifact change on the canvas. An archived artifact, or
+ * an unavailable one, has no title here, so its link keeps the title it was written
+ * with.
  */
-export const useLinkTitles = (canvasName: string | undefined, texts: ReadonlyArray<string>): LinkTitleOf => {
+export const useLinkTargets = (
+  canvasName: string | undefined,
+  texts: ReadonlyArray<string>,
+): { readonly titleOf: LinkTitleOf; readonly stateOf: LinkStateOf } => {
   const linked = useMemo(
     (): ReadonlyArray<NodeId> =>
       [
@@ -52,34 +72,56 @@ export const useLinkTitles = (canvasName: string | undefined, texts: ReadonlyArr
   const nodes = linked.join(" ");
   const linkedRef = useRef(linked);
   linkedRef.current = linked;
-  const [titles, setTitles] = useState(EMPTY);
+  const [read, setRead] = useState(EMPTY);
   useEffect(() => {
     if (canvasName === undefined || nodes === "") {
-      setTitles(EMPTY);
+      setRead(EMPTY);
       return;
     }
     const nodeIds = linkedRef.current;
     let live = true;
-    const read = (): void => {
-      void Promise.all(nodeIds.map((nodeId) => artifactsSource().list(canvasName, nodeId).catch(() => []))).then((lists) => {
+    const refresh = (): void => {
+      // A node that cannot be read says nothing about its artifacts: their links stay unknown, never gone.
+      void Promise.all(nodeIds.map((nodeId) => artifactsSource().list(canvasName, nodeId).catch(() => undefined))).then((lists) => {
         if (!live) return;
-        const next = new Map<string, string>();
-        lists.forEach((heads, index) => {
-          for (const { artifact } of heads) {
-            if (!artifact.archived) next.set(titleKey(nodeIds[index]!, artifact.artifactId), artifact.title);
-          }
+        const seen = new Set<string>();
+        const heads = new Map<string, Held>();
+        lists.forEach((list, index) => {
+          if (list === undefined) return;
+          seen.add(nodeIds[index]!);
+          for (const { artifact } of list) heads.set(titleKey(nodeIds[index]!, artifact.artifactId), { title: artifact.title, archived: artifact.archived });
         });
-        setTitles(next);
+        setRead({ nodes: seen, heads });
       });
     };
-    read();
+    refresh();
     const unsubscribe = artifactsSource().onChanged((changed) => {
-      if (changed.canvasName === canvasName) read();
+      if (changed.canvasName === canvasName) refresh();
     });
     return () => {
       live = false;
       unsubscribe();
     };
   }, [canvasName, nodes]);
-  return useCallback((target) => (target.item === undefined ? undefined : titles.get(titleKey(target.nodeId, target.item))), [titles]);
+  const titleOf = useCallback<LinkTitleOf>(
+    (target) => {
+      if (target.item === undefined) return undefined;
+      const held = read.heads.get(titleKey(target.nodeId, target.item));
+      return held === undefined || held.archived ? undefined : held.title;
+    },
+    [read],
+  );
+  const stateOf = useCallback<LinkStateOf>(
+    (target) => {
+      if (target.item === undefined || !read.nodes.has(target.nodeId)) return undefined;
+      const held = read.heads.get(titleKey(target.nodeId, target.item));
+      return held === undefined ? "unavailable" : held.archived ? "archived" : "live";
+    },
+    [read],
+  );
+  return useMemo(() => ({ titleOf, stateOf }), [titleOf, stateOf]);
 };
+
+/** The current title of each live artifact the texts link (`useLinkTargets` without where each stands). */
+export const useLinkTitles = (canvasName: string | undefined, texts: ReadonlyArray<string>): LinkTitleOf =>
+  useLinkTargets(canvasName, texts).titleOf;

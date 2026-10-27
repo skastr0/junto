@@ -19,7 +19,7 @@ const { opened, heads } = vi.hoisted(() => {
 vi.mock("../src/renderer/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
 vi.mock("../src/renderer/lib/artifacts-source", () => ({
   artifactsSource: () => ({
-    list: async (_canvas: string, nodeId: string) => heads.get(nodeId) ?? [],
+    list: async (_canvas: string, nodeId: string) => await (heads.get(nodeId) ?? []),
     onChanged: () => () => {},
   }),
 }));
@@ -74,6 +74,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   opened.length = 0;
   heads.clear();
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan", archived: false } }]);
   host = document.createElement("div");
   host.setAttribute("data-focus-surface", "");
   document.body.append(host);
@@ -99,8 +100,39 @@ it("a link in a cell reads as its words, the artifact's title as it is now, neve
 });
 
 it("a link to an artifact gone keeps the title it was written with", async () => {
+  heads.set(shelf, []);
+  await render();
+  expect(cell("B1")!.value).toBe("see Launch plan, unavailable first");
+});
+
+it("a link to an archived artifact says so after its title, and still opens", async () => {
+  heads.set(shelf, [{ artifact: { artifactId: plan.ref.artifactId, title: "Launch plan v2", archived: true } }]);
+  await render();
+  expect(cell("B1")!.value).toBe("see Launch plan, archived first");
+  const link = words("B1")!.querySelector(".junto-artifact-sheet__link")!;
+  expect(link.getAttribute("data-state")).toBe("archived");
+  expect(link.textContent).toBe("Launch plan");
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", metaKey: true });
+  expect(opened).toEqual([plan.ref]);
+});
+
+it("a link to an artifact its node does not hold reads unavailable, and Cmd+Enter says why rather than opening", async () => {
+  heads.set(shelf, [{ artifact: { artifactId: "01M5ZBT64KHP4JGH67RV1YCS6C", title: "Other", archived: false } }]);
+  await render();
+  expect(cell("B1")!.value).toBe("see Launch plan, unavailable first");
+  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.getAttribute("data-state")).toBe("unavailable");
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", metaKey: true });
+  expect(opened).toEqual([]);
+  expect(host.querySelector(".junto-artifact-sheet__refusal")!.textContent).toBe("Launch plan is unavailable, so its link opens nothing.");
+});
+
+it("a link whose node cannot be read draws as written, with no state", async () => {
+  heads.set(shelf, Promise.reject(new Error("no node")) as never);
   await render();
   expect(cell("B1")!.value).toBe("see Launch plan first");
+  expect(words("B1")!.querySelector(".junto-artifact-sheet__link")!.hasAttribute("data-state")).toBe(false);
 });
 
 it("[[ in a cell's edit offers the artifacts in reach, and a pick writes the link by id", async () => {
