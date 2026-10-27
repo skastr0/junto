@@ -138,6 +138,7 @@ import { postSubjectComment } from "./subject-comment";
 import { subjectReplyOf } from "@shared/subject-comment";
 import { filesNodeName, subjectPeopleAt } from "./subject-people";
 import { MachineRepository } from "../machines/repository";
+import { isThisMachine } from "@shared/machine-identity";
 import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
 import {
   AgentSignalRepository,
@@ -1336,7 +1337,7 @@ const dispatchOp = (
         : undefined;
       const folders = [...board.nodes.values()].flatMap((node) =>
         node.kind === "files" && reaches(board, asNodeId(caller.nodeId), node.id)
-          ? [{ id: node.id as string, name: filesNodeName(node), ...(here !== undefined && node.host === here ? { root: node.root } : {}) }]
+          ? [{ id: node.id as string, name: filesNodeName(node), ...(here !== undefined && isThisMachine(node.host, here) ? { root: node.root } : {}) }]
           : [],
       );
       const overseer = self.kind === "agent" && self.overseer === true;
