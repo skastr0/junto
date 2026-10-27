@@ -472,6 +472,7 @@ function SelectedArtifact({
             readOnly={readOnly}
             onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "pad", baseVersion, patches: [...patches] }))}
             onCommentBox={(box) => setDraftAnchor({ kind: "box", ...box })}
+            mentions={documentMentions}
           />
         );
       case "link":
