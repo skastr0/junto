@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link2, X } from "lucide-react";
 import type { ItemId } from "@shared/resource-command";
 import type { TaskView } from "@shared/task-model";
+import { claimFocus } from "../../lib/focus-ownership";
 import { Combobox, IconButton, ResourceChip } from "../ui";
 
 /**
@@ -43,7 +44,7 @@ export function ArtifactTasks({
   const close = (): void => {
     setQuery("");
     setPicking(false);
-    group.current?.querySelector<HTMLButtonElement>("[data-tasks-trigger]")?.focus();
+    claimFocus(group.current?.querySelector<HTMLElement>("[data-tasks-trigger]"), "gesture");
   };
   useEffect(() => {
     if (!picking) return;
