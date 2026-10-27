@@ -7,8 +7,9 @@
  * reach, each naming its source, the PDF one rendered at twice the page.
  *   bun run test:e2e:fast e2e/scenarios/files-preview.spec.ts
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 import type { Locator, Page } from "@playwright/test";
 import { Node } from "../../src/shared/model";
@@ -41,6 +42,8 @@ const drag = async (page: Page, surface: Locator, from: [number, number], to: [n
 test("PDF and image preview and Extract as artifact, dark and bright", async () => {
   test.setTimeout(300_000);
   const stage = await stageFiles();
+  // A PDF locked with a password (pypdf, RC4-128, user password "secret"): said as locked, not as broken.
+  copyFileSync(fileURLToPath(new URL("../fixtures/files/locked.pdf", import.meta.url)), join(stage.fixture.root, "docs/locked.pdf"));
   const junto = await launchJunto({
     windowContentSize: { width: 1600, height: 1000 },
     seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root), shelf]) },
@@ -147,6 +150,11 @@ test("PDF and image preview and Extract as artifact, dark and bright", async () 
       await image.getByTestId("file-box-extract").click();
       await expect(image.getByTestId("file-view-said")).toHaveText("Extracted to Shelf.", { timeout: 15_000 });
       await shot(theme, "5-image-extracted");
+
+      // (5b) a locked PDF says it is password protected, not that it is broken.
+      await openInTree(modal, "docs/locked.pdf");
+      await expect(modal.getByTestId("pdf-locked")).toHaveText("locked.pdf is password protected. Open it in its own app.", { timeout: 15_000 });
+      await shot(theme, "5b-locked-pdf");
 
       // (6) a file that is neither offers its default app and Finder (not pressed: it would open them).
       await openInTree(modal, stage.fixture.paths.unknownBinary);

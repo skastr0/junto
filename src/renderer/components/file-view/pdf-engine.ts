@@ -21,10 +21,18 @@ export type LoadedPdf = {
   readonly close: () => void;
 };
 
+/** A PDF locked with a password: Junto does not ask for one. */
+export class PdfLocked extends Error {
+  constructor() {
+    super("the PDF is password protected");
+    this.name = "PdfLocked";
+  }
+}
+
 /**
  * Open a PDF at its `junto-file:` address (or from bytes, for the gallery). pdf.js reads it by ranges
  * when the protocol serves them. No form script in the PDF runs: XFA is off and
- * the app's CSP has no `unsafe-eval` either.
+ * the app's CSP has no `unsafe-eval` either. A locked PDF throws `PdfLocked`.
  */
 export const loadPdf = async (source: string | Uint8Array): Promise<LoadedPdf> => {
   const task = getDocument(typeof source === "string" ? { url: source, enableXfa: false } : { data: source, enableXfa: false });
@@ -39,6 +47,7 @@ export const loadPdf = async (source: string | Uint8Array): Promise<LoadedPdf> =
     return { doc, sizes, close: () => void task.destroy() };
   } catch (error) {
     void task.destroy();
+    if (error instanceof Error && error.name === "PasswordException") throw new PdfLocked();
     throw error;
   }
 };

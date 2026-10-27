@@ -12,7 +12,11 @@ type LoadedPdf = import("./pdf-engine").LoadedPdf;
 /** The space between pages in the stack, in CSS pixels. */
 const PAGE_GAP = 16;
 
-type Loading = { readonly kind: "loading" } | { readonly kind: "ready"; readonly engine: Engine; readonly pdf: LoadedPdf } | { readonly kind: "failed" };
+type Loading =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly engine: Engine; readonly pdf: LoadedPdf }
+  | { readonly kind: "locked" }
+  | { readonly kind: "failed" };
 
 /**
  * A PDF in the main pane (F6): its pages in one scrolling stack, fitted to
@@ -42,11 +46,15 @@ export function PdfViewer({
     setLoading({ kind: "loading" });
     void import("./pdf-engine")
       .then(async (engine) => {
-        // pdf.js hands the bytes to its worker and detaches them, so it gets a copy.
-        const pdf = await engine.loadPdf(data === undefined ? url : data.slice());
-        if (!live) return pdf.close();
-        close = pdf.close;
-        setLoading({ kind: "ready", engine, pdf });
+        try {
+          // pdf.js hands the bytes to its worker and detaches them, so it gets a copy.
+          const pdf = await engine.loadPdf(data === undefined ? url : data.slice());
+          if (!live) return pdf.close();
+          close = pdf.close;
+          setLoading({ kind: "ready", engine, pdf });
+        } catch (error) {
+          if (live) setLoading(error instanceof engine.PdfLocked ? { kind: "locked" } : { kind: "failed" });
+        }
       })
       .catch(() => {
         if (live) setLoading({ kind: "failed" });
@@ -203,6 +211,11 @@ export function PdfViewer({
         {loading.kind === "failed" ? (
           <p className="file-view__empty" role="alert">
             This PDF could not be opened.
+          </p>
+        ) : null}
+        {loading.kind === "locked" ? (
+          <p className="file-view__empty" role="alert" data-testid="pdf-locked">
+            {name} is password protected. Open it in its own app.
           </p>
         ) : null}
         {loading.kind === "ready" ? (
