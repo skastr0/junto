@@ -262,6 +262,7 @@ export function PadEditor({
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const pendingImageRef = useRef<PendingImage | null>(null);
   const [camera, setCamera] = useState<Camera>(identityCamera);
   const [tool, setTool] = useState<PadTool>("select");
@@ -799,6 +800,11 @@ export function PadEditor({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Keys aimed outside the pad (the artifacts list, the comments
+      // composer) belong to their own surfaces; only the pad and the bare
+      // document are the pad's.
+      const target = event.target;
+      if (target instanceof Node && target !== document.body && !bodyRef.current?.contains(target)) return;
       if (event.key === " " && !isOperatorTyping(event.target) && !isControlTarget(event.target)) {
         if (!event.repeat) setSpaceDown(true);
         event.preventDefault();
@@ -1292,7 +1298,7 @@ export function PadEditor({
         : undefined;
 
   return (
-    <div className="pad-surface__body">
+    <div className="pad-surface__body" ref={bodyRef}>
       <PadToolbar
         tool={tool}
         onTool={setTool}
