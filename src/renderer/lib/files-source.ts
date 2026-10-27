@@ -25,18 +25,17 @@ import type { SubjectThread, ThreadPost } from "./subject-threads-source";
 
 /**
  * The Files node's reach into its folder (0.11, F2), as the modal sees it:
- * main's `window.junto.files` (`src/shared/files.ts`), or, where the preload
- * has not landed it, an in-memory folder so the modal still opens. Every call
- * names the node and a path relative to its root, never an absolute path.
+ * main's `window.junto.files` (`src/shared/files.ts`). Every call names the
+ * node and a path relative to its root, never an absolute path.
  */
 export type FilesSource = JuntoFilesApi["files"];
 
-// --- the stand-in -------------------------------------------------------------
+// --- an in-memory folder, for tests --------------------------------------------
 
 type HeldFile = { text?: string; size: number; mtimeMs: number };
 
 /**
- * An in-memory folder per node, as the stand-in and for tests. `seed` maps a
+ * An in-memory folder per node, for tests. `seed` maps a
  * path to its text, or to a binary's size; a binary's mime is read off its
  * name as main does. `touch` is another program writing a file.
  */
@@ -75,6 +74,7 @@ export const makeLocalFiles = (
   return {
     open: async () => ok<FilesRoot>({ name: "folder", repo: false }),
     close: async () => ok(null),
+    count: async (ref) => ok({ files: rootOf(ref.node).size, capped: false }),
     list: async (ref, dir) => {
       const prefix = dir === ROOT_PATH ? "" : `${dir}/`;
       const children = new Map<string, FileEntry>();
@@ -147,36 +147,33 @@ export const makeLocalFiles = (
   };
 };
 
-const standIn = makeLocalFiles({
-  "README.md": "# Files\n\nThe Files node's stand-in folder, until main serves the real one.\n",
-  "src/index.ts": 'export const hello = (name: string): string => `Hello, ${name}`;\n',
-  "assets/logo.png": { size: 2048 },
-  "docs/brief.pdf": { size: 81920 },
-  "dist/app.zip": { size: 1048576 },
-});
+const refuse = async (): Promise<FilesResult<never>> => ({ ok: false, error: "failed" });
 
-/** Without main's files API in a built app, every call refuses, so the modal says it cannot open the folder. */
+/** Without main's files API (a window with no preload), every call refuses, so the modal says it cannot open the folder. */
 const refusing: FilesSource = {
-  ...standIn,
-  open: async () => ({ ok: false, error: "failed" }),
-  list: async () => ({ ok: false, error: "failed" }),
-  read: async () => ({ ok: false, error: "failed" }),
-  write: async () => ({ ok: false, error: "failed" }),
-  search: async () => ({ ok: false, error: "failed" }),
-  openInDefaultApp: async () => ({ ok: false, error: "failed" }),
-  revealInFinder: async () => ({ ok: false, error: "failed" }),
+  open: refuse,
+  close: refuse,
+  count: refuse,
+  list: refuse,
+  search: refuse,
+  read: refuse,
+  write: refuse,
+  create: refuse,
+  rename: refuse,
+  move: refuse,
+  trash: refuse,
+  import: refuse,
+  openInDefaultApp: refuse,
+  revealInFinder: refuse,
+  onChange: () => () => undefined,
+  pathForDroppedFile: () => "",
 };
-
-/** The stand-in folder is for dev and tests only; a built app never shows a folder that is not on disk. */
-const STAND_IN = import.meta.env?.DEV === true || import.meta.env?.MODE === "test";
 
 let installed: FilesSource | null = null;
 
-/** What a test installed, else main's files API when the preload carries it, else the stand-in in dev and a refusal in a build. */
+/** What a test installed, else main's files API. */
 export const filesSource = (): FilesSource =>
-  installed ??
-  (typeof window === "undefined" ? undefined : (window.junto as Partial<JuntoFilesApi> | undefined)?.files) ??
-  (STAND_IN ? standIn : refusing);
+  installed ?? (typeof window === "undefined" ? undefined : (window.junto as Partial<JuntoFilesApi> | undefined)?.files) ?? refusing;
 
 /** A test's source; null goes back to main's. */
 export const installFilesSource = (next: FilesSource | null): void => {
