@@ -46,6 +46,7 @@ import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { ConfirmHost } from "./components/ConfirmHost";
+import { UnsavedFilesHost } from "./components/files/UnsavedFilesHost";
 import { OperatorModalHost } from "./components/operator-modal/OperatorModalHost";
 import { closeOperatorModal } from "./lib/operator-modal";
 import { FocusSwitcherHud } from "./components/FocusSwitcherHud";
@@ -630,6 +631,7 @@ export function App() {
         </div>
       </div>
       <ConfirmHost />
+      <UnsavedFilesHost />
       <OperatorModalHost />
       <TooltipLayer />
     </div>

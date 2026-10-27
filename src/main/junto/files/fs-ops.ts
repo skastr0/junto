@@ -1,6 +1,6 @@
 import { constants, type Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { chmod, cp, link, lstat, mkdir, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
@@ -196,46 +196,15 @@ export const readFileAt = (scope: Scope, path: FilePath): Promise<FilesResult<Fi
  * Replace a text file, atomically: a sibling temp file renamed over it, with
  * the old file's mode. Refused `stale` when the file is no longer `base`.
  */
-/**
- * Write a file back that was deleted under a draft: only while nothing is
- * at `path`. The bytes land in a temp file first; `link` puts it in place
- * and never replaces, so anything that appeared meanwhile answers `exists`.
- */
-const recreateFileAt = async (scope: Scope, path: FilePath, bytes: Buffer): Promise<FilesResult<FileStamp>> => {
-  const target = await resolveEntry(scope, path);
-  if (!target.ok) return target;
-  const temp = join(target.value, "..", `.${basename(target.value)}.junto-${randomBytes(6).toString("hex")}`);
-  const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o644);
-  let written: FileStamp;
-  try {
-    await handle.writeFile(bytes);
-    await handle.sync();
-    written = stampOf(await handle.stat());
-  } finally {
-    await handle.close();
-  }
-  try {
-    await link(temp, target.value);
-  } catch (cause) {
-    if ((cause as { code?: unknown }).code === "EEXIST") return refused("exists");
-    throw cause;
-  } finally {
-    await unlink(temp).catch(() => undefined);
-  }
-  return ok(written);
-};
-
 export const writeFileAt = (
   scope: Scope,
   path: FilePath,
   text: string,
-  /** The stamp read; `null` when the file is gone and the save writes it back. */
-  base: FileStamp | null,
+  base: FileStamp,
 ): Promise<FilesResult<FileStamp>> =>
   attempt(async () => {
     const bytes = Buffer.from(text, "utf8");
     if (bytes.byteLength > FILE_TEXT_MAX_BYTES) return refused("too-large");
-    if (base === null) return recreateFileAt(scope, path, bytes);
     const real = await resolveContent(scope, path);
     if (!real.ok) return real;
     const before = await stat(real.value);
