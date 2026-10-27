@@ -507,7 +507,6 @@ function SelectedArtifact({
             versions={history}
             head={artifact.version}
             now={now}
-            onClose={() => setMode("edit")}
             onRestore={(record) => {
               void edit((baseVersion) => ({ kind: "replace", baseVersion, body: record.body })).then((refused) => {
                 if (refused === null) setMode("edit");

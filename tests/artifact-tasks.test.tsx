@@ -58,4 +58,16 @@ describe("artifact tasks", () => {
     act(() => (options[0] as HTMLElement).click());
     expect(onChange).toHaveBeenCalledWith([linked.taskId, other.taskId]);
   });
+
+  it("closes the picker on Escape and gives focus back to the link button", () => {
+    render(<ArtifactTasks taskIds={[]} tasks={[task("Other", 2)]} readOnly={false} onChange={() => {}} onOpen={() => {}} />);
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Name a task"]');
+    act(() => button?.click());
+    expect(host.querySelector('[aria-label="Find a task"]')).not.toBeNull();
+    act(() => {
+      host.querySelector('[aria-label="Find a task"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(host.querySelector('[aria-label="Find a task"]')).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
 });

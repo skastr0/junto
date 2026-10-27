@@ -88,7 +88,7 @@
 .artifact-head {
   position: relative;
   display: flex;
-  height: 44px;
+  height: 36px;
   flex: none;
   align-items: center;
   gap: 8px;
@@ -97,7 +97,7 @@
 }
 
 .artifact-head__title {
-  min-width: 0;
+  min-width: 12ch;
   flex: 1;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -129,9 +129,18 @@
 .artifact-tasks {
   display: flex;
   min-width: 0;
+  max-width: 40%;
   flex: 0 1 auto;
   align-items: center;
   gap: 6px;
+}
+
+.artifact-tasks__chips {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
 }
 
 .artifact-tasks__chip {
@@ -154,6 +163,7 @@
   border: 1px solid var(--color-stroke-hi);
   border-radius: var(--radius-md);
   background: var(--color-raise);
+  box-shadow: 0 10px 24px var(--color-shadow-2);
 }
 
 .artifact-tasks__none {
@@ -472,7 +482,7 @@
 
 .artifact-document .cm-md-table :is(th, td) {
   border: 1px solid var(--color-stroke);
-  padding: 6px 9px;
+  padding: 6px 8px;
   text-align: left;
   vertical-align: top;
 }
@@ -541,7 +551,7 @@
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: minmax(160px, 30%) minmax(0, 1fr);
 }
 
 .artifact-history__list {
