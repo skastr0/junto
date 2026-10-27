@@ -70,11 +70,18 @@ const STENCIL_ICONS: Readonly<Record<PadStencilId, ReactNode>> = {
 
 const STENCIL_ORDER: ReadonlyArray<PadStencilId> = ["sticky", "process", "decision", "store", "flow"];
 
-const STATUS_TONE: Readonly<Record<PadShapeStatus, string>> = {
-  none: "var(--color-steel)",
-  active: "var(--color-cyan)",
-  done: "var(--color-green)",
-  blocked: "var(--color-crimson)",
+/** The dot for a status: the same hue padStatusStroke draws the outline in. */
+const statusTone = (status: PadShapeStatus): string => {
+  switch (status) {
+    case "active":
+      return "var(--color-cyan)";
+    case "done":
+      return "var(--color-green)";
+    case "blocked":
+      return "var(--color-crimson)";
+    default:
+      return "var(--color-steel)";
+  }
 };
 
 const ROVING_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
@@ -264,7 +271,7 @@ export function PadSelectionBar({
             <span
               className="pad-swatch__dot"
               data-hollow={entry.value === "none" ? "true" : undefined}
-              style={{ ["--swatch" as string]: STATUS_TONE[entry.value] }}
+              style={{ ["--swatch" as string]: statusTone(entry.value) }}
             />
           </button>
         ))}
