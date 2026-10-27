@@ -39,7 +39,7 @@ export const preloadModuleRefusal = (
   if (external) {
     return (PRELOAD_EXTERNAL_ALLOWED as readonly string[]).includes(id)
       ? undefined
-      : `the sandboxed preload can require only ${PRELOAD_EXTERNAL_ALLOWED.join(", ")}`;
+      : `the preload may require only ${PRELOAD_EXTERNAL_ALLOWED.join(", ")} (Electron's sandbox also offers events, timers and url; add one to PRELOAD_EXTERNAL_ALLOWED to use it)`;
   }
   const path = shown(root, id);
   return PRELOAD_BUNDLED_ALLOWED.some((folder) => path.startsWith(folder))
@@ -78,54 +78,59 @@ export type PreloadBundleReport = {
 };
 
 export const preloadBundleGuard = (
-  root: string,
   report: (found: PreloadBundleReport) => void = () => undefined,
-): Plugin => ({
-  name: "junto:preload-bundle-guard",
-  apply: "build",
-  generateBundle(_options, bundle) {
-    const bundled: string[] = [];
-    const external: string[] = [];
-    const refusals: PreloadRefusal[] = [];
-    const importersOf = (id: string): string[] =>
-      [...(this.getModuleInfo(id)?.importers ?? []), ...(this.getModuleInfo(id)?.dynamicImporters ?? [])]
-        .map((importer) => shown(root, importer));
-    for (const chunk of Object.values(bundle)) {
-      if (chunk.type !== "chunk") continue;
-      // A package is one refusal, named at the imports that reach into it
-      // from outside. Its index is often tree-shaken away, so those are
-      // found from the importing side.
-      const modules = Object.keys(chunk.modules);
-      const packages = new Map<string, { importers: Set<string>; reason: string }>();
-      for (const id of modules) {
-        bundled.push(shown(root, id));
-        const reason = preloadModuleRefusal(root, id, false);
-        if (reason === undefined) continue;
-        const name = packageOf(id);
-        if (name === undefined) {
-          refusals.push({ module: shown(root, id), importers: importersOf(id), reason });
-        } else if (!packages.has(name)) {
-          packages.set(name, { importers: new Set(), reason });
+): Plugin => {
+  let root = process.cwd();
+  return {
+    name: "junto:preload-bundle-guard",
+    apply: "build",
+    configResolved(config) {
+      root = config.root;
+    },
+    generateBundle(_options, bundle) {
+      const bundled: string[] = [];
+      const external: string[] = [];
+      const refusals: PreloadRefusal[] = [];
+      const importersOf = (id: string): string[] =>
+        [...(this.getModuleInfo(id)?.importers ?? []), ...(this.getModuleInfo(id)?.dynamicImporters ?? [])]
+          .map((importer) => shown(root, importer));
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type !== "chunk") continue;
+        // A package is one refusal, named at the imports that reach into it
+        // from outside. Its index is often tree-shaken away, so those are
+        // found from the importing side.
+        const modules = Object.keys(chunk.modules);
+        const packages = new Map<string, { importers: Set<string>; reason: string }>();
+        for (const id of modules) {
+          bundled.push(shown(root, id));
+          const reason = preloadModuleRefusal(root, id, false);
+          if (reason === undefined) continue;
+          const name = packageOf(id);
+          if (name === undefined) {
+            refusals.push({ module: shown(root, id), importers: importersOf(id), reason });
+          } else if (!packages.has(name)) {
+            packages.set(name, { importers: new Set(), reason });
+          }
+        }
+        for (const id of modules) {
+          const info = this.getModuleInfo(id);
+          for (const target of [...(info?.importedIds ?? []), ...(info?.dynamicallyImportedIds ?? [])]) {
+            const name = packageOf(target);
+            if (name !== undefined && name !== packageOf(id)) packages.get(name)?.importers.add(shown(root, id));
+          }
+        }
+        for (const [name, held] of packages) {
+          refusals.push({ module: name, importers: [...held.importers], reason: held.reason });
+        }
+        for (const id of [...chunk.imports, ...chunk.dynamicImports]) {
+          if (bundle[id] !== undefined) continue;
+          external.push(id);
+          const reason = preloadModuleRefusal(root, id, true);
+          if (reason !== undefined) refusals.push({ module: id, importers: importersOf(id), reason });
         }
       }
-      for (const id of modules) {
-        const info = this.getModuleInfo(id);
-        for (const target of [...(info?.importedIds ?? []), ...(info?.dynamicallyImportedIds ?? [])]) {
-          const name = packageOf(target);
-          if (name !== undefined && name !== packageOf(id)) packages.get(name)?.importers.add(shown(root, id));
-        }
-      }
-      for (const [name, held] of packages) {
-        refusals.push({ module: name, importers: [...held.importers], reason: held.reason });
-      }
-      for (const id of [...chunk.imports, ...chunk.dynamicImports]) {
-        if (bundle[id] !== undefined) continue;
-        external.push(id);
-        const reason = preloadModuleRefusal(root, id, true);
-        if (reason !== undefined) refusals.push({ module: id, importers: importersOf(id), reason });
-      }
-    }
-    report({ bundled, external, refusals });
-    if (refusals.length > 0) this.error(describePreloadRefusals(refusals));
-  },
-});
+      report({ bundled, external, refusals });
+      if (refusals.length > 0) this.error(describePreloadRefusals(refusals));
+    },
+  };
+};

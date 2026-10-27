@@ -39,7 +39,7 @@ const bundlePreload = async (
       },
       plugins: [
         externalizeDepsPlugin(),
-        preloadBundleGuard(root, (found) => {
+        preloadBundleGuard((found) => {
           report = found;
         }),
       ],
@@ -79,7 +79,7 @@ describe("sandboxed preload bundle", () => {
     expect(effect).toMatchObject({ importers: [entry], reason: expect.stringMatching(/^Effect is refused/) });
     expect(result.refusals.find((refusal) => refusal.module === "node:fs")).toMatchObject({
       importers: [entry],
-      reason: expect.stringContaining("can require only electron"),
+      reason: expect.stringContaining("may require only electron"),
     });
   }, 60_000);
 
@@ -89,7 +89,7 @@ describe("sandboxed preload bundle", () => {
     expect(preloadModuleRefusal(root, "electron", true)).toBeUndefined();
     expect(preloadModuleRefusal(root, resolve(root, "src/main/runtime.ts"), false)).toMatch(/bundles only/);
     expect(preloadModuleRefusal(root, resolve(root, "node_modules/ws/index.js"), false)).toMatch(/bundles only/);
-    expect(preloadModuleRefusal(root, "ws", true)).toMatch(/can require only/);
+    expect(preloadModuleRefusal(root, "ws", true)).toMatch(/may require only/);
     expect(preloadModuleRefusal(root, "effect", true)).toMatch(/^Effect is refused/);
   });
 });

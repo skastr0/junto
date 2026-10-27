@@ -57,7 +57,7 @@ export default defineConfig(({ command, mode }) => {
     preload: {
       // The sandboxed preload carries only src/preload, src/shared and
       // require("electron"); anything else fails the build.
-      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay), preloadBundleGuard(process.cwd())],
+      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay), preloadBundleGuard()],
       resolve: { alias },
       define: productDefines,
       build: {
