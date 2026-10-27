@@ -424,6 +424,34 @@ describe("search", () => {
     expect(files.heldRoots()).toEqual([]);
   });
 
+  it("a close during a search already in the index leaves no watcher behind", async () => {
+    let watchers = 0;
+    let release: (() => void) | undefined;
+    const { files } = service({
+      watch: () => {
+        watchers += 1;
+        return { close: () => (watchers -= 1) };
+      },
+      names: {
+        ...fakeNames(() => ["a.ts"]),
+        walkNames: async (_root, sink) => {
+          await new Promise<void>((resolve) => (release = resolve));
+          sink(["a.ts"]);
+        },
+      },
+    });
+    value(await files.open(1, ref));
+    const searching = files.search(1, ref, "a", 1);
+    while (release === undefined) await new Promise((resolve) => setImmediate(resolve));
+    value(files.close(1, ref));
+    expect(watchers).toBe(0);
+    release();
+    expect(value(await searching)).toEqual({ kind: "superseded", query: "a" });
+    await files.settle();
+    expect(watchers).toBe(0);
+    expect(files.heldRoots()).toEqual([]);
+  });
+
   it("a count taken before a hold never replaces the count the hold left", async () => {
     let listed = ["a.ts"];
     let gate: Promise<void> | undefined;

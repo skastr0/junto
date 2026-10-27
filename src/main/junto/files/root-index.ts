@@ -30,7 +30,7 @@ export interface RootIndex {
   hold(root: string, session: string): Promise<{ readonly repo: boolean }>;
   /** The root's file count when this was the last session on a fresh index, for the card. */
   release(root: string, session: string): Promise<FilesCount | undefined>;
-  /** Holds the root for the session if it was not held (a restarted worker). */
+  /** On a root the session holds; rejects otherwise, holding nothing. */
   search(root: string, session: string, query: string): Promise<IndexSearch>;
   /** From the index when held, else one git ls-files or capped walk. */
   count(root: string): Promise<FilesCount>;
@@ -314,7 +314,8 @@ export const makeRootIndex = (deps: RootIndexDeps): RootIndex & { readonly settl
     },
 
     search: async (root, session, query) => {
-      const holder = holderFor(root, session);
+      const holder = holders.get(root);
+      if (holder === undefined || !holder.sessions.has(session)) throw new Error("files root not held");
       await ready(holder);
       const slot = holder.slot;
       if (slot === undefined) throw new Error("files index missing");

@@ -24,7 +24,6 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
   let current: { readonly worker: Worker; readonly index: ReturnType<typeof portRootIndex> } | undefined;
   /** Restarts in a row without a worker living RESTART_SETTLED_MS. */
   let restarts = 0;
-  let restart: ReturnType<typeof setTimeout> | undefined;
 
   const end = (): void => {
     if (current === undefined || holds.size > 0 || !current.index.idle()) return;
@@ -33,6 +32,9 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
     void worker.terminate();
   };
 
+  /** Resolves when a pending restart has started the next worker. */
+  let restarting: Promise<void> | undefined;
+
   const live = (): RootIndex => {
     if (current !== undefined) return current.index;
     const worker = createIndexWorker({ name: "junto-files-index" });
@@ -40,23 +42,26 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
     const held = { worker, index };
     const started = Date.now();
     const stop = (cause: Error): void => {
-      if (current !== held) {
-        index.lost(cause);
-        return;
-      }
-      current = undefined;
       index.lost(cause);
-      if (holds.size === 0 || restart !== undefined) return;
-      // Held roots lost their watch: restart, and have their trees list again.
+      if (current !== held) return;
+      current = undefined;
+      if (holds.size === 0 || restarting !== undefined) return;
+      // Held roots lost their watch. Calls wait for the restart, so a tree
+      // answering the reset cannot start workers faster than the backoff.
       if (Date.now() - started > RESTART_SETTLED_MS) restarts = 0;
       const delay = restarts === 0 ? 0 : Math.min(RESTART_MAX_MS, RESTART_FIRST_MS * 2 ** (restarts - 1));
       restarts += 1;
-      restart = setTimeout(() => {
-        restart = undefined;
-        if (holds.size > 0) live();
-      }, delay);
-      restart.unref();
-      for (const root of holds.keys()) emit(root, { kind: "reset" });
+      restarting = new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          restarting = undefined;
+          resolve();
+          if (holds.size === 0) return;
+          live();
+          // Up again: the held trees list again.
+          for (const root of holds.keys()) emit(root, { kind: "reset" });
+        }, delay);
+        timer.unref();
+      });
     };
     worker.on("error", (cause: unknown) => {
       console.error("[files] index worker failed", cause);
@@ -82,10 +87,16 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
     sessions.add(session);
   };
 
+  /** The live index, after any pending restart. */
+  const ready = async (): Promise<RootIndex> => {
+    if (restarting !== undefined) await restarting;
+    return live();
+  };
+
   return {
-    hold: (root, session) => {
+    hold: async (root, session) => {
       note(root, session);
-      return live().hold(root, session);
+      return (await ready()).hold(root, session);
     },
     release: async (root, session) => {
       const sessions = holds.get(root);
@@ -94,11 +105,7 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
       if (current === undefined) return undefined;
       return current.index.release(root, session);
     },
-    // A search holds the root in the worker too.
-    search: (root, session, query) => {
-      note(root, session);
-      return live().search(root, session, query);
-    },
-    count: (root) => live().count(root),
+    search: async (root, session, query) => (await ready()).search(root, session, query),
+    count: async (root) => (await ready()).count(root),
   };
 };

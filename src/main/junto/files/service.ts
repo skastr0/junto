@@ -239,7 +239,9 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
         try {
           found = await index.search(root.value, key, query);
         } catch (cause) {
-          // The worker stopped: the next call starts a fresh one and builds again.
+          // Closed meanwhile (its holder went): nothing to answer, nothing to hold.
+          if (!open()) return { kind: "superseded", query };
+          // The worker stopped: the next call starts a fresh one, holds again and builds.
           console.error("[files] index search failed; once more", cause);
           found = await index.search(root.value, key, query);
         }
