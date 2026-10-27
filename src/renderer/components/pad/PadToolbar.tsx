@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   Ban,
   Circle,
+  Cylinder,
   Database,
   Diamond,
   Image as ImageIcon,
@@ -9,6 +10,7 @@ import {
   MessageSquare,
   MousePointer2,
   Pencil,
+  Split,
   SquareActivity,
   Square,
   StickyNote,
@@ -47,6 +49,8 @@ const TOOLS: ReadonlyArray<ToolDef> = [
   { tool: "box", label: "Box (R)", icon: <Square size={13} /> },
   { tool: "ellipse", label: "Ellipse (O)", icon: <Circle size={13} /> },
   { tool: "triangle", label: "Triangle (T)", icon: <Triangle size={13} /> },
+  { tool: "diamond", label: "Diamond", icon: <Diamond size={13} /> },
+  { tool: "cylinder", label: "Cylinder", icon: <Cylinder size={13} /> },
   { tool: "label", label: "Label (L)", icon: <Type size={13} /> },
   { tool: "area", label: "Comment on an area (P)", icon: <MessageSquare size={13} /> },
   { tool: "image", label: "Image (I)", icon: <ImageIcon size={13} /> },
@@ -56,7 +60,7 @@ const TOOLS: ReadonlyArray<ToolDef> = [
 const STENCIL_ICONS: Readonly<Record<PadStencilId, ReactNode>> = {
   sticky: <StickyNote size={13} />,
   process: <SquareActivity size={13} />,
-  decision: <Diamond size={13} />,
+  decision: <Split size={13} />,
   store: <Database size={13} />,
   flow: <Workflow size={13} />,
 };

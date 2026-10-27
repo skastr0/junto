@@ -28,7 +28,7 @@ import {
 import { themeRuntime, type ThemeMode } from "@shared/theme";
 import { keyIs } from "../../lib/key-match";
 
-export const PAD_SHAPE_TOOLS = ["box", "ellipse", "triangle", "label"] as const;
+export const PAD_SHAPE_TOOLS = ["box", "ellipse", "triangle", "diamond", "cylinder", "label"] as const;
 export type PadShapeTool = (typeof PAD_SHAPE_TOOLS)[number];
 
 export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "area", "image", "ink"] as const;
