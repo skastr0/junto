@@ -104,3 +104,20 @@ it("marks anchors and flashes the quote asked for", () => {
   expect(marks).toEqual(['bold {"data-anchor-id":"t1","data-count":"2"}', 'bold {"data-flash":"3"}']);
   expect(revealAnchorEffects(state, { quote: "missing", offset: 0, nonce: 1 })).toBeNull();
 });
+
+it("draws a mention link as a chip and a bang mention alone on its line as an embed", () => {
+  const href = "junto://canvas/factory?node=agent-01M46TAATD7VE4ZQA4VRKMX3MP";
+  const doc = `Ask [@product-lead](${href}) first.\n\n![@product-lead](${href})\n\n[web](https://example.com)`;
+  const mounted: string[] = [];
+  let state = EditorState.create({
+    doc,
+    extensions: [liveMarkdown({ current: { mount: (_host, mention) => mounted.push(mention.kind) } })],
+  });
+  ensureSyntaxTree(state, state.doc.length, 5_000);
+  state = state.update({ effects: setFocused.of(false) }).state;
+  const spans = replaced(state);
+  expect(spans).toContain(`[@product-lead](${href})`);
+  expect(spans).toContain(`![@product-lead](${href})`);
+  // A web link keeps its label in the text; only its marks are hidden.
+  expect(spans).toContain("](https://example.com)");
+});

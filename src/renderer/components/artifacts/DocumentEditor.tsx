@@ -1,10 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { MessageSquarePlus } from "lucide-react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import type { ArtifactVersion, DocumentBody, TextPatch } from "@shared/artifact";
+import { mentionRefOf, parseMentionHref } from "@shared/mention";
+import type { NodeKind } from "@shared/model/kinds";
+import type { NodeId } from "@shared/physics/schema";
 import type { TextAnchor } from "@shared/thread-subject";
+import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
+import type { MentionCandidate } from "../../lib/mention-draft";
+import { openMention } from "../../lib/mention-open";
+import { usePreviewFace } from "../../lib/use-preview-face";
+import { PreviewCard } from "../embeds/PreviewCard";
+import { DocumentMentionChip } from "./DocumentMentionChip";
+import { mentionPicker, mentionSourceChanged } from "./mention-picker";
 import { Button } from "../ui";
 import { textSplice } from "./artifacts-pane-model";
 import {
@@ -12,11 +23,40 @@ import {
   type DocumentAnchor,
   liveMarkdown,
   type LiveMarkdownHandlers,
+  type MentionMount,
   revealAnchorEffects,
 } from "./live-markdown";
 
+/** What the document may mention, and how it reads the canvas its links name. */
+export type DocumentMentions = {
+  readonly canvasName: string;
+  readonly candidates: ReadonlyArray<MentionCandidate>;
+  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+};
+
+/** An embed line: the preview card of what the link names, greyed when it is gone. */
+function DocumentEmbed({ href, label, mentions }: { readonly href: string; readonly label: string; readonly mentions: DocumentMentions }) {
+  const target = parseMentionHref(href);
+  const ref = target === undefined ? undefined : mentionRefOf(target, mentions.nodeKindOf);
+  const face = usePreviewFace(ref, mentions.canvasName, label);
+  return <PreviewCard {...face} size="block" {...(ref === undefined ? {} : { onOpen: () => openMention(ref) })} />;
+}
+
 /** How long typing rests before it is sent as one version. */
 const SAVE_REST_MS = 800;
+
+const keys = new WeakMap<HTMLElement, string>();
+let nextKey = 0;
+/** A portal's key: one per widget host, for as long as it lives. */
+const keyOf = (element: HTMLElement): string => {
+  let key = keys.get(element);
+  if (key === undefined) {
+    nextKey += 1;
+    key = `mention-${nextKey}`;
+    keys.set(element, key);
+  }
+  return key;
+};
 
 /** Marks a change that came from a head, not from the operator's typing. */
 const fromHead = Annotation.define<boolean>();
@@ -39,6 +79,7 @@ export function DocumentEditor({
   anchors,
   onAnchor,
   revealAnchor,
+  mentions,
 }: {
   readonly body: DocumentBody;
   readonly version: ArtifactVersion;
@@ -57,6 +98,8 @@ export function DocumentEditor({
   readonly onAnchor?: (threadId: string) => void;
   /** Scroll a quote into view and flash it; a new nonce asks again. */
   readonly revealAnchor?: { readonly anchor: TextAnchor; readonly nonce: number };
+  /** Mentions drawn as chips and embeds, and offered on @ and #. Without it a mention reads as its words. */
+  readonly mentions?: DocumentMentions;
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ readonly quote: string; readonly offset: number } | null>(null);
@@ -72,8 +115,26 @@ export function DocumentEditor({
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const access = useRef(new Compartment());
+  /** The hosts the editor's mention widgets made, each drawn into by a portal. */
+  const [mounts, setMounts] = useState<ReadonlyMap<HTMLElement, MentionMount>>(new Map());
+  const mentionsRef = useRef(mentions);
+  mentionsRef.current = mentions;
   const handlers = useRef<LiveMarkdownHandlers["current"]>({});
-  handlers.current = { onAnchor };
+  handlers.current = {
+    onAnchor,
+    ...(mentions === undefined
+      ? {}
+      : {
+          mount: (host, mention) => setMounts((prior) => new Map(prior).set(host, mention)),
+          unmount: (host) =>
+            setMounts((prior) => {
+              if (!prior.has(host)) return prior;
+              const next = new Map(prior);
+              next.delete(host);
+              return next;
+            }),
+        }),
+  };
 
   /** Put text in the editor as a head, not as typing: it is not sent, and undo does not reach it. */
   const setDoc = (text: string): void => {
@@ -139,6 +200,8 @@ export function DocumentEditor({
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           liveMarkdown(handlers),
+          mentionPicker(() => ({ canvasName: mentionsRef.current?.canvasName ?? "", candidates: mentionsRef.current?.candidates ?? [] })),
+          keymap.of([{ key: "Escape", run: stopWriting }]),
           access.current.of(editable(readOnly)),
           placeholder("Nothing written yet."),
           EditorView.contentAttributes.of({ "aria-label": "Markdown", spellcheck: "true" }),
@@ -172,6 +235,16 @@ export function DocumentEditor({
   useEffect(() => {
     view.current?.dispatch({ effects: access.current.reconfigure(editable(readOnly)) });
   }, [readOnly]);
+
+  // Candidates that arrive while the list is open draw at once.
+  useEffect(() => {
+    if (view.current !== null) mentionSourceChanged(view.current);
+  }, [mentions?.candidates]);
+
+  // A drawn chip or card has its size now: the editor measures again.
+  useLayoutEffect(() => {
+    view.current?.requestMeasure();
+  }, [mounts]);
 
   useEffect(() => {
     const marks: DocumentAnchor[] = (anchors ?? []).map(({ threadId, anchor, count }) => ({
@@ -214,6 +287,19 @@ export function DocumentEditor({
     void send();
   };
 
+  /** Escape leaves writing: the surface keeps the keyboard, and every line renders. */
+  function stopWriting(editor: EditorView): boolean {
+    if (claimFocus(host.current, "gesture")) return true;
+    return releaseFocus(editor.contentDOM, "gesture");
+  }
+
+  /** Enter on the surface writes again, at the caret it left. */
+  const onSurfaceKey = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.target !== event.currentTarget || event.key !== "Enter" || readOnly) return;
+    event.preventDefault();
+    claimFocus(view.current?.contentDOM, "gesture", { event: event.nativeEvent });
+  };
+
   const takeHead = (): void => {
     synced.current = head.current;
     draftRef.current = head.current.markdown;
@@ -235,7 +321,25 @@ export function DocumentEditor({
         </div>
       ) : null}
       <div className="artifact-document__surface">
-        <div ref={host} className="artifact-document__live" />
+        <div
+          ref={host}
+          className="artifact-document__live"
+          tabIndex={-1}
+          onKeyDown={onSurfaceKey}
+        />
+        {mentions
+          ? [...mounts].map(([element, mention]) =>
+              createPortal(
+                mention.kind === "embed" ? (
+                  <DocumentEmbed href={mention.href} label={mention.label} mentions={mentions} />
+                ) : (
+                  <DocumentMentionChip href={mention.href} label={mention.label} nodeKindOf={mentions.nodeKindOf} />
+                ),
+                element,
+                keyOf(element),
+              ),
+            )
+          : null}
         {selection && onCommentText ? (
           <div className="artifact-document__float">
             <Button

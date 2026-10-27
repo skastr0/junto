@@ -276,6 +276,16 @@
   flex-direction: column;
 }
 
+.artifact-document__live:focus-visible,
+.artifact-document__live:has(.cm-content:focus-visible) {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+.artifact-document .cm-md-embed {
+  padding: 4px 0;
+}
+
 .artifact-document__float {
   position: absolute;
   top: 8px;
@@ -474,8 +484,10 @@
   object-fit: contain;
 }
 
+/* Padding, not margin: CodeMirror measures a block widget's box, and a margin
+   would put every click below it a line off. */
 .artifact-document .cm-md-table {
-  margin: 4px 0 8px;
+  padding: 4px 0 8px;
   overflow-x: auto;
   cursor: text;
 }

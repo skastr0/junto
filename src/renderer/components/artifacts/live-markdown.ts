@@ -12,6 +12,7 @@ import {
 } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
+import { parseMentionHref } from "@shared/mention";
 import { claimFocus } from "../../lib/focus-ownership";
 import { safeArtifactMarkdownUrl } from "../work/ArtifactMarkdown";
 
@@ -34,12 +35,21 @@ export type DocumentAnchor = {
 /** A quote to scroll to and flash; a new nonce flashes it again. */
 type Flash = { readonly quote: string; readonly offset: number; readonly nonce: number };
 
+/** A mention drawn in the text: a chip inline, or an embed alone on its line. */
+export type MentionMount = { readonly kind: "chip" | "embed"; readonly href: string; readonly label: string };
+
 /** What the editor tells its owner about, read at the moment it happens. */
 export type LiveMarkdownHandlers = {
   current: {
     readonly onAnchor?: ((id: string) => void) | undefined;
+    /** Draw a mention into the host a widget made; without it the label is drawn as words. */
+    readonly mount?: ((host: HTMLElement, mention: MentionMount) => void) | undefined;
+    readonly unmount?: ((host: HTMLElement) => void) | undefined;
   };
 };
+
+/** An embed's box: the preview card's block height and the widget's padding. */
+const EMBED_HEIGHT = 72 + 8;
 
 /** The operator came into the editor or left it; the view sends this itself. */
 export const setFocused = StateEffect.define<boolean>();
@@ -110,11 +120,14 @@ class Bullet extends WidgetType {
 }
 
 class Checkbox extends WidgetType {
-  constructor(readonly checked: boolean) {
+  constructor(
+    readonly checked: boolean,
+    readonly task: string,
+  ) {
     super();
   }
   override eq(other: Checkbox): boolean {
-    return other.checked === this.checked;
+    return other.checked === this.checked && other.task === this.task;
   }
   override toDOM(view: EditorView): HTMLElement {
     const box = document.createElement("input");
@@ -122,7 +135,7 @@ class Checkbox extends WidgetType {
     box.className = "cm-md-checkbox";
     box.checked = this.checked;
     box.disabled = view.state.readOnly;
-    box.setAttribute("aria-label", this.checked ? "Done" : "Not done");
+    box.setAttribute("aria-label", `${this.checked ? "Done" : "Not done"}: ${this.task}`);
     box.addEventListener("mousedown", (event) => event.preventDefault());
     box.addEventListener("click", (event) => {
       event.preventDefault();
@@ -185,6 +198,49 @@ class Picture extends WidgetType {
     return img;
   }
 }
+
+/** A mention link, drawn by the owner: a chip in the line, or a card for an embed. */
+class Mention extends WidgetType {
+  constructor(
+    readonly mention: MentionMount,
+    readonly handlers: LiveMarkdownHandlers,
+  ) {
+    super();
+  }
+  override eq(other: Mention): boolean {
+    return other.mention.kind === this.mention.kind && other.mention.href === this.mention.href && other.mention.label === this.mention.label;
+  }
+  override get estimatedHeight(): number {
+    return this.mention.kind === "embed" ? EMBED_HEIGHT : -1;
+  }
+  override toDOM(view: EditorView): HTMLElement {
+    const host: HTMLElement = document.createElement(this.mention.kind === "embed" ? "div" : "span");
+    host.className = this.mention.kind === "embed" ? "cm-md-embed" : "cm-md-mention";
+    const mount = this.handlers.current.mount;
+    if (mount) mount(host, this.mention);
+    else host.textContent = this.mention.label;
+    if (this.mention.kind === "embed") {
+      // A press on the card's body opens its line to edit; its title button opens the thing.
+      host.addEventListener("mousedown", (event: MouseEvent) => {
+        if (view.state.readOnly || event.button !== 0) return;
+        if ((event.target as Element | null)?.closest("button, a")) return;
+        event.preventDefault();
+        view.dispatch({ selection: EditorSelection.cursor(view.posAtDOM(host)), userEvent: "select.pointer" });
+        claimFocus(view.contentDOM, "gesture", { event, preventScroll: true });
+      });
+    }
+    return host;
+  }
+  override destroy(dom: HTMLElement): void {
+    this.handlers.current.unmount?.(dom);
+  }
+  override ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+/** Whether a link names something on the canvas: a mention, not a web link. */
+const isMention = (href: string): boolean => href.startsWith("junto://") && parseMentionHref(href) !== undefined;
 
 type TableCell = { readonly at: number; readonly node: SyntaxNode | null };
 type TableModel = {
@@ -334,7 +390,7 @@ const SYNTAX_MARKS = new Set([
 ]);
 
 /** Every decoration for the state: rendered off the caret's lines, source on them. */
-const decorate = (state: EditorState): DecorationSet => {
+const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): DecorationSet => {
   const doc = state.doc;
   const out: Range<Decoration>[] = [];
   const live = state.field(focused) && !state.readOnly;
@@ -404,6 +460,18 @@ const decorate = (state: EditorState): DecorationSet => {
           const href = doc.sliceString(url.from, url.to);
           const labelFrom = marks[0]!.to;
           const labelTo = marks[1]!.from;
+          if (isMention(href)) {
+            if (open(node.from, node.to)) return false;
+            const label = doc.sliceString(labelFrom, labelTo);
+            const row = doc.lineAt(node.from);
+            const alone = name === "Image" && doc.sliceString(row.from, row.to).trim() === doc.sliceString(node.from, node.to);
+            out.push(
+              alone
+                ? Decoration.replace({ widget: new Mention({ kind: "embed", href, label }, handlers), block: true }).range(row.from, row.to)
+                : Decoration.replace({ widget: new Mention({ kind: "chip", href, label }, handlers) }).range(node.from, node.to),
+            );
+            return false;
+          }
           if (name === "Image") {
             const src = safeArtifactMarkdownUrl(href);
             if (src && !open(node.from, node.to)) {
@@ -452,7 +520,8 @@ const decorate = (state: EditorState): DecorationSet => {
           const checked = /x/iu.test(doc.sliceString(node.from, node.to));
           const task = node.parent;
           if (checked && task && node.to < task.to) out.push(mark("cm-md-done").range(node.to, task.to));
-          if (!open(node.from, node.to)) out.push(Decoration.replace({ widget: new Checkbox(checked) }).range(node.from, node.to));
+          const text = task ? doc.sliceString(node.to, task.to).trim() : "";
+          if (!open(node.from, node.to)) out.push(Decoration.replace({ widget: new Checkbox(checked, text) }).range(node.from, node.to));
           return;
         }
         case "FencedCode":
@@ -517,17 +586,18 @@ const decorate = (state: EditorState): DecorationSet => {
   return Decoration.set(out, true);
 };
 
-const decorations = StateField.define<DecorationSet>({
-  create: decorate,
-  update: (value, tr) =>
-    tr.docChanged ||
-    tr.selection !== undefined ||
-    tr.effects.length > 0 ||
-    syntaxTree(tr.startState) !== syntaxTree(tr.state)
-      ? decorate(tr.state)
-      : value,
-  provide: (field) => EditorView.decorations.from(field),
-});
+const decorations = (handlers: LiveMarkdownHandlers) =>
+  StateField.define<DecorationSet>({
+    create: (state) => decorate(state, handlers),
+    update: (value, tr) =>
+      tr.docChanged ||
+      tr.selection !== undefined ||
+      tr.effects.length > 0 ||
+      syntaxTree(tr.startState) !== syntaxTree(tr.state)
+        ? decorate(tr.state, handlers)
+        : value,
+    provide: (field) => EditorView.decorations.from(field),
+  });
 
 /** The source cells of the table the caret is in, as document positions, or null outside one. */
 const tableCellsAt = (state: EditorState, pos: number): number[] | null => {
@@ -560,18 +630,56 @@ const openLink = (href: string): void => {
   if (url) window.open(url, "_blank", "noopener,noreferrer");
 };
 
+/** The innermost node of `name` around the caret. */
+const around = (state: EditorState, name: string): SyntaxNode | null => {
+  const pos = state.selection.main.head;
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1); node; node = node.parent) {
+    if (node.name === name) return node;
+  }
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, 1); node; node = node.parent) {
+    if (node.name === name) return node;
+  }
+  return null;
+};
+
+/** Mod-Enter opens the web link at the caret. */
+const openLinkAtCaret = (view: EditorView): boolean => {
+  const link = around(view.state, "Link") ?? around(view.state, "Autolink");
+  const url = link?.getChild("URL");
+  if (!url) return false;
+  openLink(view.state.sliceDoc(url.from, url.to));
+  return true;
+};
+
+/** Mod-Alt-M opens the comment thread whose quote holds the caret. */
+const openThreadAtCaret =
+  (handlers: LiveMarkdownHandlers) =>
+  (view: EditorView): boolean => {
+    const pos = view.state.selection.main.head;
+    const text = view.state.doc.toString();
+    const hit = view.state.field(anchors).list.find((anchor) => {
+      const range = resolveAnchor(text, anchor.quote, anchor.offset);
+      return range !== null && range.from <= pos && pos <= range.to;
+    });
+    if (hit === undefined || handlers.current.onAnchor === undefined) return false;
+    handlers.current.onAnchor(hit.id);
+    return true;
+  };
+
 /** The live preview: markdown with GFM, rendered off the caret's lines. */
 export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
   markdown({ base: markdownLanguage }),
   focused,
   anchors,
-  decorations,
+  decorations(handlers),
   EditorView.lineWrapping,
   EditorView.focusChangeEffect.of((_state, focusing) => setFocused.of(focusing)),
   Prec.high(
     keymap.of([
       { key: "Tab", run: stepCell(1) },
       { key: "Shift-Tab", run: stepCell(-1) },
+      { key: "Mod-Enter", run: openLinkAtCaret },
+      { key: "Mod-Alt-m", run: openThreadAtCaret(handlers) },
     ]),
   ),
   EditorView.domEventHandlers({
