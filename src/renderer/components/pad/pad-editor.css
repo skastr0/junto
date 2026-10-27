@@ -24,6 +24,8 @@
   border-bottom: 1px solid var(--color-stroke);
   background: var(--color-raise-2);
   padding: 6px 10px;
+  contain: layout paint;
+  will-change: transform;
 }
 
 .pad-toolbar__group {
@@ -85,6 +87,11 @@
   flex: 1 1 0;
   overflow: hidden;
   background: var(--color-ground);
+  /* Its own layer: a stroke repaints the stage alone, not the modal around it,
+     and a toolbar press never repaints the drawing. Measured in
+     e2e/scenarios/pad-budget.spec.ts. */
+  contain: strict;
+  will-change: transform;
 }
 
 .pad-stage:focus-visible {
