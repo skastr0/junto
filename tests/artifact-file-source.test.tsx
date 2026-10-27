@@ -52,6 +52,7 @@ it("opens the source when its Files node is in reach", async () => {
   await act(async () => root.render(<FilePreview body={body(true)} onOpenSource={(at) => opened.push(at)} />));
   const button = host.querySelector<HTMLButtonElement>("button.artifact-preview__source");
   expect(button?.textContent).toBe("From docs/spec.pdf, page 2");
+  expect(button?.getAttribute("aria-label")).toBe("From docs/spec.pdf, page 2, open in its Files node");
   await act(async () => button!.click());
   expect(opened).toEqual([source]);
 });

@@ -55,7 +55,14 @@ export function FilePreview({
       {source === undefined ? null : onOpenSource === undefined ? (
         <p className="artifact-preview__source">{fileSourceLine(source)}</p>
       ) : (
-        <button type="button" className="artifact-preview__source" onClick={() => onOpenSource(source)}>
+        <button
+          type="button"
+          className="artifact-preview__source"
+          // The name keeps the words shown and says what the press does.
+          aria-label={`${fileSourceLine(source)}, open in its Files node`}
+          title={`Open ${source.path} in its Files node`}
+          onClick={() => onOpenSource(source)}
+        >
           <FolderOpen size={13} aria-hidden />
           <span>{fileSourceLine(source)}</span>
         </button>
