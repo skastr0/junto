@@ -26,8 +26,8 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
 };
 
 /**
- * A surface that has finished opening: every finite animation on it or its
- * ancestors is done and the opacity up the chain is whole. Rings turn forever
+ * A surface that has finished opening: the opacity up its ancestor chain is
+ * whole, and every finite animation on it or inside it is done. Rings turn forever
  * (the motion law), so an infinite animation is not waited on.
  */
 const settled = async (surface: Locator): Promise<void> => {
@@ -92,7 +92,7 @@ test("the palette offers Files, the card takes a drop and opens the modal, dark 
       // The notice gives the line back to the count, which counted the copy with no
       // modal open: nothing holds the root, so this is main's kept count, renewed by the import.
       expected += 1;
-      await expect(card).toContainText(`${expected} files`, { timeout: 10_000 });
+      await expect(card).toContainText(`${expected.toLocaleString("en-US")} files`, { timeout: 10_000 });
       await card.screenshot({ path: join(SHOTS, `card-count-after-drop-${theme}.png`) });
 
       const modal = await openFilesModal(page);
