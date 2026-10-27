@@ -194,6 +194,11 @@ export function MentionCombobox({
     selection: { kind: "highlight" as const },
   };
 
+  // Escape shuts the list for the query it was pressed on, until that query ends: typing on keeps it shut, a new @ or # opens again.
+  useEffect(() => {
+    if (dismissedAt !== undefined && query?.start !== dismissedAt) setDismissedAt(undefined);
+  }, [query?.start, dismissedAt]);
+
   // A query that changes starts the highlight from the top.
   useEffect(() => {
     setActiveKey(undefined);
@@ -317,7 +322,6 @@ export function MentionCombobox({
         onChange={(event) => {
           const element = event.currentTarget;
           const next = editDraft(draft, element.value);
-          setDismissedAt(undefined);
           setPicked(undefined);
           commit(next.draft, next.caret, next.shown);
           if (mirror.current) mirror.current.scrollTop = element.scrollTop;

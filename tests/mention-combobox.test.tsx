@@ -157,6 +157,15 @@ describe("MentionCombobox", () => {
     expect(outerKeys).toContain("composer-send");
   });
 
+  it("Escape keeps the list shut while that query is typed on; a new trigger opens it", () => {
+    type("@");
+    press("Escape");
+    type("@pro");
+    expect(list()).toBeNull();
+    type("@pro and @");
+    expect(list()).not.toBeNull();
+  });
+
   it("with no match it says so, and Enter is the composer's", () => {
     type("@zzz");
     expect(options()).toHaveLength(0);

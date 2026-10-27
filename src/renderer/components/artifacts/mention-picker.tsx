@@ -89,7 +89,7 @@ type Picker = {
   /** This editor's list ids. */
   readonly baseId: string;
   readonly query: PickerQuery | null;
-  /** Escape closed the list for the query that starts here, until the next edit, as the house field does. */
+  /** Escape closed the list for the query that starts here, until that query ends, as the house field does. */
   readonly dismissed: number | null;
   readonly active: string | undefined;
   /** What the live region says after a pick, until the next edit. */
@@ -110,7 +110,7 @@ const pickerField = StateField.define<Picker>({
   update: (value, tr) => {
     let { dismissed, active, picked } = value;
     if (tr.docChanged) {
-      dismissed = null;
+      if (dismissed !== null) dismissed = tr.changes.mapPos(dismissed);
       picked = undefined;
     }
     // A parse that reaches further can show the list a query was waiting on.
@@ -118,6 +118,8 @@ const pickerField = StateField.define<Picker>({
     const query = tr.docChanged || tr.selection !== undefined || tr.reconfigured || parsed ? pickerQueryAt(tr.state) : value.query;
     // A query that changes starts the highlight from the top.
     if (!sameQuery(query, value.query)) active = undefined;
+    // A dismissal lasts while its query does: typing on keeps the list shut; a new @ or # opens again.
+    if (query === null || query.from !== dismissed) dismissed = null;
     for (const effect of tr.effects) {
       if (effect.is(setActive)) active = effect.value;
       if (effect.is(dismiss)) dismissed = query?.from ?? null;

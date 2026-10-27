@@ -180,16 +180,24 @@ describe("the @ and # list in a live document", () => {
     expect(view.state.doc.toString()).toBe("[@product-feed](junto://canvas/factory?node=agent-feed) ");
   });
 
-  it("Escape closes the list only, until the next keystroke; with no list the keys stay the document's", async () => {
+  it("Escape closes the list for that query while it lasts; a new trigger opens it; with no list the keys stay the document's", async () => {
     await type("@");
     const escape = await press("Escape");
     expect(escape.defaultPrevented).toBe(true);
     expect(picker()).toBeNull();
-    await type("p");
-    expect(picker()?.hidden).toBe(false);
-    await type(" ");
+    await type("pro");
     expect(picker()).toBeNull();
     expect((await press("Enter")).defaultPrevented).toBe(false);
+    await type(" and @");
+    expect(picker()?.hidden).toBe(false);
+  });
+
+  it("a dismissal follows its query when text before it changes", async () => {
+    await type("Ask @");
+    await press("Escape");
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "Please " }, userEvent: "input.type" }));
+    await type("p");
+    expect(picker()).toBeNull();
   });
 
   it("stays shut for a trigger with nothing to offer, and offers late candidates as they arrive", async () => {
