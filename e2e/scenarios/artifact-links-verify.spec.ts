@@ -179,6 +179,16 @@ test("a seat's [[Title]] links by id, Linked from shows body and comment, a rena
       await page.screenshot({ path: join(SHOTS, theme, "2-renamed-chip.png") });
     }
 
+    // The body link opens its target with the modal up, and again the second time (23d5c772b):
+    // a Linked from chip would close the modal first and pass either way.
+    const headTitle = page.locator(".artifact-head__title");
+    for (const round of [1, 2]) {
+      await pick(page, "From the seat");
+      await page.locator(".artifact-body, .artifact-document, main").getByText("Target renamed").first().click();
+      await expect(headTitle, `round ${String(round)}: the link opens its target`).toHaveValue("Target renamed", { timeout: 15_000 });
+      await expect(page.getByRole("list", { name: "Artifacts" }), "the modal stayed up").toBeVisible();
+    }
+
     // A quit and relaunch on the same home: Linked from still lists both rows.
     const env = await junto.app.evaluate(() => {
       const out: Record<string, string> = {};
