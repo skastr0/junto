@@ -68,6 +68,13 @@
   text-align: center;
 }
 
+/* A pressed toggle (Fit, the box tool) reads as on: the amber of a tool in use. */
+.file-view__bar [aria-pressed="true"] {
+  border-color: var(--color-amber);
+  background: color-mix(in oklab, var(--color-amber) 14%, transparent);
+  color: var(--color-amber-fg);
+}
+
 .file-view__said {
   margin-left: auto;
   color: var(--color-dim);

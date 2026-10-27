@@ -33,7 +33,11 @@ test("file viewers in the real app, dark and bright", async () => {
       report[theme] = facts;
       mkdirSync(join(SHOTS, theme), { recursive: true });
       const base = page.url().split("#")[0]!;
-      await page.goto(`${base}#/gallery/files?theme=${theme}`);
+      await page.goto(base);
+      await page.reload();
+      await page.waitForFunction(() => window.junto !== undefined);
+      await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
+      await page.goto(`${base}#/gallery/files`);
       await page.reload();
       await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(theme === "bright" ? "bright" : null);
 
