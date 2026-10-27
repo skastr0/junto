@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import type { MentionCandidate } from "../../lib/mention-draft";
-import { candidateKey } from "../../lib/mention-draft";
+import { candidateKey, triggerOf } from "../../lib/mention-draft";
 import { Combobox } from "../ui/Combobox";
 import { ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 
@@ -10,13 +10,17 @@ const nameOf = (candidate: MentionCandidate): string => candidate.label.replace(
 
 /**
  * The candidates a typed query keeps: seats, tasks and artifacts alike, those whose name starts
- * with it first, then those that contain it. An empty query keeps them all, in the order given.
+ * with it first, then those that contain it. A leading @ or # keeps that trigger's kinds only, as
+ * in every composer. An empty query keeps them all, in the order given.
  */
 export const pickCandidates = (candidates: ReadonlyArray<MentionCandidate>, query: string): ReadonlyArray<MentionCandidate> => {
-  const typed = query.trim().replace(/^[@#]/u, "").toLowerCase();
-  if (typed === "") return candidates;
-  const starts = candidates.filter((candidate) => nameOf(candidate).startsWith(typed));
-  const contains = candidates.filter((candidate) => !starts.includes(candidate) && nameOf(candidate).includes(typed));
+  const trimmed = query.trim();
+  const trigger = trimmed.startsWith("@") ? "@" : trimmed.startsWith("#") ? "#" : undefined;
+  const typed = (trigger === undefined ? trimmed : trimmed.slice(1)).toLowerCase();
+  if (typed === "" && trigger === undefined) return candidates;
+  const own = trigger === undefined ? candidates : candidates.filter((candidate) => triggerOf(candidate.ref) === trigger);
+  const starts = own.filter((candidate) => nameOf(candidate).startsWith(typed));
+  const contains = own.filter((candidate) => !starts.includes(candidate) && nameOf(candidate).includes(typed));
   return [...starts, ...contains];
 };
 
