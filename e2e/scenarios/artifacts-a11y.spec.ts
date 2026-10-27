@@ -66,7 +66,9 @@ test("artifacts: document, sheet and pad, rail shut and open, bright and dark, p
     const edge = page.locator(".artifact-comments-edge");
     for (const theme of ["bright", "dark"] as const) {
       await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
-      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      // Dark is the default, so the root drops the attribute rather than naming it.
+      if (theme === "bright") await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
+      else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
       for (const [noun, title] of [["document", "Untitled document"], ["sheet", "Untitled sheet"], ["pad", "Untitled pad"]] as const) {
         await list.locator("button").filter({ hasText: title }).first().click();
         await expect(page.locator(".artifact-head__title")).toHaveValue(title);
