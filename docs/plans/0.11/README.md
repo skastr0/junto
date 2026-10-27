@@ -66,7 +66,7 @@ mails product-lead with the receipt.
   `EditorView` setup of `LiveMarkdownField.tsx`) with `@codemirror/language-data`.
   Markdown files open in `LiveMarkdownField` either way.
 - **PDF: `pdfjs-dist`** (6.4.299), loaded lazily, with its worker bundled.
-  The CSP already allows `worker-src 'self' blob:` (`src/renderer/index.html:7`).
+  The CSP already allows `worker-src 'self' blob:` (`index.html:7`); the protocol adds `junto-file:` to it.
 - **The renderer never names an absolute path.** Every call names the node
   and a path relative to its root; main resolves it, `realpath`s it and
   refuses anything outside the root, symlinks included. Delete moves to the
