@@ -85,7 +85,7 @@ export type TaskStateRow = { readonly taskId: string; readonly node: string; rea
 /** What a pass reads for its `when` conditions. */
 export type ConditionView = {
   readonly tasks: ReadonlyArray<TaskStateRow>;
-  /** The open task each seat holds (seat-task-read.ts). */
+  /** The open tasks each seat holds (seat-task-read.ts). */
   readonly seatTasks: Readonly<Record<string, Pick<SeatTask, "blocked" | "since"> | undefined>>;
   readonly seatOnCanvas: (seat: string) => boolean;
   /** Every seat on the canvas, for the changes between two passes. */
@@ -176,8 +176,8 @@ export const changesBetween = (
 
 /**
  * A seat's state as its tasks tell it: gone when it left the canvas,
- * attention when its open task waits on someone else, working while it holds
- * an open task, idle when it holds none.
+ * attention when any open task it holds waits on someone else, working while
+ * it holds an open task, idle when it holds none.
  *
  * Seat change triggers come from pty's runtime seat-state source when the
  * build has one (`SeatStateSource`, held and settled by its rules); this

@@ -80,7 +80,7 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
       const isRegion = node.kind === "region";
       const bindingId = isRegion ? undefined : seatBindingOf(node);
       const severity = hotbarNodeSeverity(isRegion, {
-        taskStates: tasksByNode[id]?.map((task) => task.current.state) ?? (heldBy[id] ? [heldBy[id].state] : undefined),
+        taskStates: tasksByNode[id]?.map((task) => task.current.state) ?? heldBy[id]?.tasks.map((task) => task.state),
         regionSeverity: regionSeverity[id] as MemberSeverity | undefined,
         liveSeverity: isRegion
           ? undefined

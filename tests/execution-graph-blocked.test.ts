@@ -1,5 +1,5 @@
 /**
- * The blocked mark is a seat's: a seat is blocked when the task it holds, on
+ * The blocked mark is a seat's: a seat is blocked when a task it holds, on
  * any task node of the canvas, waits for input. It reads the seat task index
  * the seat cards read (seat-task-index.ts). Wires carry none of it, and a task
  * in review or still working blocks no one.
@@ -34,6 +34,18 @@ describe("a seat is blocked by the task it holds", () => {
     expect([...graph.blocked]).toEqual(["atlas"]);
     expect(graph.reasonsByNodeId.get("atlas")).toEqual([
       { kind: "task", taskNodeId: "board", taskId: held.taskId, detail: "needs input - #1 approve delivery", since: Date.parse("2026-10-21T10:00:00.000Z") },
+    ]);
+  });
+
+  it("a seat holding several tasks gives one reason per task waiting for input, and none for the rest", () => {
+    const waiting = heldTask("board", { title: "approve delivery" });
+    const later = heldTask("other", { title: "pick a board" });
+    const working = heldTask("board", { state: "working", title: "ship it" });
+    const graph = graphOf({ atlas: { ...waiting, tasks: [waiting, later, working] } });
+    expect([...graph.blocked]).toEqual(["atlas"]);
+    expect(graph.reasonsByNodeId.get("atlas")?.map((reason) => [reason.taskNodeId, reason.taskId])).toEqual([
+      ["board", waiting.taskId],
+      ["other", later.taskId],
     ]);
   });
 

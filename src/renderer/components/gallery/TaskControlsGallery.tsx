@@ -173,36 +173,47 @@ function Frame({ entry }: { readonly entry: Case }) {
   );
 }
 
-const STRIPS: ReadonlyArray<{ readonly seat: string; readonly label: string; readonly state: "assigned" | "working" | "input-required" | "in-review"; readonly title: string }> = [
+type StripTask = { readonly label: string; readonly state: "assigned" | "working" | "input-required" | "in-review"; readonly title: string };
+
+const STRIPS: ReadonlyArray<StripTask & { readonly seat: string; readonly more?: ReadonlyArray<StripTask> }> = [
   { seat: "strip-assigned", label: "#4", state: "assigned", title: "Wire the board to the real source" },
   { seat: "strip-working", label: "#2", state: "working", title: "Tasks node on the local source" },
   { seat: "strip-paused", label: "#7", state: "input-required", title: "Waiting on the operator to pick a board" },
   { seat: "strip-review", label: "#3", state: "in-review", title: "Delete the factory-era admission UI" },
+  {
+    seat: "strip-many",
+    label: "#9",
+    state: "input-required",
+    title: "Pick the dependency this needs first",
+    more: [{ label: "#8", state: "working", title: "Ship the dependency it found" }],
+  },
 ];
+
+const heldOf = (task: StripTask) => ({
+  taskId: mintItemId(),
+  label: task.label,
+  title: task.title,
+  state: task.state,
+  node: BUILD,
+  blocked: task.state === "input-required",
+});
 
 /** The seat card strips, drawn from the real store. */
 function SeatStrips() {
   useEffect(() => {
     publishSeatTaskIndex(
       Object.fromEntries(
-        STRIPS.map((strip) => [
-          strip.seat,
-          {
-            taskId: mintItemId(),
-            label: strip.label,
-            title: strip.title,
-            state: strip.state,
-            node: BUILD,
-            blocked: strip.state === "input-required",
-          },
-        ]),
+        STRIPS.map((strip) => {
+          const lead = heldOf(strip);
+          return [strip.seat, { ...lead, tasks: [lead, ...(strip.more ?? []).map(heldOf)] }];
+        }),
       ),
     );
     return () => publishSeatTaskIndex({});
   }, []);
   return (
     <section className="grid gap-2">
-      <Eyebrow>Seat card strips, one per state a seat holds</Eyebrow>
+      <Eyebrow>Seat card strips, one per state a seat holds, and a seat holding two</Eyebrow>
       <div className="grid w-64 gap-2 rounded-lg border border-stroke bg-raise p-3">
         {STRIPS.map((strip) => (
           <SeatTaskStrip key={strip.seat} nodeId={strip.seat} />

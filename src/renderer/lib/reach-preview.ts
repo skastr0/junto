@@ -68,7 +68,7 @@ export const updateReachPreview = (positions: ReadonlyMap<string, Point>, grabbe
     nodes.set(id, at === undefined || (at.x === node.x && at.y === node.y) ? node : { ...node, x: at.x, y: at.y });
   }
   const after: ReachCanvas = { nodes };
-  const changes = reachChange(current.before, after, (seat) => current.bySeat[seat]?.node);
+  const changes = reachChange(current.before, after, (seat, node) => current.bySeat[seat]?.tasks.some((task) => task.node === node) === true);
   const marks = nodeReachChanges(changes);
 
   for (const [id] of current.marks) {

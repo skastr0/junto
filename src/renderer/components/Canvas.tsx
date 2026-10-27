@@ -344,7 +344,7 @@ function useCanvasDocument(
         open$.wires.get();
         rebuild();
       }),
-      // What is blocked depends on the task each seat holds, which the app
+      // What is blocked depends on the tasks each seat holds, which the app
       // keeps for the open canvas.
       observe(() => {
         seatTasks$.bySeat.get();

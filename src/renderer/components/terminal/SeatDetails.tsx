@@ -225,20 +225,23 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
       {signalsSection}
       {claim ? (
         <DetailsGroup
-          title="task"
-          count={claim.blocked ? 1 : undefined}
+          title={claim.tasks.length > 1 ? "tasks" : "task"}
+          count={claim.blocked ? claim.tasks.filter((task) => task.blocked).length : undefined}
           countTone="amber"
         >
-          <div
-            className="actor-ledger__item-row actor-ledger__item-row--static"
-            data-testid="actor-ledger-claim"
-            title={`${claim.label} ${claim.title}`}
-          >
-            <span className="actor-ledger__item-head">
-              <TaskStateMark state={claim.state} withLabel />
-            </span>
-            <span className="actor-ledger__item-title">{claim.label} {claim.title}</span>
-          </div>
+          {claim.tasks.map((task) => (
+            <div
+              key={task.taskId}
+              className="actor-ledger__item-row actor-ledger__item-row--static"
+              data-testid="actor-ledger-claim"
+              title={`${task.label} ${task.title}`}
+            >
+              <span className="actor-ledger__item-head">
+                <TaskStateMark state={task.state} withLabel />
+              </span>
+              <span className="actor-ledger__item-title">{task.label} {task.title}</span>
+            </div>
+          ))}
         </DetailsGroup>
       ) : null}
       <DetailsGroup

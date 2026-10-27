@@ -375,7 +375,7 @@ const makeKernelService = (
   tasks: TasksShape,
 ): KernelServiceShape => {
   // What the cycle reads: each canvas as the model holds it, and beside it
-  // the task each seat holds.
+  // the tasks each seat holds.
   const worlds = new Map<string, World>();
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 

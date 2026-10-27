@@ -2205,6 +2205,10 @@ export function TerminalSurface({
           </span>
           <strong className="min-w-0 flex-1 truncate text-ink">
             {heldTask.label} {heldTask.title}
+            {/* The lead task leads; Unassign releases it, and the rest stay held. */}
+            {heldTask.tasks.length > 1 ? (
+              <span className="font-normal text-dim"> and {heldTask.tasks.length - 1} more</span>
+            ) : null}
           </strong>
           {releaseError ? (
             <span className="max-w-[32ch] truncate text-crimson-fg" title={releaseError}>

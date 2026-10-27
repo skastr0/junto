@@ -1,5 +1,5 @@
 /**
- * A seat that leaves the canvas lets go of its task. A canvas command that
+ * A seat that leaves the canvas lets go of its tasks. A canvas command that
  * removes an agent seat sends each open task it held back to the backlog,
  * through the task ruler's own `unassign`, in the same transaction as the
  * delete, with the operator as actor, and says so in the task's thread. A

@@ -1,12 +1,12 @@
 /**
- * The task each seat holds, canvas-wide, read once for every seat card and
+ * The tasks each seat holds, canvas-wide, read once for every seat card and
  * terminal (plan 0.10/04). One subscription to the tasks source feeds one
  * observable; a card reads one key of it, so a write elsewhere on the canvas
- * does not wake every seat. A seat holds at most one open task (invariant 2),
- * and the assignee is the seat's node id, so there is no join to make.
+ * does not wake every seat. A seat may hold any number of open tasks, and the
+ * assignee is the seat's node id, so there is no join to make.
  */
 import { batch, observable, observe } from "@legendapp/state";
-import { buildSeatTaskIndex, type SeatTask } from "@shared/seat-task-index";
+import { buildSeatTaskIndex, type HeldTask, type SeatTask } from "@shared/seat-task-index";
 import type { TaskView } from "@shared/task-model";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
@@ -29,20 +29,24 @@ const publishCanvasTasks = (views: ReadonlyArray<TaskView>): void => {
   canvasTasks$.byNode.set(byNode);
 };
 
-export { buildSeatTaskIndex, type SeatTask };
+export { buildSeatTaskIndex, type HeldTask, type SeatTask };
 
-/** Equal for what a card paints: nothing else reaches the DOM. */
+const sameHeld = (a: HeldTask, b: HeldTask): boolean =>
+  a.taskId === b.taskId &&
+  a.label === b.label &&
+  a.title === b.title &&
+  a.state === b.state &&
+  a.node === b.node &&
+  a.blocked === b.blocked &&
+  a.since === b.since;
+
+/** Equal for what a card paints, every task the seat holds in order: nothing else reaches the DOM. */
 const samePainted = (a: SeatTask | undefined, b: SeatTask | undefined): boolean =>
   a === b ||
   (a !== undefined &&
     b !== undefined &&
-    a.taskId === b.taskId &&
-    a.label === b.label &&
-    a.title === b.title &&
-    a.state === b.state &&
-    a.node === b.node &&
-    a.blocked === b.blocked &&
-    a.since === b.since);
+    a.tasks.length === b.tasks.length &&
+    a.tasks.every((task, i) => sameHeld(task, b.tasks[i]!)));
 
 /** Write only the keys whose painted projection moved. */
 export const publishSeatTaskIndex = (next: Record<string, SeatTask>): void => {

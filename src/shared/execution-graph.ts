@@ -30,14 +30,14 @@ export type ExecutionGraphContext = LiveTrustViews & {
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
   /**
-   * The open task each seat holds, by seat node id (`buildSeatTaskIndex`). A
+   * The open tasks each seat holds, by seat node id (`buildSeatTaskIndex`). A
    * canvas holds no work, so the caller supplies it: the kernel from the task
    * store, the renderer from `seatTasks$`.
    */
   readonly heldBy: SeatTaskIndex;
 };
 
-/** The open task each seat holds, by seat node id. */
+/** The open tasks each seat holds, by seat node id. */
 export type SeatTaskIndex = Readonly<Record<string, SeatTask | undefined>>;
 
 /** The tasks on a task node, as the 0.10 store reads them. */
@@ -80,13 +80,14 @@ export const deriveExecutionGraph = (
     const held = context.heldBy[node.id];
     if (held === undefined || !held.blocked) continue;
     blocked.add(node.id);
-    reasonsByNodeId.set(node.id, [{
+    // One reason per task waiting for input, the lead first.
+    reasonsByNodeId.set(node.id, held.tasks.filter((task) => task.blocked).map((task) => ({
       kind: "task",
-      taskNodeId: held.node,
-      taskId: held.taskId,
-      detail: `needs input - ${held.label} ${held.title}`,
-      ...(held.since === undefined ? {} : { since: held.since }),
-    }]);
+      taskNodeId: task.node,
+      taskId: task.taskId,
+      detail: `needs input - ${task.label} ${task.title}`,
+      ...(task.since === undefined ? {} : { since: task.since }),
+    })));
   }
   return { blocked, reasonsByNodeId };
 };

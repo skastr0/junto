@@ -49,7 +49,7 @@ describe("reach change while dragging", () => {
 
   it("the task node a seat holds an open task on is kept by assignment, not lost", () => {
     const after = movedTo(canvas, "S", 520, 120);
-    const changes = reachChange(canvas, after, (seat) => (seat === id("S") ? id("TA") : undefined));
+    const changes = reachChange(canvas, after, (seat, node) => seat === id("S") && node === id("TA"));
     expect(changes).toContainEqual({ seat: id("S"), resource: id("TA"), change: "held" });
     expect(reachChangeSummary(changes)).toBe("1 comes into reach, 1 kept by assignment");
   });

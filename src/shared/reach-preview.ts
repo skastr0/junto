@@ -58,13 +58,13 @@ const memo = (canvas: ReachCanvas) => {
  * Every seat and resource pair whose reach differs between `before` and
  * `after`, sorted by seat then resource. Both canvases hold the same nodes; a
  * node only in one is ignored. When no region moved, only pairs with a moved
- * end can change, so only those are read. `heldTaskNode` names the task node a
- * seat holds an open task on, if any.
+ * end can change, so only those are read. `holdsTaskOn` says whether a seat
+ * holds an open task on a task node.
  */
 export const reachChange = (
   before: ReachCanvas,
   after: ReachCanvas,
-  heldTaskNode: (seat: NodeId) => NodeId | undefined = () => undefined,
+  holdsTaskOn: (seat: NodeId, node: NodeId) => boolean = () => false,
 ): ReadonlyArray<ReachPairChange> => {
   const moved = new Set<NodeId>();
   let regionMoved = false;
@@ -93,7 +93,7 @@ export const reachChange = (
       const was = reachOf(before, atBefore, before.nodes.get(seat.id)!, before.nodes.get(resource.id)!);
       const now = reachOf(after, atAfter, seat, resource);
       if (was === now) continue;
-      const change = now ? "gains" : heldTaskNode(seat.id) === resource.id ? "held" : "loses";
+      const change = now ? "gains" : holdsTaskOn(seat.id, resource.id) ? "held" : "loses";
       changes.push({ seat: seat.id, resource: resource.id, change });
     }
   }

@@ -26,7 +26,7 @@ import type { MessageDeliveryService } from "./message-delivery";
 import type { WorkRepositoryShape } from "./repository";
 import type { TaskRepository } from "./task-repository";
 
-/** Every open task of a canvas: a seat holds at most one. */
+/** The most open tasks of a canvas read, any number per seat. */
 const OPEN_TASK_LIMIT = 10_000;
 
 export type CheckoutWatchCompositionOptions = {
@@ -125,8 +125,8 @@ export const makeCheckoutWatchComposition = (
       states: OPEN_TASK_STATES,
       limit: OPEN_TASK_LIMIT,
     });
-    // A seat holds at most one open task, so the cap is only met past
-    // 10,000 seats; the tasks it cuts off bind no checkout, and that is said.
+    // The cap is on open tasks across the canvas, any number per seat; the
+    // tasks it cuts off bind no checkout, and that is said.
     if (listed.more) {
       yield* Effect.logWarning(`checkout watch read the first ${OPEN_TASK_LIMIT} open tasks of ${canvasName}; the rest bind no checkout`);
     }

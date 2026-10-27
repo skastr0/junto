@@ -44,7 +44,7 @@ export const seatMailboxes = (
   ];
 };
 
-/** Every open task of a canvas: a seat holds at most one, so this is bounded by the seats. */
+/** The most open tasks of a canvas read, any number per seat. */
 const OPEN_TASK_LIMIT = 10_000;
 /**
  * The most lately changed tasks read for changes since the previous session,

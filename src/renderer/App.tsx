@@ -480,7 +480,7 @@ export function App() {
   // A view never outlives its node, however the node left the canvas.
   useEffect(() => installRemovedNodeViews(), []);
 
-  // The task each seat holds: one store for every seat card, terminal and
+  // The tasks each seat holds: one store for every seat card, terminal and
   // reader of who is blocked, fed by one subscription to the tasks.
   useEffect(() => startSeatTaskStore(), []);
   // Comments on tasks and artifacts reach main, or are not offered.

@@ -38,13 +38,13 @@ const storeOf = (views: ReadonlyArray<TaskView>) => {
   };
 };
 
-describe("main's read of the task each seat holds", () => {
-  it("asks for the open tasks of the canvas's task nodes, and the first created wins", async () => {
-    // Newest change first, as the store lists them; the index reads oldest first.
+describe("main's read of the tasks each seat holds", () => {
+  it("asks for the open tasks of the canvas's task nodes, and holds every one, the blocked one leading", async () => {
     const store = storeOf([view("later", "input-required", 20), view("first", "working", 10)]);
     const index = await Effect.runPromise(readSeatTaskIndex(store.tasks, canvasOf([seat("ada"), taskBoard("board"), note("memo", "memo")])));
     expect(store.queries).toEqual([{ nodeIds: ["board"], states: OPEN_TASK_STATES, limit: 10_000 }]);
-    expect(index.ada).toMatchObject({ title: "first", state: "working", blocked: false, since: 11 });
+    expect(index.ada).toMatchObject({ title: "later", state: "input-required", blocked: true });
+    expect(index.ada?.tasks.map((task) => task.title)).toEqual(["later", "first"]);
   });
 
   it("does not read the store for a canvas with no task node", async () => {
