@@ -80,6 +80,24 @@ describe("name index", () => {
   });
 });
 
+describe("names with a unit above U+00FF", () => {
+  it("are found, removed and counted like any other, and are not drift", async () => {
+    const builder = new NameIndexBuilder();
+    builder.add(["docs/naïve.md", "docs/日本語-guide.md", "src/app.ts"]);
+    const index = await builder.finish(async () => undefined);
+    expect(index.size).toBe(3);
+    expect(index.drift).toBe(0);
+    expect(index.search("日本").matches.map((match) => match.path)).toEqual(["docs/日本語-guide.md"]);
+    expect(index.search("naive").matches).toEqual([]);
+    expect(index.search("naïve").matches.map((match) => match.path)).toEqual(["docs/naïve.md"]);
+    expect(index.has("docs/日本語-guide.md")).toBe(true);
+    index.remove("docs/日本語-guide.md");
+    expect(index.size).toBe(2);
+    expect(index.drift).toBe(1);
+    expect(index.search("guide").matches).toEqual([]);
+  });
+});
+
 describe("index engine over a message port", () => {
   it("builds, searches with narrowing, applies deltas and drops, as the worker does", async () => {
     const { port1, port2 } = new MessageChannel();

@@ -172,39 +172,49 @@ const CHUNK = 16_384;
 /** Characters folded between two yields. */
 const FOLD_CHUNK = 1 << 20;
 
+/** A unit above U+00FF: one such path would make the whole packed string two bytes a unit. */
+const WIDE = /[^\u0000-\u00ff]/u;
+
 /**
  * Collects names as they stream in, one joined string per chunk, so the
  * build never holds an array of every path. `finish` packs and indexes them,
- * yielding between chunks.
+ * yielding between chunks. Names with a unit above U+00FF (`日本語.md`, a
+ * few in most trees) stay apart as plain strings, so the packed string and
+ * its codes stay one byte a unit: on a real 200k tree, 1,112 such names
+ * would otherwise double 40 MB to 80 MB.
  */
 export class NameIndexBuilder {
   private readonly chunks: string[] = [];
+  private readonly wide: string[] = [];
   private count = 0;
 
   add(names: ReadonlyArray<string>): void {
-    const kept = names.filter((name) => name !== "" && !name.includes(SEPARATOR));
+    const kept: string[] = [];
+    for (const name of names) {
+      if (name === "" || name.includes(SEPARATOR)) continue;
+      if (WIDE.test(name)) this.wide.push(name);
+      else kept.push(name);
+    }
     if (kept.length === 0) return;
     this.chunks.push(kept.join(SEPARATOR));
     this.count += kept.length;
   }
 
   get size(): number {
-    return this.count;
+    return this.count + this.wide.length;
   }
 
   async finish(yieldNow: Yield = yieldToLoop): Promise<NameIndex> {
-    const packed = this.chunks.join(SEPARATOR);
+    // Names cut from a two-byte string (git output that held one wide name)
+    // stay two-byte however narrow their content: one Latin-1 round trip
+    // makes the packed string one byte a unit, which every name here fits.
+    const packed = Buffer.from(this.chunks.join(SEPARATOR), "latin1").toString("latin1");
     this.chunks.length = 0;
     const count = this.count;
     // The hot loop reads folded char codes from a typed array: measured 2.5x
-    // faster than charCodeAt on the packed string. One byte per unit unless
-    // a path holds a unit above 255.
-    let wide = false;
-    for (let at = 0; at < packed.length && !wide; at += FOLD_CHUNK) {
-      wide = /[^\u0000-\u00ff]/u.test(packed.slice(at, at + FOLD_CHUNK));
-      await yieldNow();
-    }
-    const codes: Codes = wide ? new Uint16Array(packed.length) : new Uint8Array(packed.length);
+    // faster than charCodeAt on the packed string. One byte per unit: wide
+    // names are kept apart, and folding keeps Latin-1 in Latin-1.
+    const codes: Codes = new Uint8Array(packed.length);
     for (let at = 0; at < packed.length; at += FOLD_CHUNK) {
       const folded = foldForSearch(packed.slice(at, at + FOLD_CHUNK));
       for (let i = 0; i < folded.length; i += 1) codes[at + i] = folded.charCodeAt(i);
@@ -234,7 +244,8 @@ export class NameIndexBuilder {
       table[slot] = i + 1;
       if (i % CHUNK === CHUNK - 1) await yieldNow();
     }
-    return new NameIndex(packed, codes, starts, masks, table);
+    const wide = this.wide.splice(0);
+    return new NameIndex(packed, codes, starts, masks, table, wide);
   }
 }
 
@@ -251,8 +262,11 @@ export class NameIndex {
   private readonly mask: number;
   private readonly dead: Uint8Array;
   private deadCount = 0;
-  private readonly overlay: string[] = [];
-  private readonly overlayFolded: string[] = [];
+  /** Paths not in the packed string: wide names from the build, and every add since. */
+  private readonly overlay: string[];
+  private readonly overlayFolded: string[];
+  /** Adds and removes since the build. */
+  private changes = 0;
   /** Changes on every delta; a cached match set from another generation is not narrowed. */
   private generation = 0;
 
@@ -262,7 +276,10 @@ export class NameIndex {
     private readonly starts: Int32Array,
     private readonly masks: Int32Array,
     private readonly table: Int32Array,
+    wide: ReadonlyArray<string> = [],
   ) {
+    this.overlay = [...wide];
+    this.overlayFolded = wide.map(foldForSearch);
     this.mask = table.length - 1;
     this.dead = new Uint8Array(starts.length - 1);
   }
@@ -278,7 +295,7 @@ export class NameIndex {
 
   /** Deltas held since the build; past `COMPACT_AFTER` the holder rebuilds. */
   get drift(): number {
-    return this.deadCount + this.overlay.length;
+    return this.changes;
   }
 
   private findPacked(path: string): number {
@@ -301,6 +318,7 @@ export class NameIndex {
     this.overlay.push(path);
     this.overlayFolded.push(foldForSearch(path));
     this.generation += 1;
+    this.changes += 1;
   }
 
   remove(path: string): void {
@@ -309,6 +327,7 @@ export class NameIndex {
       this.dead[id] = 1;
       this.deadCount += 1;
       this.generation += 1;
+      this.changes += 1;
       return;
     }
     const at = this.overlay.indexOf(path);
@@ -316,6 +335,7 @@ export class NameIndex {
     this.overlay.splice(at, 1);
     this.overlayFolded.splice(at, 1);
     this.generation += 1;
+    this.changes += 1;
   }
 
   /** Every path under any of `dirs`, for folders that went away: one pass for the batch. */
@@ -331,6 +351,7 @@ export class NameIndex {
           this.dead[id] = 1;
           this.deadCount += 1;
           this.generation += 1;
+          this.changes += 1;
           break;
         }
       }
@@ -340,6 +361,7 @@ export class NameIndex {
         this.overlay.splice(at, 1);
         this.overlayFolded.splice(at, 1);
         this.generation += 1;
+        this.changes += 1;
       }
     }
   }
