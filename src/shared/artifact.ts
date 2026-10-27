@@ -380,10 +380,10 @@ export const decodeArtifactOp = Schema.decodeUnknownResult(ArtifactOp, STRICT);
 
 /**
  * Where a comment thread points inside an artifact: 03's `Anchor`
- * (`thread-subject.ts`), narrowed per type. `lines` is git review's, never an
- * artifact's.
+ * (`thread-subject.ts`), narrowed per type. `lines` is git review's and a
+ * file subject's, and `pageBox` a file subject's, never an artifact's.
  */
-export type ArtifactAnchor = Exclude<Anchor, { readonly kind: "lines" }>;
+export type ArtifactAnchor = Exclude<Anchor, { readonly kind: "lines" } | { readonly kind: "pageBox" }>;
 export type ArtifactAnchorKind = ArtifactAnchor["kind"];
 
 /** Anchor kinds per type. `box` on a file holds only for images (runtime check). */

@@ -92,8 +92,10 @@ export const anchorLabel = (anchor: Anchor | undefined): string => {
       return `Cells ${anchor.range}`;
     case "box":
       return `Area at ${Math.round(anchor.x)}, ${Math.round(anchor.y)}`;
+    case "pageBox":
+      return anchor.page === 1 ? "Area on the page" : `Area on page ${String(anchor.page)}`;
     case "lines":
-      return `${anchor.file} line ${String(anchor.from)}`;
+      return `${anchor.file} line ${String(anchor.from)}${anchor.to === anchor.from ? "" : `-${String(anchor.to)}`}`;
   }
 };
 

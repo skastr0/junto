@@ -12,7 +12,7 @@ import { MAIL_SENDER_REGIONS_MAX, REGION_NAME_MAX } from "../src/shared/region-b
 import { MAIL_ENVELOPE_BYTES, MAIL_TEXT_INLINE_MAX_BYTES, mailTextBytes } from "../src/shared/mail-text-bound";
 import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
 import { asNodeId } from "../src/shared/physics/schema";
-import { PAGE_BOX_URL_MAX_BYTES, TEXT_QUOTE_MAX, type ResourceSubject, textAnchorOf, threadSubjectMetadata } from "../src/shared/thread-subject";
+import { FILE_PATH_MAX, LINES_QUOTE_MAX, PAGE_BOX_PAGE_MAX, PAGE_BOX_URL_MAX_BYTES, TEXT_QUOTE_MAX, type ResourceSubject, textAnchorOf, threadSubjectMetadata } from "../src/shared/thread-subject";
 import { ContentRef } from "../src/shared/wire/content-ref";
 import { ItemId } from "../src/shared/work-ids";
 import { ExchangeFact } from "../src/shared/work-exchange";
@@ -42,7 +42,10 @@ const widestPageUrl = (() => {
   return `${head}${encoded.repeat(Math.floor(room / encoded.length))}${"a".repeat(room % encoded.length)}`;
 })();
 
-/** A subject's widest anchors: a quote in three-byte characters, and a page box with its url and shot at their bounds. */
+/** A path at its bound in the costliest characters it may hold. */
+const widestPath = "語".repeat(FILE_PATH_MAX);
+
+/** A subject's widest anchors: a quote in three-byte characters, a page box with its url and shot at their bounds, and a file's lines and page box at theirs. */
 const subjects: ReadonlyArray<ResourceSubject> = [
   { kind: "artifact", nodeId: asNodeId(`artifacts-${ulid}`), artifactId: Schema.decodeSync(ItemId)(ulid), anchor: textAnchorOf("語".repeat(TEXT_QUOTE_MAX + 50), Number.MAX_SAFE_INTEGER) },
   {
@@ -58,6 +61,18 @@ const subjects: ReadonlyArray<ResourceSubject> = [
       scroll: { x: -Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER },
       shot: Schema.decodeSync(ContentRef)({ sha256: "a".repeat(64), byteLength: Number.MAX_SAFE_INTEGER, mediaType: "image/png" }),
     },
+  },
+  {
+    kind: "file",
+    nodeId: asNodeId(`files-${ulid}`),
+    path: widestPath,
+    anchor: { kind: "lines", file: widestPath, from: Number.MAX_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER, quote: "語".repeat(LINES_QUOTE_MAX) },
+  },
+  {
+    kind: "file",
+    nodeId: asNodeId(`files-${ulid}`),
+    path: widestPath,
+    anchor: { kind: "pageBox", page: PAGE_BOX_PAGE_MAX, x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
   },
 ];
 

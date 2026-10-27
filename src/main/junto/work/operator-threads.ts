@@ -53,6 +53,7 @@ import { subjectNameAt, subjectPeopleAt } from "./subject-people";
 const subjectKey = (subject: ResourceSubject): string =>
   subject.kind === "task" ? `task:${subject.nodeId}:${subject.taskId}`
   : subject.kind === "artifact" ? `artifact:${subject.nodeId}:${subject.artifactId}`
+  : subject.kind === "file" ? `file:${subject.nodeId}:${subject.path}`
   : `page:${subject.nodeId}`;
 
 const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "agent");

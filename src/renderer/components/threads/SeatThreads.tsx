@@ -138,7 +138,7 @@ export function SeatThreadsPopup({
         onClick={() => setSelection({ kind: "thread", threadId: item.threadId })}
       >
         <span className="seat-threads__row-title">
-          {item.subject ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
+          {item.subject && item.subject.kind !== "file" ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
           {previewText(item.title)}
         </span>
         <span className="seat-threads__row-meta">

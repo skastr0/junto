@@ -41,6 +41,35 @@ export const isCellRange = (range: string): boolean => {
   return columnNumber(a[1]!) <= columnNumber(b[1]!) && Number(a[2]) <= Number(b[2]);
 };
 
+/**
+ * The longest path a subject names, in characters: a path in a node's root,
+ * not prose.
+ */
+export const FILE_PATH_MAX = 1_024;
+
+/**
+ * Pure: a path as every subject names it. Relative to the node it hangs on,
+ * `/` separated, never absolute, never through `..`, and never holding a
+ * backslash, so one path means one thing on every machine. Main resolves a
+ * path against the node's root and refuses anything outside it; this refuses
+ * the shapes that could mean outside before a path is ever written.
+ */
+export const isRelativePath = (path: string): boolean => {
+  if (path.length === 0 || path.length > FILE_PATH_MAX) return false;
+  if (path.startsWith("/") || path.includes("\\") || path.includes("\u0000")) return false;
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+};
+
+/**
+ * A path a subject names, as `isRelativePath` admits it. The renderer never
+ * names an absolute path: an anchor or a subject carries the node and the
+ * path inside it, and main is the one that opens the file.
+ */
+export const RelativePath = Schema.String.check(
+  Schema.makeFilter((path) => isRelativePath(path) || "a relative path: no leading slash, no '..', no backslash, at most 1024 characters"),
+);
+export type RelativePath = typeof RelativePath.Type;
+
 export const WholeAnchor = Schema.Struct({ kind: Schema.Literal("whole") });
 export const BoxAnchor = Schema.Struct({
   kind: Schema.Literal("box"),
@@ -69,33 +98,85 @@ export const TextAnchor = Schema.Struct({
 export type TextAnchor = typeof TextAnchor.Type;
 
 /** The longest file path a lines anchor names: a repo path, not prose. */
-export const LINES_FILE_MAX = 1_024;
+export const LINES_FILE_MAX = FILE_PATH_MAX;
 
-/** Git review's: lines of a file. Never an artifact's. */
+/**
+ * The most of the lines a lines anchor quotes: enough to find them again
+ * after an edit moved them, and bounded so a subject fits a mail's row
+ * envelope (`mail-text-bound.ts`). A longer block is quoted from its first
+ * line.
+ */
+export const LINES_QUOTE_MAX = 1_000;
+
+/**
+ * Lines of a file. Git review's, on a repo path; a file subject's, on the
+ * same path relative to the node's root. `quote` is what those lines held
+ * when the comment was written, so the place is found again after an edit
+ * (`locateLines` in `thread-subject.ts`); absent on a row written before it.
+ */
 export const LinesAnchor = Schema.Struct({
   kind: Schema.Literal("lines"),
-  file: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(LINES_FILE_MAX)),
+  file: RelativePath,
   from: Line,
   to: Line,
   /** The removed text's line numbers; absent, the new text's. */
   side: Schema.optionalKey(Schema.Literal("deletions")),
+  quote: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(LINES_QUOTE_MAX))),
 }).check(Schema.makeFilter((lines) => lines.from <= lines.to || "a lines anchor ends at or after its first line"));
 export type LinesAnchor = typeof LinesAnchor.Type;
+
+/** A page's own box is normalised: 0..1 across and down it, at any zoom. */
+const Unit = Coordinate.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1));
+const UnitExtent = Coordinate.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(1));
+
+/** Float rounding in a normalised sum is not a box off the page. */
+const BOX_EPSILON = 1e-6;
+
+/** The highest page a box may name: a bound, not a limit of any viewer. */
+export const PAGE_BOX_PAGE_MAX = 100_000;
+
+/**
+ * A box on one page of a file, as the box drawing of a PDF page or an image
+ * makes it: normalised 0..1 of that page's box, so it names the same place at
+ * any zoom, window size or resolution, and travels between machines without
+ * naming a path or an absolute pixel. `page` is the page it was drawn on: the
+ * PDF page number from 1, and 1 for an image, which has one page.
+ */
+export const FileBoxAnchor = Schema.Struct({
+  kind: Schema.Literal("pageBox"),
+  page: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(PAGE_BOX_PAGE_MAX)),
+  x: Unit,
+  y: Unit,
+  w: UnitExtent,
+  h: UnitExtent,
+}).check(
+  Schema.makeFilter(
+    (box) =>
+      (box.x + box.w <= 1 + BOX_EPSILON && box.y + box.h <= 1 + BOX_EPSILON) ||
+      "a page box stays on its page: x + w and y + h are at most 1",
+  ),
+);
+export type FileBoxAnchor = typeof FileBoxAnchor.Type;
+
+/** Where on a file a thread hangs: its lines, or a box on one of its pages. */
+export const FilePlaceAnchor = Schema.Union([LinesAnchor, FileBoxAnchor]);
+export type FilePlaceAnchor = typeof FilePlaceAnchor.Type;
 
 /**
  * Where on a resource a thread hangs: the whole of it, or one place in it.
  * The one Anchor; `artifact.ts` narrows it per artifact type.
  */
-export const Anchor = Schema.Union([WholeAnchor, BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor]);
+export const Anchor = Schema.Union([WholeAnchor, BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor, FileBoxAnchor]);
 export type Anchor = typeof Anchor.Type;
 
 /**
  * The anchor a subject carries: one place, never `whole`. The whole resource
- * is an absent anchor, so one thread has one spelling.
+ * is an absent anchor, so one thread has one spelling. A file box is a file's:
+ * an artifact or a page never carries one.
  */
-export const PlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor]);
+export const PlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor, LinesAnchor, FileBoxAnchor]);
 export type PlaceAnchor = typeof PlaceAnchor.Type;
-/** An artifact's places: any but git review's lines. */
+/** An artifact's places: any but a file's lines and page box. */
 export const ArtifactPlaceAnchor = Schema.Union([BoxAnchor, CellsAnchor, TextAnchor]);
 export type ArtifactPlaceAnchor = typeof ArtifactPlaceAnchor.Type;
 
@@ -159,9 +240,24 @@ export type PageBoxAnchor = typeof PageBoxAnchor.Type;
 
 export const PageSubject = Schema.Struct({ kind: Schema.Literal("page"), nodeId: SubjectNodeId, anchor: Schema.optionalKey(PageBoxAnchor) });
 
-export const ThreadSubject = Schema.Union([MailboxSubject, TaskSubject, ArtifactSubject, PageSubject]);
+/**
+ * A file in a Files node: the node that owns the root, and the path inside it
+ * that names a file in that root. Never an absolute path: the renderer and
+ * every seat name the node and the path, and only the machine holding the
+ * root resolves it (`docs/security-doctrine.md`). The anchor rides on the
+ * same path: lines of it, or a box on one of its pages.
+ */
+export const FileSubject = Schema.Struct({
+  kind: Schema.Literal("file"),
+  nodeId: SubjectNodeId,
+  path: RelativePath,
+  anchor: Schema.optionalKey(FilePlaceAnchor),
+});
+export type FileSubject = typeof FileSubject.Type;
+
+export const ThreadSubject = Schema.Union([MailboxSubject, TaskSubject, ArtifactSubject, PageSubject, FileSubject]);
 export type ThreadSubject = typeof ThreadSubject.Type;
 
 /** A subject that is a resource: every subject but a seat's own mailbox. */
 export type ResourceSubject = Exclude<ThreadSubject, { readonly kind: "mailbox" }>;
-export const ResourceSubject = Schema.Union([TaskSubject, ArtifactSubject, PageSubject]);
+export const ResourceSubject = Schema.Union([TaskSubject, ArtifactSubject, PageSubject, FileSubject]);

@@ -69,6 +69,7 @@ import { commentOnArtifact, liveArtifactPorts, type ArtifactPorts } from "./arti
 import { queuedOverlays, type QueuedOverlays } from "./op-control";
 import { OpRepository } from "./op-repository";
 import { onResourceChanged } from "./resource-changes";
+import { postSubjectComment } from "./subject-comment";
 import { commentOnTask, liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
 
 /** What the handlers read and write through. Live: the CLI's own ports and the work topology. */
@@ -276,9 +277,14 @@ export const applyArtifact = (
 const onSubject = (subject: ThreadResourceSubject) => (row: Message): boolean => {
   const on = threadSubjectOf(row);
   if (on === undefined || on.nodeId !== subject.nodeId) return false;
-  return subject.kind === "task"
-    ? on.kind === "task" && on.taskId === subject.taskId
-    : on.kind === "artifact" && on.artifactId === subject.artifactId;
+  switch (subject.kind) {
+    case "task":
+      return on.kind === "task" && on.taskId === subject.taskId;
+    case "artifact":
+      return on.kind === "artifact" && on.artifactId === subject.artifactId;
+    case "file":
+      return on.kind === "file" && on.path === subject.path;
+  }
 };
 
 const stamp = (row: Message, key: string): string | undefined => {
@@ -325,7 +331,7 @@ const byAge = (a: ThreadPost, b: ThreadPost): number => a.at - b.at || (a.postId
 
 const productOff = (kind: ThreadResourceSubject["kind"]): WorkErrorBody => ({
   type: "InputError",
-  message: `${kind === "task" ? "tasks are" : "artifacts are"} not in this Junto build`,
+  message: `${kind === "task" ? "tasks are" : kind === "artifact" ? "artifacts are" : "files are"} not in this Junto build`,
   details: { reason: "not_available", retryable: false },
 });
 
@@ -350,7 +356,7 @@ export const listThreads = (
       const thread = threads.get(threadId) ?? { posts: [] };
       // The root names the thread's place; a reply copies it.
       const on = threadSubjectOf(row);
-      if (on?.kind === "artifact" && on.anchor !== undefined && (thread.anchor === undefined || row.messageId === threadId)) {
+      if ((on?.kind === "artifact" || on?.kind === "file") && on.anchor !== undefined && (thread.anchor === undefined || row.messageId === threadId)) {
         thread.anchor = on.anchor;
       }
       thread.posts.push(post);
@@ -393,6 +399,37 @@ export const postThread = (
       }
       const sent = yield* commentOnTask(commenter, ports.tasks, { opId: post.opId, task: subject.taskId, text: post.text, node: subject.nodeId });
       return { kind: "applied" as const, opId: post.opId, threadId: sent.threadId as MailMessageId, postId: sent.messageId as MailMessageId, notified: sent.notified as ReadonlyArray<NodeId> };
+    }
+    if (subject.kind === "file") {
+      const anchor = post.anchor;
+      if (anchor !== undefined && anchor.kind !== "lines" && anchor.kind !== "pageBox") {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "a file comment hangs on its lines, or on a box on one of its pages",
+          details: { path: "anchor", retryable: false },
+        });
+      }
+      // A file's lines are the file's own: the anchor names the subject's path.
+      if (anchor?.kind === "lines" && (anchor.file !== subject.path || anchor.side !== undefined)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `a lines anchor on a file names its path, ${subject.path}, and no diff side`,
+          details: { path: "anchor", retryable: false },
+        });
+      }
+      const sent = yield* postSubjectComment(
+        {
+          text: post.text,
+          actor: operator,
+          opId: post.opId,
+          subject: { kind: "file", nodeId: subject.nodeId, path: subject.path },
+          ...(anchor === undefined ? {} : { anchor }),
+          ...(post.threadId === undefined ? {} : { threadId: post.threadId }),
+        },
+        // A file's people are none of its own: mentions and earlier posters are told by the write path.
+        { canvas: commenter.canvas, canvasName, people: [] },
+      );
+      return { kind: "applied" as const, opId: post.opId, threadId: sent.threadId, postId: sent.messageId, notified: sent.notified };
     }
     const sent = yield* commentOnArtifact(commenter, ports.artifacts, {
       opId: post.opId,
@@ -486,7 +523,7 @@ export const registerResourceIpc = (
   run: ResourceIpcRun,
   ports: ResourceIpcPorts,
   broadcast: (channel: string, payload: ResourceChanged | ThreadChanged) => void,
-  enabled: { readonly task: boolean; readonly artifact: boolean },
+  enabled: { readonly task: boolean; readonly artifact: boolean; readonly file: boolean },
   authoring: { readonly task: ResourceAuthoring; readonly artifact: ResourceAuthoring; readonly thread: ResourceAuthoring },
 ): (() => void) => {
   const on = <S extends Schema.Top, A>(
@@ -500,7 +537,11 @@ export const registerResourceIpc = (
       return authored === undefined ? operation() : authored(operation);
     });
   // A product this build turns off registers nothing, whatever the caller asks.
-  const live = { task: enabled.task && productResourceKindEnabled("task"), artifact: enabled.artifact && productResourceKindEnabled("artifact") };
+  const live = {
+    task: enabled.task && productResourceKindEnabled("task"),
+    artifact: enabled.artifact && productResourceKindEnabled("artifact"),
+    file: enabled.file,
+  };
   const task = RESOURCE_IPC_CHANNELS.task;
   if (live.task) {
     on(task.list, TaskListInput, (input) => listTasks(ports, input.canvasName, input.nodeId));
@@ -519,9 +560,9 @@ export const registerResourceIpc = (
       applyArtifact(ports, input.canvasName, input.nodeId, input.artifactId, input.opId, input.op), authoring.artifact);
     on(artifact.pending, ArtifactPendingInput, (input) => pendingArtifacts(ports, input.canvasName, input.nodeId));
   }
-  // Threads on either kind, each kind behind its own product.
+  // Threads on any of the kinds, each kind behind its own product.
   const thread = RESOURCE_IPC_CHANNELS.thread;
-  if (live.task || live.artifact) {
+  if (live.task || live.artifact || live.file) {
     on(thread.list, ThreadListInput, (input) =>
       live[input.subject.kind] ? listThreads(ports, input.canvasName, input.subject) : Effect.fail(productOff(input.subject.kind)));
     on(thread.post, ThreadPostInput, (input) =>

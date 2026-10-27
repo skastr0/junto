@@ -48,7 +48,8 @@ export const mentionChipOf = (
 
 /**
  * The chip for a thread's subject, named by the thread's title (a task
- * thread is listed as `#42 fix tabs`). Gone, it keeps the subject's kind.
+ * thread is listed as `#42 fix tabs`). Gone, it keeps the subject's kind; a
+ * file has no chip kind yet, so a file thread's chip names its node only.
  */
 export const subjectChipOf = (
   subject: ResourceSubject,
@@ -57,7 +58,7 @@ export const subjectChipOf = (
 ): MentionChip => {
   const item = subject.kind === "task" ? subject.taskId : subject.kind === "artifact" ? subject.artifactId : undefined;
   const chip = mentionChipOf({ target: { nodeId: subject.nodeId, ...(item === undefined ? {} : { item }) }, label: title }, nodeKindOf);
-  return chip.ref === undefined ? { ...chip, kind: subject.kind } : chip;
+  return chip.ref === undefined ? { ...chip, kind: subject.kind === "file" ? undefined : subject.kind } : chip;
 };
 
 /** A text cut at its mention links: plain text, and a chip for each link. */

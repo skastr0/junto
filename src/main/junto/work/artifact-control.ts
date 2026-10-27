@@ -632,11 +632,11 @@ export const commentOnArtifact = (
         },
       });
     }
-    // `whole` is no anchor. The wire Anchor still spells lines, which no
-    // artifact takes, so the check narrows it to an artifact's place.
     const anchor = input.anchor === undefined ? undefined : subjectAnchorOf(input.anchor);
-    if (anchor?.kind === "lines") {
-      return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
+    // `whole` is no anchor. The wire Anchor still spells the file's places,
+    // which no artifact takes, so the check narrows it to an artifact's place.
+    if (anchor?.kind === "lines" || anchor?.kind === "pageBox") {
+      return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a ${anchor.kind === "lines" ? "lines" : "page box"} anchor`, "anchor"));
     }
     // Each mention becomes its link: in reach of the artifact, whoever writes (03).
     const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;

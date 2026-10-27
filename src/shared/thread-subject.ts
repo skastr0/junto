@@ -1,6 +1,7 @@
 import { Result, Schema } from "effect";
 import type { NodeId } from "./physics/schema";
 import type { ContentRef } from "./wire/content-ref";
+import { LINES_QUOTE_MAX } from "./wire/thread-subject";
 import {
   LinesAnchor,
   ResourceSubject,
@@ -27,14 +28,22 @@ export {
   ArtifactSubject,
   BoxAnchor,
   CellsAnchor,
+  FileBoxAnchor,
+  FILE_PATH_MAX,
+  FilePlaceAnchor,
+  FileSubject,
   isCellRange,
+  isRelativePath,
   LINES_FILE_MAX,
+  LINES_QUOTE_MAX,
   LinesAnchor,
   MailboxSubject,
+  PAGE_BOX_PAGE_MAX,
   PAGE_BOX_URL_MAX_BYTES,
   PageBoxAnchor,
   PageSubject,
   PlaceAnchor,
+  RelativePath,
   ResourceSubject,
   TaskSubject,
   TEXT_QUOTE_MAX,
@@ -49,6 +58,51 @@ const cutQuote = (quote: string): string => {
   const cut = quote.slice(0, TEXT_QUOTE_MAX);
   const last = cut.charCodeAt(cut.length - 1);
   return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+};
+
+/** A lines quote cut to LINES_QUOTE_MAX the same way: whole characters only. */
+const cutLinesQuote = (quote: string): string => {
+  if (quote.length <= LINES_QUOTE_MAX) return quote;
+  const cut = quote.slice(0, LINES_QUOTE_MAX);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+};
+
+/**
+ * The text of lines `from`..`to` of a file, as the lines anchor quotes it:
+ * joined by `\n`, a trailing `\r` of a CRLF file dropped, and cut to
+ * LINES_QUOTE_MAX from its start. Undefined when the file has no such lines,
+ * or they hold only spaces: a quote that names no text finds nothing later.
+ */
+export const quoteOfLines = (text: string, from: number, to: number): string | undefined => {
+  const lines = text.split(/\r?\n/u);
+  if (from < 1 || to < from || to > lines.length) return undefined;
+  const block = lines.slice(from - 1, to).join("\n");
+  return block.trim() === "" ? undefined : cutLinesQuote(block);
+};
+
+/**
+ * Where the lines a comment quoted sit now, after an edit moved them: the
+ * place in the text nearest the lines it named whose lines read as the quote
+ * does, else undefined when the text no longer holds it. A comment written
+ * without a quote is where it says, never moved.
+ */
+export const locateLines = (
+  anchor: { readonly quote?: string | undefined; readonly from: number; readonly to: number },
+  text: string,
+): { readonly from: number; readonly to: number } | undefined => {
+  const quote = anchor.quote;
+  if (quote === undefined) return { from: anchor.from, to: anchor.to };
+  // CRLF files quote with plain "\n", and a CRLF pair is still one line.
+  const plain = text.replace(/\r\n/gu, "\n");
+  const found: number[] = [];
+  for (let at = plain.indexOf(quote); at !== -1; at = plain.indexOf(quote, at + 1)) found.push(at);
+  if (found.length === 0) return undefined;
+  const lineOf = (at: number): number => plain.slice(0, at).split("\n").length;
+  const nearest = found
+    .map(lineOf)
+    .reduce((best, line) => (Math.abs(line - anchor.from) < Math.abs(best - anchor.from) ? line : best));
+  return { from: nearest, to: nearest + quote.split("\n").length - 1 };
 };
 
 /** A text anchor on a selection, its quote cut to TEXT_QUOTE_MAX. */
@@ -159,6 +213,8 @@ const anchorLabel = (anchor: PlaceAnchor | undefined): string => {
   switch (anchor.kind) {
     case "box":
       return ` (box at ${String(anchor.x)},${String(anchor.y)})`;
+    case "pageBox":
+      return ` (page ${String(anchor.page)}, a box)`;
     case "cells":
       return ` (cells ${anchor.range})`;
     case "text":
@@ -179,5 +235,7 @@ export const subjectLabel = (subject: ThreadSubject): string => {
       return `artifact ${subject.artifactId} at ${subject.nodeId}${anchorLabel(subject.anchor)}`;
     case "page":
       return `page ${subject.nodeId}${anchorLabel(subject.anchor)}`;
+    case "file":
+      return `file ${subject.path} in ${subject.nodeId}${anchorLabel(subject.anchor)}`;
   }
 };

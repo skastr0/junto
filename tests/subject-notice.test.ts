@@ -108,7 +108,7 @@ describe("thread subject", () => {
 
   it("types: a resource subject is never a mailbox, and ids are branded", () => {
     expectTypeOf<Extract<ResourceSubject, { kind: "mailbox" }>>().toBeNever();
-    expectTypeOf<ThreadSubject["kind"]>().toEqualTypeOf<"mailbox" | "task" | "artifact" | "page">();
+    expectTypeOf<ThreadSubject["kind"]>().toEqualTypeOf<"mailbox" | "task" | "artifact" | "page" | "file">();
     // @ts-expect-error a bare string is not a NodeId
     const _node: ResourceSubject = { kind: "page", nodeId: "task-board" };
     // @ts-expect-error a bare string is not an ItemId

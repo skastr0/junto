@@ -315,7 +315,7 @@ describe("change notices", () => {
       (effect) => Effect.runPromise(effect as Effect.Effect<never>),
       portsOf().ports,
       () => undefined,
-      { task: true, artifact: true },
+      { task: true, artifact: true, file: true },
       { task: (operation) => operation(), artifact: (operation) => operation(), thread: (operation) => operation() },
     );
     stop();
@@ -332,7 +332,7 @@ describe("change notices", () => {
       (effect) => Effect.runPromise(effect as Effect.Effect<never>),
       ports,
       (channel, payload) => sent.push([channel, payload]),
-      { task: true, artifact: false },
+      { task: true, artifact: false, file: true },
       { task: (operation) => (authored.push("task"), operation()), artifact: (operation) => operation(), thread: (operation) => operation() },
     );
     expect([...handlers.keys()].sort()).toEqual(

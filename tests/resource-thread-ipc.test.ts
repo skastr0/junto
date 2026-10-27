@@ -272,7 +272,7 @@ describe("the thread channels", () => {
         ),
       ports,
       (channel, payload) => sent.push([channel, payload]),
-      { task: true, artifact: true },
+      { task: true, artifact: true, file: true },
       { task: (operation) => operation(), artifact: (operation) => operation(), thread: (operation) => operation() },
     );
     try {

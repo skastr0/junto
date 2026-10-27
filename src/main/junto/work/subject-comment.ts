@@ -28,6 +28,7 @@ import type { MailMessageId } from "@shared/crew";
 import { mentionsOf } from "@shared/mention";
 import type { Canvas } from "@shared/model";
 import { asNodeId } from "@shared/model";
+import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
 import { isCommentableKind, reaches, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
 import type { ResourceActor } from "@shared/resource-command";
@@ -42,6 +43,7 @@ import { subjectNoticeRecipients, subjectNoticeRow } from "@shared/subject-notic
 import { makeUserMessage } from "@shared/task";
 import {
   BoxAnchor,
+  isRelativePath,
   PageBoxAnchor,
   sameSubject,
   subjectLabel,
@@ -89,6 +91,13 @@ export type StagedPageShot = {
 };
 
 const runtimeDown = (message: string): WorkErrorBody => ({ type: "RuntimeDown", message, details: { retryable: true } });
+
+/**
+ * The node kind a subject's rows are held at. A file subject names a Files
+ * node (`files`); its subject kind is `file`, which is the image card's word.
+ */
+const nodeKindOf = (kind: ResourceSubject["kind"]): NodeKind =>
+  kind === "artifact" ? "artifacts" : kind === "file" ? "files" : kind;
 
 /** The resource a subject names, whatever place on it. */
 const withoutAnchor = (subject: ResourceSubject): ResourceSubject => {
@@ -147,12 +156,32 @@ export const postSubjectComment = (
     }
     const nodeId = input.subject.nodeId;
     const node = canvas.nodes.get(nodeId);
-    if (node === undefined || !isCommentableKind(node.kind) || node.kind !== (input.subject.kind === "artifact" ? "artifacts" : input.subject.kind)) {
+    const expected = nodeKindOf(input.subject.kind);
+    if (node === undefined || !isCommentableKind(node.kind) || node.kind !== expected) {
       return yield* Effect.fail<WorkErrorBody>({
         type: "UnknownTarget",
-        message: `"${nodeId}" is not a ${input.subject.kind === "artifact" ? "artifacts" : input.subject.kind} node on this canvas`,
+        message: `"${nodeId}" is not a ${expected} node on this canvas`,
         details: { path: "subject", target: nodeId, retryable: false },
       });
+    }
+    // A file subject names its file by the node and a path inside it, never by
+    // an absolute path, and its anchor hangs on that same file.
+    if (input.subject.kind === "file") {
+      const anchor = input.anchor;
+      if (!isRelativePath(input.subject.path)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "a file's path is relative to its node's root: no leading slash, no '..'",
+          details: { path: "subject", retryable: false },
+        });
+      }
+      if (anchor?.kind === "lines" && (anchor.file !== input.subject.path || anchor.side !== undefined)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "a file's lines anchor names the same path as its subject, and no diff side",
+          details: { path: "anchor", retryable: false },
+        });
+      }
     }
     const poster = posterNode(input.actor);
     const from = input.actor.kind === "automation" ? input.actor.nodeId : poster;
@@ -303,7 +332,8 @@ export const postSubjectComment = (
       return yield* Effect.fail(runtimeDown(row.message));
     }
     // The comment stands: on a task or an artifact it is a change of it, so panes read again and change triggers wake.
-    if (input.subject.kind !== "page") noteResourceChanged(input.subject.kind, canvasName);
+    // A file's and a page's threads live in the node's mailbox: nothing of the resource itself changed.
+    if (input.subject.kind !== "page" && input.subject.kind !== "file") noteResourceChanged(input.subject.kind, canvasName);
 
     // The comment stands, so each notice stands alone: a seat whose node is
     // gone is not told, and one notice that fails is logged while the rest

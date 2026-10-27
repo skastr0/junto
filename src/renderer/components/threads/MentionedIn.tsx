@@ -11,8 +11,14 @@ import { agoLabel } from "../tasks/tasks-pane-model";
 import { Button, Eyebrow, ResourceChip } from "../ui";
 import "./mentioned-in.css";
 
-/** The place a backlink was written, as the thing it opens: the resource commented on, or the seat mailed. */
-const placeOf = (entry: MentionedInEntry): MentionRef => {
+/**
+ * The place a backlink was written, as the thing it opens: the resource
+ * commented on, or the seat mailed. A file's place opens nowhere: a mention
+ * link names a node and an item, and a file is named by a path inside its
+ * node (`docs/plans/0.11/README.md`, F7), so its row is left out until the
+ * Files kind and its mention are one contract.
+ */
+const placeOf = (entry: MentionedInEntry): MentionRef | undefined => {
   const subject: ResourceSubject | undefined = entry.subject;
   if (subject === undefined) return { kind: "seat", nodeId: entry.mailbox };
   switch (subject.kind) {
@@ -22,6 +28,8 @@ const placeOf = (entry: MentionedInEntry): MentionRef => {
       return { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId };
     case "page":
       return { kind: "page", nodeId: subject.nodeId };
+    case "file":
+      return undefined;
   }
 };
 
@@ -58,6 +66,7 @@ export function MentionedIn({
       <ul className="mentioned-in__list">
         {entries.map((entry) => {
           const place = placeOf(entry);
+          if (place === undefined) return null;
           const node = nodes.get(place.nodeId);
           const label = nameOf?.(place) ?? (node === undefined ? place.nodeId : titleOf(node));
           return (

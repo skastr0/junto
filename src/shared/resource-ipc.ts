@@ -37,7 +37,7 @@ import {
 } from "./task-model";
 import type { WorkErrorBody } from "./work-control";
 import { ItemId, OpId } from "./work-ids";
-import { Anchor, type ArtifactPlaceAnchor } from "./wire/thread-subject";
+import { Anchor, RelativePath, type PlaceAnchor } from "./wire/thread-subject";
 import type { ContentRef } from "./wire/content-ref";
 
 // ── channels ───────────────────────────────────────────────────────────────
@@ -186,19 +186,21 @@ export const ARTIFACT_HISTORY_PAGE = 50;
 // ── threads ────────────────────────────────────────────────────────────────
 
 /**
- * The resource a thread hangs on: a task or an artifact. Threads are read
- * from the subject node's mailbox and posted through the CLI's own
- * `task.comment` and `artifact.comment` paths, as the operator.
+ * The resource a thread hangs on: a task, an artifact or a file in a Files
+ * node. Threads are read from the subject node's mailbox and posted through
+ * the one comment path the CLI uses, as the operator. A file names its node
+ * and the path inside it, never an absolute path.
  */
 export const ThreadResourceSubject = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("task"), nodeId: NodeId, taskId: ItemId }).annotate(strict),
   Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: NodeId, artifactId: ItemId }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("file"), nodeId: NodeId, path: RelativePath }).annotate(strict),
 ]);
 export type ThreadResourceSubject = typeof ThreadResourceSubject.Type;
 
 export const ThreadListInput = Schema.Struct({ canvasName: CanvasNameInput, subject: ThreadResourceSubject }).annotate(strict);
 
-/** One post as the window writes it. `threadId` replies in a thread; an anchor is an artifact's only. */
+/** A post as the window writes it. `threadId` replies in a thread; an anchor is where on the resource the thread hangs. */
 export const ThreadPostDraft = Schema.Struct({
   opId: OpId,
   text: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64_000))),
@@ -233,10 +235,10 @@ export type ThreadPost = {
   readonly attachments?: ReadonlyArray<ContentRef>;
 };
 
-/** One thread on a resource, oldest post first. `anchor` is its root's place on an artifact. */
+/** One thread on a resource, oldest post first. `anchor` is its root's place on the resource. */
 export type SubjectThreadView = {
   readonly threadId: MailMessageId;
-  readonly anchor?: ArtifactPlaceAnchor;
+  readonly anchor?: PlaceAnchor;
   readonly posts: ReadonlyArray<ThreadPost>;
 };
 

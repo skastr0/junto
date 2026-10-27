@@ -44,6 +44,7 @@ import {
   ARTIFACTS_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
+  productNodeKindEnabled,
   SEAT_AWARENESS_COMPILED,
   TASKS_ENABLED,
   USAGE_ENABLED,
@@ -324,7 +325,7 @@ export const registerJuntoIpc = (): void => {
           }),
         })),
     broadcast,
-    { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED },
+    { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED, file: productNodeKindEnabled("files") },
     {
       task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),
       artifact: (operation) => runMainAuthoring("ipc.resource.artifact-apply", operation),

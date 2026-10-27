@@ -56,7 +56,7 @@ describe("a thread post's author", () => {
       (effect) => Effect.runPromise(effect as Effect.Effect<never>),
       ports,
       () => undefined,
-      { task: true, artifact: true },
+      { task: true, artifact: true, file: true },
       { task: (operation) => operation(), artifact: (operation) => operation(), thread: (operation) => operation() },
     );
     try {
