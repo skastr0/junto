@@ -429,8 +429,8 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       });
 
     /**
-     * Every task of the canvas, for the invariants that span it (one open
-     * task per seat, dependency cycles), and the next number.
+     * Every task of the canvas, for the invariants that span it (dependency
+     * cycles), and the next number.
      */
     const readBoard = (canvas: string) =>
       Effect.gen(function* () {
@@ -438,7 +438,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         const rows = yield* canvasRows({ canvas });
         const records = yield* recordsOf(canvas, rows);
         for (const [i, row] of rows.entries()) {
-          // Fail closed: a row left out would escape the one-open-task check and be overwritten by a create.
+          // Fail closed: a row left out would escape the cycle check and be overwritten by a create.
           const task = records[i];
           if (task === undefined) return yield* Effect.fail(unreadable("task", row.task_id));
           tasks.set(task.id, task);

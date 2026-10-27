@@ -52,7 +52,7 @@ export type TaskFacts = Omit<TaskDomainEnv, "at">;
 export interface TasksSource {
   /** The tasks that sit on this node now, oldest first. */
   readonly list: (canvasName: string, node: TaskNodeId) => Promise<ReadonlyArray<TaskView>>;
-  /** Every open task of the canvas, for the one open task rule (a seat holds one anywhere). */
+  /** Every task of the canvas but archived ones. */
   readonly all: (canvasName: string) => Promise<ReadonlyArray<TaskView>>;
   /** Rule one command. On `create` the caller mints `taskId` and names it in the command. */
   readonly apply: (

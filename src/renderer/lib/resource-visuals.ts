@@ -103,7 +103,7 @@ export const TASK_STATE_VISUAL: Readonly<Record<TaskStateV10, TaskStateVisual>> 
   archived: { label: "Archived", tone: "faint", glyph: "box", live: false, settled: true },
 };
 
-/** Open states: the ones that hold a seat (04, invariant 2). Reviews do not count, but in-review holds the assignee. */
+/** Open states: the ones an assignee holds (04). Reviews do not count, but in-review holds the assignee. */
 export const isOpenTaskState = (state: TaskStateV10): boolean =>
   state === "assigned" || state === "working" || state === "input-required" || state === "in-review";
 

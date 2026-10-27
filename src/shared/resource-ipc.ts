@@ -263,7 +263,7 @@ export type ThreadChanged = ResourceChanged & { readonly kind: ThreadResourceSub
 export type TaskResourceApi = {
   /** The tasks on this node now, oldest first. */
   readonly list: (canvasName: string, nodeId: TaskNodeId) => Promise<ReadonlyArray<TaskView>>;
-  /** Every task of the canvas but archived ones: the one open task rule reads them all. */
+  /** Every task of the canvas but archived ones. */
   readonly all: (canvasName: string) => Promise<ReadonlyArray<TaskView>>;
   readonly context: (canvasName: string) => Promise<TaskCanvasFacts>;
   /** Rule one command; on create the caller mints `taskId` and names it in the command. */

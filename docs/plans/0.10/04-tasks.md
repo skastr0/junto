@@ -63,8 +63,11 @@ backlog or open ──cancel──▶ canceled     done, canceled ──archive�
 Invariants, enforced by the editing machine (02):
 
 1. A task has at most one assignee.
-2. A seat is the assignee of at most one open task (`assigned`, `working`,
-   `input-required`, `in-review`) across the canvas. Reviews do not count.
+2. A seat may be the assignee of any number of open tasks (`assigned`,
+   `working`, `input-required`, `in-review`) across the canvas, and may
+   assign itself any of them. 0.10.3 removed the one open task limit: it
+   capped a backlog at the seat count, left seats stuck holding tasks, and
+   kept a seat that found a missing dependency from taking it.
 3. Only the assignee transitions its task; anyone in reach may assign an
    unassigned task, unassign, comment, review, cancel.
 
@@ -133,13 +136,12 @@ task's thread. That replaces the factory claim prompt.
 | Kept | Task rows and history, dependencies (`task-deps.ts`), flow DAG, visits and epochs, defects, rules and checks, verdict tables, `TaskBoard` as the base of the UI |
 | Reshaped | State set, transitions, owner (assignee, stored), comments as threads, verdicts as stamps, blocked derivation from assignee and state |
 | Deleted | `manages`, `contributes`, `works`, `reviews`; `factory-tick.ts`, `factory-claim-prompt.ts`, the kernel factory block, reclaim grace; admission and approval (`TaskAdmission`, promote, "Who starts tasks", `clampRequestedAdmission`); the operator "Me" board ownership rule |
-| New | `assign`, `start`, reviewer list, `StampPolicy`, the one open task invariant, tests for the state machine, stamps and flow |
+| New | `assign`, `start`, reviewer list, `StampPolicy`, tests for the state machine, stamps and flow |
 
 ## Questions
 
-- ~~**canvas**: one open task~~ Answered: canvas-wide; physics already says
-  one actor has at most one active task (`architecture-canvas-physics.md:193`).
-  Holds at migration (12 submitted unassigned, 1 working).
+- ~~**canvas**: one open task~~ Answered canvas-wide at first, then removed
+  in 0.10.3: a seat holds any number of open tasks (invariant 2).
 - ~~**canvas**: flows across regions~~ Answered: allow every `flows` edge
   the operator draws; sending on gives the sender nothing downstream, and
   requiring reach would forbid handoff between sibling regions.

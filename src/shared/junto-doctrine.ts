@@ -173,7 +173,7 @@ const ORIENT_DETAIL = TASKS_ENABLED
 /** Task-shaped error meanings leave with the tasks surface. */
 const TASK_ERROR_BULLETS = TASKS_ENABLED
   ? `
-- \`ClaimConflict\` — the task is already assigned to another seat, or that seat already holds an open task; pick another or wait for the holder
+- \`ClaimConflict\` — the task is already assigned to another seat; pick another task, or ask the holder to unassign it
 - \`InvalidTransition\` — the task is not in a state that command takes (e.g. \`task start\` on a task not assigned to you); the message names its state`
   : "";
 
