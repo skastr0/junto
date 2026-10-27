@@ -31,12 +31,14 @@ import {
   type ArtifactHistoryResult,
   type ArtifactListResult,
   type ArtifactShowResult,
+  type ArtifactLinkedFrom,
+  ARTIFACT_LINKED_FROM_MAX,
   type ArtifactCommentResult,
   type ArtifactWriteResult,
   type BodyInput,
 } from "@shared/artifact-control";
 import type { MailMessageId } from "@shared/crew";
-import { parseMentionHref } from "@shared/mention";
+import { mentionKey, parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
@@ -70,6 +72,9 @@ import { ARTIFACTS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { bodyTexts, editTexts, hasArtifactLinkTokens, linkBodyTitles, linkEditTitles, type ResolveTitle } from "@shared/artifact-link-tokens";
 import { resolveArtifactTitles } from "./artifact-link-titles";
+import { readMentions, type MentionRow } from "./mention-backlinks";
+import { entryOf } from "./mention-ipc";
+import { SqlClient } from "effect/unstable/sql";
 
 /** What the verbs need from the artifact store and the ruler. */
 export type ArtifactPorts = {
@@ -100,6 +105,8 @@ export type ArtifactPorts = {
   readonly comment: (input: SubjectCommentInput, context: SubjectCommentContext) => Effect.Effect<SubjectCommented, WorkErrorBody>;
   /** The task node a task sits on, when the task exists. */
   readonly taskNode: (canvasName: string, taskId: ItemId) => Effect.Effect<Option.Option<NodeId>, WorkErrorBody>;
+  /** Up to `limit` mail rows that mention `key`, newest first (`work_mentions`). Absent, show lists none. */
+  readonly mentions?: (canvasName: string, key: string, limit: number) => Effect.Effect<ReadonlyArray<MentionRow>, WorkErrorBody>;
 };
 
 export type ArtifactCaller = {
@@ -223,6 +230,12 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
       Effect.serviceOption(BodyPuller).pipe(
         Effect.flatMap((puller) =>
           Option.isNone(puller) ? Effect.void : puller.value.pull(input).pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid),
+        ),
+      ),
+    mentions: (canvasName, key, limit) =>
+      Effect.serviceOption(SqlClient.SqlClient).pipe(
+        Effect.flatMap((sql) =>
+          Option.isNone(sql) ? Effect.succeed([]) : readMentions(sql.value, canvasName, key, limit).pipe(Effect.mapError(storeError)),
         ),
       ),
     taskNode: (canvasName, taskId) =>
@@ -493,6 +506,35 @@ const checkTasks = (
           }),
     ), { discard: true });
 
+/** Rows read before the seat's own filter, so a page of the ones it may read is usually whole. */
+const LINKED_FROM_SCAN = 200;
+
+/**
+ * Where an artifact is linked from, as `junto artifact show` lists it: mail
+ * and comments that mention it, kept to what this seat may read. Its own
+ * mailbox, mail it wrote, and threads held at nodes in its reach; never
+ * another seat's mail.
+ */
+const linkedFromOf = (
+  caller: ArtifactCaller,
+  ports: ArtifactPorts,
+  artifact: { readonly nodeId: NodeId; readonly artifactId: ItemId },
+): Effect.Effect<ArtifactLinkedFrom, WorkErrorBody> =>
+  Effect.gen(function* () {
+    if (ports.mentions === undefined) return { mail: [], more: false };
+    const key = mentionKey({ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId });
+    const rows = yield* ports.mentions(caller.canvasName, key, LINKED_FROM_SCAN);
+    const seat = caller.actor.nodeId;
+    const readable = rows.flatMap((row) => {
+      const entry = entryOf(caller.canvas, row);
+      if (entry === undefined) return [];
+      const own = entry.mailbox === seat || (entry.author.kind === "seat" && entry.author.nodeId === seat);
+      const thread = entry.subject !== undefined && reaches(caller.canvas, seat, entry.mailbox);
+      return own || thread ? [entry] : [];
+    });
+    return { mail: readable.slice(0, ARTIFACT_LINKED_FROM_MAX), more: readable.length > ARTIFACT_LINKED_FROM_MAX || rows.length === LINKED_FROM_SCAN };
+  });
+
 /** As many artifacts as a `[[Title]]` is matched among: every head in reach, in practice. */
 const TITLE_SCAN_LIMIT = 10_000;
 
@@ -588,7 +630,8 @@ export const handleArtifactOp = (
         if (body === null) return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, version, read.bodyRef);
         const marks = yield* pendingOf(caller, ports);
         const artifact = withPendingMark(head.artifact, head.artifact.artifactId, marks);
-        return { artifact, version, text: artifactText(body), body, ...pendingUnknownOf(marks) } satisfies ArtifactShowResult;
+        const linkedFrom = yield* linkedFromOf(caller, ports, head.artifact);
+        return { artifact, version, text: artifactText(body), body, linkedFrom, ...pendingUnknownOf(marks) } satisfies ArtifactShowResult;
       }
       case "artifact.history": {
         const input = yield* decode(ArtifactHistoryArgs, args);

@@ -18,6 +18,7 @@ import type { SubjectCommentInput } from "../src/shared/subject-comment";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId } from "../src/shared/work-ids";
 import { artifactLink } from "../src/shared/artifact-link";
+import { mentionKey } from "../src/shared/mention";
 import {
   bodyFor,
   handleArtifactOp,
@@ -349,6 +350,33 @@ describe.runIf(ARTIFACTS_ENABLED)("[[Title]] in junto artifact create and edit",
     expect(refused).toMatchObject({ type: "UnknownTarget", details: { target: "[[Lanch plan]]", candidates: [{ itemId: PLAN, name: "Launch plan" }] } });
     createDoc(ports, { body: { markdown: "\\[[Lanch plan]]" } });
     expect(bodyOf(submitted)).toEqual({ type: "document", markdown: "\\[[Lanch plan]]" });
+  });
+
+  it("show lists the mail and comments that link here, only those this seat may read", () => {
+    const { ports } = memoryPorts();
+    createDoc(ports);
+    const subject = (node: string) => ({ threadSubject: { kind: "artifact", nodeId: node, artifactId: "01M5ESMQ2ZT55QZ073EWPH10SH" } });
+    const row = (id: string, mailbox: string, sender: string, at: number, extra: Record<string, unknown> = {}) => ({
+      node_id: mailbox,
+      message_id: id,
+      at_ms: at,
+      actor_seat_id: `seat_${"b".repeat(64)}`,
+      metadata_json: JSON.stringify({ senderNodeId: sender, ...extra }),
+    });
+    const rows = [
+      row("M-own", "S1", "SP", 5),
+      row("M-sent", "SP", "S1", 4),
+      row("M-private", "SP", "TN", 3),
+      row("M-here", "AR", "SP", 2, subject("AR")),
+      row("M-away", "AP", "SP", 1, subject("AP")),
+    ];
+    const asked: string[] = [];
+    const withMentions: ArtifactPorts = { ...ports, mentions: (_canvas, key) => Effect.sync(() => (asked.push(key), rows)) };
+    const shown = ok<ArtifactShowResult>(run(withMentions, "artifact.show", { artifact: NEW }));
+    expect(asked).toEqual([mentionKey({ kind: "artifact", nodeId: asNodeId("AR"), artifactId: ItemId.make(NEW) })]);
+    expect(shown.linkedFrom.mail.map((entry) => entry.messageId)).toEqual(["M-own", "M-sent", "M-here"]);
+    expect(shown.linkedFrom.more).toBe(false);
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).linkedFrom).toEqual({ mail: [], more: false });
   });
 
   it("links what a document's patches write, and a sheet's cells on replace", () => {

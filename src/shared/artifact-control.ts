@@ -19,6 +19,7 @@ import {
   type ArtifactActor,
 } from "./artifact";
 import { Anchor } from "./thread-subject";
+import type { MentionedIn } from "./mention-ipc";
 import type { PendingMark, PendingUnknown } from "./op-control";
 import { ItemId, OpId } from "./work-ids";
 
@@ -177,7 +178,21 @@ export type ArtifactShowResult = PendingUnknown & {
   readonly text: string;
   /** The body itself, for edits that address ids. */
   readonly body: unknown;
+  /** What links here that this seat may read, newest first (plan 0.11, 02). */
+  readonly linkedFrom: ArtifactLinkedFrom;
 };
+
+/**
+ * Where an artifact is linked from. `mail`: mail and comments that mention it,
+ * only the ones the seat may read (its own mail, mail it sent, threads on
+ * nodes in its reach). `more` when the newest ARTIFACT_LINKED_FROM_MAX cut it.
+ */
+export type ArtifactLinkedFrom = {
+  readonly mail: ReadonlyArray<MentionedIn>;
+  readonly more: boolean;
+};
+
+export const ARTIFACT_LINKED_FROM_MAX = 20;
 
 export type ArtifactHistoryEntry = {
   readonly version: ArtifactVersion;

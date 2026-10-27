@@ -96,7 +96,8 @@ const authorOf = (canvas: Canvas, row: MentionRow, metadata: Readonly<Record<str
   }
 };
 
-const entryOf = (canvas: Canvas, row: MentionRow): MentionedIn | undefined => {
+/** A row as a backlink, named against the canvas now; undefined for a malformed stamp. `junto artifact show` reads it too. */
+export const entryOf = (canvas: Canvas, row: MentionRow): MentionedIn | undefined => {
   const metadata = parsedMetadata(row.metadata_json);
   const author = authorOf(canvas, row, metadata);
   if (author === undefined) return undefined;
