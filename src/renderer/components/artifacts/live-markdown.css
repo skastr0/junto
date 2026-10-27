@@ -1,0 +1,275 @@
+/*
+ * The live markdown field: rendered markdown, with the caret's lines in
+ * source. Used by the document artifact and by any field that edits
+ * markdown live (a task body). Layout around it is its host's.
+ */
+
+.live-markdown {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.live-markdown:focus-visible,
+.live-markdown:has(.cm-content:focus-visible) {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+.live-markdown .cm-editor {
+  min-height: 0;
+  flex: 1;
+  background: transparent;
+  color: var(--color-ink-2);
+  font-size: var(--text-body-lg);
+}
+
+.live-markdown .cm-content {
+  caret-color: var(--color-amber);
+}
+
+.live-markdown .cm-md-embed {
+  padding: 4px 0;
+}
+
+.live-markdown .cm-editor.cm-focused {
+  outline: none;
+}
+
+.live-markdown .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: var(--leading-open);
+}
+
+.live-markdown .cm-line {
+  padding: 0;
+}
+
+.live-markdown .cm-cursor {
+  border-left-color: var(--color-amber);
+}
+
+.live-markdown .cm-selectionBackground,
+.live-markdown .cm-editor.cm-focused .cm-selectionBackground,
+.live-markdown .cm-content ::selection {
+  background: var(--color-overlay-4);
+}
+
+.live-markdown .cm-placeholder {
+  color: var(--color-faint);
+}
+
+.live-markdown .cm-md-syntax {
+  color: var(--color-faint);
+}
+
+.live-markdown :is(.cm-md-h1, .cm-md-h2, .cm-md-h3, .cm-md-h4, .cm-md-h5, .cm-md-h6) {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: var(--tracking-soft);
+  line-height: var(--leading-compact);
+}
+
+.live-markdown .cm-md-h1 {
+  padding: 0.6em 0 0.4em;
+  border-bottom: 1px solid var(--color-overlay-4);
+  font-size: var(--text-display);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.live-markdown .cm-md-h2 {
+  padding: 0.9em 0 0.2em;
+  font-size: var(--text-title);
+}
+
+.live-markdown :is(.cm-md-h3, .cm-md-h4, .cm-md-h5, .cm-md-h6) {
+  padding: 0.7em 0 0.1em;
+  color: var(--color-dim);
+  font-size: var(--text-body-lg);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.live-markdown .cm-md-em {
+  font-style: italic;
+}
+
+.live-markdown .cm-md-strong {
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.live-markdown .cm-md-strike {
+  text-decoration: line-through;
+}
+
+.live-markdown .cm-md-code {
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-well);
+  color: var(--color-amber-fg);
+  padding: 0.08em 0.32em;
+  font-size: 0.9em;
+}
+
+.live-markdown .cm-md-link {
+  border-bottom: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent);
+  color: var(--color-amber-fg);
+  cursor: text;
+}
+
+.live-markdown[data-readonly] .cm-md-link {
+  cursor: pointer;
+}
+
+.live-markdown .cm-md-bullet {
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin: 0 0.45em 0 0.1em;
+  border-radius: var(--radius-pill);
+  background: var(--color-dim);
+  vertical-align: 0.15em;
+}
+
+.live-markdown .cm-md-ordinal {
+  color: var(--color-dim);
+}
+
+.live-markdown .cm-md-checkbox {
+  margin: 0 0.45em 0 0;
+  accent-color: var(--color-cyan);
+  vertical-align: -0.1em;
+}
+
+.live-markdown .cm-md-done {
+  color: var(--color-faint);
+  text-decoration: line-through;
+}
+
+.live-markdown .cm-md-quote {
+  border-left: 2px solid var(--color-amber);
+  padding-left: 1em;
+  color: var(--color-dim);
+}
+
+.live-markdown .cm-md-codeblock {
+  background: var(--color-well);
+  padding: 0 12px;
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+}
+
+.live-markdown .cm-md-codeblock-first {
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  padding-top: 6px;
+}
+
+.live-markdown .cm-md-codeblock-last {
+  border-bottom-left-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
+  padding-bottom: 6px;
+}
+
+.live-markdown .cm-md-fence-label {
+  color: var(--color-faint);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* A line whose markup is folded away off the caret: a setext underline, a closing fence. */
+.live-markdown .cm-md-collapsed {
+  height: 4px;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+.live-markdown .cm-md-rule {
+  display: inline-block;
+  width: 100%;
+  border-top: 1px solid var(--color-overlay-4);
+  vertical-align: middle;
+}
+
+.live-markdown .cm-md-image {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+  object-fit: contain;
+}
+
+/* Padding, not margin: CodeMirror measures a block widget's box, and a margin
+   would put every click below it a line off. */
+.live-markdown .cm-md-table {
+  padding: 4px 0 8px;
+  overflow-x: auto;
+  cursor: text;
+}
+
+.live-markdown .cm-md-table table {
+  border-collapse: collapse;
+}
+
+.live-markdown .cm-md-table :is(th, td) {
+  border: 1px solid var(--color-stroke);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.live-markdown .cm-md-table th {
+  background: var(--color-well);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.live-markdown .cm-md-table code {
+  color: var(--color-amber-fg);
+  font-size: 0.9em;
+}
+
+.live-markdown .cm-md-table-source {
+  background: var(--color-well);
+  white-space: pre;
+}
+
+.live-markdown .artifact-document__anchor {
+  position: relative;
+  border-bottom: 1px dashed var(--color-cyan);
+  cursor: pointer;
+}
+
+.live-markdown .artifact-document__flash {
+  position: relative;
+}
+
+.live-markdown .artifact-document__flash::after {
+  position: absolute;
+  inset: -1px -2px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-cyan) 30%, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  animation: artifact-anchor-flash 1.2s ease-out;
+}
+
+@keyframes artifact-anchor-flash {
+  0%,
+  30% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}

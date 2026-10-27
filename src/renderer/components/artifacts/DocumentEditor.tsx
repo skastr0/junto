@@ -1,68 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
-import { EditorView, keymap, placeholder } from "@codemirror/view";
 import type { ArtifactVersion, DocumentBody, TextPatch } from "@shared/artifact";
-import { mentionRefOf, parseMentionHref } from "@shared/mention";
-import type { NodeKind } from "@shared/model/kinds";
-import type { NodeId } from "@shared/physics/schema";
 import type { TextAnchor } from "@shared/thread-subject";
-import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
-import type { MentionCandidate } from "../../lib/mention-draft";
-import { openMention } from "../../lib/mention-open";
-import { usePreviewFace } from "../../lib/use-preview-face";
-import { PreviewCard } from "../embeds/PreviewCard";
-import { DocumentMentionChip } from "./DocumentMentionChip";
-import { mentionPicker, mentionSourceChanged } from "./mention-picker";
 import { Button } from "../ui";
 import { textSplice } from "./artifacts-pane-model";
-import {
-  anchorsEffect,
-  type DocumentAnchor,
-  liveMarkdown,
-  type LiveMarkdownHandlers,
-  type MentionMount,
-  redrawEffect,
-  revealAnchorEffects,
-} from "./live-markdown";
+import { anchorsEffect, type DocumentAnchor, revealAnchorEffects } from "./live-markdown";
+import { type DocumentMentions, type FieldSelection, LiveMarkdownField, type LiveMarkdownFieldHandle } from "./LiveMarkdownField";
 
-/** What the document may mention, and how it reads the canvas its links name. */
-export type DocumentMentions = {
-  readonly canvasName: string;
-  readonly candidates: ReadonlyArray<MentionCandidate>;
-  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
-};
-
-/** An embed line: the preview card of what the link names, greyed when it is gone. */
-function DocumentEmbed({ href, label, mentions }: { readonly href: string; readonly label: string; readonly mentions: DocumentMentions }) {
-  const target = parseMentionHref(href);
-  const ref = target === undefined ? undefined : mentionRefOf(target, mentions.nodeKindOf);
-  const face = usePreviewFace(ref, mentions.canvasName, label);
-  return <PreviewCard {...face} size="block" {...(ref === undefined ? {} : { onOpen: () => openMention(ref) })} />;
-}
+export type { DocumentMentions };
 
 /** How long typing rests before it is sent as one version. */
 const SAVE_REST_MS = 800;
-
-const keys = new WeakMap<HTMLElement, string>();
-let nextKey = 0;
-/** A portal's key: one per widget host, for as long as it lives. */
-const keyOf = (element: HTMLElement): string => {
-  let key = keys.get(element);
-  if (key === undefined) {
-    nextKey += 1;
-    key = `mention-${nextKey}`;
-    keys.set(element, key);
-  }
-  return key;
-};
-
-/** Marks a change that came from a head, not from the operator's typing. */
-const fromHead = Annotation.define<boolean>();
-
-const editable = (readOnly: boolean) => [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
 
 /**
  * A document artifact: one surface, always rendered, where the lines under
@@ -106,56 +54,19 @@ export function DocumentEditor({
   readonly title?: string;
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [selection, setSelection] = useState<{ readonly quote: string; readonly offset: number } | null>(null);
+  const [selection, setSelection] = useState<FieldSelection | null>(null);
   /** The head the draft was last in step with: what a splice is computed from. */
   const synced = useRef({ markdown: body.markdown, version });
   /** The newest head seen, which may be ahead of `synced` while the draft holds unsent text. */
   const head = useRef({ markdown: body.markdown, version });
   head.current = { markdown: body.markdown, version };
   const draftRef = useRef(body.markdown);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Sends run one after another, each reading the base when it starts. */
   const chain = useRef<Promise<void>>(Promise.resolve());
-  const host = useRef<HTMLDivElement>(null);
-  const view = useRef<EditorView | null>(null);
-  const access = useRef(new Compartment());
-  /** The hosts the editor's mention widgets made, each drawn into by a portal. */
-  const [mounts, setMounts] = useState<ReadonlyMap<HTMLElement, MentionMount>>(new Map());
-  const mentionsRef = useRef(mentions);
-  mentionsRef.current = mentions;
-  const handlers = useRef<LiveMarkdownHandlers["current"]>({});
-  handlers.current = {
-    onAnchor,
-    ...(mentions === undefined
-      ? {}
-      : {
-          openMention: (href) => {
-            const target = parseMentionHref(href);
-            const ref = target === undefined ? undefined : mentionRefOf(target, mentions.nodeKindOf);
-            if (ref !== undefined) openMention(ref);
-          },
-          mount: (host, mention) => setMounts((prior) => new Map(prior).set(host, mention)),
-          unmount: (host) =>
-            setMounts((prior) => {
-              if (!prior.has(host)) return prior;
-              const next = new Map(prior);
-              next.delete(host);
-              return next;
-            }),
-        }),
-  };
+  const field = useRef<LiveMarkdownFieldHandle>(null);
 
   /** Put text in the editor as a head, not as typing: it is not sent, and undo does not reach it. */
-  const setDoc = (text: string): void => {
-    const editor = view.current;
-    if (editor === null) return;
-    const patch = textSplice(editor.state.doc.toString(), text);
-    if (patch === null) return;
-    editor.dispatch({
-      changes: { from: patch.at, to: patch.at + patch.remove, insert: patch.insert },
-      annotations: [fromHead.of(true), Transaction.addToHistory.of(false)],
-    });
-  };
+  const setDoc = (text: string): void => field.current?.replace(text);
 
   // A head that is not our own write is taken only when nothing is unsent.
   // With unsent text, `synced` stays on the old base, so the next send is
@@ -170,10 +81,6 @@ export function DocumentEditor({
 
   /** Send what is unsent; resolves to the refusal line, or null when nothing is left unsent. */
   const send = (): Promise<string | null> => {
-    if (timer.current !== null) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
     const sent = chain.current.then(async (): Promise<string | null> => {
       const text = draftRef.current;
       const patch = textSplice(synced.current.markdown, text);
@@ -192,75 +99,6 @@ export function DocumentEditor({
     return sent;
   };
 
-  const type = (text: string): void => {
-    draftRef.current = text;
-    if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void send(), SAVE_REST_MS);
-  };
-  const latest = useRef({ type, send });
-  latest.current = { type, send };
-
-  useEffect(() => {
-    const editor = new EditorView({
-      parent: host.current!,
-      state: EditorState.create({
-        doc: draftRef.current,
-        extensions: [
-          history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
-          liveMarkdown(handlers),
-          mentionPicker(() => ({ canvasName: mentionsRef.current?.canvasName ?? "", candidates: mentionsRef.current?.candidates ?? [] })),
-          keymap.of([{ key: "Escape", run: stopWriting }]),
-          access.current.of(editable(readOnly)),
-          placeholder("Nothing written yet."),
-          EditorView.contentAttributes.of({ "aria-label": "Markdown", spellcheck: "true" }),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged && !update.transactions.every((tr) => tr.annotation(fromHead) === true)) {
-              latest.current.type(update.state.doc.toString());
-            }
-            if (update.docChanged || update.selectionSet) {
-              const { from, to } = update.state.selection.main;
-              const quote = update.state.sliceDoc(from, to);
-              setSelection((prior) =>
-                quote.trim().length === 0
-                  ? null
-                  : prior?.quote === quote && prior.offset === from
-                    ? prior
-                    : { quote, offset: from },
-              );
-            }
-            if (update.focusChanged && !update.view.hasFocus) void latest.current.send();
-          }),
-        ],
-      }),
-    });
-    view.current = editor;
-    return () => {
-      editor.destroy();
-      view.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    view.current?.dispatch({ effects: access.current.reconfigure(editable(readOnly)) });
-  }, [readOnly]);
-
-  // Mentions that arrive after the editor drew its widgets: they are drawn again, as chips and cards.
-  const drawsMentions = mentions !== undefined;
-  useEffect(() => {
-    if (drawsMentions) view.current?.dispatch({ effects: redrawEffect.of(null) });
-  }, [drawsMentions]);
-
-  // Candidates that arrive while the list is open draw at once.
-  useEffect(() => {
-    if (view.current !== null) mentionSourceChanged(view.current);
-  }, [mentions?.candidates]);
-
-  // A drawn chip or card has its size now: the editor measures again.
-  useLayoutEffect(() => {
-    view.current?.requestMeasure();
-  }, [mounts]);
-
   useEffect(() => {
     const marks: DocumentAnchor[] = (anchors ?? []).map(({ threadId, anchor, count }) => ({
       id: threadId,
@@ -268,11 +106,11 @@ export function DocumentEditor({
       offset: anchor.offset ?? 0,
       count,
     }));
-    view.current?.dispatch({ effects: anchorsEffect(marks) });
+    field.current?.view()?.dispatch({ effects: anchorsEffect(marks) });
   }, [anchors]);
 
   useEffect(() => {
-    const editor = view.current;
+    const editor = field.current?.view() ?? null;
     if (editor === null || revealAnchor === undefined) return;
     const { anchor, nonce } = revealAnchor;
     const effects = revealAnchorEffects(editor.state, { quote: anchor.quote, offset: anchor.offset ?? 0, nonce });
@@ -280,12 +118,10 @@ export function DocumentEditor({
   }, [revealAnchor?.nonce]);
 
   const mounted = useRef(true);
-  // Closing with typing still resting sends it rather than dropping it.
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      if (timer.current !== null) void send();
     };
   }, []);
 
@@ -300,19 +136,6 @@ export function DocumentEditor({
   const overwrite = (): void => {
     synced.current = head.current;
     void send();
-  };
-
-  /** Escape leaves writing: the surface keeps the keyboard, and every line renders. */
-  function stopWriting(editor: EditorView): boolean {
-    if (claimFocus(host.current, "gesture")) return true;
-    return releaseFocus(editor.contentDOM, "gesture");
-  }
-
-  /** Enter on the surface writes again, at the caret it left. */
-  const onSurfaceKey = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.target !== event.currentTarget || event.key !== "Enter" || readOnly) return;
-    event.preventDefault();
-    claimFocus(view.current?.contentDOM, "gesture", { event: event.nativeEvent });
   };
 
   const takeHead = (): void => {
@@ -336,28 +159,25 @@ export function DocumentEditor({
         </div>
       ) : null}
       <div className="artifact-document__surface">
-        <div
-          ref={host}
+        <LiveMarkdownField
+          handle={field}
           className="artifact-document__live"
-          tabIndex={0}
-          role="group"
-          aria-label={title ? `${title}, document` : "Document"}
-          aria-keyshortcuts="Enter"
-          onKeyDown={onSurfaceKey}
+          value={draftRef.current}
+          readOnly={readOnly}
+          mentions={mentions}
+          label="Markdown"
+          surfaceLabel={title ? `${title}, document` : "Document"}
+          restMs={SAVE_REST_MS}
+          onChange={(text) => {
+            draftRef.current = text;
+          }}
+          // Typing rested, the editor was left, or it closed with typing unsent: send it rather than drop it.
+          onRest={() => void send()}
+          onSelection={(next) =>
+            setSelection((prior) => (next === null ? null : prior?.quote === next.quote && prior.offset === next.offset ? prior : next))
+          }
+          onAnchor={onAnchor}
         />
-        {mentions
-          ? [...mounts].map(([element, mention]) =>
-              createPortal(
-                mention.kind === "embed" ? (
-                  <DocumentEmbed href={mention.href} label={mention.label} mentions={mentions} />
-                ) : (
-                  <DocumentMentionChip href={mention.href} label={mention.label} nodeKindOf={mentions.nodeKindOf} />
-                ),
-                element,
-                keyOf(element),
-              ),
-            )
-          : null}
         {selection && onCommentText ? (
           <div className="artifact-document__float">
             <Button
