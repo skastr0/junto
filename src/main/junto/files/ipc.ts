@@ -18,6 +18,8 @@ import { makeFilesService, type FilesNodeFacts, type FilesService } from "./serv
 
 const MAX_IMPORT_SOURCES = 1000;
 const MAX_SOURCE_LENGTH = 4096;
+/** Dropped paths held per window before the oldest is forgotten. */
+const MAX_DROPPED = 4096;
 
 const invalid = { ok: false, error: "invalid-path" } as const;
 const noNode = { ok: false, error: "no-node" } as const;
@@ -120,7 +122,27 @@ export const registerFilesIpc = (): FilesService => {
     return sender.id;
   };
 
+  // OS paths each window's preload saw on a real dropped File. `import`
+  // copies only these, each once, so a renderer call cannot name a source.
+  const dropped = new Map<number, Set<string>>();
+  const forget = (id: number): void => {
+    dropped.delete(id);
+  };
+
   const ipc = trustedRendererIpc(ipcMain);
+  ipc.on(IPC_CHANNELS.filesDropped, (event, path: unknown) => {
+    const decoded = decodeSources([path]);
+    if (decoded === undefined) return;
+    const id = event.sender.id;
+    let held = dropped.get(id);
+    if (held === undefined) {
+      held = new Set();
+      dropped.set(id, held);
+      event.sender.once("destroyed", () => forget(id));
+    }
+    if (held.size >= MAX_DROPPED) held.delete(held.values().next().value!);
+    held.add(decoded[0]!);
+  });
   ipc.handle(IPC_CHANNELS.filesOpen, (event, rawRef: unknown) => {
     const ref = decodeRef(rawRef);
     return ref === undefined ? noNode : service.open(subscriberOf(event), ref);
@@ -169,10 +191,14 @@ export const registerFilesIpc = (): FilesService => {
   ipc.handle(IPC_CHANNELS.filesTrash, (_event, ref: unknown, path: unknown) =>
     withRefPath(ref, path, (r, p) => service.trash(r, p)),
   );
-  ipc.handle(IPC_CHANNELS.filesImport, (_event, ref: unknown, intoDir: unknown, sources: unknown) =>
+  ipc.handle(IPC_CHANNELS.filesImport, (event, ref: unknown, intoDir: unknown, sources: unknown) =>
     withRefPath(ref, intoDir, async (r, p) => {
       const decoded = decodeSources(sources);
-      return decoded === undefined ? invalid : service.import(r, p, decoded);
+      if (decoded === undefined) return invalid;
+      const held = dropped.get(event.sender.id);
+      if (held === undefined || decoded.some((source) => !held.has(source))) return { ok: false, error: "denied" } as const;
+      for (const source of decoded) held.delete(source);
+      return service.import(r, p, decoded);
     }),
   );
   ipc.handle(IPC_CHANNELS.filesOpenInDefaultApp, (_event, ref: unknown, path: unknown) =>

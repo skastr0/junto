@@ -203,7 +203,9 @@ export interface JuntoFilesApi {
     /**
      * Copy dropped files and folders into `intoDir`, never moving or
      * overwriting: a taken name gets ` 2`, ` 3`. `sources` are what
-     * `pathForDroppedFile` gave for each dropped `File`.
+     * `pathForDroppedFile` gave for each dropped `File`; any other path, or
+     * one already imported, is refused `denied`, as is a source inside
+     * Junto's home (a dropped folder holding it copies without it).
      */
     readonly import: (
       ref: FilesNodeRef,
@@ -291,7 +293,8 @@ export const scoreFilePath = (
     // at a word start, a run wherever the span allows one, the name's bonuses
     // only for characters the backward pass found in the name.
     const length = query.length;
-    const runs = Math.max(0, length - 1 - (end - start + 1 > length ? 1 : 0));
+    // A wide span can still hold a run the forward pass finds: no point off for it.
+    const runs = length - 1;
     const best = length * 4 + inName * 2 + (inName > 0 ? 2 : 0) + runs * 4;
     if (best * 1024 - penalty <= floor) return Number.NEGATIVE_INFINITY;
   }

@@ -29,8 +29,15 @@ import {
   type GitSummary,
   type GitSummaryResult,
 } from "@shared/git";
-import { runCli } from "./exec";
-import { filterDriverNames, filterGuardArgs, GIT_FILTER_CONFIG_ARGS, GIT_GUARD_ARGS } from "./git-guard";
+import { runCli, type CliResult } from "./exec";
+import {
+  filterDriverNames,
+  filterGuardArgs,
+  GIT_FILTER_CONFIG_ARGS,
+  GIT_GUARD_ARGS,
+  UNGUARDABLE_GIT_ERROR,
+  unguardableDrivers,
+} from "./git-guard";
 
 const expandHome = (input: string): string => {
   const requested = input.trim();
@@ -64,19 +71,25 @@ const resolveRepoCwd = async (input: string): Promise<string> => {
  * every filter driver its config names (`git-guard.ts`). Reads that start
  * together share one config read.
  */
-const guarding = new Map<string, Promise<ReadonlyArray<string>>>();
-const guardFor = (cwd: string, timeoutMs?: number): Promise<ReadonlyArray<string>> => {
+const guarding = new Map<string, Promise<ReadonlyArray<string> | undefined>>();
+const guardFor = (cwd: string, timeoutMs?: number): Promise<ReadonlyArray<string> | undefined> => {
   const held = guarding.get(cwd);
   if (held !== undefined) return held;
   const read = runCli("git", ["-C", cwd, ...GIT_FILTER_CONFIG_ARGS], timeoutMs)
-    .then((config) => [...GIT_GUARD_ARGS, ...filterGuardArgs(filterDriverNames(config.stdout))])
+    .then((config) => {
+      const names = filterDriverNames(config.stdout);
+      return unguardableDrivers(names) ? undefined : [...GIT_GUARD_ARGS, ...filterGuardArgs(names)];
+    })
     .finally(() => guarding.delete(cwd));
   guarding.set(cwd, read);
   return read;
 };
 
-const git = async (cwd: string, args: ReadonlyArray<string>, timeoutMs?: number) =>
-  runCli("git", ["-C", cwd, ...(await guardFor(cwd, timeoutMs)), ...args], timeoutMs);
+const git = async (cwd: string, args: ReadonlyArray<string>, timeoutMs?: number): Promise<CliResult> => {
+  const guard = await guardFor(cwd, timeoutMs);
+  if (guard === undefined) return { ok: false, stdout: "", error: UNGUARDABLE_GIT_ERROR };
+  return runCli("git", ["-C", cwd, ...guard, ...args], timeoutMs);
+};
 
 const fail = (error: string): { readonly ok: false; readonly error: string } => ({
   ok: false,

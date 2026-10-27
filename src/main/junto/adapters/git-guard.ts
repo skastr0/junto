@@ -42,6 +42,17 @@ export const filterDriverNames = (output: string): ReadonlyArray<string> => {
   return [...names];
 };
 
+/**
+ * A driver `-c` cannot reach: `-c` splits at the first `=`, so
+ * `filter.x=y.clean=` sets nothing on driver `x=y`. Git is not run at all
+ * in a repository that names one.
+ */
+export const unguardableDrivers = (names: ReadonlyArray<string>): boolean =>
+  names.some((name) => name.includes("="));
+
+export const UNGUARDABLE_GIT_ERROR =
+  "this repository's config names a filter driver Junto cannot switch off, so Junto does not run git in it";
+
 /** Empty every command a driver names; git skips a filter whose command is empty. */
 export const filterGuardArgs = (names: ReadonlyArray<string>): ReadonlyArray<string> =>
   names.flatMap((name) => [

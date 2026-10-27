@@ -286,6 +286,8 @@ export const IPC_CHANNELS = {
   filesMove: "junto:files-move",
   filesTrash: "junto:files-trash",
   filesImport: "junto:files-import",
+  /** Preload -> main: an OS path a real dropped File carried; import copies only these. */
+  filesDropped: "junto:files-dropped",
   filesOpenInDefaultApp: "junto:files-open-in-default-app",
   filesReveal: "junto:files-reveal",
   filesChanged: "junto:files-changed",

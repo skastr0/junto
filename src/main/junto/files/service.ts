@@ -1,4 +1,4 @@
-import { lstat } from "node:fs/promises";
+import { lstat, type FileHandle } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   FILES_COUNT_CAP,
@@ -396,7 +396,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     bytes: async (
       node: string,
       path: FilePath,
-    ): Promise<FilesResult<{ readonly real: string; readonly size: number }>> => {
+    ): Promise<FilesResult<{ readonly handle: FileHandle; readonly size: number }>> => {
       const session = [...sessions.values()].find((held) => held.ref.node.toLowerCase() === node);
       if (session === undefined) return refused("no-node");
       return withRoot(session.ref, (root) => fileForBytes(root, path));

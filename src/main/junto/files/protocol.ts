@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type { Protocol } from "electron";
 import type { FilePath, FilesError, FilesResult } from "@shared/files";
@@ -19,7 +19,7 @@ const STREAM_HIGH_WATER = 64 * 1024;
 export type FileBytesResolver = (
   node: string,
   path: FilePath,
-) => Promise<FilesResult<{ readonly real: string; readonly size: number }>>;
+) => Promise<FilesResult<{ readonly handle: FileHandle; readonly size: number }>>;
 
 /** Same privileges as the content scheme: fetch with Range from the app's own origin. */
 export const FILE_PROTOCOL_SCHEME_REGISTRATION = {
@@ -95,9 +95,10 @@ export const createFileProtocolHandler = (bytes: FileBytesResolver) =>
       return refusal(500, "failed", request.method);
     }
     if (!found.ok) return refusal(STATUS_OF[found.error], found.error, request.method);
-    const { real, size } = found.value;
+    const { handle, size } = found.value;
     const range = parseByteRangeHeader(request.headers.get("range"), size);
     if (range.kind === "unsatisfiable") {
+      await handle.close();
       return new Response(null, { status: 416, headers: headers({ "Content-Range": `bytes */${String(size)}` }) });
     }
     const start = range.kind === "full" ? 0 : range.start;
@@ -110,8 +111,12 @@ export const createFileProtocolHandler = (bytes: FileBytesResolver) =>
     });
     if (range.kind === "partial") response.set("Content-Range", `bytes ${String(start)}-${String(end)}/${String(size)}`);
     const status = range.kind === "partial" ? 206 : 200;
-    if (request.method === "HEAD" || size === 0) return new Response(null, { status, headers: response });
-    const stream = createReadStream(real, { start, end, highWaterMark: STREAM_HIGH_WATER });
+    if (request.method === "HEAD" || size === 0) {
+      await handle.close();
+      return new Response(null, { status, headers: response });
+    }
+    // From the handle the check opened; it closes when the stream ends.
+    const stream = handle.createReadStream({ start, end, highWaterMark: STREAM_HIGH_WATER, autoClose: true });
     return new Response(Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>, { status, headers: response });
   };
 

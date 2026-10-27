@@ -66,6 +66,16 @@ describe("git guard", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it("runs no git at all in a repository whose driver name holds =", async () => {
+    const repo = join(dir, "repo");
+    writeFileSync(join(repo, ".gitattributes"), "* filter=x=y\n");
+    execFileSync("git", ["-C", repo, "config", "filter.x=y.clean", `touch ${marker}; cat`]);
+    const status = await readGitStatus(repo);
+    expect(status.ok).toBe(false);
+    expect((await readGitReview(repo, "working")).ok).toBe(false);
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it("reads driver names with dots and empties each command", () => {
     const output = "filter.lfs.clean\ngit-lfs clean\0filter.evil.one.process\nx\0core.bare\nfalse\0";
     expect(filterDriverNames(output)).toEqual(["lfs", "evil.one"]);

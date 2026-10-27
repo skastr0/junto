@@ -1,4 +1,5 @@
 import { constants, type Stats } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { chmod, cp, lstat, mkdir, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -162,7 +163,7 @@ export const readFileAt = (scope: Scope, path: FilePath): Promise<FilesResult<Fi
   attempt(async () => {
     const real = await resolveContent(scope, path);
     if (!real.ok) return real;
-    const handle = await open(real.value, constants.O_RDONLY | constants.O_NONBLOCK);
+    const handle = await open(real.value, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const info = await handle.stat();
       if (info.isDirectory()) return refused("is-dir");
@@ -206,9 +207,13 @@ export const writeFileAt = (
     if (!sameStamp(stampOf(before), base)) return refused("stale");
     const temp = join(real.value, "..", `.${basename(real.value)}.junto-${randomBytes(6).toString("hex")}`);
     const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, before.mode & 0o7777);
+    let written: FileStamp;
     try {
       await handle.writeFile(bytes);
       await handle.sync();
+      // The stamp answered is this file's, taken before the swap (rename keeps
+      // mtime): a writer landing right after cannot become this save's base.
+      written = stampOf(await handle.stat());
     } finally {
       await handle.close();
     }
@@ -224,7 +229,7 @@ export const writeFileAt = (
       await unlink(temp).catch(() => undefined);
       throw cause;
     }
-    return ok(stampOf(await stat(real.value)));
+    return ok(written);
   });
 
 export const createAt = (scope: Scope, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
@@ -311,11 +316,14 @@ export const importInto = (
     if (!into.ok) return into;
     if (!(await stat(into.value)).isDirectory()) return refused("not-dir");
     const imported: FileImported[] = [];
-    for (const source of sources) {
+    for (const dropped of sources) {
+      // Copy what the drop names, from where it really is; nothing from Junto's home.
+      const source = await realpath(dropped);
+      if (denied(scope, source)) return refused("denied");
       const info = await lstat(source);
       const dir = info.isDirectory();
       if (!dir && !info.isFile() && !info.isSymbolicLink()) return refused("denied");
-      const name = basename(source);
+      const name = basename(dropped);
       let chosen = name;
       for (let n = 2; await exists(join(into.value, chosen)); n += 1) {
         if (n > 10_000) return refused("exists");
@@ -331,6 +339,8 @@ export const importInto = (
         dereference: false,
         verbatimSymlinks: true,
         preserveTimestamps: true,
+        // A dropped folder that holds Junto's home (`~`) copies without it.
+        filter: (from) => !denied(scope, from),
       });
       imported.push({ path, dir });
     }
@@ -346,6 +356,8 @@ const LAUNCHABLE_EXTENSIONS: ReadonlySet<string> = new Set([
   ".app", ".command", ".tool", ".terminal", ".workflow", ".action", ".pkg", ".mpkg",
   ".scpt", ".scptd", ".applescript", ".jar", ".sh", ".zsh", ".bash", ".csh", ".fish",
   ".webloc", ".inetloc", ".fileloc", ".url", ".prefpane", ".saver", ".kext", ".dmg",
+  ".bundle", ".plugin", ".appex", ".xpc", ".mobileconfig", ".shortcut", ".service",
+  ".qlgenerator", ".mdimporter", ".component", ".osax", ".wdgt", ".definition",
 ]);
 
 /** The realpath of a file or folder (the root too) the default app may open, or why not. */
@@ -364,14 +376,26 @@ export const openableAt = (scope: Scope, path: FilePath): Promise<FilesResult<st
 export const revealableAt = (scope: Scope, path: FilePath): Promise<FilesResult<string>> =>
   resolveContent(scope, path);
 
-/** For the protocol: the realpath of a regular file under the root, and its size. */
-export const fileForBytes = (scope: Scope, path: FilePath): Promise<FilesResult<{ readonly real: string; readonly size: number }>> =>
+/**
+ * For the protocol: an open handle on a regular file under the root, and its
+ * size. Bytes stream from this handle, so a symlink swapped in after the
+ * check is never followed. The caller closes it.
+ */
+export const fileForBytes = (
+  scope: Scope,
+  path: FilePath,
+): Promise<FilesResult<{ readonly handle: FileHandle; readonly size: number }>> =>
   attempt(async () => {
     const real = await resolveContent(scope, path);
     if (!real.ok) return real;
-    const info = await stat(real.value);
-    if (info.isDirectory()) return refused("is-dir");
-    if (!info.isFile()) return refused("denied");
-    return ok({ real: real.value, size: info.size });
+    const handle = await open(real.value, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const info = await handle.stat();
+      if (info.isDirectory()) throw Object.assign(new Error("is a directory"), { code: "EISDIR" });
+      if (!info.isFile()) throw Object.assign(new Error("not a file"), { code: "EPERM" });
+      return ok({ handle, size: info.size });
+    } catch (cause) {
+      await handle.close();
+      throw cause;
+    }
   });
-

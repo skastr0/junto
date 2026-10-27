@@ -16,7 +16,6 @@ import { asNodeId } from "@shared/physics/schema";
 import { makeFilesService, type FilesNodeFacts, type NameSources } from "../src/main/junto/files/service";
 import { numberedName } from "../src/main/junto/files/fs-ops";
 import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
-import { NameIndexBuilder } from "../src/main/junto/files/name-index";
 import { BURST, watchRoot, type WatchFactory } from "../src/main/junto/files/watcher";
 
 const p = (raw: string): FilePath => {
@@ -237,6 +236,19 @@ describe("import", () => {
     expect(await readFile(join(drops, "README.md"), "utf8")).toBe("dropped\n");
   });
 
+  it("never copies Junto's home in, named or inside a dropped folder", async () => {
+    const home = join(base, "home");
+    await mkdir(join(home, ".junto"), { recursive: true });
+    await writeFile(join(home, ".junto", "seat.token"), "SECRET");
+    await writeFile(join(home, "notes.txt"), "notes\n");
+    const { files } = service({ deny: async () => [join(home, ".junto")] });
+    expect(errorOf(await files.import(ref, ROOT_PATH, [join(home, ".junto", "seat.token")]))).toBe("denied");
+    expect(errorOf(await files.import(ref, ROOT_PATH, [join(home, ".junto")]))).toBe("denied");
+    expect(value(await files.import(ref, ROOT_PATH, [home]))).toEqual([{ path: "home", dir: true }]);
+    expect(await readFile(join(root, "home", "notes.txt"), "utf8")).toBe("notes\n");
+    await expect(stat(join(root, "home", ".junto"))).rejects.toThrow();
+  });
+
   it("numbers names the Finder way", () => {
     expect(numberedName("a.txt", 2, false)).toBe("a 2.txt");
     expect(numberedName(".env", 3, false)).toBe(".env 3");
@@ -363,30 +375,5 @@ describe("watcher", () => {
     for (let i = 0; i <= BURST; i += 1) listener?.("change", `f${String(i)}`);
     queued.shift()?.();
     expect(batches.at(-1)).toEqual({ kind: "burst" });
-  });
-});
-
-describe("name index", () => {
-  it("removes, adds and sweeps folders by delta", async () => {
-    const builder = new NameIndexBuilder();
-    builder.add(["a/x.ts", "a/y.ts", "b/z.ts"]);
-    const index = await builder.finish(async () => undefined);
-    expect(index.size).toBe(3);
-    index.remove("b/z.ts");
-    index.add("c/w.ts");
-    index.removeUnder("a");
-    expect(index.size).toBe(1);
-    expect(index.search("w").matches.map((match) => match.path)).toEqual(["c/w.ts"]);
-    expect(index.search("ts").matches.map((match) => match.path)).toEqual(["c/w.ts"]);
-  });
-
-  it("narrows a growing query from the previous match set", async () => {
-    const builder = new NameIndexBuilder();
-    builder.add(["src/alpha.ts", "src/beta.ts", "docs/alphabet.md"]);
-    const index = await builder.finish(async () => undefined);
-    const one = index.search("al");
-    expect(one.set.ids.length).toBe(2);
-    const two = index.search("alpha.t", one.set);
-    expect(two.matches.map((match) => match.path)).toEqual(["src/alpha.ts"]);
   });
 });

@@ -802,12 +802,17 @@ const filesApi: JuntoFilesApi = {
     openInDefaultApp: (ref, path) => invoke(IPC_CHANNELS.filesOpenInDefaultApp, IPC_TIMEOUT_MS, ref, path),
     revealInFinder: (ref, path) => invoke(IPC_CHANNELS.filesReveal, IPC_TIMEOUT_MS, ref, path),
     onChange: (listener) => subscribe<FilesChanged>(IPC_CHANNELS.filesChanged, listener),
+    // Only a File the OS handed over (a drop, a picker) has a path; one the
+    // page builds has none. Main copies in only the paths reported here.
     pathForDroppedFile: (file) => {
+      let path = "";
       try {
-        return webUtils.getPathForFile(file);
+        path = webUtils.getPathForFile(file);
       } catch {
         return "";
       }
+      if (path !== "") ipcRenderer.send(IPC_CHANNELS.filesDropped, path);
+      return path;
     },
   },
 };
