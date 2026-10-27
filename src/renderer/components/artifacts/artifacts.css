@@ -397,6 +397,36 @@
   color: var(--color-dim);
 }
 
+/* An extracted file's source: a quiet line, a link back when the Files node is in reach. */
+.artifact-preview__source {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-dim);
+  font: inherit;
+  font-size: var(--text-body);
+  word-break: break-all;
+}
+
+button.artifact-preview__source {
+  color: var(--color-cyan-fg);
+  cursor: pointer;
+}
+
+button.artifact-preview__source:hover {
+  text-decoration: underline;
+}
+
+button.artifact-preview__source:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
 .artifact-preview__media {
   min-height: 0;
   flex: 1;

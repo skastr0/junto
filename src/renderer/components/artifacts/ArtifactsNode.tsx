@@ -9,6 +9,7 @@ import {
   type ArtifactOp,
   type ArtifactType,
   type ArtifactVersion,
+  type FileSource,
   padOf,
 } from "@shared/artifact";
 import type { ArtifactHead } from "@shared/resource-ipc";
@@ -501,7 +502,20 @@ function SelectedArtifact({
       case "link":
         return <LinkPreview body={body} />;
       case "file":
-        return <FilePreview body={body} />;
+        return (
+          <FilePreview
+            body={body}
+            // The Files node it came from opens on that file, while it is on the canvas.
+            {...(body.source !== undefined && nodeAt(canvasName, body.source.nodeId)?.kind === "files"
+              ? {
+                  onOpenSource: (source: FileSource) => {
+                    onClose();
+                    openWorkDetail(source.nodeId, { itemId: source.path });
+                  },
+                }
+              : {})}
+          />
+        );
     }
   })();
 

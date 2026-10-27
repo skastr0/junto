@@ -1,5 +1,5 @@
-import { ExternalLink, FileText } from "lucide-react";
-import type { FileBody, LinkBody } from "@shared/artifact";
+import { ExternalLink, FileText, FolderOpen } from "lucide-react";
+import type { FileBody, FileSource, LinkBody } from "@shared/artifact";
 import { ContentMedia } from "../work/ContentMedia";
 import { Eyebrow } from "../ui";
 
@@ -26,9 +26,23 @@ export function LinkPreview({ body }: { readonly body: LinkBody }) {
   );
 }
 
-/** A file artifact: images, video and text shown in place, anything else named with its size. */
-export function FilePreview({ body }: { readonly body: FileBody }) {
-  const { content } = body;
+/** Where an extracted file came from, in words: its path, and its page for a PDF. */
+export const fileSourceLine = (source: FileSource): string =>
+  source.page === undefined ? `From ${source.path}` : `From ${source.path}, page ${String(source.page)}`;
+
+/**
+ * A file artifact: images, video and text shown in place, anything else named
+ * with its size. One extracted from a Files node names its source, and a host
+ * that can reach that node opens it there.
+ */
+export function FilePreview({
+  body,
+  onOpenSource,
+}: {
+  readonly body: FileBody;
+  readonly onOpenSource?: ((source: FileSource) => void) | undefined;
+}) {
+  const { content, source } = body;
   return (
     <div className="artifact-preview artifact-preview--file">
       <div className="artifact-preview__meta">
@@ -38,6 +52,14 @@ export function FilePreview({ body }: { readonly body: FileBody }) {
           {content.mediaType}, {formatBytes(content.byteLength)}
         </span>
       </div>
+      {source === undefined ? null : onOpenSource === undefined ? (
+        <p className="artifact-preview__source">{fileSourceLine(source)}</p>
+      ) : (
+        <button type="button" className="artifact-preview__source" onClick={() => onOpenSource(source)}>
+          <FolderOpen size={13} aria-hidden />
+          <span>{fileSourceLine(source)}</span>
+        </button>
+      )}
       <div className="artifact-preview__media">
         <ContentMedia contentRef={content} alt={content.displayName ?? "File"} renderMarkdown={isMarkdownFile(content)} />
       </div>
