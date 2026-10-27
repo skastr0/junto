@@ -330,8 +330,8 @@ function SelectedFile({
   /** The stamp of the first read: the viewer remounts on a change on disk, and the named page is for the first one only. */
   const firstStamp = useRef<number | null>(null);
   if (firstStamp.current === null && read.state === "ready") firstStamp.current = read.value.stamp.mtimeMs;
-  /** The file changed on disk under an unsaved draft (reload or keep), or was deleted (write it back or discard). */
-  const [stale, setStale] = useState<false | "changed" | "deleted">(false);
+  /** The file moved on disk under an unsaved draft: reload or keep. */
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const railOpen = commentsRailOpen(use$(sidebarSections$.open));
@@ -357,11 +357,9 @@ function SelectedFile({
       if (!changeTouches(event, nodeId, path)) return;
       // A clean file follows the disk; a draft is the operator's until they choose.
       if (fileDraft(nodeId, path) === undefined) void load();
-      else void filesSource()
-        .read(filesRef, path)
-        .then((now) => setStale(!now.ok && now.error === "not-found" ? "deleted" : "changed"));
+      else setStale(true);
     });
-  }, [load, filesRef, nodeId, path]);
+  }, [load, nodeId, path]);
 
   /** The bar or the control pressed just went away: the keyboard goes back to the file. */
   const backToFile = (): void => {
@@ -380,7 +378,7 @@ function SelectedFile({
 
   /** A write in flight; a second Cmd+S waits for it rather than racing it. */
   const writing = useRef(false);
-  const write = async (body: string, base: FileStamp | null): Promise<boolean> => {
+  const write = async (body: string, base: FileStamp): Promise<boolean> => {
     writing.current = true;
     setSaving(true);
     const result = await filesSource().write(filesRef, path, body, base);
@@ -395,17 +393,14 @@ function SelectedFile({
       setError(null);
       return true;
     }
-    // Something is at the path again since it was deleted: that is a change on disk, reload or keep.
-    if (result.error === "stale" || (base === null && result.error === "exists")) setStale("changed");
-    else if (result.error === "not-found" && base !== null) setStale("deleted");
+    if (result.error === "stale") setStale(true);
     else setError(filesErrorLine(result.error));
     return false;
   };
   useEffect(() => {
     save.current = () => {
       const held = fileDraft(nodeId, path);
-      // A file deleted under its draft is written back at its path.
-      if (held !== undefined && !writing.current) void write(held.text, stale === "deleted" ? null : held.base);
+      if (held !== undefined && !writing.current) void write(held.text, held.base);
     };
     return () => {
       save.current = null;
@@ -418,13 +413,6 @@ function SelectedFile({
     if (fresh === null) return;
     setFileDraft(nodeId, path, undefined);
     setStale(false);
-    backToFile();
-  };
-  /** Drop the draft of a deleted file: the pane says the file is gone. */
-  const discard = async (): Promise<void> => {
-    setFileDraft(nodeId, path, undefined);
-    setStale(false);
-    await load();
     backToFile();
   };
   /** Keep the draft: write it over what is on disk now. */
@@ -650,7 +638,7 @@ function SelectedFile({
           <FolderSearch size={14} />
         </IconButton>
       </header>
-      {stale === "changed" ? (
+      {stale ? (
         <div className="files-stale" role="alert">
           <span>{filesErrorLine("stale")}</span>
           <Button size="xs" variant="chrome" onClick={() => void reload()}>
@@ -658,23 +646,6 @@ function SelectedFile({
           </Button>
           <Button size="xs" variant="primary" onClick={() => void keep()}>
             Keep mine
-          </Button>
-        </div>
-      ) : stale === "deleted" ? (
-        <div className="files-stale" role="alert">
-          <span>{DELETED_LINE}</span>
-          <Button size="xs" variant="chrome" onClick={() => void discard()}>
-            Discard
-          </Button>
-          <Button
-            size="xs"
-            variant="primary"
-            onClick={() => {
-              const held = fileDraft(nodeId, path);
-              if (held !== undefined && !writing.current) void write(held.text, null).then((saved) => saved && backToFile());
-            }}
-          >
-            Save it again
           </Button>
         </div>
       ) : null}
@@ -756,7 +727,6 @@ function FileRail({
 }
 
 const RUNS_LINE = "Junto does not open programs or scripts. Reveal it in Finder instead.";
-const DELETED_LINE = "This file was deleted on disk. Your changes are still here.";
 
 const formatSize = (bytes: number): string =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
