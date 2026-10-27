@@ -30,7 +30,12 @@ export class ModelRefused extends Schema.TaggedError<ModelRefused>()(
   {
     rule: Schema.String,
   },
-) {}
+) {
+  /** The rule is the message, so a window that is refused is told why, not the tag. */
+  override get message(): string {
+    return this.rule;
+  }
+}
 export class ModelStorageError extends Schema.TaggedError<ModelStorageError>()(
   "ModelStorageError",
   {
