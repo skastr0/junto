@@ -40,25 +40,27 @@ const SafeLink: NonNullable<Components["a"]> = ({ node: _node, href, children, .
   );
 };
 
+const SafeImage: NonNullable<Components["img"]> = ({ node: _node, src, alt, ...props }) => {
+  const safeSrc = safeArtifactMarkdownUrl(src);
+  if (!safeSrc) {
+    return (
+      <span className="artifact-markdown__blocked-image">[image blocked]</span>
+    );
+  }
+  return (
+    <img
+      {...props}
+      src={safeSrc}
+      alt={alt ?? ""}
+      loading="lazy"
+      decoding="async"
+    />
+  );
+};
+
 const components: Components = {
   a: SafeLink,
-  img: ({ node: _node, src, alt, ...props }) => {
-    const safeSrc = safeArtifactMarkdownUrl(src);
-    if (!safeSrc) {
-      return (
-        <span className="artifact-markdown__blocked-image">[image blocked]</span>
-      );
-    }
-    return (
-      <img
-        {...props}
-        src={safeSrc}
-        alt={alt ?? ""}
-        loading="lazy"
-        decoding="async"
-      />
-    );
-  },
+  img: SafeImage,
   input: ({ node: _node, ...props }) => (
     <input {...props} disabled tabIndex={-1} />
   ),
@@ -85,6 +87,11 @@ const withLinks = (renderLink: MarkdownLinkRenderer): { components: Components; 
     a: (props) => {
       if (!props.href?.startsWith("junto://")) return <SafeLink {...props} />;
       return renderLink(props.href, textOf(props.node)) ?? <span className="artifact-markdown__blocked-link">{props.children}</span>;
+    },
+    // A bang mention, ![label](junto://...), is an embed in a document; here it reads as its chip.
+    img: (props) => {
+      if (!props.src?.startsWith("junto://")) return <SafeImage {...props} />;
+      return renderLink(props.src, props.alt ?? "") ?? <span className="artifact-markdown__blocked-link">{props.alt}</span>;
     },
   },
 });
