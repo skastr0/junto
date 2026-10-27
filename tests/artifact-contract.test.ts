@@ -274,6 +274,19 @@ describe("decoding at the boundary", () => {
     );
   });
 
+  it("reads a file's source as a node and a relative path, never an absolute one", () => {
+    const source = { nodeId: "files-1", path: "docs/spec.pdf", page: 2, box: { x: 0.1, y: 0.2, w: 0.5, h: 0.25 } };
+    const body = (over: object) => decodeArtifactBody({ ...file("image/png"), source: { ...source, ...over } });
+    expect(Result.isSuccess(decodeArtifactBody(file("image/png")))).toBe(true);
+    expect(Result.isSuccess(body({}))).toBe(true);
+    for (const path of ["/Users/me/spec.pdf", "../spec.pdf", "docs//spec.pdf", "./spec.pdf", ""]) {
+      expect(Result.isFailure(body({ path })), path).toBe(true);
+    }
+    expect(Result.isFailure(body({ page: 0 }))).toBe(true);
+    expect(Result.isFailure(body({ box: { x: 0, y: 0, w: 0, h: 1 } }))).toBe(true);
+    expect(Result.isFailure(body({ box: { x: 1.2, y: 0, w: 0.5, h: 1 } }))).toBe(true);
+  });
+
   it("refuses an empty patch list, a patch on a link and a version below 1", () => {
     expect(Result.isFailure(decodeArtifactEdit({ kind: "patch", type: "sheet", baseVersion: 1, patches: [] }))).toBe(true);
     expect(
