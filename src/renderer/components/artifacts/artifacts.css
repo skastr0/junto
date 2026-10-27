@@ -39,7 +39,7 @@
 
 .artifacts-filter__type {
   min-height: 24px;
-  padding: 0 8px;
+  padding: 0 6px;
   border: 1px solid var(--color-stroke);
   border-radius: var(--radius-pill);
   background: transparent;

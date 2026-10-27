@@ -212,7 +212,7 @@ export function ArtifactsNode({
   return (
     <FocusSurface measure="workspace" height="immersive" label="Artifacts" onClose={onClose}>
       {selected === null ? (
-        <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" mainLabel="Artifact">
+        <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel="Artifact">
           <PaneEmpty
             glyph={<ResourceGlyphMark kind="artifact" artifactType="document" size={20} />}
             title={entries.length === 0 ? "No artifacts yet" : "Pick an artifact"}
@@ -400,7 +400,7 @@ function SelectedArtifact({
   );
 
   return (
-    <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" mainLabel={artifact.title} rail={rail} railLabel="Comments">
+    <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel={artifact.title} rail={rail} railLabel="Comments">
       <header className="artifact-head">
         <ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={14} />
         <input

@@ -52,6 +52,22 @@
   }
 }
 
+/* Narrow sidebar: a list of titles, the main pane takes the room. Before the
+   collapsed rules so the strip still wins. */
+.two-pane[data-sidebar-width="narrow"] {
+  grid-template-columns: clamp(176px, 15cqw, 208px) minmax(0, 1fr);
+}
+
+.two-pane[data-sidebar-width="narrow"][data-rail="true"] {
+  grid-template-columns: clamp(176px, 14cqw, 208px) minmax(0, 1fr) clamp(260px, 26cqw, 320px);
+}
+
+@container (max-width: 56rem) {
+  .two-pane[data-sidebar-width="narrow"][data-rail="true"] {
+    grid-template-columns: clamp(160px, 22cqw, 192px) minmax(0, 1fr);
+  }
+}
+
 .two-pane__sidebar-body {
   display: flex;
   min-width: 0;

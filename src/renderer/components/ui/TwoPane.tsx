@@ -62,10 +62,12 @@ function SidebarToggle({ label, collapsed }: { readonly label: string; readonly 
  * optionally a rail on the right (the comments rail of an artifact). One
  * layout so the two nodes read as one family.
  *
- * Widths: sidebar 220 to 280px, rail 260 to 320px, main takes the rest. In a
- * narrow container (under 56rem) the rail drops below the main pane instead
- * of squeezing it. Each pane scrolls on its own; the layout itself never
- * does. It fills its parent, so the parent gives it a height.
+ * Widths: sidebar 220 to 280px, rail 260 to 320px, main takes the rest. A
+ * `narrow` sidebar (176 to 208px) is for a list of titles beside a main pane
+ * that wants the room, like an open artifact. In a narrow container (under
+ * 56rem) the rail drops below the main pane instead of squeezing it. Each
+ * pane scrolls on its own; the layout itself never does. It fills its
+ * parent, so the parent gives it a height.
  *
  * The sidebar collapses to a thin strip. The `PaneHeader` inside it carries
  * the toggle (and the modal's maximize), and the strip carries them while it
@@ -80,6 +82,7 @@ function SidebarToggle({ label, collapsed }: { readonly label: string; readonly 
 export function TwoPane({
   sidebar,
   sidebarLabel,
+  sidebarWidth,
   rail,
   railLabel,
   mainLabel,
@@ -87,6 +90,8 @@ export function TwoPane({
 }: {
   readonly sidebar: ReactNode;
   readonly sidebarLabel: string;
+  /** `narrow` gives the main pane the room; titles in the list ellipsize. */
+  readonly sidebarWidth?: "narrow";
   readonly rail?: ReactNode;
   /** Required with `rail`. */
   readonly railLabel?: string;
@@ -109,6 +114,7 @@ export function TwoPane({
       className="two-pane"
       data-rail={rail ? "true" : undefined}
       data-sidebar={collapsed ? "collapsed" : undefined}
+      data-sidebar-width={sidebarWidth}
     >
       <aside className="two-pane__sidebar" aria-label={sidebarLabel}>
         <SidebarContext.Provider value={{ label: sidebarLabel }}>
