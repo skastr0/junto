@@ -5,9 +5,12 @@
  * Line comments anchor to lines of code with their quote, and find the quote
  * again after the file is edited above them. Real app, fixture folder.
  *   bun run test:e2e:fast e2e/scenarios/files-comments.spec.ts
- * Fixme until F7 is on main. The box half reads the BoxLayer test ids in the
- * working tree; the line half waits on the F3 editor's gutter, whose control
- * names are not decided yet (product-documents and product-feed to agree).
+ * Fixme until F7 and F3 are on main. The box half reads the BoxLayer test ids
+ * in the working tree. The line half uses the F3 gutter names product-documents
+ * set: "Comment on line N", and "Comment on lines N to M" for a dragged range,
+ * shown beside the line under the pointer and on the caret line, in the textbox
+ * named by the path. The rail's anchor wording ("Line 10") is product-feed's to
+ * confirm.
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -54,6 +57,13 @@ const expectBoxAt = async (thread: Locator, target: Locator, [x0, y0, x1, y1]: F
 };
 
 const threads = (modal: Locator): Locator => modal.getByRole("list", { name: "Threads" }).getByRole("listitem");
+
+/** Puts the caret on line `line` of the open file: a gutter control shows on the caret line. */
+const caretOnLine = async (page: Page, editor: Locator, line: number): Promise<void> => {
+  await editor.click();
+  await page.keyboard.press("Meta+ArrowUp");
+  for (let step = 1; step < line; step += 1) await page.keyboard.press("ArrowDown");
+};
 
 test.describe.fixme("comments anywhere in a file (F7)", () => {
   test("a box drawn on an image is a thread at its fractions, and the rail lists it", async () => {
@@ -141,7 +151,8 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       const modal = await openFilesModal(page);
       await openInTree(modal, "src/big.ts");
 
-      // Line 10 of the generated file is the row1 declaration.
+      // Line 10 of the generated file is the row1 declaration; its gutter control shows on the caret line.
+      await caretOnLine(page, modal.getByRole("textbox", { name: "src/big.ts", exact: true }), 10);
       await modal.getByRole("button", { name: "Comment on line 10", exact: true }).click();
       const composer = await openRail(modal);
       await composer.fill("check the row id");
@@ -163,6 +174,7 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
       const { page } = junto;
       const modal = await openFilesModal(page);
       await openInTree(modal, "src/big.ts");
+      await caretOnLine(page, modal.getByRole("textbox", { name: "src/big.ts", exact: true }), 10);
       await modal.getByRole("button", { name: "Comment on line 10", exact: true }).click();
       const composer = await openRail(modal);
       await composer.fill("follow the row");
@@ -177,6 +189,41 @@ test.describe.fixme("comments anywhere in a file (F7)", () => {
 
       // The quoted line moved down by two, and the thread follows it.
       await expect(threads(modal).first()).toContainText("Line 12");
+      await expect(threads(modal).first()).toContainText("export const row1");
+    } finally {
+      await junto.close();
+      await stage.cleanup();
+    }
+  });
+
+  test("a range dragged in the gutter anchors to its lines", async () => {
+    test.setTimeout(120_000);
+    const stage = await stageFiles();
+    const junto = await launch(stage);
+    try {
+      const { page } = junto;
+      const modal = await openFilesModal(page);
+      await openInTree(modal, "src/big.ts");
+      const editor = modal.getByRole("textbox", { name: "src/big.ts", exact: true });
+
+      // Each gutter control shows on the caret line, so measure line 10, then line 12.
+      await caretOnLine(page, editor, 10);
+      const from = await modal.getByRole("button", { name: "Comment on line 10", exact: true }).boundingBox();
+      await caretOnLine(page, editor, 12);
+      const to = await modal.getByRole("button", { name: "Comment on line 12", exact: true }).boundingBox();
+      if (from === null || to === null) throw new Error("the gutter controls have no size");
+
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+      await page.mouse.up();
+
+      await modal.getByRole("button", { name: "Comment on lines 10 to 12", exact: true }).click();
+      const composer = await openRail(modal);
+      await composer.fill("the three lines");
+      await composer.press("Meta+Enter");
+
+      await expect(threads(modal).first()).toContainText("the three lines");
       await expect(threads(modal).first()).toContainText("export const row1");
     } finally {
       await junto.close();
