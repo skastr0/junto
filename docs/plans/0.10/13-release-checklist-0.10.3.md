@@ -32,21 +32,31 @@ under `state/`.)
 - [x] Head is v50 (`CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`) and `bun run schema:identity`
       matches `STATE_SCHEMA_V50_IDENTITY` (47696d80...).
-      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): v50 identity 47696d80 clean.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): schema-identity prints clean (v50 = 47696d80...);
+      canvas-lead spot-checked migrations.ts:650 is 50 and :645 is the v50 identity.
 - [x] Open the copy with the cut build's engine; it migrates v49 to v50.
-      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): the live backup migrates.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): a readonly .backup of live (v49, identity
+      f3e72b3b, quick_check ok), opened with the b7f33e184 engine, migrates to v50, sha 47696d80.
 - [x] `PRAGMA quick_check` is `ok` and `PRAGMA foreign_key_check` is empty.
       Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): both clean.
 - [x] Counts unchanged against the live copy: wires, nodes, seats, regions and
       tasks, and every wire keeps its verb.
-      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): every table row count equal, all 651 wires kept.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): canvases 1, nodes 306, seats 180, regions 94,
+      wires 651, task_heads 451; all 101 tables equal in row count. Wires: 0 missing,
+      0 added, 0 different (649 messages, 2 flows). task_heads: v49 columns
+      unchanged, derived_from NULL on all 451, task_heads_by_origin exists.
 - [x] A backup of the pre-upgrade file exists and opens on 0.10.2 at v49.
-      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): junto-backup-82f1d4e4 written before the stamp, opens on 0.10.2.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): junto-backup-82f1d4e4 written before the v50
+      stamp; v49, quick_check ok, opens on the 0.10.2 engine with 306 nodes and 651 wires.
 - [x] A second open runs no step and makes no backup.
-      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): second open idempotent.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): a second open stays at v50 with one backup; every
+      table row-identical except the re-stamped verified_at.
 - [ ] The migrated copy loads the canvas in the built app.
-      Partial: engine load of 306 nodes and 651 wires passes (canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead)).
-      App-level launch on a fresh v49 home is pending. Receipt:
+      Partial: engine load of the live copy passes on both opens, ModelService loads
+      canvas factory with 306 nodes and 651 wires (canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead)).
+      App-level launch is pending: a fresh v49 home with canvas "gate" (3 task
+      boards, 2 flows wires) waits for the packaged b7f33e184 app behind the
+      app-run lock; canvas-lead forwards the receipt when it lands. Receipt:
 
 These ran at b7f33e184, not the cut hash; the step's files
 (`migrate-derives-verb.ts`, `migrations.ts`) are the ones to diff at the cut.
