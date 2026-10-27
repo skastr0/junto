@@ -14,7 +14,7 @@ const FALLBACK_SIZE = { width: 300, height: 150 } as const;
  * area (F7) or an extract (F8).
  */
 export function ImageViewer({ canvasName, nodeId, path, url, boxes = [], onComment, onDraft }: FileViewProps) {
-  const [pane, paneWidth] = usePaneWidth();
+  const [pane, paneWidth, paneElement] = usePaneWidth();
   const [natural, setNatural] = useState<{ readonly width: number; readonly height: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const [mode, setMode] = useState<ZoomMode>({ kind: "fit" });
@@ -23,7 +23,15 @@ export function ImageViewer({ canvasName, nodeId, path, url, boxes = [], onComme
   const zoom = zoomOf(mode, size.width, paneWidth, 1);
   const width = Math.round(size.width * zoom);
   const height = Math.round(size.height * zoom);
-  const tools = useBoxTools({ canvasName, nodeId, path, onComment, onDraft, shoot: (draft) => imageBoxShot(url, draft.box) });
+  const tools = useBoxTools({
+    canvasName,
+    nodeId,
+    path,
+    onComment,
+    onDraft,
+    stage: paneElement,
+    shoot: (draft) => imageBoxShot(url, draft.box),
+  });
   const zoomTo = (next: number): void => setMode({ kind: "fixed", zoom: next });
   const onKeyDown = useViewerKeys({
     tools,

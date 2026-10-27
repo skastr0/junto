@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
 import { BoxLayer } from "./BoxLayer";
 import { BoxActions, useBoxTools, ViewerToolbar, type BoxTools, type FileThreadBox, type FileViewProps } from "./box-tools";
@@ -83,6 +83,20 @@ export function PdfViewer({
     setPage(target);
   };
 
+  // A zoom keeps the place: the same point of the same page stays at the top of the stage.
+  const lastTops = useRef(tops);
+  useLayoutEffect(() => {
+    const before = lastTops.current;
+    lastTops.current = tops;
+    if (paneElement === null || before === tops || before.length !== tops.length || before.length === 0) return;
+    const scroll = paneElement.scrollTop;
+    const index = Math.max(0, pageAtScroll(before, scroll, 0) - 1);
+    const was = before[index]!;
+    const now = tops[index]!;
+    paneElement.scrollTop = now.top + ((scroll - was.top) / Math.max(1, was.height)) * now.height;
+    setPage(pageAtScroll(tops, paneElement.scrollTop, paneElement.clientHeight));
+  }, [tops, paneElement]);
+
   // An extract's link back opens on its page, once, as soon as the pages are laid out.
   const opened = useRef(false);
   useEffect(() => {
@@ -99,6 +113,7 @@ export function PdfViewer({
     path,
     onComment,
     onDraft,
+    stage: paneElement,
     shoot: async (draft) => {
       if (loading.kind !== "ready" || draft.page === undefined) throw new Error("The PDF is not open.");
       const shot = await loading.engine.renderPageBox(await loading.pdf.doc.getPage(draft.page), draft.box);
@@ -278,7 +293,11 @@ function PdfPage({
       className="file-view__surface file-view__page"
       role="group"
       aria-label={`Page ${number} of ${count}`}
-      data-testid="pdf-page" data-page={number} style={{ width, height }}>
+      data-testid="pdf-page"
+      data-page={number}
+      // The page holding the drawn box sits above the next one, so the box's buttons in the gap stay pressable.
+      style={{ width, height, ...(draft === null ? {} : { zIndex: 1 }) }}
+    >
       <canvas ref={canvasRef} className="file-view__canvas" style={{ width, height }} aria-hidden />
       <div ref={textRef} className="textLayer" />
       <BoxLayer

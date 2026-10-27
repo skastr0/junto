@@ -89,6 +89,9 @@ export type ExtractOutcome =
   | { readonly kind: "queued"; readonly target: ExtractTarget }
   | { readonly kind: "failed"; readonly line: string };
 
+const TOO_LARGE_LINE = "This area is too large to keep as an image. Draw a smaller box.";
+const PUT_FAILED_LINE = "This area could not be kept as an image. Try again.";
+
 const base64Of = (png: Uint8Array): string => pngDataUrl(png).slice("data:image/png;base64,".length);
 
 /** Put the shot in the content store, then create the artifact on `target`. */
@@ -104,14 +107,17 @@ export const extractToArtifact = async ({
   readonly shot: BoxShot;
 }): Promise<ExtractOutcome> => {
   const put = window.junto?.contentPutImage;
-  if (put === undefined) return { kind: "failed", line: "The content store is not available in this window." };
+  if (put === undefined) return { kind: "failed", line: PUT_FAILED_LINE };
   const name = fileNameOf(source.path).replace(/\.[^.]*$/, "") || "extract";
   const stored = await put({
     bytesBase64: base64Of(shot.png),
     mediaType: "image/png",
     displayName: `${name}${source.page === undefined ? "" : `-p${source.page}`}.png`,
   }).catch((error: unknown) => ({ ok: false as const, error: error instanceof Error ? error.message : String(error) }));
-  if (!stored.ok) return { kind: "failed", line: stored.error };
+  if (!stored.ok) {
+    console.warn("[extract] content put refused:", stored.error);
+    return { kind: "failed", line: /too large/iu.test(stored.error) ? TOO_LARGE_LINE : PUT_FAILED_LINE };
+  }
   const artifactId = mintItemId();
   const ruling = await applyArtifactOp(canvasName, target.id, artifactId, {
     op: "create",

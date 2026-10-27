@@ -28,14 +28,19 @@ export type LoadedPdf = {
  */
 export const loadPdf = async (source: string | Uint8Array): Promise<LoadedPdf> => {
   const task = getDocument(typeof source === "string" ? { url: source, enableXfa: false } : { data: source, enableXfa: false });
-  const doc = await task.promise;
-  const sizes: PageSize[] = [];
-  for (let number = 1; number <= doc.numPages; number += 1) {
-    const page = await doc.getPage(number);
-    const viewport = page.getViewport({ scale: 1 });
-    sizes.push({ width: viewport.width, height: viewport.height });
+  try {
+    const doc = await task.promise;
+    const sizes: PageSize[] = [];
+    for (let number = 1; number <= doc.numPages; number += 1) {
+      const page = await doc.getPage(number);
+      const viewport = page.getViewport({ scale: 1 });
+      sizes.push({ width: viewport.width, height: viewport.height });
+    }
+    return { doc, sizes, close: () => void task.destroy() };
+  } catch (error) {
+    void task.destroy();
+    throw error;
   }
-  return { doc, sizes, close: () => void task.destroy() };
 };
 
 /** A drawn page: cancel stops a render or a text layer still in flight. */

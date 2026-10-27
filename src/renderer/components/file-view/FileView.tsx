@@ -31,7 +31,12 @@ export function FileView({
   if (kind === "other") return <OtherFile {...props} />;
   return (
     <Suspense fallback={<p className="file-view__empty">Opening {fileNameOf(props.path)}</p>}>
-      {kind === "pdf" ? <PdfViewer key={url} {...props} url={url} /> : <ImageViewer key={url} {...props} url={url} />}
+      {/* Keyed by the file, not its address: a change on disk reloads the bytes and keeps the zoom and the box. */}
+      {kind === "pdf" ? (
+        <PdfViewer key={`${props.nodeId}/${props.path}`} {...props} url={url} />
+      ) : (
+        <ImageViewer key={`${props.nodeId}/${props.path}`} {...props} url={url} />
+      )}
     </Suspense>
   );
 }

@@ -90,7 +90,12 @@ export function BoxLayer({
           aria-label={`The area you marked on ${label}`}
           style={boxPixels(shown, width, height)}
         >
-          {live === null && actions !== undefined ? <span className="file-box__actions">{actions}</span> : null}
+          {live === null && actions !== undefined ? (
+            // A box near the bottom carries its buttons above it, inside the surface.
+            <span className="file-box__actions" data-above={shown.y + shown.h > 0.85 ? "" : undefined}>
+              {actions}
+            </span>
+          ) : null}
         </span>
       )}
     </div>

@@ -255,6 +255,11 @@
   cursor: default;
 }
 
+.file-box__actions[data-above] {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .file-box__hint {
   padding: 0 4px;
   color: var(--color-dim);

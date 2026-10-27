@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Crop, MessageSquarePlus, Minus, Plus, SquareDashed, X } from "lucide-react";
 import type { FileSource } from "@shared/artifact";
 import type { FilePath } from "@shared/files";
 import type { NodeId } from "@shared/physics/schema";
+import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
 import { Button, Dropdown, IconButton, Kbd } from "../ui";
 import { extractTargets, extractToArtifact, type BoxShot, type ExtractTarget } from "./extract";
@@ -37,6 +38,9 @@ export type FileViewProps = {
   readonly initialPage?: number;
 };
 
+/** Said when the area could not be drawn as an image; the reason stays in the console. */
+const SHOT_FAILED = "This area could not be made into an image.";
+
 type ExtractState =
   | { readonly kind: "idle" }
   | { readonly kind: "pending" }
@@ -54,14 +58,31 @@ export const useBoxTools = ({
   onComment,
   onDraft,
   shoot,
+  stage,
 }: Pick<FileViewProps, "canvasName" | "nodeId" | "path" | "onComment" | "onDraft"> & {
   readonly shoot: (draft: BoxDraft) => Promise<BoxShot>;
+  /** The viewer's stage: the keyboard goes back to it when the box's buttons go away. */
+  readonly stage: HTMLElement | null;
 }) => {
   const [drawing, setDrawing] = useState(false);
   const [draft, setDraftState] = useState<BoxDraft | null>(null);
   const setDraft = (next: BoxDraft | null): void => {
     setDraftState(next);
     onDraft?.(next);
+  };
+  // A viewer that goes away with a box drawn takes the box with it: the composer is told.
+  const liveDraft = useRef<{ draft: BoxDraft | null; onDraft: typeof onDraft }>({ draft: null, onDraft });
+  liveDraft.current = { draft, onDraft };
+  useEffect(
+    () => () => {
+      const { draft: left, onDraft: tell } = liveDraft.current;
+      if (left !== null) tell?.(null);
+    },
+    [],
+  );
+  /** The box's buttons are gone with the box: the keyboard returns to the stage, so B, arrows and Escape still work. */
+  const backToStage = (cause: "gesture" | "async"): void => {
+    claimFocus(stage, cause, { preventScroll: true });
   };
   const [extract, setExtract] = useState<ExtractState>({ kind: "idle" });
   const canvas = useCanvas(canvasName);
@@ -73,7 +94,10 @@ export const useBoxTools = ({
     setDraft(next);
     setExtract({ kind: "idle" });
   };
-  const discard = (): void => setDraft(null);
+  const discard = (): void => {
+    setDraft(null);
+    backToStage("gesture");
+  };
 
   const comment = (): void => {
     if (draft === null || onComment === undefined) return;
@@ -81,9 +105,11 @@ export const useBoxTools = ({
     void shoot(taken).then(
       (shot) => {
         onComment({ ...taken, shot });
-        setDraft(null);
+        // The composer owns the box from here: it is not told the box went away.
+        setDraftState(null);
+        backToStage("async");
       },
-      (error: unknown) => setExtract({ kind: "failed", line: error instanceof Error ? error.message : String(error) }),
+      () => setExtract({ kind: "failed", line: SHOT_FAILED }),
     );
   };
 
@@ -106,12 +132,13 @@ export const useBoxTools = ({
             return;
           }
           setDraft(null);
+          backToStage("async");
           setExtract({
             kind: "done",
             line: outcome.kind === "created" ? `Extracted to ${outcome.target.title}.` : `Extract queued for ${outcome.target.title}.`,
           });
         },
-        (error: unknown) => setExtract({ kind: "failed", line: error instanceof Error ? error.message : String(error) }),
+        () => setExtract({ kind: "failed", line: SHOT_FAILED }),
       );
   };
 

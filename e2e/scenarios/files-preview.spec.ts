@@ -95,12 +95,23 @@ test("PDF and image preview and Extract as artifact, dark and bright", async () 
       await field.fill("2");
       await field.press("Enter");
       await expect(pages.nth(1).locator(".textLayer span", { hasText: stage.fixture.pdfPageText[1] })).toBeVisible({ timeout: 15_000 });
+      // A zoom keeps the place: still on page two after zooming in and back to fit.
+      await pdf.getByRole("button", { name: "Zoom in" }).click();
+      await expect(field).toHaveValue("2");
+      await pdf.getByTestId("file-view-fit").click();
+      await expect(field).toHaveValue("2");
       await field.click();
       await field.fill("1");
       await field.press("Enter");
 
       // (4) a box on page one, extracted to Shelf, the one Artifacts node in reach.
       await pdf.getByTestId("file-view-box-tool").click();
+      // Comment hands the box to the rail's composer, which keeps it.
+      await drag(page, first, [60, 200], [300, 300]);
+      await pdf.getByTestId("file-box-comment").click();
+      await expect(modal.getByText(/area on page 1/iu).first()).toBeVisible({ timeout: 10_000 });
+      await expect(pdf.locator(".file-view__stage")).toBeFocused();
+      facts.commentKeepsBox = true;
       await drag(page, first, [60, 40], [360, 160]);
       await expect(first.getByTestId("file-box-draft")).toBeVisible();
       const drawn = (await first.getByTestId("file-box-draft").boundingBox())!.width / (await first.boundingBox())!.width;
@@ -108,6 +119,10 @@ test("PDF and image preview and Extract as artifact, dark and bright", async () 
       await shot(theme, "3-pdf-box");
       await pdf.getByTestId("file-box-extract").click();
       await expect(pdf.getByTestId("file-view-said")).toHaveText("Extracted to Shelf.", { timeout: 15_000 });
+      // The keyboard is back on the stage: B still toggles the tool.
+      await expect(pdf.locator(".file-view__stage")).toBeFocused();
+      await page.keyboard.press("b");
+      await expect(pdf.getByTestId("file-view-box-tool")).toHaveAttribute("aria-pressed", "false");
       await shot(theme, "4-pdf-extracted");
 
       // (5) the image: fitted, never enlarged, and a box on it extracted too.
