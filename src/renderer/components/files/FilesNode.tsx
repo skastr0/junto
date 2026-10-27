@@ -519,7 +519,8 @@ function SelectedFile({
               else pickBox(drawn);
             }}
             {...(initialPage === undefined ? {} : { initialPage })}
-            {...(value.kind === "binary" ? { version: value.stamp.mtimeMs } : {})}
+            // Every read carries its stamp: a PDF read as text or too large reloads on a change too.
+            version={value.stamp.mtimeMs}
           />
         );
       case "too-large":
