@@ -10,6 +10,8 @@ import type { NodeKind } from "../src/shared/model/kinds";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
 import type { MentionCandidate } from "../src/renderer/lib/mention-draft";
+import { artifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import type { ArtifactHead } from "../src/shared/resource-ipc";
 import { mentionPicker, mentionSourceChanged, pickerQueryAt } from "../src/renderer/components/artifacts/mention-picker";
 
 const opened = vi.hoisted(() => [] as unknown[]);
@@ -279,6 +281,31 @@ describe("a mention link drawn in a document", () => {
     expect(goneTask?.tagName).toBe("SPAN");
     expect(goneSeat?.tagName).toBe("DEL");
     expect(goneSeat?.textContent).toBe("left");
+  });
+
+  it("an artifact wears its type's glyph, read from the canvas the link was written on", async () => {
+    const original = artifactsSource();
+    const asked: string[] = [];
+    setArtifactsSource({
+      ...original,
+      list: async (canvas: string, nodeId: string) => {
+        asked.push(`${canvas}/${nodeId}`);
+        return [{ artifact: { artifactId: ITEM, type: "sheet", archived: false } } as unknown as ArtifactHead];
+      },
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+    try {
+      const kinds: Record<string, NodeKind> = { a: "artifacts" };
+      await act(async () => root.render(<DocumentMentionChip href={href("a", ITEM)} label="#Budget" nodeKindOf={(id) => kinds[id]} />));
+      const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+      expect(asked).toEqual(["factory/a"]);
+      expect(chip.dataset.kind).toBe("artifact");
+      expect(chip.querySelector(".lucide-table, .lucide-sheet")).not.toBeNull();
+      expect(chip.textContent).toContain("Budget");
+      expect(chip.textContent).toContain(", Sheet");
+    } finally {
+      setArtifactsSource(original);
+    }
   });
 
   it("a link that is not a mention stays its words", () => {

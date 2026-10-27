@@ -1,12 +1,50 @@
 import type { MouseEvent } from "react";
-import { parseMentionHref } from "@shared/mention";
+import { matchMention, parseMentionHref, type MentionOf } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
+import { parseNodeRef } from "@shared/node-ref";
 import type { NodeId } from "@shared/physics/schema";
+import { useNodeArtifacts } from "../../lib/artifacts-source";
 import { mentionChipOf, openMention } from "../../lib/mention-open";
+import type { ArtifactType } from "../../lib/resource-visuals";
 import { ResourceChip, mentionMark } from "../ui/ResourceChip";
 
 /** A press on the chip must leave the caret, the selection and the keyboard where they are. */
 const keepEditorFocus = (event: MouseEvent): void => event.preventDefault();
+
+/** The canvas a link was written on: where to read an artifact's type when the host does not say. */
+const canvasOfHref = (href: string): string | undefined => {
+  const node = parseNodeRef(href.split("&item=")[0] ?? href);
+  return node.ok ? node.value.canvasName : undefined;
+};
+
+type ChipProps = {
+  readonly mark: ReturnType<typeof mentionMark> | { readonly kind: NonNullable<ReturnType<typeof mentionChipOf>["kind"]> };
+  readonly label: string;
+  readonly number: number | undefined;
+  readonly open: (() => void) | undefined;
+  readonly artifactType?: ArtifactType | undefined;
+};
+
+function Chip({ mark, label, number, open, artifactType }: ChipProps) {
+  return (
+    <ResourceChip
+      {...mark}
+      {...(artifactType === undefined ? {} : { artifactType })}
+      label={label}
+      number={number}
+      missing={open === undefined}
+      {...(open === undefined ? {} : { onOpen: open, tabIndex: -1, onMouseDown: keepEditorFocus })}
+      data-testid="document-mention-chip"
+    />
+  );
+}
+
+/** An artifact wears its type's glyph: a document its page, a sheet its grid. Until the node is read, the generic mark. */
+function ArtifactChip({ refOf, canvasName, ...chip }: ChipProps & { readonly refOf: MentionOf<"artifact">; readonly canvasName: string }) {
+  const heads = useNodeArtifacts(canvasName, refOf.nodeId);
+  const type = heads.find((head) => head.artifact.artifactId === refOf.artifactId)?.artifact.type;
+  return <Chip {...chip} artifactType={type} />;
+}
 
 /**
  * A mention link in a live document, drawn as the chip every other surface
@@ -23,11 +61,14 @@ export function DocumentMentionChip({
   href,
   label,
   nodeKindOf,
+  canvasName,
 }: {
   readonly href: string;
   /** The link's text as written, `@name` or `#42 title`. */
   readonly label: string;
   readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  /** Where the text lives, to read an artifact's type; without it, the canvas the link was written on. */
+  readonly canvasName?: string;
 }) {
   const target = parseMentionHref(href);
   if (target === undefined) return <span>{label}</span>;
@@ -40,15 +81,13 @@ export function DocumentMentionChip({
       </del>
     );
   }
-  const mark = ref === undefined ? { kind } : mentionMark(ref);
-  return (
-    <ResourceChip
-      {...mark}
-      label={shown}
-      number={number}
-      missing={ref === undefined}
-      {...(ref === undefined ? {} : { onOpen: () => openMention(ref), tabIndex: -1, onMouseDown: keepEditorFocus })}
-      data-testid="document-mention-chip"
-    />
-  );
+  const chip: ChipProps = { mark: ref === undefined ? { kind } : mentionMark(ref), label: shown, number, open: ref === undefined ? undefined : () => openMention(ref) };
+  const canvas = canvasName ?? canvasOfHref(href);
+  if (ref === undefined || canvas === undefined) return <Chip {...chip} />;
+  return matchMention(ref, {
+    seat: () => <Chip {...chip} />,
+    page: () => <Chip {...chip} />,
+    task: () => <Chip {...chip} />,
+    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} />,
+  });
 }
