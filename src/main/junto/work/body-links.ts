@@ -1,0 +1,77 @@
+/**
+ * What links an artifact, read from the bodies (plan 0.11, 02, L1).
+ *
+ * `work_artifact_links` is a projection of every artifact's head body,
+ * rewritten in the same transaction as the edit that made it
+ * (`artifact-repository.ts`). One row per (source artifact, target mention
+ * key): the key is a node and an item, never a title, so a rename changes no
+ * row. This read joins the heads for the title and the time, leaves an
+ * archived source out, and keeps only targets that are artifacts on the
+ * canvas — a document may hold a link to a task, and a task is no backlink.
+ *
+ * The mail side of "Linked from" is `readMentions` (work/mention-backlinks.ts),
+ * a projection of mail rows; the two are shown side by side, never merged here.
+ */
+import { Effect } from "effect";
+import type { SqlClient, SqlError } from "effect/unstable/sql";
+import type { ArtifactType } from "@shared/artifact";
+import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
+import { asNodeId } from "@shared/model";
+import type { Canvas } from "@shared/model";
+import type { ItemId } from "@shared/work-ids";
+
+/** A row as the table holds it, with the head's facts joined in. */
+type LinkedFromRow = {
+  readonly node_id: string;
+  readonly artifact_id: string;
+  readonly title: string;
+  readonly type: ArtifactType;
+  readonly line: string;
+  readonly updated_at: number;
+};
+
+const LINKED_FROM_SQL = `
+  SELECT heads.node_id AS node_id, heads.artifact_id AS artifact_id, heads.title AS title, heads.type AS type,
+         links.line AS line, heads.updated_at AS updated_at
+  FROM work_artifact_links links
+  JOIN artifact_heads heads
+    ON heads.canvas_name = links.canvas_name AND heads.artifact_id = links.source_artifact_id
+  WHERE links.canvas_name = ? AND links.target_node_id = ? AND links.target_artifact_id = ?
+    AND heads.archived = 0
+  ORDER BY heads.updated_at DESC, heads.artifact_id DESC
+`;
+
+/**
+ * The artifacts whose head body links `target`, newest change first: what
+ * "Linked from" lists beside mail. The target must be an artifact on this
+ * canvas (its node an Artifacts node holding it); anything else has no body
+ * backlinks, and a link that names a task is no backlink however it is typed.
+ */
+export const linkedFromBodies = (
+  sql: SqlClient.SqlClient,
+  canvas: Canvas,
+  canvasName: string,
+  target: ArtifactLinkRef,
+): Effect.Effect<ReadonlyArray<LinkedFromBody>, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const targetNode = canvas.nodes.get(target.nodeId);
+    // A link to a task board, a seat or a page is not a body backlink.
+    if (targetNode === undefined || targetNode.kind !== "artifacts") return [];
+    const rows = yield* sql.unsafe<LinkedFromRow>(LINKED_FROM_SQL, [canvasName, target.nodeId, target.artifactId]);
+    // A source is a body link only while its head still points at that line's
+    // artifact; a head that moved to another node is no source of this list.
+    return rows.flatMap((row): ReadonlyArray<LinkedFromBody> => {
+      const sourceNode = canvas.nodes.get(asNodeId(row.node_id));
+      return sourceNode === undefined || sourceNode.kind !== "artifacts"
+        ? []
+        : [
+            {
+              source: { nodeId: asNodeId(row.node_id), artifactId: row.artifact_id as ItemId },
+              title: row.title,
+              type: row.type,
+              line: row.line,
+              at: row.updated_at,
+            },
+          ];
+    });
+  });

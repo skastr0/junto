@@ -14,7 +14,7 @@ import { nodeFromRow, nodeToRow } from "../src/main/junto/model/rows";
 import { KIND_TABLES } from "../src/main/junto/model/state-schema";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
+  CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V50_IDENTITY,
@@ -22,7 +22,6 @@ import {
   migrateStateSchema,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { decodeNode } from "../src/shared/model/kinds";
 import { Effect } from "effect";
@@ -81,8 +80,8 @@ describe("state migration 50 -> 51 (the files node)", () => {
   it("starts from the version-50 witness and ends at the head, which a fresh database matches", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V50_SQL)).toEqual(STATE_SCHEMA_V50_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V51_SQL)).toEqual(STATE_SCHEMA_V51_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V51_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V51_IDENTITY);
+    // Its step is not the head any more; a later step's own test carries the head.
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBeGreaterThanOrEqual(51);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -95,7 +94,7 @@ describe("state migration 50 -> 51 (the files node)", () => {
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
         expect(Object.keys(before)).not.toContain("file_trees");
 
-        const result = migrateStateSchema(database, upTo(51, STATE_SCHEMA_SQL));
+        const result = migrateStateSchema(database, upTo(51, STATE_SCHEMA_V51_SQL));
         expect(result).toMatchObject({ previousVersion: 50, schemaVersion: 51, ...STATE_SCHEMA_V51_IDENTITY });
         expect(readRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V51_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -114,7 +113,7 @@ describe("state migration 50 -> 51 (the files node)", () => {
   it("holds a files node in its own table, and its row reads back as the same node", async () => {
     const database = await openCopy("command-center-v13.db");
     try {
-      migrateStateSchema(database, upTo(51, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(51, STATE_SCHEMA_V51_SQL));
       const canvas = canvasOf(database);
       const node = files("files-1", { label: "Junto", root: "/Users/me/Projects/junto" });
       const row = { ...(nodeToRow(canvas, node) as Record<string, unknown>), created_at: "t", updated_at: "t" };

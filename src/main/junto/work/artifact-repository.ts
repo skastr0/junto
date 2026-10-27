@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Context, Effect, Layer, Option, Result, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { bodyLinksOf } from "@shared/artifact-links";
 import {
   type Artifact,
   type ArtifactActor,
@@ -315,6 +316,23 @@ export const projectArtifactFacts = (
       const body = inline ?? bodyOf(ref);
       return body === undefined ? null : canonicalJson(body);
     };
+    /**
+     * The links a head body holds, rewritten in the ruling's own transaction
+     * (0.11, 02): a version's rows replace the artifact's, so a link taken out
+     * of a body leaves with it. A body this machine does not hold (a replica
+     * whose bytes are still on their way) leaves the rows as they are; the
+     * rebuild from bodies projects them once the bytes are here.
+     */
+    const projectLinks = (artifactId: string, version: number, body: ArtifactBody | undefined): Effect.Effect<void, SqlError.SqlError> =>
+      Effect.gen(function* () {
+        if (body === undefined) return;
+        yield* sql`DELETE FROM work_artifact_links WHERE canvas_name = ${canvas} AND source_artifact_id = ${artifactId}`;
+        for (const link of bodyLinksOf(body)) {
+          yield* sql`
+            INSERT INTO work_artifact_links (canvas_name, source_artifact_id, target_node_id, target_artifact_id, line, source_version)
+            VALUES (${canvas}, ${artifactId}, ${link.target.nodeId}, ${link.target.artifactId}, ${link.line}, ${version})`;
+        }
+      });
     for (const fact of facts) {
       switch (fact.fact) {
         case "artifact.created": {
@@ -330,6 +348,7 @@ export const projectArtifactFacts = (
               body_ref_json, inline_body_json)
             VALUES (${canvas}, ${a.artifactId}, ${a.version}, ${opId}, ${actorJson(a.createdBy)}, ${a.updatedAt},
               NULL, ${JSON.stringify(fact.bodyRef)}, ${body})`;
+          yield* projectLinks(a.artifactId, a.version, fact.body ?? bodyOf(fact.bodyRef));
           break;
         }
         case "artifact.edited": {
@@ -343,6 +362,7 @@ export const projectArtifactFacts = (
           yield* sql`
             UPDATE artifact_heads SET version = ${fact.version}, updated_at = ${fact.at}
             WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          yield* projectLinks(fact.artifactId, fact.version, bodyOf(fact.bodyRef));
           break;
         }
         case "artifact.retitled":

@@ -17,7 +17,7 @@ import {
 } from "../content/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
-import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
+import { ARTIFACT_LINKS_STATE_SCHEMA_SQL, ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
 import { TASK_SEAT_RELEASES_SQL, TASKS_STATE_SCHEMA_SQL } from "../work/task-state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../work/resource-rulings-schema";
@@ -99,6 +99,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   WORK_MENTIONS_SQL,
   RESOURCE_RULINGS_STATE_SCHEMA_SQL,
   ARTIFACTS_STATE_SCHEMA_SQL,
+  ARTIFACT_LINKS_STATE_SCHEMA_SQL,
   TASKS_STATE_SCHEMA_SQL,
   AUTOMATION_STATE_SCHEMA_SQL,
   AUTOMATION_NODE_ARCHIVES_SQL,

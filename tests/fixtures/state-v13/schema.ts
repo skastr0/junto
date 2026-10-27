@@ -300,3 +300,9 @@ export const STATE_SCHEMA_V51_SQL = stepped(
   STATE_SCHEMA_V50_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 51)!.migrate,
 );
+
+// Version 52 added the artifact body links (51 -> 52).
+export const STATE_SCHEMA_V52_SQL = stepped(
+  STATE_SCHEMA_V51_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 52)!.migrate,
+);

@@ -43,6 +43,7 @@ import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
+import { ARTIFACT_LINKS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
 import { rebuildMentions } from "../work/mention-backlinks";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
@@ -657,7 +658,18 @@ export const STATE_SCHEMA_V51_IDENTITY = {
     "8b26a65de1ca26a4c1dbd6a792f17d5bffc1012bd996e931982966fcd76c7e02",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 51;
+/**
+ * Version 52 keeps what each artifact's head body links (0.11, 02):
+ * `work_artifact_links`, one row per (source artifact, target mention key),
+ * rebuilt from the head body on every applied edit and rebuildable from the
+ * bodies. Expand only.
+ */
+export const STATE_SCHEMA_V52_IDENTITY = {
+  actualSchemaSha256:
+    "810f2dd7a207fb19aa8a85a5b9d796b35c655a3fd6e5a8fe376909d3960150d5",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 52;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -665,7 +677,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 51;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V51_IDENTITY;
+  STATE_SCHEMA_V52_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1064,6 +1076,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V50_IDENTITY,
     migrate: (database) => database.exec(FILE_TREES_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 51,
+    toVersion: 52,
+    name: "add the artifact body links",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V51_IDENTITY,
+    migrate: (database) => database.exec(ARTIFACT_LINKS_STATE_SCHEMA_SQL),
   },
 ];
 
