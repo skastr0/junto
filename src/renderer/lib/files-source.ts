@@ -100,7 +100,22 @@ export const makeLocalFiles = (
       return ok(stamp);
     },
     create: async () => refused("failed"),
-    rename: async () => refused("failed"),
+    rename: async (ref, path, name) => {
+      const root = rootOf(ref.node);
+      const dir = parentOf(path);
+      const next = (dir === ROOT_PATH ? name : `${dir}/${name}`) as FilePath;
+      const under = (key: string): boolean => key === path || key.startsWith(`${path}/`);
+      if (![...root.keys()].some(under)) return refused("not-found");
+      if ([...root.keys()].some((key) => key === next || key.startsWith(`${next}/`))) return refused("exists");
+      for (const [key, held] of [...root]) {
+        if (!under(key)) continue;
+        root.delete(key);
+        root.set(`${next}${key.slice(path.length)}`, held);
+      }
+      changed(ref.node, path);
+      changed(ref.node, next);
+      return ok(next);
+    },
     move: async () => refused("failed"),
     trash: async () => refused("failed"),
     import: async () => refused("failed"),

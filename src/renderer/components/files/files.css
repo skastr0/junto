@@ -30,6 +30,22 @@
 }
 
 /* The tree's look is the house one (ui/file-tree.css); here it only fills the sidebar. */
+.files-filter {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  color: var(--color-dim);
+}
+
+.files-tree-nav {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
 .files-tree {
   flex: 1;
 }

@@ -107,4 +107,20 @@ describe("the Files modal", () => {
     expect(buttonNamed("Open in default app")).toBeDefined();
     expect(buttonNamed("Reveal in Finder")).toBeDefined();
   });
+
+  it("names the tree, keeps no search box inside it, and filters from a labelled field above it", async () => {
+    installFilesSource(makeLocalFiles({ "src/a.ts": "one", "b.md": "" }));
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
+    await flush();
+    const nav = document.querySelector("nav.files-tree-nav");
+    expect(nav?.getAttribute("aria-label")).toMatch(/^Files in /);
+    const shadow = nav?.querySelector("file-tree-container")?.shadowRoot;
+    const tree = shadow?.querySelector('[role="tree"]');
+    expect(tree).not.toBeNull();
+    if (tree != null) {
+      expect(tree.getAttribute("aria-label")).toBe(nav?.getAttribute("aria-label"));
+      expect(tree.querySelector("input")).toBeNull();
+    }
+    expect(document.querySelector('input[aria-label^="Filter files in "]')).not.toBeNull();
+  });
 });

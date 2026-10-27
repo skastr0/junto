@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
-import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
-import { CircleAlert, ExternalLink, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
+import type { FileTree as FileTreeModel, FileTreeRenameEvent, FileTreeRowDecorationRenderer } from "@pierre/trees";
+import { CircleAlert, ExternalLink, Search, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
@@ -24,14 +24,14 @@ import {
   type Loaded,
 } from "../../lib/files-source";
 import { FocusSurface } from "../FocusSurface";
-import { Button, IconButton, PaneEmpty, PaneHeader, TwoPane } from "../ui";
+import { Button, IconButton, Input, PaneEmpty, PaneHeader, TwoPane } from "../ui";
 import { ArtifactComments, ArtifactCommentsEdge } from "../artifacts/ArtifactComments";
 import { LiveMarkdownField } from "../artifacts/LiveMarkdownField";
 import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
-import { fileOfSelection, treePathOf, useFolderTree } from "./files-tree";
+import { fileOfSelection, filePathOfTree, treePathOf, useFolderTree } from "./files-tree";
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop } from "./useFilesDrop";
 import { registerFileEditorSave } from "../../lib/file-editor-keys";
@@ -90,6 +90,34 @@ export function FilesNode({
     ({ item }) => (item.kind === "file" && dirty.current.has(item.path) ? { text: "●", title: "Unsaved changes" } : null),
     [],
   );
+  const [filter, setFilter] = useState("");
+  /** A rename or move the folder refused, said under the filter. */
+  const [treeError, setTreeError] = useState<string | null>(null);
+  /** The tree's model, for the rename callback the tree is built with. */
+  const modelRef = useRef<FileTreeModel | null>(null);
+  const rename = async (event: FileTreeRenameEvent): Promise<void> => {
+    const from = filePathOfTree(event.sourcePath);
+    const to = filePathOfTree(event.destinationPath);
+    if (from === undefined || to === undefined || from === to) return;
+    const result = await filesSource().rename(ref, from, baseName(to));
+    if (!result.ok) {
+      // The tree renamed the row as the operator typed; put it back.
+      modelRef.current?.move(event.destinationPath, event.sourcePath);
+      setTreeError(filesErrorLine(result.error));
+      return;
+    }
+    setTreeError(null);
+    const moved = (path: FilePath): FilePath | undefined =>
+      path === from ? result.value : path.startsWith(`${from}/`) ? (parseFilePath(`${result.value}${path.slice(from.length)}`) ?? undefined) : undefined;
+    // Unsaved text and the open file follow the new name.
+    for (const path of dirtyPaths(nodeId)) {
+      const next = moved(path);
+      if (next === undefined) continue;
+      setFileDraft(nodeId, next, fileDraft(nodeId, path));
+      setFileDraft(nodeId, path, undefined);
+    }
+    setSelected((open) => (open === null ? open : (moved(open) ?? open)));
+  };
   const drop = useFilesDrop({ port: filesSource(), node: ref, describe: filesErrorLine, rootLabel: folderName });
   const { model } = useFileTree({
     paths: [],
@@ -97,7 +125,9 @@ export function FilesNode({
     unsafeCSS: FILES_DROP_TREE_CSS,
     initialExpansion: "closed",
     ...(initialPath === undefined ? {} : { initialExpandedPaths: ancestorsOf(initialPath), initialSelectedPaths: [initialPath] }),
-    search: true,
+    // The tree's own search box sits inside role=tree, which admits only rows; the filter above it drives setSearch.
+    search: false,
+    renaming: { onRename: (event) => void rename(event), onError: setTreeError },
     itemHeight: 28,
     onSelectionChange: (paths) => {
       const file = fileOfSelection(paths);
@@ -105,6 +135,7 @@ export function FilesNode({
     },
     renderRowDecoration: decorate,
   });
+  modelRef.current = model;
   useFolderTree(ref, model, root.state === "ready");
   useEffect(() => {
     drop.bindModel(model);
@@ -142,7 +173,26 @@ export function FilesNode({
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
         actions={quickOpen.trigger}
       />
-      <FileTree model={model} className="files-tree" aria-label={`Files in ${folderName}`} />
+      <label className="files-filter">
+        <Search size={12} aria-hidden />
+        <Input
+          dense
+          aria-label={`Filter files in ${folderName}`}
+          placeholder="Filter"
+          value={filter}
+          onChange={(event) => {
+            setFilter(event.target.value);
+            model.setSearch(event.target.value === "" ? null : event.target.value);
+          }}
+        />
+      </label>
+      {treeError ? (
+        <p className="files-error" role="alert">
+          <CircleAlert size={14} aria-hidden />
+          {treeError}
+        </p>
+      ) : null}
+      <FilesTree model={model} label={`Files in ${folderName}`} />
     </>
   );
 
@@ -374,6 +424,34 @@ function SelectedFile({
       ) : null}
       <div className="files-main">{body}</div>
     </TwoPane>
+  );
+}
+
+/**
+ * The tree, named. The library draws role=tree inside its shadow root, where
+ * an aria-label on the host never reaches; until it takes a label of its own,
+ * the name is set on the inner tree once it renders (a workaround, for
+ * product-accessibility's review), and the nav names the region around it.
+ */
+function FilesTree({ model, label }: { readonly model: FileTreeModel; readonly label: string }) {
+  const wrap = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const host = wrap.current?.querySelector("file-tree-container");
+    const shadow = host?.shadowRoot;
+    if (shadow == null) return;
+    const name = (): void => {
+      const tree = shadow.querySelector('[role="tree"]');
+      if (tree !== null && tree.getAttribute("aria-label") !== label) tree.setAttribute("aria-label", label);
+    };
+    name();
+    const observer = new MutationObserver(name);
+    observer.observe(shadow, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [label]);
+  return (
+    <nav ref={wrap} className="files-tree-nav" aria-label={label}>
+      <FileTree model={model} className="files-tree" />
+    </nav>
   );
 }
 

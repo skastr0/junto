@@ -68,6 +68,15 @@ describe("saving", () => {
     expect(await files.read(ref, path("a.ts"))).toMatchObject({ ok: true, value: { text: "mine" } });
   });
 
+  it("renames in place, refusing a name that is taken, and carries a folder's files along", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "", "src/b.ts": "", "lib/c.ts": "" });
+    expect(await files.rename(ref, path("src/a.ts"), "b.ts")).toEqual({ ok: false, error: "exists" });
+    expect(await files.rename(ref, path("src/a.ts"), "z.ts")).toEqual({ ok: true, value: "src/z.ts" });
+    expect(await files.rename(ref, path("lib"), "pkg")).toEqual({ ok: true, value: "pkg" });
+    const pkg = await files.list(ref, path("pkg"));
+    expect(pkg.ok && pkg.value.map(treePathOf)).toEqual(["pkg/c.ts"]);
+  });
+
   it("lists one folder at a time, folders first", async () => {
     const files = makeLocalFiles({ "b.md": "", "src/a.ts": "", "src/deep/x.ts": "" });
     const root = await files.list(ref, ROOT_PATH);
