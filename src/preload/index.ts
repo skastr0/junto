@@ -6,7 +6,8 @@ import type { ResourceChanged, ResourceIpcApi, ThreadChanged } from "@shared/res
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
+import type { FilesChanged, JuntoFilesApi } from "@shared/files";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import type { ShellEnvironmentChange } from "@shared/shell-environment";
 import {
@@ -783,6 +784,33 @@ const gitApi: JuntoGitApi = {
   gitCommit: (cwd, sha) => invoke(IPC_CHANNELS.gitCommit, IPC_TIMEOUT_MS, cwd, sha),
 };
 
+const filesApi: JuntoFilesApi = {
+  files: {
+    open: (ref) => invoke(IPC_CHANNELS.filesOpen, IPC_TIMEOUT_MS, ref),
+    close: (ref) => invoke(IPC_CHANNELS.filesClose, IPC_TIMEOUT_MS, ref),
+    list: (ref, dir) => invoke(IPC_CHANNELS.filesList, IPC_TIMEOUT_MS, ref, dir),
+    search: (ref, query, seq) => invoke(IPC_CHANNELS.filesSearch, IPC_TIMEOUT_MS, ref, query, seq),
+    read: (ref, path) => invoke(IPC_CHANNELS.filesRead, IPC_TIMEOUT_MS, ref, path),
+    write: (ref, path, text, base) => invoke(IPC_CHANNELS.filesWrite, IPC_TIMEOUT_MS, ref, path, text, base),
+    create: (ref, path, dir) => invoke(IPC_CHANNELS.filesCreate, IPC_TIMEOUT_MS, ref, path, dir),
+    rename: (ref, path, name) => invoke(IPC_CHANNELS.filesRename, IPC_TIMEOUT_MS, ref, path, name),
+    move: (ref, path, intoDir) => invoke(IPC_CHANNELS.filesMove, IPC_TIMEOUT_MS, ref, path, intoDir),
+    trash: (ref, path) => invoke(IPC_CHANNELS.filesTrash, IPC_TIMEOUT_MS, ref, path),
+    // A dropped folder can be large; main owns the copy, this only catches a main that never answers.
+    import: (ref, intoDir, sources) => invoke(IPC_CHANNELS.filesImport, AGENT_MESSAGE_TIMEOUT_MS, ref, intoDir, sources),
+    openInDefaultApp: (ref, path) => invoke(IPC_CHANNELS.filesOpenInDefaultApp, IPC_TIMEOUT_MS, ref, path),
+    revealInFinder: (ref, path) => invoke(IPC_CHANNELS.filesReveal, IPC_TIMEOUT_MS, ref, path),
+    onChange: (listener) => subscribe<FilesChanged>(IPC_CHANNELS.filesChanged, listener),
+    pathForDroppedFile: (file) => {
+      try {
+        return webUtils.getPathForFile(file);
+      } catch {
+        return "";
+      }
+    },
+  },
+};
+
 const demoApi: JuntoDemoApi = {
   demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
@@ -820,6 +848,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(FLEET_UI_ENABLED ? hostsApi : {}),
     ...terminalApi,
     ...gitApi,
+    ...filesApi,
     ...(BROWSER_ENABLED ? browserApi : {}),
     ...demoApi,
   });

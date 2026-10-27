@@ -8,6 +8,7 @@ import type {
   JuntoTerminalApi,
   JuntoUsageApi,
 } from "@shared/ipc";
+import type { JuntoFilesApi } from "@shared/files";
 import type { CanvasPerformanceHarness } from "./lib/performance/perf-harness";
 
 declare global {
@@ -18,6 +19,7 @@ declare global {
     readonly junto?: JuntoApi &
       JuntoTerminalApi &
       JuntoGitApi &
+      JuntoFilesApi &
       JuntoDemoApi &
       Partial<
           JuntoBrowserApi &
