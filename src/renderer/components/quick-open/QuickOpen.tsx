@@ -66,20 +66,17 @@ export function QuickOpen({
     claimFocus(fieldRef.current, "open");
   }, []);
 
-  // Field focus means the palette is open: Tab out of it (the popover hands
-  // the keyboard back to the header button) closes it, so no combobox is left
-  // armed behind the operator's keyboard. A press outside closes it too.
-  useEffect(() => {
-    const panel = fieldRef.current?.closest<HTMLElement>(".junto-popover");
-    if (panel === null || panel === undefined) return;
-    const onFocusOut = (event: FocusEvent): void => {
-      const next = event.relatedTarget;
-      if (next instanceof Node && panel.contains(next)) return;
-      onClose();
-    };
-    panel.addEventListener("focusout", onFocusOut);
-    return () => panel.removeEventListener("focusout", onFocusOut);
-  }, [onClose]);
+  // Field focus means the palette is open, so Tab out of it closes it: the
+  // popover hands the keyboard back to the header button and no combobox is
+  // left armed behind the operator. A press outside closes it too. Only Tab
+  // does this: an async claim from the modal behind must not shut the palette
+  // the operator just opened.
+  const leaveOnTab = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  };
 
   // A source rebuilt on a render (a list that changed) is not a new question:
   // the palette re-asks per keystroke, never per paint.
@@ -167,7 +164,7 @@ export function QuickOpen({
       className="quick-open"
       testId="quick-open"
     >
-      <div className="quick-open__field">
+      <div className="quick-open__field" onKeyDown={leaveOnTab}>
         <Search size={14} aria-hidden />
         <input
           ref={fieldRef}

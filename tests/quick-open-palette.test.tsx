@@ -131,13 +131,21 @@ describe("the quick open palette", () => {
     expect(document.querySelector(".quick-open__empty")?.textContent).toBe(QUICK_OPEN_WORDS.artifact.empty);
   });
 
-  it("closes when the keyboard leaves the palette, so no combobox stays armed", () => {
+  it("closes on Tab, so no combobox stays armed behind the keyboard", () => {
     const held = render(sourceOf());
-    const outside = document.createElement("button");
-    document.body.appendChild(outside);
-    act(() => outside.focus());
-    expect(held.onClose).toHaveBeenCalled();
-    outside.remove();
+    act(() => {
+      field().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    });
+    expect(held.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open when the modal behind takes the focus asynchronously", () => {
+    const held = render(sourceOf());
+    const behind = document.createElement("input");
+    document.body.appendChild(behind);
+    act(() => behind.focus());
+    expect(held.onClose).not.toHaveBeenCalled();
+    behind.remove();
   });
 
   it("never paints an answer the query has moved past", async () => {
