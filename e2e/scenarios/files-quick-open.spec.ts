@@ -17,7 +17,7 @@ const palette = (page: Page) => page.getByTestId("quick-open");
 
 /** The palette is enabled once the root has listed: a chord pressed before that is dropped, so wait for the first row. */
 const openReadyFilesModal = async (page: Page) => {
-  const modal = await openReadyFilesModal(page);
+  const modal = await openFilesModal(page);
   await expect(modal.getByRole("treeitem", { name: "README.md", exact: true })).toBeVisible({ timeout: 15_000 });
   return modal;
 };
