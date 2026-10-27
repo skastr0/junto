@@ -1011,11 +1011,32 @@ export function PadEditor({
     }
   };
 
-  const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+  // Pointer moves land once per frame: under load moves queue up, and each one
+  // re-rendered the pad. Ink keeps every point (the coalesced ones too); the
+  // rest reads the last position. Pointer up flushes, so nothing is lost.
+  const pendingMoveRef = useRef<{ last: { clientX: number; clientY: number }; points: Array<{ clientX: number; clientY: number }> } | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
+  const applyMoveRef = useRef<(move: NonNullable<typeof pendingMoveRef.current>) => void>(() => {});
+  const flushMove = useCallback(() => {
+    if (moveFrameRef.current !== null) cancelAnimationFrame(moveFrameRef.current);
+    moveFrameRef.current = null;
+    const move = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (move) applyMoveRef.current(move);
+  }, []);
+  const dropMove = useCallback(() => {
+    if (moveFrameRef.current !== null) cancelAnimationFrame(moveFrameRef.current);
+    moveFrameRef.current = null;
+    pendingMoveRef.current = null;
+  }, []);
+  useEffect(() => dropMove, [dropMove]);
+
+  applyMoveRef.current = ({ last, points }) => {
+    const gesture = gestureRef.current;
     if (gesture.kind === "idle") {
       // The shape under the pointer shows its ports, so an edge is found by looking.
       if (tool !== "select" && tool !== "connect") return;
-      const scene = sceneOf(event);
+      const scene = sceneOf(last);
       const port = portAt(pad, scene, viewSlop(camera, PORT_VIEW_PX));
       const hit = port ? undefined : hitTest(pad, scene, viewSlop(camera, HIT_VIEW_PX));
       const id = port?.shape.id ?? (hit?.layer === "shape" ? hit.id : undefined);
@@ -1024,18 +1045,21 @@ export function PadEditor({
     }
     if (gesture.kind === "pan") {
       setCamera((current) =>
-        panBy(current, event.clientX - gesture.last.x, event.clientY - gesture.last.y),
+        panBy(current, last.clientX - gesture.last.x, last.clientY - gesture.last.y),
       );
-      setGesture({ kind: "pan", last: { x: event.clientX, y: event.clientY } });
+      setGesture({ kind: "pan", last: { x: last.clientX, y: last.clientY } });
       return;
     }
-    const scene = sceneOf(event);
+    const origin = originOf();
+    const toScene = (at: { clientX: number; clientY: number }) =>
+      clientToScene(camera, { x: at.clientX, y: at.clientY }, origin);
+    const scene = toScene(last);
     if (gesture.kind === "draw" || gesture.kind === "area") {
       setGesture({ ...gesture, current: scene });
       return;
     }
     if (gesture.kind === "ink") {
-      setGesture({ ...gesture, points: appendInkPoint(gesture.points, scene) });
+      setGesture({ ...gesture, points: points.reduce((acc, at) => appendInkPoint(acc, toScene(at)), gesture.points) });
       return;
     }
     if (gesture.kind === "edge") {
@@ -1051,9 +1075,30 @@ export function PadEditor({
     }
   };
 
+  const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    const coalesced = event.nativeEvent.getCoalescedEvents?.() ?? [];
+    const at = (e: { clientX: number; clientY: number }) => ({ clientX: e.clientX, clientY: e.clientY });
+    const points = coalesced.length > 0 ? coalesced.map(at) : [at(event)];
+    const pending = pendingMoveRef.current;
+    if (pending) {
+      pending.last = at(event);
+      pending.points.push(...points);
+    } else {
+      pendingMoveRef.current = { last: at(event), points };
+    }
+    if (moveFrameRef.current === null) {
+      moveFrameRef.current = requestAnimationFrame(() => {
+        moveFrameRef.current = null;
+        flushMove();
+      });
+    }
+  };
+
   const onPointerUp = (event: ReactPointerEvent<SVGSVGElement>) => {
+    // The last moves of the gesture land before it is read.
+    flushMove();
     const scene = sceneOf(event);
-    const current = gesture;
+    const current = gestureRef.current;
     setGesture({ kind: "idle" });
     if (current.kind === "draw") {
       if (current.tool === "image") {
@@ -1292,7 +1337,10 @@ export function PadEditor({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={() => setGesture({ kind: "idle" })}
+          onPointerCancel={() => {
+            dropMove();
+            setGesture({ kind: "idle" });
+          }}
           onPointerLeave={() => setHoverId(undefined)}
           onDoubleClick={(event) => {
             const hit = hitTest(pad, sceneOf(event), viewSlop(camera, HIT_VIEW_PX));
