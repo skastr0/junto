@@ -140,8 +140,8 @@ describe("an open that names a page", () => {
   it("reaches the Files modal with its file and page", () => {
     openWorkDetail("files-1", { itemId: "docs/brief.pdf", page: 3 });
     const consumed = consumeWorkDetailOpen("files-1");
-    expect(consumed).toEqual({ itemId: "docs/brief.pdf", page: 3 });
-    expect(filesDetailOpening(consumed!)).toEqual({ initialItemId: "docs/brief.pdf", initialPage: 3 });
+    expect(consumed).toMatchObject({ itemId: "docs/brief.pdf", page: 3 });
+    expect(filesDetailOpening(consumed!)).toEqual({ initialItemId: "docs/brief.pdf", initialPage: 3, openKey: consumed!.open });
   });
 
   it("carries no page when none was named, nor after a paged open was consumed", () => {
@@ -149,10 +149,10 @@ describe("an open that names a page", () => {
     consumeWorkDetailOpen("files-1");
     openWorkDetail("files-1", { itemId: "notes.md" });
     const consumed = consumeWorkDetailOpen("files-1");
-    expect(consumed).toEqual({ itemId: "notes.md" });
-    expect(filesDetailOpening(consumed!)).toEqual({ initialItemId: "notes.md" });
+    expect(consumed).not.toHaveProperty("page");
+    expect(filesDetailOpening(consumed!)).not.toHaveProperty("initialPage");
     openWorkDetail("files-1", { itemId: "a.pdf", page: 0 });
-    expect(filesDetailOpening(consumeWorkDetailOpen("files-1")!)).toEqual({ initialItemId: "a.pdf" });
+    expect(filesDetailOpening(consumeWorkDetailOpen("files-1")!)).not.toHaveProperty("initialPage");
   });
 
   it("is consumed only by the node it names", () => {

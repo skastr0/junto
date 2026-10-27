@@ -6,6 +6,7 @@ import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-mod
 import { MentionedIn } from "../threads/MentionedIn";
 import { tasksSource, useCanvasTasks, useNodePending, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
+import { useFollowOpen } from "../../lib/work-detail-open";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { topModal } from "../../lib/modal-stack";
@@ -70,6 +71,7 @@ export function TasksNode({
   canvasName,
   node,
   initialTaskId,
+  openKey,
   seats,
   nodeName,
   seatLabel = (id) => id,
@@ -78,6 +80,8 @@ export function TasksNode({
   readonly canvasName: string;
   readonly node: TaskNodeId;
   readonly initialTaskId?: string;
+  /** Which open this is: a new one selects `initialTaskId` again, though the operator moved on. */
+  readonly openKey?: number;
   /** Seats in reach of this node (region reach, 01), named. */
   readonly seats: ReadonlyArray<SeatChoice>;
   readonly nodeName: (node: string) => string;
@@ -92,10 +96,8 @@ export function TasksNode({
   const queued = useMemo(() => pendingByTask(writes), [writes]);
   const queuedNew = useMemo(() => queuedCreates(tasks, writes), [tasks, writes]);
   const [selectedId, setSelectedId] = useState<string | null>(initialTaskId ?? null);
-  // Opened again on another task while this pane is up (a mention chip): follow it.
-  useEffect(() => {
-    if (initialTaskId !== undefined && initialTaskId !== "") setSelectedId(initialTaskId);
-  }, [initialTaskId]);
+  // Opened again while this pane is up (a mention chip), on another task or the same one: follow it.
+  useFollowOpen(initialTaskId === "" ? undefined : initialTaskId, openKey, setSelectedId);
   const [filter, setFilter] = useState<StateFilter>("all");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);

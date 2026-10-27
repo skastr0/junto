@@ -123,6 +123,8 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const [workDetail, setWorkDetail] = useState(false);
   const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
   const [workDetailPage, setWorkDetailPage] = useState<number | undefined>();
+  /** Which open the surface is on: a new one re-applies the item and page even when they are the last ones. */
+  const [workDetailOpenKey, setWorkDetailOpenKey] = useState(0);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = kind;
@@ -191,6 +193,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
     const opening = filesDetailOpening(consumed);
     setWorkDetailItemId(opening.initialItemId);
     setWorkDetailPage(opening.initialPage);
+    setWorkDetailOpenKey(opening.openKey);
     setWorkDetail(true);
   }, [isWorkDetailTarget, workDetailAllowed, id]);
 
@@ -301,6 +304,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         <TasksDetail
           nodeId={id}
           initialItemId={workDetailItemId}
+          openKey={workDetailOpenKey}
           onClose={() => {
             setWorkDetail(false);
             setWorkDetailItemId(undefined);
@@ -318,6 +322,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         <ArtifactsDetail
           nodeId={id}
           initialItemId={workDetailItemId}
+          openKey={workDetailOpenKey}
           onClose={() => {
             setWorkDetail(false);
             setWorkDetailItemId(undefined);
@@ -328,6 +333,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         <FilesDetail
           nodeId={id}
           initialItemId={workDetailItemId}
+          openKey={workDetailOpenKey}
           {...(workDetailPage === undefined ? {} : { initialPage: workDetailPage })}
           onClose={() => {
             setWorkDetail(false);

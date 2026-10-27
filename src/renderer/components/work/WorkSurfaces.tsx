@@ -238,11 +238,14 @@ export function TasksDetail({
   nodeId,
   onClose,
   initialItemId,
+  openKey,
 }: {
   readonly nodeId: string;
   readonly onClose: () => void;
   /** Pre-select this task when opening (jump-to-blocker-cause). */
   readonly initialItemId?: string;
+  /** Which open this is: a new one selects `initialItemId` again. */
+  readonly openKey?: number;
 }) {
   const canvasId = use$(state$.canvasName) || "";
   const canvas = useCanvas(canvasId);
@@ -257,6 +260,7 @@ export function TasksDetail({
       canvasName={canvasId}
       node={node}
       {...(initialItemId === undefined ? {} : { initialTaskId: initialItemId })}
+      {...(openKey === undefined ? {} : { openKey })}
       seats={seatChoicesInReach(canvas, node, nameOf)}
       nodeName={nameOf}
       seatLabel={(id) => (canvas.nodes.has(asNodeId(id)) ? nameOf(id) : "removed seat")}
@@ -268,11 +272,14 @@ export function TasksDetail({
 export function ArtifactsDetail({
   nodeId,
   initialItemId,
+  openKey,
   onClose,
 }: {
   readonly nodeId: string;
   /** Open on this artifact (a mention or a chip that names it). */
   readonly initialItemId?: string;
+  /** Which open this is: a new one selects `initialItemId` again. */
+  readonly openKey?: number;
   readonly onClose: () => void;
 }) {
   const canvasName = use$(state$.canvasName) || "";
@@ -281,6 +288,7 @@ export function ArtifactsDetail({
       canvasName={canvasName}
       nodeId={asNodeId(nodeId)}
       {...(initialItemId === undefined ? {} : { initialArtifactId: initialItemId })}
+      {...(openKey === undefined ? {} : { openKey })}
       onClose={onClose}
     />
   );

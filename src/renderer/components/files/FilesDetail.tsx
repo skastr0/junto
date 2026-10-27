@@ -9,6 +9,7 @@ export function FilesDetail({
   nodeId,
   initialItemId,
   initialPage,
+  openKey,
   onClose,
 }: {
   readonly nodeId: string;
@@ -16,6 +17,8 @@ export function FilesDetail({
   readonly initialItemId?: string;
   /** With a PDF in `initialItemId`, the page it opens on. */
   readonly initialPage?: number;
+  /** Which open this is: a new one lands on `initialItemId` and its page again. */
+  readonly openKey?: number;
   readonly onClose: () => void;
 }) {
   const canvasName = use$(state$.canvasName) || "";
@@ -26,6 +29,7 @@ export function FilesDetail({
       nodeId={asNodeId(nodeId)}
       {...(initialPath === undefined || initialPath === "" ? {} : { initialPath })}
       {...(initialPage === undefined ? {} : { initialPage })}
+      {...(openKey === undefined ? {} : { openKey })}
       onClose={onClose}
     />
   );

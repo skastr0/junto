@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { observable } from "@legendapp/state";
 
 // Cross-surface trigger for the work-plane detail overlays (task board,
@@ -17,6 +18,12 @@ export const workDetailOpen$ = observable({
 // consumed, so nothing subscribes to it; 0 is none.
 let pendingPage = 0;
 
+// Every open is its own, numbered: the same item or page asked for twice
+// (a link followed again after the operator moved on inside the modal) is
+// two opens, and the surface lands on it both times.
+let opens = 0;
+let pendingOpen = 0;
+
 export type OpenWorkDetailOptions = {
   /** Pre-select this request/task id in the opened surface. */
   readonly itemId?: string;
@@ -24,7 +31,12 @@ export type OpenWorkDetailOptions = {
   readonly page?: number;
 };
 
-export type ConsumedWorkDetailOpen = { readonly itemId: string; readonly page?: number };
+export type ConsumedWorkDetailOpen = {
+  readonly itemId: string;
+  readonly page?: number;
+  /** This open's number, new on every open. */
+  readonly open: number;
+};
 
 /** Ask the node's card to open its work-plane detail surface. */
 export const openWorkDetail = (
@@ -33,26 +45,44 @@ export const openWorkDetail = (
 ): void => {
   workDetailOpen$.itemId.set(options?.itemId ?? "");
   pendingPage = options?.page !== undefined && options.page >= 1 ? options.page : 0;
+  pendingOpen = ++opens;
   workDetailOpen$.nodeId.set(nodeId);
 };
 
-/** Consume the open trigger (call from the owning node). Returns itemId, and the page when one was asked for. */
+/** Consume the open trigger (call from the owning node). Returns itemId, the page when one was asked for, and the open's number. */
 export const consumeWorkDetailOpen = (
   nodeId: string,
 ): ConsumedWorkDetailOpen | null => {
   if (workDetailOpen$.nodeId.peek() !== nodeId) return null;
   const itemId = workDetailOpen$.itemId.peek();
   const page = pendingPage;
+  const open = pendingOpen;
   pendingPage = 0;
+  pendingOpen = 0;
   workDetailOpen$.nodeId.set("");
   workDetailOpen$.itemId.set("");
-  return page >= 1 ? { itemId, page } : { itemId };
+  return page >= 1 ? { itemId, page, open } : { itemId, open };
 };
 
-/** What a Files node's modal opens on, from a consumed trigger: the file, and its page when one was named. */
+/** What a detail surface opens on, from a consumed trigger: the item, its page when one was named, and which open it is. */
 export const filesDetailOpening = (
   consumed: ConsumedWorkDetailOpen,
-): { readonly initialItemId?: string; readonly initialPage?: number } => ({
+): { readonly initialItemId?: string; readonly initialPage?: number; readonly openKey: number } => ({
   ...(consumed.itemId ? { initialItemId: consumed.itemId } : {}),
   ...(consumed.page === undefined ? {} : { initialPage: consumed.page }),
+  openKey: consumed.open,
 });
+
+/**
+ * A detail surface follows each open while it is up: `apply` runs with the
+ * item an open named, on the first render and again on every later open,
+ * even one that names the item it already had. Picking another item inside
+ * the surface changes neither, so it is left alone until the next open.
+ */
+export const useFollowOpen = <T>(item: T | undefined, openKey: number | undefined, apply: (item: T) => void): void => {
+  useEffect(() => {
+    if (item !== undefined) apply(item);
+    // `apply` is a state setter or a stable wrapper; the open is what moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item, openKey]);
+};

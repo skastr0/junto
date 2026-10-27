@@ -8,6 +8,7 @@ import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
 import { nodeAt } from "../../lib/use-model";
+import { useFollowOpen } from "../../lib/work-detail-open";
 import {
   changeTouches,
   dirtyPaths,
@@ -76,6 +77,7 @@ export function FilesNode({
   nodeId,
   initialPath,
   initialPage,
+  openKey,
   onClose,
 }: {
   readonly canvasName: string;
@@ -83,6 +85,8 @@ export function FilesNode({
   readonly initialPath?: FilePath;
   /** A PDF at `initialPath` opens scrolled to this page, once (an extract's link back to its source). */
   readonly initialPage?: number;
+  /** Which open this is: a new one lands on `initialPath` and its page again, though the operator moved on. */
+  readonly openKey?: number;
   readonly onClose: () => void;
 }) {
   const ref = useMemo<FilesNodeRef>(() => ({ canvas: canvasName, node: nodeId }), [canvasName, nodeId]);
@@ -93,6 +97,11 @@ export function FilesNode({
   useEffect(() => {
     if (selected !== initialPath) setPageOnce(undefined);
   }, [selected, initialPath]);
+  // An open while the modal is up, a link followed from inside it, lands on its file and page.
+  useFollowOpen(initialPath, openKey, (path) => {
+    setSelected(path);
+    setPageOnce(initialPage);
+  });
   const draftsVersion = useDraftsVersion();
   const node = nodeAt(canvasName, nodeId);
   const folderName = root.state === "ready" ? root.value.name : node === undefined ? "Files" : titleOf(node);
@@ -279,7 +288,8 @@ export function FilesNode({
           </TwoPane>
         ) : (
           <SelectedFile
-            key={selected}
+            // A named page is jumped to once per mount: a new open naming one mounts the file afresh.
+            key={pageOnce === undefined || selected !== initialPath ? selected : `${selected}#${String(openKey ?? 0)}`}
             canvasName={canvasName}
             filesRef={ref}
             path={selected}
