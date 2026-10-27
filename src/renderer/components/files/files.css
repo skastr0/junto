@@ -134,39 +134,9 @@
   flex: 1;
 }
 
+/* The code editor (ui/CodeEditor) fills the pane. */
 .files-code {
-  min-height: 0;
   flex: 1;
-  resize: none;
-  border: 0;
-  padding: 12px;
-  background: var(--color-ground);
-  color: var(--color-ink);
-  font-family: var(--font-mono);
-  font-size: var(--text-body-lg);
-  line-height: var(--leading-body);
-  tab-size: 2;
-}
-
-.files-code:focus-visible {
-  outline: 2px solid var(--color-cyan);
-  outline-offset: -2px;
-}
-
-.files-media {
-  display: grid;
-  min-height: 0;
-  flex: 1;
-  place-items: center;
-  overflow: auto;
-  padding: 16px;
-  background: var(--color-inset);
-}
-
-.files-media__image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
 }
 
 .files-elsewhere {

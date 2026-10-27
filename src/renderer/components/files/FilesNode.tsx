@@ -38,6 +38,7 @@ import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 import { FileView } from "../file-view/FileView";
+import { CodeEditor } from "../ui/CodeEditor";
 import { claimFocus } from "../../lib/focus-ownership";
 import { paneEntryOf } from "../../lib/pane-focus";
 import { topModal } from "../../lib/modal-stack";
@@ -388,7 +389,7 @@ function SelectedFile({
           />
         ) : null;
       case "code":
-        return value.kind === "text" ? <FileCodeEditor label={name} value={draft?.text ?? value.text} onChange={edit} /> : null;
+        return value.kind === "text" ? <CodeEditor key={epoch} className="files-code" path={path} value={draft?.text ?? value.text} onChange={edit} /> : null;
       case "image":
       case "pdf":
       case "other":
@@ -494,25 +495,6 @@ function FilesTree({ model, label }: { readonly model: FileTreeModel; readonly l
     <nav ref={wrap} className="files-tree-nav" aria-label={label}>
       <FileTree model={model} className="files-tree" />
     </nav>
-  );
-}
-
-/**
- * The code editor's place. Product-documents' editor (F3) takes it; until
- * then a plain field, so text opens, edits and saves.
- */
-function FileCodeEditor({ label, value, onChange }: { readonly label: string; readonly value: string; readonly onChange: (text: string) => void }) {
-  return (
-    <textarea
-      className="files-code"
-      aria-label={label}
-      spellCheck={false}
-      autoCapitalize="off"
-      autoCorrect="off"
-      wrap="off"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
   );
 }
 

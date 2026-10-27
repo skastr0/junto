@@ -51,8 +51,7 @@ describe("the Files modal", () => {
     installFilesSource(files);
     await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
     await flush();
-    const editor = document.querySelector<HTMLTextAreaElement>("textarea.files-code");
-    expect(editor?.value).toBe("one");
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("one");
     expect(document.querySelector(".files-head__name")?.textContent).toBe("a.ts");
     const read = await files.read(ref, A);
     if (!read.ok || read.value.kind !== "text") throw new Error("expected text");
