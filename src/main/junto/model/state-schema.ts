@@ -165,7 +165,7 @@ export const MODEL_STATE_SCHEMA_SQL = `
     id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
     from_id TEXT NOT NULL,
     to_id TEXT NOT NULL,
-    verb TEXT NOT NULL CHECK (verb IN ('messages', 'navigates', 'flows')),
+    verb TEXT NOT NULL CHECK (verb IN ('messages', 'navigates', 'flows', 'derives')),
     from_side TEXT CHECK (from_side IN ('top', 'right', 'bottom', 'left')),
     to_side TEXT CHECK (to_side IN ('top', 'right', 'bottom', 'left')),
     mask_json TEXT CHECK (mask_json IS NULL OR json_valid(mask_json)),

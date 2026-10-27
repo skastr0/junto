@@ -288,3 +288,9 @@ export const STATE_SCHEMA_V49_SQL = stepped(
   STATE_SCHEMA_V48_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 49)!.migrate,
 );
+
+// Version 50 let a task board derive into another (49 -> 50).
+export const STATE_SCHEMA_V50_SQL = stepped(
+  STATE_SCHEMA_V49_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 50)!.migrate,
+);

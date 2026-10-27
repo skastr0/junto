@@ -15,6 +15,9 @@
  * - `evidence_json` and `handoff` are what the finish that ruled cited and
  *   the note it left; null until a finish, and again once changes are asked.
  *   A closed layer keeps its own in `layer_json`.
+ * - `derived_from` is the task a derived task came from (0.10.3): finishing
+ *   that task on a board that derives into this one made it. Null on every
+ *   other task; an origin's derived tasks are read by it.
  * - `task_numbers` is the next number the ruler mints on a canvas.
  *
  * Rulings go in the shared `resource_rulings` table (02), with every domain's.
@@ -45,6 +48,7 @@ export const TASKS_STATE_SCHEMA_SQL = `
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
     state_since INTEGER NOT NULL CHECK (state_since BETWEEN created_at AND updated_at),
+    derived_from TEXT CHECK (derived_from IS NULL OR length(derived_from) = 26),
     PRIMARY KEY (canvas_name, task_id),
     UNIQUE (canvas_name, number),
     CHECK ((state IN ('assigned', 'working', 'input-required', 'in-review')) = (assignee_node_id IS NOT NULL)
@@ -58,6 +62,10 @@ export const TASKS_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS task_heads_by_assignee
     ON task_heads (canvas_name, assignee_node_id)
     WHERE assignee_node_id IS NOT NULL;
+
+  CREATE INDEX IF NOT EXISTS task_heads_by_origin
+    ON task_heads (canvas_name, derived_from)
+    WHERE derived_from IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS task_layers (
     canvas_name TEXT NOT NULL,

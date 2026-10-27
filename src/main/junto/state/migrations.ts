@@ -51,6 +51,7 @@ import {
   migrateCanvasDeletions,
 } from "./migrate-canvas-deletions";
 import { RELAY_TRIGGER_PORT_REPLACED_TABLES, migrateRelayTriggerPort } from "./migrate-relay-trigger-port";
+import { DERIVES_VERB_REPLACED_TABLES, migrateDerivesVerb } from "./migrate-derives-verb";
 import {
   TASK_ARTIFACT_PORTS_REPLACED_TABLES,
   migrateTaskArtifactPorts,
@@ -634,7 +635,19 @@ export const STATE_SCHEMA_V49_IDENTITY = {
     "f3e72b3be6c97c0cc9ca5950d5e9a36c8054c067675a3e75bbede87059788bfa",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 49;
+/**
+ * Version 50 lets a task board derive into another (0.10.3): `wires` rebuilt
+ * with `derives` in its verb CHECK, every row copied as it was, and
+ * `derived_from` added to `task_heads`, null on every task already held,
+ * with its index (`migrate-derives-verb.ts`). Consolidate, approved by the
+ * operator.
+ */
+export const STATE_SCHEMA_V50_IDENTITY = {
+  actualSchemaSha256:
+    "47696d804762d9a5bc7b999e4192b3440217f34906a2935113d8c5fb545b000e",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 50;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -642,7 +655,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 49;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V49_IDENTITY;
+  STATE_SCHEMA_V50_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1024,6 +1037,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
         database.exec(`ALTER TABLE ${table} ADD COLUMN label TEXT`);
       }
     },
+  },
+  {
+    fromVersion: 49,
+    toVersion: 50,
+    name: "let a task board derive into another",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V49_IDENTITY,
+    replacesTables: [...DERIVES_VERB_REPLACED_TABLES],
+    migrate: migrateDerivesVerb,
   },
 ];
 
