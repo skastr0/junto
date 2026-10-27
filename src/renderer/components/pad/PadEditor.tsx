@@ -55,7 +55,7 @@ import {
   snapTarget,
   type SnapTarget,
 } from "./pad-connect";
-import { PadSelectionBar, PadToolbar, type PadToolbarSelection } from "./PadToolbar";
+import { PadSelectionBar, PadToolbar, padToolbarKey, type PadToolbarSelection } from "./PadToolbar";
 import { imageRow, restyleShape, stencilPatches, type PadShapeStyle, type PadStencilId } from "./pad-stencils";
 import { openMention } from "../../lib/mention-open";
 import type { MentionCandidate } from "../../lib/mention-draft";
@@ -784,6 +784,11 @@ export function PadEditor({
       if (typing && event.key === "Escape") {
         // Child inputs own Escape (the label input cancels itself). Do not
         // intercept.
+        return;
+      }
+      if (!typing && padToolbarKey(event)) {
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
       const control = !typing && isControlTarget(event.target);

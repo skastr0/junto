@@ -99,3 +99,25 @@ it("Text on a box opens the editor and Enter writes the text", async () => {
   await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(onPatch.mock.calls.at(-1)![0][0]).toMatchObject({ shape: { id: "b", text: "Ship it" } });
 });
+
+it("each toolbar is one Tab stop, and the arrows, Home and End move along it", async () => {
+  await act(async () => root.render(<ArtifactPadEditor pad={withBox()} onPatch={onPatch} />));
+  const bar = host.querySelector<HTMLElement>('[role="toolbar"][aria-label="Pad tools"]')!;
+  const stops = () => Array.from(bar.querySelectorAll<HTMLButtonElement>("button")).filter((b) => b.tabIndex === 0);
+  expect(stops().map((b) => b.dataset.testid)).toEqual(["pad-tool-select"]);
+  const key = async (name: string) =>
+    act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true })));
+  await act(async () => byTestId("pad-tool-select")!.focus());
+  await key("ArrowRight");
+  expect((document.activeElement as HTMLElement).dataset.testid).toBe("pad-tool-box");
+  expect(stops()).toEqual([document.activeElement]);
+  await key("ArrowLeft");
+  await key("ArrowLeft");
+  expect((document.activeElement as HTMLElement).getAttribute("aria-label")).toBe("Fit view");
+  await key("Home");
+  expect((document.activeElement as HTMLElement).dataset.testid).toBe("pad-tool-select");
+  await click(50, 30);
+  const strip = byTestId<HTMLElement>("pad-selbar")!;
+  expect(Array.from(strip.querySelectorAll<HTMLButtonElement>("button")).filter((b) => b.tabIndex === 0))
+    .toEqual([byTestId("pad-status-none")]);
+});

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import {
   Ban,
   Circle,
@@ -76,6 +76,70 @@ const STATUS_TONE: Readonly<Record<PadShapeStatus, string>> = {
   blocked: "var(--color-crimson)",
 };
 
+const ROVING_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
+
+const rovingStops = (bar: HTMLElement): HTMLButtonElement[] =>
+  Array.from(bar.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+
+const makeCurrent = (bar: HTMLElement, current: HTMLButtonElement | undefined): void => {
+  // Every button, disabled ones too, so one that comes back enabled is not a second stop.
+  for (const stop of bar.querySelectorAll<HTMLButtonElement>("button")) stop.tabIndex = stop === current ? 0 : -1;
+};
+
+/**
+ * One Tab stop per toolbar, the toolbar pattern: the stop is the last
+ * focused button, else the pressed one, else the first. A disabled or
+ * removed stop hands over on the next render.
+ */
+function useRovingToolbar(ref: RefObject<HTMLDivElement | null>): void {
+  const lastRef = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    if (!bar) return;
+    const stops = rovingStops(bar);
+    const last = lastRef.current;
+    const current = (last && stops.includes(last) ? last : undefined)
+      ?? stops.find((stop) => stop.getAttribute("aria-pressed") === "true")
+      ?? stops[0];
+    makeCurrent(bar, current);
+  });
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    if (!bar) return;
+    const onFocus = (event: FocusEvent) => {
+      const button = event.target instanceof HTMLElement ? event.target.closest("button") : null;
+      if (!button || !bar.contains(button)) return;
+      lastRef.current = button;
+      makeCurrent(bar, button);
+    };
+    bar.addEventListener("focusin", onFocus);
+    return () => bar.removeEventListener("focusin", onFocus);
+    // Every render: the strip swaps its root between an edge and a shape.
+  });
+}
+
+/**
+ * Left and Right (and Home, End) move between a pad toolbar's buttons,
+ * wrapping at the ends. The editor's key handler calls this first, since it
+ * stops every key at the window. True when the key was taken.
+ */
+export const padToolbarKey = (event: KeyboardEvent): boolean => {
+  if (!ROVING_KEYS.has(event.key) || event.altKey || event.metaKey || event.ctrlKey) return false;
+  const button = event.target instanceof HTMLElement ? event.target.closest("button") : null;
+  const bar = button?.closest<HTMLElement>(".pad-toolbar, .pad-selbar");
+  if (!button || !bar) return false;
+  const stops = rovingStops(bar);
+  const index = stops.indexOf(button);
+  if (index === -1) return false;
+  const next = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? stops.length - 1
+      : (index + (event.key === "ArrowRight" ? 1 : -1) + stops.length) % stops.length;
+  stops[next]!.focus();
+  return true;
+};
+
 export function PadToolbar({
   tool,
   onTool,
@@ -95,8 +159,10 @@ export function PadToolbar({
   /** Drop the stencil at the view's center as one write. */
   readonly onStencil: (id: PadStencilId) => void;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  useRovingToolbar(barRef);
   return (
-    <div className="pad-toolbar" role="toolbar" aria-label="Pad tools">
+    <div ref={barRef} className="pad-toolbar" role="toolbar" aria-label="Pad tools">
       <div className="pad-toolbar__group">
         {TOOLS.filter((def) => def.tool !== "area" || areaTool).map((def) => (
           <ToolButton key={def.tool} tool={def.tool} current={tool} onSelect={onTool} label={def.label}>
@@ -166,9 +232,11 @@ export function PadSelectionBar({
   readonly onRestyle: (style: PadShapeStyle) => void;
   readonly onEditText: () => void;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  useRovingToolbar(barRef);
   if (selection.layer === "edge") {
     return (
-      <div className="pad-selbar" role="toolbar" aria-label="Edge" data-testid="pad-selbar">
+      <div ref={barRef} className="pad-selbar" role="toolbar" aria-label="Edge" data-testid="pad-selbar">
         <span className="pad-selbar__kind">Edge</span>
         <TextButton label={selection.edge.label ? "Edit the edge label" : "Add an edge label"} onClick={onEditText} />
       </div>
@@ -177,7 +245,7 @@ export function PadSelectionBar({
   const { shape } = selection;
   const status = shape.status ?? "none";
   return (
-    <div className="pad-selbar" role="toolbar" aria-label="Shape style" data-testid="pad-selbar">
+    <div ref={barRef} className="pad-selbar" role="toolbar" aria-label="Shape style" data-testid="pad-selbar">
       <span className="pad-selbar__kind">{shape.type}</span>
       <div className="pad-selbar__group" role="group" aria-label="Status">
         <span className="pad-selbar__label" aria-hidden="true">Status</span>
