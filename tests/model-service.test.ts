@@ -794,3 +794,31 @@ it("keeps a Files node on this machine: add and a host edit name this machine an
     expect((yield* model.open("factory")).nodes.some((each) => each.id === "files-2")).toBe(false);
   })),
 );
+
+it("refuses a root edit of a Files node held for another machine until its host is this machine", () =>
+  run((model, _sql, db) => Effect.gen(function* () {
+    // No command can add it: it is a node this machine held before it was renamed.
+    db.prepare(
+      `INSERT INTO file_trees(canvas_name,id,x,y,width,height,z_index,created_at,updated_at,host,root)
+       VALUES ('factory','renamed-away',0,0,200,90,0,?,?,'old-name','/Users/me/Projects/junto')`,
+    ).run(at, at);
+    const edit = (change: object) =>
+      model.command(decode({ _tag: "Edit", canvas: "factory", id: "renamed-away", change: { kind: "files", ...change } }), "operator").pipe(Effect.result);
+
+    const refused = yield* edit({ root: "/Users/me/Projects/other" });
+    expect(refused._tag).toBe("Failure");
+    expect((refused as unknown as { failure: { _tag: string; rule: string } }).failure).toMatchObject({
+      _tag: "ModelRefused",
+      rule: expect.stringMatching(/on this machine .*not on "old-name"/),
+    });
+    // A label still changes; the way back is the host first, then the root.
+    expect((yield* edit({ label: "Junto" }))._tag).toBe("Success");
+    expect((yield* edit({ host: THIS_MACHINE }))._tag).toBe("Success");
+    expect((yield* edit({ root: "/Users/me/Projects/other" }))._tag).toBe("Success");
+    expect((yield* model.open("factory")).nodes.find((each) => each.id === "renamed-away")).toMatchObject({
+      host: THIS_MACHINE,
+      root: "/Users/me/Projects/other",
+      label: "Junto",
+    });
+  })),
+);
