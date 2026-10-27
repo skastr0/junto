@@ -27,6 +27,12 @@ describe("the Files modal's main pane picks a viewer by type", () => {
     expect(fileViewOf(path("a.zip"), { kind: "binary", mime: "application/octet-stream", stamp })).toBe("other");
     expect(fileViewOf(path("big.log"), { kind: "too-large", size: 9e6, stamp })).toBe("too-large");
   });
+
+  it("previews a PDF or an image by its name even when its bytes read as text or too large", () => {
+    expect(fileViewOf(path("docs/plain.pdf"), { kind: "text", text: "%PDF-1.4\n", stamp })).toBe("pdf");
+    expect(fileViewOf(path("logo.svg"), { kind: "text", text: "<svg/>", stamp })).toBe("image");
+    expect(fileViewOf(path("scan.pdf"), { kind: "too-large", size: 9e6, stamp })).toBe("pdf");
+  });
 });
 
 describe("the tree", () => {

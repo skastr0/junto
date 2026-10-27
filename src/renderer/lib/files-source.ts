@@ -185,10 +185,13 @@ const MARKDOWN = /\.(md|markdown|mdx)$/i;
 
 /** The main pane's viewer for a read: the editor for text, a viewer for PDFs and images, else the way out. */
 export const fileViewOf = (path: FilePath, read: FileRead): FileView => {
+  // The name decides a preview first: an all-ASCII PDF or an SVG reads as text,
+  // and a large one as too large, yet its bytes still preview over junto-file.
+  const mime = fileMime(path);
+  if (mime === "application/pdf") return "pdf";
+  if (mime.startsWith("image/")) return "image";
   if (read.kind === "too-large") return "too-large";
   if (read.kind === "text") return MARKDOWN.test(path) ? "markdown" : "code";
-  if (read.mime === "application/pdf") return "pdf";
-  if (read.mime.startsWith("image/")) return "image";
   return "other";
 };
 
