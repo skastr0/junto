@@ -80,6 +80,18 @@ test("mention links are chips in the line, bang mentions are cards", async () =>
       else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
       await shot(page, `chips-${theme}`);
     }
+
+    // The caret on the chips' line: the line opens, the chips stay chips.
+    // Press the line's first word: its middle is a chip, which opens what it names.
+    await page.locator(".cm-line").filter({ hasText: "numbers in" }).click({ position: { x: 8, y: 8 } });
+    await expect(chips).toHaveCount(4);
+    await shot(page, "caret-on-chip-line");
+    // Backspace at the end takes the full stop, then the chip whole.
+    await page.keyboard.press("End");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await expect(chips).toHaveCount(3);
+    await expect(page.getByLabel("Markdown")).not.toContainText("Pricing pages](");
   } finally {
     await junto.close();
   }
