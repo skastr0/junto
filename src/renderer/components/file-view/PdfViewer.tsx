@@ -97,11 +97,12 @@ export function PdfViewer({
     setPage(pageAtScroll(tops, paneElement.scrollTop, paneElement.clientHeight));
   }, [tops, paneElement]);
 
-  // An extract's link back opens on its page, once, as soon as the pages are laid out.
-  const opened = useRef(false);
+  // An extract's link back opens on its page as soon as the pages are laid out.
+  // Each new page asked for jumps once; the same viewer asked for another page jumps again.
+  const jumped = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (opened.current || initialPage === undefined || tops.length === 0 || paneElement === null) return;
-    opened.current = true;
+    if (initialPage === undefined || jumped.current === initialPage || tops.length === 0 || paneElement === null) return;
+    jumped.current = initialPage;
     const entry = tops[Math.min(tops.length, Math.max(1, initialPage)) - 1]!;
     paneElement.scrollTo({ top: entry.top - PAGE_GUTTER });
     setPage(Math.min(tops.length, Math.max(1, initialPage)));

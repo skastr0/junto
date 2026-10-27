@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ARTIFACT_MAX_TITLE_LENGTH } from "../src/shared/artifact";
 import {
   boxByArrow,
   boxFromDrag,
@@ -106,6 +107,15 @@ describe("pages", () => {
   it("titles an extract by the file's name and page, never its folders", () => {
     expect(extractTitle("docs/sample.pdf", 2)).toBe("sample.pdf, page 2");
     expect(extractTitle("img/gradient.png")).toBe("gradient.png");
+  });
+
+  it("cuts a name too long for a title before its extension, keeping the page", () => {
+    const long = `docs/${"q".repeat(250)}.pdf`;
+    const title = extractTitle(long, 12);
+    expect(title.length).toBeLessThanOrEqual(ARTIFACT_MAX_TITLE_LENGTH);
+    expect(title.endsWith("\u2026.pdf, page 12")).toBe(true);
+    expect(extractTitle(`${"w".repeat(240)}.png`).endsWith("\u2026.png")).toBe(true);
+    expect(extractTitle(`${"w".repeat(240)}.png`).length).toBe(ARTIFACT_MAX_TITLE_LENGTH);
   });
 });
 

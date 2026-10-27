@@ -126,5 +126,6 @@ export const extractToArtifact = async ({
   });
   if (ruling.kind === "applied") return { kind: "created", artifactId, target };
   if (ruling.kind === "queued") return { kind: "queued", target };
-  return { kind: "failed", line: ruling.error.message };
+  console.warn("[extract] the create was refused:", ruling.error.message);
+  return { kind: "failed", line: `${target.title} refused the artifact. Try again.` };
 };

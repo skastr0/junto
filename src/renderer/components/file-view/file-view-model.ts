@@ -5,6 +5,7 @@
  * (0..1 from the top left), so it means the same thing at every zoom and on
  * every machine; pixels exist only while drawing and while rendering.
  */
+import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
 import { fileMime } from "@shared/file-url";
 
 /** What the main pane shows for a file. Anything not a PDF or an image offers its default app. */
@@ -121,9 +122,20 @@ export const cropOf = (
   return { x, y, w, h, scale: fit };
 };
 
-/** An extract's title: the file's name, and its page when it has pages. */
-export const extractTitle = (path: string, page?: number): string =>
-  page === undefined ? fileNameOf(path) : `${fileNameOf(path)}, page ${page}`;
+/**
+ * An extract's title: the file's name, and its page when it has pages. A
+ * name too long for an artifact title is cut in its middle, before its
+ * extension, so the extension and the page always show.
+ */
+export const extractTitle = (path: string, page?: number, max = ARTIFACT_MAX_TITLE_LENGTH): string => {
+  const suffix = page === undefined ? "" : `, page ${page}`;
+  const name = fileNameOf(path);
+  if (name.length + suffix.length <= max) return `${name}${suffix}`;
+  const dot = name.lastIndexOf(".");
+  const extension = dot > 0 && name.length - dot <= 16 ? name.slice(dot) : "";
+  const room = Math.max(1, max - suffix.length - extension.length - 1);
+  return `${name.slice(0, room)}\u2026${extension}${suffix}`;
+};
 
 // ---------------------------------------------------------------------------
 // Pages

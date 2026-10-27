@@ -6,7 +6,7 @@ import type { NodeId } from "@shared/physics/schema";
 import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
 import { Button, Dropdown, IconButton, Kbd } from "../ui";
-import { extractTargets, extractToArtifact, type BoxShot, type ExtractTarget } from "./extract";
+import { extractTargets, extractToArtifact, type BoxShot, type ExtractOutcome, type ExtractTarget } from "./extract";
 import { boxByArrow, KEYBOARD_BOX, zoomLabel, type ViewBox } from "./file-view-model";
 
 /** A box drawn on a file and not yet used: on a page of a PDF, or on an image (no page). */
@@ -40,6 +40,8 @@ export type FileViewProps = {
 
 /** Said when the area could not be drawn as an image; the reason stays in the console. */
 const SHOT_FAILED = "This area could not be made into an image.";
+/** Said when the image was made but the artifact was not; the reason stays in the console. */
+const ARTIFACT_FAILED = "The artifact could not be made. Try again.";
 
 type ExtractState =
   | { readonly kind: "idle" }
@@ -90,7 +92,9 @@ export const useBoxTools = ({
   const [targetId, setTargetId] = useState<string | null>(null);
   const target = targets.find((entry) => entry.id === targetId) ?? targets[0] ?? null;
 
+  /** A new or moved box. Ignored while an extract is in flight: that box is the one being kept. */
   const draw = (next: BoxDraft): void => {
+    if (extract.kind === "pending") return;
     setDraft(next);
     setExtract({ kind: "idle" });
   };
@@ -124,22 +128,29 @@ export const useBoxTools = ({
     };
     setExtract({ kind: "pending" });
     void shoot(taken)
-      .then((shot) => extractToArtifact({ canvasName, target, source, shot }))
       .then(
-        (outcome) => {
-          if (outcome.kind === "failed") {
-            setExtract({ kind: "failed", line: outcome.line });
-            return;
-          }
-          setDraft(null);
-          backToStage("async");
-          setExtract({
-            kind: "done",
-            line: outcome.kind === "created" ? `Extracted to ${outcome.target.title}.` : `Extract queued for ${outcome.target.title}.`,
-          });
+        (shot) =>
+          extractToArtifact({ canvasName, target, source, shot }).catch((error: unknown): ExtractOutcome => {
+            console.warn("[extract] the artifact could not be made:", error);
+            return { kind: "failed", line: ARTIFACT_FAILED };
+          }),
+        (error: unknown): ExtractOutcome => {
+          console.warn("[extract] the area could not be drawn:", error);
+          return { kind: "failed", line: SHOT_FAILED };
         },
-        () => setExtract({ kind: "failed", line: SHOT_FAILED }),
-      );
+      )
+      .then((outcome) => {
+        if (outcome.kind === "failed") {
+          setExtract({ kind: "failed", line: outcome.line });
+          return;
+        }
+        setDraft(null);
+        backToStage("async");
+        setExtract({
+          kind: "done",
+          line: outcome.kind === "created" ? `Extracted to ${outcome.target.title}.` : `Extract queued for ${outcome.target.title}.`,
+        });
+      });
   };
 
   /**
