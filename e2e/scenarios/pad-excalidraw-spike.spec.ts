@@ -63,9 +63,9 @@ test("pad on Excalidraw: feel, our data both ways, card, image, area comment", a
   );
   const region = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 3200, height: 1800 });
   const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([region, shelf, scout, ...crowd], []) } });
+  const report: Record<string, unknown> = { seats: SEATS };
   try {
     const { page } = junto;
-    const report: Record<string, unknown> = { seats: SEATS };
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
     const card = page.locator('.react-flow__node[data-id="shelf"]');
@@ -135,7 +135,9 @@ test("pad on Excalidraw: feel, our data both ways, card, image, area comment", a
     await page.mouse.click(p.x, p.y);
     const typeMs: number[] = [];
     for (const ch of "ship the pad") typeMs.push(await frameAfter(page, () => page.keyboard.type(ch)));
-    await page.keyboard.press("Escape");
+    // Escape would end the edit, but the modal stack takes it and closes the Artifacts modal (a spike finding).
+    const away = at(700, 500);
+    await page.mouse.click(away.x, away.y);
     report.textKey = stats(typeMs);
     await expect(meta).toHaveText("Pad, version 4", { timeout: 10_000 });
 
@@ -234,6 +236,8 @@ test("pad on Excalidraw: feel, our data both ways, card, image, area comment", a
     writeFileSync(join(OUT, "report.json"), JSON.stringify(report, null, 2));
     console.log("SPIKE", JSON.stringify(report));
   } finally {
+    mkdirSync(OUT, { recursive: true });
+    writeFileSync(join(OUT, "report.json"), JSON.stringify(report, null, 2));
     await junto.close();
   }
 });
