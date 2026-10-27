@@ -121,3 +121,35 @@ it("each toolbar is one Tab stop, and the arrows, Home and End move along it", a
   expect(Array.from(strip.querySelectorAll<HTMLButtonElement>("button")).filter((b) => b.tabIndex === 0))
     .toEqual([byTestId("pad-status-none")]);
 });
+
+const typeAndEnter = async (input: HTMLInputElement, text: string) => {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+};
+
+it("double-click on a box edits its text", async () => {
+  await act(async () => root.render(<ArtifactPadEditor pad={withBox()} onPatch={onPatch} />));
+  await act(async () => svg().dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 50, clientY: 30 })));
+  await typeAndEnter(host.querySelector<HTMLInputElement>('input[aria-label="Shape text"]')!, "Double");
+  expect(onPatch.mock.calls.at(-1)![0][0]).toMatchObject({ shape: { id: "b", text: "Double" } });
+});
+
+it("the strip sets and clears an edge label", async () => {
+  const pad: Pad = {
+    ...emptyPad(),
+    shapes: [
+      { id: asPadElementId("a"), type: "box", x: 0, y: 0, w: 60, h: 40, z: 0 },
+      { id: asPadElementId("c"), type: "box", x: 200, y: 0, w: 60, h: 40, z: 1 },
+    ],
+    edges: [{ id: asPadElementId("e"), from: asPadElementId("a"), to: asPadElementId("c"), fromSide: "right", toSide: "left" }],
+  };
+  await act(async () => root.render(<ArtifactPadEditor pad={pad} onPatch={onPatch} />));
+  await click(130, 20);
+  expect(byTestId("pad-selbar")?.getAttribute("aria-label")).toBe("Edge");
+  await act(async () => byTestId("pad-edit-text")!.click());
+  await typeAndEnter(host.querySelector<HTMLInputElement>('input[aria-label="Edge label"]')!, "then");
+  expect(onPatch.mock.calls.at(-1)![0][0]).toMatchObject({ op: "upsert", layer: "edge", edge: { id: "e", label: "then" } });
+});
