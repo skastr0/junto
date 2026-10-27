@@ -15,7 +15,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
-import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { ModelStoresLive, seedCanvas, seedCanvasRows } from "./support/seed-canvas";
 import { artifacts, files, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { ModelService } from "../src/main/junto/model/service";
 import { asCanvasName, asWireId } from "../src/shared/model";
@@ -299,12 +299,19 @@ describe("junto onboard output", () => {
 
   // Files is its own row, never a resource kind: no item commands, and the root only on its own machine.
   it.skipIf(!productNodeKindEnabled("files"))("lists Files nodes in reach as their own row, with the root only for the machine that holds it", async () => {
-    await write([], () => [
-      ...withResources(),
-      files("tree-here", { x: 200, y: 150, width: 120, height: 60, root: "/Users/me/Projects/secret-repo" }),
-      files("tree-there", { x: 400, y: 150, width: 120, height: 60, label: "Designs", host: "laptop" as never, root: "/Users/me/designs" }),
-      files("tree-away", { x: 1040, y: 150, width: 120, height: 60 }),
-    ]);
+    // Main refuses a command that adds a Files node on another machine, so that
+    // one goes straight into the rows: onboard must still keep its root home.
+    await runtime.runPromise(
+      seedCanvasRows({
+        seq: 1,
+        canvases: new Map([[CANVAS, { nodes: [
+          ...withResources(),
+          files("tree-here", { x: 200, y: 150, width: 120, height: 60, root: "/Users/me/Projects/secret-repo" }),
+          files("tree-there", { x: 400, y: 150, width: 120, height: 60, label: "Designs", host: "laptop" as never, root: "/Users/me/designs" }),
+          files("tree-away", { x: 1040, y: 150, width: 120, height: 60 }),
+        ] }]]),
+      }),
+    );
     const data = await onboard();
     const row = data.reach.find((section: { kind: string }) => section.kind === "files");
     expect(row).toEqual({

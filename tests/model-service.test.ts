@@ -753,3 +753,44 @@ it("applies a rename and a cleared name for every kind the card can name", () =>
     expect((yield* current()).nodes.get("plan" as never)).toMatchObject({ text: "# Captain\nbody" });
   })),
 );
+
+it("keeps a Files node on this machine: add and a host edit name this machine and an absolute root, or are refused why", () =>
+  run((model) => Effect.gen(function* () {
+    const folder = (id: string, fields: object = {}) =>
+      node(id, "files", { host: THIS_MACHINE, root: "/Users/me/Projects/junto", ...fields });
+    const send = (input: object) => model.command(decode({ ...input, canvas: "factory" }), "operator").pipe(Effect.result);
+    const refusal = (result: { readonly _tag: string }) =>
+      result._tag === "Failure" ? (result as unknown as { failure: { _tag: string; rule: string } }).failure : undefined;
+
+    const added = yield* send({ _tag: "Add", nodes: [folder("files-1")], wires: [] });
+    expect(added._tag).toBe("Success");
+    expect((yield* model.open("factory")).nodes).toContainEqual(expect.objectContaining({ id: "files-1", host: THIS_MACHINE }));
+
+    for (const [fields, says] of [
+      [{ host: "other-machine" }, /on this machine .*not on "other-machine"/],
+      [{ root: "Projects/junto" }, /absolute path; "Projects\/junto" is not/],
+    ] as const) {
+      const refused = refusal(yield* send({ _tag: "Add", nodes: [folder("files-2", fields)], wires: [] }));
+      expect(refused).toMatchObject({ _tag: "ModelRefused" });
+      expect(refused!.rule).toMatch(says);
+    }
+
+    const edit = (change: object) => send({ _tag: "Edit", id: "files-1", change: { kind: "files", ...change } });
+    expect((yield* edit({ host: THIS_MACHINE }))._tag).toBe("Success");
+    const away = refusal(yield* edit({ host: "other-machine" }));
+    expect(away).toMatchObject({ _tag: "ModelRefused" });
+    expect(away!.rule).toMatch(/not on "other-machine"/);
+    // The unnamed machine never decodes as a host, on an add or an edit.
+    expect(() => decode({ _tag: "Add", canvas: "factory", nodes: [folder("files-3", { host: "local" })], wires: [] })).toThrow();
+    expect(() => decode({ _tag: "Edit", canvas: "factory", id: "files-1", change: { kind: "files", host: "local" } })).toThrow();
+
+    // Label, root and geometry edits of a held node are not host edits.
+    expect((yield* edit({ label: "Junto" }))._tag).toBe("Success");
+    expect((yield* edit({ root: "/Users/me/Projects/other" }))._tag).toBe("Success");
+    expect((yield* send({ _tag: "Move", moves: [{ id: "files-1", x: 40, y: 40 }] }))._tag).toBe("Success");
+
+    const held = (yield* model.open("factory")).nodes.find((each) => each.id === "files-1");
+    expect(held).toMatchObject({ host: THIS_MACHINE, root: "/Users/me/Projects/other", label: "Junto", x: 40 });
+    expect((yield* model.open("factory")).nodes.some((each) => each.id === "files-2")).toBe(false);
+  })),
+);

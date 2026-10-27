@@ -7,6 +7,8 @@ import {
   type NodeKind,
   type Wire,
 } from "@shared/model";
+import { isAbsolute } from "node:path";
+import { UNNAMED_MACHINE } from "@shared/canvas-copy";
 import { withSqlRead } from "../state/sql-read";
 import { archiveAutomationsOnNode, restoreAutomationsOnNode } from "../automation/repository";
 import { KIND_TABLES } from "./state-schema";
@@ -77,6 +79,30 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         if ((yield* seatHosts(host)).length === 0)
           return yield* new ModelRefused({ rule: `Seat has unresolved host "${host}"; configure its installation.` });
       }, failure("requireSeatHost"));
+      const ownNames = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ machine_name: Schema.String }),
+        execute: () => sql`SELECT machine_name FROM machine_configuration WHERE singleton=1`,
+      });
+      /**
+       * A Files node lives on this machine: its host is this machine's short
+       * name, never the unnamed machine or another one, and its root is absolute.
+       */
+      const requireFilesPlace = Effect.fn("ModelRecords.requireFilesPlace")(function* (
+        place: { readonly host?: string; readonly root?: string },
+      ) {
+        if (place.host !== undefined) {
+          if (place.host === UNNAMED_MACHINE)
+            return yield* new ModelRefused({ rule: `A Files node names the machine its folder is on; "${UNNAMED_MACHINE}" names no machine.` });
+          const own = (yield* ownNames(undefined))[0]?.machine_name;
+          if (own === undefined)
+            return yield* new ModelRefused({ rule: "This machine has no name yet, so it cannot hold a Files node." });
+          if (place.host !== own)
+            return yield* new ModelRefused({ rule: `A Files node opens a folder on this machine (${own}), not on "${place.host}".` });
+        }
+        if (place.root !== undefined && !isAbsolute(place.root))
+          return yield* new ModelRefused({ rule: `A Files node's folder is an absolute path; "${place.root}" is not.` });
+      }, failure("requireFilesPlace"));
       const canvasHeaders = SqlSchema.findAll({
         Request: Schema.String,
         Result: CanvasHeaderRow,
@@ -365,6 +391,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
       }, failure("removeCanvas"));
       return {
         requireSeatHost,
+        requireFilesPlace,
         getCanvas,
         canvasEditor,
         editsCanvas,
