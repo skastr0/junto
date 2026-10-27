@@ -6,7 +6,8 @@
  * and `<parent>/files-outside` beside it, which the root reaches only through
  * symlinks, so the scoping checks have something real to refuse. Every file is
  * generated here, so the repo carries no binaries: a 5,000-line TypeScript
- * file for the editor budget, Markdown, a two-page PDF with text, a PNG, an
+ * file for the editor budget, Markdown, a two-page PDF with text (and the same
+ * PDF in pure ASCII, which still has to open as a PDF), a PNG, an
  * unknown binary, a text file over the 5 MB read cap, deep folders, names with
  * spaces and accents, and a `node_modules` the index must skip.
  */
@@ -31,6 +32,7 @@ const PATHS = {
   bigTs: "src/big.ts",
   markdown: "README.md",
   pdf: "docs/sample.pdf",
+  asciiPdf: "docs/plain.pdf",
   png: "img/gradient.png",
   unknownBinary: "data/blob.bin",
   tooLarge: "logs/huge.log",
@@ -115,8 +117,12 @@ const gradientPng = (width: number, height: number): Buffer => {
   ]);
 };
 
-/** A valid PDF with one line of Helvetica text per page and a correct xref. */
-const textPdf = (pages: readonly string[]): Buffer => {
+/**
+ * A valid PDF with one line of Helvetica text per page and a correct xref.
+ * `binaryMarker` adds the comment line PDF writers put second so tools treat
+ * the file as binary; without it every byte is ASCII.
+ */
+const textPdf = (pages: readonly string[], binaryMarker: boolean): Buffer => {
   const objects: string[] = [];
   const pageIds = pages.map((_, i) => 4 + i * 2);
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
@@ -129,13 +135,13 @@ const textPdf = (pages: readonly string[]): Buffer => {
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId + 1} 0 R >>`;
     objects[pageId + 1] = `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`;
   });
-  let body = "%PDF-1.4\n";
+  let body = binaryMarker ? "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n" : "%PDF-1.4\n";
   const offsets: number[] = [];
   for (let id = 1; id < objects.length; id++) {
-    offsets[id] = Buffer.byteLength(body);
+    offsets[id] = Buffer.byteLength(body, "latin1");
     body += `${id} 0 obj\n${objects[id]}\nendobj\n`;
   }
-  const xrefAt = Buffer.byteLength(body);
+  const xrefAt = Buffer.byteLength(body, "latin1");
   body += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
   for (let id = 1; id < objects.length; id++) body += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
   body += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`;
@@ -161,7 +167,8 @@ export const buildFilesFixture = async (parent: string): Promise<FilesFixture> =
   await put(join(outside, "secret.txt"), "outside the root\n");
   await put(join(root, paths.bigTs), bigTypeScript(BIG_TS_LINES));
   await put(join(root, paths.markdown), "# Fixture\n\nA root for the Files node.\n\n- one\n- two\n");
-  await put(join(root, paths.pdf), textPdf(PDF_PAGE_TEXT));
+  await put(join(root, paths.pdf), textPdf(PDF_PAGE_TEXT, true));
+  await put(join(root, paths.asciiPdf), textPdf(PDF_PAGE_TEXT, false));
   await put(join(root, paths.png), gradientPng(320, 200));
   await put(join(root, paths.unknownBinary), Buffer.from([0x00, 0xff, 0x13, 0x37, 0x00, 0x01, 0x02, 0x03]));
   await put(join(root, paths.tooLarge), "x".repeat(TOO_LARGE_BYTES));
