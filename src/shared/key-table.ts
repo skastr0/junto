@@ -778,7 +778,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     name: "Extend the selection",
     does: "Grow the selection by a cell",
     keys: ARROWS.map((key) => `Shift+${key}`),
-    shown: [["Shift", "Arrow keys"]],
+    shown: [["Shift and arrows"]],
     where: ["working"],
   }),
   surfaceKey({
@@ -844,7 +844,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     name: "Pan the drawing",
     does: "Hold Space and drag to pan the drawing",
     keys: [],
-    shown: [["Space", "drag"]],
+    shown: [["Space and drag"]],
     where: ["working"],
   }),
   surfaceKey({
