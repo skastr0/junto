@@ -58,6 +58,7 @@ import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
 import { liveResourceIpcPorts, registerResourceIpc } from "./work/resource-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
+import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
 import { SqlClient } from "effect/unstable/sql";
 import { readMentions } from "./work/mention-backlinks";
@@ -354,6 +355,23 @@ export const registerJuntoIpc = (): void => {
         }),
       }),
   }, broadcast);
+  // The artifacts whose body links one (0.11, 02): read-only, over the same store the CLI reads.
+  registerArtifactLinksIpc(
+    privilegedIpc,
+    (effect) => AppRuntime.runPromise(effect),
+    {
+      topology: (canvasName) =>
+        Effect.tryPromise({
+          try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+          catch: () => ({
+            type: "InternalError" as const,
+            message: `canvas ${canvasName} could not be read`,
+            details: { retryable: true },
+          }),
+        }).pipe(Effect.map((read) => read.canvas)),
+    },
+    broadcast,
+  );
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc);

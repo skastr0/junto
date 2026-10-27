@@ -1,4 +1,5 @@
 import type { MentionIpcApi } from "./mention-ipc";
+import type { ArtifactLinksApi } from "./artifact-links-ipc";
 import type { ResourceIpcApi } from "./resource-ipc";
 import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
@@ -647,6 +648,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly resource: ResourceIpcApi;
   /** Where each seat, task, artifact and page is mentioned, read from main (mention-ipc.ts). */
   readonly mentions: MentionIpcApi;
+  /** The artifacts whose body links one, read from main (artifact-links-ipc.ts). */
+  readonly artifactLinks: ArtifactLinksApi;
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */
