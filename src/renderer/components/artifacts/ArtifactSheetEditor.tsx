@@ -684,7 +684,11 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
         const typing = cellDraft?.columnId === column.id ? cellDraft : null;
         const at = { row: index, column: columnIndex };
         const selected = inSelection(selection, index, columnIndex);
-        const edge = selected && selection !== null ? edgesOf(selection, index, columnIndex) : null;
+        // One cell is shown by the focus ring alone; only a range draws an outline.
+        const edge =
+          selected && selection !== null && !sameCell(selection.anchor, selection.focus)
+            ? edgesOf(selection, index, columnIndex)
+            : null;
         const inEdit = editingColumn === columnIndex;
         return (
           <td

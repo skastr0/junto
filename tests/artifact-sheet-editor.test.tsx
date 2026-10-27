@@ -126,6 +126,7 @@ it("is one Tab stop: arrows move the active cell, Shift+arrow grows the range", 
   await act(async () => cell("A1").focus());
   await act(async () => { key(active(), { key: "ArrowRight" }); });
   expect(active().dataset.cell).toBe("B1");
+  expect(host.querySelectorAll("td[data-edge-top]"), "one cell draws no outline over its focus ring").toHaveLength(0);
   expect(cell("B1").tabIndex).toBe(0);
   expect(cell("A1").tabIndex).toBe(-1);
   await act(async () => { key(active(), { key: "ArrowDown", shiftKey: true }); });
