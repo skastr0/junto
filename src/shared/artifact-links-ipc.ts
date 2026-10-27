@@ -10,10 +10,7 @@ import type { ArtifactLinkRef, LinkedFromBody } from "./artifact-links";
 
 const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
-export const ARTIFACT_LINKS_IPC_CHANNELS = {
-  list: "junto:artifact-links-list",
-  changed: "junto:artifact-links-changed",
-} as const;
+export { ARTIFACT_LINKS_IPC_CHANNELS } from "./artifact-links-ipc-channels";
 
 /** The artifact asked about: the node that shows it and its own id. */
 export const ArtifactLinksInput = Schema.Struct({

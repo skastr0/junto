@@ -1,11 +1,8 @@
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import type { MentionIpcApi, MentionsChanged } from "@shared/mention-ipc";
-import {
-  ARTIFACT_LINKS_IPC_CHANNELS,
-  type ArtifactLinksApi,
-  type ArtifactLinksChanged,
-} from "@shared/artifact-links-ipc";
+import { ARTIFACT_LINKS_IPC_CHANNELS } from "@shared/artifact-links-ipc-channels";
+import type { ArtifactLinksApi, ArtifactLinksChanged } from "@shared/artifact-links-ipc";
 import { PAGE_BOX_DRAW_MS } from "@shared/page-shot";
 import type { ResourceChanged, ResourceIpcApi, ThreadChanged } from "@shared/resource-ipc";
 import type { WorkSinkChanged } from "@shared/work-sinks";
