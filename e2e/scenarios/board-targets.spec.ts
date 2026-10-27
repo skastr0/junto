@@ -59,6 +59,8 @@ test("board targets: list, toggle rewrites the verb, a derives loop is refused",
     await expect(page.locator('.react-flow__node[data-id="build"]')).toBeVisible({ timeout: 30_000 });
     await seedTask(page, "build");
     await seedTask(page, "docs");
+    // The cards list the task once the window has it; until then a double press opens the new-task form.
+    for (const board of ["build", "docs"]) await expect(page.locator(`.react-flow__node[data-id="${board}"]`)).toContainText("A task", { timeout: 20_000 });
     await page.locator('.react-flow__node[data-id="build"]').dblclick();
     await page.getByRole("button", { name: "Board settings" }).click();
     const targets = page.getByTestId("board-targets");
