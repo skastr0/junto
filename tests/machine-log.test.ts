@@ -9,6 +9,7 @@ import {
   closeMachineLog,
   installMachineLog,
   ObservabilityLoggerLive,
+  recordRendererConsole,
   setLogMachine,
   withMachineLogger,
   writeLog,
@@ -75,6 +76,16 @@ describe("machine log file", () => {
     const [prefixed, plain] = rowsOf(home, "app");
     expect(prefixed).toMatchObject({ area: "kernel", failure: { tag: "Error", message: "disk I/O error" } });
     expect(plain?.area).toBe("main");
+  });
+
+  it("takes a renderer console row's area from its [prefix] too", () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "app", echo: false });
+    recordRendererConsole({ level: "info", message: "[boot] canvas list started at 412 ms", sourceId: "app.js", lineNumber: 9 });
+    recordRendererConsole({ level: "warning", message: "layout thrash" });
+    const [prefixed, plain] = rowsOf(home, "app");
+    expect(prefixed).toMatchObject({ source: "renderer", area: "boot", level: "info" });
+    expect(plain).toMatchObject({ source: "renderer", area: "renderer", level: "warn" });
   });
 
   it("scrubs a known environment value and credential shapes from message, annotations and failure", () => {

@@ -28,10 +28,15 @@ export const bootStep = async <T>(name: string, run: () => Promise<T>): Promise<
   const stall = setTimeout(() => {
     console.warn(`[boot] ${name} still running after ${BOOT_STEP_STALL_MS} ms`);
   }, BOOT_STEP_STALL_MS);
+  const after = () => Math.round(performance.now() - started);
   try {
-    return await run();
+    const value = await run();
+    console.info(`[boot] ${name} ended after ${after()} ms`);
+    return value;
+  } catch (error) {
+    console.warn(`[boot] ${name} failed after ${after()} ms`);
+    throw error;
   } finally {
     clearTimeout(stall);
-    console.info(`[boot] ${name} ended after ${Math.round(performance.now() - started)} ms`);
   }
 };

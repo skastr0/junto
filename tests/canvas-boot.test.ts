@@ -16,10 +16,12 @@ describe("bootStep", () => {
     ]);
   });
 
-  it("logs the end of a step that fails, and passes the failure on", async () => {
+  it("logs a step that fails as failed, and passes the failure on", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await expect(bootStep("settings", async () => { throw new Error("no backend"); })).rejects.toThrow("no backend");
-    expect(String(info.mock.calls.at(-1)?.[0])).toMatch(/^\[boot\] settings ended after/u);
+    expect(info.mock.calls.map(([line]) => String(line))).toEqual([expect.stringMatching(/^\[boot\] settings started at/u)]);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[boot\] settings failed after \d+ ms$/u));
   });
 
   it("names a step that is still running after the stall threshold", async () => {

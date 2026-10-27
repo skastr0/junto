@@ -178,7 +178,7 @@ export const writeLog = (input: LogInput): MachineLogRow => {
 
   let area = DEFAULT_AREA[input.source];
   let message = input.message;
-  if (input.source === "main") {
+  if (input.source === "main" || input.source === "renderer") {
     const prefix = CONSOLE_PREFIX.exec(message)?.[1]?.toLowerCase();
     if (prefix !== undefined) area = prefix;
   }
