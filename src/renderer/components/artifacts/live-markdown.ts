@@ -10,7 +10,7 @@ import {
   StateField,
   type Text,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import { parseMentionHref } from "@shared/mention";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -64,19 +64,40 @@ const focused = StateField.define<boolean>({
   update: (value, tr) => tr.effects.reduce((next, effect) => (effect.is(setFocused) ? effect.value : next), value),
 });
 
+/** An anchor where its quote reads now. */
+type PlacedAnchor = { readonly id: string; readonly count: number; readonly from: number; readonly to: number };
+
+/** Place each anchor in the text, once per change to the text or the list, never per caret move. */
+const placeAnchors = (doc: Text, list: ReadonlyArray<DocumentAnchor>): ReadonlyArray<PlacedAnchor> => {
+  if (list.length === 0) return [];
+  const text = doc.toString();
+  return list.flatMap((anchor) => {
+    const range = resolveAnchor(text, anchor.quote, anchor.offset);
+    return range === null ? [] : [{ id: anchor.id, count: anchor.count, ...range }];
+  });
+};
+
 const anchors = StateField.define<{
   readonly list: ReadonlyArray<DocumentAnchor>;
-  readonly flash: Flash | null;
+  readonly placed: ReadonlyArray<PlacedAnchor>;
+  readonly flash: (Flash & { readonly from: number; readonly to: number }) | null;
 }>({
-  create: () => ({ list: [], flash: null }),
+  create: () => ({ list: [], placed: [], flash: null }),
   update: (value, tr) => {
     // A flash is one reveal: the next edit or caret move ends it, so a redrawn line never replays it.
     let next = value.flash !== null && (tr.docChanged || tr.selection !== undefined) ? { ...value, flash: null } : value;
+    let moved = tr.docChanged;
     for (const effect of tr.effects) {
-      if (effect.is(setAnchors)) next = { ...next, list: effect.value };
-      if (effect.is(flashQuote)) next = { ...next, flash: effect.value };
+      if (effect.is(setAnchors)) {
+        next = { ...next, list: effect.value };
+        moved = true;
+      }
+      if (effect.is(flashQuote)) {
+        const range = resolveAnchor(tr.state.doc.toString(), effect.value.quote, effect.value.offset);
+        next = { ...next, flash: range === null ? null : { ...effect.value, ...range } };
+      }
     }
-    return next;
+    return moved ? { ...next, placed: placeAnchors(tr.state.doc, next.list) } : next;
   },
 });
 
@@ -425,8 +446,20 @@ const SYNTAX_MARKS = new Set([
 /** What the editor draws, and the part of it the caret treats as one unit. */
 type Drawn = { readonly all: DecorationSet; readonly atomic: DecorationSet };
 
-/** Every decoration for the state: rendered off the caret's lines, source on them. */
-const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Drawn => {
+/**
+ * Where decorate looks. Blocks that replace whole lines (a rendered table,
+ * an embed card) change the layout, so CodeMirror takes them from a state
+ * field over the whole document; a walk for them skips inline content. All
+ * the rest is drawn for the visible ranges only, so a keystroke costs the
+ * screen, not the document.
+ */
+type Scope = { readonly blocks: true } | { readonly blocks: false; readonly from: number; readonly to: number };
+
+/** Nodes a block walk never needs to enter. */
+const NO_BLOCKS_INSIDE = new Set(["ATXHeading1", "ATXHeading2", "ATXHeading3", "ATXHeading4", "ATXHeading5", "ATXHeading6", "SetextHeading1", "SetextHeading2", "FencedCode", "CodeBlock", "HTMLBlock", "HorizontalRule", "LinkReference", "CommentBlock"]);
+
+/** The decorations of one scope: rendered off the caret's lines, source on them. */
+const decorate = (state: EditorState, handlers: LiveMarkdownHandlers, scope: Scope): { out: Range<Decoration>[]; atomic: Range<Decoration>[] } => {
   const doc = state.doc;
   const out: Range<Decoration>[] = [];
   const atomic: Range<Decoration>[] = [];
@@ -453,9 +486,16 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Drawn => 
   };
 
   syntaxTree(state).iterate({
+    ...(scope.blocks ? {} : { from: scope.from, to: scope.to }),
     enter: (ref) => {
-      const node = ref.node;
       const name = ref.name;
+      if (scope.blocks) {
+        if (NO_BLOCKS_INSIDE.has(name)) return false;
+        // A paragraph holds a block only when it is an embed: a bang link alone on its line.
+        if (name === "Paragraph" && doc.sliceString(ref.from, ref.from + 2) !== "![") return false;
+        if (name !== "Table" && name !== "Image") return;
+      }
+      const node = ref.node;
       if (SYNTAX_MARKS.has(name)) out.push(mark("cm-md-syntax").range(node.from, node.to));
       const heading = /^(?:ATXHeading|SetextHeading)(\d)$/u.exec(name);
       if (heading) {
@@ -508,17 +548,19 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Drawn => 
             const alone = name === "Image" && doc.sliceString(row.from, row.to).trim() === doc.sliceString(node.from, node.to);
             if (alone) {
               // An embed's line opens to its source like any block, so its label and target can be edited.
-              if (!open(node.from, node.to)) {
+              if (scope.blocks && !open(node.from, node.to)) {
                 out.push(Decoration.replace({ widget: new Mention({ kind: "embed", href, label }, handlers), block: true }).range(row.from, row.to));
               }
               return false;
             }
+            if (scope.blocks) return false;
             // A chip stays a chip on the caret's line too: one unit the caret steps over and Backspace takes whole.
             const chip = Decoration.replace({ widget: new Mention({ kind: "chip", href, label }, handlers) }).range(node.from, node.to);
             out.push(chip);
             atomic.push(chip);
             return false;
           }
+          if (scope.blocks) return false;
           if (name === "Image") {
             const src = safeArtifactMarkdownUrl(href);
             if (src && !open(node.from, node.to)) {
@@ -592,9 +634,10 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Drawn => 
           return;
         case "Table": {
           if (open(node.from, node.to)) {
-            lines(node.from, node.to, "cm-md-table-source");
-            return;
+            if (!scope.blocks) lines(node.from, node.to, "cm-md-table-source");
+            return scope.blocks ? false : undefined;
           }
+          if (!scope.blocks) return false;
           const model = tableModel(state, node);
           const cells = model.rows.map((row) => row.map((cell) => cell.node));
           out.push(
@@ -611,44 +654,64 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Drawn => 
     },
   });
 
-  const { list, flash } = state.field(anchors);
-  if (list.length > 0 || flash !== null) {
-    const text = doc.toString();
-    for (const anchor of list) {
-      const range = resolveAnchor(text, anchor.quote, anchor.offset);
-      if (range === null) continue;
-      out.push(
-        mark("artifact-document__anchor", { "data-anchor-id": anchor.id, "data-count": String(anchor.count) }).range(
-          range.from,
-          range.to,
-        ),
-      );
-      out.push(Decoration.widget({ widget: new Spoken(anchor.count === 1 ? ", one comment" : `, ${anchor.count} comments`), side: 1 }).range(range.to));
-    }
-    const flashed = flash === null ? null : resolveAnchor(text, flash.quote, flash.offset);
-    if (flash !== null && flashed !== null) {
-      // The nonce is an attribute, so a new reveal redraws the span and the flash runs again.
-      out.push(mark("artifact-document__flash", { "data-flash": String(flash.nonce) }).range(flashed.from, flashed.to));
-    }
+  if (scope.blocks) return { out, atomic };
+  const { placed, flash } = state.field(anchors);
+  for (const anchor of placed) {
+    if (anchor.to < scope.from || anchor.from > scope.to) continue;
+    out.push(
+      mark("artifact-document__anchor", { "data-anchor-id": anchor.id, "data-count": String(anchor.count) }).range(anchor.from, anchor.to),
+    );
+    out.push(Decoration.widget({ widget: new Spoken(anchor.count === 1 ? ", one comment" : `, ${anchor.count} comments`), side: 1 }).range(anchor.to));
+  }
+  if (flash !== null && flash.to >= scope.from && flash.from <= scope.to) {
+    // The nonce is an attribute, so a new reveal redraws the span and the flash runs again.
+    out.push(mark("artifact-document__flash", { "data-flash": String(flash.nonce) }).range(flash.from, flash.to));
+  }
+  return { out, atomic };
+};
+
+/** Whether a transaction can change what is drawn. */
+const redraws = (tr: { readonly docChanged: boolean; readonly selection: unknown; readonly effects: readonly unknown[]; readonly startState: EditorState; readonly state: EditorState }): boolean =>
+  tr.docChanged || tr.selection !== undefined || tr.effects.length > 0 || syntaxTree(tr.startState) !== syntaxTree(tr.state);
+
+/** The line-replacing blocks, over the whole document. */
+const blocks = (handlers: LiveMarkdownHandlers) =>
+  StateField.define<DecorationSet>({
+    create: (state) => Decoration.set(decorate(state, handlers, { blocks: true }).out, true),
+    update: (value, tr) => (redraws(tr) ? Decoration.set(decorate(tr.state, handlers, { blocks: true }).out, true) : value),
+    provide: (field) => EditorView.decorations.from(field),
+  });
+
+/** Everything else, for what is on screen. */
+const drawVisible = (view: EditorView, handlers: LiveMarkdownHandlers): Drawn => {
+  const out: Range<Decoration>[] = [];
+  const atomic: Range<Decoration>[] = [];
+  for (const { from, to } of view.visibleRanges) {
+    const drawn = decorate(view.state, handlers, { blocks: false, from, to });
+    out.push(...drawn.out);
+    atomic.push(...drawn.atomic);
   }
   return { all: Decoration.set(out, true), atomic: Decoration.set(atomic, true) };
 };
 
-const decorations = (handlers: LiveMarkdownHandlers) =>
-  StateField.define<Drawn>({
-    create: (state) => decorate(state, handlers),
-    update: (value, tr) =>
-      tr.docChanged ||
-      tr.selection !== undefined ||
-      tr.effects.length > 0 ||
-      syntaxTree(tr.startState) !== syntaxTree(tr.state)
-        ? decorate(tr.state, handlers)
-        : value,
-    provide: (field) => [
-      EditorView.decorations.from(field, (drawn) => drawn.all),
-      EditorView.atomicRanges.of((view) => view.state.field(field).atomic),
-    ],
-  });
+const inline = (handlers: LiveMarkdownHandlers) =>
+  ViewPlugin.define(
+    (view) => {
+      const plugin = {
+        drawn: drawVisible(view, handlers),
+        update: (update: ViewUpdate): void => {
+          if (update.viewportChanged || update.focusChanged || update.transactions.some(redraws) || syntaxTree(update.startState) !== syntaxTree(update.state)) {
+            plugin.drawn = drawVisible(update.view, handlers);
+          }
+        },
+      };
+      return plugin;
+    },
+    {
+      decorations: (plugin) => plugin.drawn.all,
+      provide: (plugin) => EditorView.atomicRanges.of((view) => view.plugin(plugin)?.drawn.atomic ?? Decoration.none),
+    },
+  );
 
 /** The source cells of the table the caret is in, as document positions, or null outside one. */
 const tableCellsAt = (state: EditorState, pos: number): number[] | null => {
@@ -706,7 +769,14 @@ export const toggleWrap =
       view.state.changeByRange((range) => {
         const { from, to } = range;
         const doc = view.state.doc;
-        if (doc.sliceString(from - width, from) === markText && doc.sliceString(to, to + width) === markText) {
+        // Italic's one `*` is only the odd one out of a run: `**it**` is bold, `***it***` bold and italic.
+        const starsBefore = (/\**$/u.exec(doc.sliceString(Math.max(0, from - 3), from))?.[0] ?? "").length;
+        const starsAfter = (/^\**/u.exec(doc.sliceString(to, to + 3))?.[0] ?? "").length;
+        const wrapped =
+          doc.sliceString(from - width, from) === markText &&
+          doc.sliceString(to, to + width) === markText &&
+          (markText !== "*" || (starsBefore % 2 === 1 && starsAfter % 2 === 1));
+        if (wrapped) {
           return {
             changes: [
               { from: from - width, to: from },
@@ -750,11 +820,7 @@ const openThreadAtCaret =
   (handlers: LiveMarkdownHandlers) =>
   (view: EditorView): boolean => {
     const pos = view.state.selection.main.head;
-    const text = view.state.doc.toString();
-    const hit = view.state.field(anchors).list.find((anchor) => {
-      const range = resolveAnchor(text, anchor.quote, anchor.offset);
-      return range !== null && range.from <= pos && pos <= range.to;
-    });
+    const hit = view.state.field(anchors).placed.find((anchor) => anchor.from <= pos && pos <= anchor.to);
     if (hit === undefined || handlers.current.onAnchor === undefined) return false;
     handlers.current.onAnchor(hit.id);
     return true;
@@ -765,7 +831,8 @@ export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
   markdown({ base: markdownLanguage }),
   focused,
   anchors,
-  decorations(handlers),
+  blocks(handlers),
+  inline(handlers),
   EditorView.lineWrapping,
   EditorView.focusChangeEffect.of((_state, focusing) => setFocused.of(focusing)),
   Prec.high(
@@ -774,6 +841,7 @@ export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
       { key: "Shift-Tab", run: stepCell(-1) },
       { key: "Mod-Enter", run: openLinkAtCaret(handlers) },
       { key: "Mod-b", run: toggleWrap("**") },
+      { key: "Mod-e", run: toggleWrap("*") },
       { key: "Mod-Alt-m", run: openThreadAtCaret(handlers) },
     ]),
   ),
