@@ -49,7 +49,8 @@
   font-family: var(--font-mono);
   font-size: var(--text-body);
   outline: none;
-  /* A cell moved to by the keyboard clears the sticky column heads. */
+  /* A cell moved to by the keyboard clears the sticky column heads: the
+     head row's 32px, in lockstep with SHEET_ROW_HEIGHT_PX. */
   scroll-margin-top: 32px;
 }
 /* Outside an edit a cell navigates, so it shows no caret. */
@@ -60,8 +61,28 @@
   text-align: right;
 }
 .junto-artifact-sheet__grid td[data-selected="true"] {
+  position: relative;
   background: color-mix(in oklab, var(--color-main) 6%, transparent);
-  box-shadow: inset 0 0 0 1px var(--color-main);
+}
+/* A range is one outlined block: only its edge cells draw their outer side. */
+.junto-artifact-sheet__grid td[data-selected="true"]::after {
+  position: absolute;
+  inset: 0;
+  border: 0 solid var(--color-main);
+  content: "";
+  pointer-events: none;
+}
+.junto-artifact-sheet__grid td[data-edge-top]::after {
+  border-top-width: 1px;
+}
+.junto-artifact-sheet__grid td[data-edge-right]::after {
+  border-right-width: 1px;
+}
+.junto-artifact-sheet__grid td[data-edge-bottom]::after {
+  border-bottom-width: 1px;
+}
+.junto-artifact-sheet__grid td[data-edge-left]::after {
+  border-left-width: 1px;
 }
 .junto-artifact-sheet__grid input:focus {
   box-shadow: inset 0 0 0 2px var(--color-cyan);

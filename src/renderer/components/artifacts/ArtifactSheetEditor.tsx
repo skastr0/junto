@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -63,6 +64,14 @@ const STEPS: Readonly<Record<string, CellAt>> = {
   ArrowRight: { row: 0, column: 1 },
 };
 
+/** Which sides of a selected cell are the range's edge, so the range is drawn as one outlined block. */
+const edgesOf = (selection: Selection, row: number, column: number) => ({
+  top: row === Math.min(selection.anchor.row, selection.focus.row),
+  bottom: row === Math.max(selection.anchor.row, selection.focus.row),
+  left: column === Math.min(selection.anchor.column, selection.focus.column),
+  right: column === Math.max(selection.anchor.column, selection.focus.column),
+});
+
 const inSelection = (selection: Selection | null, row: number, column: number): boolean => {
   if (selection === null) return false;
   const { anchor, focus } = selection;
@@ -99,8 +108,11 @@ export function ArtifactSheetEditor({
   readOnly = false,
   onPatch,
   onCommentCells,
+  title,
 }: {
   readonly grid: SheetGrid;
+  /** The artifact's title, so two open sheets read apart. */
+  readonly title?: string;
   readonly readOnly?: boolean;
   /** Resolves with the refusal line, or null when the patches landed. */
   readonly onPatch: (patches: ReadonlyArray<SheetPatch>) => Promise<string | null>;
@@ -130,6 +142,9 @@ export function ArtifactSheetEditor({
   const pendingFocus = useRef<{ readonly at: CellAt; readonly tries: number; readonly event?: Event } | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** A change nothing on screen shows under the caret (a row removed, a cell cleared), said aloud. */
+  const [said, setSaid] = useState<string | null>(null);
+  const hintId = useId();
   const typingTimer = useRef<number | null>(null);
   const copyTimer = useRef<number | null>(null);
   // One write in flight at a time, so the host sees patches in the order made.
@@ -228,8 +243,10 @@ export function ArtifactSheetEditor({
 
   const onDeleteRow = useCallback(
     (rowId: string) => {
+      const at = draftRef.current.rows.findIndex((row) => row.id === rowId);
       setSelection(null);
       emit([{ op: "row.remove", rowId }]);
+      if (at !== -1) setSaid(`Row ${String(at + 1)} removed`);
     },
     [emit],
   );
@@ -266,6 +283,7 @@ export function ArtifactSheetEditor({
       column: Math.min(Math.max(from.column + step.column, 0), draftRef.current.columns.length - 1),
     };
     if (sameCell(from, at)) return false;
+    setSaid(null);
     setSelection((current) => (extend && current !== null ? { anchor: current.anchor, focus: at } : { anchor: at, focus: at }));
     pendingFocus.current = { at, tries: 0, event };
     return true;
@@ -339,6 +357,7 @@ export function ArtifactSheetEditor({
       const column = draftRef.current.columns[at.column];
       if (row && column && (row.cells[column.id] ?? "") !== "") {
         emit([{ op: "cell", rowId: row.id, columnId: column.id, value: "" }]);
+        setSaid(`Cleared ${cellName(at)}`);
       }
     } else if (event.key.length === 1 && !mod && !readOnly) {
       event.preventDefault();
@@ -440,7 +459,8 @@ export function ArtifactSheetEditor({
       >
         <table
           role="grid"
-          aria-label="Sheet"
+          aria-label={title ? `${title}, sheet` : "Sheet"}
+          aria-describedby={hintId}
           aria-multiselectable="true"
           aria-rowcount={draft.rows.length + 1}
           aria-colcount={draft.columns.length + 1}
@@ -589,12 +609,12 @@ export function ArtifactSheetEditor({
             {refusal}
           </span>
         ) : (
-          <span className="junto-artifact-sheet__note">
+          <span className="junto-artifact-sheet__note" id={hintId}>
             {`${String(draft.rows.length)} × ${String(draft.columns.length)}. Cells are plain text. Enter edits, shift and arrows select a range.`}
           </span>
         )}
         <span className="sr-only" role="status" aria-live="polite" data-testid="artifact-sheet-status">
-          {copied ? "Copied as a markdown table" : editing !== null ? `Editing ${cellName(editing)}` : ""}
+          {copied ? "Copied as a markdown table" : editing !== null ? `Editing ${cellName(editing)}` : (said ?? "")}
         </span>
       </div>
     </div>
@@ -664,12 +684,17 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
         const typing = cellDraft?.columnId === column.id ? cellDraft : null;
         const at = { row: index, column: columnIndex };
         const selected = inSelection(selection, index, columnIndex);
+        const edge = selected && selection !== null ? edgesOf(selection, index, columnIndex) : null;
         const inEdit = editingColumn === columnIndex;
         return (
           <td
             key={column.id}
             aria-selected={selected}
             data-selected={selected ? "true" : undefined}
+            data-edge-top={edge?.top ? "" : undefined}
+            data-edge-right={edge?.right ? "" : undefined}
+            data-edge-bottom={edge?.bottom ? "" : undefined}
+            data-edge-left={edge?.left ? "" : undefined}
           >
             <input
               aria-label={`${column.name || column.id} row ${String(index + 1)}`}

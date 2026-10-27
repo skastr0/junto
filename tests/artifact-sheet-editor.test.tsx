@@ -134,6 +134,10 @@ it("is one Tab stop: arrows move the active cell, Shift+arrow grows the range", 
   await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="artifact-sheet-comment"]')!.click());
   expect(onCommentCells).toHaveBeenLastCalledWith("A1:B2");
   expect(host.querySelectorAll('td[aria-selected="true"]')).toHaveLength(4);
+  // One outlined block: each side of the range drawn once, by its edge cells.
+  expect(host.querySelectorAll("td[data-edge-top]")).toHaveLength(2);
+  expect(host.querySelectorAll("td[data-edge-left]")).toHaveLength(2);
+  expect(host.querySelector('[data-cell="A1"]')!.closest("td")!.hasAttribute("data-edge-right")).toBe(false);
   // The edge stops the cell; it never wraps.
   await act(async () => { key(active(), { key: "ArrowLeft" }); });
   expect(active().dataset.cell).toBe("A2");
@@ -177,8 +181,10 @@ it("Escape puts the cell back and stays on it; Delete clears; Cmd+Backspace remo
   expect(onPatch).not.toHaveBeenCalled();
   await act(async () => { key(active(), { key: "Delete" }); });
   expect(onPatch.mock.calls[0]![0]).toEqual([{ op: "cell", rowId: "r1", columnId: "c1", value: "" }]);
+  expect(host.querySelector('[data-testid="artifact-sheet-status"]')!.textContent).toBe("Cleared A1");
   await act(async () => { key(active(), { key: "Backspace", metaKey: true }); });
   expect(onPatch.mock.calls[1]![0]).toEqual([{ op: "row.remove", rowId: "r1" }]);
+  expect(host.querySelector('[data-testid="artifact-sheet-status"]')!.textContent).toBe("Row 1 removed");
 });
 
 it("tells assistive tech the sheet's size and each row's place", async () => {
@@ -186,6 +192,7 @@ it("tells assistive tech the sheet's size and each row's place", async () => {
   const table = host.querySelector("table")!;
   expect(table.getAttribute("role")).toBe("grid");
   expect(table.getAttribute("aria-rowcount")).toBe("3");
+  expect(document.getElementById(table.getAttribute("aria-describedby")!)!.textContent).toContain("Enter edits");
   expect([...host.querySelectorAll("tbody tr[aria-rowindex]")].map((row) => row.getAttribute("aria-rowindex"))).toEqual(["2", "3"]);
   expect(host.querySelectorAll('tbody th[scope="row"]')).toHaveLength(2);
   expect(host.querySelector("[data-pane-entry]")!.hasAttribute("tabindex")).toBe(true);
