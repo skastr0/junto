@@ -130,3 +130,69 @@ for (const theme of ["dark", "bright"] as const) {
     }
   });
 }
+
+test("pad keys and a collapsed sidebar in the real app", async () => {
+  test.setTimeout(240_000);
+  const canvas = "artifact-keys-pad";
+  const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [canvas]: modelFixture([shelf], []) } });
+  try {
+    const { page } = junto;
+    const card = page.locator('.react-flow__node[data-id="shelf"]');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await seedDocument(page, canvas, "Launch plan", "# Launch plan\n\nThe pitch.");
+    await card.dblclick();
+    await expect(page.getByRole("list", { name: "Artifacts" }).locator("button")).toHaveCount(1, { timeout: 20_000 });
+
+    // A collapsed sidebar is stepped over: content, comments, content.
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Meta+Shift+M");
+    await page.getByRole("button", { name: "Sidebar" }).first().click();
+    await expect(page.locator(".two-pane")).toHaveAttribute("data-sidebar", "collapsed");
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await expect.poll(() => paneWithFocus(page)).toBe("rail");
+    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await expect.poll(() => paneWithFocus(page)).toBe("main");
+    await page.getByRole("button", { name: "Sidebar" }).first().click();
+    await expect(page.locator(".two-pane")).not.toHaveAttribute("data-sidebar", "collapsed");
+
+    // The pad: a letter picks the tool, Escape goes back to select.
+    await page.getByRole("button", { name: "New artifact" }).click();
+    await page.getByRole("group", { name: "New artifact" }).locator("button").filter({ hasText: "Pad" }).click();
+    const svg = page.getByTestId("pad-svg");
+    await expect(svg).toBeVisible({ timeout: 15_000 });
+    const area = (await svg.boundingBox())!;
+    const cx = area.x + area.width / 2;
+    const cy = area.y + area.height / 2;
+    await svg.click({ position: { x: 20, y: 20 } });
+    for (const [key, tool] of [["r", "box"], ["o", "ellipse"], ["a", "connect"], ["v", "select"]] as const) {
+      await page.keyboard.press(key);
+      await expect(page.getByTestId(`pad-tool-${tool}`)).toHaveAttribute("aria-pressed", "true");
+    }
+    await page.keyboard.press("r");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pad-tool-select")).toHaveAttribute("aria-pressed", "true");
+
+    // Draw a box, then duplicate, undo and redo it from the keyboard.
+    await page.keyboard.press("r");
+    await page.mouse.move(cx - 80, cy - 50);
+    await page.mouse.down();
+    await page.mouse.move(cx + 80, cy + 50, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByTestId("pad-selection")).toBeVisible({ timeout: 10_000 });
+    const meta = page.locator(".artifact-head__meta");
+    await expect(meta).toHaveText("Pad, version 2", { timeout: 15_000 });
+    await page.keyboard.press("Meta+D");
+    await expect(meta).toHaveText("Pad, version 3", { timeout: 15_000 });
+    await shot(page, "pad-1-duplicated");
+    await page.keyboard.press("Meta+Z");
+    await expect(meta).toHaveText("Pad, version 4", { timeout: 15_000 });
+    await page.keyboard.press("Meta+Shift+Z");
+    await expect(meta).toHaveText("Pad, version 5", { timeout: 15_000 });
+    await page.locator(".artifact-head").getByRole("button", { name: "Keys", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Artifact keys" })).toContainText("Duplicate the selected shape");
+    await shot(page, "pad-2-keys");
+  } finally {
+    await junto.close();
+  }
+});

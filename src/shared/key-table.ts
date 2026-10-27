@@ -177,6 +177,8 @@ export type SurfaceKeyId =
   | "inPad.redo"
   | "inPad.duplicate"
   | "inPad.escape"
+  | "inPad.next"
+  | "inPad.prev"
   | "message.send"
   | "message.sendQuietly";
 
@@ -903,6 +905,23 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Duplicate the selected shape, a little down and right",
     keys: ["Cmd+D"],
     keysOther: ["Ctrl+D"],
+    where: ["working"],
+  }),
+  // Only with a shape selected or the connect tool up; otherwise Tab leaves the pad.
+  surfaceKey({
+    id: "inPad.next",
+    area: "Inside the drawing pad",
+    name: "Next shape",
+    does: "Select the next shape; with the connect tool, the next target",
+    keys: ["Tab"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.prev",
+    area: "Inside the drawing pad",
+    name: "Previous shape",
+    does: "Select the previous shape; with the connect tool, the previous target",
+    keys: ["Shift+Tab"],
     where: ["working"],
   }),
   surfaceKey({
