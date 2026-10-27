@@ -5,8 +5,8 @@
  * name is refused. Each check reads the disk, not only the screen.
  *   bun run test:e2e:fast e2e/scenarios/files-drops.spec.ts
  * The drop is staged as File objects with real paths (files-scenario.ts), the
- * stand-in for a Finder drag, which Playwright cannot start. Fixme until F5 is
- * on main; drop the describe.fixme when it lands.
+ * stand-in for a Finder drag, which Playwright cannot start. Frames for the
+ * operator are written when DROPS_FRAMES is set.
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -55,7 +55,7 @@ const setTheme = async (page: Page, theme: "bright" | "dark"): Promise<void> => 
   else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
 };
 
-test.describe.fixme("drops into the Files node (F5)", () => {
+test.describe("drops into the Files node (F5)", () => {
   test("a drop on the Files card copies the file into the root, and the source stays", async () => {
     test.setTimeout(120_000);
     const stage = await stageFiles();
@@ -103,6 +103,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
     try {
       const { page } = junto;
       const modal = await openFilesModal(page);
+      await setTheme(page, "dark");
       const source = await stage.incoming("desk/folder-drop.md", "into src\n");
       const transfer = await transferOf(page, [source]);
 
@@ -151,6 +152,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
     try {
       const { page } = junto;
       const modal = await openFilesModal(page);
+      await setTheme(page, "dark");
       const transfer = await transferOf(page, [await stage.incoming("desk/hover.md", "hover\n")]);
 
       await hover(surface(modal), transfer);
@@ -181,6 +183,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       const modal = await openFilesModal(page);
       const root = stage.fixture.root;
 
+      await setTheme(page, "dark");
       await drop(surface(modal), await transferOf(page, [await stage.incoming("one/README.md", "incoming one\n")]));
       await waitForFile(join(root, "README 2.md"));
       await expect(modal.getByRole("status").filter({ hasText: "as README 2.md." })).toBeVisible({ timeout: 15_000 });
