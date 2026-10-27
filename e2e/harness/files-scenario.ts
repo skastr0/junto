@@ -68,14 +68,21 @@ export const openFilesModal = async (page: Page): Promise<Locator> => {
 export const treeRow = (modal: Locator, path: string): Locator =>
   modal.locator(`[role="treeitem"][data-item-path="${path}"], [role="treeitem"][data-item-path="${path}/"]`);
 
-/** Clicks down a path in the tree: each folder expands, and the file row opens the file in the main pane. */
+/** Expands a folder row if it is shut; an open folder stays open. */
+export const expandInTree = async (modal: Locator, path: string): Promise<void> => {
+  const folder = treeRow(modal, path);
+  await expect(folder).toBeVisible({ timeout: 15_000 });
+  if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.click();
+};
+
+/**
+ * Clicks down a path in the tree: each folder expands, and the file row opens the file in the main pane.
+ * A chain of folders with one child folder each is one row (@pierre/trees flattens it), so a path through
+ * such a chain has no row per folder; the specs open files only outside those chains.
+ */
 export const openInTree = async (modal: Locator, path: string): Promise<void> => {
   const parts = path.split("/");
-  for (let depth = 1; depth < parts.length; depth += 1) {
-    const folder = treeRow(modal, parts.slice(0, depth).join("/"));
-    await expect(folder).toBeVisible({ timeout: 15_000 });
-    if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.click();
-  }
+  for (let depth = 1; depth < parts.length; depth += 1) await expandInTree(modal, parts.slice(0, depth).join("/"));
   const file = treeRow(modal, path);
   await expect(file).toBeVisible({ timeout: 15_000 });
   await file.click();
