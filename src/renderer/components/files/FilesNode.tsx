@@ -180,24 +180,7 @@ export function FilesNode({
     <>
       <PaneHeader
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
-        actions={
-          <>
-            {quickOpen.trigger}
-            <IconButton
-              aria-label="Reveal folder in Finder"
-              title="Reveal folder in Finder"
-              size="sm"
-              disabled={root.state !== "ready"}
-              onClick={() =>
-                void filesSource()
-                  .revealInFinder(ref, ROOT_PATH)
-                  .then((result) => setTreeError(result.ok ? null : filesErrorLine(result.error)))
-              }
-            >
-              <FolderSearch size={14} />
-            </IconButton>
-          </>
-        }
+        actions={quickOpen.trigger}
       />
       <label className="files-filter">
         <Search size={12} aria-hidden />
@@ -233,7 +216,24 @@ export function FilesNode({
         <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(root.error)} />
       </div>
     ) : selected === null ? (
-      <PaneEmpty glyph={<FileText size={20} />} title="Pick a file" />
+      <PaneEmpty
+        glyph={<FileText size={20} />}
+        title="Pick a file"
+        action={
+          // The folder itself opens in Finder from here; the header keeps its width for the folder's name.
+          <Button
+            size="sm"
+            variant="subtle"
+            onClick={() =>
+              void filesSource()
+                .revealInFinder(ref, ROOT_PATH)
+                .then((result) => setTreeError(result.ok ? null : filesErrorLine(result.error)))
+            }
+          >
+            Reveal folder in Finder
+          </Button>
+        }
+      />
     ) : null;
 
   return (
