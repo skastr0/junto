@@ -27,7 +27,7 @@ import { FileCommentsRail, FileThreadRow, type FileCommentContext } from "./File
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, PaneEmpty, PaneHeader, TwoPane } from "../ui";
 import { ArtifactCommentsEdge } from "../artifacts/ArtifactComments";
-import { LiveMarkdownField } from "../artifacts/LiveMarkdownField";
+import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../artifacts/LiveMarkdownField";
 import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
@@ -292,6 +292,7 @@ function SelectedFile({
   const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
   const [boxDraft, setBoxDraft] = useState<{ readonly page: number; readonly x: number; readonly y: number; readonly w: number; readonly h: number } | null>(null);
   const editor = useRef<CodeEditorHandle>(null);
+  const markdownEditor = useRef<LiveMarkdownFieldHandle>(null);
 
   /** Bumped by a read from disk only, so a save never remounts the editor under the caret. */
   const [epoch, setEpoch] = useState(0);
@@ -426,7 +427,9 @@ function SelectedFile({
   };
   const reveal = (place: ReturnType<typeof filePlaceOf>): void => {
     setCommentsRailOpen(true);
-    if (place.kind === "lines") editor.current?.revealLine(place.from);
+    if (place.kind !== "lines") return;
+    // Whichever editor the file opened in: markdown text and code take the same reveal.
+    (markdownEditor.current ?? editor.current)?.revealLine(place.from);
   };
   const rows: ReadonlyArray<LineRow> = placed.flatMap(({ thread, place }) =>
     place.kind === "lines" ? [{ key: `thread:${thread.threadId}`, line: place.to }] : [],
@@ -474,6 +477,13 @@ function SelectedFile({
             surfaceLabel="File"
             value={draft?.text ?? value.text}
             onChange={edit}
+            handle={markdownEditor}
+            onLineComment={(range) => {
+              const picked = lineDraftOf(range);
+              if (picked !== undefined) pickLines(picked);
+            }}
+            rows={rows}
+            renderRow={renderRow}
           />
         ) : null;
       case "code":

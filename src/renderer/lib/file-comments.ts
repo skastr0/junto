@@ -37,9 +37,6 @@ export const filePlaceOf = (anchor: Anchor | undefined, text: string): FileThrea
 export const placedFileThreads = (threads: ReadonlyArray<SubjectThread>, text: string): ReadonlyArray<PlacedFileThread> =>
   threads.map((thread) => ({ thread, place: filePlaceOf(thread.anchor, text) }));
 
-/** The first line a thread is drawn from, for the rail's press; undefined when the file no longer holds it. */
-export const revealedLine = (place: FileThreadPlace): number | undefined => (place.kind === "lines" ? place.from : undefined);
-
 /** What a thread's place is called, in the rail and above a row. */
 export const placeLabel = (place: FileThreadPlace): string => {
   switch (place.kind) {
@@ -76,46 +73,21 @@ export const lineAnchorOf = (path: string, draft: LineDraft): LinesAnchor => ({
   quote: draft.quote.length > 1_000 ? draft.quote.slice(0, 1_000) : draft.quote,
 });
 
-/** A box drawn on a page, as the drawing hands it over: fractions of the page's box. */
-export type BoxDraft = { readonly page: number; readonly x: number; readonly y: number; readonly w: number; readonly h: number };
-
-/** A box smaller than this on either side, in page fractions, is a click and not a drawing. */
-export const BOX_DRAFT_MIN = 0.01;
-
 /**
- * The box a drag covers on a page, clamped to it and normalised 0..1: the
- * anchor a comment on an image or a PDF page carries. Undefined for a drag
- * too small to be a box.
+ * The anchor a drawn box writes: the page, and its fractions of that page.
+ * The viewers normalise the box already (`ViewBox`, 0..1), so it goes as is.
  */
-export const boxDraftOf = (
-  from: { readonly x: number; readonly y: number },
-  to: { readonly x: number; readonly y: number },
-  size: { readonly width: number; readonly height: number },
-  page = 1,
-): BoxDraft | undefined => {
-  if (size.width <= 0 || size.height <= 0) return undefined;
-  const clamp = (value: number): number => Math.min(1, Math.max(0, value));
-  const x = clamp(Math.min(from.x, to.x) / size.width);
-  const y = clamp(Math.min(from.y, to.y) / size.height);
-  const w = clamp(Math.max(from.x, to.x) / size.width) - x;
-  const h = clamp(Math.max(from.y, to.y) / size.height) - y;
-  return w < BOX_DRAFT_MIN || h < BOX_DRAFT_MIN ? undefined : { page, x, y, w, h };
-};
-
-/** The anchor a box draft writes. */
-export const boxAnchorOf = (draft: BoxDraft): FileBoxAnchor => ({
+export const boxAnchorOf = (drawn: {
+  readonly page: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}): FileBoxAnchor => ({
   kind: "pageBox",
-  page: draft.page,
-  x: draft.x,
-  y: draft.y,
-  w: draft.w,
-  h: draft.h,
-});
-
-/** A box as the layer draws it over the page it was drawn on, in that page's fractions. */
-export const boxRectOf = (anchor: FileBoxAnchor): { readonly left: string; readonly top: string; readonly width: string; readonly height: string } => ({
-  left: `${String(anchor.x * 100)}%`,
-  top: `${String(anchor.y * 100)}%`,
-  width: `${String(anchor.w * 100)}%`,
-  height: `${String(anchor.h * 100)}%`,
+  page: drawn.page,
+  x: drawn.x,
+  y: drawn.y,
+  w: drawn.w,
+  h: drawn.h,
 });
