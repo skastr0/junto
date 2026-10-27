@@ -104,6 +104,11 @@ export const MIN_SHAPE_SIZE = 8;
 export const CAMERA_ZOOM_MIN = 0.15;
 export const CAMERA_ZOOM_MAX = 8;
 export const HANDLE_VIEW_PX = 8;
+/**
+ * Fitting never zooms out past this: 14 unit shape text stays at 8 px or
+ * more on screen. A bigger pad opens at its top left; zoom out by hand.
+ */
+export const FIT_ZOOM_MIN = 0.6;
 export const SIDE_VIEW_PX = 5;
 export const HIT_VIEW_PX = 4;
 
@@ -241,12 +246,15 @@ export const fitCamera = (
   }
   const availW = Math.max(1, viewport.w - padding * 2);
   const availH = Math.max(1, viewport.h - padding * 2);
-  const zoom = clamp(Math.min(availW / content.w, availH / content.h), CAMERA_ZOOM_MIN, 2);
+  const zoom = clamp(Math.min(availW / content.w, availH / content.h), FIT_ZOOM_MIN, 2);
   const viewW = viewport.w / zoom;
   const viewH = viewport.h / zoom;
+  // A pad too big to fit at the floor opens at its top left, where it starts, instead of its middle.
+  const across = (start: number, size: number, view: number): number =>
+    size + (padding * 2) / zoom > view ? start - padding / zoom : start - (view - size) / 2;
   return {
-    x: content.x - (viewW - content.w) / 2,
-    y: content.y - (viewH - content.h) / 2,
+    x: across(content.x, content.w, viewW),
+    y: across(content.y, content.h, viewH),
     zoom,
   };
 };

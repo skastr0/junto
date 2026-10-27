@@ -17,8 +17,10 @@ import {
   padTextLayout,
   type PadSvgPalette,
 } from "@shared/pad-project";
+import { FONT_MONO } from "@shared/theme";
 
-export const PAD_FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
+/** The app's mono face: the pad's wrapping assumes its 0.6 em advance. */
+export const PAD_FONT = FONT_MONO;
 
 const pointsAttr = (points: ReadonlyArray<PadPoint>): string => points.map((p) => `${p.x},${p.y}`).join(" ");
 

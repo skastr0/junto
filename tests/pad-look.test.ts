@@ -42,3 +42,19 @@ describe("pad look", () => {
     expect(padEdgeMid([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }])).toEqual({ x: 10, y: 0 });
   });
 });
+
+describe("pad fit", () => {
+  test("fitting a wide pad stops at the floor and opens at its top left", async () => {
+    const { FIT_ZOOM_MIN, fitCamera } = await import("../src/renderer/components/pad/pad-editor-model");
+    const camera = fitCamera({ x: 100, y: 50, w: 4000, h: 300 }, { w: 800, h: 600 });
+    expect(camera.zoom).toBe(FIT_ZOOM_MIN);
+    expect(camera.x).toBeCloseTo(100 - 48 / FIT_ZOOM_MIN);
+    expect(camera.y).toBeCloseTo(50 - (600 / FIT_ZOOM_MIN - 300) / 2);
+  });
+
+  test("a pad that fits is centred as before", async () => {
+    const { fitCamera } = await import("../src/renderer/components/pad/pad-editor-model");
+    const camera = fitCamera({ x: 0, y: 0, w: 400, h: 300 }, { w: 800, h: 600 });
+    expect(camera.zoom).toBeCloseTo(Math.min(704 / 400, 504 / 300));
+  });
+});

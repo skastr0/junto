@@ -21,7 +21,7 @@ import {
   trianglePoints,
   type GeomRect as GeomRectValue,
 } from "./pad-geom";
-import { themeRuntime, type ThemeMode } from "./theme";
+import { FONT_MONO, themeRuntime, type ThemeMode } from "./theme";
 
 const VIEW_PAD = 80;
 const EMPTY_VIEW = { x: 0, y: 0, w: 800, h: 600 } as const;
@@ -365,7 +365,7 @@ export const padToSvg = (
     ? `preserveAspectRatio="xMidYMid meet"`
     : `width="${fmt(box.w)}" height="${fmt(box.h)}"`;
   const parts: string[] = [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(box.x)} ${fmt(box.y)} ${fmt(box.w)} ${fmt(box.h)}" ${sizeAttrs} font-family="ui-monospace, SFMono-Regular, Menlo, monospace">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(box.x)} ${fmt(box.y)} ${fmt(box.w)} ${fmt(box.h)}" ${sizeAttrs} font-family="${esc(FONT_MONO)}">`,
     `<rect x="${fmt(box.x)}" y="${fmt(box.y)}" width="${fmt(box.w)}" height="${fmt(box.h)}" fill="${esc(pal.ground)}"/>`,
   ];
 
