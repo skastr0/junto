@@ -70,10 +70,14 @@ export const trustedRendererIpc = (target: IpcMain): IpcMain =>
           name: string,
           callback: IpcListener,
         ) => void;
-        register(channel, (event, ...args) => {
-          assertTrustedMainWebContents(event.sender, channel);
-          return listener(event, ...args);
-        });
+        // Called on ipcMain itself: EventEmitter.on needs its `this`.
+        Reflect.apply(register, raw, [
+          channel,
+          (event: { readonly sender: WebContents }, ...args: ReadonlyArray<unknown>) => {
+            assertTrustedMainWebContents(event.sender, channel);
+            return listener(event, ...args);
+          },
+        ]);
       };
     },
   }) as IpcMain;

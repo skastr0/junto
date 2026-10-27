@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   TrustedRendererRefused,
@@ -55,5 +56,20 @@ describe("trusted main WebContents identity", () => {
     expect(getTrustedMainWebContents()).toBe(contents);
     currentUrl = "https://attacker.invalid/";
     expect(getTrustedMainWebContents()).toBeUndefined();
+  });
+});
+
+describe("trustedRendererIpc on a real emitter", () => {
+  it("registers on and handle with ipcMain as this, and still refuses a stranger", () => {
+    const emitter = new EventEmitter();
+    const seen: unknown[] = [];
+    // `on` is EventEmitter's own: it reads this._events, so an unbound call throws.
+    trustedRendererIpc(emitter as never).on("ping", (_event, value) => seen.push(value));
+    const trusted = fakeContents(1);
+    setTrustedMainWebContents(trusted as never, origin);
+    emitter.emit("ping", { sender: trusted }, "ok");
+    expect(seen).toEqual(["ok"]);
+    expect(() => emitter.emit("ping", { sender: fakeContents(2) }, "no")).toThrow(TrustedRendererRefused);
+    expect(seen).toEqual(["ok"]);
   });
 });
