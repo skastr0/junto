@@ -103,10 +103,10 @@ test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
         await expect(page.getByTestId("quick-open")).toHaveCount(0);
 
         const transfer = await transferOf(page, [await stage.incoming("desk/audit.md", "audit\n")]);
-        await hover(treeRow(modal, "nested"), transfer);
+        await hover(treeRow(modal, "src"), transfer);
         await expect(modal.locator('[data-files-drop="true"]')).toHaveAttribute("data-drop", "folder");
         found.push(...(await scan(page, `${theme}-drop-folder`, MODAL)));
-        await leave(treeRow(modal, "nested"), transfer);
+        await leave(treeRow(modal, "src"), transfer);
 
         await page.keyboard.press("Escape");
         await expect(modal).toHaveCount(0);
