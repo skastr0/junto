@@ -1,5 +1,6 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import type { ActivityTone } from "../../lib/activity";
+import type { KindLedger } from "../../lib/kind-band";
 import { artifactIconKind, taskKindState, type PreviewCardFace } from "../../lib/preview-face";
 import { SeatUrgency } from "@shared/wire/urgency";
 import { ARTIFACT_TYPE_NOUN, TASK_STATE_VISUAL } from "../../lib/resource-visuals";
@@ -27,6 +28,9 @@ export type PreviewCardProps = PreviewCardFace & {
   readonly onOpen?: () => void;
   readonly size?: PreviewCardSize;
 };
+
+const NO_ARTIFACTS: KindLedger = { kind: "artifacts", count: 0 };
+const ONE_TAB: KindLedger = { kind: "page", tabs: 1 };
 
 const TONE_TEXT: Readonly<Record<ActivityTone, string>> = {
   amber: "text-amber-fg",
@@ -146,6 +150,8 @@ function PreviewBody({ face, name }: { readonly face: PreviewCardFace; readonly 
         <KindSeat
           kind={artifactIconKind(face.type)}
           name={name}
+          // One artifact, not a shelf: the band holds nothing to count.
+          ledger={NO_ARTIFACTS}
           trailing={<span className="preview-card__version">v{face.version}</span>}
           line={first ?? ARTIFACT_TYPE_NOUN[face.type]}
           lineTitle={first}
@@ -156,7 +162,7 @@ function PreviewBody({ face, name }: { readonly face: PreviewCardFace; readonly 
     }
     case "page":
       return (
-        <KindSeat kind="page" name={name} line={kindRing(face.state).label} state={face.state}>
+        <KindSeat kind="page" name={name} line={kindRing(face.state).label} state={face.state} ledger={ONE_TAB}>
           <Row title={face.url}>{face.url ?? ""}</Row>
         </KindSeat>
       );
@@ -165,6 +171,7 @@ function PreviewBody({ face, name }: { readonly face: PreviewCardFace; readonly 
         <KindSeat
           kind={face.of === "task" ? "task" : face.of === "artifact" ? "artifacts" : face.of === "page" ? "page" : "link"}
           name={name}
+          ledger={face.of === "artifact" ? NO_ARTIFACTS : face.of === "page" ? ONE_TAB : undefined}
           line={face.reason === "loading" ? "loading" : "gone, or out of reach"}
           state={face.reason === "loading" ? S.resting : S.offline}
         >
