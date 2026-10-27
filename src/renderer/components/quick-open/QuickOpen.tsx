@@ -214,7 +214,9 @@ export function QuickOpen({
       </ul>
       {pending || rows.length > 0 ? null : <p className="quick-open__empty">{source.empty}</p>}
       <div className="quick-open__foot">
-        <span className="quick-open__count">{talk}</span>
+        <span className="quick-open__count" role="status" aria-live="polite" aria-atomic="true">
+          {talk}
+        </span>
         <span className="quick-open__hints">
           <Kbd>↑↓</Kbd>
           <span className="quick-open__hint">move</span>
