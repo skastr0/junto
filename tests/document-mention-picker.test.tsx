@@ -59,8 +59,8 @@ describe("where a mention can be typed", () => {
   it("never in code, a link, an address, a word or a selection", () => {
     expect(pickerQueryAt(stateAt("run `npm @sc` now", 12))).toBeNull();
     expect(pickerQueryAt(stateAt("```\n@here\n```", 9))).toBeNull();
-    // A fence past what the first parse covers is still code.
-    const long = `${"para\n\n".repeat(1_500)}\`\`\`\n@here`;
+    // A fence just past what the first parse covers (3,000 characters) is still code; small, so the parse stays far inside its budget under load.
+    const long = `${"para\n\n".repeat(600)}\`\`\`\n@here`;
     const cold = EditorState.create({ doc: long, selection: EditorSelection.cursor(long.length), extensions: [markdown({ base: markdownLanguage })] });
     expect(syntaxTree(cold).length).toBeLessThan(long.length);
     expect(pickerQueryAt(cold)).toBeNull();
