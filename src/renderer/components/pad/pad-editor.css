@@ -266,18 +266,3 @@ html[data-surface-motion="paused"] .pad-surface * {
   transition: none !important;
   animation: none !important;
 }
-
-/* Dev builds: the pad engine switch, bottom right over either engine,
-   clear of Excalidraw's zoom and undo controls on the left. */
-.artifact-pad-engine {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  z-index: 5;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-md);
-  background: var(--color-raise-2);
-}
