@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.3 — 2026-10-27
+
 Opening the database with 0.10.3 moves it to version 50, and 0.10.2 then
 refuses it as newer than supported. To go back to 0.10.2, open the backup
 taken at the upgrade. The step rebuilds the wires table and adds a column to
