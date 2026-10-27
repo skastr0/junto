@@ -8,6 +8,7 @@ import { ArtifactSheetEditor, selectionRange } from "../src/renderer/components/
 
 vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
 });
 
 let root: Root;
@@ -29,6 +30,8 @@ const button = (text: string) =>
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.createElement("div");
+  // As in the app, the sheet sits in the Artifacts modal's focus surface.
+  host.setAttribute("data-focus-surface", "");
   document.body.append(host);
   root = createRoot(host);
   onPatch = vi.fn(async () => null);
@@ -108,4 +111,82 @@ it("a new grid from the host re-syncs the view", async () => {
   await act(async () => root.render(<ArtifactSheetEditor grid={next} onPatch={onPatch} />));
   expect(cell("A1").value).toBe("bee");
   expect(cell("A2")).toBeNull();
+});
+
+const key = (target: HTMLElement, init: KeyboardEventInit) =>
+  target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+const active = () => document.activeElement as HTMLInputElement;
+
+it("is one Tab stop: arrows move the active cell, Shift+arrow grows the range", async () => {
+  const onCommentCells = vi.fn();
+  await act(async () => root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} onCommentCells={onCommentCells} />));
+  const cells = [...host.querySelectorAll<HTMLInputElement>("[data-cell]")];
+  expect(cells.filter((input) => input.tabIndex === 0).map((input) => input.dataset.cell)).toEqual(["A1"]);
+  expect([...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Delete row"]')].every((b) => b.tabIndex === -1)).toBe(true);
+  await act(async () => cell("A1").focus());
+  await act(async () => { key(active(), { key: "ArrowRight" }); });
+  expect(active().dataset.cell).toBe("B1");
+  expect(cell("B1").tabIndex).toBe(0);
+  expect(cell("A1").tabIndex).toBe(-1);
+  await act(async () => { key(active(), { key: "ArrowDown", shiftKey: true }); });
+  expect(active().dataset.cell).toBe("B2");
+  await act(async () => { key(active(), { key: "ArrowLeft", shiftKey: true }); });
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="artifact-sheet-comment"]')!.click());
+  expect(onCommentCells).toHaveBeenLastCalledWith("A1:B2");
+  expect(host.querySelectorAll('td[aria-selected="true"]')).toHaveLength(4);
+  // The edge stops the cell; it never wraps.
+  await act(async () => { key(active(), { key: "ArrowLeft" }); });
+  expect(active().dataset.cell).toBe("A2");
+});
+
+it("a cell only navigates until Enter, F2 or a typed character starts an edit", async () => {
+  await act(async () => root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} />));
+  await act(async () => cell("A1").focus());
+  expect(cell("A1").readOnly).toBe(true);
+  await act(async () => { key(active(), { key: "Enter" }); });
+  expect(cell("A1").readOnly).toBe(false);
+  expect(host.querySelector('[data-testid="artifact-sheet-status"]')!.textContent).toBe("Editing A1");
+  await act(async () => { setValue(cell("A1"), "antelope"); });
+  await act(async () => { key(active(), { key: "Enter" }); });
+  expect(onPatch.mock.calls[0]![0]).toEqual([{ op: "cell", rowId: "r1", columnId: "c1", value: "antelope" }]);
+  // Enter commits and moves down, out of the edit.
+  expect(active().dataset.cell).toBe("A2");
+  expect(cell("A2").readOnly).toBe(true);
+  await act(async () => { key(active(), { key: "7" }); });
+  expect(cell("A2").readOnly).toBe(false);
+  expect(cell("A2").value).toBe("7");
+  await act(async () => { key(active(), { key: "Tab" }); });
+  expect(onPatch.mock.calls[1]![0]).toEqual([{ op: "cell", rowId: "r2", columnId: "c1", value: "7" }]);
+  expect(active().dataset.cell).toBe("B2");
+  await act(async () => { key(active(), { key: "F2" }); });
+  expect(cell("B2").readOnly).toBe(false);
+});
+
+it("Escape puts the cell back and stays on it; Delete clears; Cmd+Backspace removes the row", async () => {
+  await act(async () => root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} />));
+  await act(async () => cell("A1").focus());
+  await act(async () => { key(active(), { key: "x" }); });
+  expect(cell("A1").value).toBe("x");
+  let escaped = true;
+  document.body.addEventListener("keydown", (event) => { if (event.key === "Escape") escaped = false; }, { once: true });
+  await act(async () => { key(active(), { key: "Escape" }); });
+  expect(escaped, "Escape in an edit stays in the sheet").toBe(true);
+  expect(cell("A1").value).toBe("ant");
+  expect(cell("A1").readOnly).toBe(true);
+  expect(active().dataset.cell).toBe("A1");
+  expect(onPatch).not.toHaveBeenCalled();
+  await act(async () => { key(active(), { key: "Delete" }); });
+  expect(onPatch.mock.calls[0]![0]).toEqual([{ op: "cell", rowId: "r1", columnId: "c1", value: "" }]);
+  await act(async () => { key(active(), { key: "Backspace", metaKey: true }); });
+  expect(onPatch.mock.calls[1]![0]).toEqual([{ op: "row.remove", rowId: "r1" }]);
+});
+
+it("tells assistive tech the sheet's size and each row's place", async () => {
+  await act(async () => root.render(<ArtifactSheetEditor grid={grid} onPatch={onPatch} />));
+  const table = host.querySelector("table")!;
+  expect(table.getAttribute("role")).toBe("grid");
+  expect(table.getAttribute("aria-rowcount")).toBe("3");
+  expect([...host.querySelectorAll("tbody tr[aria-rowindex]")].map((row) => row.getAttribute("aria-rowindex"))).toEqual(["2", "3"]);
+  expect(host.querySelectorAll('tbody th[scope="row"]')).toHaveLength(2);
+  expect(host.querySelector("[data-pane-entry]")!.hasAttribute("tabindex")).toBe(true);
 });

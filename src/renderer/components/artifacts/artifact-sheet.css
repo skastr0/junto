@@ -6,7 +6,11 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
-  padding: 10px 12px;
+  padding: 8px 12px;
+}
+.junto-artifact-sheet__grid:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
 }
 /* Columns share the pane's width up to 280px each: a two-column sheet in a
    wide pane stays a sheet, not two strips across the screen. */
@@ -41,20 +45,29 @@
   border: 0;
   background: transparent;
   color: var(--color-ink);
-  padding: 0 9px;
+  padding: 0 8px;
   font-family: var(--font-mono);
   font-size: var(--text-body);
   outline: none;
+  /* A cell moved to by the keyboard clears the sticky column heads. */
+  scroll-margin-top: 32px;
+}
+/* Outside an edit a cell navigates, so it shows no caret. */
+.junto-artifact-sheet__grid td input:not([data-editing="true"]) {
+  caret-color: transparent;
 }
 .junto-artifact-sheet__grid input[data-numeric="true"] {
   text-align: right;
 }
 .junto-artifact-sheet__grid td[data-selected="true"] {
   background: color-mix(in oklab, var(--color-main) 6%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-main);
 }
 .junto-artifact-sheet__grid input:focus {
+  box-shadow: inset 0 0 0 2px var(--color-cyan);
+}
+.junto-artifact-sheet__grid input[data-editing="true"] {
   background: color-mix(in oklab, var(--color-main) 8%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-main) 45%, transparent);
 }
 .junto-artifact-sheet[data-readonly="true"] .junto-artifact-sheet__grid input {
   cursor: default;
@@ -63,7 +76,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-left: 7px;
+  padding-left: 8px;
   padding-right: 4px;
 }
 .junto-artifact-sheet__letter {
@@ -81,6 +94,7 @@
 .junto-artifact-sheet__gutter {
   width: 56px;
   min-width: 56px;
+  font-weight: inherit;
   background: color-mix(in oklab, var(--color-inset) 50%, transparent);
   color: var(--color-faint);
   text-align: right;
@@ -92,7 +106,7 @@
   justify-content: space-between;
   gap: 2px;
   height: 32px;
-  padding: 0 3px 0 6px;
+  padding: 0 4px 0 6px;
 }
 .junto-artifact-sheet__spacer td {
   border: 0;
