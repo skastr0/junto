@@ -1,0 +1,16 @@
+/* A card shape on the pad (PadCardShape.tsx): the preview card in the shape's box. The pad's own
+   hit test owns every gesture, so nothing in the card takes a pointer. Tokens only. */
+
+.pad-card-shape {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pad-card-shape .preview-card {
+  pointer-events: none;
+}
+
+/* Selected: the card's edge takes the pad's selection hue, as a shape's stroke does. */
+.pad-card-shape[data-selected="true"] .preview-card {
+  border-color: var(--color-amber);
+}
