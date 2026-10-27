@@ -5,7 +5,7 @@ import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { CircleAlert, ExternalLink, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
-import { baseName, parentOf, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
+import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
 import { fileUrl } from "@shared/file-url";
 import { nodeAt } from "../../lib/use-model";
 import {
@@ -36,6 +36,8 @@ import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop } from "./useFilesDrop";
 import { registerFileEditorSave } from "../../lib/file-editor-keys";
 import { keyAria } from "../../lib/key-match";
+import { fileQuickOpen } from "../../lib/quick-open";
+import { useQuickOpen } from "../quick-open/use-quick-open";
 import "../ui/file-tree.css";
 import "./files.css";
 
@@ -113,9 +115,33 @@ export function FilesNode({
     model.setComposition(model.getComposition());
   }, [model, draftsVersion]);
 
+  /** A pick in the palette opens that file in the main pane and brings its row into view. */
+  const quickOpen = useQuickOpen({
+    nodeId,
+    enabled: root.state === "ready",
+    source: useMemo(
+      () =>
+        fileQuickOpen({
+          canvas: canvasName,
+          node: nodeId,
+          search: (target, query, seq) => filesSource().search(target, query, seq),
+        }),
+      [canvasName, nodeId],
+    ),
+    onOpen: (item) => {
+      const path = parseFilePath(item.id);
+      if (path === undefined || path === ROOT_PATH) return;
+      setSelected(path);
+      model.scrollToPath(treePathOf({ path, dir: false }), { offset: "nearest" });
+    },
+  });
+
   const sidebar = (
     <>
-      <PaneHeader eyebrow={<span className="files-eyebrow">{folderName}</span>} />
+      <PaneHeader
+        eyebrow={<span className="files-eyebrow">{folderName}</span>}
+        actions={quickOpen.trigger}
+      />
       <FileTree model={model} className="files-tree" aria-label={`Files in ${folderName}`} />
     </>
   );
@@ -133,6 +159,7 @@ export function FilesNode({
 
   return (
     <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose}>
+      {quickOpen.palette}
       <div {...drop.surface} className="files-body">
         {empty !== null || selected === null || root.state !== "ready" ? (
           <TwoPane sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
