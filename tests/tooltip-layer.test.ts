@@ -82,3 +82,50 @@ describe("placeTooltip", () => {
     expect(placeTooltip(edge, tip, viewport)).toEqual({ left: 8, top: 34, placement: "bottom" });
   });
 });
+
+describe("absorbNativeTitle descriptions", () => {
+  const element = (attrs: Record<string, string>, text = "") => {
+    const values = new Map(Object.entries(attrs));
+    const dataset: { tooltip?: string; juntoTooltip?: string; juntoDescribed?: string } = {};
+    return {
+      getAttribute: (name: string) => values.get(name) ?? null,
+      removeAttribute: (name: string) => void values.delete(name),
+      setAttribute: (name: string, value: string) => void values.set(name, value),
+      textContent: text,
+      dataset,
+    };
+  };
+
+  it("keeps a title that says more than the name as the description", () => {
+    const button = element({ title: "Restore size", "aria-label": "Maximize" });
+    absorbNativeTitle(button);
+    expect(button.getAttribute("aria-description")).toBe("Restore size");
+    expect(button.getAttribute("title")).toBeNull();
+  });
+
+  it("adds nothing when the title is the name", () => {
+    const button = element({ title: "Undo", "aria-label": "Undo" });
+    absorbNativeTitle(button);
+    expect(button.getAttribute("aria-description")).toBeNull();
+  });
+
+  it("reads the name from the text when there is no label", () => {
+    const button = element({ title: "Settings" }, "Settings");
+    absorbNativeTitle(button);
+    expect(button.getAttribute("aria-description")).toBeNull();
+  });
+
+  it("leaves an author's own description alone", () => {
+    const button = element({ title: "Restore size", "aria-label": "Maximize", "aria-description": "Mine" });
+    absorbNativeTitle(button);
+    expect(button.getAttribute("aria-description")).toBe("Mine");
+  });
+
+  it("follows a title that changes, and drops its description when the title becomes the name", () => {
+    const button = element({ title: "Restore size", "aria-label": "Maximize" });
+    absorbNativeTitle(button);
+    button.setAttribute("title", "Maximize");
+    absorbNativeTitle(button);
+    expect(button.getAttribute("aria-description")).toBeNull();
+  });
+});

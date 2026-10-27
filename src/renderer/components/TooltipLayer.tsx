@@ -88,7 +88,9 @@ const triggerFor = (target: EventTarget | null): HTMLElement | null =>
 export type TitleHost = {
   getAttribute: (name: string) => string | null;
   removeAttribute: (name: string) => void;
-  dataset: { tooltip?: string; juntoTooltip?: string };
+  setAttribute?: (name: string, value: string) => void;
+  textContent?: string | null;
+  dataset: { tooltip?: string; juntoTooltip?: string; juntoDescribed?: string };
   querySelectorAll?: (selectors: string) => Iterable<TitleHost>;
 };
 
@@ -102,6 +104,21 @@ export const absorbNativeTitle = (element: TitleHost): void => {
   if (!title) return;
   if (!element.dataset.tooltip) element.dataset.juntoTooltip = title;
   element.removeAttribute("title");
+  // A title that says more than the name stays heard without the tip: the tip
+  // shows only on hover and keyboard focus, and stripping the title took the
+  // description with it. An author's own aria-description wins.
+  const name = (element.getAttribute("aria-label") ?? element.textContent ?? "").trim();
+  const authored = element.getAttribute("aria-description") !== null && element.dataset.juntoDescribed === undefined;
+  if (authored || !element.setAttribute) return;
+  if (title.toLowerCase() === name.toLowerCase()) {
+    if (element.dataset.juntoDescribed !== undefined) {
+      element.removeAttribute("aria-description");
+      delete element.dataset.juntoDescribed;
+    }
+    return;
+  }
+  element.setAttribute("aria-description", title);
+  element.dataset.juntoDescribed = "";
 };
 
 /** Absorb titles on a root and every descendant that still carries `title`. */
