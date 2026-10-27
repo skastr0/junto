@@ -128,6 +128,8 @@ test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
         await modal.getByRole("alert").getByRole("button", { name: "Reload from disk" }).click();
         await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toHaveCount(0);
 
+        // After a reload the keyboard is back in the document: the first Escape stops writing, the second closes.
+        await page.keyboard.press("Escape");
         await page.keyboard.press("Escape");
         await expect(modal).toHaveCount(0);
       }
