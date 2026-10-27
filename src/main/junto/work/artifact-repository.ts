@@ -23,6 +23,8 @@ import { readFile } from "node:fs/promises";
 import { Context, Effect, Layer, Option, Result, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { bodyLinksOf } from "@shared/artifact-links";
+import { InstallOpsService } from "../install-ops/service";
+import { runArtifactLinksBackfill } from "./artifact-links-backfill";
 import {
   type Artifact,
   type ArtifactActor,
@@ -390,6 +392,19 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
     const sql = yield* SqlClient.SqlClient;
     const content = yield* ContentService;
     const recorder = yield* RulingRecorder;
+    // Bodies written before the links step project once, here, at boot: the
+    // walk is install-local (its marker lives in install-ops) and a failure
+    // never gates startup — it logs and resumes on the next boot.
+    const installOps = yield* Effect.serviceOption(InstallOpsService);
+    if (Option.isSome(installOps)) {
+      yield* runArtifactLinksBackfill({ sql, installOps: installOps.value }).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            console.error("[artifacts] body links backfill deferred to next boot:", error);
+          }),
+        ),
+      );
+    }
 
     const headRow = SqlSchema.findOneOption({
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),

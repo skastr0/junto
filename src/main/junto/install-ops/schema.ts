@@ -8,6 +8,8 @@ export const INSTALL_OPS_SCHEMA_VERSION = 1 as const;
 
 /** Stable backfill ids — never reuse a completed id for a different walk. */
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
+/** Project every artifact head body's backlinks, for bodies written before step 52 (0.11, 02). */
+export const BACKFILL_ARTIFACT_LINKS_V1 = "artifact-links.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V1 = "canvas.relational.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V2 = "canvas.relational.v2" as const;
 /** Drop stored `escalates` edges and the retired `request.escalate` port. */

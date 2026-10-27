@@ -30,6 +30,9 @@ import { writeRuling } from "../src/main/junto/work/resource-rulings";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
 import { linkedFromBodies, rebuildBodyLinks } from "../src/main/junto/work/body-links";
+import { runArtifactLinksBackfill } from "../src/main/junto/work/artifact-links-backfill";
+import { InstallOpsService } from "../src/main/junto/install-ops/service";
+import { BACKFILL_ARTIFACT_LINKS_V1 } from "../src/main/junto/install-ops/engine";
 import { seat } from "./support/model-nodes";
 
 const recorder = Layer.effect(
@@ -45,7 +48,7 @@ const recorder = Layer.effect(
 );
 
 let root: string;
-let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | ContentService | SqlClient.SqlClient, unknown>;
+let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | ContentService | SqlClient.SqlClient | InstallOpsService, unknown>;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-body-links-"));
@@ -206,5 +209,35 @@ describe("body backlinks", () => {
     );
     expect(rows.map((row) => row.source_version)).toEqual([2]);
     expect(Option.isSome(await runtime.runPromise(Effect.flatMap(ArtifactRepository, (repo) => repo.head(canvas, budget))))).toBe(true);
+  });
+});
+
+describe("the backfill over bodies written before the projection", () => {
+  it("projects every held body once at boot, and says so in install-ops", async () => {
+    const budget = await createDocument("Budget", "spent");
+    await createDocument("Plan", `The ${link(SHELF, budget, "Budget")} is fixed.`);
+    // An install from before the step: the bodies are here, the rows are not,
+    // and the walk never ran (the layer's own run happened before these bodies
+    // existed, so its marker is reopened as an install that lacked it would be).
+    await runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe("DELETE FROM work_artifact_links", [])));
+    await runtime.runPromise(Effect.flatMap(InstallOpsService, (ops) => ops.reopenPending(BACKFILL_ARTIFACT_LINKS_V1)));
+    expect(await read({ nodeId: SHELF, artifactId: budget })).toEqual([]);
+
+    const first = await runtime.runPromise(
+      Effect.gen(function* () {
+        return yield* runArtifactLinksBackfill({ sql: yield* SqlClient.SqlClient, installOps: yield* InstallOpsService });
+      }),
+    );
+    expect(first).toEqual({ status: "complete", rows: 1 });
+    expect(await read({ nodeId: SHELF, artifactId: budget })).toHaveLength(1);
+
+    // Its marker is complete, so a second boot writes nothing again.
+    const second = await runtime.runPromise(
+      Effect.gen(function* () {
+        return yield* runArtifactLinksBackfill({ sql: yield* SqlClient.SqlClient, installOps: yield* InstallOpsService });
+      }),
+    );
+    expect(second).toEqual({ status: "already-complete", rows: 1 });
+    expect(await read({ nodeId: SHELF, artifactId: budget })).toHaveLength(1);
   });
 });
