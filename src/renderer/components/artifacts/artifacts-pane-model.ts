@@ -144,9 +144,14 @@ export const labelsOf = (artifact: Artifact): ReadonlyArray<string> =>
 
 /**
  * The Artifacts modal's quick open (0.11 F4): the title names a row, and the
- * type and the labels only help it be found. That is the matcher's metadata
- * tier on purpose: a typed word that is a label ranks under every title hit,
- * and a row never outranks a name because of a label it carries.
+ * type and the labels only help it be found, in the matcher's metadata tier.
+ *
+ * The honest rule, as product-keyboard checked against `lib/fuzzy-match`: a
+ * label never outranks a title that names the typed word, prefixes it or
+ * starts a word with it; a label ties a title that merely contains the word,
+ * where the list's own order decides; and a label beats a title that only has
+ * the letters in order. A label itself matches as one whole word, never letter
+ * by letter.
  */
 export const artifactQuickOpen = (entries: ReadonlyArray<ArtifactHead>): QuickOpenSource =>
   itemsQuickOpen({

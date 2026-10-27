@@ -136,6 +136,20 @@ describe("artifact labels in the palette", () => {
     expect(rowsOf(source, "pjr")).toEqual([]);
   });
 
+  it("ties a title that merely contains the word, and the list's order decides", () => {
+    // Both score 2000: "Explanations" holds the letters in one run, the label
+    // is metadata. The row that was already first stays first.
+    const entries = [head("Explanations", "document"), head("Sprint notes", "sheet", ["planning"])];
+    expect(rowsOf(artifactQuickOpen(entries), "plan").map((row) => row.title)).toEqual(["Explanations", "Sprint notes"]);
+  });
+
+  it("beats a title that only has the letters in order", () => {
+    // "pl an" is a 1000 subsequence; the label's 2000 wins, which is the one
+    // boundary where a label leads.
+    const entries = [head("pl an", "document"), head("Sprint notes", "sheet", ["planning"])];
+    expect(rowsOf(artifactQuickOpen(entries), "plan").map((row) => row.title)).toEqual(["Sprint notes", "pl an"]);
+  });
+
   it("reads no labels off a head that carries none yet, as every head does until T1 lands", () => {
     const bare = { artifact: { artifactId: "a1", title: "Launch brief", type: "document" } } as unknown as ArtifactHead;
     expect(labelsOf(bare.artifact)).toEqual([]);
