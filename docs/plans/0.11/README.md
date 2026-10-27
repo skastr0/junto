@@ -1,0 +1,170 @@
+# Junto 0.11 — plan
+
+Status: in execution, started 2026-10-27. Owner: product-lead. Version: 0.11.0
+(minor). Built from the operator's brief of 2026-10-27.
+
+## What 0.11 is
+
+0.10 made Junto's own data (artifacts, tasks, automations) good to work in.
+0.11 reaches the data on the operator's machine: a **Files** node that opens a
+region's folder as a file tree with a light editor, and the tools around it.
+
+1. **Files node.** A canvas node, scoped to one folder on one machine, that
+   shows a file tree and opens a file in the main pane, laid out like the
+   Artifacts node. (F1, F2)
+2. **Light editor.** Code and text open in an editor that highlights, edits
+   and saves; Markdown opens in the editor we already have. No language
+   servers, no tree-sitter, no grep. (F3)
+3. **Quick open (Cmd+P).** A fuzzy search inside a node's modal, with a button
+   too: file names in Files, items in Artifacts, Tasks and Automations. (F4)
+4. **Drop files in.** Files from Finder dropped on the node card, on the
+   modal, or on a folder row in the tree are copied into that folder. (F5)
+5. **Preview.** PDFs and images preview in the main pane. Anything else
+   offers Open in its default app and Reveal in Finder. (F6)
+6. **Comments anywhere in a file.** A thread anchored to lines of code, to a
+   box on an image, or to a box on a PDF page. (F7)
+7. **Extract to artifact.** A box drawn on a PDF page (or an image) becomes an
+   image artifact in an Artifacts node in reach, with a link back to the
+   source. (F8)
+
+## Decisions made in this plan
+
+Recorded so no lead reopens them. A lead who finds one wrong in the code
+mails product-lead with the receipt.
+
+- **Kind name `files`.** `file` is taken by the image card
+  (`src/shared/model/kinds.ts:166`). The Files node is plural, like
+  `artifacts`.
+- **The node owns its folder.** On creation the node stamps the innermost
+  region's `defaults.paths[host]` (`src/shared/region-defaults.ts:80`) as its
+  root, the way terminals and git do; the region default is never read again
+  (`src/shared/model/region.ts:112`). The operator can change the root.
+- **Host-local.** A Files node lives on one machine, like a terminal. Other
+  machines see a stub with its label; the root path never leaves the machine
+  (`docs/security-doctrine.md:143`).
+- **Tree: `@pierre/trees`** (1.0.0-beta.6). Virtualized, with search,
+  drag-and-drop, renaming and git status built in. Bleeding-edge is permitted
+  (`AGENTS.md`, Dependencies).
+- **Editor: `@pierre/diffs/edit`** for code, after a spike (F3 first step).
+  It shares the Shiki highlighting and look of `CodeView.tsx`, which the git
+  review already uses, and has line annotations for comments. This means
+  bumping `@pierre/diffs` 1.1.21 to 1.6.2, and `CodeView` must keep working.
+  Fallback if the spike fails: a plain CodeMirror field (the bare
+  `EditorView` setup of `LiveMarkdownField.tsx`) with `@codemirror/language-data`.
+  Markdown files open in `LiveMarkdownField` either way.
+- **PDF: `pdfjs-dist`** (6.4.299), loaded lazily, with its worker bundled.
+  The CSP already allows `worker-src 'self' blob:` (`src/renderer/index.html:7`).
+- **The renderer never names an absolute path.** Every call names the node
+  and a path relative to its root; main resolves it, `realpath`s it and
+  refuses anything outside the root, symlinks included. Delete moves to the
+  Trash (`shell.trashItem`), never `unlink`. A write names the version it
+  read (mtime and size) and is refused `stale` when the file changed.
+- **Cmd+P is claimed** from the held list (`src/shared/key-table.ts:974`) for
+  quick open inside a node modal.
+- **Filename search runs in main**, over an index of the root (`git ls-files`
+  when the root is a repo, else a walk that skips `.git` and `node_modules`),
+  kept fresh by a watcher. The renderer gets the top 50 per keystroke.
+  Artifacts, tasks and automations rank in the renderer with
+  `src/renderer/lib/fuzzy-match.ts`.
+- **Drops copy, never move or overwrite.** A name that exists gets ` 2`,
+  ` 3`. Moves inside the tree are renames.
+- **Out of scope:** grep across files, language servers, a terminal in the
+  node, git actions (the git node has them), editing PDFs.
+
+## Contracts (land first)
+
+| Contract | File | Owner | Consumers |
+|---|---|---|---|
+| `files` node kind and card | `src/shared/model/kinds.ts` (+ physics, title, kind-icon, rows) | canvas | product, remote |
+| Files service: list, index, search, read, write, create, rename, move, trash, import, watch | `src/shared/files.ts`, IPC in `src/shared/ipc.ts` | tech | product |
+| File bytes for preview: `junto-file://<nodeId>/<relpath>` | `src/shared/file-url.ts` | tech | product |
+| File thread subject and anchors: `lines` with a quote, `box`, new `pageBox {page, x, y, w, h}` normalised 0..1 | `src/shared/wire/thread-subject.ts` | product (product-feed) | canvas, cli |
+| Quick open source | `src/renderer/lib/quick-open.ts` | product (product-modals) | product |
+
+```ts
+// src/shared/files.ts (sketch; tech owns the final shape)
+type FilePath = string & Brand<"FilePath">;          // relative to the node root, no "..", "/" separated
+type FileStamp = { readonly mtimeMs: number; readonly size: number };
+type FileEntry = { readonly path: FilePath; readonly dir: boolean; readonly stamp: FileStamp };
+type FileRead =
+  | { readonly kind: "text"; readonly text: string; readonly stamp: FileStamp }
+  | { readonly kind: "binary"; readonly mime: string; readonly stamp: FileStamp }
+  | { readonly kind: "too-large"; readonly size: number };
+type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large" | "denied" | "root-missing";
+```
+
+## Tracks
+
+### canvas (canvas-lead)
+- **F1 Node kind.** `files` in the closed `Node` union with `{host, root}`;
+  physics, title, kind icon, rows and the schema step (expand only); model
+  factories, palette and catalog entries; the card (folder name, file count);
+  the stub on other machines. Behind a `files` feature, experimental tier,
+  on in all-on. Commit 4a42dc78c is the touch list for a new kind.
+- **F5 (card half).** Dropping Finder files on the card imports them into
+  the root.
+
+### tech (tech-lead), performance-lead reviews the index
+- **F2 Files service in main.** `src/main/junto/files/`: the operations in
+  the contract, root scoping, stale writes, Trash, a watcher that pushes
+  changes, the name index and its ranking, IPC behind `trustedRendererIpc`,
+  and the `junto-file:` protocol with byte ranges for PDFs. Text reads cap at
+  5 MB. Preload exposes `webUtils.getPathForFile` for drops.
+- Doctrine: a "Files node" paragraph in `docs/security-doctrine.md` stating
+  the scoping rules above, reviewed by remote-lead.
+
+### product (product-lead)
+- **F2 UI, product-shell.** The Files modal: `FocusSurface` and `TwoPane`
+  as in `ArtifactsNode.tsx:249`, `@pierre/trees` in the sidebar themed from
+  house tokens, the main pane dispatching on file type, the comments rail.
+  Unsaved changes marked; Cmd+S saves; a stale save offers reload or keep.
+- **F3 Editor, product-documents.** First the spike: `@pierre/diffs/edit` vs
+  the CodeMirror fallback on a 5,000-line TypeScript file (open time, typing
+  latency, undo, find, theme in dark and bright), with receipts, then the
+  pick. Then the editor component and the `CodeView` upgrade.
+- **F4 Quick open, product-modals with product-keyboard.** The Cmd+P palette
+  and its header button in Files, Artifacts, Tasks and Automations; the key
+  table entry; list navigation from `src/renderer/lib/list-nav.ts`.
+- **F5 Drops, product-sheet.** Drop on the modal and on a folder row, with a
+  drop highlight; tree drag to move.
+- **F6 Preview, product-pad.** The PDF viewer (pages, zoom, text selection)
+  and the image viewer, with box drawing reused from the pad and browser box
+  composer.
+- **F7 Comments, product-feed.** The file subject and the `pageBox` anchor;
+  line comments in the editor gutter, box comments on images and PDFs, the
+  rail listing a file's threads, a thread re-finding its lines by its quote
+  after edits.
+- **F8 Extract, product-pad with product-documents.** "Extract as artifact"
+  on a drawn box: render the region at 2x to PNG, put it in the content
+  store, create a `file` artifact in an Artifacts node in reach, with the
+  source file, page and box in its description.
+- Review: product-typography for tokens and shared UI; product-accessibility
+  for the tree, palette and viewers; product-automation and product-verify
+  verify in the real app before a track is reported done.
+
+### cli (cli-lead)
+- Question only: do seats need anything for files? Seats already have the
+  filesystem. Comments that mention a seat reach it as mail today. My
+  proposal is no new command in 0.11; answer by mail.
+
+### remote (remote-lead)
+- Confirm the host-local shape and the stub; review the doctrine paragraph.
+
+### releases (product-releases)
+- 0.11.0 notes and checklist in this folder, once tracks report done.
+
+## Tracker
+
+| Track | Owner | State |
+|---|---|---|
+| F1 node kind | canvas | assigned |
+| F2 service, protocol, doctrine | tech | assigned |
+| F2 modal | product-shell | assigned |
+| F3 editor spike, then editor | product-documents | assigned |
+| F4 quick open | product-modals, product-keyboard | assigned |
+| F5 drops | product-sheet, canvas (card) | assigned |
+| F6 preview | product-pad | assigned |
+| F7 comments | product-feed | assigned |
+| F8 extract | product-pad, product-documents | assigned |
+| cli question | cli-lead | asked |
+| remote review | remote-lead | asked |
