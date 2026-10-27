@@ -29,6 +29,7 @@ export function PdfViewer({
   data,
   boxes = [],
   onComment,
+  onDraft,
   initialPage,
 }: FileViewProps & {
   /** The PDF's bytes instead of its address: the dev gallery has no Files node to serve them. */
@@ -97,6 +98,7 @@ export function PdfViewer({
     nodeId,
     path,
     onComment,
+    onDraft,
     shoot: async (draft) => {
       if (loading.kind !== "ready" || draft.page === undefined) throw new Error("The PDF is not open.");
       const shot = await loading.engine.renderPageBox(await loading.pdf.doc.getPage(draft.page), draft.box);

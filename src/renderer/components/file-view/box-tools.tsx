@@ -31,6 +31,8 @@ export type FileViewProps = {
   readonly boxes?: ReadonlyArray<FileThreadBox>;
   /** Comment on a drawn box. Absent: the box offers extract only. */
   readonly onComment?: (comment: BoxComment) => void;
+  /** Told each time the drawn box changes: drawn, moved or resized (the box), discarded or used (null). */
+  readonly onDraft?: (draft: BoxDraft | null) => void;
   /** The page a PDF opens on (an extract's source page); the first when absent. */
   readonly initialPage?: number;
 };
@@ -50,12 +52,17 @@ export const useBoxTools = ({
   nodeId,
   path,
   onComment,
+  onDraft,
   shoot,
-}: Pick<FileViewProps, "canvasName" | "nodeId" | "path" | "onComment"> & {
+}: Pick<FileViewProps, "canvasName" | "nodeId" | "path" | "onComment" | "onDraft"> & {
   readonly shoot: (draft: BoxDraft) => Promise<BoxShot>;
 }) => {
   const [drawing, setDrawing] = useState(false);
-  const [draft, setDraft] = useState<BoxDraft | null>(null);
+  const [draft, setDraftState] = useState<BoxDraft | null>(null);
+  const setDraft = (next: BoxDraft | null): void => {
+    setDraftState(next);
+    onDraft?.(next);
+  };
   const [extract, setExtract] = useState<ExtractState>({ kind: "idle" });
   const canvas = useCanvas(canvasName);
   const targets = useMemo(() => extractTargets(canvas, nodeId), [canvas, nodeId]);
