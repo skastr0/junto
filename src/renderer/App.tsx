@@ -81,7 +81,7 @@ import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
 import { SEED_CANVAS_NAME } from "@shared/seed";
-import { nextCanvasBootAction } from "./lib/canvas-boot";
+import { bootStep, nextCanvasBootAction } from "./lib/canvas-boot";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
@@ -369,18 +369,18 @@ export function App() {
 
     const boot = async () => {
       try {
-        const settingsResult = await junto.settingsGet?.();
+        const settingsResult = await bootStep("settings", async () => junto.settingsGet?.());
         if (settingsResult?.ok && settingsResult.settings) {
           state$.settings.set(settingsResult.settings);
         }
-        const list = await junto.modelCanvases();
+        const list = await bootStep("canvas list", () => junto.modelCanvases());
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
           const action = nextCanvasBootAction(list.map((row) => row.name));
           if (action.kind === "open") {
-            await openCanvas(action.name);
+            await bootStep(`open canvas ${action.name}`, () => openCanvas(action.name));
           } else {
-            await createCanvas(SEED_CANVAS_NAME);
+            await bootStep(`create canvas ${SEED_CANVAS_NAME}`, () => createCanvas(SEED_CANVAS_NAME));
           }
         }
       } catch (error) {
