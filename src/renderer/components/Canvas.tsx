@@ -105,6 +105,8 @@ import { openProfileDraft } from "../lib/profile-draft-state";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { openTerminalGrid } from "../lib/terminal-grid-state";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
+import { FilesWizard, createFilesFromRegion } from "./files/FilesWizard";
+import { featureOnNow } from "../lib/experimental-features";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
@@ -803,6 +805,11 @@ const makeAddActions = (
   addGit: () => {
     const position = positionFor({ width: 280, height: 128 });
     window.dispatchEvent(new CustomEvent("junto:new-git", { detail: position }));
+    dismiss();
+  },
+  addFiles: () => {
+    const position = positionFor({ width: 280, height: 128 });
+    window.dispatchEvent(new CustomEvent("junto:new-files", { detail: position }));
     dismiss();
   },
   addTerminal: () => {
@@ -1546,6 +1553,7 @@ function CanvasGraph() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
   const [gitAnchor, setGitAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [filesAnchor, setFilesAnchor] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const openTerminal = (event: Event) => {
       const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
@@ -1570,6 +1578,18 @@ function CanvasGraph() {
     window.addEventListener("junto:new-git", openGit);
     return () => {
       window.removeEventListener("junto:new-git", openGit);
+    };
+  }, []);
+  useEffect(() => {
+    const openFiles = (event: Event) => {
+      if (!featureOnNow("files")) return;
+      const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
+      if (createFilesFromRegion(anchor)) return;
+      setFilesAnchor(anchor);
+    };
+    window.addEventListener("junto:new-files", openFiles);
+    return () => {
+      window.removeEventListener("junto:new-files", openFiles);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<MultiMenuAnchor | null>(null);
@@ -1790,6 +1810,7 @@ function CanvasGraph() {
   return <CanvasPerformanceBoundary><>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     {gitAnchor ? <GitWizard anchor={gitAnchor} onClose={() => setGitAnchor(null)} /> : null}
+    {filesAnchor ? <FilesWizard anchor={filesAnchor} onClose={() => setFilesAnchor(null)} /> : null}
     <ReactFlow
       className={[
         connecting ? "is-connecting" : "",

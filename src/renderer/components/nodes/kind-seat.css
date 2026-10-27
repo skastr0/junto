@@ -125,6 +125,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .kind-band {
 .junto-node:has(.kind-seat[data-kind="page"]) { --kind-hue: var(--color-indigo); }
 .junto-node:has(.kind-seat[data-kind="terminal"]) { --kind-hue: var(--color-steel); }
 .junto-node:has(.kind-seat[data-kind="git"]) { --kind-hue: var(--color-orange); }
+.junto-node:has(.kind-seat[data-kind="files"]) { --kind-hue: var(--color-blue); }
 .junto-node:has(.kind-seat[data-kind="file"]) { --kind-hue: var(--color-gold); }
 .junto-node:has(.kind-seat[data-kind="link"]) { --kind-hue: var(--color-cyan); }
 .junto-node:has(.kind-seat[data-kind="note"]) { --kind-hue: var(--color-gold); }

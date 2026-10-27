@@ -233,8 +233,8 @@ export const flowNodesFromModel = (
           ? ({ ...size, "--ring-cap": String(ringCap) } as CSSProperties)
           : size,
       zIndex: region ? REGION_Z_BASE + (regionDepth ?? 0) : CARD_Z,
-      // Regions, bare labels and git cards never grow connectors.
-      connectable: !region && node.kind !== "label" && node.kind !== "git",
+      // Regions, bare labels, git cards and Files nodes never grow connectors.
+      connectable: !region && node.kind !== "label" && node.kind !== "git" && node.kind !== "files",
       ariaLabel: spokenNodeName(name, node.kind, isBlocked),
       focusable: true,
       selectable: !region,

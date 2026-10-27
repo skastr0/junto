@@ -53,6 +53,8 @@ import {
 import { GitCard } from "../git/GitCard";
 import { holdsSeatRing } from "../../lib/node-geometry";
 import { GitDetail } from "../git/GitDetail";
+import { FilesCard } from "../files/FilesCard";
+import { FilesDetail } from "../files/FilesDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 
 import { NodeShell } from "./NodeShell";
@@ -127,7 +129,8 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
     entityKind === "task" ||
     entityKind === "artifacts" ||
     entityKind === "automations" ||
-    entityKind === "git";
+    entityKind === "git" ||
+    entityKind === "files";
   // A feature-gated sink keeps its historical card and rename behavior but
   // cannot open a work detail surface in a build whose gate is off.
   const workDetailAllowed =
@@ -267,7 +270,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
       blocked={data.blocked}
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
       resizable={!holdsSeatRing(kind)}
-      showHandles={!isLabel && kind !== "git"}
+      showHandles={!isLabel && kind !== "git" && kind !== "files"}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
       look={kind !== undefined && SPINE_KINDS.has(kind) ? "spine" : "card"}
@@ -310,6 +313,16 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
         <ArtifactsDetail
+          nodeId={id}
+          initialItemId={workDetailItemId}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
+      ) : null}
+      {workDetail && workDetailAllowed && entityKind === "files" ? (
+        <FilesDetail
           nodeId={id}
           initialItemId={workDetailItemId}
           onClose={() => {
@@ -459,6 +472,10 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           ) : entityKind === "git" ? (
             <WithNode canvas={canvasName} id={id} kind="git">
               {(node) => <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}
+            </WithNode>
+          ) : entityKind === "files" ? (
+            <WithNode canvas={canvasName} id={id} kind="files">
+              {(node) => <FilesCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}
             </WithNode>
           ) : (
             <NoteMarkdown source={text} />

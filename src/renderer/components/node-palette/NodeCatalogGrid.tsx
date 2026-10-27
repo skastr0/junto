@@ -3,6 +3,7 @@ import {
   Archive,
   Blocks,
   FileText,
+  FolderTree,
   GitBranch,
   Globe2,
   PanelTop,
@@ -92,6 +93,19 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A named area that groups related work and can carry a briefing.",
   },
 ];
+
+/** The Files node: experimental, so it joins the catalog only while the operator has it on. */
+export const FILES_CATALOG_ENTRY: NodeCatalogEntry = {
+  id: "files", category: "sinks", label: "Files",
+  icon: FolderTree,
+  purpose: "A folder on this machine as a file tree, with a light editor and previews.",
+};
+
+/** The catalog as the operator sees it: the defaults, with Files after Git when its feature is on. */
+export const nodeCatalogEntries = (filesOn: boolean): readonly NodeCatalogEntry[] =>
+  filesOn
+    ? DEFAULT_NODE_CATALOG_ENTRIES.flatMap((entry) => (entry.id === "git" ? [entry, FILES_CATALOG_ENTRY] : [entry]))
+    : DEFAULT_NODE_CATALOG_ENTRIES;
 
 export type NodeCatalogGridProps = {
   readonly query?: string;

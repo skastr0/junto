@@ -62,7 +62,7 @@ export const verbsForDraw = (
 export const canConnect = (from: Node | undefined, to: Node | undefined): boolean => {
   if (from === undefined || to === undefined) return false;
   for (const node of [from, to]) {
-    if (node.kind === "region" || node.kind === "label" || node.kind === "git") return false;
+    if (node.kind === "region" || node.kind === "label" || node.kind === "git" || node.kind === "files") return false;
     if (!productNodeKindEnabled(physicsKind(node.kind))) return false;
   }
   return verbsForDraw(physicsKind(from.kind), physicsKind(to.kind)).verbs.length > 0;
@@ -111,6 +111,8 @@ const refusalLine = (canvas: Canvas, refusal: Extract<Connected, { ok: false }>,
       return "Labels cannot take connections.";
     case "git":
       return "Git cannot take connections.";
+    case "files":
+      return "Files cannot take connections.";
     case "disabled":
       return "That node is disabled in this build.";
     case "duplicate":
@@ -229,14 +231,14 @@ export type EdgeBatchPlan = {
 /** What a plan needs to know of a card: whether it takes a wire at all, and its kind. */
 type PlanNode = {
   /** Why it takes no wire, when it takes none. */
-  readonly takes: "wire" | "region" | "label" | "git";
+  readonly takes: "wire" | "region" | "label" | "git" | "files";
   readonly kind: string | undefined;
 };
 /** A wire as a plan reads it: its two ends, and its verb when it has one. */
 type PlanWire = { readonly from: string; readonly to: string; readonly verb?: Verb | undefined };
 
 const planNodeOf = (node: Node): PlanNode => ({
-  takes: node.kind === "region" ? "region" : node.kind === "label" ? "label" : node.kind === "git" ? "git" : "wire",
+  takes: node.kind === "region" ? "region" : node.kind === "label" ? "label" : node.kind === "git" ? "git" : node.kind === "files" ? "files" : "wire",
   kind: physicsKind(node.kind),
 });
 /** Whether these wires, as a canvas, hold a loop of boards. */

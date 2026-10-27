@@ -1,0 +1,104 @@
+import { describe, expect, it } from "vitest";
+import { Schema } from "effect";
+import { filesOn } from "../src/shared/features";
+import { UNNAMED_MACHINE } from "../src/shared/canvas-copy";
+import { Node } from "../src/shared/model";
+import { titleOf } from "../src/shared/model/title";
+import { newFiles, newNote } from "../src/renderer/lib/model-factories";
+import { connected } from "../src/renderer/lib/model-edits";
+import { canConnect, targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import { toFlowOfCanvas } from "../src/renderer/lib/convert";
+import { nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
+import { cardDropNotice } from "../src/renderer/lib/files-card";
+import { nodeCatalogEntries } from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import { canvasOf, seat } from "./support/model-nodes";
+import type { FilePath } from "../src/shared/files";
+
+const ON = { files: true } as const;
+const OFF = { files: false } as const;
+const at = { x: 12, y: 34, z: 0 };
+const made = () => newFiles(at, { host: "studio", root: "/Users/me/proj" }, ON);
+
+describe("files node factory", () => {
+  it("makes a files node on its machine with the folder, and no label", () => {
+    const node = made();
+    expect(node.kind).toBe("files");
+    expect(node.host).toBe("studio");
+    expect(node.root).toBe("/Users/me/proj");
+    expect(node.id.startsWith("files-")).toBe(true);
+    expect(node).not.toHaveProperty("label");
+    expect(Schema.decodeUnknownSync(Node)(node)).toEqual(node);
+  });
+
+  it("is called by its folder's name until the operator writes one", () => {
+    expect(titleOf(made())).toBe("proj");
+    expect(titleOf({ ...made(), root: "/Users/me/proj/" })).toBe("proj");
+    expect(titleOf({ ...made(), label: "site" })).toBe("site");
+  });
+
+  it("refuses with the files toggle off", () => {
+    expect(filesOn(OFF)).toBe(false);
+    expect(filesOn(undefined)).toBe(false);
+    expect(() => newFiles(at, { host: "studio", root: "/tmp" }, OFF)).toThrow(/disabled/);
+    expect(() => newFiles(at, { host: "studio", root: "/tmp" }, undefined)).toThrow(/disabled/);
+  });
+
+  it("refuses the unnamed machine, a bad name, and a folder that is not absolute", () => {
+    expect(() => newFiles(at, { host: UNNAMED_MACHINE, root: "/tmp" }, ON)).toThrow();
+    expect(() => newFiles(at, { host: "", root: "/tmp" }, ON)).toThrow();
+    expect(() => newFiles(at, { host: "studio", root: "~/proj" }, ON)).toThrow();
+    expect(() => newFiles(at, { host: "studio", root: "proj" }, ON)).toThrow();
+    expect(() => newFiles(at, { host: "studio", root: " " }, ON)).toThrow();
+  });
+});
+
+describe("files in the palette", () => {
+  it("is offered only with the toggle on, after Git", () => {
+    expect(nodeCatalogEntries(filesOn(OFF)).map((entry) => entry.id)).not.toContain("files");
+    expect(nodeCatalogEntries(filesOn(undefined)).map((entry) => entry.id)).not.toContain("files");
+    const ids = nodeCatalogEntries(filesOn(ON)).map((entry) => entry.id);
+    expect(ids.indexOf("files")).toBe(ids.indexOf("git") + 1);
+    expect(nodeCatalogEntries(true).find((entry) => entry.id === "files")?.category).toBe("sinks");
+  });
+});
+
+describe("files takes no wire", () => {
+  it("draws no connectors", () => {
+    const files = made();
+    const note = newNote({ x: 100, y: 0, z: 1 });
+    const { nodes } = toFlowOfCanvas(canvasOf([files, note]), { canvasName: "test", resolveActorRef: () => undefined, heldBy: {} });
+    expect(nodes.find((n) => n.id === files.id)?.connectable).toBe(false);
+  });
+
+  it("says Files cannot take connections, either way round", () => {
+    const files = made();
+    const canvas = canvasOf([files, seat("a")]);
+    expect(connected(canvas, { id: "w1", from: "a", to: files.id })).toMatchObject({ ok: false, why: "files" });
+    expect(connected(canvas, { id: "w2", from: files.id, to: "a" })).toMatchObject({ ok: false, why: "files" });
+    expect(canConnect(canvas.nodes.get(files.id), canvas.nodes.get("a" as never))).toBe(false);
+    expect(targetPlanOn(canvas, ["a"], files.id).skipped).toEqual([{ source: "a", reason: "invalid-target" }]);
+    expect(targetPlanOn(canvas, [files.id], "a").toAdd).toEqual([]);
+  });
+
+  it("opens the work surface", () => {
+    expect(nodeSurfaceKind(made())).toBe("work");
+  });
+});
+
+describe("a drop on the card", () => {
+  const describeError = () => "Refused.";
+  const path = (p: string) => p as FilePath;
+
+  it("names the copy, and the new name when the old one was taken", () => {
+    expect(cardDropNotice(["/a/notes.md"], { ok: true, value: [{ path: path("notes.md"), dir: false }] }, "proj", describeError))
+      .toEqual({ text: "Copied notes.md into proj.", failed: false });
+    expect(cardDropNotice(["/a/notes.md"], { ok: true, value: [{ path: path("notes 2.md"), dir: false }] }, "proj", describeError))
+      .toEqual({ text: "Copied notes.md into proj as notes 2.md.", failed: false });
+  });
+
+  it("says a refusal, and that only Finder files drop", () => {
+    expect(cardDropNotice(["/a/x"], { ok: false, error: "root-missing" }, "proj", describeError))
+      .toEqual({ text: "Nothing was copied into proj. Refused.", failed: true });
+    expect(cardDropNotice([], undefined, "proj", describeError)?.failed).toBe(true);
+  });
+});

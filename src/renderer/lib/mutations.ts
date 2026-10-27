@@ -9,7 +9,7 @@ import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, Regi
 import type { TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import type { Canvas } from "@shared/model/canvas";
-import { added, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, titled } from "./model-edits";
+import { added, filesEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, titled } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -650,6 +650,13 @@ export const setGitCwd = (id: string, input: string): void => {
   const cwd = input.trim();
   if (!cwd) return;
   commitCommands((canvas) => gitEdited(canvas, id, { cwd }));
+};
+
+/** Point a Files node at another folder on its machine. The region's folder is not read again. */
+export const setFilesRoot = (id: string, input: string): void => {
+  const root = input.trim();
+  if (!root) return;
+  commitCommands((canvas) => filesEdited(canvas, id, { root }));
 };
 
 /** Name any node from the bottom bar, the way its kind holds a name (see `titled`). */

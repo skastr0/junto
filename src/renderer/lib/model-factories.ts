@@ -1,7 +1,10 @@
 import { ulid } from "ulid";
+import { UNNAMED_MACHINE } from "@shared/canvas-copy";
 import {
   ARTIFACTS_ENABLED,
+  filesOn,
   TASKS_ENABLED,
+  type ExperimentalOptIns,
 } from "@shared/features";
 import { asNodeId, type NodeOf } from "@shared/model";
 import type { Region } from "@shared/model/region";
@@ -73,6 +76,28 @@ export const newGit = (spot: Spot, cwd: string, label?: string): NodeOf<"git"> =
   ...(label?.trim() ? { label: label.trim() } : {}),
   cwd,
 });
+
+/** A folder as a Files node holds it: absolute on its machine, never "~" or relative. */
+export const isAbsoluteFolder = (path: string): boolean => path.trim().startsWith("/");
+
+/**
+ * A Files node: the folder `root` on the machine `host`, which is the editing
+ * machine's real name. It has no label when new: a label is only what the
+ * operator writes, and it crosses to other machines where the root may not.
+ * Experimental: made only while the operator has the files feature on.
+ */
+export const newFiles = (
+  spot: Spot,
+  options: { readonly host: string; readonly root: string },
+  optIns: ExperimentalOptIns,
+): NodeOf<"files"> => {
+  requireFeature(filesOn(optIns), "files node");
+  const host = requireHostId(options.host);
+  if (host === UNNAMED_MACHINE) throw new Error("a files node names this machine, not the unnamed one");
+  const root = options.root.trim();
+  if (!isAbsoluteFolder(root)) throw new Error("a files node needs an absolute folder");
+  return { kind: "files", ...placed("files", spot, AGENT_NODE_SIZE), host, root };
+};
 
 // ── Seats and terminals ─────────────────────────────────────────────────────
 

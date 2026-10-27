@@ -150,6 +150,10 @@ export const pageEdited = (canvas: Canvas, id: string, fields: FieldsOf<"page">)
 export const gitEdited = (canvas: Canvas, id: string, fields: FieldsOf<"git">): Commands =>
   edited(canvas, id, "git", fields);
 
+/** Change a Files node's folder or label. */
+export const filesEdited = (canvas: Canvas, id: string, fields: FieldsOf<"files">): Commands =>
+  edited(canvas, id, "files", fields);
+
 // ── Place, size, colour, order ──────────────────────────────────────────────
 
 /**
@@ -296,9 +300,10 @@ export type DrawVerbs = {
 
 const NO_VERBS: DrawVerbs = { verbs: [], reversed: false };
 
-/** A region, a bare label and a git card take no wire, nor does a kind this build has off. */
+/** A region, a bare label, a git card and a Files node take no wire, nor does a kind this build has off. */
 const wireable = (node: Node): boolean =>
-  node.kind !== "region" && node.kind !== "label" && node.kind !== "git" && productNodeKindEnabled(verbKind(node));
+  node.kind !== "region" && node.kind !== "label" && node.kind !== "git" && node.kind !== "files" &&
+  productNodeKindEnabled(verbKind(node));
 
 /**
  * The verbs a wire drawn from one node to another may carry. Drawn order wins
@@ -313,7 +318,7 @@ export const verbsForDraw = (from: Node | undefined, to: Node | undefined): Draw
   return flipped.length > 0 ? { verbs: flipped, reversed: true } : NO_VERBS;
 };
 
-export type ConnectRefusal = "self" | "missing" | "label" | "git" | "disabled" | "no-verb" | "duplicate" | "cycle";
+export type ConnectRefusal = "self" | "missing" | "label" | "git" | "files" | "disabled" | "no-verb" | "duplicate" | "cycle";
 
 export type Connected =
   | { readonly ok: true; readonly commands: Commands; readonly wire: Wire }
@@ -342,6 +347,7 @@ export const connected = (
   for (const node of [drawnFrom, drawnTo]) {
     if (node.kind === "label") return { ok: false, why: "label" };
     if (node.kind === "git") return { ok: false, why: "git" };
+    if (node.kind === "files") return { ok: false, why: "files" };
     if (!productNodeKindEnabled(verbKind(node))) return { ok: false, why: "disabled" };
   }
   const admits = verbsForDraw(drawnFrom, drawnTo);

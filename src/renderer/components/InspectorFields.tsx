@@ -14,7 +14,8 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import { releaseFocus } from "../lib/focus-ownership";
 import { regionEdited } from "../lib/model-edits";
-import { commitCommands, editLink, editText, setGitCwd, setPageBinding, setRegionDefaults } from "../lib/mutations";
+import { commitCommands, editLink, editText, setFilesRoot, setGitCwd, setPageBinding, setRegionDefaults } from "../lib/mutations";
+import { isAbsoluteFolder } from "../lib/model-factories";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../lib/machines";
@@ -122,12 +123,20 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
   const node = useNode(use$(state$.canvasName), nodeId);
   const textValue = node && "text" in node ? node.text : node && "label" in node ? node.label ?? "" : "";
   const gitCwdValue = node?.kind === "git" ? node.cwd : "";
+  const filesRootValue = node?.kind === "files" ? node.root : "";
   const [textDraft, setTextDraft] = useState(textValue);
   const [gitCwdDraft, setGitCwdDraft] = useState(gitCwdValue);
+  const [filesRootDraft, setFilesRootDraft] = useState(filesRootValue);
   useEffect(() => {
     setTextDraft(textValue);
     setGitCwdDraft(gitCwdValue);
-  }, [gitCwdValue, nodeId, textValue]);
+    setFilesRootDraft(filesRootValue);
+  }, [filesRootValue, gitCwdValue, nodeId, textValue]);
+  // A Files node holds an absolute folder; anything else goes back to the one it had.
+  const commitFilesRoot = () => {
+    if (isAbsoluteFolder(filesRootDraft)) setFilesRoot(nodeId, filesRootDraft);
+    else setFilesRootDraft(filesRootValue);
+  };
 
   const commitText = () => { if (node && ["note", "label", "agent", "terminal"].includes(node.kind) && textDraft !== textValue) editText(nodeId, textDraft); };
 
@@ -168,6 +177,29 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
             }
             if (event.key === "Escape") {
               setGitCwdDraft(gitCwdValue);
+              releaseFocus(event.currentTarget, "gesture");
+            }
+          }}
+        />
+      </label>
+    ) : null}
+    {node?.kind === "files" ? (
+      <label className="inspector-editor">
+        <span>folder</span>
+        <input
+          data-focus-owner="canvas-draft"
+          aria-label="Files folder"
+          value={filesRootDraft}
+          onChange={(event) => setFilesRootDraft(event.target.value)}
+          onBlur={commitFilesRoot}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitFilesRoot();
+              releaseFocus(event.currentTarget, "gesture");
+            }
+            if (event.key === "Escape") {
+              setFilesRootDraft(filesRootValue);
               releaseFocus(event.currentTarget, "gesture");
             }
           }}

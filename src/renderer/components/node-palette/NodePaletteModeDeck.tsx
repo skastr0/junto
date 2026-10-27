@@ -17,12 +17,14 @@ import {
   type AgentConfigurationChoices,
 } from "./agent-launch-model";
 import { state$ } from "../../lib/state";
+import { useFeatureOn } from "../../lib/experimental-features";
 import {
   AgentHarnessPick,
   type CascadeDismiss,
 } from "./AgentHarnessPick";
 import {
   DEFAULT_NODE_CATALOG_ENTRIES,
+  nodeCatalogEntries,
   NodeCatalogGrid,
   type NodeCatalogCategory,
   type NodeCatalogEntry,
@@ -52,6 +54,7 @@ export type ModeDeckActions = {
   readonly addArtifacts: () => void;
   readonly addAutomations: () => void;
   readonly addGit: () => void;
+  readonly addFiles: () => void;
   readonly addTerminal: () => void;
   readonly addPage: () => void;
   readonly addLabel: () => void;
@@ -79,6 +82,7 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "artifacts": actions.addArtifacts(); break;
     case "automations": actions.addAutomations(); break;
     case "git": actions.addGit(); break;
+    case "files": actions.addFiles(); break;
     case "page": actions.addPage(); break;
     case "note": actions.create("text"); break;
     case "label": actions.addLabel(); break;
@@ -100,6 +104,7 @@ export function NodePaletteModeDeck({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<DeckTab>("all");
+  const catalogEntries = nodeCatalogEntries(useFeatureOn("files"));
   const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue>(
     defaultAgentLaunchContext,
   );
@@ -262,6 +267,7 @@ export function NodePaletteModeDeck({
                 className="node-deck__catalog-grid"
                 query={query}
                 category={category}
+                entries={catalogEntries}
                 onSelect={(entry) => catalogAction(actions, entry)}
               />
             </>

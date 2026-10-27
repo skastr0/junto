@@ -132,6 +132,7 @@ function NodeFormFocus({
         kind !== "artifacts" &&
         kind !== "page" &&
         kind !== "git" &&
+        kind !== "files" &&
         !["note", "file", "link", "region"].includes(node.kind) ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
@@ -141,6 +142,7 @@ function NodeFormFocus({
         kind !== "artifacts" &&
         kind !== "page" &&
         kind !== "git" &&
+        kind !== "files" &&
         node.kind !== "region" &&
         !["note", "file", "link", "region"].includes(node.kind) ? (
           <NodePlacementSection nodeId={nodeId} />
@@ -151,6 +153,7 @@ function NodeFormFocus({
         kind !== "artifacts" &&
         kind !== "page" &&
         kind !== "git" &&
+        kind !== "files" &&
         !["note", "file", "link", "region"].includes(node.kind) ? (
           <NodeCapabilityInventory nodeId={nodeId} />
         ) : null}
