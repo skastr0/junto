@@ -152,7 +152,7 @@ test("comment on a selection (product-documents, product-sheet): quote saved, th
     await shot(page, "select-2-thread");
 
     // Collapsed, the document keeps a mark on the quote; pressing it reopens the rail on that thread.
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press("Meta+Shift+M");
     await expect(page.locator(".artifact-comments-edge")).toBeVisible();
     await expect(page.getByTestId("comments-edge-count")).toHaveText("1");
     const mark = page.locator(".artifact-document__anchor");
@@ -198,9 +198,9 @@ test("comments rail (product-sheet): collapsed by default, click and key toggle,
     // Click opens, the key closes, the key opens again.
     await edge.click();
     await expect(page.getByLabel("New comment")).toBeVisible();
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press("Meta+Shift+M");
     await expect(edge).toBeVisible();
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press("Meta+Shift+M");
     await expect(page.getByLabel("New comment")).toBeVisible();
 
     // The operator and the seat comment: two posts, one face (the operator is not a seat).
@@ -216,7 +216,7 @@ test("comments rail (product-sheet): collapsed by default, click and key toggle,
     const threads = page.getByRole("list", { name: "Threads" });
     await expect(threads.locator(".artifact-thread__post")).toHaveCount(2, { timeout: 30_000 });
 
-    await page.keyboard.press("Meta+B");
+    await page.keyboard.press("Meta+Shift+M");
     await expect(edge).toBeVisible();
     await expect(edge).toHaveAttribute("aria-label", "Comments, 2");
     await expect(page.getByTestId("comments-edge-count")).toHaveText("2");
