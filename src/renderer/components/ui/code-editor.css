@@ -1,0 +1,223 @@
+/* The code editor (CodeMirror, the Files node). Chrome and syntax both come
+   from house tokens, so it sits beside CodeView and the live markdown field in
+   both themes. Put `code-editor` on the editor's host element and install
+   syntaxHighlighting(classHighlighter) from @lezer/highlight: the highlighter
+   only names a token (tok-keyword), and the colour is chosen here.
+
+   Syntax holds to the house palette: amber for keywords, and a few quiet hues
+   for the rest. Every text colour here clears 4.5:1 on the ground in both
+   modes (measured on the generated tokens; the bright pink and gold do not,
+   so they are not used). Ink is the default, so most of a file reads as ink. */
+.code-editor {
+  min-width: 0;
+  min-height: 0;
+  background: var(--code-view-surface, var(--color-ground));
+  color-scheme: dark;
+}
+
+html[data-theme="bright"] .code-editor {
+  color-scheme: light;
+}
+
+.code-editor .cm-editor {
+  height: 100%;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+}
+
+.code-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.code-editor:has(.cm-content:focus-visible) {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+/* One row height with CodeView: 1.5 times the code size. */
+.code-editor .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: calc(var(--text-body-lg) * 1.5);
+}
+
+.code-editor .cm-content {
+  caret-color: var(--color-amber);
+}
+
+.code-editor .cm-cursor {
+  border-left-color: var(--color-amber);
+}
+
+.code-editor .cm-gutters {
+  border-right: 0;
+  background: transparent;
+  color: var(--color-faint);
+}
+
+.code-editor .cm-lineNumbers .cm-gutterElement {
+  padding: 0 8px 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-editor .cm-activeLine {
+  background: var(--color-overlay-1);
+}
+
+.code-editor .cm-activeLineGutter {
+  background: var(--color-overlay-1);
+  color: var(--color-ink-2);
+}
+
+/* The house selection, and a quieter one while the editor is not focused. */
+.code-editor .cm-selectionBackground,
+.code-editor .cm-content ::selection {
+  background: var(--color-selection-inactive);
+}
+
+.code-editor .cm-editor.cm-focused .cm-selectionBackground,
+.code-editor .cm-editor.cm-focused .cm-content ::selection {
+  background: var(--color-selection);
+}
+
+.code-editor .cm-matchingBracket,
+.code-editor .cm-nonmatchingBracket {
+  background: var(--color-overlay-4);
+  outline: 1px solid var(--color-stroke-hi);
+}
+
+.code-editor .cm-placeholder {
+  color: var(--color-faint);
+}
+
+/* Find. Matches wear the house second hue; the one in hand, a stronger wash. */
+.code-editor .cm-searchMatch {
+  background: color-mix(in oklab, var(--color-cyan) 22%, transparent);
+  outline: 1px solid color-mix(in oklab, var(--color-cyan) 40%, transparent);
+}
+
+.code-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: color-mix(in oklab, var(--color-cyan) 40%, transparent);
+}
+
+.code-editor .cm-selectionMatch {
+  background: var(--color-overlay-3);
+}
+
+.code-editor .cm-panels {
+  border-color: var(--color-stroke);
+  background: var(--color-raise);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+}
+
+.code-editor .cm-panels-bottom {
+  border-top: 1px solid var(--color-stroke);
+}
+
+.code-editor .cm-panels-top {
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.code-editor .cm-panel.cm-search input,
+.code-editor .cm-panel.cm-search button {
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.code-editor .cm-panel.cm-search input:focus-visible,
+.code-editor .cm-panel.cm-search button:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.code-editor .cm-panel.cm-search button:hover {
+  border-color: var(--color-dim);
+}
+
+.code-editor .cm-panel.cm-search label {
+  color: var(--color-dim);
+}
+
+.code-editor .cm-tooltip {
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-raise);
+  color: var(--color-ink);
+}
+
+/* Syntax: the class names are @lezer/highlight's classHighlighter. */
+.code-editor .tok-keyword {
+  color: var(--color-amber-fg);
+}
+
+.code-editor .tok-string,
+.code-editor .tok-string2,
+.code-editor .tok-inserted {
+  color: var(--color-green);
+}
+
+.code-editor .tok-number,
+.code-editor .tok-bool,
+.code-editor .tok-atom,
+.code-editor .tok-literal {
+  color: var(--color-second-fg);
+}
+
+.code-editor .tok-variableName2,
+.code-editor .tok-macroName {
+  color: var(--color-violet);
+}
+
+.code-editor .tok-typeName,
+.code-editor .tok-className,
+.code-editor .tok-namespace {
+  color: var(--color-blue);
+}
+
+.code-editor .tok-propertyName,
+.code-editor .tok-labelName {
+  color: var(--color-steel);
+}
+
+.code-editor .tok-comment {
+  color: var(--color-faint);
+  font-style: italic;
+}
+
+.code-editor .tok-operator,
+.code-editor .tok-punctuation,
+.code-editor .tok-meta {
+  color: var(--color-dim);
+}
+
+.code-editor .tok-heading {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.code-editor .tok-strong {
+  font-weight: 600;
+}
+
+.code-editor .tok-emphasis {
+  font-style: italic;
+}
+
+.code-editor .tok-link,
+.code-editor .tok-url {
+  color: var(--color-second-fg);
+  text-decoration: underline;
+}
+
+.code-editor .tok-deleted {
+  color: var(--color-crimson-fg);
+}
+
+.code-editor .tok-invalid {
+  text-decoration: underline wavy var(--color-dim);
+}
