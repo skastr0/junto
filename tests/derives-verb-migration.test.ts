@@ -14,6 +14,7 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
+  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V49_IDENTITY,
@@ -21,6 +22,7 @@ import {
   migrateStateSchema,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V49_SQL, STATE_SCHEMA_V50_SQL } from "./fixtures/state-v13/schema";
 
@@ -88,9 +90,11 @@ const seed = (database: DatabaseSync, canvas: string): void => {
 };
 
 describe("state migration 49 -> 50 (a task board derives into another)", () => {
-  it("starts from the version-49 witness and ends at the version-50 one", () => {
+  it("starts from the version-49 witness and ends at the head, which a fresh database matches", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V49_SQL)).toEqual(STATE_SCHEMA_V49_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V50_SQL)).toEqual(STATE_SCHEMA_V50_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V50_IDENTITY);
+    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V50_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -109,7 +113,7 @@ describe("state migration 49 -> 50 (a task board derives into another)", () => {
         ).toThrow(/CHECK/);
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
 
-        const result = migrateStateSchema(database, upTo(50, STATE_SCHEMA_V50_SQL));
+        const result = migrateStateSchema(database, upTo(50, STATE_SCHEMA_SQL));
         expect(result).toMatchObject({ previousVersion: 49, schemaVersion: 50, ...STATE_SCHEMA_V50_IDENTITY });
         expect(readRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V50_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);

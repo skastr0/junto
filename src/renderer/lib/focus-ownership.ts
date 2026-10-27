@@ -48,10 +48,62 @@ export const FOCUS_SCOPE_SELECTOR = [
 ].join(", ");
 
 type Closest = { readonly closest?: (selector: string) => unknown };
+type ShadowScope = { readonly shadowRoot?: { readonly activeElement?: Element | null } | null };
 
 const closestOf = (target: unknown, selector: string): unknown => {
   if (!target || typeof (target as Closest).closest !== "function") return null;
   return (target as Closest).closest!(selector) ?? null;
+};
+
+/** The element a host holds with the keyboard, when that host is an open shadow root. */
+const shadowFocusOf = (node: unknown): Element | null => {
+  const inner = (node as ShadowScope | null)?.shadowRoot?.activeElement ?? null;
+  return inner === node ? null : inner;
+};
+
+/**
+ * The element with the keyboard, down through any open shadow roots. The
+ * browser reports a shadow host as `document.activeElement`, so a themed
+ * widget that keeps its fields in a shadow root (the Files tree) would
+ * otherwise look like one opaque element to every guard here.
+ */
+export const deepActiveElement = (): Element | null => {
+  if (typeof document === "undefined") return null;
+  let active: Element | null = document.activeElement;
+  // Each open root on the way down, once; the bound stops a host that claims itself.
+  for (let depth = 0; active !== null && depth < 8; depth += 1) {
+    const inner = shadowFocusOf(active);
+    if (inner === null) return active;
+    active = inner;
+  }
+  return active;
+};
+
+/**
+ * `closest`, across shadow boundaries: a host's own state counts for what it
+ * holds. A field inside an inert or hidden host is still unreachable.
+ */
+export const closestComposed = (node: Element | null | undefined, selector: string): Element | null => {
+  let at: Element | null = node ?? null;
+  const seen = new Set<Element>();
+  while (at !== null && !seen.has(at)) {
+    seen.add(at);
+    const hit = closestOf(at, selector) as Element | null;
+    if (hit !== null) return hit;
+    const root = (at as { getRootNode?: () => { readonly host?: Element } }).getRootNode?.();
+    at = root?.host ?? null;
+  }
+  return null;
+};
+
+/**
+ * The element a key event is really about. Inside a shadow root the browser
+ * retargets the event to the host, so `event.target` alone says "a widget",
+ * never "the field in it".
+ */
+const elementOf = (target: EventTarget | Element | null | undefined): Element | null => {
+  if (target === null || target === undefined) return null;
+  return shadowFocusOf(target) ?? (target as Element);
 };
 
 /**
@@ -60,9 +112,8 @@ const closestOf = (target: unknown, selector: string): unknown => {
  * focused element) so digits, Space, and shortcuts reach the field.
  */
 export const isOperatorTyping = (
-  target: EventTarget | Element | null | undefined =
-    typeof document === "undefined" ? null : document.activeElement,
-): boolean => Boolean(closestOf(target, OPERATOR_TYPING_SELECTOR));
+  target?: EventTarget | Element | null,
+): boolean => closestComposed(elementOf(target === undefined ? deepActiveElement() : target), OPERATOR_TYPING_SELECTOR) !== null;
 
 /**
  * Canvas flush may release focus only from an explicitly marked authoring

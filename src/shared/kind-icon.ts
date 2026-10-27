@@ -6,13 +6,12 @@ import { hexToOklch, oklchToHex, themeRuntime, type Oklch, type ThemeMode } from
 // Pure and deterministic: the same kind, mode and size tier always give the same SVG, so an icon
 // needs no storage and caches by key. Outline and misregistration scale with the size tier.
 
-export type KindIconKind = "task" | "artifacts" | "automations" | "files" | "page" | "terminal" | "git" | "file" | "link" | "note";
+export type KindIconKind = "task" | "artifacts" | "automations" | "page" | "terminal" | "git" | "file" | "link" | "note";
 type Look = { body: string; accent: string; chroma?: number; lift?: number };
 export const KIND_ICON_LOOK: Record<KindIconKind, Look> = {
   task: { body: "green", accent: "amber" },
   artifacts: { body: "violet", accent: "gold" },
   automations: { body: "amber", accent: "cyan" },
-  files: { body: "blue", accent: "gold" },
   page: { body: "indigo", accent: "cyan" },
   terminal: { body: "steel", accent: "green" },
   git: { body: "orange", accent: "violet" },
@@ -79,13 +78,6 @@ const ICONS: Record<KindIconKind, Shape[]> = {
     { k: "c", cx: 50, cy: 50, r: 10.5, paint: "inked", color: "tile" },
     { k: "c", cx: 50, cy: 50, r: 4.5, paint: "fill", color: "accent" },
   ],
-  files: [
-    { k: "p", d: poly([[20, 30], [42, 30], [48, 37], [80, 37], [80, 76], [20, 76]]), paint: "inked", color: "shade" },
-    { k: "p", d: rect(32, 24, 34, 40, 4), paint: "inked", color: "belly" },
-    { k: "p", d: "M39 35 H59 M39 43 H55", paint: "stroke", color: "mute", w: 3.2 },
-    { k: "p", d: poly([[20, 47], [80, 47], [80, 76], [20, 76]]), paint: "inked", color: "body" },
-    { k: "c", cx: 70, cy: 62, r: 4.5, paint: "fill", color: "accent" },
-  ],
   page: [
     { k: "c", cx: 50, cy: 50, r: 28, paint: "inked", color: "body" },
     { k: "p", d: "M50 22 Q68 36 68 50 Q68 64 50 78 Q32 64 32 50 Q32 36 50 22 Z", paint: "stroke", color: "shade", w: 3 },
@@ -127,7 +119,7 @@ const ICONS: Record<KindIconKind, Shape[]> = {
 
 const cache = new Map<string, string>();
 /** The kinds that have an icon, in the order the kit shows them. */
-export const KIND_ICON_KINDS: readonly KindIconKind[] = ["task", "artifacts", "automations", "files", "page", "terminal", "git", "file", "link", "note"];
+export const KIND_ICON_KINDS: readonly KindIconKind[] = ["task", "artifacts", "automations", "page", "terminal", "git", "file", "link", "note"];
 
 /** A kind's icon as an SVG string: round tile, halo, the icon on top. */
 export function kindIconSvg(kind: KindIconKind, mode: ThemeMode, size: number): string {

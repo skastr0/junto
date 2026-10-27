@@ -4,7 +4,7 @@ import { THEME_MODES } from "../src/shared/theme";
 
 describe("kind icons", () => {
   it("every kind has an icon in both themes, a round tile with something drawn on it", () => {
-    expect(KIND_ICON_KINDS).toHaveLength(10);
+    expect(KIND_ICON_KINDS).toHaveLength(9);
     for (const kind of KIND_ICON_KINDS) {
       for (const mode of THEME_MODES) {
         const svg = kindIconSvg(kind, mode, 34);

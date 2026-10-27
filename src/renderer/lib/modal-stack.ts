@@ -1,6 +1,8 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import {
   claimFocus,
+  closestComposed,
+  deepActiveElement,
   isOperatorTyping,
   pickPrimaryFocusControl,
   recentGestureKind,
@@ -102,6 +104,28 @@ export const FOCUSABLE_SELECTOR = [
   .join(", ");
 
 type TabStop = { readonly getClientRects?: () => { readonly length: number } };
+
+/**
+ * Every focus stop in a container, in the order the keyboard meets it. Open
+ * shadow roots are walked at their host's position, which is where the
+ * browser puts them: a themed third-party widget (the Files tree) keeps its
+ * fields and rows inside one, and `querySelectorAll` alone cannot see them.
+ */
+export const focusStopsIn = (container: ParentNode): HTMLElement[] => {
+  const out: HTMLElement[] = [];
+  const walk = (scope: ParentNode): void => {
+    for (const child of Array.from(scope.children)) {
+      if (child instanceof HTMLElement) {
+        if (child.matches(FOCUSABLE_SELECTOR)) out.push(child);
+        const shadow = (child as { readonly shadowRoot?: ShadowRoot | null }).shadowRoot;
+        if (shadow) walk(shadow);
+      }
+      walk(child);
+    }
+  };
+  walk(container);
+  return out;
+};
 
 /**
  * Where Tab lands inside a modal. Returns null when the browser's own move
@@ -440,10 +464,12 @@ export const useModalLayer = ({
           }
         } else if (trap && event.key === "Tab" && !event.defaultPrevented && container) {
           // Never something hidden from the operator: the keyboard must not stand on it.
-          const stops = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-            (stop) => stop.closest("[inert], [aria-hidden='true']") === null,
+          const stops = focusStopsIn(container).filter(
+            (stop) => closestComposed(stop, "[inert], [aria-hidden='true']") === null,
           );
-          const target = nextTabStop(stops, document.activeElement, event.shiftKey);
+          // The deep element, not the shadow host the browser names: a row
+          // inside the tree has to be found in the stop list by identity.
+          const target = nextTabStop(stops, deepActiveElement(), event.shiftKey);
           if (target) {
             event.preventDefault();
             claimFocus(target, "gesture", { event });

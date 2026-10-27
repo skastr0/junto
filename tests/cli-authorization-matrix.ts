@@ -19,7 +19,6 @@ import { THIS_MACHINE } from "./support/machines";
 import {
   artifacts,
   automations,
-  files,
   canvasOf,
   page,
   seat,
@@ -156,7 +155,6 @@ const BUILDERS: { readonly [K in WellKnownKind]: (id: string, x: number) => Node
   task: (id, x) => taskBoard(id, at(x)),
   artifacts: (id, x) => artifacts(id, at(x)),
   automations: (id, x) => automations(id, at(x)),
-  files: (id, x) => files(id, at(x)),
   terminal: (id, x) => terminal(id, at(x)),
 };
 

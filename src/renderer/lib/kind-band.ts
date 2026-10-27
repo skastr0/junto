@@ -86,7 +86,6 @@ export const KIND_BAND_HUES: Readonly<Record<KindIconKind, { readonly body: stri
   task: { body: "green", spark: "amber" },
   artifacts: { body: "violet", spark: "gold" },
   automations: { body: "amber", spark: "cyan" },
-  files: { body: "blue", spark: "gold" },
   page: { body: "indigo", spark: "cyan" },
   terminal: { body: "steel", spark: "green" },
   git: { body: "orange", spark: "violet" },
@@ -217,8 +216,7 @@ function layersOf(kind: KindIconKind, shown: KindState, mode: ThemeMode, ledger?
       if (state === U.working) out.push(moving(dot(0, alpha(INK, 0.95), 2.4), "orbit"));
       return out;
     }
-    case "file":
-    case "files": {
+    case "file": {
       const out: BandLayer[] = [track, { svg: arc(20, 290, tone, { opacity: dim }) }];
       if (state === U.working || state === U.waiting || state === U.done) out.push(moving(arc(20, 290, tone, { w: 3.4 }), "breathe"));
       return out;

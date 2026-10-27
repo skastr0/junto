@@ -25,7 +25,6 @@ export const KIND_SEAT_KINDS: ReadonlySet<string> = new Set([
   "task",
   "artifacts",
   "automations",
-  "files",
   "page",
   "terminal",
   "git",

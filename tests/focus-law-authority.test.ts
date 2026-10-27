@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   claimFocus,
   claimFocusOnMount,
+  closestComposed,
+  deepActiveElement,
   isOperatorTyping,
   noteOperatorGesture,
   releaseFocus,
@@ -161,6 +163,43 @@ describe("isOperatorTyping", () => {
     expect(typing("plain")).toBe(false);
     expect(typing("button")).toBe(false);
     expect(isOperatorTyping(null)).toBe(false);
+    root.remove();
+  });
+
+  it("sees the field a widget keeps inside its shadow root", () => {
+    const root = mount(`<div id="host"></div>`);
+    const host = q<HTMLElement>(root, "#host");
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<input id="field" /><button id="row">row</button>`;
+    const field = shadow.querySelector<HTMLInputElement>("#field")!;
+    const row = shadow.querySelector<HTMLButtonElement>("#row")!;
+
+    field.focus();
+    expect(document.activeElement).toBe(host);
+    expect(deepActiveElement()).toBe(field);
+    // The browser retargets a key event to the host, so both spellings count.
+    expect(isOperatorTyping()).toBe(true);
+    expect(isOperatorTyping(host)).toBe(true);
+    expect(isOperatorTyping(field)).toBe(true);
+
+    // A row is not a field: the list keys still belong to the tree.
+    row.focus();
+    expect(deepActiveElement()).toBe(row);
+    expect(isOperatorTyping()).toBe(false);
+    expect(isOperatorTyping(host)).toBe(false);
+    root.remove();
+  });
+
+  it("walks a composed closest up to the host a field sits inside", () => {
+    const root = mount(`<div id="host"></div>`);
+    const host = q<HTMLElement>(root, "#host");
+    host.setAttribute("inert", "");
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<button id="row">row</button>`;
+    const row = shadow.querySelector<HTMLButtonElement>("#row")!;
+
+    expect(row.closest("[inert]")).toBeNull();
+    expect(closestComposed(row, "[inert]")).toBe(host);
     root.remove();
   });
 });

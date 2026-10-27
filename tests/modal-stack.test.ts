@@ -1,6 +1,8 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import {
   closeFrontModal,
+  focusStopsIn,
   frontModalLayer,
   nextTabStop,
   pushModal,
@@ -61,6 +63,52 @@ describe("tab trap", () => {
 
   it("does nothing in a modal with no stops", () => {
     expect(nextTabStop([], null, false)).toBeNull();
+  });
+});
+
+describe("stops inside an open shadow root", () => {
+  const mount = (html: string): HTMLElement => {
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    document.body.appendChild(root);
+    return root;
+  };
+
+  it("walks a shadow root at its host's place, not after the whole modal", () => {
+    const root = mount(`<button id="first">first</button><div id="host"></div><button id="after">after</button>`);
+    const host = root.querySelector<HTMLElement>("#host")!;
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<input id="field" /><button id="row">row</button>`;
+
+    expect(focusStopsIn(root).map((stop) => stop.id)).toEqual(["first", "field", "row", "after"]);
+    root.remove();
+  });
+
+  it("keeps Tab moving through a tree instead of pulling it back to the modal's edges", () => {
+    const root = mount(`<button id="first">first</button><div id="host"></div><button id="after">after</button>`);
+    const host = root.querySelector<HTMLElement>("#host")!;
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<button id="row" tabindex="0">row</button><button id="last-row" tabindex="-1">last</button>`;
+    // jsdom lays nothing out; a real window gives every one of these a rect.
+    const stops = focusStopsIn(root).map((stop) => Object.assign(stop, { getClientRects: () => ({ length: 1 }) }));
+
+    // A row with the keyboard is a stop the trap can find by identity, so the
+    // browser's own move stands and nothing is pulled forward.
+    expect(stops.map((stop) => stop.id)).toEqual(["first", "row", "after"]);
+    expect(nextTabStop(stops, stops[1], false)).toBeNull();
+    // The ends still wrap, and they now wrap around the tree too.
+    expect(nextTabStop(stops, stops[2], false)).toBe(stops[0]);
+    expect(nextTabStop(stops, stops[0], true)).toBe(stops[2]);
+    root.remove();
+  });
+
+  it("leaves out stops the operator cannot see", () => {
+    const root = mount(`<div id="host"></div>`);
+    const shadow = root.querySelector<HTMLElement>("#host")!.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<button id="shown">shown</button><button id="gone" tabindex="-1">gone</button><button id="off" disabled>off</button>`;
+
+    expect(focusStopsIn(root).map((stop) => stop.id)).toEqual(["shown"]);
+    root.remove();
   });
 });
 

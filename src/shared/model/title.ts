@@ -105,8 +105,6 @@ export const titleOf = (node: Node): string => {
       return compact(node.label) ?? hostOf(node.url) ?? node.kind;
     case "git":
       return compact(node.label) ?? (node.cwd.split("/").pop() || node.cwd);
-    case "files":
-      return compact(node.label) ?? (node.root.split("/").filter(Boolean).pop() || node.root);
     case "terminal":
     case "artifacts":
     case "automations":

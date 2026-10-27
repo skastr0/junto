@@ -119,20 +119,6 @@ export const FEATURE_CATALOG = {
       applies: "live",
     },
   },
-  /**
-   * The Files node (0.11): one folder on one machine as a file tree with a
-   * light editor. Ship profile EXPERIMENTAL until 0.11 lands whole.
-   */
-  files: {
-    env: "JUNTO_FILES",
-    define: "__JUNTO_FILES_TIER__",
-    experimental: {
-      title: "Files node",
-      description:
-        "A canvas node that opens a folder on this machine as a file tree, with a light editor, previews and comments.",
-      applies: "live",
-    },
-  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -203,8 +189,6 @@ export const SHIP_FEATURES: FeatureSet = {
   devTools: false,
   // Built and in the app, off until the operator turns it on in Settings.
   seatAwareness: "experimental",
-  // The Files node (0.11), off until the operator turns it on in Settings.
-  files: "experimental",
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -226,7 +210,6 @@ export const ALL_FEATURES: FeatureSet = {
   liveOverseer: true,
   devTools: true,
   seatAwareness: true,
-  files: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,

@@ -4,7 +4,6 @@ import {
   Artifacts,
   Automations,
   FileCard,
-  Files,
   GitCard,
   Label,
   LinkCard,
@@ -98,7 +97,6 @@ export const NodeDraft = Schema.Union([
   draft(FileCard),
   draft(LinkCard),
   draft(GitCard),
-  draft(Files),
   draft(Region),
 ]);
 export type NodeDraft = typeof NodeDraft.Type;
