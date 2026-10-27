@@ -68,6 +68,17 @@
   }
 }
 
+/* Collapsed rail: a 40px edge on the right at every width, so it is never
+   dropped below the main pane. After the narrow-sidebar rules, before the
+   collapsed-sidebar ones. */
+.two-pane[data-rail="collapsed"] {
+  grid-template-columns: clamp(220px, 24cqw, 280px) minmax(0, 1fr) 40px;
+}
+
+.two-pane[data-sidebar-width="narrow"][data-rail="collapsed"] {
+  grid-template-columns: clamp(176px, 15cqw, 208px) minmax(0, 1fr) 40px;
+}
+
 .two-pane__sidebar-body {
   display: flex;
   min-width: 0;
@@ -94,6 +105,10 @@
   .two-pane[data-sidebar="collapsed"][data-rail="true"] {
     grid-template-columns: 40px minmax(0, 1fr);
   }
+}
+
+.two-pane[data-sidebar="collapsed"][data-rail="collapsed"] {
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
 }
 
 .two-pane__strip {

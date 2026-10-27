@@ -69,6 +69,11 @@ function SidebarToggle({ label, collapsed }: { readonly label: string; readonly 
  * pane scrolls on its own; the layout itself never does. It fills its
  * parent, so the parent gives it a height.
  *
+ * The rail can collapse too: `railCollapsed` keeps it a 40px edge on the
+ * right at every width, never dropped below, and the caller fills that edge
+ * with what the rail is worth at a glance (a count, who took part). The
+ * caller owns the state; TwoPane only gives the edge its column.
+ *
  * The sidebar collapses to a thin strip. The `PaneHeader` inside it carries
  * the toggle (and the modal's maximize), and the strip carries them while it
  * is collapsed. The sidebar stays mounted, only hidden, so a search or a
@@ -85,6 +90,7 @@ export function TwoPane({
   sidebarWidth,
   rail,
   railLabel,
+  railCollapsed = false,
   mainLabel,
   children,
 }: {
@@ -95,6 +101,8 @@ export function TwoPane({
   readonly rail?: ReactNode;
   /** Required with `rail`. */
   readonly railLabel?: string;
+  /** The rail is a thin edge; `rail` is what the edge shows. */
+  readonly railCollapsed?: boolean;
   readonly mainLabel: string;
   readonly children: ReactNode;
 }) {
@@ -112,7 +120,7 @@ export function TwoPane({
   return (
     <div
       className="two-pane"
-      data-rail={rail ? "true" : undefined}
+      data-rail={rail ? (railCollapsed ? "collapsed" : "true") : undefined}
       data-sidebar={collapsed ? "collapsed" : undefined}
       data-sidebar-width={sidebarWidth}
     >
