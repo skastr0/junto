@@ -1,0 +1,19 @@
+/* What links to an artifact: a body row carries the line its link sits in. */
+
+.linked-from__row {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.linked-from__line {
+  display: -webkit-box;
+  overflow: hidden;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-stroke);
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}

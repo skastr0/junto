@@ -18,7 +18,7 @@ import "./mentioned-in.css";
  * node (`docs/plans/0.11/README.md`, F7), so its row is left out until the
  * Files kind and its mention are one contract.
  */
-const placeOf = (entry: MentionedInEntry): MentionRef | undefined => {
+export const placeOf = (entry: MentionedInEntry): MentionRef | undefined => {
   const subject: ResourceSubject | undefined = entry.subject;
   if (subject === undefined) return { kind: "seat", nodeId: entry.mailbox };
   switch (subject.kind) {

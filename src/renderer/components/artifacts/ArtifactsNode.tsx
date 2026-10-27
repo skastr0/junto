@@ -32,6 +32,7 @@ import {
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, ListRow, PaneEmpty, PaneHeader, ResourceGlyphMark, TwoPane } from "../ui";
 import { ArtifactComments, ArtifactCommentsEdge } from "./ArtifactComments";
+import { LinkedFrom } from "./LinkedFrom";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactKeys } from "./ArtifactKeys";
 import { ArtifactTasks } from "./ArtifactTasks";
@@ -39,7 +40,6 @@ import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
-import { MentionedIn } from "../threads/MentionedIn";
 import { makePostOps } from "../../lib/post-op";
 import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
@@ -551,9 +551,9 @@ function SelectedArtifact({
       {railOpen ? (
         <>
           {comments}
-          <MentionedIn
+          <LinkedFrom
             canvasName={canvasName}
-            target={{ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
+            target={{ nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
             now={now}
             nameOf={(place) => (place.kind === "task" ? tasks.find((task) => task.taskId === place.taskId)?.title : undefined)}
             beforeOpen={onClose}
