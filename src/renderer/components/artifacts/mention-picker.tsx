@@ -339,8 +339,14 @@ export const mentionSourceChanged = (view: EditorView): void => view.dispatch({}
 /** The @ and # list for a live markdown document. */
 export const mentionPicker = (source: MentionPickerSource): Extension => [
   pickerSource.of(source),
-  // The list keeps inside the document's own box: near its right edge it slides left, never over the pane beside it.
-  tooltips({ tooltipSpace: (view) => view.dom.getBoundingClientRect() }),
+  // Sideways the list keeps inside the field, so near its right edge it slides left, never over the pane beside it;
+  // up and down it has the window, so a short field (a task body) opens it below rather than over its own text.
+  tooltips({
+    tooltipSpace: (view) => {
+      const box = view.dom.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: 0, bottom: window.innerHeight };
+    },
+  }),
   pickerField,
   pickerKeys,
   fieldAria,
