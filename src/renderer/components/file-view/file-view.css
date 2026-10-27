@@ -1,0 +1,246 @@
+/* The file viewers (plan 0.11, F6): a toolbar over a scrolling stage that
+   holds the image or the PDF's pages, with the box layer on each surface. */
+
+.file-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.file-view__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--color-raise);
+}
+
+.file-view__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-view__zoom {
+  min-width: 46px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.file-view__zoom:hover {
+  background: var(--color-overlay-1);
+}
+
+.file-view__zoom:focus-visible,
+.file-view__page-input:focus-visible,
+.file-view__stage:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.file-view__pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-view__page-input {
+  width: 4ch;
+  padding: 2px 4px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: center;
+}
+
+.file-view__said {
+  margin-left: auto;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.file-view__said[data-tone="refused"] {
+  color: var(--color-crimson-fg);
+}
+
+.file-view__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  background: var(--color-inset);
+}
+
+.file-view__empty {
+  margin: 24px auto;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  text-align: center;
+}
+
+.file-view__pages-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+
+.file-view__surface {
+  position: relative;
+  flex: none;
+  margin: 0 auto;
+}
+
+/* A PDF page is paper: pdf.js paints it white in both modes, as the file is. */
+.file-view__page {
+  box-shadow: 0 1px 3px var(--color-shadow-1), 0 0 0 1px var(--color-stroke);
+}
+
+.file-view__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.file-view__surface--image img {
+  display: block;
+  user-select: none;
+}
+
+.file-view__other-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.file-view--other {
+  align-items: center;
+  justify-content: center;
+}
+
+/* The PDF text layer (pdf.js's own rules, with the house selection). */
+.file-view .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.file-view .textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.file-view .textLayer > :not(.markedContent),
+.file-view .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.file-view .textLayer .markedContent {
+  display: contents;
+}
+
+.file-view .textLayer ::selection {
+  background: var(--color-selection);
+  color: transparent;
+}
+
+.file-view .textLayer br::selection {
+  background: transparent;
+}
+
+.file-view .textLayer .endOfContent {
+  position: absolute;
+  inset: 100% 0 0;
+  display: block;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.file-view .textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+/* The box layer: inert until the box tool is on, so text still selects. */
+.file-box-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.file-box-layer[data-drawing] {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* The pad's area pick: a dashed amber box, the same stroke on a file. */
+.file-box {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+}
+
+.file-box--draft {
+  border: 1.5px dashed var(--color-amber);
+  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
+}
+
+.file-box--thread {
+  border: 1.5px solid color-mix(in oklab, var(--color-amber) 70%, transparent);
+  pointer-events: none;
+}
+
+.file-box__actions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-raise);
+  box-shadow: 0 4px 12px var(--color-shadow-2);
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+}
