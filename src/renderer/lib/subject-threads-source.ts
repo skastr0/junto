@@ -16,6 +16,7 @@ import type { MailMessageId } from "@shared/crew";
 import type { ThreadPostAuthor, ThreadResourceApi } from "@shared/resource-ipc";
 import type { OpId } from "@shared/work-ids";
 import { mintItemId, mintOpId } from "@shared/resource-command";
+import { makePostOps, type PostOps } from "./post-op";
 import type { ItemId } from "@shared/work-ids";
 
 /** The resource a thread hangs on. Extended as panes move on (artifact, page, file). */
@@ -202,14 +203,17 @@ export const postFileComment = async (
   canvasName: string,
   subject: Extract<ThreadSubjectRef, { readonly kind: "file" }>,
   post: { readonly text: string; readonly anchor?: Anchor; readonly threadId?: string },
+  ops: PostOps = makePostOps(),
 ): Promise<string | null> => {
   if (post.text.trim() === "") return "Write something to post.";
   const outcome = await subjectThreadsSource().post(canvasName, subject, {
     text: post.text,
-    opId: newPostOpId(),
+    // The same post resent after a lost answer reuses its id: main meets it as written.
+    opId: ops.opFor(post),
     ...(post.anchor === undefined ? {} : { anchor: post.anchor }),
     ...(post.threadId === undefined ? {} : { threadId: post.threadId }),
   });
+  ops.settle();
   return outcome.ok ? null : outcome.message;
 };
 

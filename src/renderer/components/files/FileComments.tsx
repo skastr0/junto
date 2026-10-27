@@ -18,6 +18,7 @@ import type { NodeId } from "@shared/physics/schema";
 import type { Anchor, FilePlaceAnchor } from "@shared/thread-subject";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { postFileComment, type SubjectThread } from "../../lib/subject-threads-source";
+import { makePostOps } from "../../lib/post-op";
 import { filePlaceOf, placeLabel, type FileThreadPlace } from "../../lib/file-comments";
 import { ArtifactComments, ARTIFACT_RAIL_WORDS, type CommentsRailWords } from "../artifacts/ArtifactComments";
 import "./file-comments.css";
@@ -95,6 +96,8 @@ export function FileCommentsRail({
    * would post the text twice.
    */
   const posting = useRef(false);
+  /** One op id per post, kept across a resend: a lost answer does not post the text twice. */
+  const ops = useRef(makePostOps());
   const once = async (post: () => Promise<string | null>): Promise<string | null> => {
     if (posting.current) return null;
     posting.current = true;
@@ -122,6 +125,7 @@ export function FileCommentsRail({
               context.canvasName,
               { kind: "file", nodeId: context.nodeId, path: context.path },
               { text, ...(anchor === undefined ? {} : { anchor }) },
+              ops.current,
             );
             if (refused === null) onPosted();
             return refused === null ? null : fileCommentRefusal(refused);
@@ -129,7 +133,12 @@ export function FileCommentsRail({
         }
         onReply={(threadId, text) =>
           once(async () => {
-            const refused = await postFileComment(context.canvasName, { kind: "file", nodeId: context.nodeId, path: context.path }, { text, threadId });
+            const refused = await postFileComment(
+              context.canvasName,
+              { kind: "file", nodeId: context.nodeId, path: context.path },
+              { text, threadId },
+              ops.current,
+            );
             return refused === null ? null : fileCommentRefusal(refused);
           })
         }

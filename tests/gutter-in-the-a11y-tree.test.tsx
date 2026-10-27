@@ -73,12 +73,12 @@ describe("the gutter's comment plus in the accessibility tree", () => {
 
   it("is exposed by the Markdown field as soon as it opens, and not at all without line comments", async () => {
     await act(async () =>
-      root.render(<LiveMarkdownField value={"# A file\n\ntext\n"} label="README.md" onLineComment={() => undefined} />),
+      root.render(<LiveMarkdownField value={"# A file\n\ntext\n"} label="README.md" surfaceLabel="File" onLineComment={() => undefined} />),
     );
     await flush();
     expectExposed();
 
-    await act(async () => root.render(<LiveMarkdownField value={"# A file\n\ntext\n"} label="README.md" />));
+    await act(async () => root.render(<LiveMarkdownField value={"# A file\n\ntext\n"} label="README.md" surfaceLabel="File" />));
     await flush();
     // A document's field takes no line comments: no comment gutter, and the gutters stay as CodeMirror made them.
     expect(document.querySelector(".cm-commentGutter")).toBeNull();
