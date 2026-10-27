@@ -1341,7 +1341,11 @@ export function PadEditor({
             dropMove();
             setGesture({ kind: "idle" });
           }}
-          onPointerLeave={() => setHoverId(undefined)}
+          onPointerLeave={() => {
+            // A move still waiting for its frame would show the ports again after the pointer left.
+            if (gestureRef.current.kind === "idle") dropMove();
+            setHoverId(undefined);
+          }}
           onDoubleClick={(event) => {
             const hit = hitTest(pad, sceneOf(event), viewSlop(camera, HIT_VIEW_PX));
             const shape = hit ? shapeById(pad, hit.id) : undefined;
