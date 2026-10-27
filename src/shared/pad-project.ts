@@ -178,7 +178,7 @@ export const PAD_LOOK = {
   arrow: 10,
   text: 14,
   labelText: 16,
-  edgeText: 12,
+  edgeText: 14,
   leading: 1.3,
   inset: 8,
   /** Advance of one character of the pad's mono face, in ems. */

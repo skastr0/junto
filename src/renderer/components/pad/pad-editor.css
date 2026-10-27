@@ -203,7 +203,7 @@
   padding: 6px 12px;
   border-bottom: 1px solid color-mix(in oklab, var(--color-crimson) 34%, transparent);
   background: color-mix(in oklab, var(--color-crimson) 8%, transparent);
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
   font-size: 11px;
 }
 
@@ -217,7 +217,7 @@
   transform: translateX(-50%);
   border: 1px solid color-mix(in oklab, var(--color-crimson) 34%, transparent);
   background: color-mix(in oklab, var(--color-crimson) 10%, var(--color-raise));
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
   font-size: 11px;
   padding: 4px 8px;
 }

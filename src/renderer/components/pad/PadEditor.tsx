@@ -279,7 +279,9 @@ export function PadEditor({
   const [hoverId, setHoverId] = useState<string | undefined>();
   // The target a keyboard connector has walked to, and what the pad last said for a screen reader.
   const [keyTarget, setKeyTarget] = useState<string | undefined>();
-  const [spoken, setSpoken] = useState("");
+  // Each saying is a fresh node, so a polite region repeats words it said a moment ago.
+  const [spoken, setSpoken] = useState({ text: "", n: 0 });
+  const say = useCallback((text: string) => setSpoken((last) => ({ text, n: last.n + 1 })), []);
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
@@ -759,7 +761,7 @@ export function PadEditor({
           const target = walkShapes(connectTargets(current, from.id), keyTarget, step);
           setKeyTarget(target?.id);
           if (!target) return false;
-          setSpoken(`Connect ${shapeName(from)} to ${shapeName(target)}, Enter connects`);
+          say(`Connect ${shapeName(from)} to ${shapeName(target)}, Enter connects`);
           return take();
         }
         if (!from) return false;
@@ -769,7 +771,7 @@ export function PadEditor({
           return false;
         }
         setSelectedId(shape.id);
-        setSpoken(selectedWords(current, shape));
+        say(selectedWords(current, shape));
         return take();
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return false;
@@ -778,11 +780,11 @@ export function PadEditor({
         const edge = to ? connectEdge(current, newPadElementId("edge"), from.id, undefined, { shape: to }) : undefined;
         setKeyTarget(undefined);
         if (!to || !edge) {
-          setSpoken(`${shapeName(from)} is already connected there`);
+          say(`${shapeName(from)} is already connected there`);
           return take();
         }
         void commit([upsertEdgePatch(edge)]).then((ok) => {
-          if (ok) setSpoken(connectedWords(from, to));
+          say(ok ? connectedWords(from, to) : `Could not connect ${shapeName(from)} to ${shapeName(to)}`);
         });
         return take();
       }
@@ -790,12 +792,12 @@ export function PadEditor({
         const first = walkShapes(current.shapes, undefined, 1);
         if (!first) return false;
         setSelectedId(first.id);
-        setSpoken(selectedWords(current, first));
+        say(selectedWords(current, first));
         return take();
       }
       return false;
     },
-    [commit, keyTarget, selectedId, tool],
+    [commit, keyTarget, say, selectedId, tool],
   );
 
   useEffect(() => {
@@ -1502,7 +1504,7 @@ export function PadEditor({
           />
         ) : null}
         <div className="sr-only" role="status" aria-live="polite" data-testid="pad-spoken">
-          {spoken}
+          <span key={spoken.n}>{spoken.text}</span>
         </div>
         <div className="pad-hint" role="status" aria-live="polite" data-empty={hint ? undefined : "true"}>
           {hint}
@@ -1514,6 +1516,7 @@ export function PadEditor({
           className="pad-image-input"
           data-testid="pad-image-input"
           aria-label="Pad image file"
+          tabIndex={-1}
           onChange={(event) => {
             const file = event.target.files?.[0];
             const pending = pendingImageRef.current;
