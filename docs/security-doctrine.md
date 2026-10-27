@@ -340,6 +340,36 @@ revocation and bounded operation set. Pairing material is a credential, never
 ordinary log or canvas content. A phone's authority cannot be widened by the
 new machine or owner command handlers sharing a process.
 
+**Files node.** A Files node opens one folder, its root, on one machine:
+its host, the editing machine's real short name when the node was made. In
+0.11 only the editing machine serves Files, because no link verb reads a
+peer's files. The service in main (`src/main/junto/files/`) refuses any node
+whose host is not this machine (`elsewhere`), so after a later handover the
+same root path is never opened on a different disk. The root never leaves
+the machine: a canvas copy carries the node as a stub, and mention mail,
+thread anchors, extracted artifact descriptions, IPC replies, errors, change
+events and `junto-file:` addresses carry the node id plus a path relative
+to the root, never an absolute path. The renderer never names one either,
+with the one exception below: every call names a node and a relative path
+(`src/shared/files.ts`), main reads the root off the node on each call,
+`realpath`s the target and refuses anything outside the root, symlinks
+included (`outside-root`). Renaming, moving or trashing a symlink acts on
+the link, never on what it points at. Delete moves to the Trash
+(`shell.trashItem`), never `unlink`. A write names the version it read
+(mtime and size), is refused `stale` when the file changed, and replaces
+the file through a sibling temp file. Open in its default app refuses what
+would run rather than open: a file with an execute bit, an `.app` or other
+launchable bundle, script or installer; Reveal in Finder still shows it.
+`junto-file://<nodeId>/<relpath>` serves bytes only for a node a window of
+the trusted renderer has opened, on this machine, inside the root after
+`realpath`; anything that is not an image, PDF or media file goes out as
+`application/octet-stream` with `nosniff`, so a page under a root is never
+rendered as a document. The exception is a drop: Finder files dropped on
+the node arrive as OS paths (`webUtils.getPathForFile`), which main reads
+as sources to copy from and never changes; a copy never overwrites, it
+takes the next free name (`name 2`). All channels sit behind
+`trustedRendererIpc`.
+
 ## Failures and logs
 
 Failures cross the link with their cause chain, and every machine keeps a log
