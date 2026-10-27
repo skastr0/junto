@@ -1,23 +1,53 @@
 /*
- * Quick open: a palette in the popover shell (ui/Popover).
+ * Quick open: the palette in the middle of a node's modal.
  *
- * The frame is one height whatever the rows are, so a keystroke that changes
- * the count never moves the panel under the operator's eyes; the list scrolls
- * inside it. Colours, type and radii come from the house tokens, so dark and
- * bright are the same layout in the two palettes.
+ * It is a child of the modal's own panel, so it needs no layer of its own: the
+ * root fills the panel, the dim takes the panel's pointer, and the card is
+ * centred across it near the top. One fixed height, so a keystroke that
+ * changes the row count never moves the card under the operator's eyes; the
+ * list scrolls inside it. Colours, type and radii come from the house tokens,
+ * so dark and bright are the same layout in the two palettes.
  */
 
-.junto-popover.quick-open {
+.quick-open {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: flex;
-  height: min(52vh, 360px);
-  max-height: none;
-  flex-direction: column;
-  gap: 0;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 7vh 24px 24px;
+  box-sizing: border-box;
+}
+
+.quick-open__scrim {
+  position: absolute;
+  inset: 0;
+  margin: 0;
   padding: 0;
+  border: 0;
+  background: var(--color-backdrop);
+  backdrop-filter: blur(2px);
+  cursor: default;
+}
+
+.quick-open__card {
+  position: relative;
+  display: flex;
+  width: min(560px, 100%);
+  /* The top edge never moves; the card grows downward as rows arrive, so a
+     two-row answer does not read as an empty frame and a long list scrolls. */
+  height: auto;
+  min-height: 132px;
+  max-height: min(56vh, 400px);
+  flex-direction: column;
   overflow: hidden;
-  border-color: var(--color-stroke-hi);
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: var(--radius-xl);
   background: var(--color-raise);
-  box-shadow: 0 18px 44px var(--color-shadow-1);
+  box-shadow:
+    0 24px 60px var(--color-shadow-1),
+    0 0 0 1px var(--color-overlay-1);
 }
 
 .quick-open__field {

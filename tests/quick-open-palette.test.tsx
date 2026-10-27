@@ -8,28 +8,18 @@ import { itemsQuickOpen, QUICK_OPEN_WORDS, type QuickOpenItem, type QuickOpenSou
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;
-let anchor: HTMLButtonElement;
 let root: Root;
 
 beforeEach(() => {
-  globalThis.ResizeObserver = class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  };
   HTMLElement.prototype.scrollIntoView = () => {};
   host = document.createElement("div");
   document.body.appendChild(host);
-  // The popover hangs from a real element: its placement reads a rect.
-  anchor = document.createElement("button");
-  document.body.appendChild(anchor);
   root = createRoot(host);
 });
 
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  anchor.remove();
 });
 
 const items = [
@@ -58,9 +48,7 @@ const activeTitle = (): string | null =>
   document.querySelector("[data-active=\"true\"] .quick-open__row-title")?.textContent ?? null;
 
 const render = (source: QuickOpenSource, onOpen = vi.fn(), onClose = vi.fn()) => {
-  act(() =>
-    root.render(<QuickOpen anchor={anchor} source={source} onOpen={onOpen} onClose={onClose} />),
-  );
+  act(() => root.render(<QuickOpen source={source} onOpen={onOpen} onClose={onClose} />));
   return { onOpen, onClose };
 };
 

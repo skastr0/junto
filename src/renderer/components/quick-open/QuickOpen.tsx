@@ -12,7 +12,6 @@ import {
 import { claimFocus } from "../../lib/focus-ownership";
 import { keyIs } from "../../lib/key-match";
 import type { QuickOpenItem, QuickOpenSource } from "../../lib/quick-open";
-import { Popover } from "../ui/Popover";
 import { Kbd } from "../ui/Kbd";
 import "./quick-open.css";
 
@@ -28,23 +27,23 @@ const nounOf = (source: QuickOpenSource): ListboxNoun => ({
  * rows (files in main, the rest with `lib/fuzzy-match`), and Enter opens the
  * row the highlight sits on.
  *
+ * It sits in the middle of the modal, a card over that modal's own panel, so
+ * the operator's eye does not travel to a corner: the frame is one fixed
+ * height, centred across the panel, near its top, with a light dim under it.
  * It is a combobox, the same shape as the command bar: the field keeps the
  * keyboard, the highlight is `aria-activedescendant`, and the movement is
  * `lib/list-nav`'s clamped stepping. A bare key never opens a row behind a
  * field, so J and K type where the caret is and the arrows move the highlight.
  *
- * The shell is `ui Popover`: it anchors to the node's header button, owns the
- * dim, the outside press, Escape and the return of the keyboard. So Escape
- * closes the palette and leaves the modal open, the way it should.
+ * Escape, a press on the dim and Tab close it, and only those: the modal
+ * behind it owns its own keys, and an async focus claim from that modal must
+ * not shut a palette the operator just opened.
  */
 export function QuickOpen({
-  anchor,
   source,
   onOpen,
   onClose,
 }: {
-  /** The header button the palette hangs from. */
-  readonly anchor: HTMLElement;
   readonly source: QuickOpenSource;
   readonly onOpen: (item: QuickOpenItem) => void;
   readonly onClose: () => void;
@@ -60,23 +59,10 @@ export function QuickOpen({
   const [pending, setPending] = useState(false);
   const [active, setActive] = useState<string | null>(null);
 
-  // The button or the chord opened this: the keyboard goes in the field either
-  // way, because a palette the operator then has to click is not a palette.
+  // A palette is nothing without its field: the keyboard goes in on open.
   useEffect(() => {
     claimFocus(fieldRef.current, "open");
   }, []);
-
-  // Field focus means the palette is open, so Tab out of it closes it: the
-  // popover hands the keyboard back to the header button and no combobox is
-  // left armed behind the operator. A press outside closes it too. Only Tab
-  // does this: an async claim from the modal behind must not shut the palette
-  // the operator just opened.
-  const leaveOnTab = (event: React.KeyboardEvent<HTMLElement>): void => {
-    if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
-    event.preventDefault();
-    event.stopPropagation();
-    onClose();
-  };
 
   // A source rebuilt on a render (a list that changed) is not a new question:
   // the palette re-asks per keystroke, never per paint.
@@ -140,7 +126,21 @@ export function QuickOpen({
     row?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Escape") {
+      // The palette's Escape, never the modal's: the modal stays open.
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      // Tab is the operator leaving: no combobox stays armed behind them.
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
     if (keyIs(event.nativeEvent, "inQuickOpen.move")) {
       event.preventDefault();
       setActive(stepList(ids, active, event.key === "ArrowUp" ? "previous" : "next"));
@@ -156,88 +156,90 @@ export function QuickOpen({
   };
 
   return (
-    <Popover
-      anchor={anchor}
-      onClose={onClose}
-      label={source.find}
-      width={520}
-      className="quick-open"
-      testId="quick-open"
-    >
-      <div className="quick-open__field" onKeyDown={leaveOnTab}>
-        <Search size={14} aria-hidden />
-        <input
-          ref={fieldRef}
-          {...comboboxFieldAria(aria)}
-          aria-label={source.find}
-          data-testid="quick-open-input"
-          value={query}
-          placeholder={source.placeholder}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onKeyDown}
-        />
-        {query === "" ? null : (
-          <button
-            type="button"
-            className="quick-open__clear"
-            aria-label="Clear search"
-            onPointerDown={(event) => {
-              // The caret stays in the field: clearing is more typing, not a pick.
-              event.preventDefault();
-              setQuery("");
-              claimFocus(fieldRef.current, "gesture", { event });
-            }}
-          >
-            <X size={13} aria-hidden />
-          </button>
-        )}
-      </div>
-      <ul
-        {...listboxAria(aria)}
-        ref={listRef}
-        aria-label={source.find}
-        aria-busy={pending}
-        className="quick-open__list"
-      >
-        {rows.map((row) => {
-          const option = optionAria(aria, row.id);
-          const shown = row.id === active;
-          return (
-            <li
-              key={row.id}
-              {...option}
-              data-quick-row={row.id}
-              className="quick-open__row"
-              data-active={shown ? "true" : undefined}
-              // Move the highlight without taking the caret out of the field.
-              onPointerMove={() => setActive(row.id)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => pick(row.id)}
+    <div className="quick-open" data-testid="quick-open" onKeyDown={onKeyDown}>
+      <button
+        type="button"
+        className="quick-open__scrim"
+        // The dim is a pointer target only: Escape and Tab are the named ways out.
+        aria-hidden="true"
+        tabIndex={-1}
+        onClick={onClose}
+      />
+      <div className="quick-open__card" role="dialog" aria-label={source.find}>
+        <div className="quick-open__field">
+          <Search size={14} aria-hidden />
+          <input
+            ref={fieldRef}
+            {...comboboxFieldAria(aria)}
+            aria-label={source.find}
+            data-testid="quick-open-input"
+            value={query}
+            placeholder={source.placeholder}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {query === "" ? null : (
+            <button
+              type="button"
+              className="quick-open__clear"
+              aria-label="Clear search"
+              onPointerDown={(event) => {
+                // The caret stays in the field: clearing is more typing, not a pick.
+                event.preventDefault();
+                setQuery("");
+                claimFocus(fieldRef.current, "gesture", { event });
+              }}
             >
-              <span className="quick-open__row-main">
-                <span className="quick-open__row-title">{row.title}</span>
-                {row.detail === undefined ? null : <span className="quick-open__row-detail">{row.detail}</span>}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {pending || rows.length > 0 ? null : <p className="quick-open__empty">{source.empty}</p>}
-      <div className="quick-open__foot">
-        <span className="quick-open__count" role="status" aria-live="polite" aria-atomic="true">
-          {talk}
-        </span>
-        <span className="quick-open__hints">
-          <Kbd>↑↓</Kbd>
-          <span className="quick-open__hint">move</span>
-          <Kbd>↵</Kbd>
-          <span className="quick-open__hint">open</span>
-          <Kbd>esc</Kbd>
-          <span className="quick-open__hint">close</span>
-        </span>
+              <X size={13} aria-hidden />
+            </button>
+          )}
+        </div>
+        <ul
+          {...listboxAria(aria)}
+          ref={listRef}
+          aria-label={source.find}
+          aria-busy={pending}
+          className="quick-open__list"
+        >
+          {rows.map((row) => {
+            const option = optionAria(aria, row.id);
+            const shown = row.id === active;
+            return (
+              <li
+                key={row.id}
+                {...option}
+                data-quick-row={row.id}
+                className="quick-open__row"
+                data-active={shown ? "true" : undefined}
+                // Move the highlight without taking the caret out of the field.
+                onPointerMove={() => setActive(row.id)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => pick(row.id)}
+              >
+                <span className="quick-open__row-main">
+                  <span className="quick-open__row-title">{row.title}</span>
+                  {row.detail === undefined ? null : <span className="quick-open__row-detail">{row.detail}</span>}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        {pending || rows.length > 0 ? null : <p className="quick-open__empty">{source.empty}</p>}
+        <div className="quick-open__foot">
+          <span className="quick-open__count" role="status" aria-live="polite" aria-atomic="true">
+            {talk}
+          </span>
+          <span className="quick-open__hints">
+            <Kbd>↑↓</Kbd>
+            <span className="quick-open__hint">move</span>
+            <Kbd>↵</Kbd>
+            <span className="quick-open__hint">open</span>
+            <Kbd>esc</Kbd>
+            <span className="quick-open__hint">close</span>
+          </span>
+        </div>
       </div>
-    </Popover>
+    </div>
   );
 }
