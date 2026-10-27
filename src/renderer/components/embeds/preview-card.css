@@ -37,9 +37,10 @@
   border-color: var(--color-stroke-hi);
 }
 
+/* Keyboard focus as the ui kit draws it, inset so a host that clips the box still shows it. */
 .preview-card[data-size="card"][data-opens]:focus-visible {
-  outline: none;
-  border-color: var(--color-amber);
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
 }
 
 .preview-card[data-kind="missing"] {
@@ -80,8 +81,8 @@
 }
 
 .preview-card__open:focus-visible {
-  outline: 1px solid var(--color-amber);
-  outline-offset: 2px;
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
 }
 
 .preview-card__version {
