@@ -43,7 +43,7 @@
 .file-view__zoom:focus-visible,
 .file-view__page-input:focus-visible,
 .file-view__stage:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-cyan);
   outline-offset: -2px;
 }
 
@@ -81,8 +81,9 @@
   font-size: var(--text-body);
 }
 
+/* A refusal is said in ink: crimson is for blockers. */
 .file-view__said[data-tone="refused"] {
-  color: var(--color-crimson-fg);
+  color: var(--color-ink);
 }
 
 .file-view__stage {
@@ -223,6 +224,8 @@
   position: absolute;
   box-sizing: border-box;
   border-radius: var(--radius-sm);
+  /* A dark outer ring, so amber reads on white paper and on any picture. */
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-umbra) 60%, transparent);
 }
 
 .file-box--draft {
