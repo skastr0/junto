@@ -46,6 +46,7 @@ import { heldMailbox } from "./mailbox-cache";
 import type { WorkRepository } from "./repository";
 import { WorkService } from "./service";
 import { postSubjectComment } from "./subject-comment";
+import { subjectReplyOf } from "@shared/subject-comment";
 import { subjectNameAt, subjectPeopleAt } from "./subject-people";
 
 /** One key per resource, whatever place on it a thread hangs. */
@@ -222,14 +223,7 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       const people = yield* Effect.result(subjectPeopleAt(canvas, canvasName, subject));
       if (people._tag === "Failure") return refused("not-found", "That task is no longer on its board.");
       const context = { canvas, canvasName, people: [asNodeId(nodeId), ...people.success] };
-      const posted = yield* Effect.result(postSubjectComment(
-        subject.kind === "task"
-          ? { ...base, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } }
-          : subject.kind === "artifact"
-            ? { ...base, subject: { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId } }
-            : { ...base, subject: { kind: "page", nodeId: subject.nodeId } },
-        context,
-      ));
+      const posted = yield* Effect.result(postSubjectComment(subjectReplyOf(subject, base), context));
       if (posted._tag === "Failure") {
         return refused(posted.failure.type === "ScopeError" ? "invalid" : "failed", posted.failure.type === "ScopeError" ? "A seat mentioned here cannot reach this resource." : "The comment could not be written.");
       }

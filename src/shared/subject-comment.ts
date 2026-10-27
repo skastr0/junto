@@ -83,6 +83,25 @@ export const commentSubjectOf = (input: SubjectCommentInput, pageBox?: PageBoxAn
   }
 };
 
+/** A comment's write, before its subject: what a reply in a subject thread carries. */
+export type SubjectReplyWrite = Omit<CommentOn<"task">, "subject" | "anchor">;
+
+/**
+ * A reply in a subject thread: a comment on the thread's resource, with no
+ * anchor of its own (the thread's first row holds it). Exhaustive, so a new
+ * subject kind fails tsc here instead of posting as another kind's comment.
+ */
+export const subjectReplyOf = (subject: ResourceSubject, write: SubjectReplyWrite): SubjectCommentInput => {
+  switch (subject.kind) {
+    case "task":
+      return { ...write, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } };
+    case "artifact":
+      return { ...write, subject: { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId } };
+    case "page":
+      return { ...write, subject: { kind: "page", nodeId: subject.nodeId } };
+  }
+};
+
 /**
  * The comment row's id, derived from (writer installation, opId) so a retry
  * of the same write is the same row and meets identity-conflict.

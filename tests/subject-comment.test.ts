@@ -9,6 +9,7 @@ import {
   commentSubjectOf,
   commentThreadOf,
   subjectCommentId,
+  subjectReplyOf,
   type CommentAnchorFor,
   type PageBoxRequest,
   type SubjectCommentInput,
@@ -29,6 +30,14 @@ describe("subject comment contract", () => {
       .toEqual({ kind: "artifact", nodeId: NODE, artifactId: ID, anchor: { kind: "cells", range: "B2" } });
     expect(commentSubjectOf({ ...base, subject: { kind: "page", nodeId: NODE } })).toEqual({ kind: "page", nodeId: NODE });
     expect(commentSubjectOf({ ...base, subject: { kind: "task", nodeId: NODE, taskId: ID } })).toEqual({ kind: "task", nodeId: NODE, taskId: ID });
+  });
+
+  it("posts a reply in a subject thread as a comment on that kind, without the thread's anchor", () => {
+    const write = { ...base, threadId: "thread-1" as MailMessageId };
+    expect(subjectReplyOf({ kind: "task", nodeId: NODE, taskId: ID }, write).subject).toEqual({ kind: "task", nodeId: NODE, taskId: ID });
+    expect(subjectReplyOf({ kind: "artifact", nodeId: NODE, artifactId: ID, anchor: { kind: "cells", range: "B2" } }, write))
+      .toEqual({ ...write, subject: { kind: "artifact", nodeId: NODE, artifactId: ID } });
+    expect(subjectReplyOf({ kind: "page", nodeId: NODE }, write).subject).toEqual({ kind: "page", nodeId: NODE });
   });
 
   it("derives the comment's id from (installation, opId), and its thread from the subject", () => {

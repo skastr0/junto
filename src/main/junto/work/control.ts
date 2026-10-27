@@ -135,6 +135,7 @@ import type { TaskView } from "@shared/task-model";
 import { subjectLabel, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
 import { OpId } from "@shared/work-ids";
 import { postSubjectComment } from "./subject-comment";
+import { subjectReplyOf } from "@shared/subject-comment";
 import { subjectPeopleAt } from "./subject-people";
 import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
 import {
@@ -2067,14 +2068,7 @@ const dispatchOp = (
           inReplyTo: inReplyTo as MailMessageId,
         };
         const context = { canvas: board, canvasName: caller.canvasName, people: yield* subjectPeopleAt(board, caller.canvasName, subject) };
-        const posted = yield* postSubjectComment(
-          subject.kind === "task"
-            ? { ...base, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } }
-            : subject.kind === "artifact"
-              ? { ...base, subject: { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId } }
-              : { ...base, subject: { kind: "page", nodeId: subject.nodeId } },
-          context,
-        );
+        const posted = yield* postSubjectComment(subjectReplyOf(subject, base), context);
         return {
           ...posted,
           inReplyTo,
