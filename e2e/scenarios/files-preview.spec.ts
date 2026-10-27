@@ -106,12 +106,14 @@ test("PDF and image preview and Extract as artifact, dark and bright", async () 
 
       // (4) a box on page one, extracted to Shelf, the one Artifacts node in reach.
       await pdf.getByTestId("file-view-box-tool").click();
-      // Comment hands the box to the rail's composer, which keeps it.
+      // A drawn box opens the rail's composer on it (onDraft); discarding it lets the composer go too.
       await drag(page, first, [60, 200], [300, 300]);
-      await pdf.getByTestId("file-box-comment").click();
       await expect(modal.getByText(/area on page 1/iu).first()).toBeVisible({ timeout: 10_000 });
+      facts.composerOnDraw = true;
+      await pdf.getByRole("button", { name: "Discard the box" }).click();
+      await expect(first.getByTestId("file-box-draft")).toHaveCount(0);
+      await expect(modal.getByText(/area on page 1/iu)).toHaveCount(0);
       await expect(pdf.locator(".file-view__stage")).toBeFocused();
-      facts.commentKeepsBox = true;
       await drag(page, first, [60, 40], [360, 160]);
       await expect(first.getByTestId("file-box-draft")).toBeVisible();
       const drawn = (await first.getByTestId("file-box-draft").boundingBox())!.width / (await first.boundingBox())!.width;
