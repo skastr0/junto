@@ -73,6 +73,8 @@ button.resource-chip:focus-visible {
 /* Archived: still real and still opens, so not struck; dimmed, and named archived. */
 .resource-chip[data-archived="true"] {
   background: transparent;
+  /* Outlined and unfilled beside a filled live chip, so archived reads to the eye as well; solid, as dashed is queued. */
+  border-color: var(--color-stroke);
   color: var(--color-dim);
 }
 
