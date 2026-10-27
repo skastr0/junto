@@ -14,7 +14,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import {
-  dragRow,
+  treeDrag,
   drop,
   dropOn,
   expandInTree,
@@ -233,7 +233,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       const root = stage.fixture.root;
 
       await expandInTree(modal, "notes");
-      await dragRow(page, treeRow(modal, "notes/meeting notes.txt"), treeRow(modal, "src"));
+      await treeDrag(page, treeRow(modal, "notes/meeting notes.txt"), treeRow(modal, "src"));
 
       await waitForFile(join(root, "src", "meeting notes.txt"));
       expect(readFileSync(join(root, "src", "meeting notes.txt"), "utf8")).toBe("spaced name\n");
@@ -261,7 +261,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       await expect(treeRow(modal, "src/café.md")).toBeVisible({ timeout: 15_000 });
 
       await expandInTree(modal, "notes");
-      await dragRow(page, treeRow(modal, "notes/café.md"), treeRow(modal, "src"));
+      await treeDrag(page, treeRow(modal, "notes/café.md"), treeRow(modal, "src"));
 
       await expect(modal.getByRole("alert").filter({ hasText: "Nothing moved." })).toBeVisible({ timeout: 15_000 });
       expect(readFileSync(join(root, "notes", "café.md"), "utf8")).toBe("# Café\n");

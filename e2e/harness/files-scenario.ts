@@ -135,15 +135,19 @@ export const drop = async (target: Locator, transfer: JSHandle<DataTransfer>): P
 };
 
 /**
- * A drag from one tree row onto another, with the mouse in steps, so the tree sees a drag rather than a click.
- * Playwright's dragTo makes a single move, which can stay under the tree's drag threshold.
+ * A tree move as the tree's own events name it. Playwright's pointer drag does not start the tree's native drag
+ * (region-environment-walk.spec.ts makes the same fallback), so the events the rows and the tree listen for go in
+ * order, sharing one DataTransfer. The drop point is the target row's centre: the tree's drop reads that point.
  */
-export const dragRow = async (page: Page, from: Locator, to: Locator): Promise<void> => {
-  const start = await from.boundingBox();
-  const end = await to.boundingBox();
-  if (start === null || end === null) throw new Error("a tree row has no size to drag from or to");
-  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
-  await page.mouse.up();
+export const treeDrag = async (page: Page, from: Locator, to: Locator): Promise<void> => {
+  const source = await from.boundingBox();
+  const target = await to.boundingBox();
+  if (source === null || target === null) throw new Error("a tree row has no size to drag from or to");
+  const start = { clientX: source.x + source.width / 2, clientY: source.y + source.height / 2 };
+  const drop = { clientX: target.x + target.width / 2, clientY: target.y + target.height / 2 };
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await from.dispatchEvent("dragstart", { dataTransfer, ...start });
+  await to.dispatchEvent("dragover", { dataTransfer, ...drop });
+  await to.dispatchEvent("drop", { dataTransfer, ...drop });
+  await from.dispatchEvent("dragend", { dataTransfer, ...start });
 };
