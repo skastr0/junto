@@ -83,6 +83,15 @@ for (const theme of ["dark", "bright"] as const) {
       await expect(title).not.toHaveValue(first);
       await expect(list.locator("button[data-selected='true']")).toBeFocused();
       await shot(page, `${theme}-1-list-moved`);
+      // The keys every list shares: K back up, J down again, Home to the top.
+      await page.keyboard.press("k");
+      await expect(title).toHaveValue(first);
+      await page.keyboard.press("j");
+      await expect(title).not.toHaveValue(first);
+      await page.keyboard.press("Home");
+      await expect(title).toHaveValue(first);
+      await page.keyboard.press("End");
+      await expect(list.locator("button[data-selected='true']")).toBeFocused();
       await page.keyboard.press("Enter");
       await expect.poll(() => paneWithFocus(page)).toBe("main");
 

@@ -64,3 +64,13 @@ describe("pad edge routes", () => {
     for (const point of right) expect(inside(point, 0) || inside(point, 300)).toBe(false);
   });
 });
+
+describe("pad ports on a triangle", () => {
+  test("its side ports sit on its slanted sides, not out at its box", () => {
+    const tri = { ...shape("t", 0, 0), type: "triangle" } as PadShape;
+    const ports = Object.fromEntries(shapePorts(tri).map((port) => [port.side, port.at]));
+    expect(ports.left).toEqual({ x: 25, y: 30 });
+    expect(ports.right).toEqual({ x: 75, y: 30 });
+    expect(ports.top).toEqual({ x: 50, y: 0 });
+  });
+});

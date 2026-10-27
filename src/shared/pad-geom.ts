@@ -140,15 +140,17 @@ export const cylinderPaths = (shape: PadShape): { readonly outline: string; read
 };
 
 export const anchorPoint = (shape: PadShape, side: PadSide): PadPoint => {
+  // A triangle's sides slant in: halfway down, they stand a quarter of the width in from its box.
+  const inset = shape.type === "triangle" && (side === "left" || side === "right") ? shape.w / 4 : 0;
   switch (side) {
     case "top":
       return { x: shape.x + shape.w / 2, y: shape.y };
     case "right":
-      return { x: shape.x + shape.w, y: shape.y + shape.h / 2 };
+      return { x: shape.x + shape.w - inset, y: shape.y + shape.h / 2 };
     case "bottom":
       return { x: shape.x + shape.w / 2, y: shape.y + shape.h };
     case "left":
-      return { x: shape.x, y: shape.y + shape.h / 2 };
+      return { x: shape.x + inset, y: shape.y + shape.h / 2 };
   }
 };
 
