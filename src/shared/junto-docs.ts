@@ -104,7 +104,7 @@ const SCHEMA_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
-  task: "Task node: each task has a stable TaskId and a number (#42) and moves backlog, assigned, working, in-review, done. dependsOn holds TaskIds only, and a task cannot finish until each is done. Every rule in force needs a claim on the finish; stamps decide in-review.",
+  task: "Task node: each task has a stable TaskId and a number (#42) and moves backlog, assigned, working, in-review, done. dependsOn holds TaskIds only, and a task cannot finish until each is done. Every rule in force needs a claim on the finish; stamps decide in-review. When a task closes done on a board that derives into others, each of those gets a new backlog task with the same title and no assignee; task show names it derivedFrom on the new task and lists it under derived on the origin.",
   artifacts: "Artifacts node: links, documents, pads, sheets and files, each versioned; every write is ruled by the machine that edits the canvas.",
   agent: "Actor seat: the node holds identity, harness and launch settings. Mail is separately stored and paged per seat; terminal sessions are runtime facts. Identity is the seat credential.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",

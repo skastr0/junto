@@ -1,7 +1,7 @@
 import { Option, Schema } from "effect";
 import type { NodeId } from "./model/base";
 import type { CompletionEvidence } from "./work-model";
-import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
+import { mintItemId, type DomainVerdict, type Refusal, type ResourceActor, type ResourceCommand, type ResourceDomain } from "./resource-command";
 import {
   ASSIGNEE_ONLY,
   formatTaskNumber,
@@ -48,6 +48,8 @@ export type TaskRecord = TaskCore & {
   readonly title: string;
   readonly body?: string;
   readonly dependsOn: ReadonlyArray<TaskId>;
+  /** The task whose finish on a board that derives into this one made it (0.10.3). */
+  readonly derivedFrom?: TaskId;
 };
 
 /** Every task of one canvas, and the next number the ruler mints. */
@@ -86,6 +88,11 @@ export type TaskDomainEnv = {
    * checked, as in a preview.
    */
   readonly checksUnmet?: (node: TaskNodeId, next: TaskNodeId | undefined, results: ReadonlyArray<CheckResult>) => ChecksUnmet | undefined;
+  /**
+   * Task nodes this node `derives` into, in wire order: each gets a new task
+   * when one closes done here. Absent, nothing is derived, as in a preview.
+   */
+  readonly derivesTo?: (node: TaskNodeId) => ReadonlyArray<TaskNodeId>;
 };
 
 /** The required checks a finish found red or never run, by check id, as `checks-unmet` reports them. */
@@ -107,7 +114,13 @@ export type TaskFact = {
 };
 
 export type TaskRecordRuling =
-  | { readonly ok: true; readonly task: TaskRecord; readonly effects: ReadonlyArray<TaskEffect> }
+  | {
+    readonly ok: true;
+    readonly task: TaskRecord;
+    readonly effects: ReadonlyArray<TaskEffect>;
+    /** New tasks this ruling made on the boards the task's node derives into. */
+    readonly derived?: ReadonlyArray<TaskRecord>;
+  }
   | { readonly ok: false; readonly refusal: TaskRefusal };
 
 const refuse = (detail: TaskRefusalDetail): TaskRecordRuling => ({ ok: false, refusal: taskRefusal(detail) });
@@ -504,6 +517,15 @@ export const ruleTaskBoardCommand = (
   }
   const ruled = ruleTaskCommand(task, actor, command, taskContextOf(state, task, env));
   if (!ruled.ok) return ruled;
+  return derive(state, task, recordFields(task, ruled, command), env);
+};
+
+/** The record's own fields, as the command sets them, on the ruled layer. */
+const recordFields = (
+  task: TaskRecord,
+  ruled: Extract<TaskRecordRuling, { readonly ok: true }>,
+  command: TaskCommand,
+): Extract<TaskRecordRuling, { readonly ok: true }> => {
   switch (command.kind) {
     case "edit":
       return {
@@ -521,6 +543,37 @@ export const ruleTaskBoardCommand = (
     default:
       return ruled;
   }
+};
+
+/**
+ * When a ruling closes a task's layer done on its node, whether it stays
+ * there or is sent on, every board that node derives into gets a new task:
+ * in backlog, unassigned, on the board's stamp default, with the origin's
+ * title and a reference back to it, and nothing else of it (0.10.3).
+ */
+const derive = (
+  state: TaskBoardState,
+  before: TaskRecord,
+  ruled: Extract<TaskRecordRuling, { readonly ok: true }>,
+  env: TaskDomainEnv,
+): TaskRecordRuling => {
+  const closed = ruled.effects.some((effect) => effect.kind === "sent-on") || (before.state !== "done" && ruled.task.state === "done");
+  const targets = closed ? (env.derivesTo?.(before.node) ?? []) : [];
+  if (targets.length === 0) return ruled;
+  const derived = targets.map((node, index): TaskRecord => ({
+    id: mintItemId(),
+    number: taskNumber(state.nextNumber + index)!,
+    title: before.title,
+    dependsOn: [],
+    derivedFrom: before.id,
+    state: "backlog",
+    node,
+    epoch: 0,
+    stampPolicy: { required: env.stampDefaultOf(node).required },
+    reviewers: [],
+    stamps: [],
+  }));
+  return { ...ruled, derived };
 };
 
 // ── refusal text ───────────────────────────────────────────────────────────
@@ -730,6 +783,17 @@ const isTaskRefusalDetail = (expected: unknown): expected is TaskRefusalDetail =
   typeof expected === "object" && expected !== null && typeof (expected as { readonly kind?: unknown }).kind === "string";
 
 /**
+ * A ruling's facts: each derived task, then the ruled task, last, since
+ * whoever reads a ruling takes its last fact as the task it ruled.
+ */
+const factsOf = (ruled: Extract<TaskRecordRuling, { readonly ok: true }>): readonly [TaskFact, ...TaskFact[]] => {
+  const ruledFact: TaskFact = { kind: "task", task: ruled.task, effects: ruled.effects };
+  const derived = (ruled.derived ?? []).map((task): TaskFact => ({ kind: "task", task, effects: [{ kind: "number-minted", number: task.number }] }));
+  const [first, ...rest] = [...derived, ruledFact];
+  return [first!, ...rest];
+};
+
+/**
  * The task domain for `resource-command.ts`'s ruler. Built per ruling with
  * the canvas and clock it is ruled against; the writing machine builds the
  * same one for its overlay.
@@ -746,7 +810,7 @@ export const taskDomain = (env: TaskDomainEnv): ResourceDomain<TaskBoardState, T
     }
     const ruled = ruleTaskBoardCommand(state, target, taskActorOf(command.actor), command.op, env);
     return ruled.ok
-      ? { kind: "apply", facts: [{ kind: "task", task: ruled.task, effects: ruled.effects }] }
+      ? { kind: "apply", facts: factsOf(ruled) }
       : { kind: "refuse", refusal: toRefusal(ruled.refusal) };
   },
   apply: (state, fact) => {

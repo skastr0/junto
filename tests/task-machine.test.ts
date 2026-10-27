@@ -539,6 +539,47 @@ describe("flows: finishing sends the task on", () => {
   });
 });
 
+describe("derives: closing a task makes a new one on each target", () => {
+  const derives = env({ derivesTo: (node) => (node === build ? [qa, ship] : []) });
+
+  it("waits for the last approval, then derives on every target and keeps the origin done where it is", () => {
+    const working = record({ state: "working", assignee: ada, reviewers: [asSeat(bo)], stampPolicy: { required: 1 }, body: "why" });
+    const inReview = ok(one(working, seat(ada), { kind: "finish" }, derives));
+    expect(inReview.task.state).toBe("in-review");
+    expect(inReview.derived).toBeUndefined();
+    const ruled = ok(one(inReview.task, seat(bo), { kind: "stamp", verdict: "approve" }, derives));
+    expect(ruled.task).toMatchObject({ id: T1, state: "done", node: build });
+    expect(ruled.derived?.map(({ id: _id, ...task }) => task)).toEqual([
+      { number: 2, title: "ship it", dependsOn: [], derivedFrom: T1, state: "backlog", node: qa, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+      { number: 3, title: "ship it", dependsOn: [], derivedFrom: T1, state: "backlog", node: ship, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+    ]);
+    expect(new Set(ruled.derived?.map((task) => task.id)).size).toBe(2);
+  });
+
+  it("derives nothing on cancel, on archive of a done task, or where the node derives into nothing", () => {
+    expect(ok(one(record({ state: "working", assignee: ada }), operator, { kind: "cancel" }, derives)).derived).toBeUndefined();
+    expect(ok(one(record({ state: "done" }), operator, { kind: "archive" }, derives)).derived).toBeUndefined();
+    expect(ok(one(record({ state: "working", assignee: ada, node: qa }), seat(ada), { kind: "finish" }, derives)).derived).toBeUndefined();
+  });
+
+  it("puts each derived task's fact before the ruled task's, so the last fact is still the task ruled", () => {
+    const domain = taskDomain(derives);
+    const verdict = domain.rule(board(record({ state: "working", assignee: ada })), {
+      opId: mintOpId(),
+      canvasName: "factory",
+      actor: { kind: "seat", seatId: `seat_${"a".repeat(64)}` as never, nodeId: ada },
+      target: { kind: "task", nodeId: build, itemId: T1 },
+      basis: null,
+      after: [],
+      op: { kind: "finish" },
+    });
+    if (verdict.kind !== "apply") throw new Error("refused");
+    expect(verdict.facts.map((fact) => [fact.task.node, fact.task.state])).toEqual([[qa, "backlog"], [ship, "backlog"], [build, "done"]]);
+    const after = verdict.facts.reduce(domain.apply, board(record()));
+    expect(after.nextNumber).toBe(4);
+  });
+});
+
 describe("finish against the rules in force", () => {
   // Board rules in force on the build node, judged by the real evaluator, as main's env does.
   const inForce = (...rules: ReadonlyArray<Rule>): ReadonlyArray<RuleInForce> =>

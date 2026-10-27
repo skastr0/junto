@@ -9,6 +9,7 @@ import { Effect, Option, Result, Schema } from "effect";
 import { parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
+import { deriveTargets } from "@shared/flow-graph";
 import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, seatReachesTaskNode, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
@@ -295,12 +296,13 @@ export const checkStatusOf = (required: RequiredCheck, runs: ReadonlyArray<Check
   return run.exitCode === 0 ? "green" : "red";
 };
 
-/** The ruler's view of the canvas: flows downstream, stamp defaults, and seat and automation reach. */
+/** The ruler's view of the canvas: flows downstream, derives targets, stamp defaults, and seat and automation reach. */
 export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthorOf = noAutomationAuthor): TaskCanvasEnv => ({
   downstream: (node) =>
     [...canvas.wires.values()]
       .filter((wire) => wire.verb === TASK_FLOW_VERB && wire.from === node)
       .map((wire) => taskNodeId(wire.to)),
+  derivesTo: (node) => deriveTargets(canvas, node).map((id) => taskNodeId(id as NodeId)),
   stampDefaultOf: (node) => stampDefaultOfContract(boardContractOf(canvas, node)),
   seatReaches: (seat, node) => seatReachesTaskNode(canvas, seat, node),
   automationReaches: (automation, node) => {

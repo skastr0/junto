@@ -76,6 +76,7 @@ const env: TaskCanvasEnv = {
   stampDefaultOf: () => ({ required: 0 }),
   rulesUnmet: () => undefined,
   checksUnmet: () => undefined,
+  derivesTo: () => [],
   seatReaches: () => true,
 };
 

@@ -73,6 +73,7 @@ const TaskFactWire = Schema.Struct({
     title: Schema.String,
     body: Schema.optionalKey(Schema.String),
     dependsOn: Schema.Array(ItemId),
+    derivedFrom: Schema.optionalKey(ItemId),
   }),
   effects: Schema.Array(TaskEffect),
 });

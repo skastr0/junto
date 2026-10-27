@@ -245,7 +245,7 @@ of seats must not cost it a frame, and one command must change one row.
 
 **`verb` is the one authored fact on a wire**: what the relationship *is*. Its ports and the task-path hop are **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`), never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`agent --navigates--> page`, never the reverse).
 
-**Edges join seats.** A wire remains only for seat to seat mail, seat to page automation and task to task flow. Resource nodes (tasks, artifacts) take no access edge: a seat reaches them by region ([plan 01](docs/plans/0.10/01-region-binding.md)). The Automations node takes no edge at all ([Automations](#automations) below).
+**Edges join seats.** A wire remains only for seat to seat mail, seat to page automation and task to task flow or derivation. Resource nodes (tasks, artifacts) take no access edge: a seat reaches them by region ([plan 01](docs/plans/0.10/01-region-binding.md)). The Automations node takes no edge at all ([Automations](#automations) below).
 
 **The verb table**: at most two verbs per ordered kind pair; a pair absent from the table refuses connect:
 
@@ -254,6 +254,7 @@ of seats must not cost it a frame, and one command must change one row.
 | agent → agent | `messages` | msg ports |
 | agent → page | `navigates` | `browser.automate` |
 | task → task | `flows` | no ports; `flow: true`, DAG-guarded task-path hop |
+| task → task | `derives` | no ports; `derive: true`, DAG-guarded on its own: a task that closes done on the source makes a new backlog task, unassigned, with its title and `derivedFrom`, on the target. A pair of boards holds `flows` or `derives`, never both |
 | terminal (either side) | — | no verb reaches it yet |
 
 Plain connect (no picker) stamps the pair's first verb, `messages` between two seats.

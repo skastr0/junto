@@ -86,6 +86,7 @@ const env = (over: Partial<TaskCanvasEnv> = {}): TaskCanvasEnv => ({
   stampDefaultOf: () => ({ required: 0 }),
   rulesUnmet: () => undefined,
   checksUnmet: () => undefined,
+  derivesTo: () => [],
   seatReaches: () => true,
   ...over,
 });
@@ -189,6 +190,55 @@ describe("task repository", () => {
         closedAt: expect.any(Number),
       },
     ]);
+  });
+
+  it("derives a new task on every derives target when one closes done, linked both ways, and nothing else of it", async () => {
+    const docs = taskNodeId(asNodeId("tasks-docs"));
+    const { taskId } = await create("ship the parser");
+    const derives = env({
+      downstream: (node) => (node === build ? [qa] : []),
+      derivesTo: (node) => (node === build ? [qa, docs] : []),
+      stampDefaultOf: (node) => ({ required: node === docs ? 1 : 0 }),
+    });
+    applied(await submit(command({ kind: "edit", body: "@ada knows why" }, taskId), derives));
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId), derives));
+    applied(await submit(command({ kind: "start" }, taskId, { actor: adaActor }), derives));
+    // Cancel or a plain write derives nothing: only a close does.
+    expect((await withRepo((repo) => repo.list(canvas, { nodeIds: [qa, docs], limit: 10 }))).tasks).toEqual([]);
+    const finished = applied(await submit(command({ kind: "finish", next: qa, handoff: "parser is in" }, taskId, { actor: adaActor }), derives));
+    // The ruled task is still the one the outcome names, and it flowed on as before.
+    expect(finished.task).toMatchObject({ id: taskId, node: qa, state: "backlog" });
+    expect(finished.effects.filter((effect) => effect.kind === "number-minted")).toHaveLength(2);
+
+    const derived = (await withRepo((repo) => repo.list(canvas, { nodeIds: [qa, docs], limit: 10 }))).tasks
+      .filter((task) => task.taskId !== taskId)
+      .sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+    expect(derived.map((task) => [task.number, task.current.node, task.current.state, task.title])).toEqual([
+      [2, qa, "backlog", "ship the parser"],
+      [3, docs, "backlog", "ship the parser"],
+    ]);
+    for (const task of derived) {
+      expect(task.body).toBeUndefined();
+      expect(task.dependsOn).toEqual([]);
+      expect(task.current.assignee).toBeUndefined();
+      expect(task.current.reviewers).toEqual([]);
+      expect(task.current.handoff).toBeUndefined();
+      expect(task.derivedFrom).toEqual({ taskId, number: 1, node: qa });
+    }
+    expect(derived[1]!.current.stampPolicy).toEqual({ required: 1 });
+
+    const origin = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));
+    expect(origin.derived).toEqual(derived.map((task) => ({ taskId: task.taskId, number: task.number, node: task.current.node })));
+    expect(origin.derivedFrom).toBeUndefined();
+    // The next task created takes the next number after the derived ones.
+    expect((await create("after")).outcome.task.number).toBe(4);
+  });
+
+  it("derives nothing when a task is canceled", async () => {
+    const { taskId } = await create("one");
+    const derives = env({ derivesTo: (node) => (node === build ? [qa] : []) });
+    applied(await submit(command({ kind: "cancel" }, taskId), derives));
+    expect((await withRepo((repo) => repo.list(canvas, { nodeIds: [qa], limit: 10 }))).tasks).toEqual([]);
   });
 
   it("fails a write rather than rule around a row that does not decode", async () => {

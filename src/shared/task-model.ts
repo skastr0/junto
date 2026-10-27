@@ -213,6 +213,17 @@ export type TaskView = {
   /** When the current state began (epoch ms), kept across writes that leave the state as it is: how long it has waited. */
   readonly stateSince: number;
   readonly pending?: { readonly opId: string };
+  /** The task this one was derived from (0.10.3), where it stands now. */
+  readonly derivedFrom?: TaskLink;
+  /** The tasks derived from this one, by number. */
+  readonly derived?: ReadonlyArray<TaskLink>;
+};
+
+/** A reference to another task, as a view shows it: its id, number and node. */
+export type TaskLink = {
+  readonly taskId: TaskId;
+  readonly number?: TaskNumber;
+  readonly node: TaskNodeId;
 };
 
 // ── commands ───────────────────────────────────────────────────────────────

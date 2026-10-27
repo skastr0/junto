@@ -51,6 +51,7 @@ import {
   type TaskEffect,
   type TaskId,
   type TaskState,
+  type TaskLink,
   type TaskView,
 } from "@shared/task-model";
 import type { WorkErrorBody } from "@shared/work-control";
@@ -68,10 +69,10 @@ export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceErro
 
 /**
  * What the ruler reads from the canvas besides tasks; the clock is the
- * repository's. The rules in force are required here, so no caller can rule a
- * finish without them.
+ * repository's. The rules in force and the derives targets are required here,
+ * so no caller can rule a finish without them.
  */
-export type TaskCanvasEnv = Omit<TaskDomainEnv, "at"> & Required<Pick<TaskDomainEnv, "rulesUnmet" | "checksUnmet">>;
+export type TaskCanvasEnv = Omit<TaskDomainEnv, "at"> & Required<Pick<TaskDomainEnv, "rulesUnmet" | "checksUnmet" | "derivesTo">>;
 
 export type TaskListQuery = {
   readonly nodeIds: ReadonlyArray<NodeId>;
@@ -156,6 +157,7 @@ const HeadRow = Schema.Struct({
   archived_from: Schema.NullOr(Schema.Literals(["done", "canceled"])),
   evidence_json: Schema.NullOr(Schema.String),
   handoff: Schema.NullOr(Schema.String),
+  derived_from: Schema.NullOr(Schema.String),
 });
 type HeadRow = typeof HeadRow.Type;
 
@@ -254,6 +256,7 @@ export const taskOfRow = (row: HeadRow, stamps: ReadonlyArray<Stamp> | undefined
     ...(row.archived_from === null ? {} : { archivedFrom: row.archived_from }),
     ...(evidence === undefined || Result.isFailure(evidence) ? {} : { evidence: evidence.success }),
     ...(row.handoff === null ? {} : { handoff: row.handoff }),
+    ...(row.derived_from === null ? {} : { derivedFrom: row.derived_from as TaskId }),
   };
 };
 
@@ -268,8 +271,13 @@ const decodeStoredRuling = Schema.decodeUnknownResult(StoredRuling);
 const layerOfRow = (row: LayerRow): ClosedTaskLayer => ({ ...(parse(row.layer_json) as TaskCore), closedAt: row.closed_at });
 
 /** The read shape of a head and its closed layers. */
-const viewOf = (row: HeadRow, task: TaskRecord, layers: ReadonlyArray<ClosedTaskLayer>): TaskView => {
-  const { id, number, title, body, dependsOn, ...current } = task;
+const viewOf = (
+  row: HeadRow,
+  task: TaskRecord,
+  layers: ReadonlyArray<ClosedTaskLayer>,
+  links: { readonly origin?: TaskLink | undefined; readonly derived: ReadonlyArray<TaskLink> },
+): TaskView => {
+  const { id, number, title, body, dependsOn, derivedFrom: _origin, ...current } = task;
   return {
     taskId: id,
     number,
@@ -281,7 +289,15 @@ const viewOf = (row: HeadRow, task: TaskRecord, layers: ReadonlyArray<ClosedTask
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     stateSince: row.state_since,
+    ...(links.origin === undefined ? {} : { derivedFrom: links.origin }),
+    ...(links.derived.length === 0 ? {} : { derived: links.derived }),
   };
+};
+
+/** A head row as another task's view links to it. */
+const linkOfRow = (row: { readonly task_id: string; readonly number: number; readonly node_id: string }): TaskLink => {
+  const number = taskNumber(row.number);
+  return { taskId: row.task_id as TaskId, ...(number === undefined ? {} : { number }), node: taskNodeId(row.node_id as NodeId) };
 };
 
 const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | RulingRecordFailed | TaskPersistenceError) =>
@@ -318,11 +334,12 @@ export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: 
       }
     }
     yield* sql`
-      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff)
+      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from)
       VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
         ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
         ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at}, ${at}, ${JSON.stringify(task.checks ?? [])},
-        ${task.archivedFrom ?? null}, ${task.evidence === undefined ? null : JSON.stringify(task.evidence)}, ${task.handoff ?? null})
+        ${task.archivedFrom ?? null}, ${task.evidence === undefined ? null : JSON.stringify(task.evidence)}, ${task.handoff ?? null},
+        ${task.derivedFrom ?? null})
       ON CONFLICT (canvas_name, task_id) DO UPDATE SET
         -- A write that leaves the state as it is keeps when that state began.
         state_since = CASE WHEN task_heads.state = excluded.state THEN task_heads.state_since ELSE excluded.state_since END,
@@ -345,14 +362,14 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas, id }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
     });
 
     const canvasRows = SqlSchema.findAll({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
     const nextNumberRow = SqlSchema.findOneOption({
@@ -406,6 +423,28 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       });
 
     /** Views of decodable head rows, each with its closed layers. */
+    /** Each row's origin, and the tasks derived from each row, by number. */
+    const linksOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>
+      Effect.gen(function* () {
+        type LinkRow = { readonly task_id: string; readonly number: number; readonly node_id: string; readonly derived_from: string | null };
+        const originIds = [...new Set(rows.flatMap((row) => (row.derived_from === null ? [] : [row.derived_from])))];
+        const ids = rows.map((row) => row.task_id);
+        const origins = originIds.length === 0 ? [] : yield* sql<LinkRow>`
+          SELECT task_id, number, node_id, derived_from FROM task_heads
+          WHERE canvas_name = ${canvas} AND ${sql.in("task_id", originIds)}`;
+        const derivedRows = ids.length === 0 ? [] : yield* sql<LinkRow>`
+          SELECT task_id, number, node_id, derived_from FROM task_heads
+          WHERE canvas_name = ${canvas} AND ${sql.in("derived_from", ids)}
+          ORDER BY number`;
+        const derived = new Map<string, TaskLink[]>();
+        for (const row of derivedRows) {
+          const held = derived.get(row.derived_from!);
+          if (held === undefined) derived.set(row.derived_from!, [linkOfRow(row)]);
+          else held.push(linkOfRow(row));
+        }
+        return { origins: new Map(origins.map((row) => [row.task_id, linkOfRow(row)] as const)), derived };
+      });
+
     const viewsOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>
       Effect.gen(function* () {
         const records = yield* recordsOf(canvas, rows);
@@ -415,9 +454,13 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
           if (held === undefined) layers.set(row.task_id, [layerOfRow(row)]);
           else held.push(layerOfRow(row));
         }
+        const links = yield* linksOf(canvas, rows);
         return rows.flatMap((row, i) => {
           const task = records[i];
-          return task === undefined ? [] : [viewOf(row, task, layers.get(row.task_id) ?? [])];
+          return task === undefined ? [] : [viewOf(row, task, layers.get(row.task_id) ?? [], {
+            origin: row.derived_from === null ? undefined : links.origins.get(row.derived_from),
+            derived: links.derived.get(row.task_id) ?? [],
+          })];
         });
       });
 
@@ -478,7 +521,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         Request: Schema.Void,
         Result: HeadRow,
         execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff FROM task_heads
+          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff, derived_from FROM task_heads
           WHERE canvas_name = ${canvasName}
             AND ${sql.in("node_id", query.nodeIds)}
             AND ${sql.in("state", states)}
