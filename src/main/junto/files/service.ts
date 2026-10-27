@@ -73,6 +73,12 @@ export type FilesServiceDeps = {
   readonly names?: NameSources;
   /** Wall-clock ms, for how long an unheld root's count is kept; swapped in tests. */
   readonly now?: () => number;
+  /**
+   * After a rename or move through Junto lands: carry the node's comment
+   * threads on `from` (or under `from/`) to `to`. Both relative. A failure
+   * is logged; the file did move, so the call still answers it.
+   */
+  readonly carryThreads?: (ref: FilesNodeRef, from: FilePath, to: FilePath) => Promise<void>;
 };
 
 /** An unheld root has no watcher: its count is kept this long, then taken again. */
@@ -154,6 +160,17 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       if (result.ok) counts.delete(scope.root);
       return result;
     });
+
+  /** Threads follow a path Junto moved, before the move is answered. */
+  const carrying = async (ref: FilesNodeRef, from: FilePath, result: FilesResult<FilePath>): Promise<FilesResult<FilePath>> => {
+    if (!result.ok || deps.carryThreads === undefined || result.value === from) return result;
+    try {
+      await deps.carryThreads(ref, from, result.value);
+    } catch (cause) {
+      console.error("[files] comment threads did not follow the move", cause);
+    }
+    return result;
+  };
 
   /** Drop a session here only (its holder is already gone). */
   const forget = (key: string): void => {
@@ -275,9 +292,9 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     create: (ref: FilesNodeRef, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
       changing(ref, (root) => createAt(root, path, dir)),
     rename: (ref: FilesNodeRef, path: FilePath, name: string): Promise<FilesResult<FilePath>> =>
-      changing(ref, (root) => renameAt(root, path, name)),
+      changing(ref, (root) => renameAt(root, path, name)).then((result) => carrying(ref, path, result)),
     move: (ref: FilesNodeRef, path: FilePath, intoDir: FilePath): Promise<FilesResult<FilePath>> =>
-      changing(ref, (root) => moveAt(root, path, intoDir)),
+      changing(ref, (root) => moveAt(root, path, intoDir)).then((result) => carrying(ref, path, result)),
     trash: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
       changing(ref, (root) => trashAt(root, path, deps.trash)),
     import: (

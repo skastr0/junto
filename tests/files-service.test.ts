@@ -168,6 +168,25 @@ describe("symlinks that point out of the root", () => {
   });
 });
 
+describe("comment threads follow a move", () => {
+  it("carries from the old path to the new after a rename or move lands, and answers even if carrying fails", async () => {
+    const carried: Array<[string, string]> = [];
+    let fail = false;
+    const { files } = service({
+      carryThreads: async (_ref, from, to) => {
+        carried.push([from, to]);
+        if (fail) throw new Error("db busy");
+      },
+    });
+    expect(value(await files.rename(ref, p("README.md"), "INTRO.md"))).toBe("INTRO.md");
+    expect(value(await files.move(ref, p("INTRO.md"), p("src")))).toBe("src/INTRO.md");
+    expect(errorOf(await files.rename(ref, p("nope.md"), "x.md"))).toBe("not-found");
+    fail = true;
+    expect(value(await files.rename(ref, p("src"), "lib"))).toBe("lib");
+    expect(carried).toEqual([["README.md", "INTRO.md"], ["INTRO.md", "src/INTRO.md"], ["src", "lib"]]);
+  });
+});
+
 describe("which node is served", () => {
   it("refuses a missing node, another machine's node and a root that is gone", async () => {
     const { files } = service();
