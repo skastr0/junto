@@ -352,7 +352,11 @@ function SelectedFile({
     return result.ok ? result.value : null;
   }, [filesRef, path]);
   useEffect(() => {
-    void load();
+    // A draft held while the modal was closed may be on a version the disk has since left: say so on open, not at Save.
+    void load().then((now) => {
+      const held = fileDraft(nodeId, path);
+      if (now !== null && held !== undefined && !sameStamp(held.base, now.stamp)) setStale("changed");
+    });
     return filesSource().onChange((event) => {
       if (!changeTouches(event, nodeId, path)) return;
       // A clean file follows the disk; a draft is the operator's until they choose.

@@ -238,5 +238,28 @@ describe("the Files modal", () => {
     expect(document.querySelector(".files-refused")).toBeNull();
     expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("mine");
   });
-});
 
+  it("a held draft whose file changed on disk while the modal was closed says so as the file opens", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    setFileDraft(nodeId, A, { text: "mine", base: read.value.stamp });
+    files.touch(nodeId, "src/a.ts", "theirs");
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector(".files-stale")?.textContent).toContain("changed on disk");
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("mine");
+  });
+
+  it("a held draft on the version still on disk opens without the bar", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    setFileDraft(nodeId, A, { text: "mine", base: read.value.stamp });
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector(".files-stale")).toBeNull();
+  });
+});
