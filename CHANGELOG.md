@@ -42,7 +42,9 @@ step is not approved, add that the Files stub on other machines comes later.)
   stored like a mention and draws as a chip with the artifact's current title,
   so a rename never breaks it. Every artifact lists what links to it, from
   other artifacts' bodies (document text, pad text and sheet cells, with the
-  line around the link) as well as from comments and mail. In the CLI,
+  line around the link) as well as from comments and mail. The first launch
+  after the upgrade reads the artifacts you already have, so links written
+  before it show without an edit. In the CLI,
   `junto artifact create` and `edit` accept [[Title]] and resolve it within the
   seat's reach; no match or more than one is refused with the candidates, and
   `junto artifact show` lists what links to the artifact.

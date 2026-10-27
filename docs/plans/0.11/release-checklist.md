@@ -19,19 +19,19 @@ and is noted unverified.
       artifacts and browser in 0.10. If a track is not verified, `files` stays
       experimental and the first notes line says where to switch it on.
 - [x] Schema steps (product-lead): step 51 is the files node, expand only,
-      50 to 51. Step 52 rebuilds stubs so other machines show a Files stub; it
-      is with the operator. If approved, the notes name it; if not, the notes say
+      50 to 51. The stub step rebuilds stubs so other machines show a Files stub; it
+      is with the operator and, if picked, is step 53. If approved, the notes name it; if not, the notes say
       the stub comes later (other machines then show no Files stub). The links
       step below comes on top of either.
-- [x] Artifact links add a third step, `work_artifact_links`, expand only
-      (`docs/plans/0.11/02-artifact-links.md`; product-feed lands it, canvas
-      coordinates its number with step 52). So the head is 52 or 53 if the
-      stub step is approved, 51 or 52 if not. The notes carry `<HEAD>` until
-      the cut; read `CURRENT_STATE_SCHEMA_VERSION` then.
-- [ ] Which steps landed, known before the notes' upgrade paragraph and
-      section 1 are filled in.
+- [x] Artifact links add a second step, `work_artifact_links`, expand only
+      (`docs/plans/0.11/02-artifact-links.md`). Product-lead, 2026-10-27: the
+      head is 52 (51 files node, 52 artifact links); step 53 only if the
+      operator picks the Files stub. The notes carry `<HEAD>` until the cut;
+      read `CURRENT_STATE_SCHEMA_VERSION` then.
+- [ ] Whether the Files stub step (53) was picked, known before the notes'
+      upgrade paragraph and section 1 are filled in.
 
-## 1. State steps (51, links, and the stub step if approved)
+## 1. State steps (51 files node, 52 artifact links, 53 stub if picked)
 
 Notes open with it, as 0.10.3 did: the older release refuses the newer
 database, and going back means opening the backup taken at the upgrade. Run on
@@ -40,13 +40,19 @@ canvas-lead).
 
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
-- [ ] The copy migrates from v50 to the head (51 to 53, see section 0); `PRAGMA quick_check` ok, foreign keys empty.
+- [ ] The copy migrates from v50 to the head (52, or 53 with the stub step); `PRAGMA quick_check` ok, foreign keys empty.
 - [ ] Counts unchanged: every table, every wire and its verb, tasks.
 - [ ] Backup written before the stamp, opens on 0.10.3 at v50.
 - [ ] A second open runs no step and makes no backup.
 - [ ] Built app launches a fresh v50 home made by the 0.10.3 engine and
       migrates it (the 7b run of 0.10.3).
 - [ ] Diff the step's files between the receipts' commit and the cut.
+- [ ] Body backlinks backfill (dfedca97d): runs once at boot, marker
+      `artifact-links.v1` in `install-ops.db`. Gate, both required:
+      product-feed's shipped-install fixture test (coming), and on the built
+      app launched on a copy of an installed 0.10.3 home, an artifact with a
+      `[[ ]]` link shows in its target's Linked from without an edit. Check the
+      marker is written and a second launch does not backfill again.
 
 ## 2. Dependencies and packaging
 
