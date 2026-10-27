@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { FileQuestion, FolderOpen, SquareArrowOutUpRight } from "lucide-react";
 import { fileUrl } from "@shared/file-url";
-import type { FilesError, JuntoFilesApi } from "@shared/files";
+import { filesErrorLine, filesSource } from "../../lib/files-source";
 import { Button, PaneEmpty } from "../ui";
 import type { FileViewProps } from "./box-tools";
 import { fileNameOf, fileViewKindOf } from "./file-view-model";
@@ -12,16 +12,8 @@ import "./file-view.css";
 const PdfViewer = lazy(() => import("./PdfViewer").then((m) => ({ default: m.PdfViewer })));
 const ImageViewer = lazy(() => import("./ImageViewer").then((m) => ({ default: m.ImageViewer })));
 
-type FilesPort = Pick<JuntoFilesApi["files"], "openInDefaultApp" | "revealInFinder">;
-
-const filesPort = (): FilesPort | undefined => (window.junto as Partial<JuntoFilesApi> | undefined)?.files;
-
-const ERROR_LINE: Partial<Record<FilesError, string>> = {
-  "not-found": "The file is not there any more.",
-  "root-missing": "The node's folder is not there any more.",
-  denied: "macOS refused it permission.",
-  elsewhere: "This Files node lives on another machine.",
-};
+/** Main opens nothing that would run; a refused open says so, as the Files modal does. */
+const RUNS_LINE = "Junto does not open programs or scripts. Reveal it in Finder instead.";
 
 /**
  * A file that is not text, in the main pane (F6): a PDF or an image previews
@@ -46,12 +38,12 @@ export function FileView({
 
 function OtherFile({ canvasName, nodeId, path }: Omit<FileViewProps, "url">) {
   const [said, setSaid] = useState<string | null>(null);
-  const port = filesPort();
-  const run = (call: FilesPort[keyof FilesPort]): void => {
+  const run = (call: "openInDefaultApp" | "revealInFinder"): void => {
     setSaid(null);
-    void call({ canvas: canvasName, node: nodeId }, path).then(
-      (result) => setSaid(result.ok ? null : (ERROR_LINE[result.error] ?? "That did not work.")),
-      () => setSaid("That did not work."),
+    const files = filesSource();
+    void files[call]({ canvas: canvasName, node: nodeId }, path).then(
+      (result) => setSaid(result.ok ? null : call === "openInDefaultApp" && result.error === "denied" ? RUNS_LINE : filesErrorLine(result.error)),
+      () => setSaid(filesErrorLine("failed")),
     );
   };
   return (
@@ -62,11 +54,11 @@ function OtherFile({ canvasName, nodeId, path }: Omit<FileViewProps, "url">) {
         hint="Junto previews PDFs and images. Open this one in its own app."
         action={
           <div className="file-view__other-actions">
-            <Button size="sm" variant="primary" disabled={port === undefined} onClick={() => port && run(port.openInDefaultApp)}>
+            <Button size="sm" variant="primary" onClick={() => run("openInDefaultApp")}>
               <SquareArrowOutUpRight size={13} aria-hidden />
               Open in default app
             </Button>
-            <Button size="sm" variant="subtle" disabled={port === undefined} onClick={() => port && run(port.revealInFinder)}>
+            <Button size="sm" variant="chrome" onClick={() => run("revealInFinder")}>
               <FolderOpen size={13} aria-hidden />
               Reveal in Finder
             </Button>

@@ -127,10 +127,39 @@ test("file viewers in the real app, dark and bright", async () => {
       await expect(image.getByTestId("file-box-draft")).toBeVisible();
       await page.screenshot({ path: join(SHOTS, theme, "5-image-box.png") });
       await image.getByTestId("file-box-comment").click();
-      await expect(said.or(image.getByTestId("file-view-said"))).toContainText(/Comment on the image|./u);
-      facts.imageComment = (await said.innerText()).startsWith("Comment on the image")
-        ? await said.innerText()
-        : await image.getByTestId("file-view-said").innerText().catch(() => "none");
+      await expect(said).toContainText("Comment on the image");
+      facts.imageComment = await said.innerText();
+      // The image's own pixels: a 640 wide image fitted at 100% gives a shot as wide as the box drawn.
+      expect(Number(/shot (\d+) by/u.exec(facts.imageComment as string)?.[1])).toBeGreaterThan(190);
+
+      // (7) the keyboard: with the tool on, Enter on a page drops a box, arrows move it, Shift and an arrow grow it.
+      await pdf.getByTestId("file-view-box-tool").click();
+      await pdf.locator(".file-view__stage").focus();
+      await page.keyboard.press("Enter");
+      const keyed = pdf.getByTestId("file-box-draft");
+      await expect(keyed).toBeVisible();
+      const before = (await keyed.boundingBox())!;
+      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("Shift+ArrowDown");
+      const after = (await keyed.boundingBox())!;
+      facts.keyboardBox = { before, after };
+      expect(after.x).toBeGreaterThan(before.x);
+      expect(after.height).toBeGreaterThan(before.height);
+      await page.screenshot({ path: join(SHOTS, theme, "6-keyboard-box.png") });
+      await page.keyboard.press("Escape");
+      await expect(keyed).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(pdf.getByTestId("file-view-box-tool")).toHaveAttribute("aria-pressed", "false");
+
+      // (8) what a screen reader is given: the stage and each page are named groups; the view's moves are announced.
+      facts.a11y = {
+        stage: await pdf.locator(".file-view__stage").getAttribute("aria-label"),
+        page: await first.getAttribute("aria-label"),
+        announce: await pdf.getByTestId("file-view-announce").innerText(),
+      };
+      expect(await pdf.locator(".file-view__stage").getAttribute("role")).toBe("group");
+      expect(facts.a11y).toMatchObject({ stage: "sample.pdf, 3 pages", page: "Page 1 of 3" });
+      expect((facts.a11y as { announce: string }).announce).toMatch(/^Page \d of 3, \d+%$/u);
     }
   } finally {
     mkdirSync(SHOTS, { recursive: true });

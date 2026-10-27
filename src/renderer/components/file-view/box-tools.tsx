@@ -6,7 +6,7 @@ import type { NodeId } from "@shared/physics/schema";
 import { useCanvas } from "../../lib/use-model";
 import { Button, Dropdown, IconButton, Kbd } from "../ui";
 import { extractTargets, extractToArtifact, type BoxShot, type ExtractTarget } from "./extract";
-import { zoomLabel, type ViewBox } from "./file-view-model";
+import { boxByArrow, KEYBOARD_BOX, zoomLabel, type ViewBox } from "./file-view-model";
 
 /** A box drawn on a file and not yet used: on a page of a PDF, or on an image (no page). */
 export type BoxDraft = { readonly page?: number; readonly box: ViewBox };
@@ -106,8 +106,13 @@ export const useBoxTools = ({
       );
   };
 
-  /** The viewer's own keys: B toggles the box tool, Escape drops the box and then the tool. */
-  const onKey = (event: React.KeyboardEvent): boolean => {
+  /**
+   * The viewer's own keys: B toggles the box tool; with it on, Enter drops a
+   * centred box on `page` (the page in view, none on an image), arrows move
+   * a drawn box and Shift with an arrow resizes it; Escape drops the box and
+   * then the tool. A box is never pointer-only.
+   */
+  const onKey = (event: React.KeyboardEvent, page?: number): boolean => {
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
     if (event.key === "b" || event.key === "B") {
       setDrawing((on) => !on);
@@ -120,6 +125,19 @@ export const useBoxTools = ({
     if (event.key === "Escape" && drawing) {
       setDrawing(false);
       return true;
+    }
+    if (!drawing) return false;
+    // Enter on a button inside the box presses the button.
+    if (event.key === "Enter" && draft === null && !(event.target instanceof HTMLButtonElement)) {
+      draw(page === undefined ? { box: KEYBOARD_BOX } : { page, box: KEYBOARD_BOX });
+      return true;
+    }
+    if (draft !== null) {
+      const box = boxByArrow(draft.box, event.key, event.shiftKey);
+      if (box !== undefined) {
+        draw({ ...draft, box });
+        return true;
+      }
     }
     return false;
   };
@@ -184,7 +202,10 @@ export function ViewerToolbar({
   onActual,
   tools,
   pages,
+  announce,
 }: {
+  /** What a screen reader hears when the view moves: the zoom, and the page on a PDF. */
+  readonly announce: string;
   readonly zoom: number;
   readonly fitted: boolean;
   readonly onZoomIn: () => void;
@@ -197,6 +218,9 @@ export function ViewerToolbar({
   const options = tools.targets.map((entry: ExtractTarget) => ({ value: entry.id, label: entry.title }));
   return (
     <div className="file-view__bar" role="toolbar" aria-label="Viewer">
+      <span className="sr-only" aria-live="polite" data-testid="file-view-announce">
+        {announce}
+      </span>
       <div className="file-view__group">
         <IconButton size="sm" aria-label="Zoom out" title="Zoom out (-)" onClick={onZoomOut}>
           <Minus size={13} aria-hidden />
@@ -218,7 +242,7 @@ export function ViewerToolbar({
           variant="chrome"
           aria-pressed={tools.drawing}
           data-testid="file-view-box-tool"
-          title="Draw a box to comment on it or extract it"
+          title="Draw a box to comment on it or extract it. From the keyboard: Enter drops one, arrows move it, Shift and arrows resize it"
           onClick={() => tools.setDrawing((on) => !on)}
         >
           <SquareDashed size={12} aria-hidden />

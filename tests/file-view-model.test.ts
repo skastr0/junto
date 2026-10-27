@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boxByArrow,
   boxFromDrag,
   boxPixels,
   cropOf,
@@ -7,7 +8,9 @@ import {
   extractTitle,
   fileViewKindOf,
   fitZoom,
+  KEYBOARD_BOX,
   MIN_BOX_PX,
+  NUDGE,
   PAGE_GUTTER,
   pageAtScroll,
   parsePageInput,
@@ -103,5 +106,25 @@ describe("pages", () => {
   it("titles an extract by the file's name and page, never its folders", () => {
     expect(extractTitle("docs/sample.pdf", 2)).toBe("sample.pdf, page 2");
     expect(extractTitle("img/gradient.png")).toBe("gradient.png");
+  });
+});
+
+describe("a box from the keyboard", () => {
+  it("moves by arrows and stays whole on the surface", () => {
+    const moved = boxByArrow(KEYBOARD_BOX, "ArrowRight", false)!;
+    expect(moved.x).toBeCloseTo(KEYBOARD_BOX.x + NUDGE);
+    expect(moved.w).toBe(KEYBOARD_BOX.w);
+    let box = KEYBOARD_BOX;
+    for (let press = 0; press < 100; press += 1) box = boxByArrow(box, "ArrowDown", false)!;
+    expect(box.y + box.h).toBeCloseTo(1);
+  });
+
+  it("resizes with Shift, never under one step and never past the edge", () => {
+    let box = KEYBOARD_BOX;
+    for (let press = 0; press < 100; press += 1) box = boxByArrow(box, "ArrowLeft", true)!;
+    expect(box.w).toBeCloseTo(NUDGE);
+    for (let press = 0; press < 100; press += 1) box = boxByArrow(box, "ArrowRight", true)!;
+    expect(box.x + box.w).toBeCloseTo(1);
+    expect(boxByArrow(box, "Enter", false)).toBeUndefined();
   });
 });

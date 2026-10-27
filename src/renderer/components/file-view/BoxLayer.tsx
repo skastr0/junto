@@ -76,6 +76,8 @@ export function BoxLayer({
           key={entry.id}
           className="file-box file-box--thread"
           data-testid="file-box-thread"
+          // The comments rail is where threads are read and opened; this is the pointer's glance at where they sit.
+          aria-hidden
           title={entry.label}
           style={boxPixels(entry.box, width, height)}
         />

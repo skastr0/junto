@@ -4,23 +4,26 @@ import type { BoxTools } from "./box-tools";
 
 /**
  * The viewer's own keys while focus is inside it: + and - zoom, 0 shows the
- * actual size, B toggles the box tool, Escape drops a drawn box and then the
- * tool before the modal hears it. A key it uses goes no further.
+ * actual size, and the box keys (`useBoxTools`). Escape drops a drawn box and
+ * then the tool before the modal hears it. A key it uses goes no further.
  */
 export const useViewerKeys = ({
   tools,
   zoomIn,
   zoomOut,
   actual,
+  page,
 }: {
   readonly tools: BoxTools;
+  /** The page in view, where Enter drops a box; none on an image. */
+  readonly page?: number;
   readonly zoomIn: () => void;
   readonly zoomOut: () => void;
   readonly actual: () => void;
 }) =>
   (event: KeyboardEvent): void => {
     if (event.nativeEvent.isComposing || isOperatorTyping(event.target)) return;
-    let used = tools.onKey(event);
+    let used = tools.onKey(event, page);
     if (!used && !event.metaKey && !event.ctrlKey && !event.altKey) {
       if (event.key === "+" || event.key === "=") {
         zoomIn();

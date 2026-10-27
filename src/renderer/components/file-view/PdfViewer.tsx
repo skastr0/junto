@@ -3,7 +3,7 @@ import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
 import { BoxLayer } from "./BoxLayer";
 import { BoxActions, useBoxTools, ViewerToolbar, type BoxTools, type FileThreadBox, type FileViewProps } from "./box-tools";
 import { canvasPng } from "./extract";
-import { fileNameOf, PAGE_GUTTER, pageAtScroll, parsePageInput, zoomIn, zoomOf, zoomOut, type ZoomMode } from "./file-view-model";
+import { fileNameOf, PAGE_GUTTER, pageAtScroll, parsePageInput, zoomIn, zoomLabel, zoomOf, zoomOut, type ZoomMode } from "./file-view-model";
 import { usePaneWidth, useViewerKeys } from "./viewer-keys";
 
 type Engine = typeof import("./pdf-engine");
@@ -97,12 +97,15 @@ export function PdfViewer({
     zoomIn: () => zoomTo(zoomIn(zoom)),
     zoomOut: () => zoomTo(zoomOut(zoom)),
     actual: () => zoomTo(1),
+    page,
   });
   const onStageKey = (event: KeyboardEvent): void => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     // Page Up and Down already scroll the stage; these step a whole page.
     if (event.key === "n" || event.key === "j") goTo(Math.min(sizes.length, page + 1));
     else if (event.key === "p" || event.key === "k") goTo(Math.max(1, page - 1));
+    else if (event.key === "Home") goTo(1);
+    else if (event.key === "End") goTo(sizes.length);
     else return;
     event.preventDefault();
     event.stopPropagation();
@@ -120,6 +123,7 @@ export function PdfViewer({
         onFit={() => setMode({ kind: "fit" })}
         onActual={() => zoomTo(1)}
         tools={tools}
+        announce={count === 0 ? zoomLabel(zoom) : `Page ${page} of ${count}, ${zoomLabel(zoom)}`}
         pages={
           count === 0 ? undefined : (
             <label className="file-view__pages">
@@ -159,6 +163,7 @@ export function PdfViewer({
       <div
         ref={pane}
         className="file-view__stage"
+        role="group"
         tabIndex={0}
         aria-label={count === 0 ? name : `${name}, ${count} ${count === 1 ? "page" : "pages"}`}
         onKeyDown={onStageKey}
@@ -176,6 +181,7 @@ export function PdfViewer({
               <PdfPage
                 key={index}
                 number={index + 1}
+                count={sizes.length}
                 width={Math.round(size.width * zoom)}
                 height={Math.round(size.height * zoom)}
                 zoom={zoom}
@@ -200,6 +206,7 @@ export function PdfViewer({
  */
 function PdfPage({
   number,
+  count,
   width,
   height,
   zoom,
@@ -210,6 +217,7 @@ function PdfPage({
   boxes,
 }: {
   readonly number: number;
+  readonly count: number;
   readonly width: number;
   readonly height: number;
   readonly zoom: number;
@@ -252,7 +260,12 @@ function PdfPage({
   }, [near, zoom, number, engine, pdf]);
   const draft = tools.draft?.page === number ? tools.draft.box : null;
   return (
-    <div ref={frameRef} className="file-view__surface file-view__page" data-testid="pdf-page" data-page={number} style={{ width, height }}>
+    <div
+      ref={frameRef}
+      className="file-view__surface file-view__page"
+      role="group"
+      aria-label={`Page ${number} of ${count}`}
+      data-testid="pdf-page" data-page={number} style={{ width, height }}>
       <canvas ref={canvasRef} className="file-view__canvas" style={{ width, height }} aria-hidden />
       <div ref={textRef} className="textLayer" />
       <BoxLayer

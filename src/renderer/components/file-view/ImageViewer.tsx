@@ -2,7 +2,7 @@ import { useState } from "react";
 import { BoxLayer } from "./BoxLayer";
 import { BoxActions, useBoxTools, ViewerToolbar, type FileViewProps } from "./box-tools";
 import { imageBoxShot } from "./extract";
-import { fileNameOf, zoomIn, zoomOf, zoomOut, type ZoomMode } from "./file-view-model";
+import { fileNameOf, zoomIn, zoomLabel, zoomOf, zoomOut, type ZoomMode } from "./file-view-model";
 import { usePaneWidth, useViewerKeys } from "./viewer-keys";
 
 /** An image whose size the browser cannot read (an SVG with no width) shows at this size. */
@@ -42,8 +42,9 @@ export function ImageViewer({ canvasName, nodeId, path, url, boxes = [], onComme
         onFit={() => setMode({ kind: "fit" })}
         onActual={() => zoomTo(1)}
         tools={tools}
+        announce={zoomLabel(zoom)}
       />
-      <div ref={pane} className="file-view__stage" tabIndex={0} aria-label={`${name}, image`}>
+      <div ref={pane} className="file-view__stage" role="group" tabIndex={0} aria-label={`${name}, image`}>
         {failed ? (
           <p className="file-view__empty" role="alert">
             This image could not be shown.

@@ -40,14 +40,8 @@ export const canvasPng = async (canvas: HTMLCanvasElement): Promise<BoxShot> => 
  * twice its size instead (`pdf-engine.ts`).
  */
 export const imageBoxShot = async (url: string, box: ViewBox): Promise<BoxShot> => {
-  // Read through fetch, not the shown <img>: a canvas drawn from bytes is never tainted.
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("The image could not be read.");
-  const blobUrl = URL.createObjectURL(await response.blob());
+  const { image, release } = await decodedImage(url);
   try {
-    const image = new Image();
-    image.src = blobUrl;
-    await image.decode();
     const crop = cropOf(box, image.naturalWidth, image.naturalHeight, 1);
     const canvas = document.createElement("canvas");
     canvas.width = crop.w;
@@ -58,8 +52,36 @@ export const imageBoxShot = async (url: string, box: ViewBox): Promise<BoxShot> 
     context.drawImage(image, crop.x * ratio, crop.y * ratio, crop.w * ratio, crop.h * ratio, 0, 0, crop.w, crop.h);
     return await canvasPng(canvas);
   } finally {
-    URL.revokeObjectURL(blobUrl);
+    release();
   }
+};
+
+/**
+ * The image decoded from its bytes. A `junto-file:` address is read through
+ * fetch, so the canvas it is drawn on is never tainted by another origin; a
+ * `blob:` address (the gallery's) is this page's own and decodes as is.
+ */
+const decodedImage = async (url: string): Promise<{ readonly image: HTMLImageElement; readonly release: () => void }> => {
+  const own = url.startsWith("blob:");
+  const source = own ? url : URL.createObjectURL(await fetchBlob(url));
+  const release = (): void => {
+    if (!own) URL.revokeObjectURL(source);
+  };
+  try {
+    const image = new Image();
+    image.src = source;
+    await image.decode();
+    return { image, release };
+  } catch (error) {
+    release();
+    throw error;
+  }
+};
+
+const fetchBlob = async (url: string): Promise<Blob> => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("The image could not be read.");
+  return response.blob();
 };
 
 export type ExtractOutcome =

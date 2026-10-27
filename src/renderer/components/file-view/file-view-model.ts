@@ -144,3 +144,34 @@ export const parsePageInput = (text: string, count: number): number | undefined 
   const page = Number.parseInt(text.trim(), 10);
   return Number.isFinite(page) && page >= 1 && page <= count && String(page) === text.trim() ? page : undefined;
 };
+
+// ---------------------------------------------------------------------------
+// Boxes from the keyboard
+
+/** The box Enter drops with the box tool on: centred, a third of the surface wide. */
+export const KEYBOARD_BOX: ViewBox = { x: 1 / 3, y: 0.4, w: 1 / 3, h: 0.2 };
+
+/** How far one arrow press moves or grows a box, as a fraction of the surface; Shift and an arrow resize. */
+export const NUDGE = 0.02;
+
+/** Move a box by `dx`, `dy`, kept whole on the surface. */
+export const nudgeBox = (box: ViewBox, dx: number, dy: number): ViewBox => ({
+  ...box,
+  x: Math.min(1 - box.w, Math.max(0, box.x + dx)),
+  y: Math.min(1 - box.h, Math.max(0, box.y + dy)),
+});
+
+/** Grow or shrink a box from its top left, never under `NUDGE` and never past the edge. */
+export const resizeBox = (box: ViewBox, dw: number, dh: number): ViewBox => ({
+  ...box,
+  w: Math.min(1 - box.x, Math.max(NUDGE, box.w + dw)),
+  h: Math.min(1 - box.y, Math.max(NUDGE, box.h + dh)),
+});
+
+/** What an arrow does to a box: move it, or with Shift resize it. Nothing for any other key. */
+export const boxByArrow = (box: ViewBox, key: string, shift: boolean): ViewBox | undefined => {
+  const step = { ArrowLeft: [-NUDGE, 0], ArrowRight: [NUDGE, 0], ArrowUp: [0, -NUDGE], ArrowDown: [0, NUDGE] }[key];
+  if (step === undefined) return undefined;
+  const [dx, dy] = step as [number, number];
+  return shift ? resizeBox(box, dx, dy) : nudgeBox(box, dx, dy);
+};
