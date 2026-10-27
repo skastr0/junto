@@ -503,6 +503,11 @@ function SelectedFile({
             path={path}
             boxes={boxThreads}
             onComment={pickBox}
+            onDraft={(drawn) => {
+              // Null is the box going away (discarded, commented, extracted): the composer lets it go too.
+              if (drawn === null) setBoxDraft(null);
+              else pickBox(drawn);
+            }}
             {...(initialPage === undefined ? {} : { initialPage })}
             {...(value.kind === "binary" ? { version: value.stamp.mtimeMs } : {})}
           />
