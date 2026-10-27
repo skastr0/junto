@@ -37,9 +37,9 @@ test("file viewers in the real app, dark and bright", async () => {
       await page.reload();
       await page.waitForFunction(() => window.junto !== undefined);
       await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
+      await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(theme === "bright" ? "bright" : null);
       await page.goto(`${base}#/gallery/files`);
       await page.reload();
-      await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(theme === "bright" ? "bright" : null);
 
       // (1) pdf.js and its worker load; three pages lay out; page one draws its text layer.
       const pdf = page.getByTestId("pdf-viewer");
