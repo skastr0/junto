@@ -83,19 +83,24 @@ it("finds an anchor's quote at its offset, or the nearest place it moved to", ()
   expect(resolveAnchor("gone", "tabs", 0)).toBeNull();
 });
 
-it("marks anchors and flashes the one asked for", () => {
+it("marks anchors and flashes the quote asked for", () => {
   let state = stateOf(DOC);
-  state = state.update({ effects: anchorsEffect([{ id: "t1", quote: "bold", offset: 0 }]) }).state;
-  const effects = revealAnchorEffects(state, "t1", 3)!;
+  state = state.update({
+    effects: anchorsEffect([
+      { id: "t1", quote: "bold", offset: 0, count: 2 },
+      { id: "t2", quote: "gone from the text", offset: 0, count: 1 },
+    ]),
+  }).state;
+  const effects = revealAnchorEffects(state, { quote: "bold", offset: 0, nonce: 3 })!;
   state = state.update({ effects: [...effects] }).state;
-  const marks: Record<string, string>[] = [];
+  const marks: string[] = [];
   for (const source of state.facet(EditorView.decorations)) {
     if (typeof source === "function") continue;
-    (source as DecorationSet).between(0, state.doc.length, (_from, _to, deco) => {
+    (source as DecorationSet).between(0, state.doc.length, (from, to, deco) => {
       const attributes = deco.spec.attributes as Record<string, string> | undefined;
-      if (attributes?.["data-anchor-id"]) marks.push(attributes);
+      if (attributes?.["data-anchor-id"] || attributes?.["data-flash"]) marks.push(`${state.sliceDoc(from, to)} ${JSON.stringify(attributes)}`);
     });
   }
-  expect(marks).toEqual([{ "data-anchor-id": "t1", "data-flash": "3" }]);
-  expect(revealAnchorEffects(state, "missing", 1)).toBeNull();
+  expect(marks).toEqual(['bold {"data-anchor-id":"t1","data-count":"2"}', 'bold {"data-flash":"3"}']);
+  expect(revealAnchorEffects(state, { quote: "missing", offset: 0, nonce: 1 })).toBeNull();
 });

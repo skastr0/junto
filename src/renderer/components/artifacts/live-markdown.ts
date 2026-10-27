@@ -23,8 +23,16 @@ import { safeArtifactMarkdownUrl } from "../work/ArtifactMarkdown";
  * the text: every edit is the operator's own keystroke.
  */
 
-/** A comment's place in the text: the quote it hangs on, near where it was taken. */
-export type DocumentAnchor = { readonly id: string; readonly quote: string; readonly offset: number };
+/** A comment thread's place in the text: the quote it hangs on, near where it was taken. */
+export type DocumentAnchor = {
+  readonly id: string;
+  readonly quote: string;
+  readonly offset: number;
+  readonly count: number;
+};
+
+/** A quote to scroll to and flash; a new nonce flashes it again. */
+type Flash = { readonly quote: string; readonly offset: number; readonly nonce: number };
 
 /** What the editor tells its owner about, read at the moment it happens. */
 export type LiveMarkdownHandlers = {
@@ -36,7 +44,7 @@ export type LiveMarkdownHandlers = {
 /** The operator came into the editor or left it; the view sends this itself. */
 export const setFocused = StateEffect.define<boolean>();
 const setAnchors = StateEffect.define<ReadonlyArray<DocumentAnchor>>();
-const flashAnchor = StateEffect.define<{ readonly id: string; readonly nonce: number }>();
+const flashQuote = StateEffect.define<Flash>();
 
 /** Whether the operator is in the editor: off it, every line renders. */
 const focused = StateField.define<boolean>({
@@ -46,14 +54,14 @@ const focused = StateField.define<boolean>({
 
 const anchors = StateField.define<{
   readonly list: ReadonlyArray<DocumentAnchor>;
-  readonly flash: { readonly id: string; readonly nonce: number } | null;
+  readonly flash: Flash | null;
 }>({
   create: () => ({ list: [], flash: null }),
   update: (value, tr) => {
     let next = value;
     for (const effect of tr.effects) {
       if (effect.is(setAnchors)) next = { ...next, list: effect.value };
-      if (effect.is(flashAnchor)) next = { ...next, flash: effect.value };
+      if (effect.is(flashQuote)) next = { ...next, flash: effect.value };
     }
     return next;
   },
@@ -76,16 +84,11 @@ export const resolveAnchor = (doc: string, quote: string, offset: number): { fro
 /** Set the comment anchors drawn in the text. */
 export const anchorsEffect = (list: ReadonlyArray<DocumentAnchor>) => setAnchors.of(list);
 
-/** Scroll an anchor into view and flash it; null when its quote is no longer in the text. */
-export const revealAnchorEffects = (
-  state: EditorState,
-  id: string,
-  nonce: number,
-): ReadonlyArray<StateEffect<unknown>> | null => {
-  const anchor = state.field(anchors).list.find((candidate) => candidate.id === id);
-  const range = anchor ? resolveAnchor(state.doc.toString(), anchor.quote, anchor.offset) : null;
+/** Scroll a quote into view and flash it; null when it is no longer in the text. */
+export const revealAnchorEffects = (state: EditorState, flash: Flash): ReadonlyArray<StateEffect<unknown>> | null => {
+  const range = resolveAnchor(state.doc.toString(), flash.quote, flash.offset);
   if (range === null) return null;
-  return [EditorView.scrollIntoView(range.from, { y: "center" }), flashAnchor.of({ id, nonce })];
+  return [EditorView.scrollIntoView(range.from, { y: "center" }), flashQuote.of(flash)];
 };
 
 class HiddenSpan extends WidgetType {
@@ -493,14 +496,22 @@ const decorate = (state: EditorState): DecorationSet => {
   });
 
   const { list, flash } = state.field(anchors);
-  if (list.length > 0) {
+  if (list.length > 0 || flash !== null) {
     const text = doc.toString();
     for (const anchor of list) {
       const range = resolveAnchor(text, anchor.quote, anchor.offset);
       if (range === null) continue;
-      const attributes: Record<string, string> = { "data-anchor-id": anchor.id };
-      if (flash?.id === anchor.id) attributes["data-flash"] = String(flash.nonce);
-      out.push(mark("artifact-document__anchor", attributes).range(range.from, range.to));
+      out.push(
+        mark("artifact-document__anchor", { "data-anchor-id": anchor.id, "data-count": String(anchor.count) }).range(
+          range.from,
+          range.to,
+        ),
+      );
+    }
+    const flashed = flash === null ? null : resolveAnchor(text, flash.quote, flash.offset);
+    if (flash !== null && flashed !== null) {
+      // The nonce is an attribute, so a new reveal redraws the span and the flash runs again.
+      out.push(mark("artifact-document__flash", { "data-flash": String(flash.nonce) }).range(flashed.from, flashed.to));
     }
   }
   return Decoration.set(out, true);

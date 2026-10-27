@@ -4,6 +4,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import type { ArtifactVersion, DocumentBody, TextPatch } from "@shared/artifact";
+import type { TextAnchor } from "@shared/thread-subject";
 import { Button } from "../ui";
 import { textSplice } from "./artifacts-pane-model";
 import {
@@ -50,12 +51,12 @@ export function DocumentEditor({
    * in the draft is sent first. The save resolves to a refusal line, or null.
    */
   readonly onCommentText?: (quote: string, offset: number, save: () => Promise<string | null>) => void;
-  /** Text-anchored comments, drawn as marks on their quotes. */
-  readonly anchors?: ReadonlyArray<DocumentAnchor>;
-  /** A press on an anchor's mark, with its id. */
-  readonly onAnchor?: (id: string) => void;
-  /** Scroll to an anchor and flash it; a new nonce asks again. */
-  readonly revealAnchor?: { readonly id: string; readonly nonce: number };
+  /** Text-anchored threads, drawn as marks on their quotes; a quote no longer in the text draws nothing. */
+  readonly anchors?: ReadonlyArray<{ readonly threadId: string; readonly anchor: TextAnchor; readonly count: number }>;
+  /** A press on a thread's mark. */
+  readonly onAnchor?: (threadId: string) => void;
+  /** Scroll a quote into view and flash it; a new nonce asks again. */
+  readonly revealAnchor?: { readonly anchor: TextAnchor; readonly nonce: number };
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ readonly quote: string; readonly offset: number } | null>(null);
@@ -173,15 +174,22 @@ export function DocumentEditor({
   }, [readOnly]);
 
   useEffect(() => {
-    view.current?.dispatch({ effects: anchorsEffect(anchors ?? []) });
+    const marks: DocumentAnchor[] = (anchors ?? []).map(({ threadId, anchor, count }) => ({
+      id: threadId,
+      quote: anchor.quote,
+      offset: anchor.offset ?? 0,
+      count,
+    }));
+    view.current?.dispatch({ effects: anchorsEffect(marks) });
   }, [anchors]);
 
   useEffect(() => {
     const editor = view.current;
     if (editor === null || revealAnchor === undefined) return;
-    const effects = revealAnchorEffects(editor.state, revealAnchor.id, revealAnchor.nonce);
+    const { anchor, nonce } = revealAnchor;
+    const effects = revealAnchorEffects(editor.state, { quote: anchor.quote, offset: anchor.offset ?? 0, nonce });
     if (effects !== null) editor.dispatch({ effects: [...effects] });
-  }, [revealAnchor?.id, revealAnchor?.nonce]);
+  }, [revealAnchor?.nonce]);
 
   const mounted = useRef(true);
   // Closing with typing still resting sends it rather than dropping it.

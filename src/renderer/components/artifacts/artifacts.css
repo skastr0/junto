@@ -488,7 +488,15 @@
   border-bottom: 1px dashed var(--color-cyan);
 }
 
-.artifact-document .artifact-document__anchor[data-flash]::after {
+.artifact-document .artifact-document__anchor {
+  cursor: pointer;
+}
+
+.artifact-document .artifact-document__flash {
+  position: relative;
+}
+
+.artifact-document .artifact-document__flash::after {
   position: absolute;
   inset: -1px -2px;
   border-radius: var(--radius-sm);
