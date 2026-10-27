@@ -27,26 +27,29 @@ elif [[ $# -eq 0 ]]; then
   set -- e2e/scenarios/free-startup.spec.ts
 fi
 
+command=("$playwright" test --config e2e/playwright.config.ts "$@")
+
+# One app run at a time on the machine; released when this shell exits.
+junto_app_run_lock_acquire "e2e $*"
+
 # The specs launch out/ as built. A build of another commit (a failed rebuild
 # leaves the old one in place) runs stale code against newer state, so refuse
-# unless the last complete electron-vite build stamped this worktree's HEAD
-# (scripts/build-source-stamp.ts; a failed build leaves no stamp).
+# unless the last complete electron-vite build stamped the expected commit
+# (scripts/build-source-stamp.ts; a failed build leaves no stamp): this
+# worktree's HEAD, or JUNTO_E2E_EXPECT_COMMIT when the caller just built and
+# HEAD may have moved since (bun run verify). Checked under the lock, so
+# another locked build cannot replace out/ after the check.
 stamp="$repo_root/out/build-source.json"
-head_commit="$(git -C "$repo_root" rev-parse HEAD)"
+expected_commit="${JUNTO_E2E_EXPECT_COMMIT:-$(git -C "$repo_root" rev-parse HEAD)}"
 if [[ ! -f "$stamp" ]]; then
   printf 'junto: error: out/ has no complete build — the last electron-vite build failed or never ran; rebuild before running e2e\n' >&2
   exit 1
 fi
 built_commit="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).sourceCommit ?? ""))' "$stamp")"
-if [[ "$built_commit" != "$head_commit" ]]; then
-  printf 'junto: error: out/ was built from %s, but HEAD is %s — rebuild before running e2e\n' "${built_commit:-an unknown commit}" "$head_commit" >&2
+if [[ "$built_commit" != "$expected_commit" ]]; then
+  printf 'junto: error: out/ was built from %s, but the run expects %s — rebuild before running e2e\n' "${built_commit:-an unknown commit}" "$expected_commit" >&2
   exit 1
 fi
-
-command=("$playwright" test --config e2e/playwright.config.ts "$@")
-
-# One app run at a time on the machine; released when this shell exits.
-junto_app_run_lock_acquire "e2e $*"
 
 if [[ "$(uname -s)" == "Linux" ]] && junto_use_available_desktop; then
   if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then

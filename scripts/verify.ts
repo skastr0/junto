@@ -5,7 +5,7 @@
  * worker-capped so the type checker and electron-vite still get CPU.
  */
 import { spawn } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -127,8 +127,17 @@ await allMustPass([
 // that throws in the sandbox or a main that throws while registering IPC
 // fails here (4cd57bdc3, 3776924fc). CI runs the same spec as its own job
 // (verify.yml, free-startup-e2e), with the display and browser deps it needs.
+// In a shared checkout HEAD moves under a running verify, so the launch
+// expects the commit this build stamped, not whatever HEAD is by then.
 if (process.env.CI !== "true") {
+  const stamp = JSON.parse(readFileSync(join(ROOT, "out", "build-source.json"), "utf8")) as {
+    readonly sourceCommit?: string;
+  };
   await allMustPass([
-    { name: "first window", cmd: ["scripts/run-e2e.sh", "e2e/scenarios/free-startup.spec.ts"] },
+    {
+      name: "first window",
+      cmd: ["scripts/run-e2e.sh", "e2e/scenarios/free-startup.spec.ts"],
+      env: { JUNTO_E2E_EXPECT_COMMIT: stamp.sourceCommit ?? "" },
+    },
   ]);
 }

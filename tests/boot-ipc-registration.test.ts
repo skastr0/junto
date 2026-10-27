@@ -1,11 +1,13 @@
 /**
- * Main's boot-time IPC registration, against an `ipcMain` that behaves like
- * Electron's: an EventEmitter whose `on` needs its `this`, and a `handle`
- * that refuses a second handler for one channel. A registrar that throws
- * here throws in `app.whenReady`, before the first window (3776924fc called
- * `ipcMain.on` unbound, fixed in 7fa6cb0c7). A real launch is
- * `e2e/scenarios/free-startup.spec.ts`, which `bun run verify` runs; this is
- * the commit-time stand-in for main. The preload's is
+ * Main's IPC registrars, the seven src/main/index.ts calls at boot, against
+ * an `ipcMain` that behaves like Electron's: an EventEmitter whose `on`
+ * needs its `this`, and a `handle` that refuses a second handler for one
+ * channel. A registrar that throws here throws in `app.whenReady`, before
+ * the first window (3776924fc called `ipcMain.on` unbound, fixed in
+ * 7fa6cb0c7). The `ipcMain.on` calls written inline in src/main/index.ts are
+ * not run here: only a real launch reaches them, which is
+ * `e2e/scenarios/free-startup.spec.ts` in `bun run verify`. This is the
+ * commit-time stand-in for main; the preload's is
  * `tests/preload-bundle.test.ts`.
  */
 import { EventEmitter } from "node:events";
@@ -74,12 +76,13 @@ beforeEach(() => {
 });
 
 describe("main boot IPC registration", () => {
-  it("registers every boot-time channel on a real-shaped ipcMain without throwing", async () => {
-    const { registerIpcHandlers } = await import("../src/main/ipc");
+  it("runs every boot registrar on a real-shaped ipcMain without throwing", async () => {
+    const { registerBrowserIpcHandlers, registerIpcHandlers } = await import("../src/main/ipc");
     const { registerDemoIpcHandlers } = await import("../src/main/junto/demo/ipc");
     const { registerCompanionIpc } = await import("../src/main/junto/companion/ipc");
     const { registerNotificationIpc } = await import("../src/main/junto/notifications/ipc");
     const { registerFilesIpc } = await import("../src/main/junto/files/ipc");
+    const { registerOverseerLiveIpc } = await import("../src/main/junto/overseer/live/ipc");
 
     // In src/main/index.ts boot order.
     registerIpcHandlers();
@@ -87,6 +90,9 @@ describe("main boot IPC registration", () => {
     registerCompanionIpc();
     registerNotificationIpc({ window: () => undefined, enabled: false });
     registerFilesIpc();
+    // Behind LIVE_OVERSEER_ENABLED, and once the browser composition is up.
+    registerOverseerLiveIpc(inert as Parameters<typeof registerOverseerLiveIpc>[0]);
+    registerBrowserIpcHandlers(inert as Parameters<typeof registerBrowserIpcHandlers>[0]);
 
     const ipcMain = electron.ipcMain as FakeIpcMain;
     expect(ipcMain.handlers.size).toBeGreaterThan(50);
