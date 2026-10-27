@@ -72,6 +72,27 @@ describe("where a mention can be typed", () => {
   });
 });
 
+describe("a caret past what is parsed", () => {
+  const far = `${"para\n\n".repeat(600)}Ask @he`;
+  const coldAt = (doc: string) =>
+    EditorState.create({ doc, selection: EditorSelection.cursor(doc.length), extensions: [markdown({ base: markdownLanguage })] });
+
+  it("waits closed while the parse has not reached the caret, then offers once it has", () => {
+    const state = coldAt(far);
+    expect(pickerQueryAt(state, 0)).toBeNull();
+    ensureSyntaxTree(state, state.doc.length, 5_000);
+    expect(pickerQueryAt(state, 0)).toEqual({ trigger: "@", from: far.length - 3, to: far.length, query: "he" });
+  });
+
+  it("never guesses inside an unparsed fence", () => {
+    const fenced = `${"para\n\n".repeat(600)}\`\`\`\n@here`;
+    const state = coldAt(fenced);
+    expect(pickerQueryAt(state, 0)).toBeNull();
+    ensureSyntaxTree(state, state.doc.length, 5_000);
+    expect(pickerQueryAt(state, 0)).toBeNull();
+  });
+});
+
 describe("the @ and # list in a live document", () => {
   let host: HTMLDivElement;
   let view: EditorView;

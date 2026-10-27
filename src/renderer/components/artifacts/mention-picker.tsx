@@ -57,8 +57,12 @@ const OFF_LIMITS = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText",
  * The mention typed just before the caret, if one can be written there. A
  * # that begins its line is a heading until a letter follows it, so typing
  * `# Title` never opens the list.
+ *
+ * Code is known only once the syntax reaches the caret. Until it does, far
+ * down a long document, the list waits closed rather than guess: it opens
+ * when the editor's own parse arrives, a beat later, never inside a fence.
  */
-export const pickerQueryAt = (state: EditorState): PickerQuery | null => {
+export const pickerQueryAt = (state: EditorState, budgetMs: number = PARSE_BUDGET_MS): PickerQuery | null => {
   const caret = state.selection.main;
   if (state.readOnly || !caret.empty) return null;
   const line = state.doc.lineAt(caret.head);
@@ -66,8 +70,9 @@ export const pickerQueryAt = (state: EditorState): PickerQuery | null => {
   const found = mentionQueryAt([{ kind: "text", text: before }], before.length);
   if (found === undefined) return null;
   if (found.trigger === "#" && found.query === "" && before.slice(0, found.start).trim() === "") return null;
-  // Parsed up to the caret, so a fence far down a long document is still seen; bounded so a keystroke never waits long.
-  const tree = ensureSyntaxTree(state, caret.head, PARSE_BUDGET_MS) ?? syntaxTree(state);
+  // Parse up to the caret, bounded so a keystroke never waits long.
+  const tree = ensureSyntaxTree(state, caret.head, budgetMs);
+  if (tree === null) return null;
   for (let node: SyntaxNode | null = tree.resolveInner(caret.head, -1); node; node = node.parent) {
     if (OFF_LIMITS.has(node.name)) return null;
   }
@@ -108,7 +113,9 @@ const pickerField = StateField.define<Picker>({
       dismissed = null;
       picked = undefined;
     }
-    const query = tr.docChanged || tr.selection !== undefined || tr.reconfigured ? pickerQueryAt(tr.state) : value.query;
+    // A parse that reaches further can show the list a query was waiting on.
+    const parsed = syntaxTree(tr.startState) !== syntaxTree(tr.state);
+    const query = tr.docChanged || tr.selection !== undefined || tr.reconfigured || parsed ? pickerQueryAt(tr.state) : value.query;
     // A query that changes starts the highlight from the top.
     if (!sameQuery(query, value.query)) active = undefined;
     for (const effect of tr.effects) {
