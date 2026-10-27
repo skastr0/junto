@@ -10,6 +10,7 @@ import {
   resolveBuildFeatures,
 } from "./scripts/build-features";
 import { OVERLAY_PREVIEW_MODE, overlayAlias, overlayDepsPlugin, resolveOverlay } from "./scripts/overlay";
+import { preloadBundleGuard } from "./scripts/preload-bundle-guard";
 
 export default defineConfig(({ command, mode }) => {
   // Plus is preview-only until checkout and entitlement delivery are released.
@@ -54,7 +55,9 @@ export default defineConfig(({ command, mode }) => {
       define: productDefines,
     },
     preload: {
-      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
+      // The sandboxed preload carries only src/preload, src/shared and
+      // require("electron"); anything else fails the build.
+      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay), preloadBundleGuard(process.cwd())],
       resolve: { alias },
       define: productDefines,
       build: {
