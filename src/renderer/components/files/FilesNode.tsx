@@ -5,23 +5,21 @@ import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { ExternalLink, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
+import { baseName, parentOf, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
+import { fileUrl } from "@shared/file-url";
 import { nodeAt } from "../../lib/use-model";
 import {
+  changeTouches,
   dirtyPaths,
   fileDraft,
   filesErrorLine,
   filesSource,
-  fileUrlOf,
   fileViewOf,
   postFileComment,
   setFileDraft,
   useDraftsVersion,
-  useFileEntries,
   useFileThreads,
-  type FileEntry,
-  type FilePath,
-  type FileRead,
-  type FileStamp,
+  useFilesRoot,
   type FileView,
   type Loaded,
 } from "../../lib/files-source";
@@ -33,20 +31,10 @@ import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
+import { fileOfSelection, treePathOf, useFolderTree } from "./files-tree";
+import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
+import { useFilesDrop } from "./useFilesDrop";
 import "./files.css";
-
-/** The tree's paths: a directory ends in `/`, as `@pierre/trees` reads them. */
-export const treePathsOf = (entries: ReadonlyArray<FileEntry>): string[] =>
-  entries.map((entry) => (entry.dir ? `${entry.path}/` : entry.path));
-
-/** The file a tree selection opens: the last selected row that is not a directory. */
-export const fileOfSelection = (selected: ReadonlyArray<string>): FilePath | null => {
-  for (let index = selected.length - 1; index >= 0; index -= 1) {
-    const path = selected[index];
-    if (path !== undefined && !path.endsWith("/")) return path;
-  }
-  return null;
-};
 
 /** Cmd+S on macOS, Ctrl+S elsewhere, with nothing else held. */
 export const isSaveChord = (event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, mac: boolean): boolean =>
@@ -61,6 +49,13 @@ const VIEW_GLYPH: Record<FileView, LucideIcon> = {
   pdf: FileText,
   other: FileQuestion,
   "too-large": FileQuestion,
+};
+
+/** Ancestors of `path` as tree paths, so the tree opens down to a file it was asked to show. */
+const ancestorsOf = (path: FilePath): string[] => {
+  const out: string[] = [];
+  for (let dir = parentOf(path); dir !== ROOT_PATH; dir = parentOf(dir)) out.unshift(treePathOf({ path: dir, dir: true }));
+  return out;
 };
 
 /**
@@ -82,11 +77,12 @@ export function FilesNode({
   readonly initialPath?: FilePath;
   readonly onClose: () => void;
 }) {
-  const entries = useFileEntries(nodeId);
+  const ref = useMemo<FilesNodeRef>(() => ({ canvas: canvasName, node: nodeId }), [canvasName, nodeId]);
+  const root = useFilesRoot(ref);
   const [selected, setSelected] = useState<FilePath | null>(initialPath ?? null);
   const draftsVersion = useDraftsVersion();
   const node = nodeAt(canvasName, nodeId);
-  const folderName = node === undefined ? "Files" : titleOf(node);
+  const folderName = root.state === "ready" ? root.value.name : node === undefined ? "Files" : titleOf(node);
 
   /** Read at paint time, so the marks follow the drafts without a new tree. */
   const dirty = useRef<ReadonlySet<string>>(new Set());
@@ -95,38 +91,33 @@ export function FilesNode({
     ({ item }) => (item.kind === "file" && dirty.current.has(item.path) ? { text: "●", title: "Unsaved changes" } : null),
     [],
   );
+  const drop = useFilesDrop({ port: filesSource(), node: ref, describe: filesErrorLine, rootLabel: folderName });
   const { model } = useFileTree({
     paths: [],
-    initialExpansion: 1,
-    flattenEmptyDirectories: true,
+    dragAndDrop: drop.treeDragAndDrop,
+    unsafeCSS: FILES_DROP_TREE_CSS,
+    initialExpansion: "closed",
+    ...(initialPath === undefined ? {} : { initialExpandedPaths: ancestorsOf(initialPath), initialSelectedPaths: [initialPath] }),
     search: true,
-    ...(initialPath === undefined ? {} : { initialSelectedPaths: [initialPath] }),
     onSelectionChange: (paths) => {
       const file = fileOfSelection(paths);
       if (file !== null) setSelected(file);
     },
     renderRowDecoration: decorate,
   });
-  const paths = useMemo(() => (entries.state === "ready" ? treePathsOf(entries.value) : null), [entries]);
+  useFolderTree(ref, model, root.state === "ready");
   useEffect(() => {
-    if (paths !== null) model.resetPaths(paths);
-  }, [model, paths]);
+    drop.bindModel(model);
+    return () => drop.bindModel(null);
+  }, [drop.bindModel, model]);
   useEffect(() => {
     // Redraw the rows so the unsaved marks follow the drafts.
     model.setComposition(model.getComposition());
   }, [model, draftsVersion]);
 
-  const fileCount = entries.state === "ready" ? entries.value.filter((entry) => !entry.dir).length : null;
   const sidebar = (
     <>
-      <PaneHeader
-        eyebrow={
-          <span className="files-eyebrow">
-            <span className="files-eyebrow__word">{folderName},</span>
-            <span className="files-eyebrow__count">{" "}{fileCount ?? ""}</span>
-          </span>
-        }
-      />
+      <PaneHeader eyebrow={<span className="files-eyebrow">{folderName}</span>} />
       <FileTree model={model} className="files-tree" aria-label={`Files in ${folderName}`} />
     </>
   );
@@ -139,64 +130,62 @@ export function FilesNode({
     save.current?.();
   };
 
-  const main = (() => {
-    if (entries.state === "refused") return <PaneEmpty title={filesErrorLine(entries.error)} />;
-    if (selected === null) {
-      return (
-        <PaneEmpty
-          glyph={<FileText size={20} />}
-          title={fileCount === 0 ? "This folder is empty" : "Pick a file"}
-          hint={fileCount === 0 ? "Files you add to the folder show here." : undefined}
-        />
-      );
-    }
-    return null;
-  })();
+  const empty =
+    root.state === "refused" ? (
+      <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(root.error)} />
+    ) : selected === null ? (
+      <PaneEmpty glyph={<FileText size={20} />} title="Pick a file" />
+    ) : null;
 
   return (
     <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose} onKeyDown={onKeyDown}>
-      {main !== null || selected === null ? (
-        <TwoPane sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
-          {main}
-        </TwoPane>
-      ) : (
-        <SelectedFile key={selected} canvasName={canvasName} nodeId={nodeId} path={selected} sidebar={sidebar} save={save} onClose={onClose} />
-      )}
+      <div {...drop.surface} className="files-body">
+        {empty !== null || selected === null || root.state !== "ready" ? (
+          <TwoPane sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
+            {empty ?? <PaneEmpty title="Opening the folder" />}
+          </TwoPane>
+        ) : (
+          <SelectedFile key={selected} canvasName={canvasName} filesRef={ref} path={selected} sidebar={sidebar} save={save} onClose={onClose} />
+        )}
+        <FilesDropHighlight drop={drop} />
+      </div>
     </FocusSurface>
   );
 }
 
 function SelectedFile({
   canvasName,
-  nodeId,
+  filesRef,
   path,
   sidebar,
   save,
   onClose,
 }: {
   readonly canvasName: string;
-  readonly nodeId: NodeId;
+  readonly filesRef: FilesNodeRef;
   readonly path: FilePath;
   readonly sidebar: React.ReactNode;
   readonly save: React.MutableRefObject<(() => void) | null>;
   readonly onClose: () => void;
 }) {
+  const nodeId = filesRef.node;
   const [read, setRead] = useState<Loaded<FileRead>>({ state: "loading" });
   /** The file moved on disk under an unsaved draft: reload or keep. */
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const railOpen = commentsRailOpen(use$(sidebarSections$.open));
   useDraftsVersion();
   const draft = fileDraft(nodeId, path);
 
   const load = useCallback(async (): Promise<void> => {
-    const result = await filesSource().read(nodeId, path);
+    const result = await filesSource().read(filesRef, path);
     setRead(result.ok ? { state: "ready", value: result.value } : { state: "refused", error: result.error });
-  }, [nodeId, path]);
+  }, [filesRef, path]);
   useEffect(() => {
     void load();
-    return filesSource().watch(nodeId, (paths) => {
-      if (!paths.includes(path)) return;
+    return filesSource().onChange((event) => {
+      if (!changeTouches(event, nodeId, path)) return;
       // A clean file follows the disk; a draft is the operator's until they choose.
       if (fileDraft(nodeId, path) === undefined) void load();
       else setStale(true);
@@ -207,12 +196,12 @@ function SelectedFile({
   const edit = (next: string): void => {
     if (text === null) return;
     const base = fileDraft(nodeId, path)?.base ?? text.stamp;
-    setFileDraft(nodeId, path, next === text.text && base === text.stamp ? undefined : { text: next, base });
+    setFileDraft(nodeId, path, next === text.text && sameStamp(base, text.stamp) ? undefined : { text: next, base });
   };
 
   const write = async (body: string, base: FileStamp): Promise<void> => {
     setSaving(true);
-    const result = await filesSource().write(nodeId, path, body, base);
+    const result = await filesSource().write(filesRef, path, body, base);
     setSaving(false);
     if (result.ok) {
       setFileDraft(nodeId, path, undefined);
@@ -245,23 +234,24 @@ function SelectedFile({
   const keep = async (): Promise<void> => {
     const held = fileDraft(nodeId, path);
     if (held === undefined) return setStale(false);
-    const fresh = await filesSource().read(nodeId, path);
+    const fresh = await filesSource().read(filesRef, path);
     if (!fresh.ok) return setError(filesErrorLine(fresh.error));
     if (fresh.value.kind !== "text") return setError("This file is no longer text on disk.");
     await write(held.text, fresh.value.stamp);
   };
   const outside = async (open: "openInDefaultApp" | "revealInFinder"): Promise<void> => {
-    const result = await filesSource()[open](nodeId, path);
+    const result = await filesSource()[open](filesRef, path);
     setError(result.ok ? null : filesErrorLine(result.error));
   };
 
   const view = read.state === "ready" ? fileViewOf(path, read.value) : null;
   const Glyph = VIEW_GLYPH[view ?? "other"];
-  const slash = path.lastIndexOf("/");
+  const name = baseName(path);
+  const dir = path.slice(0, path.length - name.length);
 
   const body = (() => {
     if (read.state === "loading") return <PaneEmpty title="Opening" />;
-    if (read.state === "refused") return <PaneEmpty title={filesErrorLine(read.error)} />;
+    if (read.state === "refused") return <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(read.error)} />;
     const value = read.value;
     const elsewhere = (
       <div className="files-elsewhere">
@@ -279,18 +269,18 @@ function SelectedFile({
           <LiveMarkdownField
             key={value.stamp.mtimeMs}
             className="files-markdown"
-            label={path}
+            label={name}
             surfaceLabel="File"
             value={draft?.text ?? value.text}
             onChange={edit}
           />
         ) : null;
       case "code":
-        return value.kind === "text" ? <FileCodeEditor path={path} value={draft?.text ?? value.text} onChange={edit} /> : null;
+        return value.kind === "text" ? <FileCodeEditor label={name} value={draft?.text ?? value.text} onChange={edit} /> : null;
       case "image":
         return (
           <div className="files-media">
-            <img className="files-media__image" src={fileUrlOf(nodeId, path)} alt={path} />
+            <img className="files-media__image" src={fileUrl(nodeId, path, value.kind === "binary" ? value.stamp.mtimeMs : undefined)} alt={name} />
           </div>
         );
       case "pdf":
@@ -300,7 +290,7 @@ function SelectedFile({
           <PaneEmpty
             glyph={<FileQuestion size={20} />}
             title="Too large to open here"
-            hint={value.kind === "too-large" ? `${formatSize(value.size)}, over the 5 MB Junto reads.` : undefined}
+            hint={value.kind === "too-large" ? `${formatSize(value.size)}, over the 5 MB Junto reads as text.` : undefined}
             action={elsewhere}
           />
         );
@@ -314,16 +304,16 @@ function SelectedFile({
       sidebar={sidebar}
       sidebarLabel="Files"
       sidebarWidth="narrow"
-      mainLabel={path}
-      rail={<FileRail canvasName={canvasName} nodeId={nodeId} path={path} onClose={onClose} />}
+      mainLabel={name}
+      rail={<FileRail canvasName={canvasName} nodeId={nodeId} path={path} open={railOpen} onClose={onClose} />}
       railLabel="Comments"
-      railCollapsed={!commentsRailOpen(use$(sidebarSections$.open))}
+      railCollapsed={!railOpen}
     >
       <header className="files-head">
         <Glyph size={14} aria-hidden className="files-head__glyph" />
         <span className="files-head__path" title={path}>
-          {slash < 0 ? null : <span className="files-head__dir">{path.slice(0, slash + 1)}</span>}
-          <span className="files-head__name">{path.slice(slash + 1)}</span>
+          {dir === "" ? null : <span className="files-head__dir">{dir}</span>}
+          <span className="files-head__name">{name}</span>
         </span>
         {draft !== undefined ? (
           <span className="files-head__unsaved" role="status">
@@ -367,11 +357,11 @@ function SelectedFile({
  * The code editor's place. Product-documents' editor (F3) takes it; until
  * then a plain field, so text opens, edits and saves.
  */
-function FileCodeEditor({ path, value, onChange }: { readonly path: FilePath; readonly value: string; readonly onChange: (text: string) => void }) {
+function FileCodeEditor({ label, value, onChange }: { readonly label: string; readonly value: string; readonly onChange: (text: string) => void }) {
   return (
     <textarea
       className="files-code"
-      aria-label={path}
+      aria-label={label}
       spellCheck={false}
       autoCapitalize="off"
       autoCorrect="off"
@@ -386,16 +376,17 @@ function FileRail({
   canvasName,
   nodeId,
   path,
+  open,
   onClose,
 }: {
   readonly canvasName: string;
   readonly nodeId: NodeId;
   readonly path: FilePath;
+  readonly open: boolean;
   readonly onClose: () => void;
 }) {
   const threads = useFileThreads(nodeId, path);
   const mentionable = useSeatsInReach(canvasName, nodeId);
-  const open = commentsRailOpen(use$(sidebarSections$.open));
   const ref = useCallback((element: HTMLDivElement | null) => commentsRailRef(element), []);
   const seatName = (id: string): string | undefined => {
     const seat = nodeAt(canvasName, id);
