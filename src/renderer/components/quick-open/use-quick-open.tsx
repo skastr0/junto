@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { keyAria, keyCaps } from "../../lib/key-match";
+import { topModal } from "../../lib/modal-stack";
 import { registerQuickOpenHost } from "../../lib/quick-open-host";
 import type { QuickOpenItem, QuickOpenSource } from "../../lib/quick-open";
 import { isMac } from "../../lib/platform";
@@ -42,7 +43,8 @@ export const useQuickOpen = ({
   readonly onOpen: (item: QuickOpenItem) => void;
 }): QuickOpenControl => {
   const [showing, setShowing] = useState(false);
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  /** Where the palette hangs: the header button, or the modal when that button is not on screen. */
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const showingRef = useRef(false);
 
@@ -52,10 +54,22 @@ export const useQuickOpen = ({
 
   const attach = useCallback((element: HTMLButtonElement | null) => {
     anchorRef.current = element;
-    setAnchor(element);
   }, []);
 
   const close = useCallback(() => setShowing(false), []);
+
+  /**
+   * The header button's own box places the palette. A collapsed sidebar hides
+   * that button, and a zero box would put the palette in the window's corner,
+   * so the modal's own frame stands in: the palette still opens from the chord.
+   */
+  const open = useCallback(() => {
+    const button = anchorRef.current;
+    const at = button !== null && button.getClientRects().length > 0 ? button : (topModal()?.container() ?? null);
+    if (at === null) return;
+    setAnchor(at);
+    setShowing(true);
+  }, []);
 
   // The chord's action finds this node's palette here, and only while the
   // modal shows: the last modal registered is the node in front.
@@ -64,13 +78,11 @@ export const useQuickOpen = ({
       registerQuickOpenHost({
         nodeId,
         enabled,
-        open: () => {
-          if (anchorRef.current !== null) setShowing(true);
-        },
+        open,
         close,
         isOpen: () => showingRef.current,
       }),
-    [nodeId, enabled, close],
+    [nodeId, enabled, open, close],
   );
 
   const caps = capsOf(keyCaps("quickOpen.open"));
@@ -82,7 +94,7 @@ export const useQuickOpen = ({
       aria-keyshortcuts={keyAria("quickOpen.open")}
       aria-expanded={showing}
       size="sm"
-      onClick={() => setShowing((shown) => !shown)}
+      onClick={() => (showing ? close() : open())}
     >
       <Search size={14} aria-hidden />
     </IconButton>

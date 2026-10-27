@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFilePath, type FilesNodeRef, type FilesResult, type FilesSearchResult } from "../src/shared/files";
 import { asNodeId } from "../src/shared/physics/schema";
-import { fileQuickOpen, itemsQuickOpen, QUICK_OPEN_LIMIT, QUICK_OPEN_WORDS } from "../src/renderer/lib/quick-open";
+import {
+  fileQuickOpen,
+  itemsQuickOpen,
+  QUICK_OPEN_LIMIT,
+  QUICK_OPEN_WORDS,
+  type QuickOpenItem,
+  type QuickOpenSource,
+} from "../src/renderer/lib/quick-open";
 import { registerQuickOpenHost, toggleQuickOpenFor } from "../src/renderer/lib/quick-open-host";
 
 const node = asNodeId("shelf");
@@ -14,6 +21,17 @@ const artifacts = [
   { id: "a2", title: "Sprint notes", noun: "Sheet" },
   { id: "a3", title: "Design references", noun: "Link" },
 ];
+/** An item source answers synchronously: the palette alone handles a promise. */
+const rowsOf = (source: QuickOpenSource, query: string): ReadonlyArray<QuickOpenItem> => {
+  const answer = source.search(query);
+  if (answer instanceof Promise) throw new Error("the items sources answer synchronously");
+  return answer;
+};
+
+/** A file source's answer, whichever half of the contract it takes. */
+const filesOf = async (source: QuickOpenSource, query: string): Promise<ReadonlyArray<QuickOpenItem>> =>
+  await source.search(query);
+
 const artifactSource = () =>
   itemsQuickOpen({
     kind: "artifact",
@@ -27,20 +45,20 @@ const artifactSource = () =>
 describe("items a node already holds", () => {
   it("opens on the list's own order, and says nothing matched only when asked", () => {
     const source = artifactSource();
-    expect(source.search("").map((row) => row.title)).toEqual(["Launch brief", "Sprint notes", "Design references"]);
-    expect(source.search("zzz")).toEqual([]);
+    expect(rowsOf(source, "").map((row) => row.title)).toEqual(["Launch brief", "Sprint notes", "Design references"]);
+    expect(rowsOf(source, "zzz")).toEqual([]);
   });
 
   it("ranks a name hit over prose, through the shared matcher", () => {
     const source = artifactSource();
     // "sheet" is a metadata hit on Sprint notes, and no title starts with it.
-    expect(source.search("sheet").map((row) => row.title)).toEqual(["Sprint notes"]);
+    expect(rowsOf(source, "sheet").map((row) => row.title)).toEqual(["Sprint notes"]);
     // A title prefix always leads.
-    expect(source.search("launch").map((row) => row.title)).toEqual(["Launch brief"]);
+    expect(rowsOf(source, "launch").map((row) => row.title)).toEqual(["Launch brief"]);
   });
 
   it("carries the kind and the quieter line each row shows", () => {
-    const [row] = artifactSource().search("launch");
+    const [row] = rowsOf(artifactSource(), "launch");
     expect(row).toEqual({ id: "a1", title: "Launch brief", detail: "Document", kind: "artifact" });
   });
 
@@ -51,7 +69,7 @@ describe("items a node already holds", () => {
       items: many,
       itemOf: ({ id, title }) => ({ row: { id, title }, match: { identity: [title] } }),
     });
-    expect(source.search("")).toHaveLength(QUICK_OPEN_LIMIT);
+    expect(rowsOf(source, "")).toHaveLength(QUICK_OPEN_LIMIT);
   });
 });
 
@@ -64,7 +82,7 @@ describe("file names ranked by main", () => {
   it("leads each row with the name and names the folder under it", async () => {
     const search = vi.fn(async () => answerOf(["src/editor/big.ts", "README.md"]));
     const source = fileQuickOpen({ canvas: "canvas", node, search });
-    await expect(source.search("big")).resolves.toEqual([
+    await expect(filesOf(source, "big")).resolves.toEqual([
       { id: "src/editor/big.ts", title: "big.ts", detail: "src/editor", kind: "file" },
       // A file at the root has no folder to say.
       { id: "README.md", title: "README.md", kind: "file" },
@@ -77,11 +95,11 @@ describe("file names ranked by main", () => {
       { ok: true, value: { kind: "superseded", query: "ab" } },
       { ok: false, error: "root-missing" },
     ];
-    const search = vi.fn(async () => answers.shift()!);
+    const search = vi.fn(async (_ref: FilesNodeRef, _query: string, _seq: number) => answers.shift()!);
     const source = fileQuickOpen({ canvas: "canvas", node, search });
-    expect((await source.search("a")).map((row) => row.id)).toEqual(["a.ts"]);
-    expect(await source.search("ab")).toEqual([]);
-    expect(await source.search("abc")).toEqual([]);
+    expect((await filesOf(source, "a")).map((row) => row.id)).toEqual(["a.ts"]);
+    expect(await filesOf(source, "ab")).toEqual([]);
+    expect(await filesOf(source, "abc")).toEqual([]);
     expect(search.mock.calls.map(([, query, seq]) => [query, seq])).toEqual([
       ["a", 1],
       ["ab", 2],
