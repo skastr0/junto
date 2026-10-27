@@ -12,7 +12,7 @@ import {
 import { startThemeMode } from "./lib/theme-mode";
 import { installIpcAutomationsSource } from "./lib/automations-ipc-source";
 import { installIpcBrowserChrome } from "./lib/browser-chrome-ipc";
-import { installFileDraftsUnloadGuard } from "./lib/files-drafts-settle";
+import { installFileDraftsUnloadGuard, settleFileDrafts } from "./lib/files-drafts-settle";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -41,6 +41,7 @@ installIpcAutomationsSource(window.junto);
 installIpcBrowserChrome(window.junto);
 // A reload with unsaved Files drafts asks first; main asks the same before a quit or a close.
 installFileDraftsUnloadGuard();
+window.junto?.onFilesDraftsSettle(settleFileDrafts);
 
 // Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.
 const MARK_GALLERY = "#/gallery/marks";
