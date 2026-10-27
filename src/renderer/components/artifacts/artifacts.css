@@ -2,6 +2,23 @@
 
 /* Sidebar */
 
+.artifacts-eyebrow {
+  display: flex;
+  min-width: 0;
+}
+
+.artifacts-eyebrow__word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-eyebrow__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
 .artifacts-new,
 .artifacts-link-form {
   display: flex;

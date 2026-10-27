@@ -149,7 +149,13 @@ export function ArtifactsNode({
   const sidebar = (
     <>
       <PaneHeader
-        eyebrow={`Artifacts, ${entries.length - archivedCount}`}
+        eyebrow={
+          // In the narrow sidebar the word gives way before the count does.
+          <span className="artifacts-eyebrow">
+            <span className="artifacts-eyebrow__word">Artifacts,</span>
+            <span className="artifacts-eyebrow__count">{"\u00a0"}{entries.length - archivedCount}</span>
+          </span>
+        }
         actions={
           <IconButton
             aria-label="New artifact"
