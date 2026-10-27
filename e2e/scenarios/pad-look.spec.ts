@@ -169,6 +169,36 @@ test("the pad draws an agent's flow legibly in both themes", async () => {
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
     await expect(page.locator("html")).toHaveAttribute("data-theme", "bright", { timeout: 5_000 });
     await shot(page, "flow-bright");
+
+    // A pad too wide to fit at the 0.6 floor opens at its top left with readable text.
+    const wideAt = await page.evaluate(
+      async ({ canvas, node }) => {
+        const heads = await window.junto!.resource!.artifact!.list(canvas, node);
+        return heads.find((h) => h.artifact.type === "pad")!.artifact.version;
+      },
+      { canvas: CANVAS, node: asNodeId("shelf") },
+    );
+    await page.evaluate(
+      ({ canvas, node, id, version, patches, opId }) =>
+        window.junto!.resource!.artifact!.apply(canvas, node, id as never, opId, {
+          op: "edit",
+          edit: { kind: "patch", type: "pad", baseVersion: version, patches },
+        } as never),
+      {
+        canvas: CANVAS,
+        node: asNodeId("shelf"),
+        id: head.id,
+        version: wideAt,
+        patches: [s("far", "box", 3600, 30, 180, 90, { text: "Far end" }), e("e9", "build", "far", { label: "later" })],
+        opId: mintOpId(),
+      },
+    );
+    await expect(page.locator('g[data-shape-id="far"]')).toHaveCount(1, { timeout: 10_000 });
+    await page.getByRole("button", { name: "Fit view" }).click();
+    await shot(page, "wide-fit-bright");
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark", { timeout: 5_000 });
+    await shot(page, "wide-fit-dark");
   } finally {
     await junto.close();
   }
