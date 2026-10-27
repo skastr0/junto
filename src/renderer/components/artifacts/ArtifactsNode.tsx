@@ -32,6 +32,7 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, ListRow, PaneEmpty, PaneHeader, ResourceGlyphMark, TwoPane } from "../ui";
 import { ArtifactComments, ArtifactCommentsEdge } from "./ArtifactComments";
 import { ArtifactHistory } from "./ArtifactHistory";
+import { ArtifactKeys } from "./ArtifactKeys";
 import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
@@ -57,6 +58,7 @@ import "./artifacts.css";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
+import { paneEntryOf } from "../../lib/pane-focus";
 
 /** Ages in the list move on without a write; a minute is fine enough. */
 const CLOCK_MS = 60_000;
@@ -123,6 +125,35 @@ export function ArtifactsNode({
     }
   };
 
+  /**
+   * The list's keys: Up and Down move the pick and the keyboard with it,
+   * Enter opens the picked artifact and puts the keyboard in its content.
+   */
+  const onListKey = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    // The row with the keyboard, else the picked one. Rows still being created are not buttons.
+    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(":scope > button")];
+    const focused = rows.findIndex((row) => row.contains(event.target as Node));
+    const at = focused >= 0 ? focused : visible.findIndex(({ artifact }) => artifact.artifactId === selected?.artifact.artifactId);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const next = visible[Math.min(visible.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)))];
+      if (next === undefined) return;
+      event.preventDefault();
+      setSelectedId(next.artifact.artifactId);
+      setError(null);
+      const list = event.currentTarget;
+      requestAnimationFrame(() => claimFocus(list.querySelector<HTMLElement>("[data-selected='true']"), "gesture"));
+      return;
+    }
+    if (event.key === "Enter" && visible[at] !== undefined) {
+      event.preventDefault();
+      setSelectedId(visible[at].artifact.artifactId);
+      setError(null);
+      const main = event.currentTarget.closest(".two-pane")?.querySelector<HTMLElement>(":scope > .two-pane__main");
+      requestAnimationFrame(() => claimFocus(main ? paneEntryOf(main) : null, "gesture"));
+    }
+  };
+
   const sidebar = (
     <>
       <PaneHeader
@@ -176,7 +207,7 @@ export function ArtifactsNode({
           ))}
         </div>
       </div>
-      <div className="artifacts-list" role="list" aria-label="Artifacts">
+      <div className="artifacts-list" role="list" aria-label="Artifacts" onKeyDown={onListKey}>
         {archived
           ? null
           : pendingCreates.map((write) => (
@@ -459,6 +490,7 @@ function SelectedArtifact({
         <span className="artifact-head__meta">
           {TYPE_NOUN[artifact.type]}, version {artifact.version}
         </span>
+        <ArtifactKeys type={artifact.type} />
         <IconButton
           aria-label={mode === "history" ? "Back to editing" : "History"}
           title={mode === "history" ? "Back to editing" : "History"}
