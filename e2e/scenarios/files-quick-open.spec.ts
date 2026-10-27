@@ -8,12 +8,19 @@
  */
 import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
-import { modelFixture, modelNode } from "../harness/model";
+import { modelFixture, modelNode, modelSeat } from "../harness/model";
 import { filesCard, filesNode, openFilesModal, stageFiles } from "../harness/files-scenario";
 
 const CANVAS = "files-quick-open";
 
 const palette = (page: Page) => page.getByTestId("quick-open");
+
+/** The palette is enabled once the root has listed: a chord pressed before that is dropped, so wait for the first row. */
+const openReadyFilesModal = async (page: Page) => {
+  const modal = await openReadyFilesModal(page);
+  await expect(modal.getByRole("treeitem", { name: "README.md", exact: true })).toBeVisible({ timeout: 15_000 });
+  return modal;
+};
 const field = (page: Page) => page.getByTestId("quick-open-input");
 const titles = (page: Page) => palette(page).locator(".quick-open__row-title");
 const details = (page: Page) => palette(page).locator(".quick-open__row-detail");
@@ -26,7 +33,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
     const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root)]) } });
     try {
       const { page } = junto;
-      const modal = await openFilesModal(page);
+      const modal = await openReadyFilesModal(page);
 
       await page.keyboard.press("Meta+p");
       await expect(palette(page)).toBeVisible();
@@ -55,7 +62,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
     const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root)]) } });
     try {
       const { page } = junto;
-      await openFilesModal(page);
+      await openReadyFilesModal(page);
       await page.keyboard.press("Meta+p");
       for (const [query, title, folder] of [
         ["bigts", "big.ts", "src"],
@@ -78,7 +85,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
     const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root)]) } });
     try {
       const { page } = junto;
-      await openFilesModal(page);
+      await openReadyFilesModal(page);
       await page.keyboard.press("Meta+p");
 
       await field(page).fill("index");
@@ -99,7 +106,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
     const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root)]) } });
     try {
       const { page } = junto;
-      await openFilesModal(page);
+      await openReadyFilesModal(page);
       await page.keyboard.press("Meta+p");
       await field(page).fill("txt");
       await expect(active(page)).toHaveCount(1);
@@ -127,7 +134,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
       await page.keyboard.press("Meta+p");
       await expect(palette(page)).toHaveCount(0);
 
-      const modal = await openFilesModal(page);
+      const modal = await openReadyFilesModal(page);
       // The header button's name is the palette's find label for files; confirm it when the button lands.
       await modal.getByRole("button", { name: "Find a file", exact: true }).click();
       await expect(palette(page)).toBeVisible();
@@ -188,8 +195,9 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
 
   test("Automations: Cmd+P finds an automation by name and opens it in the editor", async () => {
     test.setTimeout(120_000);
+    const lead = modelSeat({ id: "lead", key: "local:quick-open-lead", label: "lead", x: 40, y: 40 });
     const autos = modelNode({ kind: "automations", id: "auto", label: "Automations", x: 360, y: 40, width: 260, height: 120, z: 0 });
-    const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([autos]) } });
+    const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([lead, autos]) } });
     try {
       const { page } = junto;
       await page.locator('.react-flow__node[data-id="auto"]').dblclick();
@@ -197,6 +205,10 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
       await pane.getByRole("button", { name: "New automation" }).first().click();
       const editor = pane.getByTestId("automation-editor");
       await editor.getByLabel("Automation name").fill("Morning standup");
+      const mailTo = editor.getByLabel("Mail to");
+      await mailTo.click();
+      await mailTo.pressSequentially("@lead");
+      await page.getByRole("option", { name: /lead/ }).first().click();
       await editor.getByLabel("Mail text").fill("Post your plan for today.");
       await editor.getByRole("button", { name: "Save", exact: true }).click();
       await expect(pane.getByRole("button", { name: /Morning standup/ })).toBeVisible({ timeout: 10_000 });
