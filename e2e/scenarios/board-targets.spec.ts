@@ -38,10 +38,15 @@ const shot = async (page: Page, name: string): Promise<void> => {
 /** An empty board opens its new-task form; a board with one task opens the list, and the settings are one press away. */
 const seedTask = async (page: Page, board: string): Promise<void> => {
   const taskId = mintItemId();
-  await page.evaluate(
+  const nodeId = taskNodeId(asNodeId(board));
+  const outcome = await page.evaluate(
     ({ canvas, nodeId, taskId, opId }) => window.junto!.resource!.task!.apply(canvas, nodeId, taskId, opId, { kind: "create", taskId, title: "A task" }),
-    { canvas: CANVAS, nodeId: taskNodeId(asNodeId(board)), taskId, opId: mintOpId() },
+    { canvas: CANVAS, nodeId, taskId, opId: mintOpId() },
   );
+  expect(JSON.stringify(outcome)).not.toContain("refused");
+  await expect
+    .poll(() => page.evaluate(({ canvas, nodeId }) => window.junto!.resource!.task!.list(canvas, nodeId).then((tasks) => tasks.length), { canvas: CANVAS, nodeId }), { timeout: 15_000 })
+    .toBe(1);
 };
 const verbs = async (page: Page): Promise<string[]> =>
   (await readModelCanvas(page, CANVAS)).wires.map((wire) => `${wire.from} ${wire.verb} ${wire.to}`).sort();
