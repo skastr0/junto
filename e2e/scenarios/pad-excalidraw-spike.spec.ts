@@ -91,7 +91,8 @@ test("pad on Excalidraw: feel, our data both ways, card, image, area comment", a
 
     const canvas = page.locator(".excalidraw .excalidraw__canvas.interactive");
     const box = (await canvas.boundingBox())!;
-    const at = (x: number, y: number) => ({ x: box.x + x, y: box.y + y });
+    // Excalidraw's properties panel covers the left of the canvas: draw right of it.
+    const at = (x: number, y: number) => ({ x: box.x + 380 + x, y: box.y + y });
 
     // Tool switch by key, as the operator does.
     await canvas.click({ position: { x: box.width - 40, y: box.height - 40 } });
