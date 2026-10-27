@@ -88,7 +88,15 @@ export function FileViewGallery() {
     document.title = "Gallery, file viewers";
     // `#/gallery/files?theme=bright` or `?theme=dark` shows one theme whatever the app is set to.
     const asked = window.location.hash.match(/[?&]theme=(dark|bright)/u)?.[1];
-    if (asked === "dark" || asked === "bright") themeMode$.set(asked);
+    if (asked !== "dark" && asked !== "bright") return;
+    // A gallery reads no settings, so the app root's theme start (which runs
+    // after this effect) resolves to the system's; the asked theme goes on after it.
+    const timer = window.setTimeout(() => {
+      themeMode$.set(asked);
+      if (asked === "dark") delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = asked;
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
   const pdf = useMemo(() => galleryPdf(PAGES), []);
   const image = useGalleryImage();
