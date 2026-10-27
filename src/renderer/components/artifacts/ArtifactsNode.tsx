@@ -496,6 +496,7 @@ function SelectedArtifact({
       case "pad":
         return (
           <ArtifactPadEditor
+            canvasName={canvasName}
             pad={padOf(body)}
             readOnly={readOnly}
             onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "pad", baseVersion, patches: [...patches] }))}

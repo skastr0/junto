@@ -21,6 +21,7 @@ import {
   trianglePoints,
   type GeomRect as GeomRectValue,
 } from "./pad-geom";
+import { mentionLinksOf, type MentionTarget } from "./mention";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "./theme";
 
 const VIEW_PAD = 80;
@@ -295,9 +296,32 @@ export const padEdgeMid = (points: ReadonlyArray<PadPoint>): PadPoint => {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 };
 
-/** The words a shape shows: its text, or for a card the name its writer saw, else its link. */
-export const padShapeText = (shape: PadShape): string | undefined =>
-  shape.type === "card" ? shape.label ?? shape.href : shape.text;
+/** The current title of what a link names, when the reader knows it. */
+export type PadLinkTitleOf = (target: MentionTarget) => string | undefined;
+
+/** A link's written label as words: an artifact link `[[Title]]` reads as Title. */
+const linkLabelWords = (label: string): string => /^\[\[(.+)\]\]$/su.exec(label)?.[1] ?? label;
+
+/**
+ * Text as the pad shows it: each mention link drawn as its words, never its
+ * address. An artifact link takes the title the reader knows now, so a
+ * rename shows at once, else the title it was written with.
+ */
+export const padLinkWords = (text: string, titleOf?: PadLinkTitleOf): string => {
+  const links = mentionLinksOf(text);
+  if (links.length === 0) return text;
+  let words = "";
+  let at = 0;
+  for (const link of links) {
+    words += text.slice(at, link.start) + (titleOf?.(link.target) ?? linkLabelWords(link.label));
+    at = link.end;
+  }
+  return words + text.slice(at);
+};
+
+/** The words a shape shows: its text, links as their titles, or for a card the name its writer saw, else its link. */
+export const padShapeText = (shape: PadShape, titleOf?: PadLinkTitleOf): string | undefined =>
+  shape.type === "card" ? shape.label ?? shape.href : shape.text === undefined ? undefined : padLinkWords(shape.text, titleOf);
 
 export const padImageLabel = (image: PadImage): string =>
   `${image.ref.displayName ?? "image"} ${image.ref.sha256.slice(0, SHA_PREFIX)}`;
@@ -398,7 +422,7 @@ export const padToSvg = (
     if (edge.label) {
       const mid = padEdgeMid(points);
       parts.push(
-        `<text x="${fmt(mid.x)}" y="${fmt(mid.y + PAD_LOOK.edgeText * 0.35)}" fill="${esc(pal.text)}" font-size="${PAD_LOOK.edgeText}" text-anchor="middle" stroke="${esc(pal.ground)}" stroke-width="4" paint-order="stroke">${esc(edge.label)}</text>`,
+        `<text x="${fmt(mid.x)}" y="${fmt(mid.y + PAD_LOOK.edgeText * 0.35)}" fill="${esc(pal.text)}" font-size="${PAD_LOOK.edgeText}" text-anchor="middle" stroke="${esc(pal.ground)}" stroke-width="4" paint-order="stroke">${esc(padLinkWords(edge.label))}</text>`,
       );
     }
   }
@@ -482,7 +506,7 @@ export const padToFocused = (pad: Pad): PadFocusedItem[] => {
   for (const edge of pad.edges) {
     const bounds = boundsOf(pad, edge.id);
     if (!bounds) continue;
-    items.push(focused(edge.id, "edge", bounds, edge.label));
+    items.push(focused(edge.id, "edge", bounds, edge.label === undefined ? undefined : padLinkWords(edge.label)));
   }
   for (const ink of pad.inks) {
     items.push(focused(ink.id, "ink", boundsOf(ink)));

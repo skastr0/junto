@@ -10,6 +10,7 @@ import {
   PAD_LOOK,
   padArrowHead,
   padClipText,
+  padLinkWords,
   padEdgeMid,
   padShapeFill,
   padShapeStroke,
@@ -18,6 +19,7 @@ import {
   type PadSvgPalette,
 } from "@shared/pad-project";
 import { FONT_MONO } from "@shared/theme";
+import { usePadLinkTitleOf } from "./pad-link-titles";
 
 /** The app's mono face: the pad's wrapping assumes its 0.6 em advance. */
 export const PAD_FONT = FONT_MONO;
@@ -85,7 +87,7 @@ export function PadShapeOutline({
 
 /** A shape's words, wrapped inside it; a free label is ringed in the ground so it reads over a line. */
 export function PadShapeWords({ shape, pal }: { readonly shape: PadShape; readonly pal: PadSvgPalette }) {
-  const text = padShapeText(shape);
+  const text = padShapeText(shape, usePadLinkTitleOf());
   if (!text) return null;
   const layout = padTextLayout(shape, padClipText(text));
   return (
@@ -104,6 +106,11 @@ export function PadShapeWords({ shape, pal }: { readonly shape: PadShape; readon
       ))}
     </text>
   );
+}
+
+/** An edge's label as words: its links as their current titles. */
+function PadEdgeWords({ label }: { readonly label: string }) {
+  return <>{padClipText(padLinkWords(label, usePadLinkTitleOf()))}</>;
 }
 
 /** An edge: its route, an arrowhead where it lands, and its label ringed in the ground so it reads over the line. */
@@ -139,7 +146,7 @@ export function PadEdgeMark({
           paintOrder="stroke"
           style={{ pointerEvents: "none" }}
         >
-          {padClipText(edge.label)}
+          <PadEdgeWords label={edge.label} />
         </text>
       ) : null}
     </g>

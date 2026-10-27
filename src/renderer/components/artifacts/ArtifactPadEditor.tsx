@@ -7,6 +7,7 @@ import { applyPatches, type Pad, type PadPatch } from "@shared/pad";
 import { themeMode$ } from "../../lib/theme-mode";
 import { PadEditor, type PadArea, type PadPins } from "../pad/PadEditor";
 import { PadSvg } from "../pad/PadSvg";
+import { PadLinkTitlesProvider, usePadLinkTitles } from "../pad/pad-link-titles";
 import type { PadCommitOutcome } from "../pad/pad-editor-model";
 
 export type PadCommentBox = PadArea;
@@ -21,12 +22,15 @@ export type PadCommentBox = PadArea;
  * `mentions` are what @ offers to put on the pad as a live card.
  */
 export function ArtifactPadEditor({
+  canvasName,
   pad,
   readOnly = false,
   onPatch,
   onCommentBox,
   mentions,
 }: {
+  /** The canvas the pad's links name, where their current titles are read; without it links show their written titles. */
+  readonly canvasName?: string;
   readonly pad: Pad;
   readonly readOnly?: boolean;
   /** Resolves with the refusal line, or null when the patches landed. */
@@ -36,6 +40,7 @@ export function ArtifactPadEditor({
   readonly mentions?: { readonly candidates: ReadonlyArray<MentionCandidate> };
 }) {
   const theme = use$(themeMode$);
+  const titleOf = usePadLinkTitles(canvasName, pad);
   // The pad acks build on: the host's latest, or the last ack made since.
   const ackedRef = useRef(pad);
   const propRef = useRef(pad);
@@ -72,22 +77,26 @@ export function ArtifactPadEditor({
 
   if (readOnly) {
     return (
-      <div className="pad-surface flex h-full min-h-0 items-center justify-center" data-testid="artifact-pad" data-readonly="true">
-        <PadSvg pad={pad} theme={theme} options={{ framed: true }} />
-      </div>
+      <PadLinkTitlesProvider value={titleOf}>
+        <div className="pad-surface flex h-full min-h-0 items-center justify-center" data-testid="artifact-pad" data-readonly="true">
+          <PadSvg pad={pad} theme={theme} options={{ framed: true }} />
+        </div>
+      </PadLinkTitlesProvider>
     );
   }
 
   return (
-    <div className="pad-surface relative flex h-full min-h-0 flex-col" data-testid="artifact-pad">
-      <PadEditor
-        pad={pad}
-        pins={pins}
-        onCommit={onCommit}
-        onReadPad={onReadPad}
-        onClose={onClose}
-        {...(mentions === undefined ? {} : { cards: { candidates: mentions.candidates } })}
-      />
-    </div>
+    <PadLinkTitlesProvider value={titleOf}>
+      <div className="pad-surface relative flex h-full min-h-0 flex-col" data-testid="artifact-pad">
+        <PadEditor
+          pad={pad}
+          pins={pins}
+          onCommit={onCommit}
+          onReadPad={onReadPad}
+          onClose={onClose}
+          {...(mentions === undefined ? {} : { cards: { candidates: mentions.candidates } })}
+        />
+      </div>
+    </PadLinkTitlesProvider>
   );
 }
