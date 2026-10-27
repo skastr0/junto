@@ -74,6 +74,7 @@ import { bodyTexts, editTexts, hasArtifactLinkTokens, linkBodyTitles, linkEditTi
 import { resolveArtifactTitles } from "./artifact-link-titles";
 import { readMentions, type MentionRow } from "./mention-backlinks";
 import { entryOf } from "./mention-ipc";
+import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
 import { SqlClient } from "effect/unstable/sql";
 
 /** What the verbs need from the artifact store and the ruler. */
@@ -107,6 +108,8 @@ export type ArtifactPorts = {
   readonly taskNode: (canvasName: string, taskId: ItemId) => Effect.Effect<Option.Option<NodeId>, WorkErrorBody>;
   /** Up to `limit` mail rows that mention `key`, newest first (`work_mentions`). Absent, show lists none. */
   readonly mentions?: (canvasName: string, key: string, limit: number) => Effect.Effect<ReadonlyArray<MentionRow>, WorkErrorBody>;
+  /** The artifacts whose head body links `target`, newest first, archived ones left out (L1). Absent, show lists none. */
+  readonly bodyLinks?: (canvasName: string, target: ArtifactLinkRef) => Effect.Effect<ReadonlyArray<LinkedFromBody>, WorkErrorBody>;
 };
 
 export type ArtifactCaller = {
@@ -510,10 +513,10 @@ const checkTasks = (
 const LINKED_FROM_SCAN = 200;
 
 /**
- * Where an artifact is linked from, as `junto artifact show` lists it: mail
- * and comments that mention it, kept to what this seat may read. Its own
- * mailbox, mail it wrote, and threads held at nodes in its reach; never
- * another seat's mail.
+ * Where an artifact is linked from, as `junto artifact show` lists it: the
+ * bodies of artifacts in the seat's reach that link it, and mail and comments
+ * that mention it, kept to what this seat may read. Its own mailbox, mail it
+ * wrote, and threads held at nodes in its reach; never another seat's mail.
  */
 const linkedFromOf = (
   caller: ArtifactCaller,
@@ -521,10 +524,11 @@ const linkedFromOf = (
   artifact: { readonly nodeId: NodeId; readonly artifactId: ItemId },
 ): Effect.Effect<ArtifactLinkedFrom, WorkErrorBody> =>
   Effect.gen(function* () {
-    if (ports.mentions === undefined) return { mail: [], more: false };
-    const key = mentionKey({ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId });
-    const rows = yield* ports.mentions(caller.canvasName, key, LINKED_FROM_SCAN);
     const seat = caller.actor.nodeId;
+    const linking = ports.bodyLinks === undefined ? [] : yield* ports.bodyLinks(caller.canvasName, { nodeId: artifact.nodeId, artifactId: artifact.artifactId });
+    const bodies = linking.filter((link) => reaches(caller.canvas, seat, link.source.nodeId));
+    const key = mentionKey({ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId });
+    const rows = ports.mentions === undefined ? [] : yield* ports.mentions(caller.canvasName, key, LINKED_FROM_SCAN);
     const readable = rows.flatMap((row) => {
       const entry = entryOf(caller.canvas, row);
       if (entry === undefined) return [];
@@ -537,7 +541,11 @@ const linkedFromOf = (
         reaches(caller.canvas, seat, entry.mailbox);
       return own || thread ? [entry] : [];
     });
-    return { mail: readable.slice(0, ARTIFACT_LINKED_FROM_MAX), more: readable.length > ARTIFACT_LINKED_FROM_MAX || rows.length === LINKED_FROM_SCAN };
+    return {
+      bodies: bodies.slice(0, ARTIFACT_LINKED_FROM_MAX),
+      mail: readable.slice(0, ARTIFACT_LINKED_FROM_MAX),
+      more: bodies.length > ARTIFACT_LINKED_FROM_MAX || readable.length > ARTIFACT_LINKED_FROM_MAX || rows.length === LINKED_FROM_SCAN,
+    };
   });
 
 /** As many artifacts as a `[[Title]]` is matched among: every head in reach, in practice. */

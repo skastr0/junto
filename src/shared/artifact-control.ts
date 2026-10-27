@@ -19,6 +19,7 @@ import {
   type ArtifactActor,
 } from "./artifact";
 import { Anchor } from "./thread-subject";
+import type { LinkedFromBody } from "./artifact-links";
 import type { MentionedIn } from "./mention-ipc";
 import type { PendingMark, PendingUnknown } from "./op-control";
 import { ItemId, OpId } from "./work-ids";
@@ -183,12 +184,15 @@ export type ArtifactShowResult = PendingUnknown & {
 };
 
 /**
- * Where an artifact is linked from. `mail`: mail and comments that mention it,
+ * Where an artifact is linked from, each list newest first and at most
+ * ARTIFACT_LINKED_FROM_MAX. `mail`: mail and comments that mention it,
  * only the ones the seat may read (its own mail, mail it sent, threads on
  * nodes in its reach). `more` when the newest ARTIFACT_LINKED_FROM_MAX cut it,
  * or when main's scan filled before it could tell: there may be more.
  */
 export type ArtifactLinkedFrom = {
+  /** Artifacts in the seat's reach whose head body links this one, with the line. */
+  readonly bodies: ReadonlyArray<LinkedFromBody>;
   readonly mail: ReadonlyArray<MentionedIn>;
   readonly more: boolean;
 };

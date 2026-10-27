@@ -380,7 +380,25 @@ describe.runIf(ARTIFACTS_ENABLED)("[[Title]] in junto artifact create and edit",
     expect(asked).toEqual([mentionKey({ kind: "artifact", nodeId: asNodeId("AR"), artifactId: ItemId.make(NEW) })]);
     expect(shown.linkedFrom.mail.map((entry) => entry.messageId)).toEqual(["M-own", "M-sent", "M-here"]);
     expect(shown.linkedFrom.more).toBe(false);
-    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).linkedFrom).toEqual({ mail: [], more: false });
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).linkedFrom).toEqual({ bodies: [], mail: [], more: false });
+  });
+
+  it("show lists the artifacts whose body links here, only from nodes in this seat's reach", () => {
+    const { ports } = memoryPorts();
+    createDoc(ports);
+    const from = (node: string, id: string, title: string) => ({
+      source: { nodeId: asNodeId(node), artifactId: ItemId.make(id) },
+      title,
+      type: "document" as const,
+      line: `see ${title}`,
+      at: 1,
+    });
+    const linking = [from("AR", "01M5ESMQ2ZT55QZ073EWPH10SH", "Plan"), from("AP", "01M5ESMQ2ZT55QZ073EWPH10SK", "Away")];
+    const asked: unknown[] = [];
+    const withLinks: ArtifactPorts = { ...ports, bodyLinks: (_canvas, target) => Effect.sync(() => (asked.push(target), linking)) };
+    const shown = ok<ArtifactShowResult>(run(withLinks, "artifact.show", { artifact: NEW }));
+    expect(asked).toEqual([{ nodeId: "AR", artifactId: NEW }]);
+    expect(shown.linkedFrom.bodies).toEqual([linking[0]]);
   });
 
   it("links what a document's patches write, and a sheet's cells on replace", () => {
