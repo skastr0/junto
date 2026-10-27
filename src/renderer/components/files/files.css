@@ -151,6 +151,14 @@
   gap: 8px;
 }
 
+/* A folder that cannot open fills the main pane, as PaneEmpty would alone. */
+.files-refused {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
 /* Rail */
 
 .files-rail {

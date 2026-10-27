@@ -147,4 +147,11 @@ describe("the Files modal", () => {
     expect(fileDraft(nodeId, A)?.text).toBe("two and more");
     expect(after.ok && after.value.kind === "text" && fileDraft(nodeId, A)?.base).toEqual(after.ok && after.value.kind === "text" ? after.value.stamp : null);
   });
+
+  it("says as an alert that a folder gone from disk cannot open", async () => {
+    installFilesSource({ ...makeLocalFiles(), open: async () => ({ ok: false, error: "root-missing" }) });
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector('[role="alert"].files-refused')?.textContent).toContain("missing on this machine");
+  });
 });

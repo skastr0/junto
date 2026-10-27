@@ -8,11 +8,14 @@ import { FilesNode } from "./FilesNode";
 export function FilesDetail({
   nodeId,
   initialItemId,
+  initialPage,
   onClose,
 }: {
   readonly nodeId: string;
   /** Open on this file: a path relative to the node's root. */
   readonly initialItemId?: string;
+  /** With a PDF in `initialItemId`, the page it opens on. */
+  readonly initialPage?: number;
   readonly onClose: () => void;
 }) {
   const canvasName = use$(state$.canvasName) || "";
@@ -22,6 +25,7 @@ export function FilesDetail({
       canvasName={canvasName}
       nodeId={asNodeId(nodeId)}
       {...(initialPath === undefined || initialPath === "" ? {} : { initialPath })}
+      {...(initialPage === undefined ? {} : { initialPage })}
       onClose={onClose}
     />
   );

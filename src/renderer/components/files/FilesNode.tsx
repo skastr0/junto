@@ -75,11 +75,14 @@ export function FilesNode({
   canvasName,
   nodeId,
   initialPath,
+  initialPage,
   onClose,
 }: {
   readonly canvasName: string;
   readonly nodeId: NodeId;
   readonly initialPath?: FilePath;
+  /** A PDF at `initialPath` opens scrolled to this page, once (an extract's link back to its source). */
+  readonly initialPage?: number;
   readonly onClose: () => void;
 }) {
   const ref = useMemo<FilesNodeRef>(() => ({ canvas: canvasName, node: nodeId }), [canvasName, nodeId]);
@@ -225,7 +228,10 @@ export function FilesNode({
 
   const empty =
     root.state === "refused" ? (
-      <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(root.error)} />
+      // The folder cannot open: said as an alert, so a reader hears why the tree is empty.
+      <div role="alert" className="files-refused">
+        <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(root.error)} />
+      </div>
     ) : selected === null ? (
       <PaneEmpty glyph={<FileText size={20} />} title="Pick a file" />
     ) : null;
@@ -239,7 +245,16 @@ export function FilesNode({
             {empty ?? <PaneEmpty title="Opening the folder" />}
           </TwoPane>
         ) : (
-          <SelectedFile key={selected} canvasName={canvasName} filesRef={ref} path={selected} sidebar={sidebar} save={save} onClose={onClose} />
+          <SelectedFile
+            key={selected}
+            canvasName={canvasName}
+            filesRef={ref}
+            path={selected}
+            {...(initialPage !== undefined && selected === initialPath ? { initialPage } : {})}
+            sidebar={sidebar}
+            save={save}
+            onClose={onClose}
+          />
         )}
         <FilesDropHighlight drop={drop} />
       </div>
@@ -251,6 +266,7 @@ function SelectedFile({
   canvasName,
   filesRef,
   path,
+  initialPage,
   sidebar,
   save,
   onClose,
@@ -258,6 +274,7 @@ function SelectedFile({
   readonly canvasName: string;
   readonly filesRef: FilesNodeRef;
   readonly path: FilePath;
+  readonly initialPage?: number;
   readonly sidebar: React.ReactNode;
   readonly save: React.MutableRefObject<(() => void) | null>;
   readonly onClose: () => void;
@@ -486,6 +503,7 @@ function SelectedFile({
             path={path}
             boxes={boxThreads}
             onComment={pickBox}
+            {...(initialPage === undefined ? {} : { initialPage })}
             {...(value.kind === "binary" ? { version: value.stamp.mtimeMs } : {})}
           />
         );
