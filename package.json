@@ -91,6 +91,7 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@electron/asar": "3.4.1",
+    "@excalidraw/excalidraw": "0.18.1",
     "@lezer/common": "1.5.4",
     "@lezer/markdown": "1.8.1",
     "@resvg/resvg-wasm": "2.6.2",
