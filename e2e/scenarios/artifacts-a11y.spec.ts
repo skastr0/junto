@@ -24,7 +24,9 @@ type Violation = { readonly id: string; readonly impact?: string | null; readonl
 /** One axe pass over the open artifact window; the violations, in words. */
 const scan = async (page: Page, surface: string): Promise<ReadonlyArray<string>> => {
   await page.waitForTimeout(300);
-  const result = await new AxeBuilder({ page }).include('[aria-modal="true"]').withTags(WCAG).analyze();
+  // Legacy mode scans in this page: Electron refuses the extra page axe opens
+  // by default (Target.createTarget: Not supported).
+  const result = await new AxeBuilder({ page }).setLegacyMode(true).include('[aria-modal="true"]').withTags(WCAG).analyze();
   const lines = (result.violations as ReadonlyArray<Violation>).map(
     (v) => `${surface}: ${v.id} (${v.impact ?? "n/a"}) ${v.help}; ${v.nodes.map((n) => n.target.join(" ")).slice(0, 4).join(", ")}${v.nodes.length > 4 ? `, +${v.nodes.length - 4} more` : ""}`,
   );
