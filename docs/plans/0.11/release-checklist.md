@@ -11,16 +11,22 @@ and is noted unverified.
 
 ## 0. Decisions I need before the cut
 
-- [ ] Ship tier of `files` (`SHIP_FEATURES` in `src/shared/feature-catalog.ts`).
-      The plan says "experimental tier, on in all-on". `experimental` means
-      compiled in and OFF until the operator turns it on in Settings, so the
-      0.11 headline would not be visible after the upgrade. The notes draft
-      says on. If it ships experimental, the first notes line must say where
-      to turn it on. Asked product-lead 2026-10-27. Answer:
-- [ ] The schema step for the `files` kind (plan F1, "expand only"): the
-      version it lands on (50 to 51 expected). Sections 1 and 5 depend on it.
+- [x] Ship tier of `files`. Answer (product-lead, 2026-10-27): experimental
+      while tracks build, so half-done work never ships; at the cut
+      `SHIP_FEATURES` has `files: true` once every track is verified. Notes are
+      worded as on. Still to do at the cut: that commit, and the ship-profile
+      test updated with it (`test:features:ship`), as 9695a67af did for tasks,
+      artifacts and browser in 0.10. If a track is not verified, `files` stays
+      experimental and the first notes line says where to switch it on.
+- [x] Schema steps (product-lead): step 51 is the files node, expand only,
+      50 to 51. Step 52 rebuilds stubs so other machines show a Files stub; it
+      is with the operator. If approved, the notes name both steps and the
+      head is 52; if not, 0.11 has 51 only, the head is 51, and the notes say
+      the stub comes later (other machines then show no Files stub).
+- [ ] Which of the two it is, known before the notes' upgrade paragraph and
+      section 1 are filled in.
 
-## 1. State step (if F1 adds one)
+## 1. State steps (51, and 52 if approved)
 
 Notes open with it, as 0.10.3 did: the older release refuses the newer
 database, and going back means opening the backup taken at the upgrade. Run on
@@ -29,7 +35,7 @@ canvas-lead).
 
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
-- [ ] The copy migrates from v50; `PRAGMA quick_check` ok, foreign keys empty.
+- [ ] The copy migrates from v50 to the head (51, or 52); `PRAGMA quick_check` ok, foreign keys empty.
 - [ ] Counts unchanged: every table, every wire and its verb, tasks.
 - [ ] Backup written before the stamp, opens on 0.10.3 at v50.
 - [ ] A second open runs no step and makes no backup.

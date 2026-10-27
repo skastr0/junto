@@ -3,9 +3,15 @@
 ## Unreleased
 
 Draft for 0.11.0, worded from `docs/plans/0.11/README.md` before the tracks
-land. Every bullet is checked against the code at the cut, the upgrade
-paragraph is written once the schema step is known, and this line is deleted
-at the bump.
+land. Every bullet is checked against the code at the cut, and this line is
+deleted at the bump.
+
+Opening the database with 0.11.0 moves it to version 51, and 0.10.3 then
+refuses it as newer than supported. To go back to 0.10.3, open the backup
+taken at the upgrade. The step only adds the Files node kind; every node,
+wire and task is kept as it was. (If the stub step is approved, this names
+version 52 and says it rebuilds stubs, so other machines show a Files stub; if
+not, add that the Files stub on other machines comes later.)
 
 - Files: a node that opens a folder on this machine as a file tree and opens
   a file in the main pane, laid out like Artifacts. The node keeps the folder
