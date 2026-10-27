@@ -56,13 +56,17 @@ test("[[ in a pad's shape text links an artifact, draws its current title, and m
     const planId = mintItemId();
     await apply(page, planId, { op: "create", title: "Launch plan", body: { type: "document", markdown: "Ship it." } });
     const boxes = ["dark", "bright"].map((theme, index) => ({ id: `box-${theme}`, type: "box", x: 80, y: 80 + index * 160, w: 360, h: 100, z: index }));
+    // A link to an artifact Shelf never held: it reads as missing, never as the title it was written with.
+    const ghost = `[\\[\\[Old notes\\]\\]](junto://canvas/${CANVAS}?node=shelf&item=${mintItemId()})`;
+    boxes.push({ id: "box-ghost", type: "box", x: 480, y: 80, w: 240, h: 100, z: 2, text: `Was ${ghost}` } as never);
     await apply(page, mintItemId(), { op: "create", title: "Map", body: { type: "pad", pad: { revision: 0, images: [], shapes: boxes, edges: [], inks: [] } } });
     await page.locator('.react-flow__node[data-id="shelf"]').dblclick();
     const list = page.getByRole("list", { name: "Artifacts" });
     await expect(list).toBeVisible({ timeout: 20_000 });
     await list.locator("button").filter({ hasText: "Map" }).first().click();
     const pad = page.getByTestId("artifact-pad");
-    await expect(pad.getByTestId("pad-shape")).toHaveCount(2, { timeout: 15_000 });
+    await expect(pad.getByTestId("pad-shape")).toHaveCount(3, { timeout: 15_000 });
+    await expect(pad.locator('[data-shape-id="box-ghost"] text')).toHaveText("Was Missing artifact", { timeout: 15_000 });
 
     for (const theme of ["dark", "bright"] as const) {
       await setTheme(page, theme);
@@ -123,6 +127,14 @@ test("[[ in a pad's shape text links an artifact, draws its current title, and m
     await apply(page, planId, { op: "retitle", title: "Launch plan v2" });
     await expect(pad.locator('[data-shape-id="box-dark"] text')).toHaveText("See Launch plan v2 and Q3 review", { timeout: 15_000 });
     await frame(page, "bright-4-renamed");
+
+    // An archived artifact keeps its title and says it is archived.
+    const q3 = (await heads(page)).find((head) => head.artifact.title === "Q3 review")!.artifact.artifactId;
+    await apply(page, q3, { op: "archive" });
+    // The words may wrap onto two lines: read them as one.
+    const words = () => pad.locator('[data-shape-id="box-dark"] text tspan').allTextContents().then((lines) => lines.join(" "));
+    await expect.poll(words, { timeout: 15_000 }).toBe("See Launch plan v2 and Q3 review, archived");
+    await frame(page, "bright-5-archived-and-missing");
   } finally {
     await junto.close();
   }

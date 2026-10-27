@@ -297,14 +297,14 @@ export const padEdgeMid = (points: ReadonlyArray<PadPoint>): PadPoint => {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 };
 
-/** The current title of what a link names, when the reader knows it. */
-export type PadLinkTitleOf = (target: MentionTarget) => string | undefined;
+/** A link's words now, when the reader knows them (`written` is its label as written); undefined keeps the written words. */
+export type PadLinkTitleOf = (target: MentionTarget, written: string) => string | undefined;
 
 
 /**
  * Text as the pad shows it: each mention link drawn as its words, never its
- * address. An artifact link takes the title the reader knows now, so a
- * rename shows at once, else the title it was written with.
+ * address. An artifact link takes the words the reader knows now (its
+ * title, archived, or missing), else the title it was written with.
  */
 export const padLinkWords = (text: string, titleOf?: PadLinkTitleOf): string => {
   const links = mentionLinksOf(text);
@@ -312,7 +312,7 @@ export const padLinkWords = (text: string, titleOf?: PadLinkTitleOf): string => 
   let words = "";
   let at = 0;
   for (const link of links) {
-    words += text.slice(at, link.start) + (titleOf?.(link.target) ?? artifactLinkTitle(link.label) ?? link.label);
+    words += text.slice(at, link.start) + (titleOf?.(link.target, link.label) ?? artifactLinkTitle(link.label) ?? link.label);
     at = link.end;
   }
   return words + text.slice(at);

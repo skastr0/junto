@@ -1,20 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { artifactLinkStateOf, artifactLinkTitle, type LinkedArtifactHead } from "@shared/artifact-link";
 import { mentionLinksOf } from "@shared/mention";
 import type { Pad } from "@shared/pad";
-import type { NodeId } from "@shared/physics/schema";
 import type { PadLinkTitleOf } from "@shared/pad-project";
+import type { NodeId } from "@shared/physics/schema";
 import { artifactsSource } from "../../lib/artifacts-source";
+import { useCanvas } from "../../lib/use-model";
 
 const PadLinkTitles = createContext<PadLinkTitleOf | undefined>(undefined);
 
-/** Where the pad's marks read a link's current title; without it a link shows the title it was written with. */
+/** Where the pad's marks read a link's words now; without it a link shows the title it was written with. */
 export const PadLinkTitlesProvider = PadLinkTitles.Provider;
 
 export const usePadLinkTitleOf = (): PadLinkTitleOf | undefined => useContext(PadLinkTitles);
 
-const EMPTY: ReadonlyMap<string, string> = new Map();
+/** Each Artifacts node a pad links, by what it holds: null when it could not be read. */
+type NodeHeads = ReadonlyMap<string, ReadonlyArray<LinkedArtifactHead> | null>;
 
-const titleKey = (nodeId: string, artifactId: string): string => `${nodeId}/${artifactId}`;
+const EMPTY: NodeHeads = new Map();
 
 /** Every text on a pad that may hold a link: shape words and edge labels. */
 const padTexts = (pad: Pad): ReadonlyArray<string> => [
@@ -23,12 +26,16 @@ const padTexts = (pad: Pad): ReadonlyArray<string> => [
 ];
 
 /**
- * The current title of each artifact a pad's text links, read from the
- * Artifacts nodes those links name and read again on any artifact change on
- * the canvas, so a rename shows on the pad at once. An archived artifact, or
- * one gone, keeps the title its link was written with.
+ * A pad's artifact links in words, by the one link state every surface
+ * draws (`artifactLinkStateOf`): the title now, ", archived" after an
+ * archived one's title, "Missing artifact" for one gone, and the title it
+ * was written with until its node is read. The Artifacts nodes the links
+ * name are read, and read again on any artifact change on the canvas, so a
+ * rename shows on the pad at once. A mention of anything but an artifact
+ * keeps its own words.
  */
 export const usePadLinkTitles = (canvasName: string | undefined, pad: Pad): PadLinkTitleOf => {
+  const canvas = useCanvas(canvasName ?? "");
   const linked = useMemo(
     (): ReadonlyArray<NodeId> =>
       [
@@ -38,28 +45,38 @@ export const usePadLinkTitles = (canvasName: string | undefined, pad: Pad): PadL
       ].sort(),
     [pad],
   );
+  // The Artifacts nodes among them: a task's node is not read for artifacts.
+  const nodeIds = useMemo(() => linked.filter((id) => canvas.nodes.get(id)?.kind === "artifacts"), [linked, canvas]);
   // Read again only when the set of nodes changes, not on every pad edit.
-  const nodes = linked.join(" ");
-  const linkedRef = useRef(linked);
-  linkedRef.current = linked;
-  const [titles, setTitles] = useState(EMPTY);
+  const nodes = nodeIds.join(" ");
+  const nodesRef = useRef(nodeIds);
+  nodesRef.current = nodeIds;
+  const [held, setHeld] = useState(EMPTY);
   useEffect(() => {
     if (canvasName === undefined || nodes === "") {
-      setTitles(EMPTY);
+      setHeld(EMPTY);
       return;
     }
-    const nodeIds = linkedRef.current;
+    const reading = nodesRef.current;
     let live = true;
     const read = (): void => {
-      void Promise.all(nodeIds.map((nodeId) => artifactsSource().list(canvasName, nodeId).catch(() => []))).then((lists) => {
-        if (!live) return;
-        const next = new Map<string, string>();
-        lists.forEach((heads, index) => {
-          for (const { artifact } of heads) {
-            if (!artifact.archived) next.set(titleKey(nodeIds[index]!, artifact.artifactId), artifact.title);
-          }
-        });
-        setTitles(next);
+      void Promise.all(
+        reading.map((nodeId) =>
+          artifactsSource()
+            .list(canvasName, nodeId)
+            .then(
+              (heads) =>
+                heads.map(({ artifact }): LinkedArtifactHead => ({
+                  artifactId: artifact.artifactId,
+                  title: artifact.title,
+                  type: artifact.type,
+                  archived: artifact.archived,
+                })),
+              () => null,
+            ),
+        ),
+      ).then((lists) => {
+        if (live) setHeld(new Map(reading.map((nodeId, index) => [nodeId, lists[index] ?? null])));
       });
     };
     read();
@@ -72,7 +89,15 @@ export const usePadLinkTitles = (canvasName: string | undefined, pad: Pad): PadL
     };
   }, [canvasName, nodes]);
   return useCallback(
-    (target) => (target.item === undefined ? undefined : titles.get(titleKey(target.nodeId, target.item))),
-    [titles],
+    (target, written) => {
+      if (target.item === undefined || canvasName === undefined) return undefined;
+      const kind = canvas.nodes.get(target.nodeId)?.kind;
+      // A node gone from the canvas: a [[ ]] link to it is missing; any other mention keeps its words.
+      if (kind === undefined) return artifactLinkTitle(written) === undefined ? undefined : artifactLinkStateOf(target.item, null, written).words;
+      if (kind !== "artifacts") return undefined;
+      const link = artifactLinkStateOf(target.item, held.has(target.nodeId) ? held.get(target.nodeId) : undefined, written);
+      return link.state === "archived" ? `${link.words}, archived` : link.words;
+    },
+    [canvas, canvasName, held],
   );
 };
