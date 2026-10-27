@@ -186,4 +186,57 @@ describe("the Files modal", () => {
     expect(calls).toEqual(["open", "close", "open"]);
     release();
   });
+
+  it("a file deleted on disk under a draft says deleted, and Save writes it back at its path", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "mine", base: read.value.stamp }));
+    await act(async () => files.remove(nodeId, A));
+    await flush();
+    expect(document.querySelector(".files-stale")?.textContent).toContain("This file was deleted on disk.");
+    await press(buttonNamed("Save it again"));
+    const back = await files.read(ref, A);
+    expect(back.ok && back.value.kind === "text" ? back.value.text : undefined).toBe("mine");
+    expect(fileDraft(nodeId, A)).toBeUndefined();
+    expect(document.querySelector(".files-stale")).toBeNull();
+  });
+
+  it("Cmd+S on a file deleted under its draft writes it back too", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "mine", base: read.value.stamp }));
+    await act(async () => files.remove(nodeId, A));
+    await flush();
+    await act(async () => saveFileInFront());
+    await flush();
+    const back = await files.read(ref, A);
+    expect(back.ok && back.value.kind === "text" ? back.value.text : undefined).toBe("mine");
+  });
+
+  it("says the folder is missing as soon as it goes, keeps the draft, and opens it again when it is back", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "mine", base: read.value.stamp }));
+    await act(async () => files.announce({ node: nodeId, kind: "missing" }));
+    await flush();
+    expect(document.querySelector(".files-refused")?.textContent).toContain("This node's folder is missing on this machine.");
+    expect(fileDraft(nodeId, A)?.text).toBe("mine");
+    await act(async () => files.announce({ node: nodeId, kind: "back" }));
+    await flush();
+    expect(document.querySelector(".files-refused")).toBeNull();
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("mine");
+  });
 });
+

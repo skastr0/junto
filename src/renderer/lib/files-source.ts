@@ -34,12 +34,17 @@ type HeldFile = { text?: string; size: number; mtimeMs: number };
 /**
  * An in-memory folder per node, for tests. `seed` maps a
  * path to its text, or to a binary's size; a binary's mime is read off its
- * name as main does. `touch` is another program writing a file.
+ * name as main does. `touch` is another program writing a file, `remove`
+ * one deleting it, and `announce` says what main's watch says of the root.
  */
 export const makeLocalFiles = (
   seed: Readonly<Record<string, string | { readonly size: number }>> = {},
   now: () => number = Date.now,
-): FilesSource & { readonly touch: (node: NodeId, path: string, text: string) => void } => {
+): FilesSource & {
+  readonly touch: (node: NodeId, path: string, text: string) => void;
+  readonly remove: (node: NodeId, path: string) => void;
+  readonly announce: (event: FilesChanged) => void;
+} => {
   const roots = new Map<NodeId, Map<string, HeldFile>>();
   const listeners = new Set<(event: FilesChanged) => void>();
   const rootOf = (node: NodeId): Map<string, HeldFile> => {
@@ -141,6 +146,13 @@ export const makeLocalFiles = (
     touch: (node, path, text) => {
       put(node, path, text);
       changed(node, path as FilePath);
+    },
+    remove: (node, path) => {
+      rootOf(node).delete(path);
+      changed(node, path as FilePath);
+    },
+    announce: (event) => {
+      for (const listener of listeners) listener(event);
     },
   };
 };
@@ -301,6 +313,8 @@ export type Loaded<A> = { readonly state: "loading" } | { readonly state: "ready
 export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> => {
   const [root, setRoot] = useState<Loaded<FilesRoot>>({ state: "loading" });
   const { canvas, node } = ref;
+  /** Bumped when the root folder comes back on disk: it opens again. */
+  const [back, setBack] = useState(0);
   // `place` names where the node's folder is (its host and root): a change closes the old one and opens the new.
   useEffect(() => {
     let live = true;
@@ -311,13 +325,17 @@ export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> =
       if (live) setRoot(result.ok ? { state: "ready", value: result.value } : { state: "refused", error: result.error });
     });
     const stop = source.onChange((event) => {
-      if (live && event.node === node && event.kind === "closed") setRoot({ state: "refused", error: event.error });
+      if (!live || event.node !== node) return;
+      if (event.kind === "closed") setRoot({ state: "refused", error: event.error });
+      // The folder went from disk: said at once, not at the next write. Drafts stay held.
+      else if (event.kind === "missing") setRoot({ state: "refused", error: "root-missing" });
+      else if (event.kind === "back") setBack((last) => last + 1);
     });
     return () => {
       live = false;
       stop();
       void source.close({ canvas, node });
     };
-  }, [canvas, node, place]);
+  }, [canvas, node, place, back]);
   return root;
 };
