@@ -16,6 +16,7 @@ import { modelFixture } from "../harness/model";
 import {
   drop,
   dropOn,
+  expandInTree,
   filesCard,
   filesNode,
   hover,
@@ -85,16 +86,39 @@ test.describe.fixme("drops into the Files node (F5)", () => {
     try {
       const { page } = junto;
       const modal = await openFilesModal(page);
-      const source = await stage.incoming("desk/folder-drop.md", "into nested\n");
+      const source = await stage.incoming("desk/folder-drop.md", "into src\n");
       const transfer = await transferOf(page, [source]);
 
-      await hover(treeRow(modal, "nested"), transfer);
+      await hover(treeRow(modal, "src"), transfer);
       await expect(surface(modal)).toHaveAttribute("data-drop", "folder");
 
-      await dropOn(treeRow(modal, "nested"), transfer);
-      await waitForFile(join(stage.fixture.root, "nested", "folder-drop.md"));
+      await dropOn(treeRow(modal, "src"), transfer);
+      await waitForFile(join(stage.fixture.root, "src", "folder-drop.md"));
       expect(existsSync(join(stage.fixture.root, "folder-drop.md"))).toBe(false);
       await expect(surface(modal)).not.toHaveAttribute("data-drop", "folder");
+    } finally {
+      await junto.close();
+      await stage.cleanup();
+    }
+  });
+
+  test("a drop on a flattened chain copies into its last folder, and on the nested segment into nested", async () => {
+    test.setTimeout(120_000);
+    const stage = await stageFiles();
+    const junto = await launch(stage);
+    try {
+      const { page } = junto;
+      const modal = await openFilesModal(page);
+      const root = stage.fixture.root;
+
+      // nested/a/b/c is one row, named by its last folder; "nested" is a segment inside that row.
+      await expect(treeRow(modal, "nested/a/b/c")).toBeVisible({ timeout: 15_000 });
+      await drop(treeRow(modal, "nested/a/b/c"), await transferOf(page, [await stage.incoming("desk/row-drop.md", "row\n")]));
+      await waitForFile(join(root, "nested", "a", "b", "c", "row-drop.md"));
+
+      await drop(modal.locator('[data-item-flattened-subitem="nested/"]'), await transferOf(page, [await stage.incoming("desk/segment-drop.md", "segment\n")]));
+      await waitForFile(join(root, "nested", "segment-drop.md"));
+      expect(existsSync(join(root, "nested", "a", "b", "c", "segment-drop.md"))).toBe(false);
     } finally {
       await junto.close();
       await stage.cleanup();
@@ -177,7 +201,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       const modal = await openFilesModal(page);
       const root = stage.fixture.root;
 
-      await treeRow(modal, "notes").click();
+      await expandInTree(modal, "notes");
       await treeRow(modal, "notes/meeting notes.txt").dragTo(treeRow(modal, "src"));
 
       await waitForFile(join(root, "src", "meeting notes.txt"));
@@ -198,16 +222,19 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       const modal = await openFilesModal(page);
       const root = stage.fixture.root;
 
-      // Put a café.md into nested first, so the tree move has a taken name to meet.
-      await drop(treeRow(modal, "nested"), await transferOf(page, [await stage.incoming("desk/café.md", "taken\n")]));
-      await waitForFile(join(root, "nested", "café.md"));
+      // Put a café.md into src first, so the tree move has a taken name to meet.
+      await drop(treeRow(modal, "src"), await transferOf(page, [await stage.incoming("desk/café.md", "taken\n")]));
+      await waitForFile(join(root, "src", "café.md"));
+      // The tree refuses a move up front only once it lists the taken name, so wait for the row.
+      await expandInTree(modal, "src");
+      await expect(treeRow(modal, "src/café.md")).toBeVisible({ timeout: 15_000 });
 
-      await treeRow(modal, "notes").click();
-      await treeRow(modal, "notes/café.md").dragTo(treeRow(modal, "nested"));
+      await expandInTree(modal, "notes");
+      await treeRow(modal, "notes/café.md").dragTo(treeRow(modal, "src"));
 
       await expect(modal.getByRole("alert").filter({ hasText: "Nothing moved." })).toBeVisible({ timeout: 15_000 });
       expect(readFileSync(join(root, "notes", "café.md"), "utf8")).toBe("# Café\n");
-      expect(readFileSync(join(root, "nested", "café.md"), "utf8")).toBe("taken\n");
+      expect(readFileSync(join(root, "src", "café.md"), "utf8")).toBe("taken\n");
     } finally {
       await junto.close();
       await stage.cleanup();
