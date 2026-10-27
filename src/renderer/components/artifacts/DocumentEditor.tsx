@@ -24,6 +24,7 @@ import {
   liveMarkdown,
   type LiveMarkdownHandlers,
   type MentionMount,
+  redrawEffect,
   revealAnchorEffects,
 } from "./live-markdown";
 
@@ -243,6 +244,12 @@ export function DocumentEditor({
   useEffect(() => {
     view.current?.dispatch({ effects: access.current.reconfigure(editable(readOnly)) });
   }, [readOnly]);
+
+  // Mentions that arrive after the editor drew its widgets: they are drawn again, as chips and cards.
+  const drawsMentions = mentions !== undefined;
+  useEffect(() => {
+    if (drawsMentions) view.current?.dispatch({ effects: redrawEffect.of(null) });
+  }, [drawsMentions]);
 
   // Candidates that arrive while the list is open draw at once.
   useEffect(() => {

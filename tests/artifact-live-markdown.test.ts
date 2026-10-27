@@ -136,3 +136,34 @@ it("bolds a selection on Mod-b and takes the bold off again", () => {
   expect(view.state.doc.toString()).toBe("ship it");
   view.destroy();
 });
+
+it("keeps a mention a chip on the caret's line, one unit, while an embed's line opens to its source", () => {
+  const href = "junto://canvas/factory?node=agent-01M46TAATD7VE4ZQA4VRKMX3MP";
+  const doc = `Ask [@product-lead](${href}) first.\n\n![@product-lead](${href})`;
+  const extensions = [liveMarkdown({ current: { mount: () => undefined } })];
+  const at = (cursor: number): EditorState => {
+    let state = EditorState.create({ doc, extensions });
+    ensureSyntaxTree(state, state.doc.length, 5_000);
+    state = state.update({ effects: setFocused.of(true), selection: EditorSelection.cursor(cursor) }).state;
+    return state;
+  };
+  expect(replaced(at(2))).toContain(`[@product-lead](${href})`);
+  const onEmbed = at(doc.length);
+  expect(replaced(onEmbed)).not.toContain(`![@product-lead](${href})`);
+  const atomic = onEmbed.facet(EditorView.atomicRanges).length;
+  expect(atomic).toBeGreaterThan(0);
+});
+
+it("ends a flash on the next edit, so a redrawn line does not replay it", () => {
+  let state = stateOf(DOC).update({ effects: anchorsEffect([{ id: "t1", quote: "bold", offset: 0, count: 1 }]) }).state;
+  state = state.update({ effects: [...revealAnchorEffects(state, { quote: "bold", offset: 0, nonce: 1 })!] }).state;
+  state = state.update({ changes: { from: 0, insert: "x" } }).state;
+  const flashes: string[] = [];
+  for (const source of state.facet(EditorView.decorations)) {
+    if (typeof source === "function") continue;
+    (source as DecorationSet).between(0, state.doc.length, (_from, _to, deco) => {
+      if ((deco.spec.attributes as Record<string, string> | undefined)?.["data-flash"]) flashes.push("flash");
+    });
+  }
+  expect(flashes).toEqual([]);
+});

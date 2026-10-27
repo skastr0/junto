@@ -18,7 +18,7 @@ it("reads a past document version rendered, with nothing to type into", async ()
     body: { type: "document", markdown: "# Launch plan\n\nShip **the desktop app**." },
   } as unknown as ArtifactVersionRecord;
   await act(async () => root.render(<ArtifactHistory versions={[record]} head={2} now={0} onRestore={() => undefined} />));
-  await act(async () => host.querySelector<HTMLElement>('[role="list"] button, [role="list"] [role="button"], [role="list"] > *')!.click());
+  await act(async () => [...host.querySelectorAll<HTMLElement>('[role="list"] *')].find((row) => row.textContent?.startsWith("Version 1") && (row.tagName === "BUTTON" || row.getAttribute("role") === "button"))!.click());
   const content = host.querySelector<HTMLElement>(".cm-content")!;
   expect(content.getAttribute("contenteditable")).toBe("false");
   expect(content.textContent).not.toContain("**");

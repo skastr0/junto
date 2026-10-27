@@ -70,7 +70,8 @@ const anchors = StateField.define<{
 }>({
   create: () => ({ list: [], flash: null }),
   update: (value, tr) => {
-    let next = value;
+    // A flash is one reveal: the next edit or caret move ends it, so a redrawn line never replays it.
+    let next = value.flash !== null && (tr.docChanged || tr.selection !== undefined) ? { ...value, flash: null } : value;
     for (const effect of tr.effects) {
       if (effect.is(setAnchors)) next = { ...next, list: effect.value };
       if (effect.is(flashQuote)) next = { ...next, flash: effect.value };
@@ -78,6 +79,9 @@ const anchors = StateField.define<{
     return next;
   },
 });
+
+/** Draw the decorations again: mention widgets made before their owner could draw them are made anew. */
+export const redrawEffect = StateEffect.define<null>();
 
 /**
  * Where a quote sits now: at its offset when the text there still reads it,
@@ -222,14 +226,22 @@ class Picture extends WidgetType {
 
 /** A mention link, drawn by the owner: a chip in the line, or a card for an embed. */
 class Mention extends WidgetType {
+  /** Whether the owner draws it: a widget made before the owner could is made again once it can. */
+  readonly drawn: boolean;
   constructor(
     readonly mention: MentionMount,
     readonly handlers: LiveMarkdownHandlers,
   ) {
     super();
+    this.drawn = handlers.current.mount !== undefined;
   }
   override eq(other: Mention): boolean {
-    return other.mention.kind === this.mention.kind && other.mention.href === this.mention.href && other.mention.label === this.mention.label;
+    return (
+      other.drawn === this.drawn &&
+      other.mention.kind === this.mention.kind &&
+      other.mention.href === this.mention.href &&
+      other.mention.label === this.mention.label
+    );
   }
   override get estimatedHeight(): number {
     return this.mention.kind === "embed" ? EMBED_HEIGHT : -1;
@@ -410,10 +422,14 @@ const SYNTAX_MARKS = new Set([
   "CodeInfo",
 ]);
 
+/** What the editor draws, and the part of it the caret treats as one unit. */
+type Drawn = { readonly all: DecorationSet; readonly atomic: DecorationSet };
+
 /** Every decoration for the state: rendered off the caret's lines, source on them. */
-const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): DecorationSet => {
+const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Drawn => {
   const doc = state.doc;
   const out: Range<Decoration>[] = [];
+  const atomic: Range<Decoration>[] = [];
   const live = state.field(focused) && !state.readOnly;
   /** Whether the caret or a selection touches a line of this span. */
   const open = (from: number, to: number): boolean => {
@@ -487,15 +503,20 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Decoratio
           const labelFrom = marks[0]!.to;
           const labelTo = marks[1]!.from;
           if (isMention(href)) {
-            if (open(node.from, node.to)) return false;
             const label = doc.sliceString(labelFrom, labelTo);
             const row = doc.lineAt(node.from);
             const alone = name === "Image" && doc.sliceString(row.from, row.to).trim() === doc.sliceString(node.from, node.to);
-            out.push(
-              alone
-                ? Decoration.replace({ widget: new Mention({ kind: "embed", href, label }, handlers), block: true }).range(row.from, row.to)
-                : Decoration.replace({ widget: new Mention({ kind: "chip", href, label }, handlers) }).range(node.from, node.to),
-            );
+            if (alone) {
+              // An embed's line opens to its source like any block, so its label and target can be edited.
+              if (!open(node.from, node.to)) {
+                out.push(Decoration.replace({ widget: new Mention({ kind: "embed", href, label }, handlers), block: true }).range(row.from, row.to));
+              }
+              return false;
+            }
+            // A chip stays a chip on the caret's line too: one unit the caret steps over and Backspace takes whole.
+            const chip = Decoration.replace({ widget: new Mention({ kind: "chip", href, label }, handlers) }).range(node.from, node.to);
+            out.push(chip);
+            atomic.push(chip);
             return false;
           }
           if (name === "Image") {
@@ -602,6 +623,7 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Decoratio
           range.to,
         ),
       );
+      out.push(Decoration.widget({ widget: new Spoken(anchor.count === 1 ? ", one comment" : `, ${anchor.count} comments`), side: 1 }).range(range.to));
     }
     const flashed = flash === null ? null : resolveAnchor(text, flash.quote, flash.offset);
     if (flash !== null && flashed !== null) {
@@ -609,11 +631,11 @@ const decorate = (state: EditorState, handlers: LiveMarkdownHandlers): Decoratio
       out.push(mark("artifact-document__flash", { "data-flash": String(flash.nonce) }).range(flashed.from, flashed.to));
     }
   }
-  return Decoration.set(out, true);
+  return { all: Decoration.set(out, true), atomic: Decoration.set(atomic, true) };
 };
 
 const decorations = (handlers: LiveMarkdownHandlers) =>
-  StateField.define<DecorationSet>({
+  StateField.define<Drawn>({
     create: (state) => decorate(state, handlers),
     update: (value, tr) =>
       tr.docChanged ||
@@ -622,7 +644,10 @@ const decorations = (handlers: LiveMarkdownHandlers) =>
       syntaxTree(tr.startState) !== syntaxTree(tr.state)
         ? decorate(tr.state, handlers)
         : value,
-    provide: (field) => EditorView.decorations.from(field),
+    provide: (field) => [
+      EditorView.decorations.from(field, (drawn) => drawn.all),
+      EditorView.atomicRanges.of((view) => view.state.field(field).atomic),
+    ],
   });
 
 /** The source cells of the table the caret is in, as document positions, or null outside one. */
@@ -763,7 +788,12 @@ export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
         return true;
       }
       const anchor = target?.closest<HTMLElement>("[data-anchor-id]");
-      if (anchor?.dataset.anchorId) handlers.current.onAnchor?.(anchor.dataset.anchorId);
+      if (anchor?.dataset.anchorId) {
+        // A press in a quote being written is the caret's; on a rendered line, or with Cmd, it opens the thread.
+        const line = view.state.doc.lineAt(view.posAtDOM(anchor));
+        const writing = view.hasFocus && view.state.selection.ranges.some((range) => range.from <= line.to && range.to >= line.from);
+        if (!writing || event.metaKey || event.ctrlKey) handlers.current.onAnchor?.(anchor.dataset.anchorId);
+      }
       return false;
     },
   }),
