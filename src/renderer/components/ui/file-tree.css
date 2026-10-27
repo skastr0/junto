@@ -37,12 +37,15 @@ file-tree-container {
   --trees-search-fg-override: var(--color-ink);
   --trees-input-bg-override: var(--color-inset);
 
+  --trees-indent-guide-bg-override: var(--color-stroke);
+  --trees-scrollbar-thumb-override: var(--color-stroke-hi);
+
   --trees-file-icon-color: var(--color-dim);
 
   --trees-status-added-override: var(--color-green);
   --trees-status-untracked-override: var(--color-green);
   --trees-status-modified-override: var(--color-main-fg);
-  --trees-status-renamed-override: var(--color-main-fg);
+  --trees-status-renamed-override: var(--color-second-fg);
   --trees-status-deleted-override: var(--color-crimson-fg);
   --trees-status-ignored-override: var(--color-faint);
 }
