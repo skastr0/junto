@@ -27,6 +27,7 @@ import {
 import { TaskReviewers } from "../work/TaskReviewers";
 import { TaskVerbBar } from "../work/TaskVerbBar";
 import { TaskDependencies } from "./TaskDependencies";
+import { TaskDerivation } from "./TaskDerivation";
 import { TaskEvidence } from "./TaskEvidence";
 import { TaskThread } from "./TaskThread";
 import { TaskLayers } from "./TaskLayers";
@@ -361,6 +362,7 @@ export function SelectedTask({
         onCommand={apply}
       />
       {view.body ? <p className="task-body">{view.body}</p> : null}
+      <TaskDerivation view={view} all={all} />
       <TaskDependencies view={view} all={all} closed={isClosed} onCommand={apply} />
       <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} nameOf={seatName} onCommand={apply} />
       <TaskEvidence canvasName={canvasName} evidence={current.evidence} handoff={current.handoff} />
