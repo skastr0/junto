@@ -163,8 +163,8 @@ export interface JuntoFilesApi {
   readonly files: {
     /**
      * Start serving a node to this window: its changes push to `onChange`
-     * and its bytes load on `junto-file://`. Call again after a reload;
-     * `close` when the node leaves the screen.
+     * and its bytes load on `junto-file://`. Call again after a reload or
+     * when the node's root changes; `close` when the node leaves the screen.
      */
     readonly open: (ref: FilesNodeRef) => Promise<FilesResult<FilesRoot>>;
     readonly close: (ref: FilesNodeRef) => Promise<FilesResult<null>>;
@@ -198,7 +198,13 @@ export interface JuntoFilesApi {
       intoDir: FilePath,
       sources: ReadonlyArray<string>,
     ) => Promise<FilesResult<ReadonlyArray<FileImported>>>;
+    /**
+     * Open a file or folder (the root too: `ROOT_PATH`) in its default app;
+     * a folder opens in Finder. Refused `denied` for what would run rather
+     * than open: an executable, an `.app` or other launchable bundle or script.
+     */
     readonly openInDefaultApp: (ref: FilesNodeRef, path: FilePath) => Promise<FilesResult<null>>;
+    /** Show a file or folder (the root too) selected in Finder. */
     readonly revealInFinder: (ref: FilesNodeRef, path: FilePath) => Promise<FilesResult<null>>;
     readonly onChange: (listener: (event: FilesChanged) => void) => () => void;
     /** The OS path of a `File` from a drop (Electron `webUtils.getPathForFile`); "" for one that has none. */
@@ -206,8 +212,22 @@ export interface JuntoFilesApi {
   };
 }
 
-/** Text a filename query matches against: lower case, so `ranking` and the index agree. */
-export const foldForSearch = (text: string): string => text.toLowerCase();
+/**
+ * Text a filename query matches against: lower case, one UTF-16 unit for
+ * one, so match positions index the original path. A character whose lower
+ * case is longer ("İ") stays as it is.
+ */
+export const foldForSearch = (text: string): string => {
+  const lower = text.toLowerCase();
+  if (lower.length === text.length) return lower;
+  let out = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const unit = text.charAt(i);
+    const folded = unit.toLowerCase();
+    out += folded.length === 1 ? folded : unit;
+  }
+  return out;
+};
 
 /**
  * Score one candidate path for a query already folded with `foldForSearch`.
@@ -222,18 +242,30 @@ export const scoreFilePath = (
   folded: string,
   query: string,
   positions?: number[],
+  /** Score `folded.slice(from, to)` without copying it (main's packed index); positions stay relative to `from`. */
+  from = 0,
+  to = folded.length,
+  /**
+   * The score to beat (main's 50th best so far). A match that cannot beat
+   * it answers `-Infinity` without being scored: still a match, for the
+   * next keystroke's narrowing, never a result.
+   */
+  floor = Number.NEGATIVE_INFINITY,
 ): number | undefined => {
   if (query.length === 0) return 0;
-  if (query.length > folded.length) return undefined;
-  const nameStart = folded.lastIndexOf("/") + 1;
+  if (query.length > to - from) return undefined;
+  const slash = folded.lastIndexOf("/", to - 1);
+  const nameStart = slash < from ? from : slash + 1;
   // Greedy from the end backwards finds the match nearest the file name; a
   // forward pass from its start then tightens it. Two linear passes, no tables.
   let qi = query.length - 1;
   let start = -1;
   let end = -1;
-  for (let i = folded.length - 1; i >= 0; i -= 1) {
+  let inName = 0;
+  for (let i = to - 1; i >= from; i -= 1) {
     if (folded.charCodeAt(i) !== query.charCodeAt(qi)) continue;
     if (end < 0) end = i;
+    if (i >= nameStart) inName += 1;
     qi -= 1;
     if (qi < 0) {
       start = i;
@@ -241,15 +273,25 @@ export const scoreFilePath = (
     }
   }
   if (start < 0) return undefined;
+  const penalty = (end - start) * 4 + (to - from);
+  if (floor !== Number.NEGATIVE_INFINITY) {
+    // The most the points below can add up to for this span: every character
+    // at a word start, a run wherever the span allows one, the name's bonuses
+    // only for characters the backward pass found in the name.
+    const length = query.length;
+    const runs = Math.max(0, length - 1 - (end - start + 1 > length ? 1 : 0));
+    const best = length * 4 + inName * 2 + (inName > 0 ? 2 : 0) + runs * 4;
+    if (best * 1024 - penalty <= floor) return Number.NEGATIVE_INFINITY;
+  }
   let score = 0;
   let previous = -2;
   qi = 0;
   for (let i = start; i <= end && qi < query.length; i += 1) {
     if (folded.charCodeAt(i) !== query.charCodeAt(qi)) continue;
-    positions?.push(i);
+    positions?.push(i - from);
     let points = 1;
     if (i >= nameStart) points += 2;
-    const before = i === 0 ? 47 : folded.charCodeAt(i - 1);
+    const before = i === from ? 47 : folded.charCodeAt(i - 1);
     // "/", "-", "_", ".", " "
     if (before === 47 || before === 45 || before === 95 || before === 46 || before === 32) points += 3;
     if (previous === i - 1) points += 4;
@@ -259,5 +301,5 @@ export const scoreFilePath = (
     qi += 1;
   }
   // Tighter spans and shorter paths win ties.
-  return score * 1024 - (end - start) * 4 - folded.length;
+  return score * 1024 - penalty;
 };
