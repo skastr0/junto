@@ -85,7 +85,14 @@
     "audit:dependencies": "bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
     "@electron/asar": "3.4.1",
+    "@lezer/common": "1.5.4",
+    "@lezer/markdown": "1.8.1",
     "@resvg/resvg-wasm": "2.6.2",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
