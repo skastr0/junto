@@ -22,7 +22,7 @@
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: var(--color-raise);
   font-family: var(--font-body);
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   color: var(--color-ink);
   text-align: left;
   cursor: pointer;

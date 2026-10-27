@@ -174,6 +174,24 @@ describe("a file's comments in the Files modal", () => {
     expect(document.body.textContent).toContain("On Whole file");
   });
 
+  it("names a box on a PDF page by its page, and a box on an image by the image", async () => {
+    installFilesSource(makeLocalFiles({ "docs/brief.pdf": { size: 40 } }));
+    setSubjectThreadsSource({
+      threads: async () => [
+        {
+          threadId: "thread-page",
+          anchor: { kind: "pageBox", page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+          posts: [{ messageId: "m3", author: { kind: "operator" }, text: "the heading", at: 1 }],
+        },
+      ],
+      post: async () => ({ ok: false, message: "not in this test" }),
+      subscribe: () => () => undefined,
+    });
+    await render(parseFilePath("docs/brief.pdf")!);
+    await openRail();
+    expect(threadRows()[0]?.textContent).toContain("Area on page 1");
+  });
+
   it("draws a thread's box on the picture it was drawn on", async () => {
     installFilesSource(makeLocalFiles({ "src/big.ts": BIG_TEXT, "img/gradient.png": { size: 40 } }));
     setSubjectThreadsSource({

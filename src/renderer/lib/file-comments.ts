@@ -37,8 +37,12 @@ export const filePlaceOf = (anchor: Anchor | undefined, text: string): FileThrea
 export const placedFileThreads = (threads: ReadonlyArray<SubjectThread>, text: string): ReadonlyArray<PlacedFileThread> =>
   threads.map((thread) => ({ thread, place: filePlaceOf(thread.anchor, text) }));
 
-/** What a thread's place is called, in the rail and above a row. */
-export const placeLabel = (place: FileThreadPlace): string => {
+/**
+ * What a thread's place is called, in the rail and above a row. `paged` says
+ * the file is read as pages (a PDF), where a box is always on a numbered page;
+ * absent, a box is on the image, which is one page and has no number to say.
+ */
+export const placeLabel = (place: FileThreadPlace, paged = false): string => {
   switch (place.kind) {
     case "whole":
       return "Whole file";
@@ -47,7 +51,7 @@ export const placeLabel = (place: FileThreadPlace): string => {
     case "lost":
       return "Its lines are gone";
     case "box":
-      return place.anchor.page === 1 ? "Area on the image" : `Area on page ${String(place.anchor.page)}`;
+      return paged ? `Area on page ${String(place.anchor.page)}` : "Area on the image";
   }
 };
 

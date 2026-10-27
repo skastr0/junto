@@ -397,6 +397,7 @@ function SelectedFile({
     nodeId,
     path,
     text: shownText,
+    paged: view === "pdf",
     now: Date.now(),
     seatName: (id: string): string | undefined => {
       const seat = nodeAt(canvasName, id);
@@ -447,7 +448,7 @@ function SelectedFile({
             id: thread.threadId,
             ...(view === "image" ? {} : { page: place.anchor.page }),
             box: { x: place.anchor.x, y: place.anchor.y, w: place.anchor.w, h: place.anchor.h },
-            label: placeLabel(place),
+            label: placeLabel(place, view === "pdf"),
           },
         ]
       : [],

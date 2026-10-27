@@ -25,11 +25,11 @@ import "./file-comments.css";
  * A file's rail words: the file, its places as they stand in the text now (a
  * thread that moved says where it moved to), and the seats in its folder.
  */
-export const fileRailWords = (placeOf: (anchor: Anchor | undefined) => FileThreadPlace): CommentsRailWords => ({
+export const fileRailWords = (placeOf: (anchor: Anchor | undefined) => FileThreadPlace, paged: boolean): CommentsRailWords => ({
   ...ARTIFACT_RAIL_WORDS,
   subject: "file",
   reach: "this folder",
-  place: (anchor) => placeLabel(placeOf(anchor)),
+  place: (anchor) => placeLabel(placeOf(anchor), paged),
 });
 
 /** Everything a file's comments read and write. */
@@ -39,6 +39,8 @@ export type FileCommentContext = {
   readonly path: string;
   /** The file's text as it stands: a thread's place is read from it. */
   readonly text: string;
+  /** The file is read as pages (a PDF): its boxes are on numbered pages, not on an image. */
+  readonly paged: boolean;
   readonly now: number;
   readonly seatName?: (nodeId: string) => string | undefined;
   readonly mentionable: ReadonlyArray<MentionCandidate>;
@@ -84,7 +86,7 @@ export function FileCommentsRail({
         seatName={context.seatName}
         draftAnchor={draft}
         now={context.now}
-        words={fileRailWords((anchor) => filePlaceIn(context, anchor))}
+        words={fileRailWords((anchor) => filePlaceIn(context, anchor), context.paged)}
         onStart={async (text, anchor) => {
           const refused = await postFileComment(
             context.canvasName,
