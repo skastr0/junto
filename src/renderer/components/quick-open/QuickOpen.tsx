@@ -122,7 +122,10 @@ export function QuickOpen({
   /** The highlight moved: a row far down the list comes into view without a scroll of its own. */
   useEffect(() => {
     if (active === null) return;
-    listRef.current?.querySelector<HTMLElement>(`[data-quick-row="${CSS.escape(active)}"]`)?.scrollIntoView({ block: "nearest" });
+    const row = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-quick-row]") ?? [])].find(
+      (element) => element.dataset.quickRow === active,
+    );
+    row?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
