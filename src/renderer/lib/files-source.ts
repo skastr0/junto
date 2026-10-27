@@ -286,11 +286,13 @@ export const useDraftsVersion = (): number =>
 export type Loaded<A> = { readonly state: "loading" } | { readonly state: "ready"; readonly value: A } | { readonly state: "refused"; readonly error: FilesError };
 
 /** Serve the node to this window while the modal shows it: `open` on mount, `close` on unmount. */
-export const useFilesRoot = (ref: FilesNodeRef): Loaded<FilesRoot> => {
+export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> => {
   const [root, setRoot] = useState<Loaded<FilesRoot>>({ state: "loading" });
   const { canvas, node } = ref;
+  // `place` names where the node's folder is (its host and root): a change closes the old one and opens the new.
   useEffect(() => {
     let live = true;
+    setRoot({ state: "loading" });
     const source = filesSource();
     void source.open({ canvas, node }).then((result) => {
       if (live) setRoot(result.ok ? { state: "ready", value: result.value } : { state: "refused", error: result.error });
@@ -303,6 +305,6 @@ export const useFilesRoot = (ref: FilesNodeRef): Loaded<FilesRoot> => {
       stop();
       void source.close({ canvas, node });
     };
-  }, [canvas, node]);
+  }, [canvas, node, place]);
   return root;
 };

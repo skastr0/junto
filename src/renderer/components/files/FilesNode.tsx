@@ -7,7 +7,7 @@ import type { NodeId } from "@shared/physics/schema";
 import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
-import { nodeAt } from "../../lib/use-model";
+import { nodeAt, useNode } from "../../lib/use-model";
 import { useFollowOpen } from "../../lib/work-detail-open";
 import {
   changeTouches,
@@ -90,7 +90,9 @@ export function FilesNode({
   readonly onClose: () => void;
 }) {
   const ref = useMemo<FilesNodeRef>(() => ({ canvas: canvasName, node: nodeId }), [canvasName, nodeId]);
-  const root = useFilesRoot(ref);
+  // Read live: the folder reopens when the node's host or root changes under the open modal.
+  const node = useNode(canvasName, nodeId);
+  const root = useFilesRoot(ref, node?.kind === "files" ? `${node.host}\u0000${node.root}` : "");
   const [selected, setSelected] = useState<FilePath | null>(initialPath ?? null);
   /** The page an extract's link named, until the operator leaves that file: coming back opens it where they left. */
   const [pageOnce, setPageOnce] = useState(initialPage);
@@ -103,7 +105,6 @@ export function FilesNode({
     setPageOnce(initialPage);
   });
   const draftsVersion = useDraftsVersion();
-  const node = nodeAt(canvasName, nodeId);
   const folderName = root.state === "ready" ? root.value.name : node === undefined ? "Files" : titleOf(node);
 
   /** Read at paint time, so the marks follow the drafts without a new tree. */

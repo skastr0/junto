@@ -4,12 +4,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath } from "../src/shared/files";
+import { asCanvasName } from "../src/shared/model";
+import { files as filesNode } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { FilesNode } = await import("../src/renderer/components/files/FilesNode");
 const { saveFileInFront } = await import("../src/renderer/lib/file-editor-keys");
 const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/renderer/lib/files-source");
+const { modelStore } = await import("../src/renderer/lib/use-model");
 
 const nodeId = asNodeId("files-render");
 const ref = { canvas: "c", node: nodeId };
@@ -153,5 +156,34 @@ describe("the Files modal", () => {
     await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
     await flush();
     expect(document.querySelector('[role="alert"].files-refused')?.textContent).toContain("missing on this machine");
+  });
+
+  it("closes the folder and opens the new one when the node's root moves under the open modal", async () => {
+    const place = (rootPath: string) =>
+      modelStore.adopt({ canvas: asCanvasName("c"), seq: 0, wires: [], nodes: [filesNode("files-render", { root: rootPath })] });
+    let release = place("/Users/me/one");
+    const calls: string[] = [];
+    const local = makeLocalFiles({ "a.md": "" });
+    installFilesSource({
+      ...local,
+      open: async (at) => {
+        calls.push("open");
+        return local.open(at);
+      },
+      close: async (at) => {
+        calls.push("close");
+        return local.close(at);
+      },
+    });
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
+    await flush();
+    expect(calls).toEqual(["open"]);
+    await act(async () => {
+      release();
+      release = place("/Users/me/two");
+    });
+    await flush();
+    expect(calls).toEqual(["open", "close", "open"]);
+    release();
   });
 });
