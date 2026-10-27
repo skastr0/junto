@@ -21,7 +21,7 @@
   background: var(--color-raise);
   color: var(--color-ink);
   font: inherit;
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
   line-height: 1;
   cursor: pointer;
 }
@@ -31,7 +31,7 @@
 }
 
 .code-editor .cm-commentButton:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-cyan);
   outline-offset: 1px;
 }
 
