@@ -149,5 +149,6 @@ export const treeDrag = async (page: Page, from: Locator, to: Locator): Promise<
   await from.dispatchEvent("dragstart", { dataTransfer, ...start });
   await to.dispatchEvent("dragover", { dataTransfer, ...drop });
   await to.dispatchEvent("drop", { dataTransfer, ...drop });
-  await from.dispatchEvent("dragend", { dataTransfer, ...start });
+  // A move removes the source row, so dragend goes only to a row still listed.
+  if ((await from.count()) > 0) await from.dispatchEvent("dragend", { dataTransfer, ...start });
 };
