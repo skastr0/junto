@@ -192,6 +192,15 @@ test("pad keys and a collapsed sidebar in the real app", async () => {
     await page.locator(".artifact-head").getByRole("button", { name: "Keys", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Artifact keys" })).toContainText("Duplicate the selected shape");
     await shot(page, "pad-2-keys");
+    await page.keyboard.press("Escape");
+
+    // With a pad picked, the list keys still reach the list: the pad keeps only its own keys.
+    const list = page.getByRole("list", { name: "Artifacts" });
+    await list.locator("button").filter({ hasText: "Untitled pad" }).focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.locator(".artifact-head__title")).toHaveValue("Launch plan", { timeout: 10_000 });
+    await page.keyboard.press("k");
+    await expect(page.locator(".artifact-head__title")).toHaveValue("Untitled pad", { timeout: 10_000 });
   } finally {
     await junto.close();
   }
