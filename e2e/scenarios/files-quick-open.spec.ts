@@ -39,7 +39,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
       await expect(palette(page)).toBeVisible();
       await expect(field(page)).toBeFocused();
       await field(page).fill("readme");
-      await expect(titles(page)).toHaveText(["README.md"]);
+      await expect(titles(page).first()).toHaveText("README.md"); // link-readme.md also matches the query
 
       await page.keyboard.press("Enter");
       await expect(palette(page)).toHaveCount(0);
