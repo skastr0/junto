@@ -17,6 +17,7 @@ import { emptyRuled, type ResourceCommand, rule, type Ruled } from "../src/share
 import type { SubjectCommentInput } from "../src/shared/subject-comment";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId } from "../src/shared/work-ids";
+import { artifactLink } from "../src/shared/artifact-link";
 import {
   bodyFor,
   handleArtifactOp,
@@ -300,6 +301,71 @@ describe.runIf(!ARTIFACTS_ENABLED)("an artifacts-off build", () => {
       const refused = failure(run(memoryPorts().ports, op, {}));
       expect([refused.type, refused.details?.missing, refused.details?.reason], op).toEqual(["ScopeError", "feature enabled in this build", op]);
     }
+  });
+});
+
+// Plan 0.11, 02, L5: [[Title]] in a seat's create or edit becomes the app's link, by id.
+describe.runIf(ARTIFACTS_ENABLED)("[[Title]] in junto artifact create and edit", () => {
+  const PLAN = "01M5ESMQ2ZT55QZ073EWPH10SH";
+  const PLAN2 = "01M5ESMQ2ZT55QZ073EWPH10SJ";
+  const AWAY = "01M5ESMQ2ZT55QZ073EWPH10SK";
+  const planLink = (id: string, node = "AR", title = "Launch plan") =>
+    artifactLink({ kind: "artifact", nodeId: asNodeId(node), artifactId: ItemId.make(id) }, title, "factory");
+  const seed = (ports: ArtifactPorts) => {
+    ok(run(ports, "artifact.create", { opId: "01M5ESM1XHCJ7JYJDBC37MRE00", artifactId: PLAN, type: "document", title: "Launch plan" }));
+    // Out of S1's reach: never a match, never a candidate.
+    ok(run(ports, "artifact.create", { opId: "01M5ESM1XHCJ7JYJDBC37MRE01", artifactId: AWAY, type: "document", title: "Launch plan" }, "SP"));
+  };
+  const bodyOf = (submitted: ReturnType<typeof memoryPorts>["submitted"]) => {
+    const op = submitted.at(-1)!.op;
+    return op.op === "create" ? op.body : op.op === "edit" ? op.edit : undefined;
+  };
+
+  it("links a title in reach, matched without case, as the app writes it", () => {
+    const { ports, submitted } = memoryPorts();
+    seed(ports);
+    createDoc(ports, { body: { markdown: "see [[launch PLAN]]" } });
+    expect(bodyOf(submitted)).toEqual({ type: "document", markdown: `see ${planLink(PLAN)}` });
+  });
+
+  it("refuses a title several artifacts carry, naming them, and takes an id in the brackets", () => {
+    const { ports, submitted } = memoryPorts();
+    seed(ports);
+    ok(run(ports, "artifact.create", { opId: "01M5ESM1XHCJ7JYJDBC37MRE02", artifactId: PLAN2, type: "document", title: "Launch Plan" }));
+    const before = submitted.length;
+    const refused = failure(run(ports, "artifact.create", { opId: OP, artifactId: NEW, type: "document", title: "Notes", body: { markdown: "[[Launch plan]]" } }));
+    expect(refused).toMatchObject({ type: "InputError", details: { target: "[[Launch plan]]", opId: OP, next_step: "write [[<artifactId>]] for the one you mean" } });
+    expect(refused.details?.candidates?.map((candidate) => candidate.itemId).sort()).toEqual([PLAN, PLAN2]);
+    expect(JSON.stringify(refused)).not.toContain(AWAY);
+    expect(submitted).toHaveLength(before);
+    createDoc(ports, { body: { markdown: `[[${PLAN2}]]` } });
+    expect(bodyOf(submitted)).toEqual({ type: "document", markdown: planLink(PLAN2, "AR", "Launch Plan") });
+  });
+
+  it("refuses a title nothing in reach carries, with the nearest, and keeps \\[[ as text", () => {
+    const { ports, submitted } = memoryPorts();
+    seed(ports);
+    const refused = failure(run(ports, "artifact.create", { opId: OP, artifactId: NEW, type: "document", title: "Notes", body: { markdown: "[[Lanch plan]]" } }));
+    expect(refused).toMatchObject({ type: "UnknownTarget", details: { target: "[[Lanch plan]]", candidates: [{ itemId: PLAN, name: "Launch plan" }] } });
+    createDoc(ports, { body: { markdown: "\\[[Lanch plan]]" } });
+    expect(bodyOf(submitted)).toEqual({ type: "document", markdown: "\\[[Lanch plan]]" });
+  });
+
+  it("links what a document's patches write, and a sheet's cells on replace", () => {
+    const { ports, submitted } = memoryPorts();
+    seed(ports);
+    createDoc(ports, { body: { markdown: "plan: " } });
+    ok(run(ports, "artifact.edit", { opId: OP2, artifact: NEW, baseVersion: 1, patches: [{ op: "splice", at: 6, remove: 0, insert: "[[Launch plan]]" }] }));
+    expect(ok(run(ports, "artifact.show", { artifact: NEW }))).toMatchObject({ version: 2, text: `plan: ${planLink(PLAN)}` });
+
+    ok(run(ports, "artifact.create", { opId: "01M5ESM1XHCJ7JYJDBC37MRE03", artifactId: PLAN2, type: "sheet", title: "Budget" }));
+    ok(run(ports, "artifact.edit", {
+      opId: "01M5ESM1XHCJ7JYJDBC37MRE04",
+      artifact: PLAN2,
+      baseVersion: 1,
+      body: { body: { grid: { columns: [{ id: "c1", name: "A" }], rows: [{ id: "r1", cells: { c1: "[[Launch plan]]" } }] } } },
+    }));
+    expect(bodyOf(submitted)).toMatchObject({ kind: "replace", body: { grid: { rows: [{ cells: { c1: planLink(PLAN) } }] } } });
   });
 });
 

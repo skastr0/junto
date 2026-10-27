@@ -68,6 +68,8 @@ import { productDisabledError } from "./authz";
 import { linkMentionsAt, unlinkedField } from "./mention-links";
 import { ARTIFACTS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
+import { bodyTexts, editTexts, hasArtifactLinkTokens, linkBodyTitles, linkEditTitles, type ResolveTitle } from "@shared/artifact-link-tokens";
+import { resolveArtifactTitles } from "./artifact-link-titles";
 
 /** What the verbs need from the artifact store and the ruler. */
 export type ArtifactPorts = {
@@ -406,6 +408,38 @@ const editFor = (
     : Result.succeed(decoded.success);
 };
 
+/**
+ * An edit with its `[[Title]]` tokens linked. A document's patches are read
+ * against the body at the edit's base, pulled first when its bytes are not
+ * here, so each link splice lands where the seat's splices put the token.
+ */
+const linkEdit = (
+  caller: ArtifactCaller,
+  ports: ArtifactPorts,
+  head: ArtifactHeadRead,
+  edit: ArtifactEdit,
+  resolve: ResolveTitle<WorkErrorBody>,
+): Effect.Effect<ArtifactEdit, WorkErrorBody> =>
+  Effect.gen(function* () {
+    let base: ArtifactBody | null = null;
+    if (edit.kind === "patch" && edit.type === "document") {
+      const read = edit.baseVersion === head.artifact.version
+        ? head
+        : Option.getOrUndefined(yield* ports.body(caller.canvasName, head.artifact.artifactId, edit.baseVersion));
+      // A base that is gone: the ruler refuses the edit as stale, links or not.
+      if (read !== undefined && read.body === null) {
+        return yield* awaitPull(caller, ports, head.artifact.nodeId, head.artifact.artifactId, edit.baseVersion, read.bodyRef);
+      }
+      base = read?.body ?? null;
+    }
+    const linked = linkEditTitles(edit, base, resolve);
+    if (Result.isSuccess(linked)) return linked.success;
+    const refused = linked.failure;
+    return yield* Effect.fail("kind" in refused
+      ? inputError(`linking its [[ ]] titles takes this edit past ${refused.max} patches`, "patches", "send the edit in two, or replace the body whole")
+      : refused);
+  });
+
 const command = (
   caller: ArtifactCaller,
   opId: OpId,
@@ -458,6 +492,34 @@ const checkTasks = (
             details: { path: `taskIds[${index}]`, received: taskId, retryable: false },
           }),
     ), { discard: true });
+
+/** As many artifacts as a `[[Title]]` is matched among: every head in reach, in practice. */
+const TITLE_SCAN_LIMIT = 10_000;
+
+/**
+ * What each `[[Title]]` in a write links to (plan 0.11, 02, L5): the artifacts
+ * on Artifacts nodes in the seat's reach, archived ones left out. Read only
+ * when the write carries a token; undefined when it carries none.
+ */
+const titleResolver = (
+  caller: ArtifactCaller,
+  ports: ArtifactPorts,
+  texts: ReadonlyArray<string>,
+): Effect.Effect<ResolveTitle<WorkErrorBody> | undefined, WorkErrorBody> =>
+  Effect.gen(function* () {
+    if (!hasArtifactLinkTokens(texts)) return undefined;
+    const nodeIds = ports.nodes(caller.canvas).filter((node) => inReach(caller, node.id)).map((node) => node.id);
+    const found = nodeIds.length === 0
+      ? []
+      : (yield* ports.list(caller.canvasName, { nodeIds, archived: false, limit: TITLE_SCAN_LIMIT })).artifacts;
+    return resolveArtifactTitles(
+      found.map(({ artifactId, nodeId, title }) => ({ artifactId, nodeId, title })),
+      caller.canvasName,
+      "body",
+    );
+  });
+
+const withOpId = (opId: OpId) => (error: WorkErrorBody): WorkErrorBody => ({ ...error, details: { ...error.details, opId } });
 
 /** An applied ruling as the CLI's result; a refusal as its error, carrying the opId. */
 export const writeResult = (
@@ -552,10 +614,12 @@ export const handleArtifactOp = (
         const body = createBody(input.type, input.body);
         if (Result.isFailure(body)) return yield* Effect.fail(body.failure);
         if (input.taskIds !== undefined) yield* checkTasks(caller, ports, input.taskIds);
+        const resolve = yield* titleResolver(caller, ports, bodyTexts(body.success));
+        const linked = resolve === undefined ? body.success : yield* Effect.fromResult(linkBodyTitles(body.success, resolve)).pipe(Effect.mapError(withOpId(input.opId)));
         return yield* submit(caller, ports, command(caller, input.opId, node.id, input.artifactId, {
           op: "create",
           title: input.title,
-          body: body.success,
+          body: linked,
           ...(input.taskIds === undefined ? {} : { taskIds: input.taskIds }),
         }));
       }
@@ -564,9 +628,11 @@ export const handleArtifactOp = (
         const head = yield* findArtifact(caller, ports, input.artifact);
         const edit = editFor(head, input);
         if (Result.isFailure(edit)) return yield* Effect.fail(edit.failure);
+        const resolve = yield* titleResolver(caller, ports, editTexts(edit.success));
+        const linked = resolve === undefined ? edit.success : yield* linkEdit(caller, ports, head, edit.success, resolve).pipe(Effect.mapError(withOpId(input.opId)));
         return yield* submit(caller, ports, command(caller, input.opId, head.artifact.nodeId, input.artifact, {
           op: "edit",
-          edit: edit.success,
+          edit: linked,
         }));
       }
       case "artifact.archive":

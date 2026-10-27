@@ -934,7 +934,7 @@ const NEAREST = 3;
  * is a typo one digit away, and one digit alone has none: every other
  * one-digit task is as near.
  */
-const nearestOf = (typed: string, names: ReadonlyArray<string>, numbers = false): ReadonlyArray<string> => {
+export const nearestOf = (typed: string, names: ReadonlyArray<string>, numbers = false): ReadonlyArray<string> => {
   const wanted = fold(typed);
   if (numbers && wanted.length < 2) return [];
   const within = numbers ? 1 : Math.max(2, Math.floor(wanted.length / 2));

@@ -93,13 +93,20 @@ const NUMBER = /(?<![\p{L}\p{N}_&#/\\])#(\d+)(?![\p{L}\p{N}_])/gu;
 /** `#` that starts a word, then a name that starts with a letter, shaped as `@name`'s. */
 const HASH = /(?<![\p{L}\p{N}_&#/\\])#(\p{L}(?:[\p{L}\p{N}_.-]*[\p{L}\p{N}_])?)(?![\p{L}\p{N}_@-])/gu;
 
-/** Every token in a text that is prose, in text order. */
-export const typedMentionsOf = (text: string): ReadonlyArray<TypedMention> => {
+/**
+ * Whether an offset in a text is prose: outside fenced code, code spans and
+ * links already written. The `[[ ]]` tokens (artifact-link-tokens.ts) read it too.
+ */
+export const proseOf = (text: string): ((at: number) => boolean) => {
   const fences = fencedBlocks(text);
   const outside = (spans: ReadonlyArray<Span>) => (at: number): boolean => !spans.some(([start, end]) => at >= start && at < end);
   const notFenced = outside(fences);
-  const kept = [...fences, ...codeSpans(text).filter(([start]) => notFenced(start)), ...linkedSpans(text)];
-  const prose = outside(kept);
+  return outside([...fences, ...codeSpans(text).filter(([start]) => notFenced(start)), ...linkedSpans(text)]);
+};
+
+/** Every token in a text that is prose, in text order. */
+export const typedMentionsOf = (text: string): ReadonlyArray<TypedMention> => {
+  const prose = proseOf(text);
   const found = <M>(pattern: RegExp, token: (match: RegExpExecArray, start: number, end: number) => M): ReadonlyArray<M> =>
     [...text.matchAll(pattern)]
       .filter((match) => prose(match.index))
