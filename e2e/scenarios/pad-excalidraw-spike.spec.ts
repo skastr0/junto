@@ -21,6 +21,8 @@ import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 
 const CANVAS = "pad-spike";
 const OUT = "test-results/pad-excalidraw-spike";
+/** Seats behind the modal: the lag grows with the canvas, so measure where it shows. */
+const SEATS = Number(process.env.SPIKE_SEATS ?? 80);
 
 const frameAfter = async (page: Page, run: () => Promise<void>): Promise<number> => {
   const t0 = await page.evaluate(() => performance.now());
@@ -56,11 +58,14 @@ test("pad on Excalidraw: feel, our data both ways, card, image, area comment", a
     height: 160,
     z: 0,
   });
-  const region = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 900, height: 600 });
-  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([region, shelf, scout], []) } });
+  const crowd = Array.from({ length: Math.max(0, SEATS - 1) }, (_, i) =>
+    modelSeat({ id: `s${i}`, key: `local:spike-${i}`, label: `Seat ${i}`, x: 400 + (i % 10) * 260, y: 300 + Math.floor(i / 10) * 160 }),
+  );
+  const region = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 3200, height: 1800 });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([region, shelf, scout, ...crowd], []) } });
   try {
     const { page } = junto;
-    const report: Record<string, unknown> = {};
+    const report: Record<string, unknown> = { seats: SEATS };
     const card = page.locator('.react-flow__node[data-id="shelf"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.dblclick();
