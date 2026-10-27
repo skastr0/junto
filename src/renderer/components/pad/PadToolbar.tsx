@@ -180,6 +180,7 @@ export function PadSelectionBar({
     <div className="pad-selbar" role="toolbar" aria-label="Shape style" data-testid="pad-selbar">
       <span className="pad-selbar__kind">{shape.type}</span>
       <div className="pad-selbar__group" role="group" aria-label="Status">
+        <span className="pad-selbar__label" aria-hidden="true">Status</span>
         {PAD_STATUSES.map((entry) => (
           <button
             key={entry.value}
