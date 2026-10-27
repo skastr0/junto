@@ -4,7 +4,9 @@ import { EditorView, ViewPlugin, type Tooltip, type TooltipView, showTooltip, to
 import type { SyntaxNode } from "@lezer/common";
 import { useLayoutEffect, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
-import { mentionLink } from "@shared/mention";
+import { artifactLink } from "@shared/artifact-link";
+import { mentionLink, type MentionOf } from "@shared/mention";
+import { artifactLinkCandidates, linkCandidateKey, linkCandidateLabel, linkQueryAt, type LinkableArtifact, type LinkCandidate } from "../../lib/artifact-link-draft";
 import { listboxAnnouncement, listboxAria, optionAria, optionId, listboxId, type ListboxAriaState } from "../../lib/listbox-aria";
 import {
   candidateKey,
@@ -15,7 +17,7 @@ import {
   type MentionCandidate,
   type MentionTrigger,
 } from "../../lib/mention-draft";
-import { RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
+import { ARTIFACT_TYPE_NOUN, RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
 import { ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import "../ui/mention-combobox.css";
 import "./mention-picker.css";
@@ -29,6 +31,11 @@ import "./mention-picker.css";
  * document saves it as it saves typing; drawing the link as a chip is the
  * editor's.
  *
+ * `[[` is the same list for links between artifacts (plan 0.11, 02): the
+ * artifacts in reach by title (`lib/artifact-link-draft.ts`), written as a
+ * `[[Title]]` mention link. A title that matches nothing offers to create a
+ * document by it; the host creates, and the link goes in where `[[` was typed.
+ *
  * It knows nothing about who may be mentioned: the source is read at the
  * moment the list draws or a key lands. A host whose candidates arrive while
  * the caret rests calls `mentionSourceChanged` so the list draws them then.
@@ -38,11 +45,23 @@ import "./mention-picker.css";
 export type MentionPickerSource = () => {
   readonly canvasName: string;
   readonly candidates: ReadonlyArray<MentionCandidate>;
+  /** What `[[` offers. Without it `[[` is only brackets. */
+  readonly links?: PickerLinks | undefined;
 };
+
+/** The `[[` list's source: the artifacts in reach, and how the host makes a document by a title (absent: no create row). */
+export type PickerLinks = {
+  readonly artifacts: ReadonlyArray<LinkableArtifact>;
+  /** Create a document titled `title` in the host's Artifacts node; its mention, or null when it was not made. */
+  readonly create?: ((title: string) => Promise<MentionOf<"artifact"> | null>) | undefined;
+};
+
+/** What opens the list: @ and # for mentions, `[[` for a link to an artifact. */
+export type PickerTrigger = MentionTrigger | "[[";
 
 /** The mention being typed at the caret, as document positions: the trigger at `from`, the caret at `to`. */
 export type PickerQuery = {
-  readonly trigger: MentionTrigger;
+  readonly trigger: PickerTrigger;
   readonly from: number;
   readonly to: number;
   readonly query: string;
@@ -67,7 +86,8 @@ export const pickerQueryAt = (state: EditorState, budgetMs: number = PARSE_BUDGE
   if (state.readOnly || !caret.empty) return null;
   const line = state.doc.lineAt(caret.head);
   const before = line.text.slice(0, caret.head - line.from);
-  const found = mentionQueryAt([{ kind: "text", text: before }], before.length);
+  const link = linkQueryAt(before);
+  const found = link === undefined ? mentionQueryAt([{ kind: "text", text: before }], before.length) : { trigger: "[[" as const, ...link };
   if (found === undefined) return null;
   // Parse up to the caret, bounded so a keystroke never waits long.
   const tree = ensureSyntaxTree(state, caret.head, budgetMs);
@@ -83,6 +103,11 @@ const pickerSource = Facet.define<MentionPickerSource, MentionPickerSource | und
 const setActive = StateEffect.define<string>();
 const dismiss = StateEffect.define<null>();
 const announce = StateEffect.define<string>();
+const startCreate = StateEffect.define<Creating>();
+const endCreate = StateEffect.define<null>();
+
+/** A document being made from a `[[` title: the query it replaces, mapped through edits made meanwhile. */
+type Creating = { readonly from: number; readonly to: number; readonly title: string };
 
 type Picker = {
   /** This editor's list ids. */
@@ -94,6 +119,8 @@ type Picker = {
   /** What the live region says after a pick, until the next edit. */
   readonly picked: string | undefined;
   readonly tooltip: Tooltip | null;
+  /** One create at a time; its link goes in when the document exists. */
+  readonly creating: Creating | null;
 };
 
 let pickers = 0;
@@ -104,13 +131,19 @@ const sameQuery = (a: PickerQuery | null, b: PickerQuery | null): boolean =>
 const pickerField = StateField.define<Picker>({
   create: () => {
     pickers += 1;
-    return { baseId: `mention-picker-${pickers}`, query: null, dismissed: null, active: undefined, picked: undefined, tooltip: null };
+    return { baseId: `mention-picker-${pickers}`, query: null, dismissed: null, active: undefined, picked: undefined, tooltip: null, creating: null };
   },
   update: (value, tr) => {
-    let { dismissed, active, picked } = value;
+    let { dismissed, active, picked, creating } = value;
     if (tr.docChanged) {
       if (dismissed !== null) dismissed = tr.changes.mapPos(dismissed);
       picked = undefined;
+      if (creating !== null) {
+        // Typing after the query does not join it; a query deleted whole has nowhere to go.
+        const from = tr.changes.mapPos(creating.from, 1);
+        const to = tr.changes.mapPos(creating.to, -1);
+        creating = to > from ? { ...creating, from, to } : null;
+      }
     }
     // A parse that reaches further can show the list a query was waiting on.
     const parsed = syntaxTree(tr.startState) !== syntaxTree(tr.state);
@@ -123,6 +156,8 @@ const pickerField = StateField.define<Picker>({
       if (effect.is(setActive)) active = effect.value;
       if (effect.is(dismiss)) dismissed = query?.from ?? null;
       if (effect.is(announce)) picked = effect.value;
+      if (effect.is(startCreate)) creating = effect.value;
+      if (effect.is(endCreate)) creating = null;
     }
     const shown = query !== null && query.from !== dismissed;
     const tooltip = !shown
@@ -130,16 +165,21 @@ const pickerField = StateField.define<Picker>({
       : value.tooltip !== null && value.query?.from === query.from
         ? value.tooltip
         : { pos: query.from, above: false, arrow: false, create: listView };
-    return { baseId: value.baseId, query, dismissed, active, picked, tooltip };
+    return { baseId: value.baseId, query, dismissed, active, picked, tooltip, creating };
   },
   provide: (field) => showTooltip.from(field, (picker) => picker.tooltip),
 });
+
+/** One row of the list: a mention, or a `[[` row (an artifact to link, a document to create). */
+type Row = { readonly kind: "mention"; readonly candidate: MentionCandidate } | LinkCandidate;
+
+const rowKey = (row: Row): string => (row.kind === "mention" ? candidateKey(row.candidate) : linkCandidateKey(row));
 
 /** The list as it stands: open only for a query whose trigger has anything to offer. */
 type Shown = {
   readonly open: boolean;
   readonly query: PickerQuery | null;
-  readonly offered: ReadonlyArray<MentionCandidate>;
+  readonly offered: ReadonlyArray<Row>;
   readonly aria: ListboxAriaState;
   readonly activeIndex: number;
   readonly announcement: string;
@@ -150,10 +190,25 @@ const NOUN = { one: "match", other: "matches" } as const;
 const shownOf = (state: EditorState): Shown => {
   const picker = state.field(pickerField);
   const { query } = picker;
-  const candidates = query === null || picker.tooltip === null ? [] : (state.facet(pickerSource)?.().candidates ?? []);
-  const open = query !== null && picker.tooltip !== null && candidates.some((candidate) => triggerOf(candidate.ref) === query.trigger);
-  const offered = open ? filterCandidates(candidates, query) : [];
-  const keys = offered.map(candidateKey);
+  const source = query === null || picker.tooltip === null ? undefined : state.facet(pickerSource)?.();
+  let open = false;
+  let offered: ReadonlyArray<Row> = [];
+  if (query !== null && source !== undefined) {
+    if (query.trigger === "[[") {
+      const { links } = source;
+      open = links !== undefined;
+      if (links !== undefined) {
+        offered = artifactLinkCandidates(links.artifacts, query.query).filter(
+          (row) => row.kind === "artifact" || (links.create !== undefined && picker.creating === null),
+        );
+      }
+    } else {
+      const { trigger } = query;
+      open = source.candidates.some((candidate) => triggerOf(candidate.ref) === trigger);
+      if (open) offered = filterCandidates(source.candidates, { trigger, query: query.query }).map((candidate) => ({ kind: "mention", candidate }));
+    }
+  }
+  const keys = offered.map(rowKey);
   const active = picker.active !== undefined && keys.includes(picker.active) ? picker.active : keys[0];
   const aria: ListboxAriaState = {
     baseId: picker.baseId,
@@ -168,26 +223,99 @@ const shownOf = (state: EditorState): Shown => {
   return { open, query, offered, aria, activeIndex: active === undefined ? -1 : keys.indexOf(active), announcement };
 };
 
-/** Put the candidate in place of the query as its link, followed by one space, and the caret after it. */
-const pick = (view: EditorView, candidate: MentionCandidate): void => {
-  const { query } = view.state.field(pickerField);
-  const source = view.state.facet(pickerSource);
-  if (query === null || source === undefined) return;
-  const link = mentionLink(candidate.ref, candidate.label, source().canvasName);
-  const spaced = view.state.sliceDoc(query.to, query.to + 1) === " ";
+/** Put `link` in place of `from`..`to`, followed by one space, with the caret after it, and say `said`. */
+const putLink = (view: EditorView, from: number, to: number, link: string, said: string, effects: ReadonlyArray<StateEffect<unknown>> = []): void => {
+  const spaced = view.state.sliceDoc(to, to + 1) === " ";
   view.dispatch({
-    changes: { from: query.from, to: query.to, insert: spaced ? link : `${link} ` },
-    selection: { anchor: query.from + link.length + 1 },
-    effects: announce.of(`Mentioned ${candidate.label}`),
+    changes: { from, to, insert: spaced ? link : `${link} ` },
+    selection: { anchor: from + link.length + 1 },
+    effects: [...effects, announce.of(said)],
     userEvent: "input.mention",
     scrollIntoView: true,
   });
 };
 
-const LIST_LABEL: Readonly<Record<MentionTrigger, string>> = {
+/**
+ * Make the document, then link it where its `[[` was typed. The list closes
+ * while it is made, and typing goes on; the link replaces the query wherever
+ * edits since have moved it, and a query deleted meanwhile takes no link.
+ */
+const createAndLink = (view: EditorView, query: PickerQuery, title: string, links: PickerLinks, canvasName: string): void => {
+  const { create } = links;
+  if (create === undefined || view.state.field(pickerField).creating !== null) return;
+  view.dispatch({ effects: [startCreate.of({ from: query.from, to: query.to, title }), dismiss.of(null), announce.of(`Creating ${title}`)] });
+  const settle = (ref: MentionOf<"artifact"> | null): void => {
+    if (!view.dom.isConnected) return;
+    const creating = view.state.field(pickerField).creating;
+    if (creating === null) return;
+    if (ref === null) {
+      view.dispatch({ effects: [endCreate.of(null), announce.of(`${title} could not be created`)] });
+      return;
+    }
+    putLink(view, creating.from, creating.to, artifactLink(ref, title, canvasName), `Created and linked ${title}`, [endCreate.of(null)]);
+  };
+  create(title).then(settle, () => settle(null));
+};
+
+/** Put the row in place of the query as its link, followed by one space, and the caret after it; or start its create. */
+const pick = (view: EditorView, row: Row): void => {
+  const { query } = view.state.field(pickerField);
+  const source = view.state.facet(pickerSource)?.();
+  if (query === null || source === undefined) return;
+  switch (row.kind) {
+    case "mention":
+      putLink(view, query.from, query.to, mentionLink(row.candidate.ref, row.candidate.label, source.canvasName), `Mentioned ${row.candidate.label}`);
+      return;
+    case "artifact":
+      putLink(view, query.from, query.to, artifactLink(row.artifact.ref, row.artifact.title, source.canvasName), `Linked ${row.artifact.title}`);
+      return;
+    case "create":
+      if (source.links !== undefined) createAndLink(view, query, row.title, source.links, source.canvasName);
+      return;
+  }
+};
+
+const LIST_LABEL: Readonly<Record<PickerTrigger, string>> = {
   "@": "Seats and pages to mention",
   "#": "Tasks and artifacts to mention",
+  "[[": "Artifacts to link",
 };
+
+const ARTIFACT_MARK = { "--mark": markColor(RESOURCE_KIND_VISUAL.artifact.tone) } as CSSProperties;
+
+/** A `[[` row: the artifact's glyph, title and place, or the create row in the words it does. */
+function LinkRowContent({ row }: { readonly row: LinkCandidate }) {
+  if (row.kind === "create") {
+    return (
+      <>
+        <ResourceGlyphMark kind="artifact" artifactType="document" />
+        <span className="mention-combobox__label">{linkCandidateLabel(row)}</span>
+        <span className="mention-combobox__kind">new</span>
+      </>
+    );
+  }
+  const { artifact } = row;
+  return (
+    <>
+      <ResourceGlyphMark kind="artifact" artifactType={artifact.type} />
+      <span className="mention-combobox__label">{artifact.title}</span>
+      {artifact.place ? <span className="mention-combobox__detail">{artifact.place}</span> : null}
+      <span className="mention-combobox__kind">{ARTIFACT_TYPE_NOUN[artifact.type]}</span>
+    </>
+  );
+}
+
+function MentionRowContent({ candidate }: { readonly candidate: MentionCandidate }) {
+  return (
+    <>
+      <ResourceGlyphMark {...mentionMark(candidate.ref)} />
+      <span className="mention-combobox__label">{candidate.label}</span>
+      {candidate.detail ? <span className="mention-combobox__detail">{candidate.detail}</span> : null}
+      <span className="mention-combobox__kind">{RESOURCE_KIND_VISUAL[candidate.ref.kind].noun}</span>
+      {candidate.note ? <span className="mention-combobox__note">{candidate.note}</span> : null}
+    </>
+  );
+}
 
 function PickerList({
   view,
@@ -207,26 +335,22 @@ function PickerList({
   return (
     <>
       <ul {...listboxAria(aria)} aria-label={LIST_LABEL[query.trigger]} className="mention-combobox__list">
-        {offered.map((candidate) => {
-          const key = candidateKey(candidate);
-          const visual = RESOURCE_KIND_VISUAL[candidate.ref.kind];
+        {offered.map((row) => {
+          const key = rowKey(row);
+          const style = row.kind === "mention" ? ({ "--mark": markColor(RESOURCE_KIND_VISUAL[row.candidate.ref.kind].tone) } as CSSProperties) : ARTIFACT_MARK;
           return (
             <li
               key={key}
               {...optionAria(aria, key)}
               className="mention-combobox__option"
               data-active={key === aria.activeKey ? "true" : undefined}
-              data-testid="mention-option"
-              style={{ "--mark": markColor(visual.tone) } as CSSProperties}
+              data-testid={row.kind === "create" ? "link-create-option" : "mention-option"}
+              style={style}
               // A press must not take the keyboard or the caret from the document.
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => pick(view, candidate)}
+              onClick={() => pick(view, row)}
             >
-              <ResourceGlyphMark {...mentionMark(candidate.ref)} />
-              <span className="mention-combobox__label">{candidate.label}</span>
-              {candidate.detail ? <span className="mention-combobox__detail">{candidate.detail}</span> : null}
-              <span className="mention-combobox__kind">{visual.noun}</span>
-              {candidate.note ? <span className="mention-combobox__note">{candidate.note}</span> : null}
+              {row.kind === "mention" ? <MentionRowContent candidate={row.candidate} /> : <LinkRowContent row={row} />}
             </li>
           );
         })}
@@ -318,8 +442,8 @@ const pickerKeys = Prec.highest(
         case "pick": {
           event.preventDefault();
           event.stopPropagation();
-          const candidate = shown.offered[intent.index];
-          if (candidate) pick(view, candidate);
+          const row = shown.offered[intent.index];
+          if (row) pick(view, row);
           return true;
         }
         case "dismiss":
@@ -336,7 +460,7 @@ const pickerKeys = Prec.highest(
 /** The candidates changed while nothing else did: the list draws what is offered now. */
 export const mentionSourceChanged = (view: EditorView): void => view.dispatch({});
 
-/** The @ and # list for a live markdown document. */
+/** The @, # and `[[` list for a live markdown document. */
 export const mentionPicker = (source: MentionPickerSource): Extension => [
   pickerSource.of(source),
   // Sideways the list keeps inside the field, so near its right edge it slides left, never over the pane beside it;

@@ -16,7 +16,7 @@ import "../ui/code-editor-lines.css";
 import { textSplice } from "./artifacts-pane-model";
 import { DocumentMentionChip } from "./DocumentMentionChip";
 import { liveMarkdown, type LiveMarkdownHandlers, type MentionMount, redrawEffect } from "./live-markdown";
-import { mentionPicker, mentionSourceChanged } from "./mention-picker";
+import { mentionPicker, mentionSourceChanged, type PickerLinks } from "./mention-picker";
 import "./live-markdown.css";
 
 /** What the field may mention, and how it reads the canvas its links name. */
@@ -24,6 +24,8 @@ export type DocumentMentions = {
   readonly canvasName: string;
   readonly candidates: ReadonlyArray<MentionCandidate>;
   readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  /** What `[[` links to, and how it makes a document by a title. Without it `[[` is only brackets. */
+  readonly links?: PickerLinks | undefined;
 };
 
 /** What a host does to the field that is not typing. */
@@ -222,7 +224,11 @@ export function LiveMarkdownField({
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           liveMarkdown(handlers),
-          mentionPicker(() => ({ canvasName: mentionsRef.current?.canvasName ?? "", candidates: mentionsRef.current?.candidates ?? [] })),
+          mentionPicker(() => ({
+            canvasName: mentionsRef.current?.canvasName ?? "",
+            candidates: mentionsRef.current?.candidates ?? [],
+            links: mentionsRef.current?.links,
+          })),
           keymap.of([{ key: "Escape", run: stopWriting }]),
           lineRows(lines),
           access.current.of(editable(readOnly)),
@@ -278,7 +284,7 @@ export function LiveMarkdownField({
   // Candidates that arrive while the list is open draw at once.
   useEffect(() => {
     if (view.current !== null) mentionSourceChanged(view.current);
-  }, [mentions?.candidates]);
+  }, [mentions?.candidates, mentions?.links]);
 
   // A drawn chip or card has its size now: the editor measures again.
   useLayoutEffect(() => {

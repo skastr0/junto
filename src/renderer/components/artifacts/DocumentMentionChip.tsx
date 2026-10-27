@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react";
+import { artifactLinkTitle } from "@shared/artifact-link";
 import { matchMention, parseMentionHref, type MentionOf } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import { parseNodeRef } from "@shared/node-ref";
@@ -39,11 +40,19 @@ function Chip({ mark, label, number, open, artifactType }: ChipProps) {
   );
 }
 
-/** An artifact wears its type's glyph: a document its page, a sheet its grid. Until the node is read, the generic mark. */
-function ArtifactChip({ refOf, canvasName, ...chip }: ChipProps & { readonly refOf: MentionOf<"artifact">; readonly canvasName: string }) {
+/**
+ * An artifact wears its type's glyph: a document its page, a sheet its grid. Until the node is read, the generic mark.
+ * A `[[ ]]` link says the artifact's title now, so a rename never leaves it stale; until the node is read, the title it was written with.
+ */
+function ArtifactChip({
+  refOf,
+  canvasName,
+  linked,
+  ...chip
+}: ChipProps & { readonly refOf: MentionOf<"artifact">; readonly canvasName: string; readonly linked: boolean }) {
   const heads = useNodeArtifacts(canvasName, refOf.nodeId);
-  const type = heads.find((head) => head.artifact.artifactId === refOf.artifactId)?.artifact.type;
-  return <Chip {...chip} artifactType={type} />;
+  const artifact = heads.find((head) => head.artifact.artifactId === refOf.artifactId)?.artifact;
+  return <Chip {...chip} label={linked && artifact !== undefined ? artifact.title : chip.label} artifactType={artifact?.type} />;
 }
 
 /**
@@ -72,7 +81,9 @@ export function DocumentMentionChip({
 }) {
   const target = parseMentionHref(href);
   if (target === undefined) return <span>{label}</span>;
-  const { ref, kind, label: shown, number } = mentionChipOf({ target, label }, nodeKindOf);
+  // A `[[ ]]` link draws as its title, without the brackets it is typed with.
+  const linkTitle = artifactLinkTitle(label);
+  const { ref, kind, label: shown, number } = mentionChipOf({ target, label: linkTitle ?? label }, nodeKindOf);
   // A gone seat or page: its link cannot say which, so it is its words, struck.
   if (kind === undefined) {
     return (
@@ -88,6 +99,6 @@ export function DocumentMentionChip({
     seat: () => <Chip {...chip} />,
     page: () => <Chip {...chip} />,
     task: () => <Chip {...chip} />,
-    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} />,
+    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} linked={linkTitle !== undefined} />,
   });
 }
