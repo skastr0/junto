@@ -22,14 +22,33 @@ import { type MatchFields, rankMatches } from "./fuzzy-match";
 
 export type QuickOpenKind = "file" | "artifact" | "task" | "automation";
 
-/** What every row of a kind is called: the palette's one copy of the words. */
+/**
+ * What every row of a kind is called: the palette's one copy of the words.
+ * `hint` is the line under an empty field that has nothing to list yet, which
+ * is not a failed search (main ranks names for a query, it does not list a
+ * folder's recent files), so it asks for a word instead of saying nothing
+ * matched.
+ */
 export const QUICK_OPEN_WORDS: Readonly<
-  Record<QuickOpenKind, { readonly find: string; readonly placeholder: string; readonly empty: string }>
+  Record<
+    QuickOpenKind,
+    { readonly find: string; readonly placeholder: string; readonly empty: string; readonly hint: string }
+  >
 > = {
-  file: { find: "Find a file", placeholder: "Search file names", empty: "No file matches." },
-  artifact: { find: "Find an artifact", placeholder: "Search artifacts", empty: "No artifact matches." },
-  task: { find: "Find a task", placeholder: "Search tasks", empty: "No task matches." },
-  automation: { find: "Find an automation", placeholder: "Search automations", empty: "No automation matches." },
+  file: { find: "Find a file", placeholder: "Search file names", empty: "No file matches.", hint: "Type a file name." },
+  artifact: {
+    find: "Find an artifact",
+    placeholder: "Search artifacts",
+    empty: "No artifact matches.",
+    hint: "Type an artifact name.",
+  },
+  task: { find: "Find a task", placeholder: "Search tasks", empty: "No task matches.", hint: "Type a task name." },
+  automation: {
+    find: "Find an automation",
+    placeholder: "Search automations",
+    empty: "No automation matches.",
+    hint: "Type an automation name.",
+  },
 };
 
 /** One row to pick: the node's own id for the thing, and what names it. */
@@ -53,6 +72,8 @@ export type QuickOpenSource = {
   readonly placeholder: string;
   /** Said under the field when the query matches nothing. */
   readonly empty: string;
+  /** Said under an empty field, before anything is typed, when there is no list to show. */
+  readonly hint: string;
   readonly search: (query: string) => readonly QuickOpenItem[] | Promise<readonly QuickOpenItem[]>;
 };
 

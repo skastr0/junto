@@ -110,7 +110,12 @@ export function QuickOpen({
     activeKey: active ?? undefined,
     selection: { kind: "highlight" },
   };
+  // One sentence for eyes and ears: with rows the footer carries the count, with
+  // none the line under the list carries the words and is the live region, so a
+  // failed search is never said twice.
+  const nothing = rows.length === 0 && !pending;
   const talk = listboxAnnouncement({ open: true, count: rows.length, noun: nounOf(source) });
+  const quietLine = nothing ? (query === "" ? source.hint : source.empty) : null;
 
   const pick = (id: string | null): void => {
     const row = rows.find((candidate) => candidate.id === id);
@@ -225,11 +230,17 @@ export function QuickOpen({
             );
           })}
         </ul>
-        {pending || rows.length > 0 ? null : <p className="quick-open__empty">{source.empty}</p>}
+        {quietLine === null ? null : (
+          <p className="quick-open__empty" role="status" aria-live="polite" aria-atomic="true">
+            {quietLine}
+          </p>
+        )}
         <div className="quick-open__foot">
-          <span className="quick-open__count" role="status" aria-live="polite" aria-atomic="true">
-            {talk}
-          </span>
+          {nothing ? null : (
+            <span className="quick-open__count" role="status" aria-live="polite" aria-atomic="true">
+              {talk}
+            </span>
+          )}
           <span className="quick-open__hints">
             <Kbd>↑↓</Kbd>
             <span className="quick-open__hint">move</span>

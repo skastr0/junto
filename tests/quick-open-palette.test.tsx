@@ -112,11 +112,26 @@ describe("the quick open palette", () => {
     expect(held.onOpen).not.toHaveBeenCalled();
   });
 
-  it("says nothing matched in the source's own words", () => {
+  it("says nothing matched once, in the source's own words, and the footer stays quiet", () => {
     render(sourceOf());
     type("zzz");
     expect(titles()).toEqual([]);
     expect(document.querySelector(".quick-open__empty")?.textContent).toBe(QUICK_OPEN_WORDS.artifact.empty);
+    expect(document.querySelector(".quick-open__empty")?.getAttribute("role")).toBe("status");
+    // One live region, not two saying the same thing.
+    expect(document.querySelectorAll("[role='status']")).toHaveLength(1);
+  });
+
+  it("asks for a word under an empty field with no list to show", () => {
+    render({ ...sourceOf(), search: () => [] });
+    expect(document.querySelector(".quick-open__empty")?.textContent).toBe(QUICK_OPEN_WORDS.artifact.hint);
+    expect(document.querySelectorAll("[role='status']")).toHaveLength(1);
+  });
+
+  it("counts its rows in the footer once there are some", () => {
+    render(sourceOf());
+    expect(document.querySelector(".quick-open__count")?.textContent).toBe("3 artifacts");
+    expect(document.querySelector(".quick-open__empty")).toBeNull();
   });
 
   it("closes on Tab, so no combobox stays armed behind the keyboard", () => {
