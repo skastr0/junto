@@ -468,6 +468,18 @@ function SelectedArtifact({
         >
           <History size={14} />
         </IconButton>
+        {artifact.taskIds.length > 0 || !readOnly ? (
+          <ArtifactTasks
+            taskIds={artifact.taskIds}
+            tasks={tasks}
+            readOnly={readOnly}
+            onChange={(taskIds) => void apply({ op: "tasks", taskIds: [...taskIds] })}
+            onOpen={(task) => {
+              onClose();
+              openWorkDetail(task.current.node, { itemId: task.taskId });
+            }}
+          />
+        ) : null}
         <IconButton
           aria-label={artifact.archived ? "Restore" : "Archive"}
           title={artifact.archived ? "Restore" : "Archive"}
@@ -477,18 +489,6 @@ function SelectedArtifact({
           {artifact.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
         </IconButton>
       </header>
-      {artifact.taskIds.length > 0 || !readOnly ? (
-        <ArtifactTasks
-          taskIds={artifact.taskIds}
-          tasks={tasks}
-          readOnly={readOnly}
-          onChange={(taskIds) => void apply({ op: "tasks", taskIds: [...taskIds] })}
-          onOpen={(task) => {
-            onClose();
-            openWorkDetail(task.current.node, { itemId: task.taskId });
-          }}
-        />
-      ) : null}
       {error ? (
         <p className="artifact-error" role="alert">
           {error}

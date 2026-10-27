@@ -86,6 +86,7 @@
 /* Main pane */
 
 .artifact-head {
+  position: relative;
   display: flex;
   height: 44px;
   flex: none;
@@ -127,23 +128,32 @@
 
 .artifact-tasks {
   display: flex;
-  min-height: 32px;
-  flex: none;
-  flex-wrap: wrap;
+  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-bottom: 1px solid var(--color-stroke);
 }
 
 .artifact-tasks__chip {
   display: inline-flex;
+  min-width: 0;
+  max-width: 180px;
   align-items: center;
   gap: 2px;
 }
 
+/* The picker floats under the header's right edge, so naming a task never
+   adds a row. */
 .artifact-tasks__picker {
-  width: min(320px, 100%);
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 12px;
+  z-index: 5;
+  width: min(320px, calc(100% - 24px));
+  padding: 8px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: var(--radius-md);
+  background: var(--color-raise);
 }
 
 .artifact-tasks__none {
