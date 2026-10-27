@@ -8,12 +8,23 @@
   -webkit-user-select: none;
 }
 
+/* On the pad a card is an object among shapes: it takes their outline, 2px in the pad's ink, so
+   it is never the faintest thing there. The card is border-box, so the edge eats into its own box
+   and nothing around it moves. */
 .pad-card-shape .preview-card {
   pointer-events: none;
+  border-width: 2px;
+  border-color: var(--color-ink-2);
+}
+
+/* A card whose thing is gone stays dashed and recedes: absence is never the loudest edge. */
+.pad-card-shape .preview-card[data-kind="missing"] {
+  border-color: var(--color-faint);
 }
 
 /* Selected: the card's edge takes the pad's selection hue, as a shape's stroke does. */
-.pad-card-shape[data-selected="true"] .preview-card {
+.pad-card-shape[data-selected="true"] .preview-card,
+.pad-card-shape[data-selected="true"] .preview-card[data-kind="missing"] {
   border-color: var(--color-amber);
 }
 
