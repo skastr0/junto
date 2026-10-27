@@ -557,6 +557,14 @@ still open.
 The private index method, from the repository root. Never a bare
 `git commit`, `git commit -a` or `git add -A`.
 
+A pre-commit hook holds this: `scripts/git-hooks/pre-commit`, enabled in
+the shared checkout with `git config core.hooksPath scripts/git-hooks`. It
+refuses any commit built from the checkout's own `.git/index` (a bare
+`git commit`, `-a` or `git commit <path>`) and prints the block below.
+`commit-tree` runs no hooks, so the method is unaffected, and linked
+worktrees, which have their own index, are not checked. `--no-verify`
+skips it: never pass it here.
+
 Run it as one shell command, so the index never outlives it:
 
 ```text
