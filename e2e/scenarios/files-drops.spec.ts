@@ -8,12 +8,13 @@
  * stand-in for a Finder drag, which Playwright cannot start. Fixme until F5 is
  * on main; drop the describe.fixme when it lands.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture } from "../harness/model";
 import {
+  dragRow,
   drop,
   dropOn,
   expandInTree,
@@ -38,6 +39,22 @@ const launch = async (stage: FilesStage) => launchJunto({ seedModels: { [CANVAS]
 
 const waitForFile = (path: string) => expect.poll(() => existsSync(path), { timeout: 15_000 }).toBe(true);
 
+/** Operator frames: written only when DROPS_FRAMES is set, so a normal run leaves no files behind. */
+const FRAMES = process.env.DROPS_FRAMES;
+
+const frame = async (page: Page, name: string): Promise<void> => {
+  if (FRAMES === undefined) return;
+  mkdirSync(FRAMES, { recursive: true });
+  await page.screenshot({ path: join(FRAMES, `${name}.png`) });
+};
+
+const setTheme = async (page: Page, theme: "bright" | "dark"): Promise<void> => {
+  await page.evaluate((t) => window.junto!.settingsPatch({ appearance: { theme: t } }), theme);
+  // Dark is the default, so the root drops the attribute rather than naming it.
+  if (theme === "bright") await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
+  else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
+};
+
 test.describe.fixme("drops into the Files node (F5)", () => {
   test("a drop on the Files card copies the file into the root, and the source stays", async () => {
     test.setTimeout(120_000);
@@ -48,7 +65,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       await expect(filesCard(page)).toBeVisible({ timeout: 30_000 });
       const source = await stage.incoming("desk/new-note.md", "from the desk\n");
 
-      await drop(filesCard(page), await transferOf(page, [source]));
+      await drop(filesCard(page).getByTestId("files-card"), await transferOf(page, [source]));
 
       const copied = join(stage.fixture.root, "new-note.md");
       await waitForFile(copied);
@@ -92,6 +109,14 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       await hover(treeRow(modal, "src"), transfer);
       await expect(surface(modal)).toHaveAttribute("data-drop", "folder");
 
+      await frame(page, "test3-folder-hover-dark");
+
+      await leave(treeRow(modal, "src"), transfer);
+      await setTheme(page, "bright");
+      await hover(treeRow(modal, "src"), transfer);
+      await expect(surface(modal)).toHaveAttribute("data-drop", "folder");
+      await frame(page, "test3-folder-hover-bright");
+
       await dropOn(treeRow(modal, "src"), transfer);
       await waitForFile(join(stage.fixture.root, "src", "folder-drop.md"));
       expect(existsSync(join(stage.fixture.root, "folder-drop.md"))).toBe(false);
@@ -102,7 +127,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
     }
   });
 
-  test("a drop on a flattened chain copies into its last folder, and on the nested segment into nested", async () => {
+  test("a drop on the nested row, a folder that holds folders, copies into nested", async () => {
     test.setTimeout(120_000);
     const stage = await stageFiles();
     const junto = await launch(stage);
@@ -111,20 +136,14 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       const modal = await openFilesModal(page);
       const root = stage.fixture.root;
 
-      // nested/a/b/c is one row, named by its last folder; "nested" is a segment inside that row.
-      await expect(treeRow(modal, "nested/a/b/c")).toBeVisible({ timeout: 15_000 });
-      await drop(treeRow(modal, "nested/a/b/c"), await transferOf(page, [await stage.incoming("desk/row-drop.md", "row\n")]));
-      await waitForFile(join(root, "nested", "a", "b", "c", "row-drop.md"));
-
-      await drop(modal.locator('[data-item-flattened-subitem="nested/"]'), await transferOf(page, [await stage.incoming("desk/segment-drop.md", "segment\n")]));
-      await waitForFile(join(root, "nested", "segment-drop.md"));
-      expect(existsSync(join(root, "nested", "a", "b", "c", "segment-drop.md"))).toBe(false);
+      await drop(treeRow(modal, "nested"), await transferOf(page, [await stage.incoming("desk/nested-drop.md", "nested\n")]));
+      await waitForFile(join(root, "nested", "nested-drop.md"));
+      expect(existsSync(join(root, "nested-drop.md"))).toBe(false);
     } finally {
       await junto.close();
       await stage.cleanup();
     }
   });
-
   test("a drag over the bare modal marks the root, and leaving clears the mark", async () => {
     test.setTimeout(120_000);
     const stage = await stageFiles();
@@ -136,6 +155,13 @@ test.describe.fixme("drops into the Files node (F5)", () => {
 
       await hover(surface(modal), transfer);
       await expect(surface(modal)).toHaveAttribute("data-drop", "root");
+
+      await frame(page, "test5-root-marked-dark");
+      await leave(surface(modal), transfer);
+      await setTheme(page, "bright");
+      await hover(surface(modal), transfer);
+      await expect(surface(modal)).toHaveAttribute("data-drop", "root");
+      await frame(page, "test5-root-marked-bright");
 
       await leave(surface(modal), transfer);
       await expect(surface(modal)).not.toHaveAttribute("data-drop", "root");
@@ -157,6 +183,11 @@ test.describe.fixme("drops into the Files node (F5)", () => {
 
       await drop(surface(modal), await transferOf(page, [await stage.incoming("one/README.md", "incoming one\n")]));
       await waitForFile(join(root, "README 2.md"));
+      await expect(modal.getByRole("status").filter({ hasText: "as README 2.md." })).toBeVisible({ timeout: 15_000 });
+      await frame(page, "test6-after-drop-dark");
+      await setTheme(page, "bright");
+      await expect(modal.getByRole("status").filter({ hasText: "as README 2.md." })).toBeVisible({ timeout: 15_000 });
+      await frame(page, "test6-after-drop-bright");
       expect(readFileSync(join(root, "README 2.md"), "utf8")).toBe("incoming one\n");
 
       await drop(surface(modal), await transferOf(page, [await stage.incoming("two/README.md", "incoming two\n")]));
@@ -202,7 +233,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       const root = stage.fixture.root;
 
       await expandInTree(modal, "notes");
-      await treeRow(modal, "notes/meeting notes.txt").dragTo(treeRow(modal, "src"));
+      await dragRow(page, treeRow(modal, "notes/meeting notes.txt"), treeRow(modal, "src"));
 
       await waitForFile(join(root, "src", "meeting notes.txt"));
       expect(readFileSync(join(root, "src", "meeting notes.txt"), "utf8")).toBe("spaced name\n");
@@ -230,7 +261,7 @@ test.describe.fixme("drops into the Files node (F5)", () => {
       await expect(treeRow(modal, "src/café.md")).toBeVisible({ timeout: 15_000 });
 
       await expandInTree(modal, "notes");
-      await treeRow(modal, "notes/café.md").dragTo(treeRow(modal, "src"));
+      await dragRow(page, treeRow(modal, "notes/café.md"), treeRow(modal, "src"));
 
       await expect(modal.getByRole("alert").filter({ hasText: "Nothing moved." })).toBeVisible({ timeout: 15_000 });
       expect(readFileSync(join(root, "notes", "café.md"), "utf8")).toBe("# Café\n");
