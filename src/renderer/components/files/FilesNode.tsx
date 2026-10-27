@@ -4,6 +4,7 @@ import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent, FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { CircleAlert, ExternalLink, Search, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
+import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
 import { nodeAt } from "../../lib/use-model";
@@ -14,17 +15,18 @@ import {
   filesErrorLine,
   filesSource,
   fileViewOf,
-  postFileComment,
   setFileDraft,
   useDraftsVersion,
-  useFileThreads,
   useFilesRoot,
   type FileView as FileViewKind,
   type Loaded,
 } from "../../lib/files-source";
+import { useSubjectThreads, type SubjectThread } from "../../lib/subject-threads-source";
+import { boxAnchorOf, filePlaceOf, lineAnchorOf, lineDraftOf, placeLabel, placedFileThreads, type LineDraft } from "../../lib/file-comments";
+import { FileCommentsRail, FileThreadRow, type FileCommentContext } from "./FileComments";
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, PaneEmpty, PaneHeader, TwoPane } from "../ui";
-import { ArtifactComments, ArtifactCommentsEdge } from "../artifacts/ArtifactComments";
+import { ArtifactCommentsEdge } from "../artifacts/ArtifactComments";
 import { LiveMarkdownField } from "../artifacts/LiveMarkdownField";
 import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
@@ -38,7 +40,7 @@ import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 import { FileView } from "../file-view/FileView";
-import { CodeEditor } from "../ui/CodeEditor";
+import { CodeEditor, type CodeEditorHandle, type LineRow } from "../ui/CodeEditor";
 import { claimFocus } from "../../lib/focus-ownership";
 import { paneEntryOf } from "../../lib/pane-focus";
 import { topModal } from "../../lib/modal-stack";
@@ -269,6 +271,10 @@ function SelectedFile({
   const railOpen = commentsRailOpen(use$(sidebarSections$.open));
   useDraftsVersion();
   const draft = fileDraft(nodeId, path);
+  /** The place a press in the gutter or a drawn box picked, waiting for its comment. */
+  const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
+  const [boxDraft, setBoxDraft] = useState<{ readonly page: number; readonly x: number; readonly y: number; readonly w: number; readonly h: number } | null>(null);
+  const editor = useRef<CodeEditorHandle>(null);
 
   /** Bumped by a read from disk only, so a save never remounts the editor under the caret. */
   const [epoch, setEpoch] = useState(0);
@@ -362,6 +368,71 @@ function SelectedFile({
   const name = baseName(path);
   const dir = path.slice(0, path.length - name.length);
 
+  // The file's threads, read where every pane reads them, and placed in the
+  // text on screen: a draft the operator is typing is the text the rows follow.
+  const threads = useSubjectThreads(canvasName, { kind: "file", nodeId, path });
+  const shownText = draft?.text ?? text?.text ?? "";
+  const placed = useMemo(() => placedFileThreads(threads, shownText), [threads, shownText]);
+  const mentionable = useSeatsInReach(canvasName, nodeId);
+  const commentContext = {
+    canvasName,
+    nodeId,
+    path,
+    text: shownText,
+    now: Date.now(),
+    seatName: (id: string): string | undefined => {
+      const seat = nodeAt(canvasName, id);
+      return seat === undefined ? undefined : titleOf(seat);
+    },
+    mentionable,
+    nodeKindOf: (id: NodeId) => nodeAt(canvasName, id)?.kind,
+    onOpenMention: (mention: Parameters<typeof openMention>[0]) => {
+      onClose();
+      openMention(mention);
+    },
+  };
+  /** The place a press picked: a box drawn on a page, else the gutter's lines. */
+  const draftAnchor = boxDraft !== null ? boxAnchorOf(boxDraft) : lineDraft !== null ? lineAnchorOf(path, lineDraft) : undefined;
+  const pickLines = (range: LineDraft): void => {
+    setBoxDraft(null);
+    setLineDraft(range);
+    setCommentsRailOpen(true);
+  };
+  const pickBox = (comment: { readonly page?: number; readonly box: { readonly x: number; readonly y: number; readonly w: number; readonly h: number } }): void => {
+    setLineDraft(null);
+    setBoxDraft({ page: comment.page ?? 1, ...comment.box });
+    setCommentsRailOpen(true);
+  };
+  const spent = (): void => {
+    setLineDraft(null);
+    setBoxDraft(null);
+  };
+  const reveal = (place: ReturnType<typeof filePlaceOf>): void => {
+    setCommentsRailOpen(true);
+    if (place.kind === "lines") editor.current?.revealLine(place.from);
+  };
+  const rows: ReadonlyArray<LineRow> = placed.flatMap(({ thread, place }) =>
+    place.kind === "lines" ? [{ key: `thread:${thread.threadId}`, line: place.to }] : [],
+  );
+  const renderRow = (key: string): React.ReactNode => {
+    const found = placed.find((entry) => key === `thread:${entry.thread.threadId}`);
+    if (found === undefined) return null;
+    return <FileThreadRow thread={found.thread} place={found.place} onOpen={() => reveal(found.place)} />;
+  };
+  /** The threads whose place is a box on the page showing now: the viewer draws them. */
+  const boxThreads = placed.flatMap(({ thread, place }) =>
+    place.kind === "box"
+      ? [
+          {
+            id: thread.threadId,
+            ...(view === "image" ? {} : { page: place.anchor.page }),
+            box: { x: place.anchor.x, y: place.anchor.y, w: place.anchor.w, h: place.anchor.h },
+            label: placeLabel(place),
+          },
+        ]
+      : [],
+  );
+
   const body = (() => {
     if (read.state === "loading") return <PaneEmpty title="Opening" />;
     if (read.state === "refused") return <PaneEmpty glyph={<FileQuestion size={20} />} title={filesErrorLine(read.error)} />;
@@ -389,11 +460,35 @@ function SelectedFile({
           />
         ) : null;
       case "code":
-        return value.kind === "text" ? <CodeEditor key={epoch} className="files-code" path={path} value={draft?.text ?? value.text} onChange={edit} /> : null;
+        return value.kind === "text" ? (
+          <CodeEditor
+            key={epoch}
+            className="files-code"
+            path={path}
+            value={draft?.text ?? value.text}
+            onChange={edit}
+            handle={editor}
+            onLineComment={(range) => {
+              const picked = lineDraftOf(range);
+              if (picked !== undefined) pickLines(picked);
+            }}
+            rows={rows}
+            renderRow={renderRow}
+          />
+        ) : null;
       case "image":
       case "pdf":
       case "other":
-        return <FileView canvasName={canvasName} nodeId={nodeId} path={path} {...(value.kind === "binary" ? { version: value.stamp.mtimeMs } : {})} />;
+        return (
+          <FileView
+            canvasName={canvasName}
+            nodeId={nodeId}
+            path={path}
+            boxes={boxThreads}
+            onComment={pickBox}
+            {...(value.kind === "binary" ? { version: value.stamp.mtimeMs } : {})}
+          />
+        );
       case "too-large":
         return (
           <PaneEmpty
@@ -414,7 +509,16 @@ function SelectedFile({
       sidebarLabel="Files"
       sidebarWidth="narrow"
       mainLabel={name}
-      rail={<FileRail canvasName={canvasName} nodeId={nodeId} path={path} open={railOpen} onClose={onClose} />}
+      rail={
+        <FileRail
+          context={commentContext}
+          threads={threads}
+          draftAnchor={draftAnchor}
+          open={railOpen}
+          onPosted={spent}
+          onClose={onClose}
+        />
+      }
       railLabel="Comments"
       railCollapsed={!railOpen}
     >
@@ -498,48 +602,39 @@ function FilesTree({ model, label }: { readonly model: FileTreeModel; readonly l
   );
 }
 
+/**
+ * The file's comments rail: the comments pane while it is open, and the thin
+ * edge that says how many there are while it is shut.
+ */
 function FileRail({
-  canvasName,
-  nodeId,
-  path,
+  context,
+  threads,
+  draftAnchor,
   open,
+  onPosted,
   onClose,
 }: {
-  readonly canvasName: string;
-  readonly nodeId: NodeId;
-  readonly path: FilePath;
+  readonly context: FileCommentContext;
+  readonly threads: ReadonlyArray<SubjectThread>;
+  readonly draftAnchor: FilePlaceAnchor | undefined;
   readonly open: boolean;
+  readonly onPosted: () => void;
   readonly onClose: () => void;
 }) {
-  const threads = useFileThreads(nodeId, path);
-  const mentionable = useSeatsInReach(canvasName, nodeId);
   const ref = useCallback((element: HTMLDivElement | null) => commentsRailRef(element), []);
-  const seatName = (id: string): string | undefined => {
-    const seat = nodeAt(canvasName, id);
-    return seat === undefined ? undefined : titleOf(seat);
-  };
   return (
     <div className="files-rail" ref={ref}>
       {open ? (
-        <ArtifactComments
-          canvasName={canvasName}
-          mentionable={mentionable}
+        <FileCommentsRail
+          context={context}
           threads={threads}
-          nodeKindOf={(id) => nodeAt(canvasName, id)?.kind}
-          onOpenMention={(mention) => {
-            onClose();
-            openMention(mention);
-          }}
-          seatName={seatName}
-          draftAnchor={undefined}
-          now={Date.now()}
-          onStart={(text, anchor) => postFileComment(nodeId, path, { text, ...(anchor === undefined ? {} : { anchor }) })}
-          onReply={(threadId, text) => postFileComment(nodeId, path, { text, threadId })}
-          onClearAnchor={() => undefined}
-          onCollapse={() => setCommentsRailOpen(false)}
+          draft={draftAnchor}
+          onPosted={onPosted}
+          onCleared={onPosted}
+          onClose={() => setCommentsRailOpen(false)}
         />
       ) : (
-        <ArtifactCommentsEdge threads={threads} seatName={seatName} onOpen={() => setCommentsRailOpen(true)} />
+        <ArtifactCommentsEdge threads={threads} seatName={context.seatName} onOpen={() => setCommentsRailOpen(true)} />
       )}
     </div>
   );

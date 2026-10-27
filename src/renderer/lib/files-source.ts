@@ -1,7 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { NodeId } from "@shared/physics/schema";
-import { mintItemId } from "@shared/resource-command";
-import type { Anchor } from "@shared/thread-subject";
 import { fileMime } from "@shared/file-url";
 import {
   FILES_SEARCH_LIMIT,
@@ -21,7 +19,6 @@ import {
   type FileStamp,
   type JuntoFilesApi,
 } from "@shared/files";
-import type { SubjectThread, ThreadPost } from "./subject-threads-source";
 
 /**
  * The Files node's reach into its folder (0.11, F2), as the modal sees it:
@@ -280,49 +277,6 @@ export const useDraftsVersion = (): number =>
     },
     () => draftsVersion,
   );
-
-// --- comments -------------------------------------------------------------------
-//
-// A file's threads (F7, product-feed) hang on a `file` subject the renderer's
-// thread source does not carry yet. Until it does they live here, in this
-// window only, so the rail is whole; F7 points these at the subject source.
-
-const fileThreads = new Map<string, SubjectThread[]>();
-const threadListeners = new Set<() => void>();
-let threadsVersion = 0;
-
-/** Post on a file: a new thread at `anchor`, or a reply in `threadId`. The refusal in words, or null. */
-export const postFileComment = async (
-  node: NodeId,
-  path: FilePath,
-  post: { readonly text: string; readonly anchor?: Anchor; readonly threadId?: string },
-): Promise<string | null> => {
-  if (post.text.trim() === "") return "Write something to post.";
-  const key = draftKey(node, path);
-  const threads = fileThreads.get(key) ?? [];
-  const entry: ThreadPost = { messageId: mintItemId(), author: { kind: "operator" }, text: post.text, at: Date.now() };
-  const target = post.threadId === undefined ? undefined : threads.find((thread) => thread.threadId === post.threadId);
-  fileThreads.set(
-    key,
-    target === undefined
-      ? [...threads, { threadId: entry.messageId, ...(post.anchor === undefined ? {} : { anchor: post.anchor }), posts: [entry] }]
-      : threads.map((thread) => (thread === target ? { ...thread, posts: [...thread.posts, entry] } : thread)),
-  );
-  threadsVersion += 1;
-  for (const listener of threadListeners) listener();
-  return null;
-};
-
-export const useFileThreads = (node: NodeId, path: FilePath): ReadonlyArray<SubjectThread> => {
-  useSyncExternalStore(
-    (listener) => {
-      threadListeners.add(listener);
-      return () => threadListeners.delete(listener);
-    },
-    () => threadsVersion,
-  );
-  return fileThreads.get(draftKey(node, path)) ?? [];
-};
 
 // --- the node's folder ------------------------------------------------------------
 

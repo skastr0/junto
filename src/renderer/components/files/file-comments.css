@@ -1,0 +1,70 @@
+/* A file's comments (0.11 F7): the rail beside the file, and the rows drawn
+   between the editor's lines. House tokens only; the rows read as the git
+   review's annotations do, a quiet block on the ground, not a card. */
+
+.file-comments-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* A row between lines: one thread, a press away from the rail. */
+.file-comment-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin: 4px 0 6px 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-left: 2px solid var(--color-stroke);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-raise);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-comment-row:hover {
+  border-left-color: var(--color-cyan);
+}
+
+.file-comment-row:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.file-comment-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-dim);
+}
+
+.file-comment-row__place {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+}
+
+.file-comment-row__count {
+  color: var(--color-faint);
+}
+
+/* The first words of the thread, cut to the row's one line. */
+.file-comment-row__text {
+  overflow: hidden;
+  color: var(--color-ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The row a CodeMirror widget holds: no theme chrome, the editor's own line
+   height gives way to what the row needs. */
+.cm-lineRow .file-comment-row {
+  margin-left: 0;
+}

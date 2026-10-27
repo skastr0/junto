@@ -18,13 +18,23 @@ import type { OpId } from "@shared/work-ids";
 import { mintItemId, mintOpId } from "@shared/resource-command";
 import type { ItemId } from "@shared/work-ids";
 
-/** The resource a thread hangs on. Extended as panes move on (artifact, page). */
+/** The resource a thread hangs on. Extended as panes move on (artifact, page, file). */
 export type ThreadSubjectRef =
   | { readonly kind: "task"; readonly nodeId: NodeId; readonly taskId: ItemId }
-  | { readonly kind: "artifact"; readonly nodeId: NodeId; readonly artifactId: ItemId };
+  | { readonly kind: "artifact"; readonly nodeId: NodeId; readonly artifactId: ItemId }
+  /** A file in a Files node: the node and the path inside it, never an absolute path. */
+  | { readonly kind: "file"; readonly nodeId: NodeId; readonly path: string };
 
-export const subjectKey = (subject: ThreadSubjectRef): string =>
-  subject.kind === "task" ? `task:${subject.nodeId}:${subject.taskId}` : `artifact:${subject.nodeId}:${subject.artifactId}`;
+export const subjectKey = (subject: ThreadSubjectRef): string => {
+  switch (subject.kind) {
+    case "task":
+      return `task:${subject.nodeId}:${subject.taskId}`;
+    case "artifact":
+      return `artifact:${subject.nodeId}:${subject.artifactId}`;
+    case "file":
+      return `file:${subject.nodeId}:${subject.path}`;
+  }
+};
 
 /** Who wrote a post: the operator, or a seat or an automation by its node. */
 export type ThreadAuthor =
@@ -181,6 +191,27 @@ const swapListeners = new Set<() => void>();
 
 /** A fresh id for one post: a resend of the same post reuses it. */
 export const newPostOpId = (): string => mintOpId();
+
+/**
+ * Post on a file: a new thread at `anchor`, or a reply in `threadId`. The
+ * refusal in words, or null when it was written. The anchor is the file's
+ * own place (its lines, or a box on one of its pages); a reply keeps the
+ * thread's.
+ */
+export const postFileComment = async (
+  canvasName: string,
+  subject: Extract<ThreadSubjectRef, { readonly kind: "file" }>,
+  post: { readonly text: string; readonly anchor?: Anchor; readonly threadId?: string },
+): Promise<string | null> => {
+  if (post.text.trim() === "") return "Write something to post.";
+  const outcome = await subjectThreadsSource().post(canvasName, subject, {
+    text: post.text,
+    opId: newPostOpId(),
+    ...(post.anchor === undefined ? {} : { anchor: post.anchor }),
+    ...(post.threadId === undefined ? {} : { threadId: post.threadId }),
+  });
+  return outcome.ok ? null : outcome.message;
+};
 
 const NONE: ReadonlyArray<never> = [];
 

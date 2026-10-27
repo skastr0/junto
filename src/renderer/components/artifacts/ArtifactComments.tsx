@@ -18,6 +18,26 @@ import "./artifact-comments.css";
 /** Faces the collapsed edge stacks before it says "+N". */
 const EDGE_SEATS = 4;
 
+/**
+ * What a rail says about its subject: the artifact's words by default, a
+ * file's when a Files node passes them (`FILE_RAIL_WORDS`, F7). The rail is
+ * one surface for both, so its sentences take the noun rather than assume it.
+ */
+export type CommentsRailWords = {
+  /** The thing commented on, in the rail's own sentences: "artifact", "file". */
+  readonly subject: string;
+  /** A place on it, as the rail names it: "Whole artifact", "Lines 3 to 5". */
+  readonly place: (anchor: Anchor | undefined) => string;
+  /** What the seats a comment may name are in reach of: "these artifacts". */
+  readonly reach: string;
+};
+
+export const ARTIFACT_RAIL_WORDS: CommentsRailWords = {
+  subject: "artifact",
+  place: anchorLabel,
+  reach: "these artifacts",
+};
+
 /** The rail toggle's chord, as assistive tech names it here (`comments.toggle`). */
 const RAIL_KEYS = (): string => (isMac() ? "Meta+Shift+M" : "Control+Shift+M");
 
@@ -95,6 +115,7 @@ export function ArtifactComments({
   onOpenMention,
   onCollapse,
   reveal,
+  words = ARTIFACT_RAIL_WORDS,
 }: {
   readonly canvasName: string;
   /** Collapses the rail to its edge; absent, the rail has no collapse. */
@@ -106,6 +127,8 @@ export function ArtifactComments({
   readonly threads: ReadonlyArray<SubjectThread>;
   /** A seat's name by its node id, for post authors. */
   readonly seatName?: (nodeId: string) => string | undefined;
+  /** The rail's words: an artifact's unless a file's rail says otherwise. */
+  readonly words?: CommentsRailWords;
   readonly draftAnchor: Anchor | undefined;
   readonly now: number;
   /** Post; resolves to the refusal in words, or null when posted. A refused text stays in its composer. */
@@ -152,11 +175,11 @@ export function ArtifactComments({
       <div className="artifact-comments__new">
         <div className="artifact-comments__anchor">
           <Eyebrow tone={draftAnchor ? "cyan" : "faint"} size="xs">
-            On {anchorLabel(draftAnchor)}
+            On {words.place(draftAnchor)}
           </Eyebrow>
           {draftAnchor ? (
             <Button size="xs" variant="subtle" onClick={onClearAnchor}>
-              Whole artifact instead
+              Whole {words.subject} instead
             </Button>
           ) : null}
         </div>
@@ -164,12 +187,12 @@ export function ArtifactComments({
           dense
           rows={3}
           aria-label="New comment"
-          placeholder={draftAnchor ? "Comment on this place, @ names a seat" : "Comment on the artifact, @ names a seat"}
+          placeholder={draftAnchor ? "Comment on this place, @ names a seat" : `Comment on the ${words.subject}, @ names a seat`}
           value={draft}
           onValueChange={(next) => setDraft(next)}
           canvasName={canvasName}
           candidates={mentionable}
-          listLabel={() => "Seats in reach of these artifacts"}
+          listLabel={() => `Seats in reach of ${words.reach}`}
           noun={{ one: "seat", other: "seats" }}
           aria-keyshortcuts="Meta+Enter Control+Enter"
           onKeyDown={(event) => {
@@ -190,7 +213,7 @@ export function ArtifactComments({
       </div>
       {threads.length === 0 ? (
         <p className="artifact-comments__empty">
-          No comments yet. Select a place in the artifact to comment on it.
+          No comments yet. Select a place in the {words.subject} to comment on it.
         </p>
       ) : (
         <ol className="artifact-comments__threads" aria-label="Threads">
@@ -207,6 +230,7 @@ export function ArtifactComments({
               onReply={(text) => onReply(thread.threadId, text)}
               onFocus={onFocusAnchor ? () => onFocusAnchor(thread.anchor) : undefined}
               reveal={reveal?.threadId === thread.threadId ? reveal.nonce : undefined}
+              words={words}
             />
           ))}
         </ol>
@@ -226,6 +250,7 @@ function ThreadView({
   nodeKindOf,
   onOpenMention,
   reveal,
+  words,
 }: {
   readonly canvasName: string;
   /** Changes each time a marker for this thread is pressed. */
@@ -238,6 +263,7 @@ function ThreadView({
   readonly seatName?: (nodeId: string) => string | undefined;
   readonly onReply: (text: string) => Promise<string | null>;
   readonly onFocus?: () => void;
+  readonly words: CommentsRailWords;
 }) {
   const [reply, setReply] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -267,9 +293,15 @@ function ThreadView({
       <div className="artifact-thread__head">
         <button type="button" className="artifact-thread__anchor" onClick={onFocus} disabled={onFocus === undefined}>
           <MessageSquare size={12} aria-hidden />
-          <span>{anchorLabel(thread.anchor)}</span>
+          <span>{words.place(thread.anchor)}</span>
         </button>
       </div>
+      {/* A thread on lines says what was there when it was written: a file's, never an artifact's. */}
+      {thread.anchor?.kind === "lines" && thread.anchor.quote !== undefined ? (
+        <pre className="artifact-thread__quote" aria-label="The lines commented on">
+          {thread.anchor.quote}
+        </pre>
+      ) : null}
       <ol className="artifact-thread__posts">
         {thread.posts.map((post) => (
           <li key={post.messageId} className="artifact-thread__post">
@@ -289,7 +321,7 @@ function ThreadView({
             onValueChange={(next) => setReply(next)}
             canvasName={canvasName}
             candidates={mentionable}
-            listLabel={() => "Seats in reach of these artifacts"}
+            listLabel={() => `Seats in reach of ${words.reach}`}
             noun={{ one: "seat", other: "seats" }}
             aria-keyshortcuts="Meta+Enter Control+Enter"
             onKeyDown={(event) => {
