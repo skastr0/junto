@@ -399,6 +399,63 @@ describe("search", () => {
     expect(after.matches.map((match) => match.path)).toEqual(["src/new-files.ts"]);
   });
 
+  it("a search or open that waited across a close holds nothing", async () => {
+    let gate: (() => void) | undefined;
+    const { files } = service({
+      names: fakeNames(() => ["a.ts"]),
+      node: async () => {
+        if (gate !== undefined) await new Promise<void>((resolve) => (gate = resolve));
+        return facts;
+      },
+    });
+    value(await files.open(1, ref));
+    gate = () => undefined;
+    const searching = files.search(1, ref, "a", 1);
+    value(files.close(1, ref));
+    gate();
+    expect(errorOf(await searching)).toBe("no-node");
+    expect(files.heldRoots()).toEqual([]);
+    expect(errorOf(await files.bytes(ref.node.toLowerCase(), p("a.ts")))).toBe("no-node");
+    gate = () => undefined;
+    const opening = files.open(1, ref);
+    value(files.close(1, ref));
+    gate();
+    expect(errorOf(await opening)).toBe("no-node");
+    expect(files.heldRoots()).toEqual([]);
+  });
+
+  it("a count taken before a hold never replaces the count the hold left", async () => {
+    let listed = ["a.ts"];
+    let gate: Promise<void> | undefined;
+    let started: (() => void) | undefined;
+    const walking = new Promise<void>((resolve) => (started = resolve));
+    const { files } = service({
+      names: {
+        ...fakeNames(() => listed),
+        walkNames: async (_root, sink) => {
+          const names = listed;
+          const held = gate;
+          started?.();
+          if (held !== undefined) await held;
+          sink(names);
+        },
+      },
+    });
+    let open: (() => void) | undefined;
+    gate = new Promise<void>((resolve) => (open = resolve));
+    const early = files.count(ref);
+    await walking;
+    gate = undefined;
+    listed = ["a.ts", "b.ts", "c.ts"];
+    value(await files.open(1, ref));
+    value(await files.search(1, ref, "a", 1));
+    value(files.close(1, ref));
+    expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
+    open?.();
+    expect(value(await early)).toEqual({ files: 1, capped: false });
+    expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
+  });
+
   it("an unheld count is taken again after a Junto write, or once it is 30 s old", async () => {
     let listed = ["README.md"];
     let clock = 1_000;

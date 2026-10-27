@@ -183,7 +183,10 @@ export interface JuntoFilesApi {
     readonly count: (ref: FilesNodeRef) => Promise<FilesResult<FilesCount>>;
     /** One folder's entries, folders first, then by name. */
     readonly list: (ref: FilesNodeRef, dir: FilePath) => Promise<FilesResult<ReadonlyArray<FileEntry>>>;
-    /** Ranked filenames for quick open. Send a rising `seq` per keystroke; an older one answers `superseded`. */
+    /**
+     * Ranked filenames for quick open, on a node this window opened (else
+     * `no-node`). Send a rising `seq` per keystroke; an older one answers `superseded`.
+     */
     readonly search: (ref: FilesNodeRef, query: string, seq: number) => Promise<FilesResult<FilesSearchResult>>;
     readonly read: (ref: FilesNodeRef, path: FilePath) => Promise<FilesResult<FileRead>>;
     /** Replace a text file. Refused `stale` when it is no longer `base`; answers the new stamp. */

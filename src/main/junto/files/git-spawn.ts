@@ -14,13 +14,16 @@ const spawnEnv = (): Promise<NodeJS.ProcessEnv> => resolvedSpawnEnv().catch(() =
 
 export const spawnGit: GitRun = async (cwd, args, onBytes, signal, stdin) => {
   if (signal.aborted) return null;
+  const env = await spawnEnv();
+  // The first env read can take most of a second: an abort in it must still count.
+  if (signal.aborted) return null;
   const child = spawnServiceChild({
     source: SOURCE,
     purpose: "files name index",
     command: "git",
     args: [...args],
     cwd,
-    env: await spawnEnv(),
+    env,
   });
   const abort = (): void => {
     void child.requestTermination();

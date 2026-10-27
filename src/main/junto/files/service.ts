@@ -92,6 +92,14 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
   const searching = new Map<string, Promise<void>>();
   /** Counts of roots no window holds: kept, so a canvas of Files cards never rescans on a render. */
   const counts = new Map<string, { readonly count: FilesCount; readonly at: number }>();
+  /** Bumped when a root gains or loses a session: a count taken before is not kept. */
+  const rootTurns = new Map<string, number>();
+  const turnOf = (root: string): number => rootTurns.get(root) ?? 0;
+  const turn = (root: string): void => {
+    rootTurns.set(root, turnOf(root) + 1);
+  };
+  /** Bumped on every close of a session key: an open that waited across one does not hold. */
+  const closings = new Map<string, number>();
 
   const sessionsOn = (root: string): ReadonlyArray<string> =>
     [...sessions].flatMap(([key, session]) => (session.root === root ? [key] : []));
@@ -155,14 +163,17 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
   };
 
   const release = (key: string): void => {
+    closings.set(key, (closings.get(key) ?? 0) + 1);
     const session = sessions.get(key);
     if (session === undefined) return;
     forget(key);
     const { root } = session;
+    turn(root);
+    const at = turnOf(root);
     index.release(root, key).then(
       (last) => {
         // The last count a card sees until the root is opened again.
-        if (last !== undefined && sessionsOn(root).length === 0) counts.set(root, { count: last, at: now() });
+        if (last !== undefined && turnOf(root) === at) counts.set(root, { count: last, at: now() });
       },
       (cause: unknown) => console.error("[files] index release failed", cause),
     );
@@ -176,16 +187,21 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     if (current !== undefined) release(key);
     sessions.set(key, { subscriber, ref, root });
     counts.delete(root);
+    turn(root);
     return true;
   };
 
   return {
     open: async (subscriber: number, ref: FilesNodeRef): Promise<FilesResult<FilesRoot>> => {
+      const key = sessionKey(subscriber, ref.node);
+      const closed = closings.get(key) ?? 0;
       const root = await rootOf(ref);
       if (!root.ok) {
-        release(sessionKey(subscriber, ref.node));
+        release(key);
         return root;
       }
+      // Closed while the node was read: the window no longer wants it served.
+      if ((closings.get(key) ?? 0) !== closed) return refused("no-node");
       track(subscriber, ref, root.value);
       const { repo } = await index.hold(root.value, sessionKey(subscriber, ref.node));
       return ok({ name: basename(root.value), repo });
@@ -211,11 +227,14 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       latestSeq.set(key, Math.max(seq, latestSeq.get(key) ?? seq));
       const root = await rootOf(ref);
       if (!root.ok) return root;
+      // Only on a node this window opened (and has not closed meanwhile).
+      if (!sessions.has(key)) return refused("no-node");
       track(subscriber, ref, root.value);
+      const open = (): boolean => sessions.get(key)?.root === root.value;
       // One search per session in the index at a time: one that waited past
-      // a newer keystroke answers superseded without running.
+      // a newer keystroke, or past a close, answers superseded without running.
       const run = async (): Promise<FilesSearchResult> => {
-        if (latestSeq.get(key) !== seq) return { kind: "superseded", query };
+        if (latestSeq.get(key) !== seq || !open()) return { kind: "superseded", query };
         let found;
         try {
           found = await index.search(root.value, key, query);
@@ -238,9 +257,10 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
         if (sessionsOn(root).length > 0) return ok(await index.count(root));
         const known = counts.get(root);
         if (known !== undefined && now() - known.at < COUNT_KEEP_MS) return ok(known.count);
+        const at = turnOf(root);
         const count = await index.count(root);
-        // A root opened meanwhile counts from its index from now on.
-        if (sessionsOn(root).length === 0) counts.set(root, { count, at: now() });
+        // Kept only if no window opened or closed the root meanwhile: either has a fresher count.
+        if (turnOf(root) === at) counts.set(root, { count, at: now() });
         return ok(count);
       }),
 

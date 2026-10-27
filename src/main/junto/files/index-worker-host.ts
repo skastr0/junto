@@ -9,11 +9,21 @@ import { portRootIndex } from "./root-index-port";
  * when no root is held and nothing is pending, which hands back everything
  * its builds allocated. If the worker stops, pending calls reject and the
  * next call starts a fresh one, holding again every root main still holds.
+ * A worker that stops while roots are held is started again at once (then
+ * after 1 s, doubling to 30 s, if it keeps stopping), and those roots'
+ * sessions get a reset so their trees list again.
  */
+
+const RESTART_FIRST_MS = 1_000;
+const RESTART_MAX_MS = 30_000;
+/** A worker that lived this long resets the backoff. */
+const RESTART_SETTLED_MS = 60_000;
 export const workerRootIndex = (emit: (root: string, event: RootEvent) => void): RootIndex => {
   /** Sessions main holds, per root: replayed into a fresh worker. */
   const holds = new Map<string, Set<string>>();
   let current: { readonly worker: Worker; readonly index: ReturnType<typeof portRootIndex> } | undefined;
+  let backoff = 0;
+  let restart: ReturnType<typeof setTimeout> | undefined;
 
   const end = (): void => {
     if (current === undefined || holds.size > 0 || !current.index.idle()) return;
@@ -27,9 +37,23 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
     const worker = createIndexWorker({ name: "junto-files-index" });
     const index = portRootIndex(worker, { git: spawnGit, emit, onIdle: () => queueMicrotask(end) });
     const held = { worker, index };
+    const started = Date.now();
     const stop = (cause: Error): void => {
-      if (current === held) current = undefined;
+      if (current !== held) {
+        index.lost(cause);
+        return;
+      }
+      current = undefined;
       index.lost(cause);
+      if (holds.size === 0 || restart !== undefined) return;
+      // Held roots lost their watch: restart, and have their trees list again.
+      backoff = Date.now() - started > RESTART_SETTLED_MS ? 0 : Math.min(RESTART_MAX_MS, Math.max(RESTART_FIRST_MS, backoff * 2));
+      restart = setTimeout(() => {
+        restart = undefined;
+        if (holds.size > 0) live();
+      }, backoff);
+      restart.unref();
+      for (const root of holds.keys()) emit(root, { kind: "reset" });
     };
     worker.on("error", (cause: unknown) => {
       console.error("[files] index worker failed", cause);
