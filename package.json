@@ -134,6 +134,7 @@
     "jsdom": "26.1.0",
     "lucide-react": "^0.468.0",
     "motion": "12.38.0",
+    "pdfjs-dist": "6.4.299",
     "playwright-core": "1.61.1",
     "qrcode": "1.5.4",
     "react": "19.2.6",

@@ -170,37 +170,9 @@ export const SheetBody = Schema.Struct({
 });
 export type SheetBody = typeof SheetBody.Type;
 
-const Fraction = Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 1 })));
-const Span = Fraction.pipe(Schema.check(Schema.isGreaterThan(0)));
-
-/**
- * A path inside a Files node's folder: relative, `/` separated, no empty,
- * `.` or `..` part. It names a place on the node's machine and nothing more,
- * so it may cross to every machine; an absolute path never does.
- */
-const FileSourcePath = NonEmptyString.pipe(
-  Schema.check(
-    Schema.makeFilter((path) => path.split("/").every((part) => part !== "" && part !== "." && part !== "..") || "a path relative to the Files node's folder"),
-  ),
-);
-
-/**
- * Where an extracted file came from: a box (0..1 of the page or image) drawn
- * on a file in a Files node, and the page for a PDF.
- */
-export const FileSource = Schema.Struct({
-  nodeId: NodeId,
-  path: FileSourcePath,
-  page: Schema.optionalKey(Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1)))),
-  box: Schema.Struct({ x: Fraction, y: Fraction, w: Span, h: Span }),
-});
-export type FileSource = typeof FileSource.Type;
-
 export const FileBody = Schema.Struct({
   type: Schema.Literal("file"),
   content: ContentRef,
-  /** Set when the file was extracted from a file in a Files node. */
-  source: Schema.optionalKey(FileSource),
 });
 export type FileBody = typeof FileBody.Type;
 
