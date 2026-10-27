@@ -152,6 +152,9 @@ export type SurfaceKeyId =
   | "inDocument.write"
   | "inDocument.stop"
   | "inDocument.mention"
+  | "inDocument.bold"
+  | "inDocument.follow"
+  | "inDocument.thread"
   | "inSheet.move"
   | "inSheet.extend"
   | "inSheet.edit"
@@ -698,6 +701,33 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Name a seat or a page; Enter or Tab picks it",
     keys: [],
     shown: [["@"]],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inDocument.bold",
+    area: "Inside a document",
+    name: "Bold",
+    does: "Make the selection bold, or plain again",
+    keys: ["Cmd+B"],
+    keysOther: ["Ctrl+B"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inDocument.follow",
+    area: "Inside a document",
+    name: "Open the link",
+    does: "Open the link at the caret: a seat, task or artifact, or a web page",
+    keys: ["Cmd+Enter"],
+    keysOther: ["Ctrl+Enter"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inDocument.thread",
+    area: "Inside a document",
+    name: "Open the comment",
+    does: "Open the comment thread on the quote at the caret",
+    keys: ["Cmd+Alt+M"],
+    keysOther: ["Ctrl+Alt+M"],
     where: ["field"],
   }),
   surfaceKey({
