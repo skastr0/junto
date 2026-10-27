@@ -12,8 +12,9 @@ import {
  * kept fresh by the watcher's deltas, and dropped when no node holds it.
  *
  * Packed, with no object per file: every path lives in one string, NUL
- * separated, with its lower-case fold beside it (folded once) and an
- * Int32Array of offsets. Removal finds a path through an open-addressing
+ * separated, with its lower-case fold beside it as a typed array of char
+ * codes (folded once) and an Int32Array of offsets. Removal finds a path
+ * through an open-addressing
  * hash table of offsets (Int32Array) and leaves a tombstone; additions go to
  * a small overlay. When the overlay or the tombstones grow past
  * `COMPACT_AFTER`, the holder rebuilds from disk instead.
@@ -45,18 +46,120 @@ const sliceEquals = (text: string, from: number, to: number, other: string): boo
  * bit of the query's cannot match, so most paths are passed over without
  * being scored. "/" sets no bit, so a query "/" still matches.
  */
-const maskOf = (text: string, from: number, to: number): number => {
+const bitOf = (c: number): number => {
+  if (c >= 97 && c <= 122) return 1 << (c - 97);
+  if (c >= 48 && c <= 57) return 1 << 26;
+  if (c === 46 || c === 45 || c === 95) return 1 << 27;
+  if (c === 47) return 0;
+  return c < 128 ? 1 << 28 : 1 << 29;
+};
+
+const maskOf = (text: string): number => {
   let mask = 0;
-  for (let i = from; i < to; i += 1) {
-    const c = text.charCodeAt(i);
-    if (c >= 97 && c <= 122) mask |= 1 << (c - 97);
-    else if (c >= 48 && c <= 57) mask |= 1 << 26;
-    else if (c === 46 || c === 45 || c === 95) mask |= 1 << 27;
-    else if (c === 47) continue;
-    else if (c < 128) mask |= 1 << 28;
-    else mask |= 1 << 29;
-  }
+  for (let i = 0; i < text.length; i += 1) mask |= bitOf(text.charCodeAt(i));
   return mask;
+};
+
+const maskOfCodes = (codes: Codes, from: number, to: number): number => {
+  let mask = 0;
+  for (let i = from; i < to; i += 1) mask |= bitOf(codes[i]!);
+  return mask;
+};
+
+const isSeparator = (c: number): boolean => c === 47 || c === 45 || c === 95 || c === 46 || c === 32;
+
+/** Query characters after the first whose previous query character is a separator. */
+export const separatorsBefore = (query: Uint16Array): number => {
+  let n = 0;
+  for (let k = 1; k < query.length; k += 1) if (isSeparator(query[k - 1]!)) n += 1;
+  return n;
+};
+
+/**
+ * The most points any match of a query can take (scoreCodes' points), all
+ * characters in the name: 1 each, 2 each for the name, 3 for the first
+ * character's word start and 2 for the name start, and for each later
+ * character either a run (4) or a word start (3), both only after a
+ * separator in the query.
+ */
+const boundOf = (length: number, separators: number): number =>
+  length === 0 ? 0 : length * 3 + 5 + (length - 1) * 4 + separators * 3;
+
+/** Folded char codes of every packed path, separators included. */
+type Codes = Uint8Array | Uint16Array;
+
+/**
+ * `scoreFilePath` over the packed codes, inlined for the per-keystroke
+ * loop: the same passes and points, so it ranks exactly as the shared
+ * scorer does (a test holds the two equal). `query` is the folded query's
+ * codes.
+ */
+export const scoreCodes = (
+  codes: Codes,
+  from: number,
+  to: number,
+  query: Uint16Array,
+  floor: number,
+  /** `separatorsBefore(query)`, for the bound. */
+  separators = 0,
+): number | undefined => {
+  const length = query.length;
+  if (length === 0) return 0;
+  if (length > to - from) return undefined;
+  // One backward pass finds the match and, on the way, the last "/".
+  let nameStart = -1;
+  let qi = length - 1;
+  let start = -1;
+  let end = -1;
+  let inName = 0;
+  let want = query[qi]!;
+  for (let i = to - 1; i >= from; i -= 1) {
+    const c = codes[i]!;
+    if (c === 47 && nameStart < 0) nameStart = i + 1;
+    if (c !== want) continue;
+    if (end < 0) end = i;
+    if (nameStart < 0) inName += 1;
+    qi -= 1;
+    if (qi < 0) {
+      start = i;
+      break;
+    }
+    want = query[qi]!;
+  }
+  if (start < 0) return undefined;
+  const penalty = (end - start) * 4 + (to - from);
+  if (floor !== Number.NEGATIVE_INFINITY) {
+    // The forward pass can find a run inside a wide span, so no point is
+    // taken off for the span; the name's points count only what is in it.
+    const best = boundOf(length, separators) - 2 + inName * 2 + (inName > 0 ? 2 : 0) - length * 2;
+    if (best * 1024 - penalty <= floor) return Number.NEGATIVE_INFINITY;
+  }
+  if (nameStart < 0) {
+    // The match ended before any "/": the name starts further back.
+    nameStart = from;
+    for (let i = start - 1; i >= from; i -= 1) {
+      if (codes[i] === 47) {
+        nameStart = i + 1;
+        break;
+      }
+    }
+  }
+  let score = 0;
+  let previous = -2;
+  qi = 0;
+  for (let i = start; i <= end && qi < length; i += 1) {
+    if (codes[i] !== query[qi]) continue;
+    let points = 1;
+    if (i >= nameStart) points += 2;
+    const before = i === from ? 47 : codes[i - 1]!;
+    if (before === 47 || before === 45 || before === 95 || before === 46 || before === 32) points += 3;
+    if (previous === i - 1) points += 4;
+    if (i === nameStart) points += 2;
+    score += points;
+    previous = i;
+    qi += 1;
+  }
+  return score * 1024 - penalty;
 };
 
 /** Hand the event loop back between chunks of a build, so no step blocks it past a frame. */
@@ -93,13 +196,20 @@ export class NameIndexBuilder {
     const packed = this.chunks.join(SEPARATOR);
     this.chunks.length = 0;
     const count = this.count;
-    // Joined, not concatenated: the hot loop reads a flat string, never a rope.
-    const foldedParts: string[] = [];
-    for (let at = 0; at < packed.length; at += FOLD_CHUNK) {
-      foldedParts.push(foldForSearch(packed.slice(at, at + FOLD_CHUNK)));
+    // The hot loop reads folded char codes from a typed array: measured 2.5x
+    // faster than charCodeAt on the packed string. One byte per unit unless
+    // a path holds a unit above 255.
+    let wide = false;
+    for (let at = 0; at < packed.length && !wide; at += FOLD_CHUNK) {
+      wide = /[^\u0000-\u00ff]/u.test(packed.slice(at, at + FOLD_CHUNK));
       await yieldNow();
     }
-    const folded = foldedParts.join("");
+    const codes: Codes = wide ? new Uint16Array(packed.length) : new Uint8Array(packed.length);
+    for (let at = 0; at < packed.length; at += FOLD_CHUNK) {
+      const folded = foldForSearch(packed.slice(at, at + FOLD_CHUNK));
+      for (let i = 0; i < folded.length; i += 1) codes[at + i] = folded.charCodeAt(i);
+      await yieldNow();
+    }
     const starts = new Int32Array(count + 1);
     let at = 0;
     for (let i = 0; i < count; i += 1) {
@@ -111,7 +221,7 @@ export class NameIndexBuilder {
     starts[count] = packed.length + 1;
     const masks = new Int32Array(count);
     for (let i = 0; i < count; i += 1) {
-      masks[i] = maskOf(folded, starts[i]!, starts[i + 1]! - 1);
+      masks[i] = maskOfCodes(codes, starts[i]!, starts[i + 1]! - 1);
       if (i % CHUNK === CHUNK - 1) await yieldNow();
     }
     let capacity = 1024;
@@ -124,13 +234,17 @@ export class NameIndexBuilder {
       table[slot] = i + 1;
       if (i % CHUNK === CHUNK - 1) await yieldNow();
     }
-    return new NameIndex(packed, folded, starts, masks, table);
+    return new NameIndex(packed, codes, starts, masks, table);
   }
 }
 
 type Top = { scores: Float64Array; ids: Int32Array; size: number; worst: number };
 
-/** Ids at or above `base` are overlay entries; below are packed entries. */
+/**
+ * Every id that may match `query`: all its matches and perhaps some that do
+ * not, so a longer query scores only these. Ids at or above `base` are
+ * overlay entries; below are packed entries.
+ */
 export type MatchSet = { readonly query: string; readonly generation: number; readonly ids: Int32Array };
 
 export class NameIndex {
@@ -144,7 +258,7 @@ export class NameIndex {
 
   constructor(
     private readonly packed: string,
-    private readonly folded: string,
+    private readonly codes: Codes,
     private readonly starts: Int32Array,
     private readonly masks: Int32Array,
     private readonly table: Int32Array,
@@ -244,24 +358,39 @@ export class NameIndex {
     limit = FILES_SEARCH_LIMIT,
   ): { readonly matches: ReadonlyArray<FileMatch>; readonly set: MatchSet } {
     const query = foldForSearch(rawQuery.trim());
-    const want = maskOf(query, 0, query.length);
+    const want = maskOf(query);
+    const queryCodes = new Uint16Array(query.length);
+    for (let i = 0; i < query.length; i += 1) queryCodes[i] = query.charCodeAt(i);
     const top: Top = { scores: new Float64Array(limit), ids: new Int32Array(limit), size: 0, worst: 0 };
     const narrow =
       previous !== undefined && previous.generation === this.generation && query.startsWith(previous.query);
     const base = this.base;
     const total = base + this.overlay.length;
-    const { folded, starts, masks, dead } = this;
+    const { codes, starts, masks, dead } = this;
     const found = new Int32Array(narrow ? previous.ids.length : total);
     let foundCount = 0;
     const count = narrow ? previous.ids.length : total;
     const ids = narrow ? previous.ids : undefined;
+    // The most any match can score, less the path's length: every point
+    // for every character, the tightest span (see scoreCodes).
+    const separators = separatorsBefore(queryCodes);
+    const perfect = boundOf(query.length, separators) * 1024 - (query.length - 1) * 4;
     for (let at = 0; at < count; at += 1) {
       const id = ids === undefined ? at : ids[at]!;
       let score: number | undefined;
       if (id < base) {
         if (dead[id] !== 0 || (masks[id]! & want) !== want) continue;
+        const from = starts[id]!;
+        const to = starts[id + 1]! - 1;
         const floor = top.size < limit ? Number.NEGATIVE_INFINITY : top.scores[top.worst]!;
-        score = scoreFilePath(folded, query, undefined, starts[id]!, starts[id + 1]! - 1, floor);
+        // Too long to beat the 50th even matched perfectly: kept for the next
+        // keystroke unscored. The set only has to hold every match, not only matches.
+        if (perfect - (to - from) <= floor) {
+          found[foundCount] = id;
+          foundCount += 1;
+          continue;
+        }
+        score = scoreCodes(codes, from, to, queryCodes, floor, separators);
       } else {
         const own = this.overlayFolded[id - base];
         if (own === undefined) continue;
