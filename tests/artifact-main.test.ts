@@ -395,7 +395,7 @@ describe.runIf(ARTIFACTS_ENABLED)("[[Title]] in junto artifact create and edit",
     });
     const linking = [from("AR", "01M5ESMQ2ZT55QZ073EWPH10SH", "Plan"), from("AP", "01M5ESMQ2ZT55QZ073EWPH10SK", "Away")];
     const asked: unknown[] = [];
-    const withLinks: ArtifactPorts = { ...ports, bodyLinks: (_canvas, target) => Effect.sync(() => (asked.push(target), linking)) };
+    const withLinks: ArtifactPorts = { ...ports, bodyLinks: (_board, _canvas, target) => Effect.sync(() => (asked.push(target), linking)) };
     const shown = ok<ArtifactShowResult>(run(withLinks, "artifact.show", { artifact: NEW }));
     expect(asked).toEqual([{ nodeId: "AR", artifactId: NEW }]);
     expect(shown.linkedFrom.bodies).toEqual([linking[0]]);

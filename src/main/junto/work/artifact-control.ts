@@ -74,6 +74,7 @@ import { bodyTexts, editTexts, hasArtifactLinkTokens, linkBodyTitles, linkEditTi
 import { resolveArtifactTitles } from "./artifact-link-titles";
 import { readMentions, type MentionRow } from "./mention-backlinks";
 import { entryOf } from "./mention-ipc";
+import { linkedFromBodies } from "./body-links";
 import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
 import { SqlClient } from "effect/unstable/sql";
 
@@ -109,7 +110,7 @@ export type ArtifactPorts = {
   /** Up to `limit` mail rows that mention `key`, newest first (`work_mentions`). Absent, show lists none. */
   readonly mentions?: (canvasName: string, key: string, limit: number) => Effect.Effect<ReadonlyArray<MentionRow>, WorkErrorBody>;
   /** The artifacts whose head body links `target`, newest first, archived ones left out (L1). Absent, show lists none. */
-  readonly bodyLinks?: (canvasName: string, target: ArtifactLinkRef) => Effect.Effect<ReadonlyArray<LinkedFromBody>, WorkErrorBody>;
+  readonly bodyLinks?: (canvas: Canvas, canvasName: string, target: ArtifactLinkRef) => Effect.Effect<ReadonlyArray<LinkedFromBody>, WorkErrorBody>;
 };
 
 export type ArtifactCaller = {
@@ -233,6 +234,12 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
       Effect.serviceOption(BodyPuller).pipe(
         Effect.flatMap((puller) =>
           Option.isNone(puller) ? Effect.void : puller.value.pull(input).pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid),
+        ),
+      ),
+    bodyLinks: (canvas, canvasName, target) =>
+      Effect.serviceOption(SqlClient.SqlClient).pipe(
+        Effect.flatMap((sql) =>
+          Option.isNone(sql) ? Effect.succeed([]) : linkedFromBodies(sql.value, canvas, canvasName, target).pipe(Effect.mapError(storeError)),
         ),
       ),
     mentions: (canvasName, key, limit) =>
@@ -525,7 +532,7 @@ const linkedFromOf = (
 ): Effect.Effect<ArtifactLinkedFrom, WorkErrorBody> =>
   Effect.gen(function* () {
     const seat = caller.actor.nodeId;
-    const linking = ports.bodyLinks === undefined ? [] : yield* ports.bodyLinks(caller.canvasName, { nodeId: artifact.nodeId, artifactId: artifact.artifactId });
+    const linking = ports.bodyLinks === undefined ? [] : yield* ports.bodyLinks(caller.canvas, caller.canvasName, { nodeId: artifact.nodeId, artifactId: artifact.artifactId });
     const bodies = linking.filter((link) => reaches(caller.canvas, seat, link.source.nodeId));
     const key = mentionKey({ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId });
     const rows = ports.mentions === undefined ? [] : yield* ports.mentions(caller.canvasName, key, LINKED_FROM_SCAN);
