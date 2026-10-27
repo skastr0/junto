@@ -13,6 +13,7 @@
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
+import { parseFilePath, type FilePath } from "../../src/shared/files";
 
 export interface FilesFixture {
   /** The node's root. */
@@ -20,25 +21,27 @@ export interface FilesFixture {
   /** A sibling of the root; nothing in it may be read through the node. */
   readonly outside: string;
   /** Paths relative to the root, the way the renderer names them. */
-  readonly paths: {
-    readonly bigTs: string;
-    readonly markdown: string;
-    readonly pdf: string;
-    readonly png: string;
-    readonly unknownBinary: string;
-    readonly tooLarge: string;
-    readonly deep: string;
-    readonly spaced: string;
-    readonly accented: string;
-    readonly symlinkFileOut: string;
-    readonly symlinkDirOut: string;
-    readonly symlinkInside: string;
-    readonly skipped: string;
-  };
+  readonly paths: Readonly<Record<keyof typeof PATHS, FilePath>>;
   /** Text the PDF carries on each page, for selection and search checks. */
   readonly pdfPageText: readonly [string, string];
   readonly bigTsLines: number;
 }
+
+const PATHS = {
+  bigTs: "src/big.ts",
+  markdown: "README.md",
+  pdf: "docs/sample.pdf",
+  png: "img/gradient.png",
+  unknownBinary: "data/blob.bin",
+  tooLarge: "logs/huge.log",
+  deep: "nested/a/b/c/deep.txt",
+  spaced: "notes/meeting notes.txt",
+  accented: "notes/café.md",
+  symlinkFileOut: "link-secret.txt",
+  symlinkDirOut: "link-outside",
+  symlinkInside: "link-readme.md",
+  skipped: "node_modules/pkg/index.js",
+} as const;
 
 const BIG_TS_LINES = 5000;
 const TOO_LARGE_BYTES = 5 * 1024 * 1024 + 1024;
@@ -147,21 +150,13 @@ const put = async (path: string, data: string | Buffer): Promise<void> => {
 export const buildFilesFixture = async (parent: string): Promise<FilesFixture> => {
   const root = join(parent, "files-root");
   const outside = join(parent, "files-outside");
-  const paths = {
-    bigTs: "src/big.ts",
-    markdown: "README.md",
-    pdf: "docs/sample.pdf",
-    png: "img/gradient.png",
-    unknownBinary: "data/blob.bin",
-    tooLarge: "logs/huge.log",
-    deep: "nested/a/b/c/deep.txt",
-    spaced: "notes/meeting notes.txt",
-    accented: "notes/café.md",
-    symlinkFileOut: "link-secret.txt",
-    symlinkDirOut: "link-outside",
-    symlinkInside: "link-readme.md",
-    skipped: "node_modules/pkg/index.js",
-  } as const;
+  const paths = Object.fromEntries(
+    Object.entries(PATHS).map(([key, raw]) => {
+      const path = parseFilePath(raw);
+      if (path === undefined) throw new Error(`fixture path refused by the contract: ${raw}`);
+      return [key, path];
+    }),
+  ) as FilesFixture["paths"];
 
   await put(join(outside, "secret.txt"), "outside the root\n");
   await put(join(root, paths.bigTs), bigTypeScript(BIG_TS_LINES));
