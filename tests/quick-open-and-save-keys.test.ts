@@ -103,9 +103,22 @@ describe("quick open's chord", () => {
 
   it("passes when no modal is up, or the node holds nothing to search", () => {
     expect(toggleQuickOpenFor("node-1")).toBe(false);
+    expect(toggleQuickOpenFor("")).toBe(false);
     const empty = quickOpenNode("node-2", false);
     expect(toggleQuickOpenFor("node-2")).toBe(false);
+    // Not enabled falls through to nothing it can open, even unnamed.
+    expect(toggleQuickOpenFor("")).toBe(false);
     expect(empty.open).not.toHaveBeenCalled();
+  });
+
+  it("answers for the modal showing when the front node is not a workbench surface", () => {
+    // A card's overlay is not a dock surface, so the action names no node:
+    // the last modal registered is the one showing, as the page chrome's keys do.
+    const first = quickOpenNode("node-1");
+    const showing = quickOpenNode("node-2");
+    expect(toggleQuickOpenFor("")).toBe(true);
+    expect(showing.open).toHaveBeenCalledTimes(1);
+    expect(first.open).not.toHaveBeenCalled();
   });
 
   it("reaches the node asked for, and a remount takes the place of the modal it replaced", () => {

@@ -108,11 +108,10 @@ export const KEY_ACTIONS: KeyActions = {
   // No panes in front, or only one: the key passes.
   "pane.next": (_hit, event) => movePaneFocus(1, event),
   "pane.previous": (_hit, event) => movePaneFocus(-1, event),
-  // No node modal in front, or its node holds nothing to search: the key passes.
-  "quickOpen.open": () => {
-    const node = frontNode();
-    return node !== undefined && toggleQuickOpenFor(node.id);
-  },
+  // The card overlay a node opens is not a workbench surface, so the front
+  // node is often unknown here: the host then answers for the modal showing.
+  // With no modal up, or one holding nothing to search, the key passes.
+  "quickOpen.open": () => toggleQuickOpenFor(frontNode()?.id ?? ""),
   // No file open in a Files node: the key passes.
   "files.save": () => saveFileInFront(),
   // Nothing selected, or nothing it can open: the key passes.
