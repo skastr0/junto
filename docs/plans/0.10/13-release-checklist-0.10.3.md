@@ -51,12 +51,15 @@ under `state/`.)
 - [x] A second open runs no step and makes no backup.
       Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): a second open stays at v50 with one backup; every
       table row-identical except the re-stamped verified_at.
-- [ ] The migrated copy loads the canvas in the built app.
-      Partial: engine load of the live copy passes on both opens, ModelService loads
-      canvas factory with 306 nodes and 651 wires (canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead)).
-      App-level launch is pending: a fresh v49 home with canvas "gate" (3 task
-      boards, 2 flows wires) waits for the packaged b7f33e184 app behind the
-      app-run lock; canvas-lead forwards the receipt when it lands. Receipt:
+- [x] The migrated copy loads the canvas in the built app.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead
+      via product-lead): engine load of the live copy passes on both opens, 306
+      nodes and 651 wires. 7b: the packaged b7f33e184 app launched on a fresh v49
+      home made by the 0.10.2 engine; first launch migrated to v50 (identity
+      47696d80, quick_check ok, foreign keys empty, both flows wires kept,
+      derived_from NULL); the pre-upgrade backup is v49 (identity f3e72b3b) with
+      both wires; launches 2 to 4 ran no step and made no new backup; canvas-lead
+      checked the launch-4 capture (step50-gate-app-canvas.png).
 
 These ran at b7f33e184, not the cut hash; the step's files
 (`migrate-derives-verb.ts`, `migrations.ts`) are the ones to diff at the cut.
