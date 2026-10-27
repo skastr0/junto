@@ -313,6 +313,17 @@ describe("the key table off macOS", () => {
     expect(resolveKey(key({ key: "1", code: "Digit1", ctrlKey: true }), at("terminal", false))).toBeNull();
   });
 
+  it("opens quick open with Ctrl+P and saves with Ctrl+S, never from a terminal", () => {
+    expect(resolveKey(key({ key: "p", ctrlKey: true }), at("working", false))).toEqual({ id: "quickOpen.open" });
+    expect(resolveKey(key({ key: "p", ctrlKey: true }), at("field", false))).toEqual({ id: "quickOpen.open" });
+    expect(resolveKey(key({ key: "s", ctrlKey: true }), at("field", false))).toEqual({ id: "files.save" });
+    // Ctrl+S on a terminal is XOFF, and Ctrl+P is the shell's own history key.
+    expect(resolveKey(key({ key: "s", ctrlKey: true }), at("terminal", false))).toBeNull();
+    expect(resolveKey(key({ key: "p", ctrlKey: true }), at("terminal", false))).toBeNull();
+    // No Cmd elsewhere.
+    expect(resolveKey(key({ key: "p", metaKey: true }), at("working", false))).toBeNull();
+  });
+
   it("has no two shortcuts on one chord in one place", () => {
     expect(keyConflicts(false)).toEqual([]);
   });
@@ -354,10 +365,52 @@ describe("rebinding", () => {
 
   it("refuses the system's chords, the held ones and, on macOS, anything with Control", () => {
     expect(reservedReason("Cmd+Q", true)).toBe("macOS quits the app");
-    expect(reservedReason("Cmd+P", true)).toBe("Held for a later Junto shortcut");
+    expect(reservedReason("Cmd+O", true)).toBe("Held for a later Junto shortcut");
+    // Cmd+P was held; quick open claims it, so a rebind may use it.
+    expect(reservedReason("Cmd+P", true)).toBeNull();
     expect(reservedReason("Ctrl+Tab", true)).toBe("Control belongs to the terminal");
     expect(reservedReason("Ctrl+K", false)).toBeNull();
     expect(reservedReason("Cmd+J", true)).toBeNull();
+  });
+});
+
+describe("quick open and saving the open file", () => {
+  it("opens quick open with Cmd+P inside a node modal, and nowhere else", () => {
+    for (const context of ["working", "field"] as const) {
+      expect(resolveKey(key({ key: "p", metaKey: true }), at(context))).toEqual({ id: "quickOpen.open" });
+    }
+    for (const context of ["canvas", "terminal", "operator", "dialog"] as const) {
+      expect(resolveKey(key({ key: "p", metaKey: true }), at(context))).toBeNull();
+    }
+    // Quick open is one chord, not a family: Shift or Alt makes it someone else's.
+    expect(resolveKey(key({ key: "P", metaKey: true, shiftKey: true }), at("working"))).toBeNull();
+    expect(resolveKey(key({ key: "p", metaKey: true, altKey: true }), at("field"))).toBeNull();
+  });
+
+  it("leaves Cmd+P free to rebind: the held list no longer names it", () => {
+    const def = KEY_TABLE.find((row) => row.id === "quickOpen.open");
+    expect(def?.mac).toEqual(["Cmd+P"]);
+    expect(def?.fixed).toBeUndefined();
+    expect(def?.area).toBe("Inside a node");
+  });
+
+  it("saves the file in front with Cmd+S, in a field or a working modal, never in a terminal", () => {
+    expect(resolveKey(key({ key: "s", metaKey: true }), at("field"))).toEqual({ id: "files.save" });
+    expect(resolveKey(key({ key: "s", metaKey: true }), at("working"))).toEqual({ id: "files.save" });
+    expect(resolveKey(key({ key: "s", metaKey: true }), at("terminal"))).toBeNull();
+    expect(resolveKey(key({ key: "s", metaKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "s", metaKey: true }), at("operator"))).toBeNull();
+    expect(resolveKey(key({ key: "S", metaKey: true, shiftKey: true }), at("field"))).toBeNull();
+  });
+
+  it("leaves quick open's own moves to the palette, typing included", () => {
+    // The palette is a field: its arrows and Enter belong to the combobox there.
+    expect(resolveKey(key({ key: "ArrowDown" }), at("field"))).toBeNull();
+    expect(resolveKey(key({ key: "ArrowUp" }), at("field"))).toBeNull();
+    expect(resolveKey(key({ key: "Enter" }), at("field"))).toBeNull();
+    for (const id of ["inQuickOpen.move", "inQuickOpen.open"] as const) {
+      expect(KEY_TABLE.find((row) => row.id === id)?.surface).toBe(true);
+    }
   });
 });
 

@@ -62,11 +62,14 @@ export type ShortcutArea =
   | "Search and feed"
   | "Canvas"
   | "Agent and terminal"
+  | "Inside a node"
+  | "Inside quick open"
   | "Inside search"
   | "Inside the needs-you feed"
   | "Inside a list"
   | "Inside a preview"
   | "Inside an artifact"
+  | "Inside a file"
   | "Inside a document"
   | "Inside a sheet"
   | "Inside the drawing pad"
@@ -78,11 +81,14 @@ export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Search and feed",
   "Canvas",
   "Agent and terminal",
+  "Inside a node",
+  "Inside quick open",
   "Inside search",
   "Inside the needs-you feed",
   "Inside a list",
   "Inside a preview",
   "Inside an artifact",
+  "Inside a file",
   "Inside a document",
   "Inside a sheet",
   "Inside the drawing pad",
@@ -117,6 +123,8 @@ export type ShortcutId =
   | "comments.toggle"
   | "pane.next"
   | "pane.previous"
+  | "quickOpen.open"
+  | "files.save"
   | "canvas.open"
   | "page.address"
   | "page.reload"
@@ -143,6 +151,8 @@ export type SurfaceKeyId =
   | "inList.first"
   | "inList.last"
   | "inList.open"
+  | "inQuickOpen.move"
+  | "inQuickOpen.open"
   | "inFeed.reply"
   | "inFeed.openAgent"
   | "inFeed.quickReply"
@@ -459,6 +469,27 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     other: ["Ctrl+Alt+ArrowLeft"],
     where: ["working", "field"],
   },
+  // The node modal in front, not the canvas: quick open searches what the
+  // node holds, and there is nothing to search with no node open.
+  {
+    id: "quickOpen.open",
+    area: "Inside a node",
+    name: "Quick open",
+    does: "Find a file or an item in the node in front, by typing its name",
+    mac: ["Cmd+P"],
+    other: ["Ctrl+P"],
+    where: ["working", "field"],
+  },
+  // The Files node's own save. Never a terminal: there Control+S is XOFF.
+  {
+    id: "files.save",
+    area: "Inside a file",
+    name: "Save the file",
+    does: "Save the file open in the Files node",
+    mac: ["Cmd+S"],
+    other: ["Ctrl+S"],
+    where: ["working", "field"],
+  },
   {
     id: "canvas.open",
     area: "Canvas",
@@ -626,6 +657,25 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Open the row and put the keyboard in it",
     keys: ["Enter"],
     where: ["working", "operator"],
+  }),
+
+  // Quick open is a field the operator types in, so its moves are the ones a
+  // combobox owns: arrows without a modifier, and Enter to open the match.
+  surfaceKey({
+    id: "inQuickOpen.move",
+    area: "Inside quick open",
+    name: "Move through the matches",
+    does: "Move through the files or items that match what is typed",
+    keys: ["ArrowDown", "ArrowUp"],
+    where: ["field", "working"],
+  }),
+  surfaceKey({
+    id: "inQuickOpen.open",
+    area: "Inside quick open",
+    name: "Open the match",
+    does: "Open the file or item that is picked",
+    keys: ["Enter"],
+    where: ["field", "working"],
   }),
   surfaceKey({
     id: "inFeed.reply",
@@ -971,7 +1021,6 @@ export const RESERVED_CHORDS: ReadonlyArray<{ readonly chord: string; readonly w
   { chord: "Cmd+X", why: "Cut" },
   { chord: "Cmd+A", why: "Select all" },
   { chord: "Cmd+O", why: "Held for a later Junto shortcut" },
-  { chord: "Cmd+P", why: "Held for a later Junto shortcut" },
 ];
 
 // --- chords ------------------------------------------------------------------

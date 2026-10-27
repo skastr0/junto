@@ -5,6 +5,7 @@ import { cycleActorMirror } from "./actor-mirrors";
 import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$, parseTerminalSurfaceId } from "./dock-state";
+import { saveFileInFront } from "./file-editor-keys";
 import {
   cancelFocusSwitcher,
   commitFocusSwitcher,
@@ -20,6 +21,7 @@ import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { runPageChromeKey } from "./page-chrome-keys";
 import { movePaneFocus } from "./pane-focus";
+import { toggleQuickOpenFor } from "./quick-open-host";
 import { state$ } from "./state";
 import { spacePressesControl, stepToNextAgent } from "./urgency-step";
 import { modelStore, nodeAt } from "./use-model";
@@ -106,6 +108,13 @@ export const KEY_ACTIONS: KeyActions = {
   // No panes in front, or only one: the key passes.
   "pane.next": (_hit, event) => movePaneFocus(1, event),
   "pane.previous": (_hit, event) => movePaneFocus(-1, event),
+  // No node modal in front, or its node holds nothing to search: the key passes.
+  "quickOpen.open": () => {
+    const node = frontNode();
+    return node !== undefined && toggleQuickOpenFor(node.id);
+  },
+  // No file open in a Files node: the key passes.
+  "files.save": () => saveFileInFront(),
   // Nothing selected, or nothing it can open: the key passes.
   "canvas.open": () => activateSelectedNodeSurface().opened,
   // Always ours: a press held back by the overshoot guard must not fall

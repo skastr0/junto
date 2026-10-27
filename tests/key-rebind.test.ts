@@ -19,10 +19,12 @@ describe("proposeRebind", () => {
 
   it("refuses a chord the system owns, a held one, and anything with Control on macOS", () => {
     expect(proposeRebind("feed.open", "Cmd+Q", true)).toEqual({ kind: "refused", why: "macOS quits the app" });
-    expect(proposeRebind("feed.open", "Cmd+P", true)).toEqual({
+    expect(proposeRebind("feed.open", "Cmd+O", true)).toEqual({
       kind: "refused",
       why: "Held for a later Junto shortcut",
     });
+    // Cmd+P is quick open's now: the operator is told whose it is, not that it is held.
+    expect(proposeRebind("feed.open", "Cmd+P", true)).toMatchObject({ kind: "taken", by: "quickOpen.open" });
     expect(proposeRebind("feed.open", "Ctrl+J", true)).toEqual({
       kind: "refused",
       why: "Control belongs to the terminal",
