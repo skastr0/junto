@@ -290,7 +290,7 @@ function LinkRowContent({ row }: { readonly row: LinkCandidate }) {
       <>
         <ResourceGlyphMark kind="artifact" artifactType="document" />
         <span className="mention-combobox__label">{linkCandidateLabel(row)}</span>
-        <span className="mention-combobox__kind">new</span>
+        <span className="mention-combobox__kind">New</span>
       </>
     );
   }

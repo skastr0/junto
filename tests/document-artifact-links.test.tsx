@@ -101,13 +101,13 @@ describe("the [[ list in a live document", () => {
     expect(rows()).toEqual(["Launch planDocument", "Launch budgetFinanceSheet"]);
     expect(view.contentDOM.getAttribute("aria-activedescendant")).toBe(host.querySelector("[aria-selected=true]")?.id);
     await type("launch b");
-    expect(rows()).toEqual(["Launch budgetFinanceSheet", "Create document launch bnew"]);
+    expect(rows()).toEqual(["Launch budgetFinanceSheet", "Create document launch bNew"]);
     expect(live()).toBe("2 matches");
   });
 
   it("Enter writes the [[Title]] link by id, and says so", async () => {
     await type("See [[plan");
-    expect(rows()).toEqual(["Launch planDocument", "Create document plannew"]);
+    expect(rows()).toEqual(["Launch planDocument", "Create document planNew"]);
     await press("Enter");
     expect(view.state.doc.toString()).toBe(`See ${artifactLink(PLAN.ref, "Launch plan", "factory")} `);
     expect(picker()).toBeNull();
@@ -116,7 +116,7 @@ describe("the [[ list in a live document", () => {
 
   it("a title that matches nothing creates the document on its press, then links it where [[ was", async () => {
     await type("See [[Q3 review");
-    expect(rows()).toEqual(["Create document Q3 reviewnew"]);
+    expect(rows()).toEqual(["Create document Q3 reviewNew"]);
     await press("Enter");
     expect(created).toEqual(["Q3 review"]);
     // Nothing is linked until the document exists; the list closes meanwhile and typing goes on.
