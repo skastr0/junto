@@ -26,6 +26,10 @@ describe("padCardSourceOfText", () => {
     expect(padCardSourceOfText(`![#42 Fix tabs](${taskHref})`)).toEqual({ href: taskHref, label: "#42 Fix tabs" });
   });
 
+  it("a blank label falls back to the href, never an empty label", () => {
+    expect(padCardSourceOfText(`[ ](${seatHref})`)).toEqual({ href: seatHref, label: seatHref });
+  });
+
   it("a web link or plain text makes no card", () => {
     expect(padCardSourceOfText("https://example.com")).toBeUndefined();
     expect(padCardSourceOfText("ship it")).toBeUndefined();
@@ -42,6 +46,10 @@ describe("padCardSourceOfPick", () => {
   it("names the picked thing on this canvas", () => {
     expect(padCardSourceOfPick({ ref: { kind: "task", nodeId: BOARD, taskId: ITEM }, label: "#42 Fix tabs" }, "factory")).toEqual({ href: taskHref, label: "#42 Fix tabs" });
     expect(padCardSourceOfPick({ ref: { kind: "seat", nodeId: SEAT }, label: "@planner" }, "factory")).toEqual({ href: seatHref, label: "planner" });
+  });
+
+  it("without a canvas name there is no link to make", () => {
+    expect(padCardSourceOfPick({ ref: { kind: "seat", nodeId: SEAT }, label: "@planner" }, "")).toBeUndefined();
   });
 });
 

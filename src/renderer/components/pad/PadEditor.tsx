@@ -275,6 +275,8 @@ export function PadEditor({
   const [hint, setHint] = useState<string | null>(null);
   const undoRef = useRef<PadPatch[][]>([]);
   const pendingInverseRef = useRef<PadPatch[]>([]);
+  // Each undone frame with the patches that put it back; any new change clears it.
+  const redoRef = useRef<Array<{ readonly forward: ReadonlyArray<PadPatch>; readonly back: ReadonlyArray<PadPatch> }>>([]);
   const [undoDepth, setUndoDepth] = useState(0);
   const [localPad, setLocalPad] = useState<Pad | undefined>();
   const remotePadRef = useRef(remotePad);
@@ -313,6 +315,7 @@ export function PadEditor({
       const hadHistory =
         undoRef.current.length > 0 || pendingInverseRef.current.length > 0;
       undoRef.current = [];
+      redoRef.current = [];
       pendingInverseRef.current = [];
       setUndoDepth(0);
       expectedRevRef.current = remotePad.revision;
@@ -412,6 +415,8 @@ export function PadEditor({
             // hold was computed against a base that no longer exists.
             expectedRevRef.current = outcome.pad.revision;
             undoRef.current = [];
+            redoRef.current = [];
+      redoRef.current = [];
             setUndoDepth(0);
             notice("Pad changed elsewhere. Local undo history was cleared.");
           }
@@ -432,6 +437,8 @@ export function PadEditor({
             );
             pendingInverseRef.current = [];
             undoRef.current = [];
+            redoRef.current = [];
+      redoRef.current = [];
             setUndoDepth(0);
             expectedRevRef.current = fresh.revision;
             setLocalPad(fresh);
@@ -469,6 +476,7 @@ export function PadEditor({
   const commit = useCallback(
     (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
       if (patches.length === 0) return Promise.resolve(true);
+      redoRef.current = [];
       const base = padRef.current;
       const inverse = inversePatches(base, patches);
       // Optimistic display; the authoritative pad replaces it at ack.
@@ -505,6 +513,10 @@ export function PadEditor({
       notice("That change can no longer be undone.");
       return;
     }
+    const forward = inversePatches(padRef.current, applied.success.frame);
+    redoRef.current = Result.isSuccess(forward)
+      ? [...redoRef.current, { forward: forward.success, back: applied.success.frame }]
+      : [];
     undoRef.current = applied.success.stack.map((frame) => [...frame]);
     pendingInverseRef.current = [
       ...pendingInverseRef.current,
@@ -516,6 +528,24 @@ export function PadEditor({
       setSelectedId(undefined);
     }
   }, [notice, selectedId]);
+
+  // Redo mirrors undo: a local view change, written with the next commit.
+  const redo = useCallback(() => {
+    if (gestureRef.current.kind !== "idle" || commitBusyRef.current) return;
+    const top = redoRef.current[redoRef.current.length - 1];
+    if (!top) return;
+    redoRef.current = redoRef.current.slice(0, -1);
+    const next = applyPatches(padRef.current, top.forward);
+    if (Result.isFailure(next)) {
+      redoRef.current = [];
+      notice("That change can no longer be redone.");
+      return;
+    }
+    pendingInverseRef.current = [...pendingInverseRef.current, ...top.forward];
+    undoRef.current = [...undoRef.current, [...top.back]];
+    setUndoDepth(undoRef.current.length);
+    setLocalPad(next.success);
+  }, [notice]);
 
   const applyDelete = useCallback(async () => {
     if (!selectedId || !canDelete(selectedLayer)) return;
@@ -668,8 +698,8 @@ export function PadEditor({
     async (source: PadCardSource, at: PadPoint): Promise<void> => {
       const { shape, patch } = padCardFor(source, at, padRef.current);
       setTool("select");
-      await commit([patch]);
-      setSelectedId(shape.id);
+      // Select only what was written: a refused card leaves nothing to select.
+      if (await commit([patch])) setSelectedId(shape.id);
     },
     [commit],
   );
@@ -745,7 +775,8 @@ export function PadEditor({
       }
       const typing = isOperatorTyping(event.target) || editingLabel;
       // @ on the pad opens the list of seats, tasks and artifacts to put here as a card.
-      if (event.key === "@" && cards !== undefined && !typing && !isControlTarget(event.target) && cardPicker === null) {
+      // A pick is named on its canvas, so without one there is nothing to name.
+      if (event.key === "@" && cards !== undefined && canvasName !== "" && !typing && !isControlTarget(event.target) && cardPicker === null) {
         event.preventDefault();
         event.stopPropagation();
         setCardPicker(viewCentre());
@@ -781,6 +812,9 @@ export function PadEditor({
           return;
         case "undo":
           undo();
+          return;
+        case "redo":
+          redo();
           return;
         case "duplicate":
           void applyDuplicate();
@@ -836,6 +870,7 @@ export function PadEditor({
     gesture.kind,
     onClose,
     selectedId,
+    redo,
     tool,
     undo,
   ]);
@@ -1332,7 +1367,8 @@ export function PadEditor({
               onPick={(pick) => {
                 const at = cardPicker;
                 setCardPicker(null);
-                void placeCard(padCardSourceOfPick(pick, canvasName), at);
+                const card = padCardSourceOfPick(pick, canvasName);
+                if (card !== undefined) void placeCard(card, at);
               }}
             />
           </div>

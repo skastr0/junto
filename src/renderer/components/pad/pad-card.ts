@@ -1,3 +1,4 @@
+import { isCanonicalCanvasName } from "@shared/canvas-name";
 import { mentionHref, type MentionRef } from "@shared/mention";
 import type { Pad, PadPatch, PadPoint, PadShape } from "@shared/pad";
 import { parsePreviewLink } from "../../lib/preview-face";
@@ -23,7 +24,8 @@ const cardLabel = (label: string): string => {
 export const padCardSourceOfText = (text: string): PadCardSource | undefined => {
   const link = parsePreviewLink(text);
   if (link === undefined) return undefined;
-  return { href: link.href, label: cardLabel(link.label?.replace(/^@/u, "") || link.href) };
+  // A blank label, "[ ](junto://...)", falls back to the href: a card's label is never empty.
+  return { href: link.href, label: cardLabel(link.label?.replace(/^@/u, "") ?? "") || cardLabel(link.href) };
 };
 
 /** A drag that carries text: it may be a Junto link, read only on drop. */
@@ -40,11 +42,15 @@ export const padCardSourceOfTransfer = (data: DataTransfer | null | undefined): 
   return padCardSourceOfText(data.getData("text/plain")) ?? padCardSourceOfText(uri);
 };
 
-/** An @ pick: the thing it names on this canvas, under the name the list showed. */
-export const padCardSourceOfPick = (pick: { readonly ref: MentionRef; readonly label: string }, canvasName: string): PadCardSource => ({
-  href: mentionHref(pick.ref, canvasName),
-  label: cardLabel(pick.label.replace(/^@/u, "") || pick.ref.nodeId),
-});
+/**
+ * An @ pick: the thing it names on this canvas, under the name the list showed. Undefined when
+ * the canvas name cannot make a link (no canvas yet).
+ */
+export const padCardSourceOfPick = (pick: { readonly ref: MentionRef; readonly label: string }, canvasName: string): PadCardSource | undefined => {
+  if (!isCanonicalCanvasName(canvasName)) return undefined;
+  const href = mentionHref(pick.ref, canvasName);
+  return { href, label: cardLabel(pick.label.replace(/^@/u, "")) || cardLabel(href) };
+};
 
 /**
  * The card a source makes on the pad, centred where it was dropped or picked, at the default card
