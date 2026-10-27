@@ -134,6 +134,13 @@
   flex: 1;
 }
 
+/* A Markdown file reads as a document does: a centred column, room to scroll the last line up. */
+.files-markdown .cm-content {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 16px 20px 40vh;
+}
+
 /* The code editor (ui/CodeEditor) fills the pane. */
 .files-code {
   flex: 1;
