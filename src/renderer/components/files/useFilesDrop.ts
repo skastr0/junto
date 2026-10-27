@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import type { FileTreeDragAndDropConfig, FileTreeDropResult } from "@pierre/trees";
-import { parseFilePath, type FilesError, type FilesNodeRef, type JuntoFilesApi } from "@shared/files";
+import { parseFilePath, type FilePath, type FilesError, type FilesNodeRef, type JuntoFilesApi } from "@shared/files";
 import {
   basenameOf,
   finderDropTargetOf,
@@ -32,6 +32,9 @@ export type FilesDropModel = { readonly move: (fromPath: string, toPath: string)
 /** The marked drop target, in pixels from the surface's top left; no rect means the whole surface. */
 export type FilesDropRect = { readonly top: number; readonly left: number; readonly width: number; readonly height: number };
 export type FilesDropTarget = { readonly dir: FolderPath; readonly label: string; readonly rect: FilesDropRect | null };
+
+/** A move the Files service applied: where the file or folder was, and where it is now. */
+export type FilesMoved = { readonly from: FilePath; readonly to: FilePath };
 
 export type FilesDrop = {
   readonly target: FilesDropTarget | null;
@@ -85,8 +88,13 @@ export const useFilesDrop = ({
   readonly describe: (error: FilesError) => string;
   /** The root folder's name, as the operator knows it. */
   readonly rootLabel: string;
-  /** A tree drag is over, once the tree has settled its rows and selection: moved, refused or let go. */
-  readonly onTreeDragEnd?: () => void;
+  /**
+   * A tree drag is over, once the tree has settled its rows and selection:
+   * after a drop, once the service has answered every move, with the moves
+   * it applied (a refused one is left out); after a refusal or a drag let
+   * go, with none.
+   */
+  readonly onTreeDragEnd?: (moved: ReadonlyArray<FilesMoved>) => void;
 }): FilesDrop => {
   const [target, setTarget] = useState<FilesDropTarget | null>(null);
   const [notice, setNotice] = useState<FilesDrop["notice"]>();
@@ -119,14 +127,21 @@ export const useFilesDrop = ({
     if (mounted.current) setNotice({ text, failed });
   }, []);
 
-  // A drop and its dragend both end the drag; the first one to come says so, after the tree's own handlers.
-  const endTreeDrag = useCallback(() => {
-    if (!treeDragging.current) return;
-    treeDragging.current = false;
-    setTimeout(() => {
-      if (mounted.current) live.current.onTreeDragEnd?.();
-    }, 0);
+  const saidEnded = useCallback((moved: ReadonlyArray<FilesMoved>) => {
+    if (mounted.current) live.current.onTreeDragEnd?.(moved);
   }, []);
+
+  // A drop and its dragend both end the drag; the first one to come takes it, so the end is said once.
+  const takeTreeDrag = useCallback((): boolean => {
+    if (!treeDragging.current) return false;
+    treeDragging.current = false;
+    return true;
+  }, []);
+
+  /** A drag that moved nothing ends after the tree's own handlers. */
+  const endTreeDrag = useCallback(() => {
+    if (takeTreeDrag()) setTimeout(() => saidEnded([]), 0);
+  }, [takeTreeDrag, saidEnded]);
 
   const targetAt = useCallback((event: DragEvent<HTMLElement>): FilesDropTarget => {
     const found = finderDropTargetOf(event.nativeEvent.composedPath());
@@ -213,8 +228,9 @@ export const useFilesDrop = ({
     () => ({
       // The tree has already moved its rows; each one the service refuses goes back.
       onDropComplete: (result: FileTreeDropResult) => {
-        endTreeDrag();
+        const ends = takeTreeDrag();
         const moves = movesForDrop(result.draggedPaths, result.target);
+        const moved: FilesMoved[] = [];
         void (async () => {
           const { port, node, describe } = live.current;
           for (const [index, move] of moves.entries()) {
@@ -224,7 +240,10 @@ export const useFilesDrop = ({
               from === undefined || intoDir === undefined
                 ? ({ ok: false, error: "invalid-path" } as const)
                 : await port.move(node, from, intoDir);
-            if (outcome.ok) continue;
+            if (outcome.ok) {
+              if (from !== undefined) moved.push({ from, to: outcome.value });
+              continue;
+            }
             for (const back of moves.slice(index)) {
               try {
                 model.current?.move(back.treeTo, back.treeFrom);
@@ -233,8 +252,9 @@ export const useFilesDrop = ({
               }
             }
             say(`Could not move ${basenameOf(move.from)}. ${describe(outcome.error)}`, true);
-            return;
+            break;
           }
+          if (ends) saidEnded(moved);
         })();
       },
       // The tree refuses a move onto a name that is taken, before anything moves.
@@ -243,7 +263,7 @@ export const useFilesDrop = ({
         say("That folder already holds something with the same name. Nothing moved.", true);
       },
     }),
-    [say, endTreeDrag],
+    [say, endTreeDrag, takeTreeDrag, saidEnded],
   );
 
   const bindModel = useCallback((next: FilesDropModel | null) => {

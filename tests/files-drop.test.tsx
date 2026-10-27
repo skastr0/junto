@@ -29,6 +29,7 @@ import {
   type FilesDrop,
   type FilesDropModel,
   type FilesDropPort,
+  type FilesMoved,
 } from "../src/renderer/components/files/useFilesDrop";
 import { FilesDropHighlight } from "../src/renderer/components/files/FilesDropHighlight";
 
@@ -198,7 +199,7 @@ describe("the modal's drops", () => {
     { path: "src/index.ts", type: "file", parent: "src/" },
   ]);
 
-  const mount = (port: FilesDropPort, onTreeDragEnd?: () => void) => {
+  const mount = (port: FilesDropPort, onTreeDragEnd?: (moved: ReadonlyArray<FilesMoved>) => void) => {
     function Modal() {
       drop = useFilesDrop({ port, node: NODE, describe: describeErr, rootLabel: "junto", ...(onTreeDragEnd ? { onTreeDragEnd } : {}) });
       return (
@@ -373,6 +374,34 @@ describe("the modal's drops", () => {
     expect(drop.isTreeDragging()).toBe(false);
   });
 
+  it("ends a dropped tree drag once the service has answered, with the moves it applied and not the refused ones", async () => {
+    const main = fakePort();
+    main.refuse("lib");
+    const ended = vi.fn<(moved: ReadonlyArray<FilesMoved>) => void>();
+    mount(main.port, ended);
+    const treeDrag = (type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+      Object.defineProperty(event, "dataTransfer", { value: { types: [], files: [] } });
+      act(() => {
+        tree.at("src/index.ts").dispatchEvent(event);
+      });
+    };
+    treeDrag("dragstart");
+    await act(async () => {
+      drop.treeDragAndDrop.onDropComplete?.({
+        draggedPaths: ["README.md", "lib/", "x.ts"],
+        operation: "batch",
+        target: { kind: "directory", directoryPath: "src/", flattenedSegmentPath: null, hoveredPath: "src/" },
+      });
+    });
+    expect(ended.mock.calls).toEqual([[[{ from: "README.md", to: "src/README.md" }]]]);
+    treeDrag("dragend");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
   it("says a tree drag ended once, after the tree's own handlers, whether the drop or the dragend comes first", async () => {
     vi.useFakeTimers();
     try {
@@ -389,7 +418,7 @@ describe("the modal's drops", () => {
       treeDrag("dragend");
       expect(ended).not.toHaveBeenCalled();
       act(() => void vi.runAllTimers());
-      expect(ended).toHaveBeenCalledTimes(1);
+      expect(ended.mock.calls).toEqual([[[]]]);
 
       treeDrag("dragstart");
       act(() => drop.treeDragAndDrop.onDropError?.("destination-collision", {} as never));
