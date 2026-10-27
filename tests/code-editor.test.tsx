@@ -2,6 +2,7 @@
 import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
+import { openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { CodeEditor, type CodeEditorHandle, type LineRange } from "../src/renderer/components/ui/CodeEditor";
 import { commentLabel, COMMENT_TEST_ID } from "../src/renderer/components/ui/code-editor-lines";
@@ -120,6 +121,17 @@ it("gives the keyboard only the caret's plus", async () => {
   await settle();
   expect(plus()?.tabIndex).toBe(0);
   expect(host.querySelectorAll(`button[data-testid="${COMMENT_TEST_ID}"][tabindex="0"]`)).toHaveLength(1);
+});
+
+it("keeps the Escape that closes find from the modal around it", async () => {
+  const heard: boolean[] = [];
+  host.addEventListener("keydown", (event) => heard.push(event.key === "Escape"));
+  await act(async () => root.render(<CodeEditor value={SOURCE} path="a.ts" />));
+  await act(async () => void openSearchPanel(editor()));
+  const field = host.querySelector<HTMLInputElement>(".cm-search input[name=search]")!;
+  await act(async () => void field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true, cancelable: true })));
+  expect(host.querySelector(".cm-search")).toBeNull();
+  expect(heard).toEqual([]);
 });
 
 it("says one line and a range in words", () => {

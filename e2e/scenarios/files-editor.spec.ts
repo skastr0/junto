@@ -56,6 +56,8 @@ test("the code editor opens, types, finds and undoes, and Markdown opens live, b
       console.log(`EDITOR ${theme} open to highlighted, from the row press: ${String(Date.now() - started)} ms`);
       await frame(page, `${theme}-code`);
       expect(await axeIds(page, ".code-editor")).toEqual([]);
+      // The scroller keeps a keyboard stop inside it: the text, named by the path.
+      await expect(modal.locator(".code-editor .cm-scroller .cm-content")).toHaveAttribute("tabindex", "0");
 
       // Typing on line 4 marks the file unsaved. (The comment plus comes with F7's wiring; tests/code-editor.test.tsx holds it.)
       await editor.locator(".cm-line").nth(3).click();
@@ -73,7 +75,8 @@ test("the code editor opens, types, finds and undoes, and Markdown opens live, b
       await page.keyboard.press("Meta+f");
       const query = modal.locator(".cm-search input[name=search]");
       await expect(query).toBeVisible();
-      await query.fill("sum12");
+      // Typed, not filled: the panel commits its query on the keys.
+      await page.keyboard.type("sum12");
       await page.keyboard.press("Enter");
       await expect(modal.locator(".cm-searchMatch-selected")).toBeVisible();
       await frame(page, `${theme}-find`);
@@ -85,6 +88,7 @@ test("the code editor opens, types, finds and undoes, and Markdown opens live, b
       await expect(modal.locator(".live-markdown")).toBeVisible({ timeout: 15_000 });
       await frame(page, `${theme}-markdown`);
       expect(await axeIds(page, ".files-main")).toEqual([]);
+      await expect(modal.locator(".live-markdown .cm-scroller .cm-content")).toHaveAttribute("tabindex", "0");
 
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");

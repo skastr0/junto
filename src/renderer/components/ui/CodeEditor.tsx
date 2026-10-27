@@ -20,7 +20,7 @@ import { bracketMatching, LanguageDescription, syntaxHighlighting } from "@codem
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Annotation, Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
-import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from "@codemirror/view";
+import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, ViewPlugin } from "@codemirror/view";
 import { classHighlighter } from "@lezer/highlight";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
 import { textSplice } from "../artifacts/artifacts-pane-model";
@@ -46,6 +46,19 @@ const fromHost = Annotation.define<boolean>();
 const editable = (readOnly: boolean) => [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
 
 const baseName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
+
+/**
+ * An Escape the editor used (closing find) stops here. Closing find takes
+ * its field out of the page mid-key, so the modal around the editor would
+ * read the key as pressed outside it and close as well.
+ */
+const keepUsedEscape = ViewPlugin.define((view) => {
+  const stop = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && event.defaultPrevented) event.stopPropagation();
+  };
+  view.dom.addEventListener("keydown", stop);
+  return { destroy: () => view.dom.removeEventListener("keydown", stop) };
+});
 
 export function CodeEditor({
   value,
@@ -149,6 +162,7 @@ export function CodeEditor({
           highlightSelectionMatches(),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap]),
           keymap.of([{ key: "Escape", run: stopWriting }]),
+          keepUsedEscape,
           language.current.of([]),
           syntaxHighlighting(classHighlighter),
           lineRows(handlers),
