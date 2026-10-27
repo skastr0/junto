@@ -163,9 +163,11 @@
   line-height: var(--leading-body);
 }
 
-/* The body is a live markdown field; it grows with its text, the pane scrolls. */
+/* The body is a live markdown field; it grows with its text, the pane scrolls. Its text lines up with the pane's,
+   and the inset it carries keeps the focus ring off the words. */
 .task-body {
   min-width: 0;
+  margin: 0 -8px;
 }
 
 .task-body .live-markdown .cm-editor {
@@ -173,7 +175,7 @@
 }
 
 .task-body .live-markdown .cm-content {
-  padding: 4px 0;
+  padding: 6px 8px;
 }
 
 .task-deps {
