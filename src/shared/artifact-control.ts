@@ -185,7 +185,8 @@ export type ArtifactShowResult = PendingUnknown & {
 /**
  * Where an artifact is linked from. `mail`: mail and comments that mention it,
  * only the ones the seat may read (its own mail, mail it sent, threads on
- * nodes in its reach). `more` when the newest ARTIFACT_LINKED_FROM_MAX cut it.
+ * nodes in its reach). `more` when the newest ARTIFACT_LINKED_FROM_MAX cut it,
+ * or when main's scan filled before it could tell: there may be more.
  */
 export type ArtifactLinkedFrom = {
   readonly mail: ReadonlyArray<MentionedIn>;

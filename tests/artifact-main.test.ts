@@ -37,6 +37,7 @@ const nodes = [
   at("S1", "agent", 20, 20, { label: "cli-identity", agentKey: "a" }),
   at("AR", "artifacts", 200, 20, { label: "Shelf" }),
   at("TN", "task", 300, 20, { name: "CLI tasks" }),
+  at("S2", "agent", 400, 20, { label: "cli-protocol", agentKey: "b" }),
   at("P", "region", 1000, 10, { label: "Product" }, 400, 400),
   at("SP", "agent", 1010, 20, { label: "product-shell", agentKey: "c" }),
   at("AP", "artifacts", 1100, 20, { label: "Shelf" }),
@@ -369,6 +370,9 @@ describe.runIf(ARTIFACTS_ENABLED)("[[Title]] in junto artifact create and edit",
       row("M-private", "SP", "TN", 3),
       row("M-here", "AR", "SP", 2, subject("AR")),
       row("M-away", "AP", "SP", 1, subject("AP")),
+      // A subject stamped on a seat's mail, or on a row away from its resource: never a thread.
+      row("M-seat", "S2", "TN", 0, subject("S2")),
+      row("M-moved", "TN", "SP", 0, subject("AR")),
     ];
     const asked: string[] = [];
     const withMentions: ArtifactPorts = { ...ports, mentions: (_canvas, key) => Effect.sync(() => (asked.push(key), rows)) };

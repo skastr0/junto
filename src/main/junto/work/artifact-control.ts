@@ -529,7 +529,12 @@ const linkedFromOf = (
       const entry = entryOf(caller.canvas, row);
       if (entry === undefined) return [];
       const own = entry.mailbox === seat || (entry.author.kind === "seat" && entry.author.nodeId === seat);
-      const thread = entry.subject !== undefined && reaches(caller.canvas, seat, entry.mailbox);
+      // A thread is held at its own resource, never in a seat's mailbox: pinned
+      // here, not left to the writers, since reach also joins seats in a region.
+      const thread = entry.subject !== undefined &&
+        entry.subject.nodeId === entry.mailbox &&
+        caller.canvas.nodes.get(entry.mailbox)?.kind !== "agent" &&
+        reaches(caller.canvas, seat, entry.mailbox);
       return own || thread ? [entry] : [];
     });
     return { mail: readable.slice(0, ARTIFACT_LINKED_FROM_MAX), more: readable.length > ARTIFACT_LINKED_FROM_MAX || rows.length === LINKED_FROM_SCAN };
