@@ -58,13 +58,14 @@ mails product-lead with the receipt.
 - **Tree: `@pierre/trees`** (1.0.0-beta.6). Virtualized, with search,
   drag-and-drop, renaming and git status built in. Bleeding-edge is permitted
   (`AGENTS.md`, Dependencies).
-- **Editor: `@pierre/diffs/edit`** for code, after a spike (F3 first step).
-  It shares the Shiki highlighting and look of `CodeView.tsx`, which the git
-  review already uses, and has line annotations for comments. This means
-  bumping `@pierre/diffs` 1.1.21 to 1.6.2, and `CodeView` must keep working.
-  Fallback if the spike fails: a plain CodeMirror field (the bare
-  `EditorView` setup of `LiveMarkdownField.tsx`) with `@codemirror/language-data`.
-  Markdown files open in `LiveMarkdownField` either way.
+- **Editor: CodeMirror** with `@codemirror/language-data`, the bare
+  `EditorView` setup of `LiveMarkdownField.tsx`; Markdown files open in
+  `LiveMarkdownField`. Decided on the F3 spike
+  (`docs/research/editor-spike/README.md`, 0613f3324): CodeMirror opens a
+  5,000-line file in 6 to 8 ms warm and types at 5.7 / 10.4 / 15 ms. Pierre
+  with its `highlights` backend is as fast but needs `'wasm-unsafe-eval'` in
+  the app window CSP, and on Shiki JS takes 1.2 s per open. The CSP stays as
+  it is. `@pierre/diffs` stays at 1.1.21 for the git review.
 - **PDF: `pdfjs-dist`** (6.4.299), loaded lazily, with its worker bundled.
   The CSP already allows `worker-src 'self' blob:` (`index.html:7`); the protocol adds `junto-file:` to it.
 - **The renderer never names an absolute path.** Every call names the node
@@ -131,10 +132,10 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
   as in `ArtifactsNode.tsx:249`, `@pierre/trees` in the sidebar themed from
   house tokens, the main pane dispatching on file type, the comments rail.
   Unsaved changes marked; Cmd+S saves; a stale save offers reload or keep.
-- **F3 Editor, product-documents.** First the spike: `@pierre/diffs/edit` vs
-  the CodeMirror fallback on a 5,000-line TypeScript file (open time, typing
-  latency, undo, find, theme in dark and bright), with receipts, then the
-  pick. Then the editor component and the `CodeView` upgrade.
+- **F3 Editor, product-documents.** Spike done (CodeMirror). The editor
+  component: dirty state, save hook, find, a highlight style per theme from
+  house tokens (product-typography), and the gutter control for line
+  comments ("Comment on line N", `file-editor-gutter-comment`).
 - **F4 Quick open, product-modals with product-keyboard.** The Cmd+P palette
   and its header button in Files, Artifacts, Tasks and Automations; the key
   table entry; list navigation from `src/renderer/lib/list-nav.ts`.
@@ -173,11 +174,11 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 
 | Track | Owner | State |
 |---|---|---|
-| F1 node kind (step 51) | canvas | in progress |
+| F1 node kind (step 51) | canvas | landed 9f7573e49 (reland after 7ff0f339e) |
 | F1 stub (step 52) | canvas | waiting on operator |
 | F2 service, protocol, doctrine | tech | assigned |
 | F2 modal | product-shell | assigned |
-| F3 editor spike, then editor | product-documents | assigned |
+| F3 editor (CodeMirror, spike 0613f3324) | product-documents | building |
 | F4 quick open | product-modals, product-keyboard | assigned |
 | F5 drops | product-sheet, canvas (card) | assigned |
 | F6 preview | product-pad | assigned |
