@@ -16,6 +16,11 @@
 :root {
   /* The canvas and everything pinned to it: bars, dock, minimap, HUDs. */
   --layer-base: 0;
+  /* Inside the canvas viewport's own stacking context (transformed, z-index 2,
+     under --layer-base): the flows-wire chevron track, above every card (32)
+     and under a hovered far seat (2000) and the seat clusters (3000). It
+     never reaches an overlay. */
+  --layer-canvas-track: 1000;
   /* Working modals: terminals, the agent focus view, grids, detail readers, settings. */
   --layer-working: 10000;
   /* A dialog or confirm opened from the base or from a working modal: above both. */
