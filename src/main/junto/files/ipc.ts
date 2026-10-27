@@ -174,7 +174,8 @@ export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]
   );
   ipc.handle(IPC_CHANNELS.filesWrite, (_event, ref: unknown, path: unknown, text: unknown, base: unknown) =>
     withRefPath(ref, path, async (r, p) => {
-      const stamp = decodeStamp(base);
+      // null: the file is gone and the save writes it back.
+      const stamp = base === null ? null : decodeStamp(base);
       if (typeof text !== "string" || stamp === undefined) return invalid;
       return service.write(r, p, text, stamp);
     }),

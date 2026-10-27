@@ -1,5 +1,5 @@
-import { lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { FILES_COUNT_CAP, parseFilePath, type FilePath, type FilesCount } from "@shared/files";
 import { inProcessEngine, type IndexSearch } from "./index-engine";
 import { COMPACT_AFTER } from "./name-index";
@@ -22,7 +22,11 @@ import { watchRoot, type Timers, type WatchBatch, type WatchFactory } from "./wa
 export type RootEvent =
   | { readonly kind: "paths"; readonly paths: ReadonlyArray<FilePath> }
   | { readonly kind: "reset" }
-  /** The root's watch failed (it went away, most often): the holder is gone. */
+  /** The root folder is gone from disk; the holder stays and waits for it. */
+  | { readonly kind: "missing" }
+  /** The root folder is back; its index rebuilds on the next search. */
+  | { readonly kind: "back" }
+  /** The root's watch failed: the holder is gone. */
   | { readonly kind: "lost" };
 
 export interface RootIndex {
@@ -63,6 +67,11 @@ type Holder = {
   queued: number;
   /** Bursts seen: a build that saw one arrive mid-scan leaves the index stale. */
   bursts: number;
+  /** The root folder is gone; FSEvents keeps watching its path and reports it back. */
+  missing: boolean;
+  /** Watch batches, in order: one that must first check the root waits for it, and so does every later one. */
+  incoming: Promise<void>;
+  waiting: number;
 };
 
 export const makeRootIndex = (deps: RootIndexDeps): RootIndex & { readonly settle: () => Promise<void> } => {
@@ -205,12 +214,45 @@ export const makeRootIndex = (deps: RootIndexDeps): RootIndex & { readonly settl
     if (outcome.overflow || outcome.drift > COMPACT_AFTER) holder.stale = true;
   };
 
+  /**
+   * Is the root folder there? Deleting it fires no watch error on macOS:
+   * the watch reports an event named for the root and keeps watching the
+   * path, so it reports the folder coming back too.
+   */
+  const checkPresence = async (holder: Holder): Promise<void> => {
+    const there = await stat(holder.root).then((info) => info.isDirectory(), () => false);
+    if (holders.get(holder.root) !== holder || there !== holder.missing) return;
+    holder.missing = !there;
+    holder.stale = true;
+    holder.bursts += 1;
+    emit(holder.root, { kind: there ? "back" : "missing" });
+  };
+
   const onBatch = (holder: Holder, batch: WatchBatch): void => {
     if (batch.kind === "lost") {
       dropHolder(holder);
       emit(holder.root, { kind: "lost" });
       return;
     }
+    const namesRoot = batch.kind === "paths" && batch.paths.includes(basename(holder.root));
+    const check = holder.missing || batch.kind === "burst" || namesRoot;
+    if (!check && holder.waiting === 0) {
+      take(holder, batch);
+      return;
+    }
+    holder.waiting += 1;
+    holder.incoming = holder.incoming
+      .then(async () => {
+        if (check) await checkPresence(holder);
+        if (!holder.missing && holders.get(holder.root) === holder) take(holder, batch);
+      })
+      .catch((cause: unknown) => console.error("[files] watch batch failed", cause))
+      .finally(() => {
+        holder.waiting -= 1;
+      });
+  };
+
+  const take = (holder: Holder, batch: Exclude<WatchBatch, { kind: "lost" }>): void => {
     if (batch.kind === "burst") {
       holder.bursts += 1;
       holder.stale = true;
@@ -287,6 +329,9 @@ export const makeRootIndex = (deps: RootIndexDeps): RootIndex & { readonly settl
         bursts: 0,
         size: 0,
         drift: 0,
+        missing: false,
+        incoming: Promise.resolve(),
+        waiting: 0,
       };
       holder = created;
       holders.set(root, holder);
@@ -337,10 +382,12 @@ export const makeRootIndex = (deps: RootIndexDeps): RootIndex & { readonly settl
 
     /** Every rebuild and queued delta done: for tests and measurements. */
     settle: async () => {
+      // Until a pass starts no new work: a batch can queue deltas, a delta a rebuild.
       for (;;) {
-        const busy = [...holders.values()].flatMap((holder) => [holder.building, holder.deltas]);
+        const busy = [...holders.values()].flatMap((holder) => [holder.incoming, holder.building, holder.deltas]);
         await Promise.all(busy.map((work) => work?.catch(() => undefined)));
-        if ([...holders.values()].every((holder) => holder.building === undefined)) return;
+        const now = [...holders.values()].flatMap((holder) => [holder.incoming, holder.building, holder.deltas]);
+        if (now.length === busy.length && now.every((work, i) => work === busy[i])) return;
       }
     },
   };

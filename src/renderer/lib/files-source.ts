@@ -105,7 +105,8 @@ export const makeLocalFiles = (
     },
     write: async (ref, path, text, base) => {
       const held = rootOf(ref.node).get(path);
-      if (held !== undefined && (held.mtimeMs !== base.mtimeMs || held.size !== base.size)) return refused("stale");
+      if (base === null && held !== undefined) return refused("exists");
+      if (base !== null && held !== undefined && (held.mtimeMs !== base.mtimeMs || held.size !== base.size)) return refused("stale");
       const stamp = put(ref.node, path, text);
       changed(ref.node, path);
       return ok(stamp);
@@ -265,6 +266,17 @@ export const setFileDraft = (node: NodeId, path: FilePath, draft: FileDraft | un
   for (const listener of draftListeners) listener();
 };
 
+/** Every unsaved draft, by node and path, for the ask before quit. */
+export const heldFileDrafts = (): ReadonlyArray<{ readonly node: NodeId; readonly path: FilePath; readonly draft: FileDraft }> =>
+  [...drafts].map(([key, draft]) => {
+    const [node, path] = key.split("\u0000") as [NodeId, FilePath];
+    return { node, path, draft };
+  });
+
+/** The canvas each node with a draft was opened on: a draft is written back there. */
+const nodeCanvas = new Map<NodeId, string>();
+export const fileDraftCanvas = (node: NodeId): string | undefined => nodeCanvas.get(node);
+
 /** The node's paths with unsaved changes. */
 export const dirtyPaths = (node: NodeId): ReadonlyArray<FilePath> => {
   const prefix = `${node}\u0000`;
@@ -292,6 +304,7 @@ export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> =
   // `place` names where the node's folder is (its host and root): a change closes the old one and opens the new.
   useEffect(() => {
     let live = true;
+    nodeCanvas.set(node, canvas);
     setRoot({ state: "loading" });
     const source = filesSource();
     void source.open({ canvas, node }).then((result) => {

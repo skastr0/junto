@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -168,6 +168,48 @@ describe("symlinks that point out of the root", () => {
   });
 });
 
+describe("a draft over a deleted file, a root that goes and comes back", () => {
+  it("writes a deleted file back at its path, and only while nothing is there", async () => {
+    const { files } = service();
+    await rm(join(root, "README.md"));
+    const stamp = value(await files.write(ref, p("README.md"), "back\n", null));
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe("back\n");
+    expect(stamp).toEqual(value(await files.read(ref, p("README.md"))).stamp);
+    expect(errorOf(await files.write(ref, p("README.md"), "again\n", null))).toBe("exists");
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe("back\n");
+    expect(errorOf(await files.write(ref, p("gone/a.md"), "x", null))).toBe("not-found");
+    expect(errorOf(await files.write(ref, p("link-out.txt"), "x", null))).toBe("exists");
+    expect(errorOf(await files.write(ref, p("dir-out/new.md"), "x", null))).toBe("outside-root");
+    const names = await readdir(root);
+    expect(names.filter((name) => name.includes(".junto-"))).toEqual([]);
+  });
+
+  it("tells open windows the root went missing and came back, and keeps them open", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    const { files, sent } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      names: fakeNames(() => ["README.md"]),
+    });
+    value(await files.open(1, ref));
+    await rm(root, { recursive: true });
+    watch.fire("root");
+    while (queued.length > 0) queued.shift()?.();
+    await files.settle();
+    expect(sent.at(-1)?.event).toEqual({ node: ref.node, kind: "missing" });
+    expect(errorOf(await files.list(ref, ROOT_PATH))).toBe("root-missing");
+    expect(files.heldRoots()).toEqual([root]);
+    await mkdir(root);
+    await writeFile(join(root, "new.md"), "");
+    watch.fire("new.md");
+    while (queued.length > 0) queued.shift()?.();
+    await files.settle();
+    expect(sent.some(({ event }) => event.kind === "back")).toBe(true);
+    expect(value(await files.list(ref, ROOT_PATH)).map((entry) => entry.path)).toEqual(["new.md"]);
+  });
+});
+
 describe("comment threads follow a move", () => {
   it("carries from the old path to the new after a rename or move lands, and answers even if carrying fails", async () => {
     const carried: Array<[string, string]> = [];
@@ -333,8 +375,12 @@ describe("import", () => {
     const { files } = service({ deny: async () => [join(home, ".junto")] });
     expect(errorOf(await files.import(ref, ROOT_PATH, [join(home, ".junto", "seat.token")]))).toBe("denied");
     expect(errorOf(await files.import(ref, ROOT_PATH, [join(home, ".junto")]))).toBe("denied");
+    await mkdir(join(home, "deep", "deeper"), { recursive: true });
+    await writeFile(join(home, "deep", "deeper", "leaf.txt"), "leaf\n");
     expect(value(await files.import(ref, ROOT_PATH, [home]))).toEqual([{ path: "home", dir: true }]);
     expect(await readFile(join(root, "home", "notes.txt"), "utf8")).toBe("notes\n");
+    // A dropped folder copies whole, every level down.
+    expect(await readFile(join(root, "home", "deep", "deeper", "leaf.txt"), "utf8")).toBe("leaf\n");
     await expect(stat(join(root, "home", ".junto"))).rejects.toThrow();
   });
 

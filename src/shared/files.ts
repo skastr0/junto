@@ -162,7 +162,11 @@ export type FileImported = { readonly path: FilePath; readonly dir: boolean };
 export type FilesChanged =
   | { readonly node: NodeId; readonly kind: "paths"; readonly paths: ReadonlyArray<FilePath> }
   | { readonly node: NodeId; readonly kind: "reset" }
-  /** The root is gone or the node moved to another host; calls now refuse. */
+  /** The root folder is gone from disk; calls refuse `root-missing`, the node stays open. */
+  | { readonly node: NodeId; readonly kind: "missing" }
+  /** The root folder is back: list again (as after `reset`). */
+  | { readonly node: NodeId; readonly kind: "back" }
+  /** The node is no longer served here (its watch failed, or it moved); calls now refuse. */
   | { readonly node: NodeId; readonly kind: "closed"; readonly error: FilesError };
 
 export interface JuntoFilesApi {
@@ -189,12 +193,17 @@ export interface JuntoFilesApi {
      */
     readonly search: (ref: FilesNodeRef, query: string, seq: number) => Promise<FilesResult<FilesSearchResult>>;
     readonly read: (ref: FilesNodeRef, path: FilePath) => Promise<FilesResult<FileRead>>;
-    /** Replace a text file. Refused `stale` when it is no longer `base`; answers the new stamp. */
+    /**
+     * Replace a text file. Refused `stale` when it is no longer `base`;
+     * answers the new stamp. `base: null` writes back a file deleted under a
+     * draft: refused `exists` if anything is at `path` by then, `not-found`
+     * if its folder is gone too.
+     */
     readonly write: (
       ref: FilesNodeRef,
       path: FilePath,
       text: string,
-      base: FileStamp,
+      base: FileStamp | null,
     ) => Promise<FilesResult<FileStamp>>;
     /** A new empty file or folder. Refused `exists`. */
     readonly create: (ref: FilesNodeRef, path: FilePath, dir: boolean) => Promise<FilesResult<FileEntry>>;
