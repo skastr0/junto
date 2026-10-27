@@ -177,7 +177,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | F1 node kind (step 51) | canvas | landed 9f7573e49 (reland after 7ff0f339e) |
 | F1 card, mount, factory, card drop, host refusal in main | canvas | done, verified, operator approved |
 | F1 stub (step 52) | canvas | operator asked; ships without it (b) unless they answer a |
-| F2 service, protocol, doctrine | tech | done; index in a worker (f0ab5db9a), performance-lead re-measuring; fff spiked and rejected |
+| F2 service, protocol, doctrine | tech | done; index passed performance review on 200k files (6343f9d59); fff spiked and rejected |
 | git config commands neutralised (security) | tech | landed e9cc0324e |
 | shared-index commit guard | tech-ci | dd438c028, needs `core.hooksPath` set by the operator |
 | F2 modal | product-shell | done, verified, operator approved |
@@ -185,8 +185,16 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | F4 quick open | product-modals, product-keyboard | done, verified 8 of 8, centred (6654b233b), operator approved keys |
 | F5 drops | product-sheet, canvas (card) | done, 9 of 9 after the tree move fix c732058f5 |
 | F6 preview | product-pad | done, review findings fixed 87d3ca92c, walk passed c5f7568ae |
-| F7 comments | product-feed | done, verified; Junto renames carry threads (after L1) |
+| F7 comments | product-feed | done, verified; Junto renames carry threads (63d77dc27) |
 | F8 extract | product-pad, product-documents | done, walk passed c5f7568ae |
 | msg reply file subject, onboard files row | cli | after F7 contract |
 | artifact links L1 to L5 | see 02-artifact-links.md | started |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
+
+## Carried to 0.12
+
+- A rename fact for file threads, retiring the `files.thread-carry` seam
+  entry (63d77dc27 writes the path in place; a journal rebuild would restore
+  the old path).
+- Index: long fresh queries p95 35 ms in the worker (budget 30), and the
+  per-spawn main cost in `process-epoch.ts:100` (performance-lead).
