@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import type { ArtifactPadPatch } from "@shared/artifact";
+import type { MentionCandidate } from "../../lib/mention-draft";
 import { applyPatches, type Pad, type PadPatch } from "@shared/pad";
 import { themeMode$ } from "../../lib/theme-mode";
 import { PadEditor, type PadArea, type PadPins } from "../pad/PadEditor";
@@ -17,18 +18,22 @@ export type PadCommentBox = PadArea;
  *
  * An artifact pad holds no pins: with `onCommentBox` the P tool picks an
  * area to comment on and writes nothing, and without it there is no P tool.
+ * `mentions` are what @ offers to put on the pad as a live card.
  */
 export function ArtifactPadEditor({
   pad,
   readOnly = false,
   onPatch,
   onCommentBox,
+  mentions,
 }: {
   readonly pad: Pad;
   readonly readOnly?: boolean;
   /** Resolves with the refusal line, or null when the patches landed. */
   readonly onPatch: (patches: ReadonlyArray<ArtifactPadPatch>) => Promise<string | null>;
   readonly onCommentBox?: (box: PadCommentBox) => void;
+  /** The seats, tasks and artifacts in reach, as the document's @ offers them. */
+  readonly mentions?: { readonly candidates: ReadonlyArray<MentionCandidate> };
 }) {
   const theme = use$(themeMode$);
   // The pad acks build on: the host's latest, or the last ack made since.
@@ -81,6 +86,7 @@ export function ArtifactPadEditor({
         onCommit={onCommit}
         onReadPad={onReadPad}
         onClose={onClose}
+        {...(mentions === undefined ? {} : { cards: { candidates: mentions.candidates } })}
       />
     </div>
   );

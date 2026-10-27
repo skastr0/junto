@@ -26,6 +26,20 @@ export const padCardSourceOfText = (text: string): PadCardSource | undefined => 
   return { href: link.href, label: cardLabel(link.label?.replace(/^@/u, "") || link.href) };
 };
 
+/** A drag that carries text: it may be a Junto link, read only on drop. */
+export const dataTransferHasText = (data: DataTransfer | null | undefined): boolean =>
+  data != null && (data.types.includes("text/plain") || data.types.includes("text/uri-list"));
+
+/**
+ * The card a drop makes: its plain text first, which keeps a link's label, then its first uri.
+ * Undefined when neither names a Junto thing.
+ */
+export const padCardSourceOfTransfer = (data: DataTransfer | null | undefined): PadCardSource | undefined => {
+  if (data == null) return undefined;
+  const uri = data.getData("text/uri-list").split(/\r?\n/u).find((line) => line !== "" && !line.startsWith("#")) ?? "";
+  return padCardSourceOfText(data.getData("text/plain")) ?? padCardSourceOfText(uri);
+};
+
 /** An @ pick: the thing it names on this canvas, under the name the list showed. */
 export const padCardSourceOfPick = (pick: { readonly ref: MentionRef; readonly label: string }, canvasName: string): PadCardSource => ({
   href: mentionHref(pick.ref, canvasName),

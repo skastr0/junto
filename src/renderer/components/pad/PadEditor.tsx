@@ -52,6 +52,19 @@ import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-co
 import { IconButton, Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
 import { PadEdgeMark, PadShapeOutline, PadShapeWords } from "./PadMarks";
+import { openMention } from "../../lib/mention-open";
+import type { MentionCandidate } from "../../lib/mention-draft";
+import { state$ } from "../../lib/state";
+import {
+  dataTransferHasText,
+  padCardFor,
+  padCardSourceOfPick,
+  padCardSourceOfText,
+  padCardSourceOfTransfer,
+  type PadCardSource,
+} from "./pad-card";
+import { PadCardPicker } from "./PadCardPicker";
+import { PadCardShape, padCardRef } from "./PadCardShape";
 import "./pad-editor.css";
 import {
   DEFAULT_IMAGE_SIZE,
@@ -224,6 +237,7 @@ export function PadEditor({
   onCommit,
   onReadPad,
   onClose,
+  cards,
 }: {
   readonly pad: Pad;
   readonly pins: PadPins;
@@ -232,6 +246,8 @@ export function PadEditor({
   /** A fresh read through the host's acceptance path. */
   readonly onReadPad: () => Promise<Pad | null>;
   readonly onClose: () => void;
+  /** What the @ list offers to put on the pad as a card. Absent, @ opens nothing; paste and drop still make cards. */
+  readonly cards?: { readonly candidates: ReadonlyArray<MentionCandidate> };
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -597,6 +613,32 @@ export function PadEditor({
     [placeRefAt],
   );
 
+  const canvasName = use$(state$.canvasName) || "";
+  // Where the @ list was opened: the card it picks lands there.
+  const [cardPicker, setCardPicker] = useState<PadPoint | null>(null);
+
+  /** The scene point at the middle of the view: where a paste or an @ pick lands. */
+  const viewCentre = (): PadPoint => {
+    const origin = originOf();
+    const rect = svgRef.current?.getBoundingClientRect();
+    return clientToScene(
+      camera,
+      { x: origin.x + (rect?.width ?? DEFAULT_IMAGE_SIZE.w) / 2, y: origin.y + (rect?.height ?? DEFAULT_IMAGE_SIZE.h) / 2 },
+      origin,
+    );
+  };
+
+  /** A Junto thing onto the pad: one card shape, selected once it is written. */
+  const placeCard = useCallback(
+    async (source: PadCardSource, at: PadPoint): Promise<void> => {
+      const { shape, patch } = padCardFor(source, at, padRef.current);
+      setTool("select");
+      await commit([patch]);
+      setSelectedId(shape.id);
+    },
+    [commit],
+  );
+
   const requestImageFile = useCallback((pending: PendingImage) => {
     pendingImageRef.current = pending;
     const input = fileInputRef.current;
@@ -638,6 +680,13 @@ export function PadEditor({
         return;
       }
       const typing = isOperatorTyping(event.target) || editingLabel;
+      // @ on the pad opens the list of seats, tasks and artifacts to put here as a card.
+      if (event.key === "@" && cards !== undefined && !typing && !isControlTarget(event.target) && cardPicker === null) {
+        event.preventDefault();
+        event.stopPropagation();
+        setCardPicker(viewCentre());
+        return;
+      }
       if (typing && event.key === "Escape") {
         // Child inputs own Escape (the label input cancels itself). Do not
         // intercept.
@@ -708,6 +757,8 @@ export function PadEditor({
     applyNudge,
     applyZ,
     beginLabelEdit,
+    cardPicker,
+    cards,
     editingLabel,
     finishLabelEdit,
     gesture.kind,
@@ -719,7 +770,15 @@ export function PadEditor({
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
       if (isOperatorTyping(event.target) || editingLabel) return;
-      if (!dataTransferHasImage(event.clipboardData)) return;
+      if (!dataTransferHasImage(event.clipboardData)) {
+        // A copied Junto link becomes a card in the middle of the view.
+        const card = padCardSourceOfText(event.clipboardData?.getData("text/plain") ?? "");
+        if (card === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void placeCard(card, viewCentre());
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       const origin = originOf();
@@ -736,7 +795,7 @@ export function PadEditor({
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [camera, editingLabel, ingestTransfer]);
+  }, [camera, editingLabel, ingestTransfer, placeCard]);
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (event.button === 1 || (event.button === 0 && spaceDown)) {
@@ -1061,12 +1120,20 @@ export function PadEditor({
       <div
         className="pad-stage"
         onDragOver={(event) => {
-          if (!dataTransferHasImage(event.dataTransfer)) return;
+          if (!dataTransferHasImage(event.dataTransfer) && !dataTransferHasText(event.dataTransfer)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = "copy";
         }}
         onDrop={(event) => {
-          if (!dataTransferHasImage(event.dataTransfer)) return;
+          if (!dataTransferHasImage(event.dataTransfer)) {
+            // A dropped Junto link becomes a card where it lands; any other text is not the pad's.
+            const card = padCardSourceOfTransfer(event.dataTransfer);
+            if (card === undefined) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void placeCard(card, sceneOf(event));
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
           void ingestTransfer(event.dataTransfer, sceneOf(event));
@@ -1087,8 +1154,13 @@ export function PadEditor({
           onPointerCancel={() => setGesture({ kind: "idle" })}
           onDoubleClick={(event) => {
             const hit = hitTest(pad, sceneOf(event), viewSlop(camera, HIT_VIEW_PX));
-            if (hit && shapeById(pad, hit.id)?.type === "label") {
-              beginLabelEdit(hit.id);
+            const shape = hit ? shapeById(pad, hit.id) : undefined;
+            if (shape?.type === "label") {
+              beginLabelEdit(shape.id);
+            } else if (shape?.type === "card") {
+              // A card opens what it names; a gone one opens nothing.
+              const ref = padCardRef(shape, canvasName);
+              if (ref !== undefined) openMention(ref);
             }
           }}
         >
@@ -1115,8 +1187,14 @@ export function PadEditor({
               .sort((a, b) => a.z - b.z)
               .map((shape) => (
                 <g key={shape.id} data-testid="pad-shape" data-shape-id={shape.id} data-shape-type={shape.type}>
-                  <PadShapeOutline shape={shape} pal={pal} selected={shape.id === selectedId} />
-                  {editingLabel && shape.id === selectedId ? null : <PadShapeWords shape={shape} pal={pal} />}
+                  {shape.type === "card" ? (
+                    <PadCardShape shape={shape} canvasName={canvasName} selected={shape.id === selectedId} />
+                  ) : (
+                    <>
+                      <PadShapeOutline shape={shape} pal={pal} selected={shape.id === selectedId} />
+                      {editingLabel && shape.id === selectedId ? null : <PadShapeWords shape={shape} pal={pal} />}
+                    </>
+                  )}
                 </g>
               ))}
             {shown.inks
@@ -1195,6 +1273,19 @@ export function PadEditor({
             ) : null}
           </g>
         </svg>
+        {cardPicker !== null && cards !== undefined ? (
+          <div className="pad-card-picker-anchor">
+            <PadCardPicker
+              candidates={cards.candidates}
+              onClose={() => setCardPicker(null)}
+              onPick={(pick) => {
+                const at = cardPicker;
+                setCardPicker(null);
+                void placeCard(padCardSourceOfPick(pick, canvasName), at);
+              }}
+            />
+          </div>
+        ) : null}
         {empty && gesture.kind === "idle" ? (
           <div className="pad-empty" data-testid="pad-empty">
             <PadGlyph className="pad-empty__mark" />

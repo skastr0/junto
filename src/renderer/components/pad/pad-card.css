@@ -14,3 +14,17 @@
 .pad-card-shape[data-selected="true"] .preview-card {
   border-color: var(--color-amber);
 }
+
+/* The pad's @ list, over the middle of the stage where its card will land. */
+.pad-card-picker-anchor {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: min(360px, calc(100% - 32px));
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+  padding: 8px;
+}
