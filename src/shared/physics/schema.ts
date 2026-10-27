@@ -62,6 +62,7 @@ export type ActorKind = typeof ActorKind.Type;
 export const SinkKind = Schema.Literals(["page", "task",
 "artifacts",
 "automations",
+"files",
 "terminal",]);
 export type SinkKind = typeof SinkKind.Type;
 

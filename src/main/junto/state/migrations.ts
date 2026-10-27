@@ -7,6 +7,7 @@ import { STATE_SCHEMA_SQL } from "./schema";
 import {
   AUTOMATION_BOARDS_STATE_SCHEMA_SQL,
   CANVAS_EDITOR_COLUMN_SQL,
+  FILE_TREES_STATE_SCHEMA_SQL,
   PEERS_STATE_SCHEMA_SQL,
   STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
@@ -647,7 +648,16 @@ export const STATE_SCHEMA_V50_IDENTITY = {
     "47696d804762d9a5bc7b999e4192b3440217f34906a2935113d8c5fb545b000e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 50;
+/**
+ * Version 51 adds the Files node (0.11): `file_trees`, one row per node, with
+ * the machine its folder lives on and the folder's path there. Expand only.
+ */
+export const STATE_SCHEMA_V51_IDENTITY = {
+  actualSchemaSha256:
+    "8b26a65de1ca26a4c1dbd6a792f17d5bffc1012bd996e931982966fcd76c7e02",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 51;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -655,7 +665,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 50;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V50_IDENTITY;
+  STATE_SCHEMA_V51_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1046,6 +1056,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V49_IDENTITY,
     replacesTables: [...DERIVES_VERB_REPLACED_TABLES],
     migrate: migrateDerivesVerb,
+  },
+  {
+    fromVersion: 50,
+    toVersion: 51,
+    name: "add the files node",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V50_IDENTITY,
+    migrate: (database) => database.exec(FILE_TREES_STATE_SCHEMA_SQL),
   },
 ];
 

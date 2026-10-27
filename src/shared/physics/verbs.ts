@@ -70,6 +70,8 @@ export const VERB_TABLE = {
   terminal: {},
   // Automations take no edge: they act by reach (07).
   automations: {},
+  // Files take no edge, like git: seats have the filesystem.
+  files: {},
 } as const satisfies VerbTable;
 
 const NO_VERBS: ReadonlyArray<Verb> = [];

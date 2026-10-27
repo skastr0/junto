@@ -49,6 +49,7 @@ export const KIND_TABLES = {
   file: "file_cards",
   link: "link_cards",
   git: "git_repositories",
+  files: "file_trees",
   stub: "stubs",
 } as const;
 
@@ -87,6 +88,18 @@ export const STUBS_STATE_SCHEMA_SQL = table(
 
 /** Automations nodes (0.10/07). Added by state migration 27 -> 28. */
 export const AUTOMATION_BOARDS_STATE_SCHEMA_SQL = table("automation_boards", "label TEXT");
+
+/**
+ * Files nodes (0.11): the machine the folder lives on and its absolute path
+ * there, which never leaves that machine. Added by state migration 50 -> 51.
+ */
+export const FILE_TREES_STATE_SCHEMA_SQL = table(
+  "file_trees",
+  `
+    label TEXT,
+    host TEXT NOT NULL,
+    root TEXT NOT NULL`,
+);
 
 export const MODEL_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS canvases (
@@ -179,4 +192,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
   ${PEERS_STATE_SCHEMA_SQL}
 
   ${STUBS_STATE_SCHEMA_SQL}
+
+  ${FILE_TREES_STATE_SCHEMA_SQL}
 `;

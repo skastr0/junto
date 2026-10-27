@@ -100,6 +100,7 @@ export const OPS_BY_SINK = {
   // Artifacts admit by reach (plan 05); no work op checks a port.
   artifacts: [],
   automations: [],
+  files: [],
   page: [],
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

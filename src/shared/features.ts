@@ -35,6 +35,7 @@ declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
+declare const __JUNTO_FILES_TIER__: FeatureTier | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -209,6 +210,20 @@ export const SEAT_AWARENESS_TIER: FeatureTier =
 /** Seat awareness is in this build at all (on or experimental). */
 export const SEAT_AWARENESS_COMPILED: boolean = SEAT_AWARENESS_TIER !== false;
 
+/**
+ * The Files node (0.11): the `files` kind, its card and its modal.
+ *
+ * EXPERIMENTAL in the ship profile, on in all-on. This is the build's tier:
+ * read {@link filesOn} for "is it on", which folds in the operator's toggle.
+ */
+export const FILES_TIER: FeatureTier =
+  typeof __JUNTO_FILES_TIER__ !== "undefined" && definedTier(__JUNTO_FILES_TIER__)
+    ? __JUNTO_FILES_TIER__
+    : envTier("JUNTO_FILES");
+
+/** The Files node is in this build at all (on or experimental). */
+export const FILES_COMPILED: boolean = FILES_TIER !== false;
+
 export const BUILD_FEATURES = {
   browser: BROWSER_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
@@ -228,6 +243,7 @@ export const BUILD_FEATURES = {
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
   seatAwareness: SEAT_AWARENESS_TIER,
+  files: FILES_TIER,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
 
 /** The operator's experimental toggles, as the settings row stores them. */
@@ -253,6 +269,10 @@ export const featureOn = (
 export const seatAwarenessOn = (optIns: ExperimentalOptIns): boolean =>
   featureOn("seatAwareness", optIns);
 
+/** The Files node resolved against the operator's toggle. */
+export const filesOn = (optIns: ExperimentalOptIns): boolean =>
+  featureOn("files", optIns);
+
 /**
  * Historical hidden kinds remain decodable, but cannot regain authoring
  * controls. This is the one predicate every authoring, wire, and capability
@@ -262,6 +282,9 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "task") return TASKS_ENABLED;
   if (kind === "page") return BROWSER_ENABLED;
   if (kind === "artifacts") return ARTIFACTS_ENABLED;
+  // Compiled in: a files node decodes, stores and draws. Authoring surfaces
+  // also read the operator's toggle through filesOn.
+  if (kind === "files") return FILES_COMPILED;
   return true;
 };
 

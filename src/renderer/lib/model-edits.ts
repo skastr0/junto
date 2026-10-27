@@ -76,6 +76,7 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
     case "artifacts":
     case "automations":
     case "git":
+    case "files":
     case "region":
     case "file":
     case "link":
@@ -101,6 +102,7 @@ export const nameable = (kind: NodeKind): boolean => {
     case "artifacts":
     case "automations":
     case "git":
+    case "files":
     case "region":
     case "note":
     case "label":

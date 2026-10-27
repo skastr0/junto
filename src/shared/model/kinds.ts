@@ -192,6 +192,22 @@ export const GitCard = Schema.Struct({
 });
 export type GitCard = typeof GitCard.Type;
 
+/**
+ * A Files node (0.11): one folder on one machine, opened as a file tree with
+ * a light editor. The node owns its folder: `root` is stamped at creation from
+ * the region's path for `host` and never read from the region again. Host-local:
+ * the root names a place on `host` only and never leaves it. No edges.
+ */
+export const Files = Schema.Struct({
+  kind: Schema.Literal("files"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+  host: HostId,
+  /** An absolute path on `host`. */
+  root: NonEmpty,
+});
+export type Files = typeof Files.Type;
+
 /** The kinds a stub stands for. */
 export const StubOf = Schema.Literals(["file", "link", "git", "page"]);
 export type StubOf = typeof StubOf.Type;
@@ -236,6 +252,7 @@ export const Node = Schema.Union([
   FileCard,
   LinkCard,
   GitCard,
+  Files,
   Stub,
   Region,
 ]);
@@ -256,6 +273,7 @@ export const NODE_KINDS = [
   "file",
   "link",
   "git",
+  "files",
   "stub",
   "region",
 ] as const satisfies ReadonlyArray<NodeKind>;

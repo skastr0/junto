@@ -294,3 +294,9 @@ export const STATE_SCHEMA_V50_SQL = stepped(
   STATE_SCHEMA_V49_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 50)!.migrate,
 );
+
+// Version 51 added the files node (50 -> 51).
+export const STATE_SCHEMA_V51_SQL = stepped(
+  STATE_SCHEMA_V50_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 51)!.migrate,
+);

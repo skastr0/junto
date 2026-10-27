@@ -63,6 +63,7 @@ const SPOKEN_KIND: { readonly [K in NodeKind]: string | undefined } = {
   file: "file",
   link: "link",
   git: "git",
+  files: "files",
   stub: "stub",
 };
 

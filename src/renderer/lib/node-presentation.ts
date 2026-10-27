@@ -8,6 +8,7 @@ export const detailOf = (node: Node): string => {
     case "file": return [node.path, node.subpath].filter(Boolean).join(" ");
     case "link": case "page": return node.url;
     case "git": return node.cwd;
+    case "files": return node.root;
     case "region": return node.instruction?.trim().split("\n")[0] ?? "Spatial region";
     case "agent": return node.agentKey;
     case "peer": return node.host;

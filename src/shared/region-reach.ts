@@ -38,8 +38,12 @@ export type Positions = (
 export const RESOURCE_KINDS = ["task", "artifacts"] as const satisfies ReadonlyArray<NodeKind>;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
-/** Kinds whose comment threads follow reach. A page stays edge-bound for automation (06). */
-export const COMMENTABLE_KINDS = [...RESOURCE_KINDS, "page"] as const satisfies ReadonlyArray<NodeKind>;
+/**
+ * Kinds whose comment threads follow reach. A page stays edge-bound for
+ * automation (06). A files node is commentable but never a resource: seats get
+ * no item operations on it, because they use the filesystem.
+ */
+export const COMMENTABLE_KINDS = [...RESOURCE_KINDS, "page", "files"] as const satisfies ReadonlyArray<NodeKind>;
 export type CommentableKind = (typeof COMMENTABLE_KINDS)[number];
 
 /** A seat as reach sees it: the seat itself, or its row in another machine's copy. */
