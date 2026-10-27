@@ -55,8 +55,8 @@ const OFF_LIMITS = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText",
 
 /**
  * The mention typed just before the caret, if one can be written there. A
- * # that begins its line is a heading until a letter follows it, so typing
- * `# Title` never opens the list.
+ * bare # opens the list anywhere, the start of a line included; the space a
+ * heading takes after its # ends the query, so `# Title` types as a heading.
  *
  * Code is known only once the syntax reaches the caret. Until it does, far
  * down a long document, the list waits closed rather than guess: it opens
@@ -69,7 +69,6 @@ export const pickerQueryAt = (state: EditorState, budgetMs: number = PARSE_BUDGE
   const before = line.text.slice(0, caret.head - line.from);
   const found = mentionQueryAt([{ kind: "text", text: before }], before.length);
   if (found === undefined) return null;
-  if (found.trigger === "#" && found.query === "" && before.slice(0, found.start).trim() === "") return null;
   // Parse up to the caret, bounded so a keystroke never waits long.
   const tree = ensureSyntaxTree(state, caret.head, budgetMs);
   if (tree === null) return null;

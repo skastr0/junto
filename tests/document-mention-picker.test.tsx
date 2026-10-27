@@ -49,11 +49,14 @@ describe("where a mention can be typed", () => {
     expect(pickerQueryAt(stateAt("- #42"))).toEqual({ trigger: "#", from: 2, to: 5, query: "42" });
   });
 
-  it("a # that begins its line is a heading until a letter follows", () => {
-    expect(pickerQueryAt(stateAt("#"))).toBeNull();
-    expect(pickerQueryAt(stateAt("intro\n  #"))).toBeNull();
-    expect(pickerQueryAt(stateAt("# Title"))).toBeNull();
+  it("a bare # opens at a line's start too; # and a space is a heading", () => {
+    expect(pickerQueryAt(stateAt("#"))).toEqual({ trigger: "#", from: 0, to: 1, query: "" });
+    expect(pickerQueryAt(stateAt("intro\n  #"))).toEqual({ trigger: "#", from: 8, to: 9, query: "" });
     expect(pickerQueryAt(stateAt("#fix"))).toEqual({ trigger: "#", from: 0, to: 4, query: "fix" });
+    expect(pickerQueryAt(stateAt("# "))).toBeNull();
+    expect(pickerQueryAt(stateAt("# Title"))).toBeNull();
+    expect(pickerQueryAt(stateAt("##"))).toBeNull();
+    expect(pickerQueryAt(stateAt("## Plan"))).toBeNull();
   });
 
   it("never in code, a link, an address, a word or a selection", () => {
