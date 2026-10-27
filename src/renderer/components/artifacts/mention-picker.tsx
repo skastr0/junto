@@ -6,7 +6,7 @@ import { useLayoutEffect, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { artifactLink } from "@shared/artifact-link";
 import { mentionLink, type MentionOf } from "@shared/mention";
-import { artifactLinkCandidates, linkCandidateKey, linkCandidateLabel, linkQueryAt, type LinkableArtifact, type LinkCandidate } from "../../lib/artifact-link-draft";
+import { artifactLinkCandidates, linkCandidateKey, linkQueryAt, type LinkableArtifact, type LinkCandidate } from "../../lib/artifact-link-draft";
 import { listboxAnnouncement, listboxAria, optionAria, optionId, listboxId, type ListboxAriaState } from "../../lib/listbox-aria";
 import {
   candidateKey,
@@ -17,7 +17,8 @@ import {
   type MentionCandidate,
   type MentionTrigger,
 } from "../../lib/mention-draft";
-import { ARTIFACT_TYPE_NOUN, RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
+import { RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
+import { LinkRowContent } from "../ui/MentionCombobox";
 import { ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import "../ui/mention-combobox.css";
 import "./mention-picker.css";
@@ -282,31 +283,6 @@ const LIST_LABEL: Readonly<Record<PickerTrigger, string>> = {
 };
 
 const ARTIFACT_MARK = { "--mark": markColor(RESOURCE_KIND_VISUAL.artifact.tone) } as CSSProperties;
-
-/** A `[[` row: the artifact's glyph, title and place, or the create row in the words it does. */
-function LinkRowContent({ row }: { readonly row: LinkCandidate }) {
-  if (row.kind === "create") {
-    return (
-      <>
-        <ResourceGlyphMark kind="artifact" artifactType="document" />
-        <span className="mention-combobox__label">{linkCandidateLabel(row)}</span>
-        {/* The row already says what it does; the tag is for the eye. */}
-        <span className="mention-combobox__kind" aria-hidden>
-          New
-        </span>
-      </>
-    );
-  }
-  const { artifact } = row;
-  return (
-    <>
-      <ResourceGlyphMark kind="artifact" artifactType={artifact.type} />
-      <span className="mention-combobox__label">{artifact.title}</span>
-      {artifact.place ? <span className="mention-combobox__detail">{artifact.place}</span> : null}
-      <span className="mention-combobox__kind">{ARTIFACT_TYPE_NOUN[artifact.type]}</span>
-    </>
-  );
-}
 
 function MentionRowContent({ candidate }: { readonly candidate: MentionCandidate }) {
   return (
