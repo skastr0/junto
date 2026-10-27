@@ -642,6 +642,41 @@ const around = (state: EditorState, name: string): SyntaxNode | null => {
   return null;
 };
 
+/**
+ * Wrap each selection in a mark, or take the mark off when it already wraps
+ * it. An empty selection gets the pair with the caret between.
+ */
+export const toggleWrap =
+  (markText: string) =>
+  (view: EditorView): boolean => {
+    if (view.state.readOnly) return false;
+    const width = markText.length;
+    view.dispatch(
+      view.state.changeByRange((range) => {
+        const { from, to } = range;
+        const doc = view.state.doc;
+        if (doc.sliceString(from - width, from) === markText && doc.sliceString(to, to + width) === markText) {
+          return {
+            changes: [
+              { from: from - width, to: from },
+              { from: to, to: to + width },
+            ],
+            range: EditorSelection.range(from - width, to - width),
+          };
+        }
+        return {
+          changes: [
+            { from, insert: markText },
+            { from: to, insert: markText },
+          ],
+          range: EditorSelection.range(from + width, to + width),
+        };
+      }),
+      { userEvent: "input.format" },
+    );
+    return true;
+  };
+
 /** Mod-Enter opens the web link at the caret. */
 const openLinkAtCaret = (view: EditorView): boolean => {
   const link = around(view.state, "Link") ?? around(view.state, "Autolink");
@@ -679,6 +714,7 @@ export const liveMarkdown = (handlers: LiveMarkdownHandlers): Extension => [
       { key: "Tab", run: stepCell(1) },
       { key: "Shift-Tab", run: stepCell(-1) },
       { key: "Mod-Enter", run: openLinkAtCaret },
+      { key: "Mod-b", run: toggleWrap("**") },
       { key: "Mod-Alt-m", run: openThreadAtCaret(handlers) },
     ]),
   ),

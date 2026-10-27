@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { type DecorationSet, EditorView } from "@codemirror/view";
@@ -8,6 +9,7 @@ import {
   resolveAnchor,
   revealAnchorEffects,
   setFocused,
+  toggleWrap,
 } from "../src/renderer/components/artifacts/live-markdown";
 
 const DOC = [
@@ -120,4 +122,17 @@ it("draws a mention link as a chip and a bang mention alone on its line as an em
   expect(spans).toContain(`![@product-lead](${href})`);
   // A web link keeps its label in the text; only its marks are hidden.
   expect(spans).toContain("](https://example.com)");
+});
+
+it("bolds a selection on Mod-b and takes the bold off again", () => {
+  const parent = document.createElement("div");
+  const view = new EditorView({
+    parent,
+    state: EditorState.create({ doc: "ship it", selection: EditorSelection.range(5, 7), extensions: [liveMarkdown({ current: {} })] }),
+  });
+  toggleWrap("**")(view);
+  expect(view.state.doc.toString()).toBe("ship **it**");
+  toggleWrap("**")(view);
+  expect(view.state.doc.toString()).toBe("ship it");
+  view.destroy();
 });

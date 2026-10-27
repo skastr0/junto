@@ -324,7 +324,10 @@ export function DocumentEditor({
         <div
           ref={host}
           className="artifact-document__live"
-          tabIndex={-1}
+          tabIndex={0}
+          role="group"
+          aria-label="Document"
+          aria-keyshortcuts="Enter"
           onKeyDown={onSurfaceKey}
         />
         {mentions
