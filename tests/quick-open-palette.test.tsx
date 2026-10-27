@@ -131,6 +131,15 @@ describe("the quick open palette", () => {
     expect(document.querySelector(".quick-open__empty")?.textContent).toBe(QUICK_OPEN_WORDS.artifact.empty);
   });
 
+  it("closes when the keyboard leaves the palette, so no combobox stays armed", () => {
+    const held = render(sourceOf());
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    act(() => outside.focus());
+    expect(held.onClose).toHaveBeenCalled();
+    outside.remove();
+  });
+
   it("never paints an answer the query has moved past", async () => {
     const asked: Array<{ query: string; resolve: (rows: readonly QuickOpenItem[]) => void }> = [];
     const source: QuickOpenSource = {

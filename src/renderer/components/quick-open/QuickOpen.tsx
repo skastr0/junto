@@ -66,6 +66,21 @@ export function QuickOpen({
     claimFocus(fieldRef.current, "open");
   }, []);
 
+  // Field focus means the palette is open: Tab out of it (the popover hands
+  // the keyboard back to the header button) closes it, so no combobox is left
+  // armed behind the operator's keyboard. A press outside closes it too.
+  useEffect(() => {
+    const panel = fieldRef.current?.closest<HTMLElement>(".junto-popover");
+    if (panel === null || panel === undefined) return;
+    const onFocusOut = (event: FocusEvent): void => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && panel.contains(next)) return;
+      onClose();
+    };
+    panel.addEventListener("focusout", onFocusOut);
+    return () => panel.removeEventListener("focusout", onFocusOut);
+  }, [onClose]);
+
   // A source rebuilt on a render (a list that changed) is not a new question:
   // the palette re-asks per keystroke, never per paint.
   const sourceRef = useRef(source);
