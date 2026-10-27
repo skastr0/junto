@@ -69,6 +69,7 @@ import { ContentService } from "../content/service";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "./resource-rulings";
 import { RulingRecorder, type RulingRecordFailed } from "./ruling-recorder";
+import { unjournaledWorkMutationEffect } from "./mutation-seam";
 
 export class ArtifactPersistenceError extends Schema.TaggedError<ArtifactPersistenceError>()(
   "ArtifactPersistenceError",
@@ -328,12 +329,21 @@ export const projectArtifactFacts = (
     const projectLinks = (artifactId: string, version: number, body: ArtifactBody | undefined): Effect.Effect<void, SqlError.SqlError> =>
       Effect.gen(function* () {
         if (body === undefined) return;
-        yield* sql`DELETE FROM work_artifact_links WHERE canvas_name = ${canvas} AND source_artifact_id = ${artifactId}`;
-        for (const link of bodyLinksOf(body)) {
-          yield* sql`
-            INSERT INTO work_artifact_links (canvas_name, source_artifact_id, target_node_id, target_artifact_id, line, source_version)
-            VALUES (${canvas}, ${artifactId}, ${link.target.nodeId}, ${link.target.artifactId}, ${link.line}, ${version})`;
-        }
+        // The ruling's own journal record lands later in this same transaction
+        // (the recorder records after the facts it applied, and its nested
+        // transaction does not carry the seam's journal flag back out), so the
+        // rows are declared, not explained. See "artifact.links.projection".
+        yield* unjournaledWorkMutationEffect(
+          "artifact.links.projection",
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM work_artifact_links WHERE canvas_name = ${canvas} AND source_artifact_id = ${artifactId}`;
+            for (const link of bodyLinksOf(body)) {
+              yield* sql`
+                INSERT INTO work_artifact_links (canvas_name, source_artifact_id, target_node_id, target_artifact_id, line, source_version)
+                VALUES (${canvas}, ${artifactId}, ${link.target.nodeId}, ${link.target.artifactId}, ${link.line}, ${version})`;
+            }
+          }),
+        );
       });
     for (const fact of facts) {
       switch (fact.fact) {

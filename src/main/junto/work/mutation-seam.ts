@@ -137,6 +137,28 @@ export const UNJOURNALED_WORK_REASONS = {
       "Mint a rename fact carrying the carried subject and materialize it, " +
       "then delete this reason.",
   },
+  "artifact.links.projection": {
+    why:
+      "work_artifact_links is rewritten in the artifact ruling's own " +
+      "transaction, and the ruling's journal record is written after the " +
+      "facts it applied, inside a nested transaction whose journal flag the " +
+      "seam does not carry back out. The rows are a projection of the head " +
+      "body and rebuildable from it (artifact.links.backfill).",
+    retire:
+      "Let the ruling recorder open its transaction inside the caller's seam " +
+      "scope so a journal record explains the projection, then delete this " +
+      "reason.",
+  },
+  "artifact.links.backfill": {
+    why:
+      "The body links walk (body-links.ts) rebuilds work_artifact_links from " +
+      "the head bodies it holds: a one-time backfill on upgrade and a " +
+      "replica's repair when the bodies it waited on arrive. It replaces rows " +
+      "in place and mints no work fact, so no journal record explains it.",
+    retire:
+      "Retire the walk with the 0.11 backfill; a replica repair would then " +
+      "have to arrive as a journaled fact carrying the rebuilt rows.",
+  },
   "content.inline-media.backfill": {
     why:
       "BACKFILL_INLINE_MEDIA_V1 rewrites parts_json in six work_* projection " +

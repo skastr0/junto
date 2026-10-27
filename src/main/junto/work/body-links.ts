@@ -18,6 +18,7 @@ import { decodeArtifactBody, type ArtifactType } from "@shared/artifact";
 import { bodyLinksOf, type ArtifactLinkRef, type LinkedFromBody } from "@shared/artifact-links";
 import { asNodeId } from "@shared/model";
 import type { Canvas } from "@shared/model";
+import { unjournaledWorkMutationEffect } from "./mutation-seam";
 import type { ItemId } from "@shared/work-ids";
 
 /** A row as the table holds it, with the head's facts joined in. */
@@ -85,29 +86,37 @@ export const linkedFromBodies = (
  * Idempotent: the rows of every artifact it reads are replaced, never added to.
  */
 export const rebuildBodyLinks = (sql: SqlClient.SqlClient, canvasName: string): Effect.Effect<number, SqlError.SqlError> =>
-  Effect.gen(function* () {
-    const heads = yield* sql.unsafe<{ readonly artifact_id: string; readonly version: number; readonly inline_body_json: string | null }>(
-      `SELECT heads.artifact_id AS artifact_id, heads.version AS version, versions.inline_body_json AS inline_body_json
-       FROM artifact_heads heads
-       LEFT JOIN artifact_versions versions
-         ON versions.canvas_name = heads.canvas_name
-        AND versions.artifact_id = heads.artifact_id
-        AND versions.version = heads.version
-       WHERE heads.canvas_name = ?`,
-      [canvasName],
-    );
-    let written = 0;
-    for (const head of heads) {
-      yield* sql`DELETE FROM work_artifact_links WHERE canvas_name = ${canvasName} AND source_artifact_id = ${head.artifact_id}`;
-      if (head.inline_body_json === null) continue;
-      const decoded = decodeArtifactBody(JSON.parse(head.inline_body_json) as unknown);
-      if (decoded._tag === "Failure") continue;
-      for (const link of bodyLinksOf(decoded.success)) {
-        yield* sql`
-          INSERT INTO work_artifact_links (canvas_name, source_artifact_id, target_node_id, target_artifact_id, line, source_version)
-          VALUES (${canvasName}, ${head.artifact_id}, ${link.target.nodeId}, ${link.target.artifactId}, ${link.line}, ${head.version})`;
-        written += 1;
-      }
-    }
-    return written;
-  });
+  // A walk over rows written before the projection existed (a backfill) or
+  // held by a replica: it replaces rows in place and mints no work fact, so it
+  // is declared to the seam rather than explained by a journal record.
+  sql.withTransaction(
+    unjournaledWorkMutationEffect(
+      "artifact.links.backfill",
+      Effect.gen(function* () {
+        const heads = yield* sql.unsafe<{ readonly artifact_id: string; readonly version: number; readonly inline_body_json: string | null }>(
+          `SELECT heads.artifact_id AS artifact_id, heads.version AS version, versions.inline_body_json AS inline_body_json
+           FROM artifact_heads heads
+           LEFT JOIN artifact_versions versions
+             ON versions.canvas_name = heads.canvas_name
+            AND versions.artifact_id = heads.artifact_id
+            AND versions.version = heads.version
+           WHERE heads.canvas_name = ?`,
+          [canvasName],
+        );
+        let written = 0;
+        for (const head of heads) {
+          yield* sql`DELETE FROM work_artifact_links WHERE canvas_name = ${canvasName} AND source_artifact_id = ${head.artifact_id}`;
+          if (head.inline_body_json === null) continue;
+          const decoded = decodeArtifactBody(JSON.parse(head.inline_body_json) as unknown);
+          if (decoded._tag === "Failure") continue;
+          for (const link of bodyLinksOf(decoded.success)) {
+            yield* sql`
+              INSERT INTO work_artifact_links (canvas_name, source_artifact_id, target_node_id, target_artifact_id, line, source_version)
+              VALUES (${canvasName}, ${head.artifact_id}, ${link.target.nodeId}, ${link.target.artifactId}, ${link.line}, ${head.version})`;
+            written += 1;
+          }
+        }
+        return written;
+      }),
+    ),
+  );

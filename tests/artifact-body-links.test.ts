@@ -10,7 +10,9 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ArtifactEdit, ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
+import type { ArtifactBody, ArtifactEdit, ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
+import { asPadElementId, emptyPad } from "../src/shared/pad";
+import { emptySheet } from "../src/shared/sheet";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { mentionHref } from "../src/shared/mention";
@@ -31,9 +33,21 @@ import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
 import { linkedFromBodies, rebuildBodyLinks } from "../src/main/junto/work/body-links";
 import { runArtifactLinksBackfill } from "../src/main/junto/work/artifact-links-backfill";
+import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { InstallOpsService } from "../src/main/junto/install-ops/service";
 import { BACKFILL_ARTIFACT_LINKS_V1 } from "../src/main/junto/install-ops/engine";
 import { seat } from "./support/model-nodes";
+
+
+/**
+ * An install from before the projection: the bodies are held and the rows are
+ * gone. Deleting projection rows by hand is a fixture, so it is declared as
+ * one to the seam (test.fixture-seed) and runs in its own transaction.
+ */
+const loseLinkRows = () =>
+  Effect.flatMap(SqlClient.SqlClient, (sql) =>
+    sql.withTransaction(unjournaledWorkMutationEffect("test.fixture-seed", sql.unsafe("DELETE FROM work_artifact_links", []))),
+  );
 
 const recorder = Layer.effect(
   RulingRecorder,
@@ -121,6 +135,55 @@ const read = (target: { readonly nodeId: ReturnType<typeof asNodeId>; readonly a
     }),
   );
 
+/**
+ * The projection runs in every artifact ruling, whatever the body, so the seam
+ * must admit it for each: product-verify found a create refused in the real app
+ * when work_artifact_links was declared a projection and its writes were not
+ * (65f2bee92).
+ */
+describe("the link projection on every body type", () => {
+  const replaceWith = (id: ItemId, base: number, body: ArtifactBody): Promise<unknown> =>
+    submit(command({ op: "edit", edit: { kind: "replace", baseVersion: v(base), body } }, id));
+
+  it("creates and edits a document, a pad and a sheet through the real seam", async () => {
+    const budget = await createDocument("Budget", "spent");
+    const bodyLink = link(SHELF, budget, "Budget");
+
+    const document = await createDocument("Doc", `The ${bodyLink} is fixed.`);
+    const pad = mintItemId();
+    expect(
+      await submit(
+        command({
+          op: "create",
+          title: "Pad",
+          body: { type: "pad", pad: { ...emptyPad(), shapes: [{ id: asPadElementId("s1"), type: "box", x: 0, y: 0, w: 60, h: 40, z: 0, text: `See ${bodyLink}` }] } },
+        }, pad),
+      ),
+    ).toMatchObject({ kind: "applied", version: 1 });
+    const sheet = mintItemId();
+    expect(
+      await submit(
+        command({
+          op: "create",
+          title: "Sheet",
+          body: { type: "sheet", grid: { ...emptySheet(), rows: [{ id: "r1", cells: { c1: `See ${bodyLink}` } }] } },
+        }, sheet),
+      ),
+    ).toMatchObject({ kind: "applied", version: 1 });
+
+    // One backlink row from each body, all three found.
+    const found = await read({ nodeId: SHELF, artifactId: budget });
+    expect(found.map((row) => row.source.artifactId).sort()).toEqual([document, pad, sheet].sort());
+
+    // An edit of each body replaces its rows: the link goes out of all three.
+    const plain = "nothing linked";
+    expect(await replaceWith(document, 1, { type: "document", markdown: plain })).toMatchObject({ kind: "applied" });
+    expect(await replaceWith(pad, 1, { type: "pad", pad: emptyPad() })).toMatchObject({ kind: "applied" });
+    expect(await replaceWith(sheet, 1, { type: "sheet", grid: emptySheet() })).toMatchObject({ kind: "applied" });
+    expect(await read({ nodeId: SHELF, artifactId: budget })).toEqual([]);
+  });
+});
+
 describe("body backlinks", () => {
   it("lists the artifact whose body links one, with its title, type and the line", async () => {
     const budget = await createDocument("Budget", "# Budget\nspent");
@@ -183,9 +246,7 @@ describe("body backlinks", () => {
     const before = await read({ nodeId: SHELF, artifactId: budget });
     expect(before).toHaveLength(1);
     // Something lost the rows, as an install that predates the projection did.
-    await runtime.runPromise(
-      Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe("DELETE FROM work_artifact_links", [])),
-    );
+    await runtime.runPromise(loseLinkRows());
     expect(await read({ nodeId: SHELF, artifactId: budget })).toEqual([]);
     const written = await runtime.runPromise(
       Effect.flatMap(SqlClient.SqlClient, (sql) => rebuildBodyLinks(sql, canvas)),
@@ -219,7 +280,7 @@ describe("the backfill over bodies written before the projection", () => {
     // An install from before the step: the bodies are here, the rows are not,
     // and the walk never ran (the layer's own run happened before these bodies
     // existed, so its marker is reopened as an install that lacked it would be).
-    await runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe("DELETE FROM work_artifact_links", [])));
+    await runtime.runPromise(loseLinkRows());
     await runtime.runPromise(Effect.flatMap(InstallOpsService, (ops) => ops.reopenPending(BACKFILL_ARTIFACT_LINKS_V1)));
     expect(await read({ nodeId: SHELF, artifactId: budget })).toEqual([]);
 
