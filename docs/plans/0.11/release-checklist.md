@@ -24,14 +24,18 @@ and is noted unverified.
       the stub comes later (other machines then show no Files stub). The links
       step below comes on top of either.
 - [x] Artifact links add a second step, `work_artifact_links`, expand only
-      (`docs/plans/0.11/02-artifact-links.md`). Product-lead, 2026-10-27: the
-      head is 52 (51 files node, 52 artifact links); step 53 only if the
-      operator picks the Files stub. The notes carry `<HEAD>` until the cut;
-      read `CURRENT_STATE_SCHEMA_VERSION` then.
+      (`docs/plans/0.11/02-artifact-links.md`), state 51 to 52 (b41388164,
+      af2170d68, c3757fd48, 8f4960f2a, 4cd57bdc3, dfedca97d, fa93d0ba9,
+      65f2bee92 per product-feed). The notes carry `<HEAD>` until the cut; read
+      `CURRENT_STATE_SCHEMA_VERSION` then.
+- [ ] Artifact labels (`03-artifact-labels.md`, new 0.11 track, operator
+      decision 2026-10-27) add a labels column or table, expand only, "numbered
+      when it lands". So the head is at least 53 (54 with the Files stub step),
+      not 52 as earlier lines read. Confirm the number from the code.
 - [ ] Whether the Files stub step (53) was picked, known before the notes'
       upgrade paragraph and section 1 are filled in.
 
-## 1. State steps (51 files node, 52 artifact links, 53 stub if picked)
+## 1. State steps (51 files node, 52 artifact links, labels, stub if picked)
 
 Notes open with it, as 0.10.3 did: the older release refuses the newer
 database, and going back means opening the backup taken at the upgrade. Run on
@@ -40,7 +44,7 @@ canvas-lead).
 
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
-- [ ] The copy migrates from v50 to the head (52, or 53 with the stub step); `PRAGMA quick_check` ok, foreign keys empty.
+- [ ] The copy migrates from v50 to the head (read from the code, see section 0); `PRAGMA quick_check` ok, foreign keys empty.
 - [ ] Counts unchanged: every table, every wire and its verb, tasks.
 - [ ] Backup written before the stamp, opens on 0.10.3 at v50.
 - [ ] A second open runs no step and makes no backup.
@@ -49,7 +53,8 @@ canvas-lead).
 - [ ] Diff the step's files between the receipts' commit and the cut.
 - [ ] Body backlinks backfill (dfedca97d): runs once at boot, marker
       `artifact-links.v1` in `install-ops.db`. Gate, both required:
-      product-feed's shipped-install fixture test (coming), and on the built
+      product-feed's shipped-install proof (fa93d0ba9, landed; a 0.10.3 install
+      shows its body backlinks after the step and the backfill), and on the built
       app launched on a copy of an installed 0.10.3 home, an artifact with a
       `[[ ]]` link shows in its target's Linked from without an edit. Check the
       marker is written and a second launch does not backfill again.
@@ -146,6 +151,12 @@ Each: frames dark and bright to the needs-you feed for new UI.
       a file is renamed or moved outside Junto (Finder, git); a rename or move
       made in Junto carries them. Landed in 63d77dc27 (product-lead,
       2026-10-27). Receipt for the carry itself: the F7 comments run.
+- [ ] T1 to T4 Artifact labels: add and remove a label in the header, the
+      sidebar filter ANDs several and a parent label matches its children with
+      a count each, Cmd+P ranks labels after the title, a label set on one
+      machine shows on another, CLI `create --label`, `label --set|--add|--remove`,
+      `list --label` and `show`. The cap of 20 and the case folding refuse and
+      fold as the contract says.
 - [ ] Accessibility for the tree, palette and viewers (product-accessibility).
 
 ## Open before the cut (product-lead, 2026-10-27)

@@ -8,8 +8,8 @@ deleted at the bump.
 
 Opening the database with 0.11.0 moves it to version <HEAD>, and 0.10.3 then
 refuses it as newer than supported. To go back to 0.10.3, open the backup
-taken at the upgrade. The steps add the Files node kind and a table that
-records which artifacts link to which (and, if approved, rebuild stubs so other
+taken at the upgrade. The steps add the Files node kind, a table that
+records which artifacts link to which, and artifact labels (and, if approved, rebuild stubs so other
 machines show a Files stub); every node, wire and task is kept as it was.
 (<HEAD> is read from `CURRENT_STATE_SCHEMA_VERSION` at the cut. If the stub
 step is not approved, add that the Files stub on other machines comes later.)
@@ -48,6 +48,15 @@ step is not approved, add that the Files stub on other machines comes later.)
   `junto artifact create` and `edit` accept [[Title]] and resolve it within the
   seat's reach; no match or more than one is refused with the candidates, and
   `junto artifact show` lists what links to the artifact.
+- Artifact labels: give an artifact any number of labels (up to 20) in its
+  header, and filter the Artifacts sidebar by one or more; an artifact shows
+  when it has all of them, and a label such as project/junto also matches
+  project/junto/release. The sidebar shows a count for each label, Cmd+P ranks
+  labels after the title, and labels sync across machines like a rename. In the
+  CLI, `junto artifact create --label`, `junto artifact label` with --set, --add
+  or --remove, and `junto artifact list --label`; `show` lists the labels.
+  Artifacts stay one flat list: there are no folders, and a document that links
+  its children is the way to build a hub.
 - Comments on a file stay at the file's path. If a file is renamed or moved
   outside Junto, in Finder or by git, its threads stay at the old path; a
   rename made in Junto carries them.
