@@ -66,6 +66,8 @@ test("pad on Excalidraw: feel, our data both ways, card, image, area comment", a
   try {
     const { page } = junto;
     const report: Record<string, unknown> = { seats: SEATS };
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
     const card = page.locator('.react-flow__node[data-id="shelf"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.dblclick();
