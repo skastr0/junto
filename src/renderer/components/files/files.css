@@ -1,0 +1,182 @@
+/* The Files node (0.11, F2): tree sidebar, main viewer, comments rail. Layout is TwoPane's. */
+
+/* Sidebar */
+
+.files-eyebrow {
+  display: flex;
+  min-width: 0;
+}
+
+.files-eyebrow__word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-eyebrow__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The tree draws in its own shadow root; it reads these from the host, so
+   every colour and size here is a house token, never a value of its own. */
+.files-tree {
+  display: block;
+  min-height: 0;
+  flex: 1;
+  --trees-bg-override: transparent;
+  --trees-bg-muted-override: var(--color-overlay-2);
+  --trees-fg-override: var(--color-ink);
+  --trees-fg-muted-override: var(--color-dim);
+  --trees-accent-override: var(--color-amber);
+  --trees-border-color-override: var(--color-stroke);
+  --trees-border-radius-override: var(--radius-sm);
+  --trees-selected-bg-override: var(--color-overlay-3);
+  --trees-selected-fg-override: var(--color-ink);
+  --trees-selected-focused-border-color-override: var(--color-stroke-hi);
+  --trees-focus-ring-color-override: var(--color-cyan);
+  --trees-font-family-override: var(--font-mono);
+  --trees-font-size-override: var(--text-body);
+  --trees-indent-guide-bg-override: var(--color-stroke);
+  --trees-input-bg-override: var(--color-inset);
+  --trees-search-bg-override: var(--color-inset);
+  --trees-search-fg-override: var(--color-ink);
+  --trees-scrollbar-thumb-override: var(--color-stroke-hi);
+  --trees-git-added-color-override: var(--color-green);
+  --trees-git-modified-color-override: var(--color-amber);
+  --trees-git-renamed-color-override: var(--color-cyan);
+  --trees-git-untracked-color-override: var(--color-green);
+  --trees-git-deleted-color-override: var(--color-crimson);
+  --trees-git-ignored-color-override: var(--color-faint);
+  /* House icons are ink, not a rainbow: the type shows in the name. */
+  --trees-file-icon-color: var(--color-dim);
+}
+
+/* Main pane */
+
+.files-head {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.files-head__glyph {
+  flex: none;
+  color: var(--color-dim);
+}
+
+.files-head__path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-compact);
+}
+
+.files-head__dir {
+  color: var(--color-dim);
+}
+
+.files-head__name {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.files-head__unsaved {
+  flex: none;
+  color: var(--color-amber-fg);
+  font-size: var(--text-label);
+}
+
+.files-stale,
+.files-error {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-stroke);
+  font-size: var(--text-body);
+}
+
+.files-stale {
+  color: var(--color-amber-fg);
+}
+
+.files-stale > span {
+  flex: 1;
+}
+
+.files-error {
+  color: var(--color-crimson-fg);
+}
+
+.files-main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.files-markdown {
+  min-height: 0;
+  flex: 1;
+}
+
+.files-code {
+  min-height: 0;
+  flex: 1;
+  resize: none;
+  border: 0;
+  padding: 12px;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  tab-size: 2;
+}
+
+.files-code:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+.files-media {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  place-items: center;
+  overflow: auto;
+  padding: 16px;
+  background: var(--color-inset);
+}
+
+.files-media__image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.files-elsewhere {
+  display: flex;
+  gap: 8px;
+}
+
+/* Rail */
+
+.files-rail {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
