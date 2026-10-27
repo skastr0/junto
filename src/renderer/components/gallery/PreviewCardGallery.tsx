@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Result } from "effect";
+import { formatNodeRef } from "@shared/node-ref";
+import { applyPatches, type Pad, type PadPatch } from "@shared/pad";
 import { SeatUrgency } from "@shared/wire/urgency";
 import type { TaskNumber } from "@shared/task-model";
 import { ensureMarkAtlas } from "../../lib/activity-atlas";
 import type { PreviewCardFace } from "../../lib/preview-face";
 import { startSurfaceMotionGate } from "../../lib/surface-motion";
 import { PreviewCard, PREVIEW_CARD_BOX } from "../embeds/PreviewCard";
+import { padCardFor } from "../pad/pad-card";
+import { PadEditor, type PadPins } from "../pad/PadEditor";
+import type { PadCommitOutcome } from "../pad/pad-editor-model";
 import { Eyebrow } from "../ui";
 
 /**
@@ -60,6 +66,43 @@ const SECTIONS: ReadonlyArray<{ readonly word: string; readonly faces: ReadonlyA
   },
 ];
 
+const NO_PINS: PadPins = { kind: "none" };
+
+/** A pad with two cards joined to a box: the editor's own gestures move, resize and connect them. */
+const seedPad = (): Pad => {
+  const empty: Pad = { revision: 0, images: [], shapes: [], edges: [], inks: [] };
+  const seat = padCardFor({ href: formatNodeRef({ canvasName: "gallery", nodeId: SEAT }), label: "product-attention" }, { x: 220, y: 120 }, empty, () => "seat");
+  const task = padCardFor({ href: `${formatNodeRef({ canvasName: "gallery", nodeId: "task-01M5G1KYYMFQASGJKGBDQZA2D3" })}&item=${ITEM}`, label: "#42 Fix the tab strip" }, { x: 220, y: 300 }, { shapes: [seat.shape] }, () => "task");
+  const patches: PadPatch[] = [
+    seat.patch,
+    task.patch,
+    { op: "upsert", layer: "shape", shape: { id: "box-plan" as never, type: "box", x: 520, y: 170, w: 160, h: 90, z: 2, text: "Release" } },
+    { op: "upsert", layer: "edge", edge: { id: "edge-seat" as never, from: seat.shape.id, to: "box-plan" as never } },
+    { op: "upsert", layer: "edge", edge: { id: "edge-task" as never, from: task.shape.id, to: "box-plan" as never } },
+  ];
+  return Result.getOrThrow(applyPatches(empty, patches));
+};
+
+/** The pad editor over local state: cards here name nothing on this page, so they draw missing under their labels. */
+function GalleryPad() {
+  const [pad, setPad] = useState<Pad>(seedPad);
+  const padRef = useRef(pad);
+  padRef.current = pad;
+  const onCommit = useCallback(async (patches: ReadonlyArray<PadPatch>): Promise<PadCommitOutcome> => {
+    const next = applyPatches(padRef.current, patches);
+    if (Result.isFailure(next)) return { ok: false, message: next.failure.message };
+    setPad(next.success);
+    return { ok: true, pad: next.success };
+  }, []);
+  const onReadPad = useCallback(async () => padRef.current, []);
+  const onClose = useCallback(() => {}, []);
+  return (
+    <div className="pad-surface relative flex h-[460px] min-h-0 flex-col overflow-hidden rounded-lg border border-stroke" data-testid="gallery-pad">
+      <PadEditor pad={pad} pins={NO_PINS} onCommit={onCommit} onReadPad={onReadPad} onClose={onClose} cards={{ candidates: [] }} />
+    </div>
+  );
+}
+
 export function PreviewCardGallery() {
   const [opened, setOpened] = useState<string | null>(null);
   useEffect(() => {
@@ -81,6 +124,10 @@ export function PreviewCardGallery() {
             {opened === null ? "Nothing opened yet" : `Opened ${opened}`}
           </p>
         </header>
+        <section className="grid gap-3">
+          <h2 className="text-body font-semibold text-ink">On a pad</h2>
+          <GalleryPad />
+        </section>
         {SECTIONS.map((section) => (
           <section key={section.word} className="grid gap-3">
             <h2 className="text-body font-semibold text-ink">{section.word}</h2>
