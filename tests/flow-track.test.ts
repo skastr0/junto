@@ -12,6 +12,9 @@ import {
   TRACK_PERIOD_MS,
   TRACK_SCALE,
   TRACK_WIDTH,
+  trackClearances,
+  trackHeight,
+  trackFit,
   trackRuns,
   trackTile,
   WIRE_WIDTH,
@@ -51,6 +54,56 @@ describe("flow track geometry", () => {
 
   it("skips stretches shorter than a period", () => {
     expect(trackRuns("M 0,0 L 10,0", TRACK_PERIOD)).toEqual([]);
+  });
+
+  it("keeps one run through a zero-length piece", () => {
+    expect(trackRuns("M 554.5,497.8 L 415.5,497.8 L 415.5,497.8 L 276.5,497.8", TRACK_PERIOD)).toEqual([
+      { x: 554.5, y: 497.8, length: 278, angle: 180, at: 0 },
+    ]);
+  });
+
+  it("rides a lane stitch narrower than `jog` straight through, and steps at a wider one", () => {
+    // The loom's 7-unit stitch between two lanes, rounded at both corners.
+    const stitch = "M 281.5,90.8 L 413,90.8 Q 417,90.8 417,94 L 417,94.6 Q 417,97.8 421,97.8 L 560,97.8";
+    expect(trackRuns(stitch, TRACK_PERIOD, 0).length).toBe(2);
+    expect(trackRuns(stitch, TRACK_PERIOD, 6.2).length).toBe(2);
+    const ridden = trackRuns(stitch, TRACK_PERIOD, trackHeight(3) / 2);
+    expect(ridden).toHaveLength(1);
+    expect(ridden[0]).toMatchObject({ x: 281.5, y: 90.8, angle: 0, at: 0 });
+    expect(ridden[0]!.length).toBeCloseTo(278.5);
+    // A real turn is never a stitch.
+    const turn = roundedOrthogonalPath([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 120 }], 8);
+    expect(trackRuns(turn, TRACK_PERIOD, 100)).toHaveLength(2);
+  });
+
+  it("finds the room beside each run: the nearest run alongside it on any track", () => {
+    const room = trackClearances({
+      in: [{ x: 304, y: 469.8, length: 364, angle: 0, at: 0 }],
+      out: [{ x: 554.5, y: 497.8, length: 278, angle: 180, at: 0 }],
+      // In line with `out` but past its end: not alongside anything.
+      on: [{ x: 781.5, y: 497.8, length: 379, angle: 0, at: 0 }],
+      // Crossing, not alongside.
+      down: [{ x: 400, y: 300, length: 400, angle: 90, at: 0 }],
+    });
+    expect(room).toEqual({ in: [28], out: [28], on: [Infinity], down: [Infinity] });
+  });
+
+  it("draws crowded chevrons smaller to fit the room, keeping a stroke of ground between tracks", () => {
+    expect(trackFit(1)).toBe(1);
+    expect(trackFit(3)).toBe(3);
+    expect(trackFit(1, 28)).toBe(1);
+    for (const scale of [TRACK_SCALE.mid, TRACK_SCALE.far, TRACK_SCALE.overview]) {
+      const fit = trackFit(scale, 28);
+      expect(fit).toBeLessThanOrEqual(scale);
+      expect(trackHeight(fit) + TRACK_WIDTH * fit).toBeLessThanOrEqual(28 + 1e-9);
+    }
+    // Mid has the room; far and overview shrink to it.
+    expect(trackFit(TRACK_SCALE.mid, 28)).toBe(TRACK_SCALE.mid);
+    expect(trackFit(TRACK_SCALE.far, 28)).toBeLessThan(TRACK_SCALE.far);
+    // Never smaller than near, however tight.
+    expect(trackFit(5, 2)).toBe(1);
+    // The spacing stays the tier's: only the chevron shrinks.
+    expect(decodeURIComponent(trackTile(5, 2))).toContain(`width="${TRACK_PERIOD * 5}"`);
   });
 
   it("grows as the camera pulls back, so a chevron keeps its size on screen", () => {

@@ -1,8 +1,19 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ViewportPortal } from "@xyflow/react";
+import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { canvasTier$ } from "../../lib/canvas-tier";
-import { TRACK_PERIOD, TRACK_PERIOD_MS, TRACK_SCALE, trackHeight, trackRuns, trackTile } from "../../lib/flow-track";
+import {
+  TRACK_PERIOD,
+  TRACK_PERIOD_MS,
+  TRACK_SCALE,
+  trackClearances,
+  trackHeight,
+  trackFit,
+  trackRuns,
+  trackTile,
+  type TrackRun,
+} from "../../lib/flow-track";
 import { surfaceMotionLive$ } from "../../lib/surface-motion";
 import "./flow-track.css";
 
@@ -16,50 +27,84 @@ import "./flow-track.css";
  * opaque in every state. And nothing paints over a sliding run, so no card,
  * region or wire is lifted into a layer of its own for overlapping one. It
  * takes no pointer; the wire's own path stays the hit target.
+ *
+ * Tracks that lie side by side closer than a chevron is tall (two task
+ * wires on one side of a board, pulled back to far) draw their chevrons
+ * smaller to fit the room between them rather than cross: every track publishes its
+ * runs, and each run reads the room beside it from all of them.
  */
 export function FlowTrack({ id, path, selected }: { readonly id: string; readonly path: string; readonly selected: boolean }) {
   const scale = TRACK_SCALE[use$(canvasTier$)];
   const period = TRACK_PERIOD * scale;
-  const height = trackHeight(scale);
-  const runs = useMemo(() => trackRuns(path, period), [path, period]);
-  const tile = useMemo(() => trackTile(scale), [scale]);
+  // A lane stitch narrower than half a chevron is ridden straight through.
+  const runs = useMemo(() => trackRuns(path, period, trackHeight(scale) / 2), [path, period, scale]);
+  useEffect(() => {
+    tracks$[id]!.set(runs);
+  }, [id, runs]);
+  useEffect(
+    () => () => {
+      tracks$[id]!.delete();
+    },
+    [id],
+  );
+  const room = (use$(() => room$[id]!.get()) ?? "").split(",").map(Number);
   const watch = useCallback((el: HTMLDivElement | null) => (el ? watchRun(el) : undefined), []);
 
   return (
     <ViewportPortal>
-      <div
-        className="junto-flow-track"
-        data-edge-id={id}
-        data-selected={selected ? "" : undefined}
-        style={{ ["--flow-track-tile" as string]: tile, ["--flow-track-size" as string]: `${period}px ${height}px` }}
-      >
-        {runs.map((run) => (
-          <div
-            // A new tier lays new runs, so each slides from a raster at its own scale.
-            key={`${run.x},${run.y},${run.angle},${scale}`}
-            ref={watch}
-            className="junto-flow-track__run"
-            style={{
-              left: run.x,
-              top: run.y - height / 2,
-              width: run.length,
-              height,
-              transform: `rotate(${run.angle}deg)`,
-            }}
-          >
-            {/* One period wide, so its translate of 100% is one period; the
-                marks hang off it, starting a period back and phased by the
-                distance walked, so every chevron sits a whole number of
-                periods along the wire. */}
-            <div className="junto-flow-track__mover" style={{ left: -(run.at % period) - period, width: period }}>
-              <div className="junto-flow-track__marks" style={{ width: run.length + 2 * period }} />
+      <div className="junto-flow-track" data-edge-id={id} data-selected={selected ? "" : undefined}>
+        {runs.map((run, index) => {
+          const fit = trackFit(scale, room[index]);
+          const height = trackHeight(fit);
+          return (
+            <div
+              // A new tier lays new runs, so each slides from a raster at its own scale.
+              key={`${run.x},${run.y},${run.angle},${scale}`}
+              ref={watch}
+              className="junto-flow-track__run"
+              style={{
+                left: run.x,
+                top: run.y - height / 2,
+                width: run.length,
+                height,
+                transform: `rotate(${run.angle}deg)`,
+                ["--flow-track-tile" as string]: tileOf(scale, fit),
+                ["--flow-track-size" as string]: `${period}px ${height}px`,
+              }}
+            >
+              {/* One period wide, so its translate of 100% is one period; the
+                  marks hang off it, starting a period back and phased by the
+                  distance walked, so every chevron sits a whole number of
+                  periods along the wire. */}
+              <div className="junto-flow-track__mover" style={{ left: -(run.at % period) - period, width: period }}>
+                <div className="junto-flow-track__marks" style={{ width: run.length + 2 * period }} />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </ViewportPortal>
   );
 }
+
+// --- room: every track's runs, and the room beside each ---------------------
+
+const tracks$ = observable<Record<string, ReadonlyArray<TrackRun>>>({});
+/** Per track, the room beside each of its runs, comma-joined so a track re-renders only when its own changes. */
+const room$ = observable((): Record<string, string> =>
+  Object.fromEntries(Object.entries(trackClearances(tracks$.get())).map(([id, room]) => [id, room.join(",")])),
+);
+
+const tiles = new Map<string, string>();
+const tileOf = (scale: number, fit: number): string => {
+  const key = `${scale}:${fit.toFixed(3)}`;
+  let tile = tiles.get(key);
+  if (tile === undefined) {
+    tile = trackTile(scale, fit);
+    tiles.set(key, tile);
+  }
+  return tile;
+};
 
 // --- visibility: one observer for every run ----------------------------------
 

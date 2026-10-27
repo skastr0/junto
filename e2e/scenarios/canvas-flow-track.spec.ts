@@ -87,6 +87,8 @@ type TrackLook = {
   readonly headings: Readonly<Record<string, { readonly toward: number; readonly x: number }>>;
   /** Opacity of the seat wire at rest. */
   readonly seatWire: number;
+  /** Pairs of parallel runs, on any tracks, whose strips cross. */
+  readonly crossing: ReadonlyArray<string>;
 };
 
 const look = (page: Page): Promise<TrackLook> =>
@@ -134,6 +136,36 @@ const look = (page: Page): Promise<TrackLook> =>
     document.body.append(probe);
     const ink = getComputedStyle(probe).color;
     probe.remove();
+    // Each strip's box in canvas units, from its own style: a strip is laid
+    // from its run's start, turned by a quarter turn about its left middle.
+    const strips = runs.map((run) => {
+      const x = parseFloat(run.style.left);
+      const h = parseFloat(run.style.height);
+      const y = parseFloat(run.style.top) + h / 2;
+      const len = parseFloat(run.style.width);
+      const angle = Math.round(Number(/rotate\((-?[\d.e-]+)deg\)/.exec(run.style.transform)?.[1] ?? 0));
+      const box =
+        angle === 0 ? { left: x, right: x + len, top: y - h / 2, bottom: y + h / 2 }
+        : angle === 180 ? { left: x - len, right: x, top: y - h / 2, bottom: y + h / 2 }
+        : angle === 90 ? { left: x - h / 2, right: x + h / 2, top: y, bottom: y + len }
+        : { left: x - h / 2, right: x + h / 2, top: y - len, bottom: y };
+      return {
+        id: `${run.closest<HTMLElement>(".junto-flow-track")!.dataset.edgeId}@${x},${y}`,
+        vertical: Math.abs(angle) === 90,
+        box,
+      };
+    });
+    const crossing: string[] = [];
+    for (let i = 0; i < strips.length; i += 1) {
+      for (let j = i + 1; j < strips.length; j += 1) {
+        const a = strips[i]!;
+        const b = strips[j]!;
+        if (a.vertical !== b.vertical) continue;
+        const w = Math.min(a.box.right, b.box.right) - Math.max(a.box.left, b.box.left);
+        const h = Math.min(a.box.bottom, b.box.bottom) - Math.max(a.box.top, b.box.top);
+        if (w > 0.01 && h > 0.01) crossing.push(`${a.id} x ${b.id}`);
+      }
+    }
     const marks = document.querySelector(".junto-flow-track__marks");
     return {
       runs: runs.length,
@@ -143,6 +175,7 @@ const look = (page: Page): Promise<TrackLook> =>
       colour: marks ? getComputedStyle(marks).backgroundColor : "",
       ink,
       headings,
+      crossing,
       seatWire: Number(getComputedStyle(document.querySelector('.react-flow__edge[data-id="writer-editor"] path.junto-edge')!).opacity),
     };
   }, [...FLOWS]);
@@ -201,6 +234,7 @@ test("a flows wire is an ink track, sliding toward the dependent board, opaque a
         expect(seen.faded, `${label}: no run faded or hidden`).toEqual([]);
         expect(seen.still, `${label}: every run slides`).toBe(0);
         expect(seen.offCompositor, `${label}: the slide is transform alone`).toEqual([]);
+        expect(seen.crossing, `${label}: no two tracks side by side cross`).toEqual([]);
         expect(seen.colour, `${label}: drawn in ink`).toBe(seen.ink);
         for (const id of FLOWS) {
           expect(seen.headings[id]!.toward, `${label}: ${id} points to the dependent board`).toBeGreaterThan(0);

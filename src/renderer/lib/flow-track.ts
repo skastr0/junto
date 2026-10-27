@@ -82,53 +82,125 @@ export type TrackRun = {
   readonly at: number;
 };
 
-/** The wire's straight runs at least `min` long, each with where it starts along the wire. */
-export const trackRuns = (d: string, min: number): TrackRun[] => {
-  const points = flattenWirePath(d);
-  const out: TrackRun[] = [];
+type Stretch = { x: number; y: number; ux: number; uy: number; length: number; at: number };
+
+/** The polyline as maximal straight stretches; zero-length pieces join their neighbours. */
+const stretchesOf = (points: ReadonlyArray<TrackPoint>): Stretch[] => {
+  const out: Stretch[] = [];
   let walked = 0;
-  let i = 0;
-  while (i < points.length - 1) {
+  for (let i = 0; i < points.length - 1; i += 1) {
     const a = points[i]!;
     const dx = points[i + 1]!.x - a.x;
     const dy = points[i + 1]!.y - a.y;
-    const len0 = Math.hypot(dx, dy);
-    let j = i + 1;
-    let length = len0;
-    // Merge the following segments that keep the same heading.
-    while (j < points.length - 1 && len0 > 0) {
-      const ex = points[j + 1]!.x - points[j]!.x;
-      const ey = points[j + 1]!.y - points[j]!.y;
-      const len = Math.hypot(ex, ey);
-      if (len === 0 || Math.abs(dx * ey - dy * ex) / (len0 * len) > 1e-3 || dx * ex + dy * ey < 0) break;
-      length += len;
-      j += 1;
-    }
-    if (length >= min && len0 > 0) {
-      out.push({ x: a.x, y: a.y, length, angle: (Math.atan2(dy, dx) * 180) / Math.PI, at: walked });
-    }
-    walked += length;
-    i = j;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    const ux = dx / len;
+    const uy = dy / len;
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.ux * uy - last.uy * ux) < 1e-3 && last.ux * ux + last.uy * uy > 0) last.length += len;
+    else out.push({ x: a.x, y: a.y, ux, uy, length: len, at: walked });
+    walked += len;
   }
   return out;
 };
 
-/** A strip's height at `scale`: the chevron and its stroke, no more. */
-export const trackHeight = (scale: number): number => (TRACK_SPREAD + TRACK_WIDTH) * 2 * scale;
+/**
+ * The wire's straight runs at least `min` long, each with where it starts
+ * along the wire. A sideways step no wider than `jog` between two stretches
+ * on the same heading (a lane stitch, wire-loom.ts) is ridden straight
+ * through, so the track does not step and double its chevrons there.
+ */
+export const trackRuns = (d: string, min: number, jog = 0): TrackRun[] => {
+  const stretches = stretchesOf(flattenWirePath(d));
+  const merged: Stretch[] = [];
+  for (let i = 0; i < stretches.length; i += 1) {
+    const run = { ...stretches[i]! };
+    // A step is the short sideways stretches (corners included) before the
+    // next stretch that keeps this heading.
+    for (;;) {
+      let k = i + 1;
+      let side = 0;
+      while (k < stretches.length && Math.abs(stretches[k]!.ux * run.ux + stretches[k]!.uy * run.uy) < 0.999) {
+        side += stretches[k]!.length;
+        k += 1;
+      }
+      const next = stretches[k];
+      if (k === i + 1 || !next || side > jog * 2 || next.ux * run.ux + next.uy * run.uy < 0) break;
+      const end = { x: next.x + next.ux * next.length, y: next.y + next.uy * next.length };
+      const offset = Math.abs((end.x - run.x) * run.uy - (end.y - run.y) * run.ux);
+      if (offset > jog) break;
+      run.length = (end.x - run.x) * run.ux + (end.y - run.y) * run.uy;
+      i = k;
+    }
+    merged.push(run);
+  }
+  return merged
+    .filter((run) => run.length >= min)
+    .map((run) => ({ x: run.x, y: run.y, length: run.length, angle: (Math.atan2(run.uy, run.ux) * 180) / Math.PI, at: run.at }));
+};
+
+/**
+ * Per run, the room across it: the distance to the nearest other run that
+ * lies alongside it (parallel either way, overlapping it along its length)
+ * on any flows track, the same track's other runs included. Infinity where
+ * nothing lies alongside.
+ */
+export const trackClearances = (
+  tracks: Readonly<Record<string, ReadonlyArray<TrackRun>>>,
+): Record<string, number[]> => {
+  const all = Object.entries(tracks).flatMap(([id, runs]) =>
+    runs.map((run, index) => {
+      const rad = (run.angle * Math.PI) / 180;
+      return { id, index, run, ux: Math.cos(rad), uy: Math.sin(rad) };
+    }),
+  );
+  const out: Record<string, number[]> = {};
+  for (const [id, runs] of Object.entries(tracks)) out[id] = runs.map(() => Number.POSITIVE_INFINITY);
+  for (let i = 0; i < all.length; i += 1) {
+    const a = all[i]!;
+    for (let j = i + 1; j < all.length; j += 1) {
+      const b = all[j]!;
+      if (Math.abs(a.ux * b.uy - a.uy * b.ux) > 1e-3) continue;
+      // b's two ends along a's line, and its distance across it.
+      const s0 = (b.run.x - a.run.x) * a.ux + (b.run.y - a.run.y) * a.uy;
+      const s1 = s0 + b.run.length * (a.ux * b.ux + a.uy * b.uy);
+      if (Math.max(s0, s1) <= 0 || Math.min(s0, s1) >= a.run.length) continue;
+      const across = Math.abs((b.run.x - a.run.x) * a.uy - (b.run.y - a.run.y) * a.ux);
+      if (across < 1e-6) continue;
+      out[a.id]![a.index] = Math.min(out[a.id]![a.index]!, across);
+      out[b.id]![b.index] = Math.min(out[b.id]![b.index]!, across);
+    }
+  }
+  return out;
+};
+
+/**
+ * The size a run's chevron is drawn at: the tier's scale, or less where
+ * another run lies within `room`, so two tracks side by side keep a stroke's
+ * width of ground between them instead of crossing. The whole chevron
+ * shrinks (arms, spread and stroke alike), never below its near size; the
+ * spacing stays the tier's, so every run slides at the same pace.
+ */
+export const trackFit = (scale: number, room = Number.POSITIVE_INFINITY): number =>
+  Math.max(Math.min(scale, 1), Math.min(scale, room / (trackHeight(1) + TRACK_WIDTH)));
+
+/** A strip's height for a chevron drawn at `fit`: the chevron and its stroke, no more. */
+export const trackHeight = (fit: number): number => (TRACK_SPREAD + TRACK_WIDTH) * 2 * fit;
 
 /**
  * One period of the track as a mask: a single open chevron, white, pointing
- * along +x. The strip's colour fills it, so the hue stays a stylesheet token.
+ * along +x, a period at `scale` long and drawn at `fit`. The strip's colour
+ * fills it, so the hue stays a stylesheet token.
  */
-export const trackTile = (scale: number): string => {
+export const trackTile = (scale: number, fit = scale): string => {
   const p = TRACK_PERIOD * scale;
-  const h = trackHeight(scale);
-  const arm = TRACK_ARM * scale;
-  const spread = TRACK_SPREAD * scale;
+  const h = trackHeight(fit);
+  const arm = TRACK_ARM * fit;
+  const spread = TRACK_SPREAD * fit;
   const c = p / 2;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${p}" height="${h}" viewBox="0 0 ${p} ${h}">` +
     `<polyline points="${c - arm / 2},${h / 2 - spread} ${c + arm / 2},${h / 2} ${c - arm / 2},${h / 2 + spread}" ` +
-    `fill="none" stroke="white" stroke-width="${TRACK_WIDTH * scale}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    `fill="none" stroke="white" stroke-width="${TRACK_WIDTH * fit}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 };
