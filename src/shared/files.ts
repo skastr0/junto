@@ -178,9 +178,8 @@ export interface JuntoFilesApi {
      * Files under the root, for the card; no `open` needed and none made. It
      * reads the index when a window holds the root, else counts once (git
      * ls-files, or a walk up to `FILES_COUNT_CAP`). Ask again on `onChange`.
-     * Optional only until the renderer's stand-in (`files-source.ts`) carries it.
      */
-    readonly count?: (ref: FilesNodeRef) => Promise<FilesResult<FilesCount>>;
+    readonly count: (ref: FilesNodeRef) => Promise<FilesResult<FilesCount>>;
     /** One folder's entries, folders first, then by name. */
     readonly list: (ref: FilesNodeRef, dir: FilePath) => Promise<FilesResult<ReadonlyArray<FileEntry>>>;
     /** Ranked filenames for quick open. Send a rising `seq` per keystroke; an older one answers `superseded`. */
