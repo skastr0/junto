@@ -38,6 +38,9 @@ import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 import { FileView } from "../file-view/FileView";
+import { claimFocus } from "../../lib/focus-ownership";
+import { paneEntryOf } from "../../lib/pane-focus";
+import { topModal } from "../../lib/modal-stack";
 import "../ui/file-tree.css";
 import "./files.css";
 
@@ -266,9 +269,13 @@ function SelectedFile({
   useDraftsVersion();
   const draft = fileDraft(nodeId, path);
 
-  const load = useCallback(async (): Promise<void> => {
+  /** Bumped by a read from disk only, so a save never remounts the editor under the caret. */
+  const [epoch, setEpoch] = useState(0);
+  const load = useCallback(async (): Promise<FileRead | null> => {
     const result = await filesSource().read(filesRef, path);
     setRead(result.ok ? { state: "ready", value: result.value } : { state: "refused", error: result.error });
+    setEpoch((last) => last + 1);
+    return result.ok ? result.value : null;
   }, [filesRef, path]);
   useEffect(() => {
     void load();
@@ -280,6 +287,14 @@ function SelectedFile({
     });
   }, [load, nodeId, path]);
 
+  /** The bar or the control pressed just went away: the keyboard goes back to the file. */
+  const backToFile = (): void => {
+    requestAnimationFrame(() => {
+      const main = topModal()?.container()?.querySelector<HTMLElement>(".two-pane > .two-pane__main");
+      claimFocus(main ? paneEntryOf(main) : null, "gesture");
+    });
+  };
+
   const text = read.state === "ready" && read.value.kind === "text" ? read.value : null;
   const edit = (next: string): void => {
     if (text === null) return;
@@ -287,36 +302,44 @@ function SelectedFile({
     setFileDraft(nodeId, path, next === text.text && sameStamp(base, text.stamp) ? undefined : { text: next, base });
   };
 
-  const write = async (body: string, base: FileStamp): Promise<void> => {
+  /** A write in flight; a second Cmd+S waits for it rather than racing it. */
+  const writing = useRef(false);
+  const write = async (body: string, base: FileStamp): Promise<boolean> => {
+    writing.current = true;
     setSaving(true);
     const result = await filesSource().write(filesRef, path, body, base);
+    writing.current = false;
     setSaving(false);
     if (result.ok) {
-      setFileDraft(nodeId, path, undefined);
+      // Text typed while the write was out is still unsaved: it stays, on the new version.
+      const now = fileDraft(nodeId, path);
+      setFileDraft(nodeId, path, now === undefined || now.text === body ? undefined : { text: now.text, base: result.value });
       setRead({ state: "ready", value: { kind: "text", text: body, stamp: result.value } });
       setStale(false);
       setError(null);
-    } else if (result.error === "stale") {
-      setStale(true);
-    } else {
-      setError(filesErrorLine(result.error));
+      return true;
     }
+    if (result.error === "stale") setStale(true);
+    else setError(filesErrorLine(result.error));
+    return false;
   };
-  save.current = () => {
-    const held = fileDraft(nodeId, path);
-    if (held !== undefined && !saving) void write(held.text, held.base);
-  };
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    save.current = () => {
+      const held = fileDraft(nodeId, path);
+      if (held !== undefined && !writing.current) void write(held.text, held.base);
+    };
+    return () => {
       save.current = null;
-    },
-    [save],
-  );
+    };
+  });
 
-  const reload = (): void => {
+  /** Drop the draft for what is on disk; a file that is gone keeps the draft and says so. */
+  const reload = async (): Promise<void> => {
+    const fresh = await load();
+    if (fresh === null) return;
     setFileDraft(nodeId, path, undefined);
     setStale(false);
-    void load();
+    backToFile();
   };
   /** Keep the draft: write it over what is on disk now. */
   const keep = async (): Promise<void> => {
@@ -325,7 +348,7 @@ function SelectedFile({
     const fresh = await filesSource().read(filesRef, path);
     if (!fresh.ok) return setError(filesErrorLine(fresh.error));
     if (fresh.value.kind !== "text") return setError("This file is no longer text on disk.");
-    await write(held.text, fresh.value.stamp);
+    if (await write(held.text, fresh.value.stamp)) backToFile();
   };
   const outside = async (open: "openInDefaultApp" | "revealInFinder"): Promise<void> => {
     const result = await filesSource()[open](filesRef, path);
@@ -356,7 +379,7 @@ function SelectedFile({
       case "markdown":
         return value.kind === "text" ? (
           <LiveMarkdownField
-            key={value.stamp.mtimeMs}
+            key={epoch}
             className="files-markdown"
             label={name}
             surfaceLabel="File"
@@ -406,9 +429,14 @@ function SelectedFile({
           </span>
         ) : null}
         {text !== null ? (
-          <Button size="xs" variant={draft === undefined ? "subtle" : "primary"} disabled={draft === undefined || saving}
+          <Button
+            size="xs"
+            variant={draft === undefined ? "subtle" : "primary"}
+            // Not disabled: a control that disables under its own press drops the keyboard.
+            aria-disabled={draft === undefined || saving}
             aria-keyshortcuts={keyAria("files.save")}
-            onClick={() => save.current?.()}>
+            onClick={() => save.current?.()}
+          >
             {saving ? "Saving" : "Save"}
           </Button>
         ) : null}
@@ -422,7 +450,7 @@ function SelectedFile({
       {stale ? (
         <div className="files-stale" role="alert">
           <span>{filesErrorLine("stale")}</span>
-          <Button size="xs" variant="chrome" onClick={reload}>
+          <Button size="xs" variant="chrome" onClick={() => void reload()}>
             Reload from disk
           </Button>
           <Button size="xs" variant="primary" onClick={() => void keep()}>

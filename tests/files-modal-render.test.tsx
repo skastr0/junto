@@ -123,4 +123,29 @@ describe("the Files modal", () => {
     }
     expect(document.querySelector('input[aria-label^="Filter files in "]')).not.toBeNull();
   });
+
+  it("keeps text typed while a save was out, as unsaved on the new version", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    installFilesSource({ ...files, write: async (...args) => (await held, files.write(...args)) });
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok || read.value.kind !== "text") throw new Error("expected text");
+    const base = read.value.stamp;
+    await act(async () => setFileDraft(nodeId, A, { text: "two", base }));
+    await act(async () => {
+      saveFileInFront();
+    });
+    await act(async () => setFileDraft(nodeId, A, { text: "two and more", base }));
+    await act(async () => release());
+    await flush();
+    expect(await files.read(ref, A)).toMatchObject({ ok: true, value: { text: "two" } });
+    const after = await files.read(ref, A);
+    expect(fileDraft(nodeId, A)?.text).toBe("two and more");
+    expect(after.ok && after.value.kind === "text" && fileDraft(nodeId, A)?.base).toEqual(after.ok && after.value.kind === "text" ? after.value.stamp : null);
+  });
 });

@@ -49,12 +49,26 @@ export const useFolderTree = (ref: FilesNodeRef, model: FileTree, ready: boolean
     /** Each listed folder's children, as tree paths. */
     const listed = new Map<FilePath, ReadonlySet<string>>();
     const loading = new Set<FilePath>();
+    /** Folders a change named while they were listing: the listing in flight predates it. */
+    const again = new Set<FilePath>();
     const load = async (dir: FilePath): Promise<void> => {
-      if (loading.has(dir)) return;
+      if (loading.has(dir)) {
+        again.add(dir);
+        return;
+      }
       loading.add(dir);
       const result = await source.list({ canvas, node }, dir);
       loading.delete(dir);
-      if (!live || !result.ok) return;
+      if (!live) return;
+      if (again.delete(dir)) {
+        void load(dir);
+        return;
+      }
+      if (!result.ok) {
+        // Held as empty, so a redraw does not ask again; a change to it re-lists.
+        if (!listed.has(dir)) listed.set(dir, new Set());
+        return;
+      }
       const { ops, children } = folderOps(listed.get(dir) ?? new Set(), result.value);
       listed.set(dir, children);
       for (const op of ops) {
@@ -63,7 +77,15 @@ export const useFolderTree = (ref: FilesNodeRef, model: FileTree, ready: boolean
         const gone = filePathOfTree(op.path);
         for (const key of [...listed.keys()]) if (gone !== undefined && (key === gone || key.startsWith(`${gone}/`))) listed.delete(key);
       }
-      if (ops.length > 0) model.batch(ops);
+      // The tree may already hold an op's result: a drag moves the row before the
+      // service does, and the move's two folders re-list after. Each op stands alone.
+      for (const op of ops) {
+        try {
+          model.batch([op]);
+        } catch {
+          // Already so.
+        }
+      }
     };
     /** A folder the operator expanded that has not been listed yet. */
     const expandUnlisted = (): void => {

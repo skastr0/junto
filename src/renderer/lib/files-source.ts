@@ -4,7 +4,11 @@ import { mintItemId } from "@shared/resource-command";
 import type { Anchor } from "@shared/thread-subject";
 import { fileMime } from "@shared/file-url";
 import {
+  FILES_SEARCH_LIMIT,
+  foldForSearch,
   parentOf,
+  sameStamp,
+  scoreFilePath,
   ROOT_PATH,
   type FileEntry,
   type FilePath,
@@ -85,7 +89,17 @@ export const makeLocalFiles = (
       const entries = [...children.values()].sort((a, b) => Number(b.dir) - Number(a.dir) || a.path.localeCompare(b.path));
       return ok(entries);
     },
-    search: async (ref, query) => ok({ kind: "results", query, matches: [], total: rootOf(ref.node).size }),
+    search: async (ref, query) => {
+      const folded = foldForSearch(query);
+      const ranked = [...rootOf(ref.node).keys()].flatMap((path) => {
+        const positions: number[] = [];
+        const score = scoreFilePath(foldForSearch(path), folded, positions);
+        return score === undefined ? [] : [{ path: path as FilePath, positions, score }];
+      });
+      ranked.sort((a, b) => b.score - a.score);
+      const matches = ranked.slice(0, FILES_SEARCH_LIMIT).map(({ path, positions }) => ({ path, positions }));
+      return ok({ kind: "results", query, matches, total: rootOf(ref.node).size });
+    },
     read: async (ref, path) => {
       const held = rootOf(ref.node).get(path);
       if (held === undefined) return refused("not-found");
@@ -141,11 +155,28 @@ const standIn = makeLocalFiles({
   "dist/app.zip": { size: 1048576 },
 });
 
+/** Without main's files API in a built app, every call refuses, so the modal says it cannot open the folder. */
+const refusing: FilesSource = {
+  ...standIn,
+  open: async () => ({ ok: false, error: "failed" }),
+  list: async () => ({ ok: false, error: "failed" }),
+  read: async () => ({ ok: false, error: "failed" }),
+  write: async () => ({ ok: false, error: "failed" }),
+  search: async () => ({ ok: false, error: "failed" }),
+  openInDefaultApp: async () => ({ ok: false, error: "failed" }),
+  revealInFinder: async () => ({ ok: false, error: "failed" }),
+};
+
+/** The stand-in folder is for dev and tests only; a built app never shows a folder that is not on disk. */
+const STAND_IN = import.meta.env?.DEV === true || import.meta.env?.MODE === "test";
+
 let installed: FilesSource | null = null;
 
-/** Main's files API when the preload carries it, else what a test installed, else the stand-in. */
+/** What a test installed, else main's files API when the preload carries it, else the stand-in in dev and a refusal in a build. */
 export const filesSource = (): FilesSource =>
-  installed ?? (typeof window === "undefined" ? undefined : (window.junto as Partial<JuntoFilesApi> | undefined)?.files) ?? standIn;
+  installed ??
+  (typeof window === "undefined" ? undefined : (window.junto as Partial<JuntoFilesApi> | undefined)?.files) ??
+  (STAND_IN ? standIn : refusing);
 
 /** A test's source; null goes back to main's. */
 export const installFilesSource = (next: FilesSource | null): void => {
@@ -230,7 +261,7 @@ export const setFileDraft = (node: NodeId, path: FilePath, draft: FileDraft | un
     if (held === undefined) return;
     drafts.delete(key);
   } else {
-    if (held?.text === draft.text && held.base === draft.base) return;
+    if (held?.text === draft.text && sameStamp(held.base, draft.base)) return;
     drafts.set(key, draft);
   }
   draftsVersion += 1;
