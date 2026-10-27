@@ -223,6 +223,37 @@ const hoverTracker = ViewPlugin.define((view) => {
   };
 });
 
+/**
+ * The gutter is hidden from assistive tech as a whole, because line numbers
+ * are not worth reading out. The comment plus is the one control in a gutter,
+ * so its own gutter is shown and every other gutter beside it stays hidden:
+ * without this the plus is a button only a mouse can find.
+ */
+const shownCommentGutter = ViewPlugin.fromClass(
+  class {
+    constructor(readonly view: EditorView) {
+      this.sync();
+    }
+
+    /** Every update, because the gutter can arrive after this plugin: a compartment reconfigure builds it then. */
+    update(): void {
+      this.sync();
+    }
+
+    private sync(): void {
+      const gutters = this.view.dom.querySelector(".cm-gutters");
+      if (gutters === null) return;
+      if (gutters.hasAttribute("aria-hidden")) gutters.removeAttribute("aria-hidden");
+      for (const child of gutters.children) {
+        const shown = child.classList.contains("cm-commentGutter");
+        const hidden = child.getAttribute("aria-hidden") === "true";
+        if (shown && hidden) child.removeAttribute("aria-hidden");
+        else if (!shown && !hidden) child.setAttribute("aria-hidden", "true");
+      }
+    }
+  },
+);
+
 /** The plus in the gutter, beside the pointer's line and the caret's. */
 export const lineComments = (handlers: LineHandlers): Extension => [
   hovered,
@@ -242,6 +273,8 @@ export const lineComments = (handlers: LineHandlers): Extension => [
       update.selectionSet || update.docChanged || update.startState.field(hovered) !== update.state.field(hovered),
     initialSpacer: () => spacer,
   }),
+  // After the gutter, so the gutter it shows exists by the plugin's first look.
+  shownCommentGutter,
 ];
 
 class RowWidget extends WidgetType {
