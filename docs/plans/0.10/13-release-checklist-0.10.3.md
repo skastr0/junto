@@ -25,24 +25,32 @@ consolidate step, approved by the operator (signal 01M5YCJ31C5PDE42NEY1B94WHP).
 The notes open with it: 0.10.2 refuses a v50 database as newer than supported,
 and going back means opening the backup taken at the upgrade.
 
-Run on a copy of `~/.junto/junto.db`, never the live file.
+Run on a copy of `~/.junto/state/junto.db`, never the live file.
+(`~/.junto/junto.db` is an empty 0-byte file; the live database is the one
+under `state/`.)
 
-- [ ] Head is v50 at the cut (`CURRENT_STATE_SCHEMA_VERSION` in
+- [x] Head is v50 (`CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`) and `bun run schema:identity`
-      matches `STATE_SCHEMA_V50_IDENTITY` (47696d80...). Receipt:
-- [ ] Open the copy with the cut build's engine; it migrates v49 to v50.
-      Receipt:
-- [ ] `PRAGMA quick_check` is `ok` and `PRAGMA foreign_key_check` is empty.
-      Receipt:
-- [ ] Counts unchanged against the live copy: wires, nodes, seats, regions and
-      tasks, and every wire keeps its verb. Receipt:
-- [ ] A backup of the pre-upgrade file exists and opens on 0.10.2 at v49.
-      Receipt:
-- [ ] A second open runs no step and makes no backup. Receipt:
-- [ ] The migrated copy loads the canvas in the built app. Receipt:
+      matches `STATE_SCHEMA_V50_IDENTITY` (47696d80...).
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): v50 identity 47696d80 clean.
+- [x] Open the copy with the cut build's engine; it migrates v49 to v50.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): the live backup migrates.
+- [x] `PRAGMA quick_check` is `ok` and `PRAGMA foreign_key_check` is empty.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): both clean.
+- [x] Counts unchanged against the live copy: wires, nodes, seats, regions and
+      tasks, and every wire keeps its verb.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): every table row count equal, all 651 wires kept.
+- [x] A backup of the pre-upgrade file exists and opens on 0.10.2 at v49.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): junto-backup-82f1d4e4 written before the stamp, opens on 0.10.2.
+- [x] A second open runs no step and makes no backup.
+      Receipt: canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead): second open idempotent.
+- [ ] The migrated copy loads the canvas in the built app.
+      Partial: engine load of 306 nodes and 651 wires passes (canvas-verifier at b7f33e184, on copies only (relayed by canvas-lead via product-lead)).
+      App-level launch on a fresh v49 home is pending. Receipt:
 
-Ask canvas-lead (canvas-verifier did this for 0.10.0) to run the section; a
-slot, the live copy and the receipts come through product-lead.
+These ran at b7f33e184, not the cut hash; the step's files
+(`migrate-derives-verb.ts`, `migrations.ts`) are the ones to diff at the cut.
+
 
 ## 2. Before the cut
 
