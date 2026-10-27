@@ -1,0 +1,60 @@
+/*
+ * Drops on the Files modal. One drop edge, the composer's (attachments.css):
+ * a dashed cyan line on what will take the files. Onto the root, the whole
+ * surface wears it; onto a folder, the folder row alone, with a faint wash
+ * so the row reads at a glance in both themes. The marks sit over the tree
+ * and never take the pointer, so the drag keeps reading the rows beneath.
+ */
+[data-files-drop] {
+  position: relative;
+}
+
+[data-files-drop][data-drop="root"] {
+  outline: 1px dashed var(--color-cyan);
+  outline-offset: -2px;
+}
+
+.files-drop__row {
+  position: absolute;
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+  outline: 1px dashed var(--color-cyan);
+  outline-offset: -1px;
+  background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
+}
+
+.files-drop__caption,
+.files-drop__notice {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-raise);
+  box-shadow: 0 4px 12px var(--color-shadow-1);
+  font: var(--text-label) / var(--leading-compact) var(--font-mono);
+  color: var(--color-ink);
+}
+
+.files-drop__caption {
+  pointer-events: none;
+  padding: 6px 10px;
+  color: var(--color-cyan-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-drop__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+}
+
+.files-drop__notice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

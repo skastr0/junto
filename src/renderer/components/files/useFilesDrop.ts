@@ -1,0 +1,218 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import type { FileTreeDragAndDropConfig, FileTreeDropResult } from "@pierre/trees";
+import {
+  basenameOf,
+  finderDropTargetOf,
+  folderLabel,
+  hasFinderFiles,
+  importNotice,
+  movesForDrop,
+  type FolderPath,
+} from "@renderer/lib/files-drop";
+
+/**
+ * Drops on the Files modal (0.11, F5). Finder files dropped on the modal
+ * copy into the folder under the pointer, with that folder marked while the
+ * drag is over it; a tree row dragged onto a folder moves there, one rename
+ * per item through the Files service. Copies never overwrite: the service
+ * gives a taken name a " 2", and the notice says so.
+ *
+ * The modal owns the wiring: it spreads `surface` on the body that holds
+ * the tree and the main pane, renders `FilesDropHighlight` inside it, passes
+ * `treeDragAndDrop` to the tree and hands `bindModel` the tree's model.
+ */
+
+export type FilesDropOutcome<A, E extends string> =
+  | { readonly ok: true; readonly value: A }
+  | { readonly ok: false; readonly error: E };
+
+/** What drops need from the Files service; every path but a Finder source is relative to the node's root. */
+export interface FilesDropPort<E extends string> {
+  /** The Finder file's own path (`webUtils.getPathForFile`); "" when it is not a file on disk. */
+  readonly pathForFile: (file: File) => string;
+  /** Copy `sources` into `dir`; the value is where each one landed, in order. */
+  readonly importFiles: (dir: FolderPath, sources: ReadonlyArray<string>) => Promise<FilesDropOutcome<ReadonlyArray<string>, E>>;
+  readonly move: (from: string, to: string) => Promise<FilesDropOutcome<unknown, E>>;
+}
+
+/** The tree model's one call drops make: put a row back after a refused move. */
+export type FilesDropModel = { readonly move: (fromPath: string, toPath: string) => void };
+
+/** The marked drop target, in pixels from the surface's top left; no rect means the whole surface. */
+export type FilesDropRect = { readonly top: number; readonly left: number; readonly width: number; readonly height: number };
+export type FilesDropTarget = { readonly dir: FolderPath; readonly label: string; readonly rect: FilesDropRect | null };
+
+export type FilesDrop = {
+  readonly target: FilesDropTarget | null;
+  /** The last copy or move, in words; cleared after a while or by the next drag. */
+  readonly notice: { readonly text: string; readonly failed: boolean } | undefined;
+  readonly dismissNotice: () => void;
+  readonly surface: {
+    readonly onDragEnter: (event: DragEvent<HTMLElement>) => void;
+    readonly onDragOver: (event: DragEvent<HTMLElement>) => void;
+    readonly onDragLeave: (event: DragEvent<HTMLElement>) => void;
+    readonly onDrop: (event: DragEvent<HTMLElement>) => void;
+    readonly "data-files-drop": "true";
+    /** A Finder drag is over the surface: onto the root, or onto a folder row. */
+    readonly "data-drop"?: "root" | "folder";
+  };
+  readonly treeDragAndDrop: FileTreeDragAndDropConfig;
+  readonly bindModel: (model: FilesDropModel | null) => void;
+};
+
+/** How long a notice stays. */
+export const FILES_DROP_NOTICE_MS = 5000;
+
+const sameTarget = (left: FilesDropTarget | null, right: FilesDropTarget | null): boolean => {
+  if (left === right) return true;
+  if (left === null || right === null || left.dir !== right.dir) return false;
+  const a = left.rect;
+  const b = right.rect;
+  if (a === null || b === null) return a === b;
+  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+};
+
+export const useFilesDrop = <E extends string>({
+  port,
+  describe,
+  rootLabel,
+}: {
+  readonly port: FilesDropPort<E>;
+  /** A refusal in the operator's words. */
+  readonly describe: (error: E) => string;
+  /** The root folder's name, as the operator knows it. */
+  readonly rootLabel: string;
+}): FilesDrop => {
+  const [target, setTarget] = useState<FilesDropTarget | null>(null);
+  const [notice, setNotice] = useState<FilesDrop["notice"]>();
+  const model = useRef<FilesDropModel | null>(null);
+  // The latest props, so the tree's config stays one object for the tree's life.
+  const live = useRef({ port, describe, rootLabel });
+  live.current = { port, describe, rootLabel };
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (notice === undefined) return;
+    const timer = setTimeout(() => setNotice(undefined), FILES_DROP_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const say = useCallback((text: string, failed: boolean) => {
+    if (mounted.current) setNotice({ text, failed });
+  }, []);
+
+  const targetAt = useCallback((event: DragEvent<HTMLElement>): FilesDropTarget => {
+    const found = finderDropTargetOf(event.nativeEvent.composedPath());
+    const label = folderLabel(found.dir, live.current.rootLabel);
+    if (found.row === null) return { dir: found.dir, label, rect: null };
+    const host = event.currentTarget.getBoundingClientRect();
+    const row = found.row.getBoundingClientRect();
+    return {
+      dir: found.dir,
+      label,
+      rect: { top: row.top - host.top, left: row.left - host.left, width: row.width, height: row.height },
+    };
+  }, []);
+
+  const copyInto = useCallback(
+    async (dir: FolderPath, files: ReadonlyArray<File>) => {
+      const { port, describe, rootLabel } = live.current;
+      const sources = files.map((file) => port.pathForFile(file)).filter((path) => path.length > 0);
+      if (sources.length === 0) {
+        say("Only files from Finder can be dropped here.", true);
+        return;
+      }
+      const into = folderLabel(dir, rootLabel);
+      const outcome = await port.importFiles(dir, sources);
+      if (!outcome.ok) {
+        say(`Nothing was copied into ${into}. ${describe(outcome.error)}`, true);
+        return;
+      }
+      if (outcome.value.length === 0) return;
+      say(importNotice(sources, outcome.value, into), false);
+    },
+    [say],
+  );
+
+  const surface = useMemo<FilesDrop["surface"]>(
+    () => ({
+      onDragEnter: (event) => {
+        if (!hasFinderFiles(event.dataTransfer?.types)) return;
+        event.preventDefault();
+        setNotice(undefined);
+        const next = targetAt(event);
+        setTarget((current) => (sameTarget(current, next) ? current : next));
+      },
+      onDragOver: (event) => {
+        if (!hasFinderFiles(event.dataTransfer?.types)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        const next = targetAt(event);
+        setTarget((current) => (sameTarget(current, next) ? current : next));
+      },
+      onDragLeave: (event) => {
+        // Moving onto a child, the tree's shadow host among them, is not leaving.
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setTarget(null);
+      },
+      onDrop: (event) => {
+        if (!hasFinderFiles(event.dataTransfer?.types)) return;
+        event.preventDefault();
+        const dir = finderDropTargetOf(event.nativeEvent.composedPath()).dir;
+        setTarget(null);
+        void copyInto(dir, [...event.dataTransfer.files]);
+      },
+      "data-files-drop": "true",
+    }),
+    [targetAt, copyInto],
+  );
+
+  const treeDragAndDrop = useMemo<FileTreeDragAndDropConfig>(
+    () => ({
+      // The tree has already moved its rows; each one the service refuses goes back.
+      onDropComplete: (result: FileTreeDropResult) => {
+        const moves = movesForDrop(result.draggedPaths, result.target);
+        void (async () => {
+          const { port, describe } = live.current;
+          for (const [index, move] of moves.entries()) {
+            const outcome = await port.move(move.from, move.to);
+            if (outcome.ok) continue;
+            for (const back of moves.slice(index)) {
+              try {
+                model.current?.move(back.treeTo, back.treeFrom);
+              } catch {
+                // The watcher's next listing puts the tree right.
+              }
+            }
+            say(`Could not move ${basenameOf(move.from)}. ${describe(outcome.error)}`, true);
+            return;
+          }
+        })();
+      },
+      // The tree refuses a move onto a name that is taken, before anything moves.
+      onDropError: () => say("That folder already holds something with the same name. Nothing moved.", true),
+    }),
+    [say],
+  );
+
+  const bindModel = useCallback((next: FilesDropModel | null) => {
+    model.current = next;
+  }, []);
+
+  const dismissNotice = useCallback(() => setNotice(undefined), []);
+
+  return {
+    target,
+    notice,
+    dismissNotice,
+    surface: target === null ? surface : { ...surface, "data-drop": target.rect === null ? "root" : "folder" },
+    treeDragAndDrop,
+    bindModel,
+  };
+};
