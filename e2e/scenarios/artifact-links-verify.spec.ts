@@ -8,19 +8,22 @@
  * with the line around the link (L1, L4), beside a comment that links it.
  * The operator renames the target and the link holds: the source still names
  * the same id and draws the new title, and Linked from still lists it.
+ * After a quit and relaunch on the same home both rows are still listed.
  * Archiving the source drops its body row; the comment row stays. `show`
  * lists the body in linkedFrom.
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/artifact-links-verify.spec.ts
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import { _electron as electron, type ElectronApplication } from "playwright-core";
 import { Schema } from "effect";
 import { asNodeId, Node } from "../../src/shared/model";
 import { mintItemId, mintOpId } from "../../src/shared/resource-command";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
-import { expect, launchJunto, test } from "../harness/launch";
+import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 
 const CANVAS = "links-verify";
@@ -45,6 +48,28 @@ const pick = async (page: Page, title: string): Promise<void> => {
   await expect(page.locator(".artifact-head__title")).toHaveValue(title, { timeout: 15_000 });
 };
 
+/** Quit the app and start a second one by hand on the same home (as seat-offboard-surfaces.spec.ts does). */
+const quitAndRelaunch = async (junto: JuntoHandle, env: Record<string, string>): Promise<ElectronApplication> => {
+  const child = junto.app.process();
+  const gone = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.once("exit", () => resolve());
+  });
+  await junto.app.close();
+  await gone;
+  const app = await electron.launch({
+    executablePath: createRequire(import.meta.url)("electron") as string,
+    args: [process.cwd(), `--user-data-dir=${junto.sandbox.userDataDir}`, "--mute-audio"],
+    env,
+    timeout: 60_000,
+  });
+  // The quit gate cannot be clicked in a hidden window: accept it, as launch.ts does.
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox;
+  });
+  return app;
+};
+
 type Listed = { readonly id?: string; readonly artifactId?: string; readonly title: string };
 
 test("a seat's [[Title]] links by id, Linked from shows body and comment, a rename keeps it, an archive drops it", async () => {
@@ -57,6 +82,7 @@ test("a seat's [[Title]] links by id, Linked from shows body and comment, a rena
     seedModels: { [CANVAS]: modelFixture([ops, scout, shelf], []) },
     afterSeed: installCrewSeatHarness,
   });
+  let second: ElectronApplication | undefined;
   try {
     const { page, sandbox } = junto;
     await expect(page.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
@@ -153,13 +179,45 @@ test("a seat's [[Title]] links by id, Linked from shows body and comment, a rena
       await page.screenshot({ path: join(SHOTS, theme, "2-renamed-chip.png") });
     }
 
-    // Archiving the source drops its body row; the comment row stays.
-    const archived = await cli(["artifact", "archive", madeId!]);
-    expect(archived.json.ok, archived.stdout.slice(0, 400)).toBe(true);
-    await pick(page, "Target renamed");
-    await expect(bodyRow).toHaveCount(0, { timeout: 20_000 });
-    await expect(postRow).toHaveCount(1);
+    // A quit and relaunch on the same home: Linked from still lists both rows.
+    const env = await junto.app.evaluate(() => {
+      const out: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) if (typeof value === "string") out[key] = value;
+      return out;
+    });
+    second = await quitAndRelaunch(junto, env);
+    const again = await second.firstWindow();
+    const window = await second.browserWindow(again);
+    await window.evaluate((main) => main.setContentSize(1500, 900));
+    await expect(again.locator('.react-flow__node[data-id="shelf"]')).toBeVisible({ timeout: 30_000 });
+    await again.locator('.react-flow__node[data-id="shelf"]').dblclick();
+    await expect(again.getByRole("list", { name: "Artifacts" })).toBeVisible({ timeout: 20_000 });
+    await pick(again, "Target renamed");
+    const rail = again.locator(".artifact-comments-edge");
+    if (await rail.isVisible()) await rail.click();
+    const linkedAgain = again.getByTestId("linked-from");
+    const bodyAgain = linkedAgain.locator('[data-testid="linked-from-row"][data-kind="body"]');
+    const postAgain = linkedAgain.locator('[data-testid="linked-from-row"][data-kind="post"]');
+    await expect(bodyAgain.filter({ hasText: "From the seat" })).toHaveCount(1, { timeout: 20_000 });
+    await expect(bodyAgain.filter({ hasText: "From the seat" }).locator(".linked-from__line")).toContainText("for the plan");
+    await expect(postAgain).toHaveCount(1, { timeout: 20_000 });
+    for (const theme of ["dark", "bright"] as const) {
+      await setTheme(again, theme);
+      await again.waitForTimeout(250);
+      await again.screenshot({ path: join(SHOTS, theme, "3-after-relaunch.png") });
+    }
+
+    // Archiving the source, from its own header, drops its body row; the comment row stays.
+    await pick(again, "From the seat");
+    await again.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(again.getByRole("button", { name: "Restore", exact: true })).toBeVisible({ timeout: 15_000 });
+    await again.getByRole("list", { name: "Artifacts" }).locator("button").filter({ hasText: "Target renamed" }).first().click();
+    await expect(again.locator(".artifact-head__title")).toHaveValue("Target renamed", { timeout: 15_000 });
+    if (await rail.isVisible()) await rail.click();
+    await expect(postAgain).toHaveCount(1, { timeout: 20_000 });
+    await expect(bodyAgain).toHaveCount(0, { timeout: 20_000 });
   } finally {
+    if (second !== undefined) await second.close().catch(() => undefined);
     await junto.close();
   }
 });
