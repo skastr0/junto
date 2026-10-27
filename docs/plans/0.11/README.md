@@ -198,3 +198,6 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
   the old path).
 - Index: long fresh queries p95 35 ms in the worker (budget 30), and the
   per-spawn main cost in `process-epoch.ts:100` (performance-lead).
+- Files: an open file renamed outside Junto follows its new name (pair the
+  watcher's delete and add by file id); a twin Files node on the same folder
+  notices the other's save at once (tech-lead).
