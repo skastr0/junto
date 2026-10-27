@@ -171,6 +171,8 @@
 }
 
 .artifact-tasks__none {
+  display: block;
+  padding: 4px 8px;
   color: var(--color-dim);
   font-size: var(--text-label);
 }
