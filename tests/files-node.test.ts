@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import { filesOn } from "../src/shared/features";
+import { BUILD_FEATURES, filesOn } from "../src/shared/features";
 import { UNNAMED_MACHINE } from "../src/shared/canvas-copy";
 import { Node } from "../src/shared/model";
 import { titleOf } from "../src/shared/model/title";
@@ -9,11 +9,14 @@ import { connected } from "../src/renderer/lib/model-edits";
 import { canConnect, targetPlanOn } from "../src/renderer/lib/edge-mutations";
 import { toFlowOfCanvas } from "../src/renderer/lib/convert";
 import { nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
-import { cardDropNotice } from "../src/renderer/lib/files-card";
+import { cardDropNotice, countLine } from "../src/renderer/lib/files-card";
 import { nodeCatalogEntries } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 import { canvasOf, seat } from "./support/model-nodes";
 import type { FilePath } from "../src/shared/files";
 
+// Ship builds Files as experimental, so the operator's toggle decides; all-on
+// builds it on, and the toggle changes nothing there.
+const EXPERIMENTAL = BUILD_FEATURES.files === "experimental";
 const ON = { files: true } as const;
 const OFF = { files: false } as const;
 const at = { x: 12, y: 34, z: 0 };
@@ -36,11 +39,16 @@ describe("files node factory", () => {
     expect(titleOf({ ...made(), label: "site" })).toBe("site");
   });
 
-  it("refuses with the files toggle off", () => {
+  it.runIf(EXPERIMENTAL)("refuses with the files toggle off", () => {
     expect(filesOn(OFF)).toBe(false);
     expect(filesOn(undefined)).toBe(false);
     expect(() => newFiles(at, { host: "studio", root: "/tmp" }, OFF)).toThrow(/disabled/);
     expect(() => newFiles(at, { host: "studio", root: "/tmp" }, undefined)).toThrow(/disabled/);
+  });
+
+  it.runIf(BUILD_FEATURES.files === true)("is made whatever the toggle says when the build has it on", () => {
+    expect(newFiles(at, { host: "studio", root: "/tmp" }, OFF).kind).toBe("files");
+    expect(newFiles(at, { host: "studio", root: "/tmp" }, undefined).kind).toBe("files");
   });
 
   it("refuses the unnamed machine, a bad name, and a folder that is not absolute", () => {
@@ -53,10 +61,19 @@ describe("files node factory", () => {
 });
 
 describe("files in the palette", () => {
-  it("is offered only with the toggle on, after Git", () => {
+  it.runIf(EXPERIMENTAL)("is offered only with the toggle on", () => {
     expect(nodeCatalogEntries(filesOn(OFF)).map((entry) => entry.id)).not.toContain("files");
     expect(nodeCatalogEntries(filesOn(undefined)).map((entry) => entry.id)).not.toContain("files");
-    const ids = nodeCatalogEntries(filesOn(ON)).map((entry) => entry.id);
+    expect(nodeCatalogEntries(filesOn(ON)).map((entry) => entry.id)).toContain("files");
+  });
+
+  it.runIf(BUILD_FEATURES.files === true)("is offered whatever the toggle says when the build has it on", () => {
+    expect(nodeCatalogEntries(filesOn(OFF)).map((entry) => entry.id)).toContain("files");
+    expect(nodeCatalogEntries(filesOn(undefined)).map((entry) => entry.id)).toContain("files");
+  });
+
+  it("sits in the work catalog right after Git", () => {
+    const ids = nodeCatalogEntries(true).map((entry) => entry.id);
     expect(ids.indexOf("files")).toBe(ids.indexOf("git") + 1);
     expect(nodeCatalogEntries(true).find((entry) => entry.id === "files")?.category).toBe("sinks");
   });
@@ -89,16 +106,30 @@ describe("a drop on the card", () => {
   const describeError = () => "Refused.";
   const path = (p: string) => p as FilePath;
 
-  it("names the copy, and the new name when the old one was taken", () => {
+  it("names the copy short enough for the card, and in full for the tooltip", () => {
     expect(cardDropNotice(["/a/notes.md"], { ok: true, value: [{ path: path("notes.md"), dir: false }] }, "proj", describeError))
-      .toEqual({ text: "Copied notes.md into proj.", failed: false });
+      .toEqual({ text: "Copied notes.md.", full: "Copied notes.md into proj.", failed: false });
     expect(cardDropNotice(["/a/notes.md"], { ok: true, value: [{ path: path("notes 2.md"), dir: false }] }, "proj", describeError))
-      .toEqual({ text: "Copied notes.md into proj as notes 2.md.", failed: false });
+      .toEqual({ text: "Copied as notes 2.md.", full: "Copied notes.md into proj as notes 2.md.", failed: false });
+    const three = ["/a/x.md", "/a/y.md", "/a/z.md"];
+    expect(cardDropNotice(three, { ok: true, value: three.map((s) => ({ path: path(s.slice(3)), dir: false })) }, "proj", describeError))
+      .toEqual({ text: "Copied 3 files.", full: "Copied 3 files into proj.", failed: false });
   });
 
   it("says a refusal, and that only Finder files drop", () => {
     expect(cardDropNotice(["/a/x"], { ok: false, error: "root-missing" }, "proj", describeError))
-      .toEqual({ text: "Nothing was copied into proj. Refused.", failed: true });
+      .toEqual({ text: "Nothing was copied.", full: "Nothing was copied into proj. Refused.", failed: true });
     expect(cardDropNotice([], undefined, "proj", describeError)?.failed).toBe(true);
+  });
+});
+
+describe("the card's count", () => {
+  it("counts files, marks a capped count, and says nothing when refused or not yet counted", () => {
+    expect(countLine({ ok: true, value: { files: 1, capped: false } })).toBe("1 file");
+    expect(countLine({ ok: true, value: { files: 0, capped: false } })).toBe("0 files");
+    expect(countLine({ ok: true, value: { files: 1204, capped: false } })).toBe("1,204 files");
+    expect(countLine({ ok: true, value: { files: 100_000, capped: true } })).toBe("100,000+ files");
+    expect(countLine({ ok: false, error: "root-missing" })).toBeUndefined();
+    expect(countLine(undefined)).toBeUndefined();
   });
 });

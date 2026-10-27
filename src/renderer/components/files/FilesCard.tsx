@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { use$ } from "@legendapp/state/react";
 import type { NodeOf } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import { ROOT_PATH } from "@shared/files";
+import { ROOT_PATH, type FilesCount, type FilesResult } from "@shared/files";
 import { useFeatureOn } from "../../lib/experimental-features";
-import { CARD_DROP_NOTICE_MS, cardDropNotice, type CardDropNotice } from "../../lib/files-card";
+import { CARD_DROP_NOTICE_MS, cardDropNotice, countLine, type CardDropNotice } from "../../lib/files-card";
 import { hasFinderFiles } from "../../lib/files-drop";
 import { filesErrorLine, filesSource } from "../../lib/files-source";
 import { onThisMachine } from "../../lib/machines";
@@ -19,10 +20,52 @@ type SinkRenameProps = {
 };
 
 /**
+ * The Files service's count for a node on this machine: asked on mount, again
+ * when the node's folder changes while a window serves it (a save, a
+ * checkout), and on `recount` (a drop on the card, which no window may be
+ * serving). The count opens no session. A newer answer always wins.
+ */
+const useFilesCount = (
+  canvas: string,
+  node: NodeOf<"files">,
+  ask: boolean,
+): { readonly count: FilesResult<FilesCount> | undefined; readonly recount: () => void } => {
+  const [count, setCount] = useState<FilesResult<FilesCount> | undefined>();
+  const recountRef = useRef<() => void>(() => undefined);
+  const { id, root } = node;
+  useEffect(() => {
+    setCount(undefined);
+    recountRef.current = () => undefined;
+    if (!ask) return;
+    const source = filesSource();
+    let live = true;
+    let asked = 0;
+    const recount = () => {
+      const seq = ++asked;
+      void source.count?.({ canvas, node: id })
+        .then((result) => {
+          if (live && seq === asked) setCount(result);
+        })
+        .catch(() => undefined);
+    };
+    recountRef.current = recount;
+    recount();
+    const stop = source.onChange((event) => {
+      if (event.node === id && (event.kind === "paths" || event.kind === "reset")) recount();
+    });
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [ask, canvas, id, root]);
+  return { count, recount: () => recountRef.current() };
+};
+
+/**
  * A Files node on the canvas: its name (the operator's label, else the
- * folder's own name, worked out from the root here and never stored) and its
- * folder. Finder files dropped on it copy into the root. The file count joins
- * the line once the Files service answers one.
+ * folder's own name, worked out from the root here and never stored) and how
+ * many files are under it, else the folder itself until that is counted or
+ * when the count is refused. Finder files dropped on it copy into the root.
  */
 export function FilesCard({
   node,
@@ -32,7 +75,10 @@ export function FilesCard({
   readonly node: NodeOf<"files">;
 } & SinkRenameProps) {
   const name = titleOf(node);
-  const takesDrops = useFeatureOn("files") && onThisMachine(node.host);
+  const here = onThisMachine(node.host);
+  const takesDrops = useFeatureOn("files") && here;
+  const counted = useFilesCount(use$(state$.canvasName) || "", node, here);
+  const count = countLine(counted.count);
   const [over, setOver] = useState(false);
   const [notice, setNotice] = useState<CardDropNotice | undefined>();
   const depth = useRef(0);
@@ -59,9 +105,10 @@ export function FilesCard({
         ? undefined
         : await source.import({ canvas: state$.canvasName.peek(), node: node.id }, ROOT_PATH, sources);
     setNotice(cardDropNotice(sources, outcome, name, filesErrorLine));
+    if (outcome?.ok === true) counted.recount();
   };
 
-  const line = notice?.text ?? node.root;
+  const line = notice?.text ?? count ?? node.root;
 
   return (
     <div
@@ -106,7 +153,7 @@ export function FilesCard({
           ) : undefined
         }
         line={line}
-        lineTitle={line}
+        lineTitle={notice?.full ?? node.root}
       />
     </div>
   );
