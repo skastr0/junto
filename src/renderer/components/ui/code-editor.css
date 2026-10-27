@@ -14,10 +14,21 @@
   background: var(--code-view-surface, var(--color-ground));
   color-scheme: dark;
   --code-row-height: calc(var(--text-body-lg) * 1.5);
+  --code-green: var(--color-green);
+  --code-blue: var(--color-blue);
+  --code-steel: var(--color-steel);
+  --code-violet: var(--color-violet);
 }
 
+/* On paper the active line's wash sits under the text and takes these hues
+   below 4.5:1 (4.2 to 4.5, measured on the real line), so they step a tenth
+   toward ink: 4.65 and up on the line, more off it. Dark is clear as is. */
 html[data-theme="bright"] .code-editor {
   color-scheme: light;
+  --code-green: color-mix(in oklab, var(--color-green) 90%, var(--color-ink));
+  --code-blue: color-mix(in oklab, var(--color-blue) 90%, var(--color-ink));
+  --code-steel: color-mix(in oklab, var(--color-steel) 90%, var(--color-ink));
+  --code-violet: color-mix(in oklab, var(--color-violet) 90%, var(--color-ink));
 }
 
 .code-editor .cm-editor {
@@ -159,7 +170,7 @@ html[data-theme="bright"] .code-editor {
 .code-editor .tok-string,
 .code-editor .tok-string2,
 .code-editor .tok-inserted {
-  color: var(--color-green);
+  color: var(--code-green);
 }
 
 .code-editor .tok-number,
@@ -171,18 +182,18 @@ html[data-theme="bright"] .code-editor {
 
 .code-editor .tok-variableName2,
 .code-editor .tok-macroName {
-  color: var(--color-violet);
+  color: var(--code-violet);
 }
 
 .code-editor .tok-typeName,
 .code-editor .tok-className,
 .code-editor .tok-namespace {
-  color: var(--color-blue);
+  color: var(--code-blue);
 }
 
 .code-editor .tok-propertyName,
 .code-editor .tok-labelName {
-  color: var(--color-steel);
+  color: var(--code-steel);
 }
 
 .code-editor .tok-comment {
