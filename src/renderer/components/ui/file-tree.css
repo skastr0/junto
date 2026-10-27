@@ -1,0 +1,52 @@
+/* The file tree (@pierre/trees), styled through its own variables only, each
+   from a house token, so it reads like the ListRow sidebars beside it in both
+   themes. The library draws inside a shadow root; custom properties set on its
+   host cross that boundary, and nothing else here does.
+
+   Rows match ListRow: 28px high, label-sized names in the ink ladder, a
+   selected row on --color-overlay-2. File icons are one dim colour, never the
+   per-language rainbow the library ships (the house is amber with sparse
+   accents). Git status takes the house hues: new is green, changed is amber,
+   removed is crimson. Create the tree with itemHeight 28 so the grid the
+   virtualizer lays matches the row drawn here. */
+file-tree-container {
+  display: block;
+  min-height: 0;
+  color-scheme: dark;
+  --trees-font-family-override: var(--font-mono);
+  --trees-font-size-override: var(--text-body);
+  --trees-font-weight-regular-override: 400;
+  --trees-font-weight-semibold-override: 500;
+  --trees-border-radius-override: var(--radius-sm);
+
+  --trees-bg-override: var(--color-raise-2);
+  --trees-bg-muted-override: var(--color-overlay-1);
+  --trees-fg-override: var(--color-ink);
+  --trees-fg-muted-override: var(--color-dim);
+  --trees-border-color-override: var(--color-stroke);
+  --trees-accent-override: var(--color-main);
+
+  --trees-selected-bg-override: var(--color-overlay-2);
+  --trees-selected-fg-override: var(--color-ink);
+  --trees-selected-focused-border-color-override: var(--color-second);
+  --trees-focus-ring-color-override: var(--color-second);
+  --trees-focus-ring-width-override: 1px;
+  --trees-focus-ring-offset-override: -1px;
+
+  --trees-search-bg-override: var(--color-inset);
+  --trees-search-fg-override: var(--color-ink);
+  --trees-input-bg-override: var(--color-inset);
+
+  --trees-file-icon-color: var(--color-dim);
+
+  --trees-status-added-override: var(--color-green);
+  --trees-status-untracked-override: var(--color-green);
+  --trees-status-modified-override: var(--color-main-fg);
+  --trees-status-renamed-override: var(--color-main-fg);
+  --trees-status-deleted-override: var(--color-crimson-fg);
+  --trees-status-ignored-override: var(--color-faint);
+}
+
+html[data-theme="bright"] file-tree-container {
+  color-scheme: light;
+}
