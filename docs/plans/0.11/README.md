@@ -39,9 +39,22 @@ mails product-lead with the receipt.
   region's `defaults.paths[host]` (`src/shared/region-defaults.ts:80`) as its
   root, the way terminals and git do; the region default is never read again
   (`src/shared/model/region.ts:112`). The operator can change the root.
-- **Host-local.** A Files node lives on one machine, like a terminal. Other
-  machines see a stub with its label; the root path never leaves the machine
-  (`docs/security-doctrine.md:143`).
+- **Host-local, crossing like file, link and git** (`src/shared/canvas-copy.ts:204`).
+  The host is the editing machine's real short name at creation, and main
+  refuses a node whose host is not this machine. Other machines see a stub
+  `{of: "files", geometry, label?}`: never the host, root, folder name or
+  file count, and the label only when the operator wrote one (the card
+  derives the folder name from the root as it renders). Nothing that leaves
+  the node (IPC replies, thread anchors, mention mail, extracted artifact
+  descriptions) names an absolute path: node id plus relative path only.
+  Same-host seats learn the root in onboard (cli). Files joins
+  `COMMENTABLE_KINDS`, not `RESOURCE_KINDS`: seats use the filesystem.
+- **Schema.** Step 51 adds the node, expand-only. Step 52 rebuilds `stubs`
+  to accept `files` (`state-schema.ts:81`); it is a consolidate step, with the
+  operator for approval. Without it Files stays home in 0.11 and other
+  machines show nothing.
+- **Ship tier.** Experimental while tracks build; on in ship at the cut once
+  every track is verified.
 - **Tree: `@pierre/trees`** (1.0.0-beta.6). Virtualized, with search,
   drag-and-drop, renaming and git status built in. Bleeding-edge is permitted
   (`AGENTS.md`, Dependencies).
@@ -143,9 +156,12 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
   verify in the real app before a track is reported done.
 
 ### cli (cli-lead)
-- Question only: do seats need anything for files? Seats already have the
-  filesystem. Comments that mention a seat reach it as mail today. My
-  proposal is no new command in 0.11; answer by mail.
+- No files command: seats use the filesystem. Two consumer changes once F7
+  lands the file subject: `msg reply` maps subjects by an exhaustive switch
+  with a file case (`src/main/junto/work/control.ts:2071`,
+  `operator-threads.ts:226`), and onboard gains a files reach row (node id,
+  label, and the absolute root to same-host seats only). Seats starting a
+  line comment on a file is out of 0.11.
 
 ### remote (remote-lead)
 - Confirm the host-local shape and the stub; review the doctrine paragraph.
@@ -157,7 +173,8 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 
 | Track | Owner | State |
 |---|---|---|
-| F1 node kind | canvas | assigned |
+| F1 node kind (step 51) | canvas | in progress |
+| F1 stub (step 52) | canvas | waiting on operator |
 | F2 service, protocol, doctrine | tech | assigned |
 | F2 modal | product-shell | assigned |
 | F3 editor spike, then editor | product-documents | assigned |
@@ -166,5 +183,5 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | F6 preview | product-pad | assigned |
 | F7 comments | product-feed | assigned |
 | F8 extract | product-pad, product-documents | assigned |
-| cli question | cli-lead | asked |
-| remote review | remote-lead | asked |
+| msg reply file subject, onboard files row | cli | after F7 contract |
+| remote review | remote-lead | shape accepted, doctrine paragraph pending |
