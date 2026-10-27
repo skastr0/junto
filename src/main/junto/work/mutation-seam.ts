@@ -127,6 +127,16 @@ export const UNJOURNALED_WORK_REASONS = {
       "Mint an artifact.retract fact carrying the tombstone, materialize it, " +
       "then delete this reason.",
   },
+  "files.thread-carry": {
+    why:
+      "A rename or move made through Junto rewrites the file subject's path in " +
+      "work_messages.metadata_json in place, in the same step as the " +
+      "filesystem change, so a thread stays on the file (0.11, F7). A move " +
+      "mints no work fact, so a journal rebuild would put the old path back.",
+    retire:
+      "Mint a rename fact carrying the carried subject and materialize it, " +
+      "then delete this reason.",
+  },
   "content.inline-media.backfill": {
     why:
       "BACKFILL_INLINE_MEDIA_V1 rewrites parts_json in six work_* projection " +

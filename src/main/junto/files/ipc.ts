@@ -8,7 +8,7 @@ import { asNodeId } from "@shared/physics/schema";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { workerRootIndex } from "./index-worker-host";
-import { makeFilesService, type FilesNodeFacts, type FilesService } from "./service";
+import { makeFilesService, type FilesNodeFacts, type FilesService, type FilesServiceDeps } from "./service";
 
 /**
  * The Files channels, behind `trustedRendererIpc`: only the app's own
@@ -95,9 +95,10 @@ const machineName = async (): Promise<string> => {
 };
 
 /** Register the Files channels and return the service (the protocol reads bytes through it). */
-export const registerFilesIpc = (): FilesService => {
+export const registerFilesIpc = (carryThreads?: FilesServiceDeps["carryThreads"]): FilesService => {
   const service = makeFilesService({
     node: nodeFacts,
+    ...(carryThreads === undefined ? {} : { carryThreads }),
     machineName,
     deny,
     trash: (absolute) => shell.trashItem(absolute),

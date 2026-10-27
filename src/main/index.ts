@@ -155,6 +155,7 @@ import {
 import { remoteVideos } from "./junto/preview/remote-video";
 import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/files/protocol";
 import { registerFilesIpc } from "./junto/files/ipc";
+import { carryFileThreads } from "./junto/work/file-thread-paths";
 import { ContentService } from "./junto/content/service";
 import {
   resolveTrustedRendererOrigin,
@@ -1627,7 +1628,14 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Files node bytes (junto-file://<node>/<relpath>): served only for a node
     // a window opened, inside its root after realpath (src/main/junto/files/).
     try {
-      filesService ??= registerFilesIpc();
+      // A rename or move through Junto carries the threads written on it
+      // (0.11 F7): the service calls this after the filesystem change and
+      // before it answers, and a failure is logged there, never fails the move.
+      filesService ??= registerFilesIpc((ref, from, to) =>
+        AppRuntime.runPromise(
+          Effect.flatMap(SqlClient.SqlClient, (sql) => carryFileThreads(sql, ref.canvas, ref.node, from, to)),
+        ).then(() => undefined),
+      );
       const files = filesService;
       installFileProtocol(session.defaultSession.protocol, (node, path) => files.bytes(node, path));
     } catch (error) {
