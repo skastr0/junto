@@ -437,6 +437,7 @@ function SelectedArtifact({
       case "document":
         return (
           <DocumentEditor
+            title={artifact.title}
             body={body}
             version={base}
             readOnly={readOnly}
@@ -454,6 +455,7 @@ function SelectedArtifact({
       case "sheet":
         return (
           <ArtifactSheetEditor
+            title={artifact.title}
             grid={body.grid}
             readOnly={readOnly}
             onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "sheet", baseVersion, patches: [...patches] }))}
