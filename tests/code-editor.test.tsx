@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { CodeEditor, type CodeEditorHandle, type LineRange } from "../src/renderer/components/ui/CodeEditor";
 import { commentLabel, COMMENT_TEST_ID } from "../src/renderer/components/ui/code-editor-lines";
@@ -83,6 +83,48 @@ it("comments on every selected line from the plus on any of them", async () => {
   expect(plus()?.getAttribute("aria-label")).toBe("Comment on lines 2 to 3");
   await act(async () => plus()!.click());
   expect(comments).toEqual([{ start: 2, end: 3, quote: "const b = 2;\nexport function sum() {" }]);
+});
+
+const pointer = (type: string, target: Element) => {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: 0 });
+  Object.defineProperty(event, "pointerId", { value: 1 });
+  target.dispatchEvent(event);
+};
+
+it("comments on a press released on the plus, and never on a press whose release was lost", async () => {
+  const captured = new Set<number>();
+  // jsdom has no pointer capture; the plus only needs it to hold the press.
+  const capture: Partial<Record<"setPointerCapture" | "releasePointerCapture" | "hasPointerCapture", (id: number) => unknown>> = {
+    setPointerCapture: (id) => captured.add(id),
+    releasePointerCapture: (id) => captured.delete(id),
+    hasPointerCapture: (id) => captured.has(id),
+  };
+  Object.assign(HTMLElement.prototype, capture);
+  onTestFinished(() => {
+    for (const name of Object.keys(capture)) Reflect.deleteProperty(HTMLElement.prototype, name);
+  });
+  const comments: LineRange[] = [];
+  await act(async () => root.render(<CodeEditor value={SOURCE} path="a.ts" onLineComment={(range) => comments.push(range)} />));
+  await settle();
+  await act(async () => {
+    pointer("pointerdown", plus()!);
+    pointer("pointerup", plus()!);
+  });
+  expect(comments).toEqual([{ start: 1, end: 1, quote: "const a = 1;" }]);
+  await act(async () => {
+    pointer("pointerdown", plus()!);
+    pointer("lostpointercapture", plus()!);
+    pointer("pointerup", plus()!);
+  });
+  expect(comments).toHaveLength(1);
+  expect(host.querySelector(".cm-commentRange")).toBeNull();
+});
+
+it("gives the keyboard only the caret's plus", async () => {
+  await act(async () => root.render(<CodeEditor value={SOURCE} path="a.ts" onLineComment={() => undefined} />));
+  await settle();
+  expect(plus()?.tabIndex).toBe(0);
+  expect(host.querySelectorAll(`button[data-testid="${COMMENT_TEST_ID}"][tabindex="0"]`)).toHaveLength(1);
 });
 
 it("says one line and a range in words", () => {

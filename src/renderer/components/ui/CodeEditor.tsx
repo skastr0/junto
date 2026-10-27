@@ -219,7 +219,6 @@ export function CodeEditor({
         tabIndex={0}
         role="group"
         aria-label={surfaceLabel}
-        aria-keyshortcuts="Enter"
         onKeyDown={onSurfaceKey}
       />
       {renderRow ? [...mounts].map(([element, key]) => createPortal(renderRow(key), element, key)) : null}

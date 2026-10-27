@@ -6,19 +6,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 28px;
   padding: 0;
 }
 
+/* The target is 24px square (WCAG 2.2 target size); the face drawn inside it is the 16px CodeView plus. */
 .code-editor .cm-commentButton {
   display: grid;
+  flex: none;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 1px solid var(--color-stroke);
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--color-raise);
+  background: transparent;
   color: var(--color-ink);
   font: inherit;
   font-size: var(--text-label);
@@ -26,13 +28,23 @@
   cursor: pointer;
 }
 
-.code-editor .cm-commentButton:hover {
+.code-editor .cm-commentButton__face {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-raise);
+}
+
+.code-editor .cm-commentButton:hover .cm-commentButton__face {
   border-color: var(--color-dim);
 }
 
 .code-editor .cm-commentButton:focus-visible {
   outline: 2px solid var(--color-cyan);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
 .code-editor .cm-commentRange {

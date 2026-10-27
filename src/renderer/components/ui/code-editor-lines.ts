@@ -98,58 +98,73 @@ class CommentMarker extends GutterMarker {
   constructor(
     readonly start: number,
     readonly end: number,
+    /** The caret's plus is the one the keyboard reaches; the pointer's is for the pointer only. */
+    readonly keyboard: boolean,
     readonly handlers: LineHandlers,
   ) {
     super();
   }
 
   override eq(other: CommentMarker): boolean {
-    return other.start === this.start && other.end === this.end;
+    return other.start === this.start && other.end === this.end && other.keyboard === this.keyboard;
   }
 
   override toDOM(view: EditorView): Node {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "cm-commentButton";
-    button.textContent = "+";
+    button.tabIndex = this.keyboard ? 0 : -1;
     button.setAttribute("aria-label", commentLabel(this.start, this.end));
     button.dataset.testid = COMMENT_TEST_ID;
+    const face = document.createElement("span");
+    face.className = "cm-commentButton__face";
+    face.textContent = "+";
+    face.setAttribute("aria-hidden", "true");
+    button.append(face);
     const send = (start: number, end: number): void => {
       const low = Math.min(start, end);
       const high = Math.max(start, end);
       this.handlers.current.comment?.({ start: low, end: high, quote: quoteOf(view.state, low, high) });
     };
     // A held press dragged over lines takes them all; a still press takes this plus's lines.
+    // The press captures the pointer, so a release lost to the system ends it as a cancel, never as a comment.
     button.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
       const anchor = this.start;
       let reach: number | null = null;
+      let done = false;
+      button.setPointerCapture(event.pointerId);
+      // Pressed: the pointer's line holds still, so this plus stays drawn under it.
+      view.dispatch({ effects: dragEffect.of({ start: anchor, end: anchor }) });
+      const finish = (): void => {
+        done = true;
+        button.removeEventListener("pointermove", move);
+        button.removeEventListener("pointerup", up);
+        button.removeEventListener("pointercancel", cancel);
+        button.removeEventListener("lostpointercapture", cancel);
+        if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId);
+        view.dispatch({ effects: dragEffect.of(null) });
+      };
       const move = (moved: PointerEvent): void => {
         const line = lineAtY(view, moved.clientY);
-        if (reach === null && line === anchor) return;
+        if (line === (reach ?? anchor)) return;
         reach = line;
         view.dispatch({ effects: dragEffect.of({ start: Math.min(anchor, line), end: Math.max(anchor, line) }) });
       };
       const up = (): void => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", cancel);
+        if (done) return;
+        finish();
         if (reach === null) send(this.start, this.end);
-        else {
-          view.dispatch({ effects: dragEffect.of(null) });
-          send(anchor, reach);
-        }
+        else send(anchor, reach);
       };
       const cancel = (): void => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", cancel);
-        view.dispatch({ effects: dragEffect.of(null) });
+        if (!done) finish();
       };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", cancel);
+      button.addEventListener("pointermove", move);
+      button.addEventListener("pointerup", up);
+      button.addEventListener("pointercancel", cancel);
+      button.addEventListener("lostpointercapture", cancel);
     });
     // Enter or Space on the focused plus: a click with no pointer behind it.
     button.addEventListener("click", (event) => {
@@ -170,21 +185,40 @@ class SpacerMarker extends GutterMarker {
 }
 const spacer = new SpacerMarker();
 
-/** The pointer's line, read over the gutter and the text alike. */
+/**
+ * The pointer's line, read over the gutter and the text alike, and read again
+ * when the text scrolls under a still pointer. It holds still while a plus is
+ * pressed, so the pressed plus is not taken from under the pointer.
+ */
 const hoverTracker = ViewPlugin.define((view) => {
-  const move = (event: PointerEvent): void => {
-    const line = lineAtY(view, event.clientY);
+  let lastY: number | null = null;
+  let frame: number | null = null;
+  const settle = (): void => {
+    frame = null;
+    if (lastY === null || view.state.field(dragged) !== null) return;
+    const line = lineAtY(view, lastY);
     if (view.state.field(hovered) !== line) view.dispatch({ effects: hoverEffect.of(line) });
   };
+  const move = (event: PointerEvent): void => {
+    lastY = event.clientY;
+    settle();
+  };
+  const scroll = (): void => {
+    if (frame === null && lastY !== null) frame = requestAnimationFrame(settle);
+  };
   const leave = (): void => {
-    if (view.state.field(hovered) !== null) view.dispatch({ effects: hoverEffect.of(null) });
+    lastY = null;
+    if (view.state.field(dragged) === null && view.state.field(hovered) !== null) view.dispatch({ effects: hoverEffect.of(null) });
   };
   view.scrollDOM.addEventListener("pointermove", move);
   view.scrollDOM.addEventListener("pointerleave", leave);
+  view.scrollDOM.addEventListener("scroll", scroll, { passive: true });
   return {
     destroy: () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       view.scrollDOM.removeEventListener("pointermove", move);
       view.scrollDOM.removeEventListener("pointerleave", leave);
+      view.scrollDOM.removeEventListener("scroll", scroll);
     },
   };
 });
@@ -199,9 +233,10 @@ export const lineComments = (handlers: LineHandlers): Extension => [
     class: "cm-commentGutter",
     lineMarker(view, block) {
       const line = view.state.doc.lineAt(block.from).number;
-      if (line !== caretLine(view.state) && line !== view.state.field(hovered)) return null;
+      const caret = line === caretLine(view.state);
+      if (!caret && line !== view.state.field(hovered)) return null;
       const { start, end } = rangeAt(view.state, line);
-      return new CommentMarker(start, end, handlers);
+      return new CommentMarker(start, end, caret, handlers);
     },
     lineMarkerChange: (update) =>
       update.selectionSet || update.docChanged || update.startState.field(hovered) !== update.state.field(hovered),
