@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { artifactLinkTitle } from "@shared/artifact-link";
+import { ARTIFACT_GONE_LINE, artifactLinkStateOf, artifactLinkTitle } from "@shared/artifact-link";
 import { matchMention, parseMentionHref, type MentionOf } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import { parseNodeRef } from "@shared/node-ref";
@@ -24,38 +24,60 @@ type ChipProps = {
   readonly number: number | undefined;
   readonly open: (() => void) | undefined;
   readonly artifactType?: ArtifactType | undefined;
+  readonly archived?: boolean;
+  /** A missing chip's press: it says the artifact is gone. */
+  readonly gone?: (() => void) | undefined;
 };
 
-function Chip({ mark, label, number, open, artifactType }: ChipProps) {
+function Chip({ mark, label, number, open, artifactType, archived = false, gone }: ChipProps) {
+  const press = open ?? gone;
   return (
     <ResourceChip
       {...mark}
       {...(artifactType === undefined ? {} : { artifactType })}
       label={label}
       number={number}
+      archived={archived}
       missing={open === undefined}
-      {...(open === undefined ? {} : { onOpen: open, tabIndex: -1, onMouseDown: keepEditorFocus })}
+      {...(open === undefined ? {} : { onOpen: open })}
+      {...(gone === undefined || open !== undefined ? {} : { onMissing: gone, title: ARTIFACT_GONE_LINE })}
+      {...(press === undefined ? {} : { tabIndex: -1, onMouseDown: keepEditorFocus })}
       data-testid="document-mention-chip"
     />
   );
 }
 
 /**
- * An artifact wears its type's glyph: a document its page, a sheet its grid. Until the node is read, the generic mark.
- * A `[[ ]]` link says the artifact's title now, so a rename never leaves it stale; until the node is read, the title it was written with.
- * Once the node is read, an artifact it does not hold is drawn unavailable and does not open; an archived one opens, and says so.
+ * An artifact chip says what the link names now (`artifactLinkStateOf`, one
+ * state for every surface): its title and type's glyph, live; dimmed and
+ * named archived, still opening; or, once its node is read and does not hold
+ * it, "Missing artifact", whose press says it is gone. Until the node is
+ * read, the words the link was written with and the generic mark.
  */
 function ArtifactChip({
   refOf,
   canvasName,
-  linked,
+  written,
+  onGone,
   ...chip
-}: ChipProps & { readonly refOf: MentionOf<"artifact">; readonly canvasName: string; readonly linked: boolean }) {
+}: ChipProps & {
+  readonly refOf: MentionOf<"artifact">;
+  readonly canvasName: string;
+  readonly written: string;
+  readonly onGone: (() => void) | undefined;
+}) {
   const heads = useNodeArtifactsRead(canvasName, refOf.nodeId);
-  const artifact = heads?.find((head) => head.artifact.artifactId === refOf.artifactId)?.artifact;
-  if (heads !== undefined && artifact === undefined) return <Chip {...chip} open={undefined} />;
-  const title = linked && artifact !== undefined ? artifact.title : chip.label;
-  return <Chip {...chip} label={artifact?.archived ? `${title}, archived` : title} artifactType={artifact?.type} />;
+  const link = artifactLinkStateOf(refOf.artifactId, heads?.map((head) => head.artifact), written);
+  switch (link.state) {
+    case "unread":
+      return <Chip {...chip} label={link.words} />;
+    case "live":
+      return <Chip {...chip} label={link.words} artifactType={link.type} />;
+    case "archived":
+      return <Chip {...chip} label={link.words} artifactType={link.type} archived />;
+    case "missing":
+      return <Chip {...chip} label={link.words} open={undefined} gone={onGone} />;
+  }
 }
 
 /**
@@ -74,6 +96,7 @@ export function DocumentMentionChip({
   label,
   nodeKindOf,
   canvasName,
+  onGone,
 }: {
   readonly href: string;
   /** The link's text as written, `@name` or `#42 title`. */
@@ -81,6 +104,8 @@ export function DocumentMentionChip({
   readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
   /** Where the text lives, to read an artifact's type; without it, the canvas the link was written on. */
   readonly canvasName?: string;
+  /** Say that a missing artifact is gone, when its chip is pressed. */
+  readonly onGone?: (() => void) | undefined;
 }) {
   const target = parseMentionHref(href);
   if (target === undefined) return <span>{label}</span>;
@@ -102,6 +127,6 @@ export function DocumentMentionChip({
     seat: () => <Chip {...chip} />,
     page: () => <Chip {...chip} />,
     task: () => <Chip {...chip} />,
-    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} linked={linkTitle !== undefined} />,
+    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} written={label} onGone={onGone} />,
   });
 }

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { artifactLink } from "../src/shared/artifact-link";
+import { ARTIFACT_GONE_LINE, artifactLink, MISSING_ARTIFACT_WORDS } from "../src/shared/artifact-link";
 import type { MentionOf } from "../src/shared/mention";
 import type { NodeKind } from "../src/shared/model/kinds";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -181,30 +181,41 @@ describe("a [[ link drawn in a document", () => {
     expect(chip.textContent).toContain(", Document");
   });
 
-  it("a # mention of the same artifact keeps the words it was written with", async () => {
+  it("a # mention of the same artifact says its title now too: one state for every link", async () => {
     await act(async () => root.render(<DocumentMentionChip href={href} label="#Launch plan" nodeKindOf={(id) => kinds[id]} />));
-    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan");
+    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, final");
   });
 
   const listing = (heads: ReadonlyArray<object>) =>
     setArtifactsSource({ ...original, list: async () => heads as ReadonlyArray<ArtifactHead>, onChanged: () => () => undefined } as unknown as ArtifactsSource);
 
-  it("an archived artifact still opens, and says it is archived", async () => {
+  it("an archived artifact still opens, drawn dimmed and named archived, its title kept", async () => {
     listing([{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan", type: "document", archived: true } }]);
     await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds[id]} />));
     const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
     expect(chip.tagName).toBe("BUTTON");
-    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, archived");
+    expect(chip.dataset.archived).toBe("true");
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan");
+    expect(chip.textContent).toContain(", Document, archived");
   });
 
-  it("an artifact its node does not hold is unavailable and does not open, once the node is read", async () => {
+  it("an artifact its node does not hold claims no title; inert alone, and its press says it is gone where the host can say", async () => {
     listing([]);
     await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Ghost doc\]\]" nodeKindOf={(id) => kinds[id]} />));
-    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    let chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
     expect(chip.tagName).toBe("SPAN");
     expect(chip.dataset.missing).toBe("true");
-    expect(chip.textContent).toContain("Ghost doc");
-    expect(chip.textContent).toContain("unavailable");
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe(MISSING_ARTIFACT_WORDS);
+    expect(chip.textContent).not.toContain("Ghost doc");
+    const said: string[] = [];
+    await act(async () =>
+      root.render(<DocumentMentionChip href={href} label="\[\[Ghost doc\]\]" nodeKindOf={(id) => kinds[id]} onGone={() => said.push("gone")} />),
+    );
+    chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.title).toBe(ARTIFACT_GONE_LINE);
+    await act(async () => chip.click());
+    expect(said).toEqual(["gone"]);
   });
 
   it("an artifact that is gone keeps its written title, unavailable", async () => {

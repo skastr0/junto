@@ -436,6 +436,9 @@ const pickerKeys = Prec.highest(
   }),
 );
 
+/** Say a line in the document's polite live region, until the next edit: what a press did when it could not open. */
+export const sayInDocument = (view: EditorView, line: string): void => view.dispatch({ effects: announce.of(line) });
+
 /** The candidates changed while nothing else did: the list draws what is offered now. */
 export const mentionSourceChanged = (view: EditorView): void => view.dispatch({});
 

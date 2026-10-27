@@ -3,9 +3,11 @@ import { createPortal } from "react-dom";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Annotation, Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderText } from "@codemirror/view";
-import { mentionRefOf, parseMentionHref } from "@shared/mention";
+import { ARTIFACT_GONE_LINE, artifactLinkStateOf } from "@shared/artifact-link";
+import { mentionRefOf, parseMentionHref, type MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
+import { artifactsSource } from "../../lib/artifacts-source";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { openMention } from "../../lib/mention-open";
@@ -16,7 +18,7 @@ import "../ui/code-editor-lines.css";
 import { textSplice } from "./artifacts-pane-model";
 import { DocumentMentionChip } from "./DocumentMentionChip";
 import { liveMarkdown, type LiveMarkdownHandlers, type MentionMount, redrawEffect } from "./live-markdown";
-import { mentionPicker, mentionSourceChanged, type PickerLinks } from "./mention-picker";
+import { mentionPicker, mentionSourceChanged, sayInDocument, type PickerLinks } from "./mention-picker";
 import "./live-markdown.css";
 
 /** What the field may mention, and how it reads the canvas its links name. */
@@ -151,6 +153,20 @@ export function LiveMarkdownField({
   mentionsRef.current = mentions;
   const heard = useRef({ onChange, onRest, onSelection, restMs });
   heard.current = { onChange, onRest, onSelection, restMs };
+  /** What a missing artifact's link says when it is opened, in the document's live region. */
+  const sayGone = (): void => {
+    if (view.current !== null) sayInDocument(view.current, ARTIFACT_GONE_LINE);
+  };
+  /** Open what a link names; an artifact its node no longer holds says it is gone instead. */
+  const openLinked = (ref: MentionRef, canvasName: string): void => {
+    if (ref.kind !== "artifact") return openMention(ref);
+    void artifactsSource()
+      .list(canvasName, ref.nodeId)
+      .then(
+        (heads) => (artifactLinkStateOf(ref.artifactId, heads.map((head) => head.artifact), "").state === "missing" ? sayGone() : openMention(ref)),
+        () => openMention(ref),
+      );
+  };
   const handlers = useRef<LiveMarkdownHandlers["current"]>({});
   handlers.current = {
     onAnchor,
@@ -160,7 +176,7 @@ export function LiveMarkdownField({
           openMention: (href) => {
             const target = parseMentionHref(href);
             const ref = target === undefined ? undefined : mentionRefOf(target, mentions.nodeKindOf);
-            if (ref !== undefined) openMention(ref);
+            if (ref !== undefined) openLinked(ref, mentions.canvasName);
           },
           mount: (element, mention) => setMounts((prior) => new Map(prior).set(element, mention)),
           unmount: (element) =>
@@ -316,7 +332,7 @@ export function LiveMarkdownField({
               mention.kind === "embed" ? (
                 <Embed href={mention.href} label={mention.label} mentions={mentions} />
               ) : (
-                <DocumentMentionChip href={mention.href} label={mention.label} nodeKindOf={mentions.nodeKindOf} />
+                <DocumentMentionChip href={mention.href} label={mention.label} nodeKindOf={mentions.nodeKindOf} onGone={sayGone} />
               ),
               element,
               keyOf(element),

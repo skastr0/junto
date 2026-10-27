@@ -106,14 +106,19 @@ export function ResourceChip(
     /** A task's per-canvas number (04). Ignored for the other kinds. */
     readonly number?: number | undefined;
     readonly pending?: boolean;
+    /** Archived: still real and still opens, drawn dimmed and named archived. */
+    readonly archived?: boolean;
+    /** Gone or out of reach: inert, `onOpen` ignored. */
     readonly missing?: boolean;
     readonly onOpen?: () => void;
+    /** A missing chip that says why when pressed, rather than staying inert. */
+    readonly onMissing?: () => void;
   } & Omit<ComponentPropsWithRef<"span">, "children" | "className" | "onClick" | "role">,
 ) {
-  const { kind, seat, artifactType, label, number, pending = false, missing = false, onOpen, ...rest } = props;
+  const { kind, seat, artifactType, label, number, pending = false, archived = false, missing = false, onOpen, onMissing, ...rest } = props;
   const visual = RESOURCE_KIND_VISUAL[kind];
   const noun = kind === "artifact" && artifactType ? ARTIFACT_TYPE_NOUN[artifactType] : visual.noun;
-  const state = missing ? ", unavailable" : pending ? ", queued" : "";
+  const state = missing ? ", unavailable" : pending ? ", queued" : archived ? ", archived" : "";
   const content = (
     <>
       {kind === "seat" ? <SeatMark seat={seat ?? label} size={SEAT_MARK_SIZE} /> : <ChipGlyph kind={kind} artifactType={artifactType} />}
@@ -131,13 +136,15 @@ export function ResourceChip(
     "data-kind": kind,
     "data-pending": pending ? "true" : undefined,
     "data-missing": missing ? "true" : undefined,
+    "data-archived": archived && !missing ? "true" : undefined,
     // A seat wears its portrait, not a hue.
     ...(kind === "seat" ? {} : { style: { "--mark": markColor(visual.tone) } as CSSProperties }),
   } as const;
-  if (onOpen && !missing) {
+  const press = missing ? onMissing : onOpen;
+  if (press) {
     const { ref: _ref, ...button } = rest;
     return (
-      <button type="button" {...(button as ComponentPropsWithRef<"button">)} {...common} onClick={onOpen}>
+      <button type="button" {...(button as ComponentPropsWithRef<"button">)} {...common} onClick={press}>
         {content}
       </button>
     );

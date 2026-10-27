@@ -290,7 +290,7 @@ describe("a mention link drawn in a document", () => {
       ...original,
       list: async (canvas: string, nodeId: string) => {
         asked.push(`${canvas}/${nodeId}`);
-        return [{ artifact: { artifactId: ITEM, type: "sheet", archived: false } } as unknown as ArtifactHead];
+        return [{ artifact: { artifactId: ITEM, title: "Budget", type: "sheet", archived: false } } as unknown as ArtifactHead];
       },
       onChanged: () => () => undefined,
     } as unknown as ArtifactsSource);

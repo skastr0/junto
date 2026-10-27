@@ -70,7 +70,17 @@ button.resource-chip:focus-visible {
   background: transparent;
 }
 
-/* Out of reach or gone: struck, dim, inert. */
+/* Archived: still real and still opens, so not struck; dimmed, and named archived. */
+.resource-chip[data-archived="true"] {
+  background: transparent;
+  color: var(--color-dim);
+}
+
+.resource-chip[data-archived="true"] .resource-chip__glyph {
+  color: var(--color-faint);
+}
+
+/* Out of reach or gone: struck, dim, inert (a press, when there is one, only says why). */
 .resource-chip[data-missing="true"] {
   background: transparent;
   color: var(--color-dim);
