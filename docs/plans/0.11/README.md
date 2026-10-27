@@ -175,17 +175,18 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | Track | Owner | State |
 |---|---|---|
 | F1 node kind (step 51) | canvas | landed 9f7573e49 (reland after 7ff0f339e) |
-| F1 card, mount, factory, card drop, host refusal in main | canvas | landed 6dd83fcf7, 17df6ae98, 45ea76901, e9be44e2f; real app passed, operator has frames |
+| F1 card, mount, factory, card drop, host refusal in main | canvas | done, verified, operator approved |
 | F1 stub (step 52) | canvas | operator asked; ships without it (b) unless they answer a |
-| F2 service, protocol, doctrine | tech | done: 0614a0ba2, 5cac62452, 418fd8909, f7fded164, 3776924fc, 1435ebc0c, boot fix 7fa6cb0c7; index ~12 ms vs 10 ms budget, performance-lead judging |
+| F2 service, protocol, doctrine | tech | done; index in a worker (f0ab5db9a), performance-lead re-measuring; fff spiked and rejected |
 | git config commands neutralised (security) | tech | landed e9cc0324e |
 | shared-index commit guard | tech-ci | dd438c028, needs `core.hooksPath` set by the operator |
-| F2 modal | product-shell | done, real app and axe passed, operator approved; see-through panes open |
-| F3 editor (CodeMirror, spike 0613f3324) | product-documents | on main ba9d59cb1; editor focus fix and Markdown gutter open |
-| F4 quick open | product-modals, product-keyboard | landed dc55407e1, eaf25846c, 093768fd6 |
-| F5 drops | product-sheet, canvas (card) | landed 4dc94d928, 664645da8, c51b2e6df |
-| F6 preview | product-pad | done in the real app 68f37e039, operator has frames; product-shell walk next |
-| F7 comments | product-feed | on main f95fa0be3, 7a35cf844, 160248e25; real-app run open |
-| F8 extract | product-pad, product-documents | done in the real app 68f37e039, link back to page bdcd71f74 |
+| F2 modal | product-shell | done, verified, operator approved |
+| F3 editor (CodeMirror, spike 0613f3324) | product-documents | done, verified, operator approved |
+| F4 quick open | product-modals, product-keyboard | done, verified 8 of 8, centred (6654b233b), operator approved keys |
+| F5 drops | product-sheet, canvas (card) | done, 9 of 9 after the tree move fix c732058f5 |
+| F6 preview | product-pad | done, review findings fixed 87d3ca92c, walk passed c5f7568ae |
+| F7 comments | product-feed | done, verified; Junto renames carry threads (after L1) |
+| F8 extract | product-pad, product-documents | done, walk passed c5f7568ae |
 | msg reply file subject, onboard files row | cli | after F7 contract |
+| artifact links L1 to L5 | see 02-artifact-links.md | started |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
