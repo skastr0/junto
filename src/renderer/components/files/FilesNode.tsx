@@ -144,6 +144,8 @@ export function FilesNode({
     renaming: { onRename: (event) => void rename(event), onError: setTreeError },
     itemHeight: 28,
     onSelectionChange: (paths) => {
+      // The row a tree drag starts on is selected; opening it would remount the tree and end the drag.
+      if (drop.isTreeDragging()) return;
       const file = fileOfSelection(paths);
       if (file !== null) setSelected(file);
     },

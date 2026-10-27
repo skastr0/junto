@@ -344,6 +344,41 @@ describe("the modal's drops", () => {
     expect(container.querySelector("[role=alert]")?.textContent).toContain("Could not move lib. Not allowed.");
   });
 
+  it("knows a tree drag from its dragstart, before the tree selects the row, until it ends", async () => {
+    mount(fakePort().port);
+    const treeDrag = (type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+      Object.defineProperty(event, "dataTransfer", { value: { types: [], files: [] } });
+      let seen: boolean | undefined;
+      // The row's own handler runs at the target, after the surface's capture.
+      tree.at("src/index.ts").addEventListener(type, () => (seen = drop.isTreeDragging()), { once: true });
+      act(() => {
+        tree.at("src/index.ts").dispatchEvent(event);
+      });
+      return seen;
+    };
+    expect(drop.isTreeDragging()).toBe(false);
+    expect(treeDrag("dragstart")).toBe(true);
+    treeDrag("dragend");
+    expect(drop.isTreeDragging()).toBe(false);
+
+    treeDrag("dragstart");
+    await act(async () => {
+      drop.treeDragAndDrop.onDropComplete?.({
+        draggedPaths: ["src/index.ts"],
+        operation: "move",
+        target: { kind: "root", directoryPath: null, flattenedSegmentPath: null, hoveredPath: null },
+      });
+    });
+    expect(drop.isTreeDragging()).toBe(false);
+  });
+
+  it("a Finder drag is not a tree drag", () => {
+    mount(fakePort().port);
+    drag("dragstart", surfaceEl);
+    expect(drop.isTreeDragging()).toBe(false);
+  });
+
   it("says why when the tree refuses a move onto a taken name", () => {
     mount(fakePort().port);
     act(() =>

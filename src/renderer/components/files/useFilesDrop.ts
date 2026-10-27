@@ -38,7 +38,16 @@ export type FilesDrop = {
   /** The last copy or move, in words; cleared after a while or by the next drag. */
   readonly notice: { readonly text: string; readonly failed: boolean } | undefined;
   readonly dismissNotice: () => void;
+  /**
+   * A row is being dragged inside the tree. The tree selects the row it
+   * starts dragging; a modal that opens the selection must skip that one,
+   * since opening it remounts the tree, and the tree cancels its drag when
+   * it unmounts.
+   */
+  readonly isTreeDragging: () => boolean;
   readonly surface: {
+    readonly onDragStartCapture: (event: DragEvent<HTMLElement>) => void;
+    readonly onDragEndCapture: (event: DragEvent<HTMLElement>) => void;
     readonly onDragEnter: (event: DragEvent<HTMLElement>) => void;
     readonly onDragOver: (event: DragEvent<HTMLElement>) => void;
     readonly onDragLeave: (event: DragEvent<HTMLElement>) => void;
@@ -83,6 +92,9 @@ export const useFilesDrop = ({
   // crosses sends one of each (a shadow root's rows as its host), so the drag
   // has left only at zero; dragleave's relatedTarget is not reliable here.
   const depth = useRef(0);
+  // Set as a tree drag's dragstart crosses the surface, before the row's own
+  // handler starts the drag and selects the row.
+  const treeDragging = useRef(false);
   // The latest props, so the tree's config stays one object for the tree's life.
   const live = useRef({ port, node, describe, rootLabel });
   live.current = { port, node, describe, rootLabel };
@@ -147,6 +159,13 @@ export const useFilesDrop = ({
 
   const surface = useMemo<FilesDrop["surface"]>(
     () => ({
+      onDragStartCapture: (event) => {
+        if (hasFinderFiles(event.dataTransfer?.types)) return;
+        treeDragging.current = true;
+      },
+      onDragEndCapture: () => {
+        treeDragging.current = false;
+      },
       onDragEnter: (event) => {
         if (!hasFinderFiles(event.dataTransfer?.types)) return;
         event.preventDefault();
@@ -184,6 +203,7 @@ export const useFilesDrop = ({
     () => ({
       // The tree has already moved its rows; each one the service refuses goes back.
       onDropComplete: (result: FileTreeDropResult) => {
+        treeDragging.current = false;
         const moves = movesForDrop(result.draggedPaths, result.target);
         void (async () => {
           const { port, node, describe } = live.current;
@@ -208,7 +228,10 @@ export const useFilesDrop = ({
         })();
       },
       // The tree refuses a move onto a name that is taken, before anything moves.
-      onDropError: () => say("That folder already holds something with the same name. Nothing moved.", true),
+      onDropError: () => {
+        treeDragging.current = false;
+        say("That folder already holds something with the same name. Nothing moved.", true);
+      },
     }),
     [say],
   );
@@ -218,11 +241,13 @@ export const useFilesDrop = ({
   }, []);
 
   const dismissNotice = useCallback(() => setNotice(undefined), []);
+  const isTreeDragging = useCallback(() => treeDragging.current, []);
 
   return {
     target,
     notice,
     dismissNotice,
+    isTreeDragging,
     surface: target === null ? surface : { ...surface, "data-drop": target.rect === null ? "root" : "folder" },
     treeDragAndDrop,
     bindModel,
