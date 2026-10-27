@@ -167,4 +167,28 @@ describe("AutomationRepository", () => {
     const rest = yield* repository.taskRulingsSince("factory", first.through, 2);
     expect(rest).toMatchObject({ through: "11", more: false, rulings: [{ became: "backlog", byAutomation: true }] });
   })));
+
+  it("reads each task a ruling derived as a new task on its own board, before the task it ruled", () => run(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const T = "01M5ESKJFC1A88R1MH1NEZWJ50";
+    const D1 = "01M5ESKJFC1A88R1MH1NEZWJ51";
+    const D2 = "01M5ESKJFC1A88R1MH1NEZWJ52";
+    const record = {
+      kind: "applied",
+      taskId: T,
+      node: "tasks-1",
+      became: "done",
+      derived: [{ taskId: D1, node: "tasks-2", became: "backlog" }, { taskId: D2, node: "tasks-3", became: "backlog" }],
+    };
+    yield* sql`INSERT INTO work_events VALUES ('mini', 'mini', '9', 'ruling', '01M5ESKJFC1A88R1MH1NEZWJ62', 'factory')`;
+    yield* sql`INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json, actor_kind, actor_node_id)
+      VALUES ('factory', 'mini', '01M5ESKJFC1A88R1MH1NEZWJ62', 'applied', ${JSON.stringify(record)}, 'seat', 'agent-a')`;
+    const repository = yield* AutomationRepository;
+    const read = yield* repository.taskRulingsSince("factory", "0", 10);
+    expect(read.rulings.map((r) => [r.taskId, r.node, r.became])).toEqual([
+      [D1, "tasks-2", "backlog"],
+      [D2, "tasks-3", "backlog"],
+      [T, "tasks-1", "done"],
+    ]);
+  })));
 });

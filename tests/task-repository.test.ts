@@ -205,7 +205,8 @@ describe("task repository", () => {
     applied(await submit(command({ kind: "start" }, taskId, { actor: adaActor }), derives));
     // Cancel or a plain write derives nothing: only a close does.
     expect((await withRepo((repo) => repo.list(canvas, { nodeIds: [qa, docs], limit: 10 }))).tasks).toEqual([]);
-    const finished = applied(await submit(command({ kind: "finish", next: qa, handoff: "parser is in" }, taskId, { actor: adaActor }), derives));
+    const finishOp = mintOpId();
+    const finished = applied(await submit(command({ kind: "finish", next: qa, handoff: "parser is in" }, taskId, { actor: adaActor, opId: finishOp }), derives));
     // The ruled task is still the one the outcome names, and it flowed on as before.
     expect(finished.task).toMatchObject({ id: taskId, node: qa, state: "backlog" });
     expect(finished.effects.filter((effect) => effect.kind === "number-minted")).toHaveLength(2);
@@ -225,6 +226,14 @@ describe("task repository", () => {
       expect(task.current.handoff).toBeUndefined();
       expect(task.derivedFrom).toEqual({ taskId, number: 1, node: qa });
     }
+    // The ruling names each derived task as the new task it is, so change triggers fire on its board.
+    const row = database.prepare("SELECT ruling_json FROM resource_rulings WHERE op_id = ?").get(finishOp) as { ruling_json: string };
+    expect(JSON.parse(row.ruling_json)).toMatchObject({
+      taskId,
+      node: qa,
+      became: "backlog",
+      derived: derived.map((task) => ({ taskId: task.taskId, node: task.current.node, became: "backlog" })),
+    });
     expect(derived[1]!.current.stampPolicy).toEqual({ required: 1 });
 
     const origin = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));

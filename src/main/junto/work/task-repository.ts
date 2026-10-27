@@ -583,6 +583,13 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         outcome = { kind: "refused", opId: command.opId, error: ruling.error, root: ruling.root };
       }
       // An applied ruling that brought its task into a state names it, so change triggers read rulings, not snapshots.
+      // Each task it derived on another board is named too, as the new task it is.
+      const derived = ruling.kind === "applied"
+        ? ruling.facts.slice(0, -1).flatMap((fact) =>
+            fact.task.derivedFrom !== undefined
+              ? [{ taskId: fact.task.id, node: fact.task.node, became: fact.task.state }]
+              : [])
+        : [];
       const record: RulingRecord = outcome.kind === "applied"
         ? {
             kind: "applied",
@@ -590,6 +597,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
             ...(state.tasks.get(outcome.task.id)?.state === outcome.task.state
               ? {}
               : { node: outcome.task.node, became: outcome.task.state }),
+            ...(derived.length === 0 ? {} : { derived }),
           }
         : { kind: "refused", error: outcome.error, root: outcome.root };
       yield* recorder.record({

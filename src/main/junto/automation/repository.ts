@@ -115,7 +115,9 @@ export type TaskRuling = {
   readonly byAutomation: boolean;
 };
 
-const parseRecord = (json: string): { readonly taskId?: unknown; readonly node?: unknown; readonly became?: unknown } | undefined => {
+type TaskBecame = { readonly taskId?: unknown; readonly node?: unknown; readonly became?: unknown };
+
+const parseRecord = (json: string): (TaskBecame & { readonly derived?: unknown }) | undefined => {
   try {
     return JSON.parse(json);
   } catch {
@@ -340,14 +342,21 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
               AND e.item_kind = 'ruling' AND e.item_canvas_name = ${canvasName}
               AND (length(e.seq) > ${after.length} OR (length(e.seq) = ${after.length} AND e.seq > ${after}))
               AND (length(e.seq) < ${mark.length} OR (length(e.seq) = ${mark.length} AND e.seq <= ${mark}))
-              AND r.kind = 'applied' AND json_extract(r.ruling_json, '$.became') IS NOT NULL
+              AND r.kind = 'applied'
+              AND (json_extract(r.ruling_json, '$.became') IS NOT NULL OR json_extract(r.ruling_json, '$.derived') IS NOT NULL)
             ORDER BY length(e.seq), e.seq
             LIMIT ${limit}
           `;
+          // The tasks a ruling derived came before the task it ruled, as their facts did; each is a new task on its own board.
           const rulings = rows.flatMap((row): ReadonlyArray<TaskRuling> => {
             const record = parseRecord(row.ruling_json);
-            if (record === undefined || typeof record.taskId !== "string" || typeof record.node !== "string" || typeof record.became !== "string") return [];
-            return [{ opId: row.op_id, taskId: record.taskId, node: record.node, became: record.became, byAutomation: row.actor_kind === "automation" }];
+            if (record === undefined) return [];
+            const byAutomation = row.actor_kind === "automation";
+            const derived: ReadonlyArray<TaskBecame> = Array.isArray(record.derived) ? record.derived : [];
+            return [...derived, record].flatMap((task): ReadonlyArray<TaskRuling> =>
+              typeof task.taskId === "string" && typeof task.node === "string" && typeof task.became === "string"
+                ? [{ opId: row.op_id, taskId: task.taskId, node: task.node, became: task.became, byAutomation }]
+                : []);
           });
           // A full page stops at its last row; a short one has read through the mark.
           const more = rows.length === limit;
