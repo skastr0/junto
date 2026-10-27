@@ -86,8 +86,6 @@ type StencilSpec = {
 const fill = (id: (typeof PAD_FILL_SWATCHES)[number]["id"]): string =>
   PAD_FILL_SWATCHES.find((swatch) => swatch.id === id)!.value;
 
-// Decision and store are boxes until the pad model holds a diamond and a
-// cylinder; product-pad batches those kinds.
 export const PAD_STENCILS: ReadonlyArray<StencilSpec> = [
   {
     id: "sticky",
@@ -102,12 +100,12 @@ export const PAD_STENCILS: ReadonlyArray<StencilSpec> = [
   {
     id: "decision",
     name: "Decision",
-    parts: [{ type: "box", dx: 0, dy: 0, w: 140, h: 80, fill: fill("cyan"), text: "Decide?" }],
+    parts: [{ type: "diamond", dx: 0, dy: 0, w: 140, h: 96, fill: fill("cyan"), text: "Decide?" }],
   },
   {
     id: "store",
     name: "Store",
-    parts: [{ type: "box", dx: 0, dy: 0, w: 140, h: 72, fill: fill("steel"), text: "Store" }],
+    parts: [{ type: "cylinder", dx: 0, dy: 0, w: 120, h: 96, fill: fill("steel"), text: "Store" }],
   },
   {
     id: "flow",
