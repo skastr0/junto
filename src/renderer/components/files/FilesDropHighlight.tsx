@@ -49,12 +49,13 @@ export function FilesDropHighlight({ drop }: { readonly drop: FilesDrop }) {
 
 /**
  * The tree's own drop target, for a row dragged inside it, in the same drop
- * edge. Pass as the tree's `unsafeCSS`: its rows live in a shadow root, and
+ * edge and wash. Pass as the tree's `unsafeCSS`: its rows live in a shadow root, and
  * only custom properties cross it, so the rule has to be inside.
  */
 export const FILES_DROP_TREE_CSS = `
   [data-item-drag-target="true"] {
     outline: 1px dashed var(--color-cyan);
     outline-offset: -1px;
+    background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
   }
 `;
