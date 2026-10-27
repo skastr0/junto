@@ -3,6 +3,7 @@
  */
 import { Result, Schema } from "effect";
 import { ContentRef } from "./content";
+import { parseMentionHref } from "./mention";
 
 const STRICT = { onExcessProperty: "error" } as const;
 
@@ -30,7 +31,19 @@ export type PadElementId = typeof PadElementId.Type;
 
 export const asPadElementId = (id: string): PadElementId => id as PadElementId;
 
-export const PadShapeType = Schema.Literals(["box", "ellipse", "triangle", "label"]);
+/**
+ * `diamond` is a flow's decision, `cylinder` a store (database, queue, files),
+ * `card` a seat, task or artifact the pad shows live from its link.
+ */
+export const PadShapeType = Schema.Literals([
+  "box",
+  "ellipse",
+  "triangle",
+  "label",
+  "diamond",
+  "cylinder",
+  "card",
+]);
 export type PadShapeType = typeof PadShapeType.Type;
 
 export const PadShapeStatus = Schema.Literals(["none", "active", "done", "blocked"]);
@@ -48,6 +61,37 @@ export const PadPoint = Schema.Struct({
 });
 export type PadPoint = typeof PadPoint.Type;
 
+const PadCardLabel = NonEmptyString.pipe(Schema.check(Schema.isMaxLength(200)));
+
+const cardInvariants = (shape: {
+  readonly type: PadShapeType;
+  readonly href?: string;
+  readonly label?: string;
+  readonly fill?: string;
+  readonly stroke?: string;
+  readonly text?: string;
+  readonly status?: PadShapeStatus;
+}): true | string => {
+  if (shape.type !== "card") {
+    if (shape.href !== undefined || shape.label !== undefined) {
+      return "only a card carries an href or a label";
+    }
+    return true;
+  }
+  if (shape.href === undefined || parseMentionHref(shape.href) === undefined) {
+    return "a card needs an href in canonical junto:// mention form";
+  }
+  if (
+    shape.fill !== undefined ||
+    shape.stroke !== undefined ||
+    shape.text !== undefined ||
+    shape.status !== undefined
+  ) {
+    return "a card carries no fill, stroke, text or status: it draws them live";
+  }
+  return true;
+};
+
 export const PadShape = Schema.Struct({
   id: PadElementId,
   type: PadShapeType,
@@ -60,7 +104,11 @@ export const PadShape = Schema.Struct({
   stroke: Schema.optionalKey(NonEmptyString),
   text: Schema.optionalKey(NonEmptyString),
   status: Schema.optionalKey(PadShapeStatus),
-});
+  /** A card's link: one canonical junto:// mention href. */
+  href: Schema.optionalKey(NonEmptyString),
+  /** A card's name as its writer saw it, drawn when the thing is gone. */
+  label: Schema.optionalKey(PadCardLabel),
+}).pipe(Schema.check(Schema.makeFilter(cardInvariants)));
 export type PadShape = typeof PadShape.Type;
 
 export const PadEdge = Schema.Struct({

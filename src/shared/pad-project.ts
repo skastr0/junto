@@ -13,6 +13,8 @@ import {
   GeomRect,
   boundsOf,
   contentBounds,
+  cylinderPaths,
+  diamondPoints,
   edgePoints,
   strokePath,
   trianglePoints,
@@ -30,6 +32,9 @@ const padFocusedType = Schema.Literals([
   "ellipse",
   "triangle",
   "label",
+  "diamond",
+  "cylinder",
+  "card",
   "image",
   "edge",
   "ink",
@@ -158,6 +163,10 @@ export const padInkStroke = (
   pal: PadSvgPalette,
 ): string => resolvePadPaint(color, pal.text);
 
+/** The words a shape shows: its text, or for a card the name its writer saw, else its link. */
+export const padShapeText = (shape: PadShape): string | undefined =>
+  shape.type === "card" ? shape.label ?? shape.href : shape.text;
+
 export const padImageLabel = (image: PadImage): string =>
   `${image.ref.displayName ?? "image"} ${image.ref.sha256.slice(0, SHA_PREFIX)}`;
 
@@ -185,14 +194,24 @@ const emitShape = (shape: PadShape, pal: PadSvgPalette): string[] => {
     parts.push(
       `<polygon points="${fmt(a.x)},${fmt(a.y)} ${fmt(b.x)},${fmt(b.y)} ${fmt(c.x)},${fmt(c.y)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
     );
+  } else if (shape.type === "diamond") {
+    const points = diamondPoints(shape).map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(" ");
+    parts.push(`<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`);
+  } else if (shape.type === "cylinder") {
+    const { outline, rim } = cylinderPaths(shape);
+    parts.push(
+      `<path d="${esc(outline)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
+      `<path d="${esc(rim)}" fill="none" stroke="${stroke}" stroke-width="1"/>`,
+    );
   } else {
     parts.push(
       `<rect x="${fmt(shape.x)}" y="${fmt(shape.y)}" width="${fmt(shape.w)}" height="${fmt(shape.h)}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
     );
   }
-  if (shape.text) {
+  const text = padShapeText(shape);
+  if (text) {
     parts.push(
-      `<text x="${fmt(shape.x + 8)}" y="${fmt(shape.y + 16)}" fill="${esc(pal.text)}" font-size="12">${esc(padClipText(shape.text))}</text>`,
+      `<text x="${fmt(shape.x + 8)}" y="${fmt(shape.y + 16)}" fill="${esc(pal.text)}" font-size="12">${esc(padClipText(text))}</text>`,
     );
   }
   return parts;
@@ -276,7 +295,7 @@ export const padToDigest = (pad: Pad): string => {
   lines.push(`shapes :: ${pad.shapes.length}`);
   for (const shape of pad.shapes) {
     lines.push(
-      `  ${shape.id} :: ${shape.type} ${xy(shape.x, shape.y)} ${wh(shape.w, shape.h)}${field("text", shape.text === undefined ? undefined : JSON.stringify(shape.text))}${field("status", shape.status)}`,
+      `  ${shape.id} :: ${shape.type} ${xy(shape.x, shape.y)} ${wh(shape.w, shape.h)}${field("text", shape.text === undefined ? undefined : JSON.stringify(shape.text))}${field("status", shape.status)}${field("href", shape.href)}${field("label", shape.label === undefined ? undefined : JSON.stringify(shape.label))}`,
     );
   }
   lines.push(`edges :: ${pad.edges.length}`);
@@ -316,7 +335,7 @@ export const padToFocused = (pad: Pad): PadFocusedItem[] => {
     items.push(focused(image.id, "image", boundsOf(image), padImageLabel(image)));
   }
   for (const shape of pad.shapes) {
-    items.push(focused(shape.id, shape.type, boundsOf(shape), shape.text, shape.status));
+    items.push(focused(shape.id, shape.type, boundsOf(shape), padShapeText(shape), shape.status));
   }
   for (const edge of pad.edges) {
     const bounds = boundsOf(pad, edge.id);

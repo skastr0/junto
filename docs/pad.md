@@ -37,10 +37,18 @@ updates this file, then the code.
 Pad
   revision: int          // +1 per accepted patch
   images: PadImage[]
-  shapes: PadShape[]     // id, type box|ellipse|triangle|label, x, y, w, h, z, fill?, stroke?, text?, status?
+  shapes: PadShape[]     // id, type box|ellipse|triangle|label|diamond|cylinder|card, x, y, w, h, z,
+                         // fill?, stroke?, text?, status?, href?, label?
   edges:  PadEdge[]      // id, from, to, fromSide?, toSide?, label?
   inks:   PadInk[]       // id, z, color, width, points (>= 2)
 ```
+
+A `diamond` is a flow's decision and a `cylinder` a store (database, queue,
+files). A `card` is a seat, task or artifact the pad draws live: it needs
+`href`, one canonical `junto://` mention href, and may keep `label`, the name
+its writer saw (1 to 200 characters), drawn when the thing is gone. A card
+takes no fill, stroke, text or status, since it draws those live, and no
+other shape carries `href` or `label`. Edges bind a card like any shape.
 
 `applyPatch` keeps ids unique, `w > 0` and `h > 0`, edge endpoints present
 (deleting a shape deletes its edges in the same application), ink at two

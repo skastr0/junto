@@ -5,6 +5,8 @@
  */
 import type { Pad, PadImage, PadInk, PadShape } from "@shared/pad";
 import {
+  cylinderPaths,
+  diamondPoints,
   edgePoints,
   strokePath,
   trianglePoints,
@@ -16,6 +18,7 @@ import {
   padInkStroke,
   padShapeFill,
   padShapeStroke,
+  padShapeText,
   padSvgPalette,
   padSvgViewRect,
   type PadSvgOptions,
@@ -50,6 +53,18 @@ const ShapeEl = ({
     const [a, b, c] = trianglePoints(shape);
     return (
       <polygon points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`} {...common} />
+    );
+  }
+  if (shape.type === "diamond") {
+    return <polygon points={diamondPoints(shape).map((p) => `${p.x},${p.y}`).join(" ")} {...common} />;
+  }
+  if (shape.type === "cylinder") {
+    const { outline, rim } = cylinderPaths(shape);
+    return (
+      <g>
+        <path d={outline} {...common} />
+        <path d={rim} fill="none" stroke={stroke} strokeWidth={common.strokeWidth} />
+      </g>
     );
   }
   return (
@@ -186,22 +201,25 @@ export function PadSvg({
           </g>
         );
       })}
-      {padElementsByZ(pad.shapes).map((shape) => (
-        <g key={shape.id}>
-          <ShapeEl shape={shape} pal={pal} />
-          {shape.text ? (
-            <text
-              x={shape.x + 8}
-              y={shape.y + 16}
-              fill={pal.text}
-              fontSize={12}
-              fontFamily={FONT}
-            >
-              {padClipText(shape.text)}
-            </text>
-          ) : null}
-        </g>
-      ))}
+      {padElementsByZ(pad.shapes).map((shape) => {
+        const text = padShapeText(shape);
+        return (
+          <g key={shape.id}>
+            <ShapeEl shape={shape} pal={pal} />
+            {text ? (
+              <text
+                x={shape.x + 8}
+                y={shape.y + 16}
+                fill={pal.text}
+                fontSize={12}
+                fontFamily={FONT}
+              >
+                {padClipText(text)}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
       {padElementsByZ(pad.inks).map((ink) => (
         <InkEl key={ink.id} ink={ink} pal={pal} />
       ))}

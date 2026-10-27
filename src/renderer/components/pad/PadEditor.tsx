@@ -36,6 +36,8 @@ import {
 import {
   anchorPoint,
   contentBounds,
+  cylinderPaths,
+  diamondPoints,
   edgePoints,
   hitTest,
   identityCamera,
@@ -48,6 +50,7 @@ import {
   padInkStroke,
   padShapeFill,
   padShapeStroke,
+  padShapeText,
   padSvgPalette,
   type PadSvgPalette,
 } from "@shared/pad-project";
@@ -217,6 +220,18 @@ const ShapeEl = ({
         points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`}
         {...common}
       />
+    );
+  }
+  if (shape.type === "diamond") {
+    return <polygon points={diamondPoints(shape).map((p) => `${p.x},${p.y}`).join(" ")} {...common} />;
+  }
+  if (shape.type === "cylinder") {
+    const { outline, rim } = cylinderPaths(shape);
+    return (
+      <g>
+        <path d={outline} {...common} />
+        <path d={rim} fill="none" stroke={stroke} strokeWidth={common.strokeWidth} />
+      </g>
     );
   }
   return (
@@ -1178,7 +1193,7 @@ export function PadEditor({
                     selected={shape.id === selectedId}
                     pal={pal}
                   />
-                  {shape.text ? (
+                  {padShapeText(shape) ? (
                     <text
                       x={shape.x + 8}
                       y={shape.y + 16}
@@ -1186,7 +1201,7 @@ export function PadEditor({
                       fontSize={12}
                       fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
                     >
-                      {shape.text}
+                      {padShapeText(shape)}
                     </text>
                   ) : null}
                 </g>

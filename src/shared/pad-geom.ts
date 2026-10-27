@@ -113,6 +113,32 @@ export const trianglePoints = (shape: PadShape): readonly [PadPoint, PadPoint, P
   { x: shape.x, y: shape.y + shape.h },
 ];
 
+/** A diamond's corners, top, right, bottom, left: each side's midpoint of its box. */
+export const diamondPoints = (
+  shape: PadShape,
+): readonly [PadPoint, PadPoint, PadPoint, PadPoint] => [
+  { x: shape.x + shape.w / 2, y: shape.y },
+  { x: shape.x + shape.w, y: shape.y + shape.h / 2 },
+  { x: shape.x + shape.w / 2, y: shape.y + shape.h },
+  { x: shape.x, y: shape.y + shape.h / 2 },
+];
+
+/**
+ * A cylinder as two SVG paths: the outline (top cap, sides, bottom curve) and
+ * the near half of the top rim, which reads it as a store.
+ */
+export const cylinderPaths = (shape: PadShape): { readonly outline: string; readonly rim: string } => {
+  const { x, y, w, h } = shape;
+  const rx = w / 2;
+  const ry = Math.min(h / 4, Math.max(4, h * 0.12));
+  const top = y + ry;
+  const bottom = y + h - ry;
+  return {
+    outline: `M ${x} ${top} A ${rx} ${ry} 0 0 1 ${x + w} ${top} L ${x + w} ${bottom} A ${rx} ${ry} 0 0 1 ${x} ${bottom} Z`,
+    rim: `M ${x} ${top} A ${rx} ${ry} 0 0 0 ${x + w} ${top}`,
+  };
+};
+
 export const anchorPoint = (shape: PadShape, side: PadSide): PadPoint => {
   switch (side) {
     case "top":
@@ -390,6 +416,13 @@ const hitsShape = (shape: PadShape, point: PadPoint, slop: number): boolean => {
     const nx = (point.x - (shape.x + shape.w / 2)) / rx;
     const ny = (point.y - (shape.y + shape.h / 2)) / ry;
     return nx * nx + ny * ny <= 1;
+  }
+  if (shape.type === "diamond") {
+    const hw = shape.w / 2 + slop;
+    const hh = shape.h / 2 + slop;
+    const dx = Math.abs(point.x - (shape.x + shape.w / 2)) / hw;
+    const dy = Math.abs(point.y - (shape.y + shape.h / 2)) / hh;
+    return dx + dy <= 1;
   }
   if (shape.type === "triangle") {
     const [a, b, c] = trianglePoints(shape);
