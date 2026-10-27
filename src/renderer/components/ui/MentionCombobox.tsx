@@ -7,12 +7,22 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type FocusEvent,
   type ReactElement,
   type Ref,
 } from "react";
+import { artifactLinkLabel } from "@shared/artifact-link";
 import type { NodeKind } from "@shared/model/kinds";
-import { MENTION_KIND_OF_NODE, type MentionKind, type MentionRef } from "@shared/mention";
+import { MENTION_KIND_OF_NODE, type MentionKind, type MentionOf, type MentionRef } from "@shared/mention";
 import type { NodeId } from "@shared/physics/schema";
+import {
+  artifactLinkCandidates,
+  linkCandidateKey,
+  linkCandidateLabel,
+  linkQueryAt,
+  type LinkableArtifact,
+  type LinkCandidate,
+} from "../../lib/artifact-link-draft";
 import { comboboxFieldAria, listboxAnnouncement, listboxAria, optionAria, type ListboxNoun } from "../../lib/listbox-aria";
 import {
   candidateKey,
@@ -25,13 +35,14 @@ import {
   mentionSpans,
   pickCandidate,
   shownText,
+  type MentionQuery,
   triggerOf,
   writtenText,
   type MentionCandidate,
   type MentionDraft,
   type MentionTrigger,
 } from "../../lib/mention-draft";
-import { RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
+import { ARTIFACT_TYPE_NOUN, RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
 import { Textarea } from "./Field";
 import { ResourceGlyphMark, mentionMark } from "./ResourceChip";
 import "./mention-combobox.css";
@@ -63,6 +74,37 @@ const MIRRORED = [
   "wordSpacing",
 ] as const;
 
+/** What `[[` links to in a field, and how its host makes a document by a title: the document picker's shape. */
+export type ComboboxLinks = {
+  readonly artifacts: ReadonlyArray<LinkableArtifact>;
+  /** Create a document titled `title` in the host's Artifacts node; its mention, or null when it was not made. Absent: no create row. */
+  readonly create?: ((title: string) => Promise<MentionOf<"artifact"> | null>) | undefined;
+};
+
+const LINK_LIST_LABEL = "Artifacts to link";
+
+/** A `[[` row: the artifact's glyph, title and place, or the create row in the words it does. */
+export function LinkRowContent({ row }: { readonly row: LinkCandidate }) {
+  if (row.kind === "create") {
+    return (
+      <>
+        <ResourceGlyphMark kind="artifact" artifactType="document" />
+        <span className="mention-combobox__label">{linkCandidateLabel(row)}</span>
+        <span className="mention-combobox__kind">New</span>
+      </>
+    );
+  }
+  const { artifact } = row;
+  return (
+    <>
+      <ResourceGlyphMark kind="artifact" artifactType={artifact.type} />
+      <span className="mention-combobox__label">{artifact.title}</span>
+      {artifact.place ? <span className="mention-combobox__detail">{artifact.place}</span> : null}
+      <span className="mention-combobox__kind">{ARTIFACT_TYPE_NOUN[artifact.type]}</span>
+    </>
+  );
+}
+
 /**
  * House mention field: a textarea where @ names a seat or a page and # a
  * task or an artifact, with the list of who or what may be named under it.
@@ -79,6 +121,11 @@ const MIRRORED = [
  * send). Keys: Up and Down move, Enter and Tab put the highlighted one in,
  * Escape closes the list only. Every other key, send included, is the
  * composer's, through `onKeyDown`.
+ *
+ * With `links`, `[[` opens the same list on the artifacts in reach (plan
+ * 0.11, 02): a pick goes in as a `[[Title]]` link, one unit like any
+ * mention, and a title that names nothing offers to create a document by
+ * it; the host creates, one at a time, and the link goes in where `[[` was.
  */
 export function MentionCombobox({
   value,
@@ -90,8 +137,10 @@ export function MentionCombobox({
   nodeKindOf,
   maxMentions,
   placement = "below",
+  links,
   fieldRef,
   onKeyDown,
+  onBlur,
   dense = false,
   rows,
   placeholder,
@@ -121,9 +170,13 @@ export function MentionCombobox({
   readonly maxMentions?: number;
   /** Where the list opens: under the field, or over it for a composer at the foot of a pane. */
   readonly placement?: "below" | "above";
+  /** What `[[` links to; without it `[[` is only brackets. */
+  readonly links?: ComboboxLinks | undefined;
   readonly fieldRef?: Ref<HTMLTextAreaElement>;
   /** Keys the list did not take: send, new line, cancel. */
   readonly onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  /** The field lost the keyboard: a host that commits on leaving does it here. */
+  readonly onBlur?: (event: FocusEvent<HTMLTextAreaElement>) => void;
   readonly dense?: boolean;
   readonly rows?: number;
   readonly placeholder?: string;
@@ -152,8 +205,13 @@ export function MentionCombobox({
     const next = draftOf(value, kindOf);
     setDraft(next);
   }
+  // The draft as it stands now, for a create that lands after more typing.
+  const draftNow = useRef(draft);
+  draftNow.current = draft;
   const shown = shownText(draft);
   const [caret, setCaret] = useState(shown.length);
+  // The title a `[[` create is making: one at a time, and no create row meanwhile.
+  const [creating, setCreating] = useState<string>();
   const [dismissedAt, setDismissedAt] = useState<number>();
   const [activeKey, setActiveKey] = useState<string>();
   // What the live region says after a pick, until the next edit: the list
@@ -173,14 +231,28 @@ export function MentionCombobox({
 
   const mentioned = draftMentions(draft);
   const full = maxMentions !== undefined && mentioned.length >= maxMentions;
-  const query = mentionQueryAt(draft, caret);
+  // A `[[` being typed, outside any placed mention, takes the list before @ and #.
+  const typedLink = links === undefined ? undefined : linkQueryAt(shown.slice(0, caret));
+  const linkQuery =
+    typedLink !== undefined && !mentionSpans(draft).some((span) => span.start < caret && typedLink.start < span.end) ? typedLink : undefined;
+  const mentionQuery = linkQuery === undefined ? mentionQueryAt(draft, caret) : undefined;
+  const query = linkQuery ?? mentionQuery;
   const offered = useMemo(
-    () => (query === undefined ? [] : filterCandidates(candidates, query)),
-    [candidates, query?.trigger, query?.query],
+    () => (mentionQuery === undefined ? [] : filterCandidates(candidates, mentionQuery)),
+    [candidates, mentionQuery?.trigger, mentionQuery?.query],
   );
-  const anyOfTrigger = query !== undefined && candidates.some((candidate) => triggerOf(candidate.ref) === query.trigger);
-  const open = query !== undefined && query.start !== dismissedAt && anyOfTrigger && !full;
-  const keys = offered.map(candidateKey);
+  const linkRows = useMemo(
+    () =>
+      linkQuery === undefined || links === undefined
+        ? []
+        : artifactLinkCandidates(links.artifacts, linkQuery.query).filter(
+            (row) => row.kind === "artifact" || (links.create !== undefined && creating === undefined),
+          ),
+    [links, linkQuery?.query, creating],
+  );
+  const anyOfTrigger = mentionQuery !== undefined && candidates.some((candidate) => triggerOf(candidate.ref) === mentionQuery.trigger);
+  const open = query !== undefined && query.start !== dismissedAt && !full && (linkQuery !== undefined || anyOfTrigger);
+  const keys = linkQuery !== undefined ? linkRows.map(linkCandidateKey) : offered.map(candidateKey);
   const active = activeKey !== undefined && keys.includes(activeKey) ? activeKey : keys[0];
   const activeIndex = active === undefined ? -1 : keys.indexOf(active);
 
@@ -230,11 +302,54 @@ export function MentionCombobox({
   };
 
   const pick = (candidate: MentionCandidate): void => {
-    if (query === undefined) return;
-    const next = pickCandidate(draft, query, caret, candidate);
+    if (mentionQuery === undefined) return;
+    const next = pickCandidate(draft, mentionQuery, caret, candidate);
     pendingCaret.current = next.caret;
     setPicked(`Mentioned ${candidate.label}`);
     commit(next.draft, next.caret, next.shown);
+  };
+
+  /** The link goes in where its `[[` was typed: the brackets and the query become one `[[Title]]` unit. */
+  const placeLink = (on: MentionDraft, at: MentionQuery, end: number, ref: MentionOf<"artifact">, title: string): void => {
+    const next = pickCandidate(on, at, end, { ref, label: artifactLinkLabel(title) });
+    pendingCaret.current = next.caret;
+    commit(next.draft, next.caret, next.shown);
+  };
+
+  const pickLink = (row: LinkCandidate): void => {
+    if (linkQuery === undefined) return;
+    // pickCandidate replaces from `start` to the caret; the trigger it carries is not read.
+    const at: MentionQuery = { trigger: "#", start: linkQuery.start, query: linkQuery.query };
+    if (row.kind === "artifact") {
+      placeLink(draft, at, caret, row.artifact.ref, row.artifact.title);
+      setPicked(`Linked ${row.artifact.title}`);
+      return;
+    }
+    const make = links?.create;
+    if (make === undefined || creating !== undefined) return;
+    const typed = `[[${linkQuery.query}`;
+    setCreating(row.title);
+    setPicked(`Creating ${row.title}`);
+    void make(row.title).then(
+      (ref) => {
+        setCreating(undefined);
+        if (ref === null) {
+          setPicked(`${row.title} could not be created`);
+          return;
+        }
+        // Typing went on while it was made: the link replaces the `[[` query only if that is still where it was.
+        const now = draftNow.current;
+        const stillTyped =
+          shownText(now).startsWith(typed, at.start) &&
+          !mentionSpans(now).some((span) => span.start < at.start + typed.length && at.start < span.end);
+        if (stillTyped) placeLink(now, at, at.start + typed.length, ref, row.title);
+        setPicked(`Created and linked ${row.title}`);
+      },
+      () => {
+        setCreating(undefined);
+        setPicked(`${row.title} could not be created`);
+      },
+    );
   };
 
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -247,7 +362,7 @@ export function MentionCombobox({
         metaKey: event.metaKey,
         isComposing: event.nativeEvent.isComposing,
       },
-      { open, optionCount: offered.length, activeIndex },
+      { open, optionCount: keys.length, activeIndex },
     );
     switch (intent.type) {
       case "highlight": {
@@ -258,6 +373,11 @@ export function MentionCombobox({
       case "pick": {
         event.preventDefault();
         event.stopPropagation();
+        if (linkQuery !== undefined) {
+          const row = linkRows[intent.index];
+          if (row) pickLink(row);
+          return;
+        }
         const candidate = offered[intent.index];
         if (candidate) pick(candidate);
         return;
@@ -280,7 +400,7 @@ export function MentionCombobox({
   };
 
   const spans = mentionSpans(draft);
-  const announcement = picked ?? listboxAnnouncement({ open, count: offered.length, noun });
+  const announcement = picked ?? listboxAnnouncement({ open, count: keys.length, noun });
 
   return (
     <div className="mention-combobox" data-placement={placement}>
@@ -329,10 +449,41 @@ export function MentionCombobox({
         onSelect={(event) => follow(event.currentTarget)}
         onScroll={(event) => follow(event.currentTarget)}
         onKeyDown={keyDown}
+        onBlur={onBlur}
       />
-      {open && query ? (
+      {open && linkQuery ? (
         <div className="mention-combobox__popup">
-          <ul {...listboxAria(aria)} aria-label={listLabel(query.trigger)} className="mention-combobox__list">
+          <ul {...listboxAria(aria)} aria-label={LINK_LIST_LABEL} className="mention-combobox__list">
+            {linkRows.map((row) => {
+              const key = linkCandidateKey(row);
+              return (
+                <li
+                  key={key}
+                  {...optionAria(aria, key)}
+                  className="mention-combobox__option"
+                  data-active={key === active ? "true" : undefined}
+                  data-testid="link-option"
+                  data-kind={row.kind}
+                  style={{ "--mark": markColor(RESOURCE_KIND_VISUAL.artifact.tone) } as CSSProperties}
+                  // A press must not take the keyboard or the caret from the field.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => pickLink(row)}
+                >
+                  <LinkRowContent row={row} />
+                </li>
+              );
+            })}
+          </ul>
+          {linkRows.length === 0 ? (
+            <div className="mention-combobox__empty" data-testid="mention-empty">
+              {creating === undefined ? "No matches" : `Creating ${creating}`}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {open && mentionQuery ? (
+        <div className="mention-combobox__popup">
+          <ul {...listboxAria(aria)} aria-label={listLabel(mentionQuery.trigger)} className="mention-combobox__list">
             {offered.map((candidate) => {
               const key = candidateKey(candidate);
               const visual = RESOURCE_KIND_VISUAL[candidate.ref.kind];
