@@ -42,7 +42,7 @@ const useFilesCount = (
     let asked = 0;
     const recount = () => {
       const seq = ++asked;
-      void source.count?.({ canvas, node: id })
+      void source.count({ canvas, node: id })
         .then((result) => {
           if (live && seq === asked) setCount(result);
         })
