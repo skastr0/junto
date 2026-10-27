@@ -8,7 +8,9 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { Schema } from "effect";
-import { Node } from "../../src/shared/model";
+import { asNodeId, Node } from "../../src/shared/model";
+import { mintItemId, mintOpId } from "../../src/shared/resource-command";
+import { taskNodeId } from "../../src/shared/task-model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelWire, readModelCanvas } from "../harness/model";
 
@@ -33,6 +35,14 @@ const shot = async (page: Page, name: string): Promise<void> => {
   await page.waitForTimeout(300);
   await page.screenshot({ path: join(SHOTS, `${name}.png`) });
 };
+/** An empty board opens its new-task form; a board with one task opens the list, and the settings are one press away. */
+const seedTask = async (page: Page, board: string): Promise<void> => {
+  const taskId = mintItemId();
+  await page.evaluate(
+    ({ canvas, nodeId, taskId, opId }) => window.junto!.resource!.task!.apply(canvas, nodeId, taskId, opId, { kind: "create", taskId, title: "A task" }),
+    { canvas: CANVAS, nodeId: taskNodeId(asNodeId(board)), taskId, opId: mintOpId() },
+  );
+};
 const verbs = async (page: Page): Promise<string[]> =>
   (await readModelCanvas(page, CANVAS)).wires.map((wire) => `${wire.from} ${wire.verb} ${wire.to}`).sort();
 
@@ -42,6 +52,8 @@ test("board targets: list, toggle rewrites the verb, a derives loop is refused",
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="build"]')).toBeVisible({ timeout: 30_000 });
+    await seedTask(page, "build");
+    await seedTask(page, "docs");
     await page.locator('.react-flow__node[data-id="build"]').dblclick();
     await page.getByRole("button", { name: "Board settings" }).click();
     const targets = page.getByTestId("board-targets");
