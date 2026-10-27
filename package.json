@@ -93,6 +93,7 @@
     "@electron/asar": "3.4.1",
     "@lezer/common": "1.5.4",
     "@lezer/markdown": "1.8.1",
+    "@pierre/trees": "1.0.0-beta.6",
     "@resvg/resvg-wasm": "2.6.2",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
