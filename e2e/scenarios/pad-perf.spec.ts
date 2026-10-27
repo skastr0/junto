@@ -94,6 +94,9 @@ test("pad perf: tool change, box, ink and pan latency over a seated canvas", asy
     await page.getByRole("button", { name: "New artifact" }).click();
     await page.getByRole("group", { name: "New artifact" }).locator("button").filter({ hasText: "Pad" }).click();
     await expect(page.locator(".artifact-head__meta")).toHaveText("Pad, version 1", { timeout: 15_000 });
+    // An A/B probe: PAD_PERF_STYLE is CSS added before measuring, to test a
+    // cause (say, no scrim blur) without a build.
+    if (process.env.PAD_PERF_STYLE) await page.addStyleTag({ content: process.env.PAD_PERF_STYLE });
     const svg = page.getByTestId("pad-svg");
     await expect(svg).toBeVisible();
     const box = (await svg.boundingBox())!;
