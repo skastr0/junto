@@ -99,6 +99,13 @@ canvas-lead).
 
 ## 5. Milestone runs (real app, one per feature)
 
+Run the release e2e at `--workers=1`. product-modals sees app launches die at
+`firstWindow` at `--workers=2` on this machine, the smoke spec included, while
+the same commit is green at `--workers=1` (product-lead, 2026-10-27). Cause
+unconfirmed; a run at two workers that fails at launch is not a product failure
+until tech-lead confirms the cause. Slower, so ask product-lead for the slot
+early. The app-run lock still applies.
+
 Each: frames dark and bright to the needs-you feed for new UI.
 
 - [ ] F1 Files node: made from the palette, takes the region's folder, change
