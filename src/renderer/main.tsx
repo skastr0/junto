@@ -69,6 +69,12 @@ const BrowserChromeGallery = lazy(() =>
   import("./components/gallery/BrowserChromeGallery").then((m) => ({ default: m.BrowserChromeGallery })),
 );
 
+// Dev gallery for the preview cards (`#/gallery/previews`).
+const PREVIEWS_GALLERY = "#/gallery/previews";
+const PreviewCardGallery = lazy(() =>
+  import("./components/gallery/PreviewCardGallery").then((m) => ({ default: m.PreviewCardGallery })),
+);
+
 // Dev gallery for the kind seats (`#/gallery/kinds`).
 const KINDS_GALLERY = "#/gallery/kinds";
 const KindSeatGallery = lazy(() =>
@@ -88,6 +94,14 @@ function AppRoot() {
     return (
       <Suspense fallback={null}>
         <ActivityMarkGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(PREVIEWS_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <PreviewCardGallery />
       </Suspense>
     );
   }
