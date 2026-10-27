@@ -36,6 +36,11 @@ not, add that the Files stub on other machines comes later.)
 - Extract to artifact: a box drawn on a PDF page or an image becomes an image
   artifact in an Artifacts node in reach, with a link back to the file, page
   and box.
+- Security: Junto's git commands no longer run anything a folder's own git
+  config names. A repository you open in the git node or a Files node, a
+  downloaded one included, cannot run a file system monitor, a filter driver,
+  a signature check or a hooks folder on a read. The git node no longer
+  reports dirty work in submodules.
 
 ## 0.10.3 — 2026-10-27
 

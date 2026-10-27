@@ -66,6 +66,15 @@ canvas-lead).
 - [ ] A stale write is refused `stale`; a drop never overwrites. Receipt:
 - [ ] Other machines get a stub with the label and no root path. Receipt:
 - [ ] Text reads cap at 5 MB.
+- [ ] Git guard (e9cc0324e, reported by remote-lead): every git main runs
+      overrides `core.fsmonitor`, `core.hooksPath`, `log.showSignature` and each
+      filter driver the repo names, so a hostile repo opened in the git node or
+      a Files node runs nothing. Receipt: `tests/git-guard.test.ts` at the cut.
+      Behaviour change in the notes: the git node no longer reports dirty
+      submodule work trees (`diff.ignoreSubmodules=dirty`). Unverified, check
+      before the notes claim more: a repo whose filter is required (Git LFS)
+      may read as modified in the git node now that its filter commands are
+      emptied. Ask remote-lead or the git node's owner.
 
 ## 4. Before the cut
 
