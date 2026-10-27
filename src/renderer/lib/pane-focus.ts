@@ -49,7 +49,10 @@ const panesInFront = (): HTMLElement[] => {
   const front = topModal()?.container();
   const layout = front?.querySelector<HTMLElement>(".two-pane");
   if (!layout) return [];
+  // A collapsed sidebar is a strip of its own controls, not a pane to step into.
+  const collapsed = layout.dataset.sidebar === "collapsed";
   return PANES.flatMap((selector) => {
+    if (collapsed && selector === ".two-pane__sidebar") return [];
     const pane = layout.querySelector<HTMLElement>(`:scope > ${selector}`);
     return pane !== null && isShown(pane) && paneEntryOf(pane) !== null ? [pane] : [];
   });
