@@ -159,7 +159,7 @@ export function PdfViewer({
                 className="file-view__page-input"
                 data-testid="pdf-page-input"
                 inputMode="numeric"
-                aria-label={`Page, of ${count}`}
+                aria-label={`Page number, of ${count}`}
                 value={pageText ?? String(page)}
                 onFocus={(event) => {
                   setPageText(String(page));
