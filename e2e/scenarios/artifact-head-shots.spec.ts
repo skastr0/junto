@@ -55,12 +55,10 @@ test("artifact head: one row, tasks inline, picker over the document, dark and b
     await expect(page.getByRole("combobox", { name: "Find a task" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Name a task" })).toBeFocused();
 
-    for (const taskId of [mintItemId(), mintItemId()]) {
-      await page.evaluate(
-        ({ canvas, node, artifactId, opId, ids }) => window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, { op: "tasks", taskIds: ids }),
-        { canvas: CANVAS, node: asNodeId("shelf"), artifactId, opId: mintOpId(), ids: [taskId] },
-      );
-    }
+    await page.evaluate(
+      ({ canvas, node, artifactId, opId, ids }) => window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, { op: "tasks", taskIds: ids }),
+      { canvas: CANVAS, node: asNodeId("shelf"), artifactId, opId: mintOpId(), ids: [mintItemId(), mintItemId()] },
+    );
     await shot(page, "3-dark-task-linked");
 
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
