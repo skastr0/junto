@@ -25,8 +25,9 @@
   z-index: 1;
   width: min(360px, calc(100% - 32px));
   transform: translate(-50%, -50%);
-  border: 1px solid var(--color-stroke);
+  border: 1px solid var(--color-stroke-hi);
   border-radius: var(--radius-lg);
   background: var(--color-raise);
   padding: 8px;
+  box-shadow: 0 10px 24px var(--color-shadow-2);
 }
