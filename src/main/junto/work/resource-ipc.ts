@@ -68,7 +68,7 @@ import type { ItemId, OpId } from "@shared/work-ids";
 import { commentOnArtifact, liveArtifactPorts, type ArtifactPorts } from "./artifact-control";
 import { queuedOverlays, type QueuedOverlays } from "./op-control";
 import { OpRepository } from "./op-repository";
-import { onResourceChanged } from "./resource-changes";
+import { onResourceChanged, onThreadChanged } from "./resource-changes";
 import { postSubjectComment } from "./subject-comment";
 import { commentOnTask, liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
 
@@ -570,9 +570,19 @@ export const registerResourceIpc = (
         ? postThread(ports, input.canvasName, input.subject, input.post)
         : Effect.succeed({ kind: "refused" as const, opId: input.post.opId, error: productOff(input.subject.kind) }), authoring.thread);
   }
-  return onResourceChanged((domain, canvasName) => {
+  const offDomain = onResourceChanged((domain, canvasName) => {
     if (!live[domain]) return;
     broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });
     broadcast(thread.changed, { canvasName, kind: domain } satisfies ThreadChanged);
   });
+  // A comment on a page or a file changes nothing of the resource, so only the
+  // threads of that kind are said to have moved: the rail reads again.
+  const offThread = onThreadChanged((kind, canvasName) => {
+    if (!live[kind]) return;
+    broadcast(thread.changed, { canvasName, kind } satisfies ThreadChanged);
+  });
+  return () => {
+    offDomain();
+    offThread();
+  };
 };

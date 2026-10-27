@@ -417,6 +417,7 @@ function SelectedFile({
       onClose();
       openMention(mention);
     },
+    onReveal: (place: ReturnType<typeof filePlaceOf>) => reveal(place),
   };
   /** The place a press picked: a box drawn on a page, else the gutter's lines. */
   const draftAnchor = boxDraft !== null ? boxAnchorOf(boxDraft) : lineDraft !== null ? lineAnchorOf(path, lineDraft) : undefined;
@@ -428,7 +429,9 @@ function SelectedFile({
   const pickBox = (comment: { readonly page?: number; readonly box: { readonly x: number; readonly y: number; readonly w: number; readonly h: number } }): void => {
     setLineDraft(null);
     setBoxDraft({ page: comment.page ?? 1, ...comment.box });
-    setCommentsRailOpen(true);
+    // A first box opens the rail; nudging a drawn one with the arrow keys does
+    // not reopen a rail the operator shut.
+    if (boxDraft === null) setCommentsRailOpen(true);
   };
   const spent = (): void => {
     setLineDraft(null);
@@ -521,7 +524,6 @@ function SelectedFile({
             nodeId={nodeId}
             path={path}
             boxes={boxThreads}
-            onComment={pickBox}
             onDraft={(drawn) => {
               // Null is the box going away (discarded, commented, extracted): the composer lets it go too.
               if (drawn === null) setBoxDraft(null);

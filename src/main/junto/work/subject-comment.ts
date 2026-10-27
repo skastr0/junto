@@ -61,7 +61,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
 import { MachineRepository } from "../machines/repository";
 import { actorMailOf } from "./actor-mail";
-import { noteResourceChanged } from "./resource-changes";
+import { noteResourceChanged, noteThreadChanged } from "./resource-changes";
 import { WorkService } from "./service";
 
 /** What the caller knows of the resource beside the comment. */
@@ -332,8 +332,10 @@ export const postSubjectComment = (
       return yield* Effect.fail(runtimeDown(row.message));
     }
     // The comment stands: on a task or an artifact it is a change of it, so panes read again and change triggers wake.
-    // A file's and a page's threads live in the node's mailbox: nothing of the resource itself changed.
-    if (input.subject.kind !== "page" && input.subject.kind !== "file") noteResourceChanged(input.subject.kind, canvasName);
+    // A file's and a page's threads live in the node's mailbox: nothing of the resource itself changed,
+    // so only the threads of that kind are said to have moved, and a rail reads again.
+    if (input.subject.kind === "file") noteThreadChanged("file", canvasName);
+    else if (input.subject.kind !== "page") noteResourceChanged(input.subject.kind, canvasName);
 
     // The comment stands, so each notice stands alone: a seat whose node is
     // gone is not told, and one notice that fails is logged while the rest

@@ -10,6 +10,7 @@
  * text is typed above it, because the thread's place is read again from its
  * quote on every edit (`file-comments.ts`).
  */
+import { useRef } from "react";
 import { MessageSquare } from "lucide-react";
 import type { MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
@@ -46,11 +47,24 @@ export type FileCommentContext = {
   readonly mentionable: ReadonlyArray<MentionCandidate>;
   readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
   readonly onOpenMention: (ref: MentionRef) => void;
+  /** A thread's place was pressed: bring it up in the file, its line in the editor. */
+  readonly onReveal?: (place: FileThreadPlace) => void;
 };
 
 /** A place on a file, from its anchor and the file's text as it stands. */
 export const filePlaceIn = (context: FileCommentContext, anchor: Anchor | undefined): FileThreadPlace =>
   filePlaceOf(anchor, context.text);
+
+/**
+ * A refused file comment in the operator's words. Main's message names nodes
+ * and schema paths, which is mechanics; the rail says what to do instead.
+ */
+export const fileCommentRefusal = (message: string): string => {
+  if (message.includes("outside the reach") || message.includes("cannot be mentioned")) return "Not posted: a seat named here cannot see this file.";
+  if (message.includes("is not a files node") || message.includes("no Files node")) return "Not posted: this folder is gone from the canvas.";
+  if (message.includes("path")) return "Not posted: this file's path is not one a comment can name.";
+  return `Not posted: ${message}`;
+};
 
 /**
  * The comments rail of a file: its threads in time order, each named by where
@@ -75,6 +89,21 @@ export function FileCommentsRail({
   readonly onCleared: () => void;
   readonly onClose: () => void;
 }) {
+  /**
+   * One press, one post: the rail's composer has no button of its own to
+   * disable while the write is out, so a second Meta+Enter in the same breath
+   * would post the text twice.
+   */
+  const posting = useRef(false);
+  const once = async (post: () => Promise<string | null>): Promise<string | null> => {
+    if (posting.current) return null;
+    posting.current = true;
+    try {
+      return await post();
+    } finally {
+      posting.current = false;
+    }
+  };
   return (
     <div className="file-comments-rail">
       <ArtifactComments
@@ -87,19 +116,25 @@ export function FileCommentsRail({
         draftAnchor={draft}
         now={context.now}
         words={fileRailWords((anchor) => filePlaceIn(context, anchor), context.paged)}
-        onStart={async (text, anchor) => {
-          const refused = await postFileComment(
-            context.canvasName,
-            { kind: "file", nodeId: context.nodeId, path: context.path },
-            { text, ...(anchor === undefined ? {} : { anchor }) },
-          );
-          if (refused === null) onPosted();
-          return refused;
-        }}
+        onStart={(text, anchor) =>
+          once(async () => {
+            const refused = await postFileComment(
+              context.canvasName,
+              { kind: "file", nodeId: context.nodeId, path: context.path },
+              { text, ...(anchor === undefined ? {} : { anchor }) },
+            );
+            if (refused === null) onPosted();
+            return refused === null ? null : fileCommentRefusal(refused);
+          })
+        }
         onReply={(threadId, text) =>
-          postFileComment(context.canvasName, { kind: "file", nodeId: context.nodeId, path: context.path }, { text, threadId })
+          once(async () => {
+            const refused = await postFileComment(context.canvasName, { kind: "file", nodeId: context.nodeId, path: context.path }, { text, threadId });
+            return refused === null ? null : fileCommentRefusal(refused);
+          })
         }
         onClearAnchor={onCleared}
+        onFocusAnchor={(anchor) => context.onReveal?.(filePlaceIn(context, anchor))}
         onCollapse={onClose}
       />
     </div>

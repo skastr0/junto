@@ -8,7 +8,7 @@
  * listed in the rail and drawn nowhere. Pure: text in, places out.
  */
 import type { Anchor, FileBoxAnchor, LinesAnchor } from "@shared/thread-subject";
-import { locateLines } from "@shared/thread-subject";
+import { cutLinesQuote, locateLines } from "@shared/thread-subject";
 import type { SubjectThread } from "./subject-threads-source";
 
 /** Where a thread hangs now. */
@@ -61,11 +61,17 @@ export const LINES_COMMENT_MAX = 200;
 /** A press on the gutter's plus, as the file's composer holds it. */
 export type LineDraft = { readonly start: number; readonly end: number; readonly quote: string };
 
-/** The lines a press may comment on: at most LINES_COMMENT_MAX, and never empty. */
+/**
+ * The lines a press may comment on: the first LINES_COMMENT_MAX of them, never
+ * empty. The range is read off the quote the anchor will carry, so the lines
+ * a thread names are exactly the lines it quotes, and a quote cut at
+ * LINES_QUOTE_MAX cuts the range with it.
+ */
 export const lineDraftOf = (range: { readonly start: number; readonly end: number; readonly quote: string }): LineDraft | undefined => {
   const start = Math.max(1, Math.min(range.start, range.end));
-  const end = Math.max(start, Math.min(Math.max(range.start, range.end), start + LINES_COMMENT_MAX - 1));
-  return range.quote.trim() === "" ? undefined : { start, end, quote: range.quote };
+  const block = cutLinesQuote(range.quote.split("\n").slice(0, LINES_COMMENT_MAX).join("\n"));
+  if (block.trim() === "") return undefined;
+  return { start, end: start + block.split("\n").length - 1, quote: block };
 };
 
 /** The anchor a line draft writes: the file's own path, its lines, and their text. */
@@ -74,7 +80,7 @@ export const lineAnchorOf = (path: string, draft: LineDraft): LinesAnchor => ({
   file: path,
   from: draft.start,
   to: draft.end,
-  quote: draft.quote.length > 1_000 ? draft.quote.slice(0, 1_000) : draft.quote,
+  quote: cutLinesQuote(draft.quote),
 });
 
 /**

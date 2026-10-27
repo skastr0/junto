@@ -60,8 +60,12 @@ const cutQuote = (quote: string): string => {
   return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 };
 
-/** A lines quote cut to LINES_QUOTE_MAX the same way: whole characters only. */
-const cutLinesQuote = (quote: string): string => {
+/**
+ * A lines quote cut to LINES_QUOTE_MAX: whole characters only, so the cut
+ * never splits a surrogate pair. The writer and the anchor share it, so the
+ * lines an anchor names are the lines its quote reads.
+ */
+export const cutLinesQuote = (quote: string): string => {
   if (quote.length <= LINES_QUOTE_MAX) return quote;
   const cut = quote.slice(0, LINES_QUOTE_MAX);
   const last = cut.charCodeAt(cut.length - 1);
@@ -93,16 +97,18 @@ export const locateLines = (
 ): { readonly from: number; readonly to: number } | undefined => {
   const quote = anchor.quote;
   if (quote === undefined) return { from: anchor.from, to: anchor.to };
-  // CRLF files quote with plain "\n", and a CRLF pair is still one line.
-  const plain = text.replace(/\r\n/gu, "\n");
+  // Whole lines only: a quote is a block of lines, so it never matches a piece
+  // of a longer line. CRLF files quote with plain "\n", one line either way.
+  const lines = text.replace(/\r\n/gu, "\n").split("\n");
+  const quoted = quote.split("\n");
+  if (quoted.length > lines.length) return undefined;
   const found: number[] = [];
-  for (let at = plain.indexOf(quote); at !== -1; at = plain.indexOf(quote, at + 1)) found.push(at);
+  for (let at = 0; at <= lines.length - quoted.length; at += 1) {
+    if (quoted.every((line, offset) => lines[at + offset] === line)) found.push(at + 1);
+  }
   if (found.length === 0) return undefined;
-  const lineOf = (at: number): number => plain.slice(0, at).split("\n").length;
-  const nearest = found
-    .map(lineOf)
-    .reduce((best, line) => (Math.abs(line - anchor.from) < Math.abs(best - anchor.from) ? line : best));
-  return { from: nearest, to: nearest + quote.split("\n").length - 1 };
+  const nearest = found.reduce((best, from) => (Math.abs(from - anchor.from) < Math.abs(best - anchor.from) ? from : best));
+  return { from: nearest, to: nearest + quoted.length - 1 };
 };
 
 /** A text anchor on a selection, its quote cut to TEXT_QUOTE_MAX. */

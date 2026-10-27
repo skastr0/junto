@@ -6,7 +6,7 @@
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import { MachineRepository } from "../src/main/junto/machines/repository";
-import { onResourceChanged } from "../src/main/junto/work/resource-changes";
+import { onResourceChanged, onThreadChanged } from "../src/main/junto/work/resource-changes";
 import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
@@ -14,11 +14,13 @@ import { ItemId, OpId } from "../src/shared/work-ids";
 import { seat } from "./support/model-nodes";
 
 const ARTIFACTS = asNodeId("artifacts-1");
+const FILES = asNodeId("files-1");
 const SEAT = asNodeId("agent-a");
 const canvas = {
   name: "factory",
   nodes: new Map([
     [ARTIFACTS, { id: ARTIFACTS, kind: "artifacts", x: 0, y: 0, width: 240, height: 160 } as unknown as Node],
+    [FILES, { id: FILES, kind: "files", x: 0, y: 300, width: 240, height: 160, host: "mini", root: "/tmp/x" } as unknown as Node],
     // On the canvas, so its notice is attempted: a seat whose node is gone is skipped before any notice.
     [SEAT, seat(SEAT, { x: 300, y: 0 })],
   ]),
@@ -100,6 +102,41 @@ describe("a comment's wake", () => {
       expect(woken).toEqual([]);
     } finally {
       stop();
+    }
+  });
+
+  it("says a file comment moved the threads of files, not the file", async () => {
+    const woken: Array<[string, string]> = [];
+    const threads: Array<[string, string]> = [];
+    const stopResource = onResourceChanged((domain, canvasName) => woken.push([domain, canvasName]));
+    const stopThread = onThreadChanged((kind, canvasName) => threads.push([kind, canvasName]));
+    try {
+      const exit = await Effect.runPromiseExit(
+        postSubjectComment(
+          {
+            subject: { kind: "file", nodeId: FILES, path: "src/big.ts" },
+            anchor: { kind: "lines", file: "src/big.ts", from: 10, to: 10, quote: "export const row1" },
+            text: "the row id",
+            actor: { kind: "operator" },
+            opId: OpId.make("01M5ESKJFC1A88R1MH1NEZWJ73"),
+          },
+          { canvas, canvasName: "factory", people: [] },
+        ).pipe(
+          Effect.provideService(WorkService, {
+            readMailbox: () => Effect.succeed([]),
+            workSubjectRow: () => Effect.succeed({ ok: true }) as never,
+            workSubjectNotice: () => Effect.succeed({ ok: true }) as never,
+          } as unknown as WorkServiceShape),
+          Effect.provideService(MachineRepository, { installationId: Effect.succeed("mini") } as unknown as MachineRepository["Service"]),
+        ),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+      // The rail reads again on the thread notice; the file itself did not change.
+      expect(threads).toEqual([["file", "factory"]]);
+      expect(woken).toEqual([]);
+    } finally {
+      stopResource();
+      stopThread();
     }
   });
 

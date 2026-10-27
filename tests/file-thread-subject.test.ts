@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import {
+  cutLinesQuote,
   locateLines,
   LINES_QUOTE_MAX,
   quoteOfLines,
@@ -72,6 +73,18 @@ describe("a lines anchor's quote", () => {
     expect(locateLines(quoted, edited)).toBeUndefined();
     // A comment written before the quote was carried stays where it says.
     expect(locateLines({ from: 9, to: 10 }, SOURCE)).toEqual({ from: 9, to: 10 });
+  });
+
+  it("never matches a piece of a longer line", () => {
+    // "foo" is gone as a line, but foobar() still holds the word: the thread reads gone, not moved onto it.
+    const after = "const x = 1;\nfoobar();\n";
+    expect(locateLines({ from: 1, to: 1, quote: "foo" }, after)).toBeUndefined();
+    expect(locateLines({ from: 2, to: 2, quote: "foobar();" }, after)).toEqual({ from: 2, to: 2 });
+  });
+
+  it("cuts a quote at a whole character", () => {
+    const quoted = cutLinesQuote(`${"x".repeat(LINES_QUOTE_MAX - 1)}😀tail`);
+    expect(quoted).toBe("x".repeat(LINES_QUOTE_MAX - 1));
   });
 
   it("picks the copy nearest where the comment was, when the text repeats", () => {
