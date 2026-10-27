@@ -77,8 +77,7 @@ test("label and root edit through main into file_trees, and the host stays", asy
   }
 });
 
-// Fixme: main stores it today (Add answers seq 1 on 7fa1e6a46); the plan says main refuses it.
-test.fixme("a Files node naming another machine is refused, and nothing is stored", async () => {
+test("a Files node naming another machine is refused, and nothing is stored", async () => {
   test.setTimeout(120_000);
   const stage = await stageFiles();
   const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([]) } });
