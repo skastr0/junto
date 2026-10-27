@@ -154,6 +154,7 @@ import {
 } from "./junto/content/protocol";
 import { remoteVideos } from "./junto/preview/remote-video";
 import { FILE_PROTOCOL_SCHEME_REGISTRATION, installFileProtocol } from "./junto/files/protocol";
+import { makeFilesDraftsSettle } from "./junto/files/drafts-settle";
 import { registerFilesIpc } from "./junto/files/ipc";
 import { carryFileThreads } from "./junto/work/file-thread-paths";
 import { ContentService } from "./junto/content/service";
@@ -621,6 +622,28 @@ ipcMain.on(IPC_CHANNELS.canvasFlushComplete, (event, payload: unknown) => {
   }
 });
 
+const filesDraftsSettle = makeFilesDraftsSettle();
+
+/** Unsaved Files drafts settle before a quit or a close: false is the operator's Cancel. */
+const requestFilesDraftsSettle = (mainWindow: BrowserWindow | undefined): Promise<boolean> => {
+  if (mainWindow === undefined || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return Promise.resolve(true);
+  }
+  const contents = mainWindow.webContents;
+  return filesDraftsSettle.request({
+    id: contents.id,
+    send: (request) => contents.send(IPC_CHANNELS.filesDraftsSettleRequested, request),
+  });
+};
+
+ipcMain.on(IPC_CHANNELS.filesDraftsSettleStarted, (event, payload: unknown) => {
+  if (isTrustedMainWebContents(event.sender)) filesDraftsSettle.started(event.sender.id, payload);
+});
+
+ipcMain.on(IPC_CHANNELS.filesDraftsSettleComplete, (event, payload: unknown) => {
+  if (isTrustedMainWebContents(event.sender)) filesDraftsSettle.complete(event.sender.id, payload);
+});
+
 const requestCanvasQuiesceAndFlush = (mainWindow: BrowserWindow): Promise<void> => {
   if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
     return Promise.reject(new CanvasQuiesceAndFlushError(
@@ -917,23 +940,27 @@ const createWindow = () => {
       closeAfterCanvasFlush = true;
       mainWindow.close();
     };
-    closeFlush ??= requestCanvasFlush(mainWindow)
-      .then(proceedWithClose)
-      .catch((error: unknown) => {
-        // Only an explicit save failure keeps live data hostage; block that
-        // close so the operator can see it. Anything else means the renderer
-        // is unreachable, and holding the window open changes nothing.
-        if (error instanceof CanvasFlushError && error.saveFailed) {
-          console.error("[canvas] window close blocked:", error);
-          return;
-        }
-        console.error(
-          `[canvas] window close flush unproven: ${
-            error instanceof Error ? error.message : String(error)
-          } — closing anyway`,
-        );
-        proceedWithClose();
-      })
+    const flushThenClose = (): Promise<void> =>
+      requestCanvasFlush(mainWindow)
+        .then(proceedWithClose)
+        .catch((error: unknown) => {
+          // Only an explicit save failure keeps live data hostage; block that
+          // close so the operator can see it. Anything else means the renderer
+          // is unreachable, and holding the window open changes nothing.
+          if (error instanceof CanvasFlushError && error.saveFailed) {
+            console.error("[canvas] window close blocked:", error);
+            return;
+          }
+          console.error(
+            `[canvas] window close flush unproven: ${
+              error instanceof Error ? error.message : String(error)
+            } — closing anyway`,
+          );
+          proceedWithClose();
+        });
+    // Unsaved Files drafts first: the operator's Cancel keeps the window.
+    closeFlush ??= requestFilesDraftsSettle(mainWindow)
+      .then((leave) => (leave ? flushThenClose() : undefined))
       .finally(() => {
         closeFlush = undefined;
       });
@@ -1046,6 +1073,7 @@ const createWindow = () => {
   });
   mainWindow.webContents.on("did-stop-loading", rendererNavigation.didStopLoading);
   mainWindow.webContents.on("render-process-gone", rendererNavigation.documentLost);
+  mainWindow.webContents.on("render-process-gone", () => filesDraftsSettle.gone(mainWebContentsId));
   const endLostLiveMedia = (): void => {
     const service = overseerLive;
     if (!service) return;
@@ -1111,6 +1139,7 @@ const createWindow = () => {
         exitAfterDetach(1, "browser-composition-host-release-failure");
       });
     }
+    filesDraftsSettle.gone(mainWebContentsId);
     const pending = pendingCanvasFlushes.get(mainWebContentsId);
     if (pending !== undefined) {
       clearTimeout(pending.timer);
@@ -2403,54 +2432,72 @@ app.on("before-quit", (event) => {
   // Second Cmd+Q while the confirm is open: swallow (still preventDefault).
   if (quitConfirmPending) return;
 
-  const live = collectLiveWorkSnapshot();
-  if (!hasLiveWork(live)) {
-    quitConfirmed = true;
-    beginQuitPreparation();
-    return;
-  }
-
-  // Honest quit: one confirm naming what pauses vs what stops.
-  // Dialog does not set quitPreparation — signals must be able to supersede it.
-  const prompt = buildQuitConfirmPrompt(live);
-  const parent = trustedMainWindow;
-  const dialogOptions = {
-    type: prompt.type,
-    title: prompt.title,
-    message: prompt.message,
-    detail: prompt.detail,
-    buttons: [...prompt.buttons] as string[],
-    defaultId: prompt.defaultId,
-    cancelId: prompt.cancelId,
-    noLink: prompt.noLink,
-  };
-  const generation = quitConfirmGeneration;
-  quitConfirmPending = true;
-  const box =
-    parent !== undefined && !parent.isDestroyed()
-      ? dialog.showMessageBox(parent, dialogOptions)
-      : dialog.showMessageBox(dialogOptions);
-
-  void box
-    .then((result) => {
-      if (generation !== quitConfirmGeneration) return;
-      quitConfirmPending = false;
-      if (result.response !== QUIT_CONFIRM_ACCEPT_INDEX) {
-        quitConfirmed = false;
-        // non-darwin last-window quit → dialog cancel must not leave a UI zombie.
-        recreateWindowIfEmpty();
-        return;
-      }
+  const confirmLiveWorkThenQuit = (): void => {
+    const live = collectLiveWorkSnapshot();
+    if (!hasLiveWork(live)) {
       quitConfirmed = true;
       beginQuitPreparation();
-    })
-    .catch((error) => {
-      if (generation !== quitConfirmGeneration) return;
-      quitConfirmPending = false;
+      return;
+    }
+
+    // Honest quit: one confirm naming what pauses vs what stops.
+    // Dialog does not set quitPreparation — signals must be able to supersede it.
+    const prompt = buildQuitConfirmPrompt(live);
+    const parent = trustedMainWindow;
+    const dialogOptions = {
+      type: prompt.type,
+      title: prompt.title,
+      message: prompt.message,
+      detail: prompt.detail,
+      buttons: [...prompt.buttons] as string[],
+      defaultId: prompt.defaultId,
+      cancelId: prompt.cancelId,
+      noLink: prompt.noLink,
+    };
+    const generation = quitConfirmGeneration;
+    quitConfirmPending = true;
+    const box =
+      parent !== undefined && !parent.isDestroyed()
+        ? dialog.showMessageBox(parent, dialogOptions)
+        : dialog.showMessageBox(dialogOptions);
+
+    void box
+      .then((result) => {
+        if (generation !== quitConfirmGeneration) return;
+        quitConfirmPending = false;
+        if (result.response !== QUIT_CONFIRM_ACCEPT_INDEX) {
+          quitConfirmed = false;
+          // non-darwin last-window quit → dialog cancel must not leave a UI zombie.
+          recreateWindowIfEmpty();
+          return;
+        }
+        quitConfirmed = true;
+        beginQuitPreparation();
+      })
+      .catch((error) => {
+        if (generation !== quitConfirmGeneration) return;
+        quitConfirmPending = false;
+        quitConfirmed = false;
+        skipQuitConfirm = false;
+        console.error("[quit] confirm dialog failed:", error);
+      });
+  };
+
+  // Unsaved Files drafts first (Save all, Discard, Cancel in the renderer);
+  // like the confirm, this does not own quitPreparation, so a signal can
+  // still force through, and its invalidation ends this continuation.
+  const draftsGeneration = quitConfirmGeneration;
+  quitConfirmPending = true;
+  void requestFilesDraftsSettle(trustedMainWindow).then((leave) => {
+    if (draftsGeneration !== quitConfirmGeneration) return;
+    quitConfirmPending = false;
+    if (!leave) {
       quitConfirmed = false;
-      skipQuitConfirm = false;
-      console.error("[quit] confirm dialog failed:", error);
-    });
+      recreateWindowIfEmpty();
+      return;
+    }
+    confirmLiveWorkThenQuit();
+  });
 });
 
 app.on("will-quit", () => {

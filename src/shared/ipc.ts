@@ -405,6 +405,9 @@ export const IPC_CHANNELS = {
   canvasQuiesceAndFlushRequested: "junto:canvas-quiesce-and-flush-requested",
   canvasQuiesceAndFlushStarted: "junto:canvas-quiesce-and-flush-started",
   canvasQuiesceAndFlushComplete: "junto:canvas-quiesce-and-flush-complete",
+  filesDraftsSettleRequested: "junto:files-drafts-settle-requested",
+  filesDraftsSettleStarted: "junto:files-drafts-settle-started",
+  filesDraftsSettleComplete: "junto:files-drafts-settle-complete",
   usageChanged: "junto:usage-changed",
   settingsChanged: "junto:settings-changed",
   kernelChanged: "junto:kernel-changed",
@@ -512,6 +515,19 @@ export interface CanvasFlushResult extends CanvasFlushRequest {
 }
 
 export interface CanvasQuiesceAndFlushRequest extends CanvasFlushRequest {}
+
+/** Main asks the renderer to settle unsaved Files drafts before a quit or a close. */
+export interface FilesDraftsSettleRequest {
+  readonly requestId: string;
+}
+
+/** The renderer is asking the operator; main waits with no deadline from here. */
+export interface FilesDraftsSettleStarted extends FilesDraftsSettleRequest {}
+
+/** `proceed: false` is the operator's Cancel: the quit or close stops. */
+export interface FilesDraftsSettleResult extends FilesDraftsSettleRequest {
+  readonly proceed: boolean;
+}
 
 export interface CanvasQuiesceAndFlushOutcome {
   readonly ok: boolean;
@@ -882,6 +898,11 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => () => void;
   /** Main-process close gate: resolves only after pending canvas writes settle. */
   readonly onCanvasFlushRequested: (listener: () => void | Promise<void>) => () => void;
+  /**
+   * Quit and close gate for unsaved Files drafts: the listener answers
+   * whether leaving goes on (false is Cancel). No listener means go on.
+   */
+  readonly onFilesDraftsSettle: (listener: () => Promise<boolean>) => () => void;
   /** Signal-only gate: closes renderer authoring, then drains admitted writes. */
   readonly onCanvasQuiesceAndFlushRequested: (
     listener: (

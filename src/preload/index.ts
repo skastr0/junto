@@ -255,6 +255,36 @@ const onCanvasFlushRequested = (
   };
 };
 
+let filesDraftsSettleListener: (() => Promise<boolean>) | undefined;
+
+/**
+ * Settle unsaved Files drafts before a quit or a close. Says it started at
+ * once, so main drops its deadline, then answers the operator's choice. No
+ * listener, or one that throws, means go on: main must never be held by a
+ * renderer that cannot ask.
+ */
+ipcRenderer.on(IPC_CHANNELS.filesDraftsSettleRequested, (_event, payload: unknown) => {
+  const request = decodeCanvasFlushRequest(payload);
+  if (request === undefined) return;
+  const listener = filesDraftsSettleListener;
+  if (listener === undefined) {
+    ipcRenderer.send(IPC_CHANNELS.filesDraftsSettleComplete, { requestId: request.requestId, proceed: true });
+    return;
+  }
+  ipcRenderer.send(IPC_CHANNELS.filesDraftsSettleStarted, { requestId: request.requestId });
+  void listener().then(
+    (proceed) => ipcRenderer.send(IPC_CHANNELS.filesDraftsSettleComplete, { requestId: request.requestId, proceed: proceed !== false }),
+    () => ipcRenderer.send(IPC_CHANNELS.filesDraftsSettleComplete, { requestId: request.requestId, proceed: true }),
+  );
+});
+
+const onFilesDraftsSettle = (listener: () => Promise<boolean>): (() => void) => {
+  filesDraftsSettleListener = listener;
+  return () => {
+    if (filesDraftsSettleListener === listener) filesDraftsSettleListener = undefined;
+  };
+};
+
 let canvasQuiesceAndFlushListener:
   | ((
       acknowledgeQuiesced: () => void,
@@ -524,6 +554,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     ),
   onNodeRefOpened,
   onCanvasFlushRequested,
+  onFilesDraftsSettle,
   onCanvasQuiesceAndFlushRequested,
   onPreamble: (listener) => subscribe<PreambleEvent>(IPC_CHANNELS.preamble, listener),
   onWireTraffic: (listener) =>
