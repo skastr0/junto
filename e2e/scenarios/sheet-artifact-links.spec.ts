@@ -108,10 +108,10 @@ test("[[ in a sheet cell links an artifact, draws its current title, makes a doc
       await expect(text).toHaveValue(`See [[Launch plan]] and [[${fresh}]] `, { timeout: 15_000 });
       await expect(list.locator("button").filter({ hasText: fresh })).toHaveCount(1);
 
-      // Enter keeps the text and moves down; the cell draws the links as titles, never addresses.
+      // Enter keeps the text, less the space the last pick left, and moves down; the cell draws the links as titles, never addresses.
       await page.keyboard.press("Enter");
       await expect(text).toHaveCount(0);
-      await expect(cell).toHaveValue(`See Launch plan and ${fresh} `, { timeout: 15_000 });
+      await expect(cell).toHaveValue(`See Launch plan and ${fresh}`, { timeout: 15_000 });
       await expect(cell).toHaveAttribute("data-links", "true");
       await frame(page, `${theme}-3-linked`);
     }
@@ -124,7 +124,7 @@ test("[[ in a sheet cell links an artifact, draws its current title, makes a doc
     // A rename shows in the cell at once.
     await apply(page, planId, { op: "retitle", title: "Launch plan v2" });
     const b1 = sheet.locator('[data-cell="B1"]');
-    await expect(b1).toHaveValue("See Launch plan v2 and Q3 review ", { timeout: 15_000 });
+    await expect(b1).toHaveValue("See Launch plan v2 and Q3 review", { timeout: 15_000 });
     await frame(page, "bright-4-renamed");
 
     // Cmd+Enter opens the cell's first link: the document it names.

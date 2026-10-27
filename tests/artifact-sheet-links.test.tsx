@@ -118,8 +118,8 @@ it("[[ in a cell's edit offers the artifacts in reach, and a pick writes the lin
   expect(field()!.value).toBe("[[Launch plan]] ");
   key(field()!, { key: "Enter" });
   await act(async () => {});
-  // The field puts a space after a pick, as every link field does.
-  expect(onPatch.mock.calls.at(-1)![0]).toEqual([{ op: "cell", rowId: "r2", columnId: "c1", value: `${planLink} ` }]);
+  // The space the pick put after the link, last in the cell, does not land.
+  expect(onPatch.mock.calls.at(-1)![0]).toEqual([{ op: "cell", rowId: "r2", columnId: "c1", value: planLink }]);
   // Enter moved down a row; the grid has none, so the cell keeps the keyboard.
   expect(field()).toBeNull();
   expect(document.activeElement).toBe(cell("A2"));

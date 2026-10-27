@@ -62,7 +62,12 @@
 }
 /* A cell that holds links draws its words over its own text, which stays for
    the caret and the screen reader; each link wears the chip a link field
-   draws, the neutral fill and the artifact mark. */
+   draws, the neutral fill and the artifact mark. The words layer and the
+   edit field share the cell's height, so neither drifts from the row. */
+.junto-artifact-sheet {
+  --sheet-cell-height: 32px;
+  --sheet-edit-line: 20px;
+}
 .junto-artifact-sheet__grid td:has(> .junto-artifact-sheet__words) {
   position: relative;
 }
@@ -76,7 +81,7 @@
   padding: 0 8px;
   font-family: var(--font-mono);
   font-size: var(--text-body);
-  line-height: 32px;
+  line-height: var(--sheet-cell-height);
   color: var(--color-ink);
   white-space: pre;
   text-overflow: ellipsis;
@@ -94,15 +99,15 @@
   display: block;
   width: 100%;
   min-width: 120px;
-  height: 32px;
-  min-height: 32px;
+  height: var(--sheet-cell-height);
+  min-height: var(--sheet-cell-height);
   border: 0;
   border-radius: 0;
   background: color-mix(in oklab, var(--color-main) 8%, transparent);
   padding: 6px 8px;
   font-family: var(--font-mono);
   font-size: var(--text-body);
-  line-height: 20px;
+  line-height: var(--sheet-edit-line);
   field-sizing: fixed;
   overflow: hidden;
   resize: none;

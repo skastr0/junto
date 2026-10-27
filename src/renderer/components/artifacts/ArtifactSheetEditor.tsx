@@ -64,6 +64,10 @@ const NO_CELL_MENTIONS: ReadonlyArray<MentionCandidate> = [];
 /** Room the `[[` list needs under a cell before it opens above it instead. */
 const LINK_LIST_ROOM_PX = 240;
 
+/** A pick puts a space after its link; at the end of a cell it is no word, so it does not land. */
+const withoutPickSpace = (text: string): string =>
+  text.endsWith(" ") && mentionLinksOf(text).some((link) => link.end === text.length - 1) ? text.slice(0, -1) : text;
+
 /** The first link in a cell's text that names something on the canvas, to open. */
 const firstLinkOf = (text: string, nodeKindOf: SheetCellLinks["nodeKindOf"]) => {
   for (const link of mentionLinksOf(text)) {
@@ -256,11 +260,12 @@ export function ArtifactSheetEditor({
     const row = draftRef.current.rows.find((candidate) => candidate.id === pending.rowId);
     if (!row) return;
     const current = row.cells[pending.columnId] ?? "";
+    const value = cellLinks === undefined ? pending.value : withoutPickSpace(pending.value);
     // Blank text clears a cell, so blank over blank is no change.
-    const same = pending.value === current || (pending.value.trim() === "" && current === "");
+    const same = value === current || (value.trim() === "" && current === "");
     if (same) return;
-    emit([{ op: "cell", rowId: pending.rowId, columnId: pending.columnId, value: pending.value }]);
-  }, [emit]);
+    emit([{ op: "cell", rowId: pending.rowId, columnId: pending.columnId, value }]);
+  }, [emit, cellLinks]);
 
   const onCellChange = useCallback(
     (rowId: string, columnId: string, value: string) => {
