@@ -12,6 +12,7 @@ import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
 import { makeLocalTasksSource, setTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
 import { taskNodeId } from "../src/shared/task-model";
 import { asNodeId } from "../src/shared/model";
+import { EditorView } from "@codemirror/view";
 import { TaskEnqueueSurface } from "../src/renderer/components/work/TaskEnqueueSurface";
 import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
 import { KindSurface } from "../src/renderer/components/rts/KindSurface";
@@ -114,7 +115,11 @@ it("enqueues a task on its node through the tasks source, with its body and appr
   dock$.taskCreateById["enqueue"].set({ nodeId: "queue", title: "Build", mode: "task" });
   await mount(<TaskEnqueueSurface surface={{ id: "enqueue", kind: "task-create" }} visible onActivate={() => {}} />);
   await type('input[placeholder="What needs doing?"]', "Ship it");
-  await type('textarea[placeholder="Context, constraints, expected result…"]', "Implement and verify");
+  // The details are a live markdown field: written as typing into its editor.
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  const details = () => EditorView.findFromDOM(document.querySelector<HTMLElement>(".task-enqueue__details .cm-editor")!)!;
+  await act(async () => details().dispatch({ changes: { from: 0, insert: "Implement and verify" }, userEvent: "input.type" }));
   await click('[aria-label="Require one more approval"]');
   await act(async () => {
     document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -124,6 +129,7 @@ it("enqueues a task on its node through the tasks source, with its body and appr
   expect(made).toHaveLength(1);
   expect(made[0]).toMatchObject({ title: "Ship it", body: "Implement and verify", current: { state: "backlog", stampPolicy: { required: 1 } } });
   expect(document.querySelector<HTMLInputElement>('input[placeholder="What needs doing?"]')?.value).toBe("");
+  expect(details().state.doc.toString()).toBe("");
 });
 
 it("unbinds enqueue when its native task node disappears", async () => {

@@ -45,3 +45,31 @@
   font-size: var(--text-body);
   line-height: var(--leading-body);
 }
+
+/* The details field wears the form's field chrome; its own focus ring gives way to the field's. */
+.task-enqueue__details {
+  min-height: 96px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
+  transition: border-color 120ms ease;
+}
+
+.task-enqueue__details:focus-within {
+  border-color: color-mix(in srgb, var(--color-cyan) 60%, transparent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.task-enqueue__details.live-markdown:focus-visible,
+.task-enqueue__details.live-markdown:has(.cm-content:focus-visible) {
+  outline: none;
+}
+
+.task-enqueue__details .cm-editor {
+  font-size: var(--text-body-lg);
+}
+
+.task-enqueue__details .cm-content {
+  min-height: 94px;
+  padding: 6px 8px;
+}

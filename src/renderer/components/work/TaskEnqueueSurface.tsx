@@ -9,9 +9,11 @@ import { closeWorkbenchSurface, dock$ } from "../../lib/dock-state";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import { useNodeOf } from "../../lib/use-model";
-import { tasksSource } from "../../lib/tasks-source";
+import { tasksSource, useCanvasTasks } from "../../lib/tasks-source";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
-import { Button, IconButton, Input, Textarea } from "../ui";
+import { LiveMarkdownField } from "../artifacts/LiveMarkdownField";
+import { useTaskBodyMentions } from "../tasks/task-body-mentions";
+import { Button, IconButton, Input } from "../ui";
 import "./task-enqueue.css";
 
 /**
@@ -19,6 +21,9 @@ import "./task-enqueue.css";
  * and how many approvals finishing needs; the task lands in the node's
  * backlog. Coexists with a terminal in a split. A created task clears the
  * form and keeps the pane open for the next one.
+ *
+ * What it is about is written as the task pane reads it: live markdown,
+ * with @ and # to name seats, tasks and artifacts in reach.
  */
 export function TaskEnqueueSurface({
   surface,
@@ -35,6 +40,10 @@ export function TaskEnqueueSurface({
   const node = useNodeOf(name, nodeId ?? "", "task");
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
+  /** A new one each time the form clears, so the details field opens empty. */
+  const [written, setWritten] = useState(0);
+  const all = useCanvasTasks(name);
+  const mentions = useTaskBodyMentions(name, taskNodeId(asNodeId(nodeId ?? "")), undefined, all);
   const [required, setRequired] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -67,6 +76,7 @@ export function TaskEnqueueSurface({
       }
       setTitle("");
       setDetails("");
+      setWritten((count) => count + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -115,12 +125,16 @@ export function TaskEnqueueSurface({
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
-        <Textarea
-          aria-label="Details"
-          placeholder="Context, constraints, expected result…"
-          rows={5}
-          value={details}
-          onChange={(event) => setDetails(event.target.value)}
+        <LiveMarkdownField
+          key={written}
+          className="task-enqueue__details"
+          value=""
+          readOnly={pending}
+          mentions={mentions}
+          label="Details"
+          surfaceLabel={`New task on ${payload.title}, details`}
+          placeholder="Context, constraints, expected result. @ names a seat, # a task or an artifact."
+          onChange={setDetails}
         />
         <div className="task-enqueue__review">
           <span>Approvals needed to finish</span>

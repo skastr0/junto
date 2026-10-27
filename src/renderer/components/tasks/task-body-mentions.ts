@@ -49,12 +49,13 @@ const useArtifactsInReach = (canvasName: string, from: NodeId): ReadonlyMap<Node
 /**
  * What a task's body may mention, as a document's: @ the seats in reach of
  * its board, # the canvas's other tasks and the artifacts on the Artifacts
- * nodes in reach. The task itself is never offered to itself.
+ * nodes in reach. The task itself is never offered to itself; a task still
+ * being written has no id yet.
  */
 export const useTaskBodyMentions = (
   canvasName: string,
   node: TaskNodeId,
-  taskId: TaskId,
+  taskId: TaskId | undefined,
   all: ReadonlyArray<TaskView>,
 ): DocumentMentions => {
   const seats = useSeatsInReach(canvasName, node);
