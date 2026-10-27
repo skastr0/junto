@@ -103,3 +103,18 @@
 .pad-swatch__dot[data-field="stroke"] {
   background: transparent;
 }
+
+/* The toolbar fits any artifact pane: the key hint repeats the tools'
+   titles, so it goes first, then the groups wrap onto a second row. */
+.pad-toolbar {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  container: pad-toolbar / inline-size;
+}
+
+/* Two classes: pad-editor.css loads later and sets the hint's display. */
+@container pad-toolbar (max-width: 1000px) {
+  .pad-toolbar .pad-toolbar__hint {
+    display: none;
+  }
+}

@@ -137,3 +137,55 @@ for (const theme of ["dark", "bright"] as const) {
     }
   });
 }
+
+for (const theme of ["dark", "bright"] as const) {
+  test(`pad toolbar: fits a narrow artifact pane, ${theme}`, async () => {
+    test.setTimeout(180_000);
+    const shelf = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({
+      kind: "artifacts",
+      id: "shelf",
+      label: "Shelf",
+      x: 40,
+      y: 40,
+      width: 280,
+      height: 160,
+      z: 0,
+    });
+    const junto = await launchJunto({
+      seedModels: { [CANVAS]: modelFixture([shelf], []) },
+      windowContentSize: { width: 900, height: 720 },
+    });
+    mkdirSync(OUT, { recursive: true });
+    try {
+      const { page } = junto;
+      const card = page.locator('.react-flow__node[data-id="shelf"]');
+      await expect(card).toBeVisible({ timeout: 30_000 });
+      await setTheme(page, theme === "bright" ? "Bright" : "Dark");
+      await card.dblclick();
+      await expect(page.getByRole("list", { name: "Artifacts" })).toBeVisible({ timeout: 20_000 });
+      await page.getByRole("button", { name: "New artifact" }).click();
+      await page.getByRole("group", { name: "New artifact" }).locator("button").filter({ hasText: "Pad" }).click();
+      await expect(page.getByTestId("pad-svg")).toBeVisible({ timeout: 15_000 });
+      const toolbar = page.getByRole("toolbar", { name: "Pad tools" });
+      const bar = (await toolbar.boundingBox())!;
+      // Nothing in the toolbar overflows it, and every button is on screen.
+      expect(await toolbar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      // The key hint repeats the tool titles, so a narrow pane drops it.
+      await expect(toolbar.locator(".pad-toolbar__hint")).toBeHidden();
+      for (const button of await toolbar.locator("button").all()) {
+        const box = (await button.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(bar.x + bar.width + 0.5);
+      }
+      await page.getByTestId("pad-stencil-process").click();
+      await expect(page.getByTestId("pad-selbar")).toBeVisible();
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: join(OUT, `${theme}-3-narrow.png`) });
+      await page.setViewportSize({ width: 1200, height: 720 });
+      await page.waitForTimeout(250);
+      expect(await toolbar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await page.screenshot({ path: join(OUT, `${theme}-4-medium.png`) });
+    } finally {
+      await junto.close();
+    }
+  });
+}
