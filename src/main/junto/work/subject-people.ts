@@ -5,7 +5,7 @@
  * names its node, and its people wait on the artifact ruler.
  */
 import { Effect } from "effect";
-import type { Canvas, Node } from "@shared/model";
+import type { Canvas, Files, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { taskName, taskPeopleOf } from "@shared/task-notices";
@@ -47,8 +47,11 @@ export const subjectPeopleAt = (board: Canvas, canvasName: string, subject: Reso
  * whose last segment is part of the path a thread already names
  * (remote-lead, 0.11 F7), and never on a machine that holds only a stub.
  */
-const subjectNodeName = (node: Node): string =>
-  node.kind === "files" ? (node.label === undefined || node.label.trim() === "" ? "files" : node.label.trim()) : titleOf(node);
+const subjectNodeName = (node: Node): string => (node.kind === "files" ? filesNodeName(node) : titleOf(node));
+
+/** A Files node's public name: its label, else "files" (see subjectNodeName). */
+export const filesNodeName = (node: Pick<Files, "label">): string =>
+  node.label === undefined || node.label.trim() === "" ? "files" : node.label.trim();
 
 export const subjectNameAt = (board: Canvas, canvasName: string, subject: ResourceSubject): Effect.Effect<string | undefined> =>
   Effect.map(taskViewOf(board, canvasName, subject), (view) => {

@@ -136,7 +136,8 @@ import { subjectLabel, threadSubjectOf, type ResourceSubject } from "@shared/thr
 import { OpId } from "@shared/work-ids";
 import { postSubjectComment } from "./subject-comment";
 import { subjectReplyOf } from "@shared/subject-comment";
-import { subjectPeopleAt } from "./subject-people";
+import { filesNodeName, subjectPeopleAt } from "./subject-people";
+import { MachineRepository } from "../machines/repository";
 import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
 import {
   AgentSignalRepository,
@@ -169,6 +170,7 @@ import { isHarnessId } from "@shared/managed-terminal-templates";
 import { TASKS_ENABLED } from "@shared/features";
 import {
   compileConnectionInstructions,
+  compileFilesReach,
   compileReach,
   coMembersByRegion,
   onboardGuidanceFor,
@@ -176,7 +178,7 @@ import {
   toolsBeyondGuidance,
 } from "@shared/seat-onboarding";
 import { SINCE_PER_SECTION } from "@shared/seat-since";
-import { isResourceKind, resourcesInReach } from "@shared/region-reach";
+import { isResourceKind, reaches, resourcesInReach } from "@shared/region-reach";
 import { seatPageShot, type SeatPageShot } from "./page-shot-seat";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
@@ -921,7 +923,7 @@ const recipientOf = (board: Canvas, nodeId: string): SeatIdentity => {
   const node = findNode(board, nodeId);
   if (node === undefined) return { nodeId, name: nodeId, regions: [] };
   // A Files node's title falls back to its root's basename, and the root never leaves its machine.
-  return node.kind === "files" ? { ...seatIdentity(board, node), name: node.label ?? "files" } : seatIdentity(board, node);
+  return node.kind === "files" ? { ...seatIdentity(board, node), name: filesNodeName(node) } : seatIdentity(board, node);
 };
 
 /** The operator, who is no node, as a reply's recipient. */
@@ -1326,6 +1328,17 @@ const dispatchOp = (
       const reach = resourcesInReach(board, asNodeId(caller.nodeId)).flatMap((node) =>
         isResourceKind(node.kind) ? [{ id: node.id as string, kind: node.kind }] : [],
       );
+      // Files nodes in reach, never a resource kind: the root only on the
+      // machine that holds it, and none when this machine's name is unread.
+      const machines = yield* Effect.serviceOption(MachineRepository);
+      const here = Option.isSome(machines)
+        ? yield* machines.value.machineName.pipe(Effect.orElseSucceed(() => undefined))
+        : undefined;
+      const folders = [...board.nodes.values()].flatMap((node) =>
+        node.kind === "files" && reaches(board, asNodeId(caller.nodeId), node.id)
+          ? [{ id: node.id as string, name: filesNodeName(node), ...(here !== undefined && node.host === here ? { root: node.root } : {}) }]
+          : [],
+      );
       const overseer = self.kind === "agent" && self.overseer === true;
       const guidance = onboardGuidanceFor(seat);
       const tools = toolsBeyondGuidance(
@@ -1381,7 +1394,7 @@ const dispatchOp = (
         ),
         // The resources in this seat's region reach, by kind, each with every
         // command its kind allows: reach admits, with no edge and no port.
-        reach: compileReach(reach),
+        reach: [...compileReach(reach), ...compileFilesReach(folders)],
         ...(references === undefined ? {} : { references }),
         // Operator-pinned precedent from the seat's own region stack. Region
         // rulings ride the Tasks gate: a tasks-off build names none.

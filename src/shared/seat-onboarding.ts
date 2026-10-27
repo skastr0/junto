@@ -302,6 +302,48 @@ export const compileReach = (
     }];
   });
 
+// ── Files ──────────────────────────────────────────────────────────────────
+
+/** A Files node in reach: its folder when it is on this machine, else its name alone. */
+export type FilesFolder = {
+  readonly id: string;
+  /** The node's label, else "files": never the root's last segment. */
+  readonly name: string;
+  /** The absolute root, only on the machine that holds it (host-local). */
+  readonly root?: string;
+};
+
+/**
+ * The Files nodes in a seat's reach, as their own row. Files is no resource
+ * kind: a seat gets no item commands on it, because it has the filesystem.
+ */
+export type FilesReachSection = {
+  readonly kind: "files";
+  readonly count: number;
+  /** The node ids, sorted. */
+  readonly targets: ReadonlyArray<string>;
+  readonly folders: ReadonlyArray<FilesFolder>;
+  readonly note: string;
+  readonly more: string;
+};
+
+export const FILES_REACH_NOTE =
+  "Folders the operator opened on the canvas. Work in them with your own filesystem tools; Junto has no files command. A comment on a file reaches you as mail naming the node and a path relative to its root: answer it with junto msg reply. A folder on another machine shows its name and no root.";
+
+/** The files row, or none when no Files node is in reach or this build left the kind out. */
+export const compileFilesReach = (folders: ReadonlyArray<FilesFolder>): ReadonlyArray<FilesReachSection> => {
+  if (folders.length === 0 || !productNodeKindEnabled("files")) return [];
+  const sorted = [...folders].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return [{
+    kind: "files",
+    count: sorted.length,
+    targets: sorted.map((folder) => folder.id),
+    folders: sorted,
+    note: FILES_REACH_NOTE,
+    more: "junto docs node files",
+  }];
+};
+
 // ── Co-members ─────────────────────────────────────────────────────────────
 
 /** Seats sharing a region with this one, by name, under the innermost region they share. */

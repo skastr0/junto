@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { artifacts, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { artifacts, files, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { ModelService } from "../src/main/junto/model/service";
 import { asCanvasName, asWireId } from "../src/shared/model";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
@@ -35,8 +35,8 @@ import {
   SeatGuidanceRepository,
   SeatGuidanceRepositoryLive,
 } from "../src/main/junto/seat-guidance/repository";
-import { ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
-import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
+import { FILES_REACH_NOTE, ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
+import { ARTIFACTS_ENABLED, productNodeKindEnabled, TASKS_ENABLED } from "../src/shared/features";
 import { AgentSignalRepository } from "../src/main/junto/signals/repository";
 import { SINCE_UNAVAILABLE } from "../src/main/junto/work/seat-since-read";
 import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
@@ -295,6 +295,32 @@ describe("junto onboard output", () => {
     expect(JSON.stringify(data)).not.toContain("board-away");
     // Resources are in reach, never co-members.
     expect(data.co_members).toEqual([{ region: "PTY", seats: [...PEERS] }]);
+  });
+
+  // Files is its own row, never a resource kind: no item commands, and the root only on its own machine.
+  it.skipIf(!productNodeKindEnabled("files"))("lists Files nodes in reach as their own row, with the root only for the machine that holds it", async () => {
+    await write([], () => [
+      ...withResources(),
+      files("tree-here", { x: 200, y: 150, width: 120, height: 60, root: "/Users/me/Projects/secret-repo" }),
+      files("tree-there", { x: 400, y: 150, width: 120, height: 60, label: "Designs", host: "laptop" as never, root: "/Users/me/designs" }),
+      files("tree-away", { x: 1040, y: 150, width: 120, height: 60 }),
+    ]);
+    const data = await onboard();
+    const row = data.reach.find((section: { kind: string }) => section.kind === "files");
+    expect(row).toEqual({
+      kind: "files",
+      count: 2,
+      targets: ["tree-here", "tree-there"],
+      folders: [
+        { id: "tree-here", name: "files", root: "/Users/me/Projects/secret-repo" },
+        { id: "tree-there", name: "Designs" },
+      ],
+      note: FILES_REACH_NOTE,
+      more: "junto docs node files",
+    });
+    expect(row).not.toHaveProperty("commands");
+    expect(JSON.stringify(data)).not.toContain("/Users/me/designs");
+    expect(JSON.stringify(data)).not.toContain("tree-away");
   });
 
   it("carries since your last session, and junto since gives the same projection, uncapped with all", async () => {

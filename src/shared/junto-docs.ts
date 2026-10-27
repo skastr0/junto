@@ -109,6 +109,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
   agent: "Actor seat: the node holds identity, harness and launch settings. Mail is separately stored and paged per seat; terminal sessions are runtime facts. Identity is the seat credential.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
+  files: "Files node: one folder on one machine. The root never leaves that machine: onboard gives it to a seat there and only the node's name to a seat elsewhere.",
   automations: "Automations node: each automation has a schedule, poll or change trigger, conditions in `when` and actions in `then`, and is created off unless enabled. Firings are kept as history, each with its actions' rulings or why it was skipped.",
 };
 
@@ -118,6 +119,7 @@ const KIND_NOTE: Readonly<Record<string, string>> = {
   automations: "Automations: triggers, conditions and actions the editing machine runs, in place of the old cron, relay, watcher and timer schedulers. A seat reads the ones in its reach with `junto automation list`, `show` and `history`; only the operator and overseers write them.",
   artifacts: "The delivery surface: create and edit outputs with junto artifact; artifacts never block.",
   page: "The browser surface (feature-gated): page automation grants.",
+  files: "A folder the operator opened on the canvas. Seats work in it with their own filesystem tools; Junto has no files command. A comment on a file reaches a seat as mail naming the node and a relative path; answer it with junto msg reply.",
   terminal: "A terminal resource sink (v1 access family only).",
 };
 
