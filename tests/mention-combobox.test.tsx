@@ -159,10 +159,23 @@ describe("MentionCombobox", () => {
 
   it("Escape keeps the list shut while that query is typed on; a new trigger opens it", () => {
     type("@");
+    expect(list()).not.toBeNull();
     press("Escape");
-    type("@pro");
+    type("pro");
+    expect(field().value).toBe("@pro");
     expect(list()).toBeNull();
-    type("@pro and @");
+    type(" and @");
+    expect(list()).not.toBeNull();
+  });
+
+  it("typing before a dismissed query takes the caret off it, which ends the dismissal", () => {
+    type("Ask @");
+    press("Escape");
+    setField("Please ask @", 7);
+    expect(list()).toBeNull();
+    // Back at the query, typing on: the dismissal ended with the query.
+    type("p");
+    expect(field().value).toBe("Please ask @p");
     expect(list()).not.toBeNull();
   });
 

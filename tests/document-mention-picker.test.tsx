@@ -76,7 +76,8 @@ describe("where a mention can be typed", () => {
 });
 
 describe("a caret past what is parsed", () => {
-  const far = `${"para\n\n".repeat(600)}Ask @he`;
+  // Long enough that no parse finishes inside a zero budget, however fast the machine.
+  const far = `${"para\n\n".repeat(40_000)}Ask @he`;
   const coldAt = (doc: string) =>
     EditorState.create({ doc, selection: EditorSelection.cursor(doc.length), extensions: [markdown({ base: markdownLanguage })] });
 
@@ -88,7 +89,7 @@ describe("a caret past what is parsed", () => {
   });
 
   it("never guesses inside an unparsed fence", () => {
-    const fenced = `${"para\n\n".repeat(600)}\`\`\`\n@here`;
+    const fenced = `${"para\n\n".repeat(40_000)}\`\`\`\n@here`;
     const state = coldAt(fenced);
     expect(pickerQueryAt(state, 0)).toBeNull();
     ensureSyntaxTree(state, state.doc.length, 5_000);
@@ -195,12 +196,21 @@ describe("the @ and # list in a live document", () => {
     expect(picker()?.hidden).toBe(false);
   });
 
-  it("a dismissal follows its query when text before it changes", async () => {
+  it("a dismissal follows its query when another writer's text lands before it", async () => {
     await type("Ask @");
     await press("Escape");
-    await act(async () => view.dispatch({ changes: { from: 0, insert: "Please " }, userEvent: "input.type" }));
+    // A head from another writer: the text moves, the caret stays on the query.
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "Please " } }));
     await type("p");
     expect(picker()).toBeNull();
+  });
+
+  it("typing before a dismissed query takes the caret off it, which ends the dismissal", async () => {
+    await type("Ask @");
+    await press("Escape");
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "Please " }, selection: { anchor: 7 }, userEvent: "input.type" }));
+    await act(async () => view.dispatch({ selection: { anchor: view.state.doc.length } }));
+    expect(picker()?.hidden).toBe(false);
   });
 
   it("stays shut for a trigger with nothing to offer, and offers late candidates as they arrive", async () => {
