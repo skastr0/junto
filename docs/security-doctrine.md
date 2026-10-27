@@ -345,15 +345,28 @@ its host, the editing machine's real short name when the node was made. In
 0.11 only the editing machine serves Files, because no link verb reads a
 peer's files. The service in main (`src/main/junto/files/`) refuses any node
 whose host is not this machine (`elsewhere`), so after a later handover the
-same root path is never opened on a different disk. The root never leaves
-the machine: a canvas copy carries the node as a stub, and mention mail,
+same root path is never opened on a different disk. The root is set by the
+operator, or by an overseer through `node.create` and `node.configure`
+(which gives a seat nothing its own shell lacks); the host is fixed at
+creation and no edit changes it. The root never leaves the machine: a canvas
+copy carries the node as a stub once schema step 52 lands, and nothing
+before it (`canvas-copy.ts`), and mention mail,
 thread anchors, extracted artifact descriptions, IPC replies, errors, change
 events and `junto-file:` addresses carry the node id plus a path relative
 to the root, never an absolute path. The renderer never names one either,
 with the one exception below: every call names a node and a relative path
 (`src/shared/files.ts`), main reads the root off the node on each call,
 `realpath`s the target and refuses anything outside the root, symlinks
-included (`outside-root`). Renaming, moving or trashing a symlink acts on
+included (`outside-root`). A target inside Junto's own home
+(`~/.junto`) is refused `denied` under any root, so the editor never
+overwrites `junto.db` or a seat token and no comment or extract copies them;
+a root that holds the home, such as `~`, still opens. Junto runs no command
+a folder's own git config names: every git main runs (the Files index, the
+git node, the checkout watch) overrides `core.fsmonitor`, `core.hooksPath`,
+`log.showSignature` and every filter driver the repository config names,
+never looks into a submodule's work tree, and builds diffs with
+`--no-ext-diff --no-textconv` (`src/main/junto/adapters/git-guard.ts`).
+Renaming, moving or trashing a symlink acts on
 the link, never on what it points at. Delete moves to the Trash
 (`shell.trashItem`), never `unlink`. A write names the version it read
 (mtime and size), is refused `stale` when the file changed, and replaces
@@ -364,7 +377,11 @@ launchable bundle, script or installer; Reveal in Finder still shows it.
 the trusted renderer has opened, on this machine, inside the root after
 `realpath`; anything that is not an image, PDF or media file goes out as
 `application/octet-stream` with `nosniff`, so a page under a root is never
-rendered as a document. The exception is a drop: Finder files dropped on
+rendered as a document. Every response also carries
+`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`,
+because an SVG is an image that can carry script. The renderer shows an
+image with `<img>` or a canvas, and a PDF through pdf.js, never in an
+iframe or an object or by navigating to a `junto-file:` address. The exception is a drop: Finder files dropped on
 the node arrive as OS paths (`webUtils.getPathForFile`), which main reads
 as sources to copy from and never changes; a copy never overwrites, it
 takes the next free name (`name 2`). All channels sit behind
