@@ -152,7 +152,10 @@ export const gitIgnored = async (
   if (paths.length === 0) return new Set();
   const ignored = new Set<string>();
   // check-ignore exits 1 when nothing is ignored; its stdout is the answer either way.
-  await streamGit(root, ["check-ignore", "-z", "--stdin"], (names) => {
+  // --no-index: by pattern alone, 0.01 s instead of about 3 ms a path on a
+  // 200k repo. A force-added file under an ignore pattern reads as ignored;
+  // it stays in the index if it was there, and the next rebuild restores it.
+  await streamGit(root, ["check-ignore", "--no-index", "-z", "--stdin"], (names) => {
     for (const name of names) if (name !== "") ignored.add(name);
   }, signal, `${paths.join("\0")}\0`).catch(() => null);
   return ignored;

@@ -33,7 +33,8 @@ import {
   writeFileAt,
   type Scope,
 } from "./fs-ops";
-import { COMPACT_AFTER, NameIndexBuilder, type MatchSet, type NameIndex } from "./name-index";
+import { inProcessEngine, type IndexEngine } from "./index-engine";
+import { COMPACT_AFTER } from "./name-index";
 import { gitIgnored, gitNames, isGitRoot, linkInside, walkNames, type NameSink } from "./sources";
 import { watchRoot, type Timers, type WatchBatch, type WatchFactory } from "./watcher";
 
@@ -48,6 +49,11 @@ import { watchRoot, type Timers, type WatchBatch, type WatchFactory } from "./wa
  * - a holder per root realpath, shared by every session on that root, with
  *   one watcher and, from the first search, one name index. The last session
  *   to leave drops both.
+ *
+ * The index itself lives in the engine (a worker thread in the app): main
+ * finds names and classifies changes, the engine builds and searches. Only
+ * the first build is waited for; after that a stale index keeps answering
+ * while its rebuild runs.
  */
 
 /** What main reads off a node: only a Files node answers. */
@@ -75,7 +81,14 @@ export type FilesServiceDeps = {
   readonly watch?: WatchFactory;
   readonly timers?: Timers;
   readonly names?: NameSources;
+  /** Where indexes are built and searched; in process unless the app passes its worker. */
+  readonly engine?: IndexEngine;
+  /** Wall-clock ms, for how long an unheld root's count is kept; swapped in tests. */
+  readonly now?: () => number;
 };
+
+/** An unheld root has no watcher: its count is kept this long, then taken again. */
+export const COUNT_KEEP_MS = 30_000;
 
 const liveNames: NameSources = { isGitRoot, gitNames, walkNames, gitIgnored };
 
@@ -87,8 +100,11 @@ type Holder = {
   readonly watcher: { readonly close: () => void };
   readonly abort: AbortController;
   repo?: boolean;
-  index?: NameIndex;
-  building?: Promise<NameIndex>;
+  /** The engine slot of the index that answers, once one is built. */
+  slot?: number;
+  size: number;
+  drift: number;
+  building?: Promise<void>;
   /** Paths seen while a build ran, applied once it lands. */
   heldDuringBuild?: string[];
   stale: boolean;
@@ -98,7 +114,6 @@ type Holder = {
   queued: number;
   /** Bursts seen: a build that saw one arrive mid-scan leaves the index stale. */
   bursts: number;
-  readonly matchSets: Map<string, MatchSet>;
 };
 
 const sessionKey = (subscriber: number, node: string): string => `${String(subscriber)}\0${node}`;
@@ -107,6 +122,11 @@ export type FilesService = ReturnType<typeof makeFilesService>;
 
 export const makeFilesService = (deps: FilesServiceDeps) => {
   const names = deps.names ?? liveNames;
+  const engine = deps.engine ?? inProcessEngine();
+  const now = deps.now ?? Date.now;
+  let slots = 0;
+  /** Per session: the search the engine is running, so only one waits there at a time. */
+  const searching = new Map<string, Promise<void>>();
   const sessions = new Map<string, Session>();
   const holders = new Map<string, Holder>();
   const latestSeq = new Map<string, number>();
@@ -127,6 +147,14 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     return root.ok ? work({ root: root.value, deny }) : root;
   };
 
+  /** A write that adds or removes names: the root's kept count is no longer true. */
+  const changing = async <A>(ref: FilesNodeRef, work: (scope: Scope) => Promise<FilesResult<A>>): Promise<FilesResult<A>> =>
+    withRoot(ref, async (scope) => {
+      const result = await work(scope);
+      if (result.ok) counts.delete(scope.root);
+      return result;
+    });
+
   const sendTo = (holder: Holder, event: (node: FilesNodeRef["node"]) => FilesChanged): void => {
     for (const key of holder.sessions) {
       const session = sessions.get(key);
@@ -136,7 +164,10 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
 
   const dropHolder = (holder: Holder): void => {
     // The last count a card sees until the root is opened again.
-    if (holder.index !== undefined && !holder.stale) counts.set(holder.root, { files: holder.index.size, capped: false });
+    if (holder.slot !== undefined) {
+      if (!holder.stale) counts.set(holder.root, { count: { files: holder.size, capped: false }, at: now() });
+      engine.drop(holder.slot);
+    }
     holder.abort.abort();
     holder.watcher.close();
     holders.delete(holder.root);
@@ -147,54 +178,73 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     if (session === undefined) return;
     sessions.delete(key);
     latestSeq.delete(key);
+    searching.delete(key);
     const holder = holders.get(session.root);
     if (holder === undefined) return;
     holder.sessions.delete(key);
-    holder.matchSets.delete(key);
+    if (holder.slot !== undefined) engine.forget(holder.slot, key);
     if (holder.sessions.size === 0) dropHolder(holder);
   };
 
-  const buildIndex = (holder: Holder): Promise<NameIndex> => {
-    const build = async (): Promise<NameIndex> => {
+  /** Build into a fresh slot; the old one answers until this one lands. */
+  const buildIndex = (holder: Holder): Promise<void> => {
+    const build = async (): Promise<void> => {
       holder.heldDuringBuild = [];
       const bursts = holder.bursts;
       const signal = holder.abort.signal;
       holder.repo ??= await names.isGitRoot(holder.root, signal);
-      let builder = new NameIndexBuilder();
-      const sink: NameSink = (batch) => builder.add(batch);
-      if (holder.repo) {
-        try {
-          await names.gitNames(holder.root, sink, signal);
-        } catch (cause) {
-          console.error("[files] git ls-files failed, walking instead", cause);
-          builder = new NameIndexBuilder();
-          await names.walkNames(holder.root, sink, signal);
+      const fresh = (): number => {
+        slots += 1;
+        engine.begin(slots);
+        return slots;
+      };
+      let slot = fresh();
+      const sinkInto = (into: number): NameSink => (batch) => engine.names(into, batch);
+      let state;
+      try {
+        if (holder.repo) {
+          try {
+            await names.gitNames(holder.root, sinkInto(slot), signal);
+          } catch (cause) {
+            console.error("[files] git ls-files failed, walking instead", cause);
+            engine.drop(slot);
+            slot = fresh();
+            await names.walkNames(holder.root, sinkInto(slot), signal);
+          }
+        } else {
+          await names.walkNames(holder.root, sinkInto(slot), signal);
         }
-      } else {
-        await names.walkNames(holder.root, sink, signal);
+        state = await engine.finish(slot);
+      } catch (cause) {
+        engine.drop(slot);
+        throw cause;
       }
-      const index = await builder.finish();
-      holder.index = index;
-      // A burst keeps no paths: one that came mid-scan may be missing, so build again next time.
+      if (signal.aborted) {
+        engine.drop(slot);
+        return;
+      }
+      const previous = holder.slot;
+      holder.slot = slot;
+      holder.size = state.size;
+      holder.drift = state.drift;
+      if (previous !== undefined) engine.drop(previous);
+      // A burst keeps no paths: one that came mid-scan may be missing, so build again.
       holder.stale = holder.bursts !== bursts;
-      holder.matchSets.clear();
       const held = holder.heldDuringBuild;
       holder.heldDuringBuild = undefined;
       // On the chain, so no batch that came after the build interleaves with these.
       if (held.length > 0 && !holder.stale) {
         holder.queued += held.length;
         holder.deltas = holder.deltas
-          .then(() => applyDeltas(holder, index, held))
+          .then(() => applyDeltas(holder, slot, held))
           .catch((cause: unknown) => {
-            console.error("[files] index delta failed; rebuilding on next search", cause);
+            console.error("[files] index delta failed; rebuilding", cause);
             holder.stale = true;
           })
           .finally(() => {
             holder.queued -= held.length;
           });
-        await holder.deltas;
       }
-      return index;
     };
     const building = build().finally(() => {
       if (holder.building === building) holder.building = undefined;
@@ -203,56 +253,66 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     return building;
   };
 
-  const ensureIndex = (holder: Holder): Promise<NameIndex> => {
-    if (holder.building !== undefined) return holder.building;
-    if (holder.index !== undefined && !holder.stale) return Promise.resolve(holder.index);
-    return buildIndex(holder);
+  /**
+   * Ready to search: only the first build is awaited. After that the index
+   * answers as it is: a stale one while its rebuild runs, a fresh one before
+   * its queued deltas land (a check-ignore on a big repo can take seconds).
+   */
+  const ready = async (holder: Holder): Promise<void> => {
+    if (holder.slot === undefined) {
+      await (holder.building ?? buildIndex(holder));
+      return;
+    }
+    if (holder.stale) {
+      if (holder.building === undefined) {
+        buildIndex(holder).catch((cause: unknown) => console.error("[files] index rebuild failed", cause));
+      }
+    }
   };
-
-  /** Folders gone in one batch past which a rebuild is cheaper than a sweep. */
-  const SWEEP_MAX = 64;
 
   /**
    * Fold one batch of changed paths into a built index. Ignored paths drop
    * first, deletes included (check-ignore matches by pattern, so a gone
-   * `dist/` file needs no lookup). A folder that appeared is walked; folders
-   * that went are swept in one pass. A stale index takes no deltas.
+   * `dist/` file needs no lookup). A folder that appeared is walked; the
+   * engine sweeps folders that went. A stale index takes no deltas.
    */
-  const applyDeltas = async (holder: Holder, index: NameIndex, paths: ReadonlyArray<string>): Promise<void> => {
+  const applyDeltas = async (holder: Holder, slot: number, paths: ReadonlyArray<string>): Promise<void> => {
     const signal = holder.abort.signal;
     // A delta for an index a rebuild replaced: the new scan already has it.
-    if (holder.stale || signal.aborted || holder.index !== index) return;
+    const current = (): boolean => !holder.stale && !signal.aborted && holder.slot === slot;
+    if (!current()) return;
     const ignoredNow = holder.repo === true ? await names.gitIgnored(holder.root, paths, signal) : new Set<string>();
-    const walked: string[] = [];
+    const adds: string[] = [];
     const gone: string[] = [];
+    const drop: string[] = [];
+    const walked: string[] = [];
     for (const path of paths) {
-      if (holder.stale || signal.aborted || holder.index !== index) return;
-      if (ignoredNow.has(path)) continue;
+      if (!current()) return;
       const info = await lstat(join(holder.root, path)).catch(() => undefined);
-      if (info === undefined) {
-        if (index.has(path)) index.remove(path);
-        else gone.push(path);
+      if (ignoredNow.has(path)) {
+        // Never added, never swept; gone, it leaves the index if it was there.
+        if (info === undefined) drop.push(path);
+      } else if (info === undefined) {
+        gone.push(path);
       } else if (info.isDirectory()) {
         await names.walkNames(join(holder.root, path), (batch) => {
           for (const name of batch) walked.push(`${path}/${name}`);
         }, signal, undefined, holder.root);
       } else if (info.isSymbolicLink() && !(await linkInside(holder.root, join(holder.root, path)))) {
         // Points out of the root (or nowhere): no row that could only fail.
-        if (index.has(path)) index.remove(path);
+        drop.push(path);
       } else {
-        index.add(path);
+        adds.push(path);
       }
     }
-    if (holder.index !== index) return;
-    if (gone.length > SWEEP_MAX) {
-      holder.stale = true;
-      return;
-    }
-    index.removeUnder(gone);
     const ignoredWalked = holder.repo === true ? await names.gitIgnored(holder.root, walked, signal) : new Set<string>();
-    if (holder.index !== index) return;
-    for (const path of walked) if (!ignoredWalked.has(path)) index.add(path);
-    if (index.drift > COMPACT_AFTER) holder.stale = true;
+    if (!current()) return;
+    for (const path of walked) if (!ignoredWalked.has(path)) adds.push(path);
+    const outcome = await engine.apply(slot, { adds, gone, drop });
+    if (holder.slot !== slot) return;
+    holder.size = outcome.size;
+    holder.drift = outcome.drift;
+    if (outcome.overflow || outcome.drift > COMPACT_AFTER) holder.stale = true;
   };
 
   const onBatch = (holder: Holder, batch: WatchBatch): void => {
@@ -278,16 +338,16 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       holder.heldDuringBuild.push(...paths);
       return;
     }
-    const index = holder.index;
-    if (index === undefined || holder.stale) return;
+    const slot = holder.slot;
+    if (slot === undefined || holder.stale) return;
     // More queued than a rebuild costs: go stale now and drop the queue.
-    if (index.drift + holder.queued + paths.length > COMPACT_AFTER) {
+    if (holder.drift + holder.queued + paths.length > COMPACT_AFTER) {
       holder.stale = true;
       return;
     }
     holder.queued += paths.length;
     holder.deltas = holder.deltas
-      .then(() => applyDeltas(holder, index, paths))
+      .then(() => applyDeltas(holder, slot, paths))
       .catch((cause: unknown) => {
         console.error("[files] index delta failed; rebuilding on next search", cause);
         holder.stale = true;
@@ -302,7 +362,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
    * Files cards never rescans on a render. Opening the root refreshes it
    * (from the index); cards on one root share one count in flight.
    */
-  const counts = new Map<string, FilesCount>();
+  const counts = new Map<string, { readonly count: FilesCount; readonly at: number }>();
   const counting = new Map<string, Promise<FilesCount>>();
 
   /** Count names without keeping them: one git ls-files, or a walk that stops at the cap. */
@@ -341,7 +401,8 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       deltas: Promise.resolve(),
       queued: 0,
       bursts: 0,
-      matchSets: new Map(),
+      size: 0,
+      drift: 0,
     };
     holders.set(root, holder);
     counts.delete(root);
@@ -392,33 +453,50 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       const root = await rootOf(ref);
       if (!root.ok) return root;
       const holder = hold(subscriber, ref, root.value);
-      // A stale index rebuilds; a fresh one first takes the deltas queued for it.
-      if (!holder.stale) await holder.deltas;
-      const index = await ensureIndex(holder);
-      if (latestSeq.get(key) !== seq) return ok({ kind: "superseded", query });
-      if (query.trim() === "") return ok({ kind: "results", query, matches: [], total: index.size });
-      const { matches, set } = index.search(query, holder.matchSets.get(key));
-      holder.matchSets.set(key, set);
-      return ok({ kind: "results", query, matches, total: index.size });
+      await ready(holder);
+      // One search per session in the engine at a time: one that waited past
+      // a newer keystroke answers superseded without running.
+      const run = async (): Promise<FilesSearchResult> => {
+        if (latestSeq.get(key) !== seq) return { kind: "superseded", query };
+        let slot = holder.slot;
+        if (slot === undefined) throw new Error("files index missing");
+        try {
+          const found = await engine.search(slot, key, query);
+          return { kind: "results", query, matches: found.matches, total: found.total };
+        } catch (cause) {
+          // The engine lost the index (its worker stopped): build once more.
+          console.error("[files] index search failed; rebuilding", cause);
+          if (holder.slot === slot) holder.slot = undefined;
+          await ready(holder);
+          slot = holder.slot;
+          if (slot === undefined) throw cause;
+          const found = await engine.search(slot, key, query);
+          return { kind: "results", query, matches: found.matches, total: found.total };
+        }
+      };
+      const answer = (searching.get(key) ?? Promise.resolve()).then(run);
+      searching.set(key, answer.then(() => undefined, () => undefined));
+      const result = await answer;
+      if (result.kind === "results" && latestSeq.get(key) !== seq) return ok({ kind: "superseded", query });
+      return ok(result);
     },
 
     count: (ref: FilesNodeRef): Promise<FilesResult<FilesCount>> =>
       withRoot(ref, async ({ root }) => {
         const holder = holders.get(root);
         if (holder !== undefined) {
-          if (!holder.stale) await holder.deltas;
-          const index = await ensureIndex(holder);
+          await ready(holder);
           counts.delete(root);
-          return ok({ files: index.size, capped: false });
+          return ok({ files: holder.size, capped: false });
         }
         const known = counts.get(root);
-        if (known !== undefined) return ok(known);
+        if (known !== undefined && now() - known.at < COUNT_KEEP_MS) return ok(known.count);
         const running = counting.get(root);
         if (running !== undefined) return ok(await running);
         const once = countOnce(root)
           .then((count) => {
             // A root opened meanwhile counts from its index from now on.
-            if (!holders.has(root)) counts.set(root, count);
+            if (!holders.has(root)) counts.set(root, { count, at: now() });
             return count;
           })
           .finally(() => counting.delete(root));
@@ -433,18 +511,18 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     write: (ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp): Promise<FilesResult<FileStamp>> =>
       withRoot(ref, (root) => writeFileAt(root, path, text, base)),
     create: (ref: FilesNodeRef, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
-      withRoot(ref, (root) => createAt(root, path, dir)),
+      changing(ref, (root) => createAt(root, path, dir)),
     rename: (ref: FilesNodeRef, path: FilePath, name: string): Promise<FilesResult<FilePath>> =>
-      withRoot(ref, (root) => renameAt(root, path, name)),
+      changing(ref, (root) => renameAt(root, path, name)),
     move: (ref: FilesNodeRef, path: FilePath, intoDir: FilePath): Promise<FilesResult<FilePath>> =>
-      withRoot(ref, (root) => moveAt(root, path, intoDir)),
+      changing(ref, (root) => moveAt(root, path, intoDir)),
     trash: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
-      withRoot(ref, (root) => trashAt(root, path, deps.trash)),
+      changing(ref, (root) => trashAt(root, path, deps.trash)),
     import: (
       ref: FilesNodeRef,
       intoDir: FilePath,
       sources: ReadonlyArray<string>,
-    ): Promise<FilesResult<ReadonlyArray<FileImported>>> => withRoot(ref, (root) => importInto(root, intoDir, sources)),
+    ): Promise<FilesResult<ReadonlyArray<FileImported>>> => changing(ref, (root) => importInto(root, intoDir, sources)),
     openInDefaultApp: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
       withRoot(ref, async (root) => {
         const target = await openableAt(root, path);
@@ -476,5 +554,15 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
 
     /** For tests and diagnostics: roots held now. */
     heldRoots: (): ReadonlyArray<string> => [...holders.keys()],
+
+    /** Every rebuild and queued delta done: for tests and measurements. */
+    settle: async (): Promise<void> => {
+      for (;;) {
+        const busy = [...holders.values()].flatMap((holder) => [holder.building, holder.deltas]);
+        if (busy.every((work) => work === undefined)) return;
+        await Promise.all(busy.map((work) => work?.catch(() => undefined)));
+        if ([...holders.values()].every((holder) => holder.building === undefined)) return;
+      }
+    },
   };
 };

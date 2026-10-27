@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { foldForSearch, scoreFilePath } from "@shared/files";
+import { MessageChannel } from "node:worker_threads";
 import { NameIndexBuilder, scoreCodes } from "../src/main/junto/files/name-index";
+import { portEngine, serveIndex, SWEEP_MAX } from "../src/main/junto/files/index-engine";
 
 describe("name index", () => {
   it("removes, adds and sweeps folders by delta", async () => {
@@ -75,5 +77,42 @@ describe("name index", () => {
     expect(one.set.ids.length).toBe(2);
     const two = index.search("alpha.t", one.set);
     expect(two.matches.map((match) => match.path)).toEqual(["src/alpha.ts"]);
+  });
+});
+
+describe("index engine over a message port", () => {
+  it("builds, searches with narrowing, applies deltas and drops, as the worker does", async () => {
+    const { port1, port2 } = new MessageChannel();
+    serveIndex(port2);
+    const engine = portEngine(port1);
+    try {
+      engine.begin(1);
+      engine.names(1, ["src/app.ts", "src/lib/util.ts"]);
+      engine.names(1, ["README.md", "docs/guide.md"]);
+      expect(await engine.finish(1)).toEqual({ size: 4, drift: 0 });
+      expect((await engine.search(1, "s", "ts")).matches.map((match) => match.path)).toEqual(["src/app.ts", "src/lib/util.ts"]);
+      expect(await engine.search(1, "s", "")).toEqual({ matches: [], total: 4 });
+      const applied = await engine.apply(1, { adds: ["src/new.ts"], gone: ["docs", "README.md"], drop: ["src/app.ts"] });
+      expect(applied).toMatchObject({ size: 2, overflow: false });
+      expect((await engine.search(1, "s", "ts")).matches.map((match) => match.path).sort()).toEqual(["src/lib/util.ts", "src/new.ts"]);
+      const many = Array.from({ length: SWEEP_MAX + 1 }, (_, i) => `gone-${String(i)}`);
+      expect(await engine.apply(1, { adds: [], gone: many, drop: [] })).toMatchObject({ overflow: true });
+      engine.drop(1);
+      await expect(engine.search(1, "s", "ts")).rejects.toThrow("no index in slot 1");
+      engine.lost(new Error("stopped"));
+    } finally {
+      port1.close();
+      port2.close();
+    }
+  });
+
+  it("a lost worker rejects every pending call", async () => {
+    const { port1, port2 } = new MessageChannel();
+    const engine = portEngine(port1);
+    const pending = engine.finish(7);
+    engine.lost(new Error("files index worker exited 1"));
+    await expect(pending).rejects.toThrow("exited 1");
+    port1.close();
+    port2.close();
   });
 });

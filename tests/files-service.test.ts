@@ -13,7 +13,7 @@ import {
 } from "@shared/files";
 import { fileUrl } from "@shared/file-url";
 import { asNodeId } from "@shared/physics/schema";
-import { makeFilesService, type FilesNodeFacts, type NameSources } from "../src/main/junto/files/service";
+import { COUNT_KEEP_MS, makeFilesService, type FilesNodeFacts, type NameSources } from "../src/main/junto/files/service";
 import { gitNames, walkNames } from "../src/main/junto/files/sources";
 import { execFileSync } from "node:child_process";
 import { numberedName } from "../src/main/junto/files/fs-ops";
@@ -161,6 +161,7 @@ describe("symlinks that point out of the root", () => {
     watch.fire("new-out.txt");
     watch.fire("new-in.txt");
     while (queued.length > 0) queued.shift()?.();
+    await files.settle();
     const found = value(await files.search(1, ref, "new", 2));
     expect(found).toMatchObject({ matches: [{ path: "new-in.txt" }] });
   });
@@ -391,9 +392,30 @@ describe("search", () => {
     watch.fire("src/new-files.ts");
     queued.shift()?.();
     expect(sent.at(-1)?.event).toEqual({ node: ref.node, kind: "paths", paths: ["src/new-files.ts"] });
+    await files.settle();
     const after = value(await files.search(1, ref, "newfiles", 3));
     if (after.kind !== "results") throw new Error("results");
     expect(after.matches.map((match) => match.path)).toEqual(["src/new-files.ts"]);
+  });
+
+  it("an unheld count is taken again after a Junto write, or once it is 30 s old", async () => {
+    let listed = ["README.md"];
+    let clock = 1_000;
+    const { files } = service({ names: fakeNames(() => listed), now: () => clock });
+    expect(value(await files.count(ref))).toEqual({ files: 1, capped: false });
+    listed = ["README.md", "new.txt"];
+    value(await files.create(ref, p("new.txt"), false));
+    expect(value(await files.count(ref))).toEqual({ files: 2, capped: false });
+    // A change outside Junto (Finder, a shell): no watcher on an unheld root.
+    listed = ["README.md", "new.txt", "finder.txt"];
+    clock += COUNT_KEEP_MS - 1;
+    expect(value(await files.count(ref))).toEqual({ files: 2, capped: false });
+    clock += 1;
+    expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
+    // A refused write keeps the count.
+    listed = [];
+    expect(errorOf(await files.create(ref, p("new.txt"), false))).toBe("exists");
+    expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
   });
 
   it("counts files for the card without a session, then from the held index", async () => {
@@ -437,6 +459,7 @@ describe("search", () => {
     watch.fire("src");
     watch.fire("dist/out.js");
     queued.shift()?.();
+    await files.settle();
     const after = value(await files.search(1, ref, "ts", 2));
     expect(after).toMatchObject({ total: 1, matches: [] });
     expect(ignoredAsked).toContain("dist/out.js");
@@ -469,13 +492,47 @@ describe("search", () => {
     }
     listed = ["a.ts", "b.ts"];
     value(await files.search(1, ref, "b", 2));
+    await files.settle();
     expect(scans).toBe(2);
     await writeFile(join(root, "new.ts"), "");
     watch.fire("new.ts");
     while (queued.length > 0) queued.shift()?.();
+    await files.settle();
     const found = value(await files.search(1, ref, "new", 3));
     expect(found).toMatchObject({ matches: [{ path: "new.ts" }] });
     expect(scans).toBe(2);
+  });
+
+  it("a stale index keeps answering while its rebuild runs", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    let release: (() => void) | undefined;
+    let listed = ["old.ts"];
+    const { files } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      names: {
+        isGitRoot: async () => true,
+        gitNames: async (_root, sink) => {
+          const names = listed;
+          if (names.includes("new.ts")) await new Promise<void>((resolve) => (release = resolve));
+          sink(names);
+        },
+        walkNames: async () => undefined,
+        gitIgnored: async () => new Set<string>(),
+      },
+    });
+    value(await files.open(1, ref));
+    expect(value(await files.search(1, ref, "ts", 1))).toMatchObject({ matches: [{ path: "old.ts" }] });
+    listed = ["old.ts", "new.ts"];
+    watch.fire(null); // a burst: stale
+    while (queued.length > 0) queued.shift()?.();
+    // The rebuild is held open; the search answers from the old index.
+    expect(value(await files.search(1, ref, "ts", 2))).toMatchObject({ matches: [{ path: "old.ts" }], total: 1 });
+    expect(value(await files.count(ref))).toEqual({ files: 1, capped: false });
+    release?.();
+    await files.settle();
+    expect(value(await files.search(1, ref, "ts", 3))).toMatchObject({ total: 2 });
   });
 
   it("a burst that lands mid-scan leaves the new index stale", async () => {
@@ -606,6 +663,19 @@ describe("watcher", () => {
     watch.fire("late.ts");
     watch.advanceTo(4_000);
     expect(watch.batches.at(-1)).toEqual({ kind: "paths", paths: ["late.ts"] });
+  });
+
+  it("an install that jitters around any rate stays one streak", () => {
+    const watch = clockedWatch();
+    // About 1,000 files a second, 95 or 105 a window, with a 300 ms stall.
+    for (let t = 0; t < 30_000; t += 100) {
+      if (t >= 12_000 && t < 12_300) continue;
+      watch.advanceTo(t);
+      const count = t % 200 === 0 ? 105 : 95;
+      for (let i = 0; i < count; i += 1) watch.fire(`t${String(t)}/f${String(i)}`);
+    }
+    watch.advanceTo(31_000);
+    expect(watch.kinds().filter((kind) => kind === "burst")).toHaveLength(3);
   });
 
   it("an install that never pauses sends a burst at most every 10 s", () => {
