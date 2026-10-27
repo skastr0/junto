@@ -94,7 +94,7 @@ const bodyOf = (given: {
 
 const DESCRIPTIONS = {
   list: "Artifacts on every Artifacts node in this seat's reach, or on the one --node names, newest change first. Archived ones only with --archived.",
-  show: "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with linkedFrom: the mail and comments you can read that link it.",
+  show: "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with linkedFrom: the artifacts in reach whose body links it, and the mail and comments you can read that link it.",
   history: "An artifact's versions, newest first: who made each and whether it replaced or patched the body.",
   create: "Create an artifact on the Artifacts node in reach, or the one --node names. Documents, pads and sheets start empty; a link needs --url. [[Title]] in the body links the artifact of that title in reach, or [[<artifactId>]] when several share it.",
   edit: "Edit an artifact written against --base: replace its body (--markdown, --url or --body), or patch a pad, sheet or document (--patch). [[Title]] links as in create.",
