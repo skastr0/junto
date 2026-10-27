@@ -12,6 +12,7 @@ import {
   type FileSource,
   padOf,
 } from "@shared/artifact";
+import type { MentionOf } from "@shared/mention";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
 import { type ItemId, mintItemId } from "@shared/resource-command";
@@ -40,6 +41,7 @@ import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
+import { useArtifactsInReach } from "../../lib/artifacts-in-reach";
 import { makePostOps } from "../../lib/post-op";
 import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
@@ -129,6 +131,16 @@ export function ArtifactsNode({
       setArchived(false);
       setCreating(null);
     }
+  };
+
+  /**
+   * A `[[` title that names nothing becomes an empty document in this node,
+   * and the one being written stays open; a queued create links all the same.
+   */
+  const createLinked = async (title: string): Promise<MentionOf<"artifact"> | null> => {
+    const itemId = mintItemId();
+    const ruling = await apply(itemId, { op: "create", title, body: { type: "document", markdown: "" } });
+    return ruling.kind === "applied" || ruling.kind === "queued" ? { kind: "artifact", nodeId, artifactId: itemId } : null;
   };
 
   /** The list's keys (lib/list-nav): a move picks the row, Enter opens it into the content. */
@@ -303,6 +315,7 @@ export function ArtifactsNode({
           queued={queued}
           pending={pending.filter((write) => write.artifactId === selected.artifact.artifactId)}
           apply={(op) => apply(selected.artifact.artifactId, op)}
+          createLinked={createLinked}
           onClose={onClose}
         />
       )}
@@ -319,9 +332,12 @@ function SelectedArtifact({
   queued,
   pending,
   apply,
+  createLinked,
   onClose,
 }: {
   readonly onClose: () => void;
+  /** Make a document by a `[[` title in this node: its mention, or null when it was refused. */
+  readonly createLinked: (title: string) => Promise<MentionOf<"artifact"> | null>;
   readonly canvasName: string;
   readonly entry: ArtifactHead;
   readonly queued: boolean;
@@ -364,9 +380,21 @@ function SelectedArtifact({
     [siblings, artifact.nodeId, artifact.artifactId],
   );
   const resources = useResourcesInReach(canvasName, artifact.nodeId, { tasksOf, artifactsOf });
+  // What [[ links to: every artifact in reach but this one; an archived artifact writes no new documents.
+  const inReach = useArtifactsInReach(canvasName, artifact.nodeId);
+  const linkable = useMemo(() => inReach.filter((other) => other.ref.artifactId !== artifact.artifactId), [inReach, artifact.artifactId]);
+  // One create for the field's life: the node's own changes each render, and the list should not redraw for it.
+  const createRef = useRef(createLinked);
+  createRef.current = createLinked;
+  const create = useCallback((title: string) => createRef.current(title), []);
   const documentMentions = useMemo<DocumentMentions>(
-    () => ({ canvasName, candidates: [...mentionable, ...resources], nodeKindOf: (id) => nodeAt(canvasName, id)?.kind }),
-    [canvasName, mentionable, resources],
+    () => ({
+      canvasName,
+      candidates: [...mentionable, ...resources],
+      nodeKindOf: (id) => nodeAt(canvasName, id)?.kind,
+      links: { artifacts: linkable, ...(readOnly ? {} : { create }) },
+    }),
+    [canvasName, mentionable, resources, linkable, readOnly, create],
   );
 
   useEffect(() => setTitle(artifact.title), [artifact.title]);
