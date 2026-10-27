@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath, ROOT_PATH, type FileEntry, type FilePath } from "../src/shared/files";
-import { isSaveChord } from "../src/renderer/components/files/FilesNode";
 import { fileOfSelection, folderOps, treePathOf } from "../src/renderer/components/files/files-tree";
 import { changeTouches, dirtyPaths, fileDraft, fileViewOf, filesErrorLine, foldersTouched, makeLocalFiles, setFileDraft } from "../src/renderer/lib/files-source";
 
@@ -57,14 +56,6 @@ describe("the tree", () => {
 });
 
 describe("saving", () => {
-  it("answers Cmd+S on macOS and Ctrl+S elsewhere, and nothing with another key held", () => {
-    const key = { key: "s", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false };
-    expect(isSaveChord({ ...key, metaKey: true }, true)).toBe(true);
-    expect(isSaveChord({ ...key, ctrlKey: true }, true)).toBe(false);
-    expect(isSaveChord({ ...key, ctrlKey: true }, false)).toBe(true);
-    expect(isSaveChord({ ...key, metaKey: true, shiftKey: true }, true)).toBe(false);
-  });
-
   it("writes against the version read, and refuses stale once the disk moved on", async () => {
     const files = makeLocalFiles({ "a.ts": "one" }, () => 100);
     const read = await files.read(ref, path("a.ts"));

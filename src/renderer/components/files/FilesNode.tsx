@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
-import { ExternalLink, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
+import { CircleAlert, ExternalLink, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import { baseName, parentOf, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FileStamp } from "@shared/files";
@@ -34,13 +34,10 @@ import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { fileOfSelection, treePathOf, useFolderTree } from "./files-tree";
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop } from "./useFilesDrop";
+import { registerFileEditorSave } from "../../lib/file-editor-keys";
+import { keyAria } from "../../lib/key-match";
+import "../ui/file-tree.css";
 import "./files.css";
-
-/** Cmd+S on macOS, Ctrl+S elsewhere, with nothing else held. */
-export const isSaveChord = (event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, mac: boolean): boolean =>
-  event.key.toLowerCase() === "s" && !event.shiftKey && !event.altKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey);
-
-const MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
 
 const VIEW_GLYPH: Record<FileView, LucideIcon> = {
   markdown: FileText,
@@ -99,6 +96,7 @@ export function FilesNode({
     initialExpansion: "closed",
     ...(initialPath === undefined ? {} : { initialExpandedPaths: ancestorsOf(initialPath), initialSelectedPaths: [initialPath] }),
     search: true,
+    itemHeight: 28,
     onSelectionChange: (paths) => {
       const file = fileOfSelection(paths);
       if (file !== null) setSelected(file);
@@ -122,13 +120,9 @@ export function FilesNode({
     </>
   );
 
-  /** The open file's save, for Cmd+S anywhere in the modal. */
+  /** The open file's save. Cmd+S (files.save) reaches it for the life of the modal, so the key is never left to beep. */
   const save = useRef<(() => void) | null>(null);
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
-    if (!isSaveChord(event, MAC)) return;
-    event.preventDefault();
-    save.current?.();
-  };
+  useEffect(() => registerFileEditorSave(() => save.current?.()), []);
 
   const empty =
     root.state === "refused" ? (
@@ -138,7 +132,7 @@ export function FilesNode({
     ) : null;
 
   return (
-    <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose} onKeyDown={onKeyDown}>
+    <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose}>
       <div {...drop.surface} className="files-body">
         {empty !== null || selected === null || root.state !== "ready" ? (
           <TwoPane sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
@@ -321,7 +315,9 @@ function SelectedFile({
           </span>
         ) : null}
         {text !== null ? (
-          <Button size="xs" variant={draft === undefined ? "subtle" : "primary"} disabled={draft === undefined || saving} onClick={() => save.current?.()}>
+          <Button size="xs" variant={draft === undefined ? "subtle" : "primary"} disabled={draft === undefined || saving}
+            aria-keyshortcuts={keyAria("files.save")}
+            onClick={() => save.current?.()}>
             {saving ? "Saving" : "Save"}
           </Button>
         ) : null}
@@ -345,6 +341,7 @@ function SelectedFile({
       ) : null}
       {error ? (
         <p className="files-error" role="alert">
+          <CircleAlert size={14} aria-hidden />
           {error}
         </p>
       ) : null}

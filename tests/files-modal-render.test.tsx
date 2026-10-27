@@ -8,6 +8,7 @@ import { parseFilePath } from "../src/shared/files";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { FilesNode } = await import("../src/renderer/components/files/FilesNode");
+const { saveFileInFront } = await import("../src/renderer/lib/file-editor-keys");
 const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/renderer/lib/files-source");
 
 const nodeId = asNodeId("files-render");
@@ -62,6 +63,24 @@ describe("the Files modal", () => {
     await press(buttonNamed("Save"));
     expect(fileDraft(nodeId, A)).toBeUndefined();
     expect(await files.read(ref, A)).toMatchObject({ ok: true, value: { text: "two" } });
+  });
+
+  it("saves the open file on Cmd+S, through the key table's files.save", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok || read.value.kind !== "text") throw new Error("expected text");
+    const base = read.value.stamp;
+    await act(async () => setFileDraft(nodeId, A, { text: "three", base }));
+    await act(async () => {
+      expect(saveFileInFront()).toBe(true);
+    });
+    await flush();
+    expect(await files.read(ref, A)).toMatchObject({ ok: true, value: { text: "three" } });
+    act(() => root.render(<></>));
+    expect(saveFileInFront()).toBe(false);
   });
 
   it("offers reload or keep when the file moved on disk under a draft, and keep writes the draft", async () => {
