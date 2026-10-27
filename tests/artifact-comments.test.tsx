@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintItemId } from "../src/shared/resource-command";
 import { makeLocalSubjectThreads, newPostOpId, type SubjectThread } from "../src/renderer/lib/subject-threads-source";
 import { asNodeId } from "../src/shared/physics/schema";
-import { ArtifactComments } from "../src/renderer/components/artifacts/ArtifactComments";
+import { ArtifactComments, ArtifactCommentsEdge } from "../src/renderer/components/artifacts/ArtifactComments";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,5 +92,38 @@ describe("artifact comments rail", () => {
     await source.post("c", subject, { text: "reply", opId: newPostOpId(), threadId: first.threadId });
     const threads = await source.threads("c", subject);
     expect(threads.map((thread) => thread.posts.map((post) => post.text))).toEqual([["one", "reply"], ["two"]]);
+  });
+});
+
+describe("artifact comments rail, collapsed", () => {
+  const seatPost = (nodeId: string, at: number) => ({
+    messageId: mintItemId(),
+    author: { kind: "seat" as const, nodeId: asNodeId(nodeId) },
+    text: "seen",
+    at,
+  });
+
+  it("is an edge with the count of every post and the seats that took part, latest first", () => {
+    const onOpen = vi.fn();
+    const threads: SubjectThread[] = [
+      { threadId: mintItemId(), posts: [thread("mine", 1).posts[0]!, seatPost("seat-a", 2)] },
+      { threadId: mintItemId(), posts: [seatPost("seat-b", 5), seatPost("seat-a", 3)] },
+    ];
+    act(() => root.render(<ArtifactCommentsEdge threads={threads} seatName={(id) => id.toUpperCase()} onOpen={onOpen} />));
+    const edge = host.querySelector<HTMLButtonElement>("[data-comments-toggle]")!;
+    expect(edge.getAttribute("aria-label")).toBe("Comments, 4");
+    expect(edge.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[data-testid="comments-edge-count"]')?.textContent).toBe("4");
+    expect([...host.querySelectorAll('[data-testid="comments-edge-seat"]')].map((el) => el.getAttribute("data-seat-id"))).toEqual(["seat-b", "seat-a"]);
+    expect(edge.title).toBe("Open comments, from SEAT-B, SEAT-A");
+    act(() => edge.click());
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("shows no count and no faces when nothing is written yet", () => {
+    act(() => root.render(<ArtifactCommentsEdge threads={[]} onOpen={() => {}} />));
+    expect(host.querySelector("[data-comments-toggle]")?.getAttribute("aria-label")).toBe("Comments");
+    expect(host.querySelector('[data-testid="comments-edge-count"]')).toBeNull();
+    expect(host.querySelector('[data-testid="comments-edge-seat"]')).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import { Archive, ArchiveRestore, History, Plus, Search } from "lucide-react";
 import {
   ARTIFACT_TYPES,
@@ -29,7 +30,7 @@ import {
 } from "../../lib/artifacts-source";
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, Input, ListRow, PaneEmpty, PaneHeader, ResourceGlyphMark, TwoPane } from "../ui";
-import { ArtifactComments } from "./ArtifactComments";
+import { ArtifactComments, ArtifactCommentsEdge } from "./ArtifactComments";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
@@ -53,7 +54,9 @@ import {
 } from "./artifacts-pane-model";
 import { DocumentEditor } from "./DocumentEditor";
 import "./artifacts.css";
-import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
+import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
+import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
+import { sidebarSections$ } from "../../lib/sidebar-sections";
 
 /** Ages in the list move on without a write; a minute is fine enough. */
 const CLOCK_MS = 60_000;
@@ -282,6 +285,39 @@ function SelectedArtifact({
 
   useEffect(() => setTitle(artifact.title), [artifact.title]);
 
+  /** The rail: an edge by default, open or closed as one choice for every artifact. */
+  const railOpen = commentsRailOpen(use$(sidebarSections$.open));
+  const [reveal, setReveal] = useState<{ readonly threadId: string; readonly nonce: number } | undefined>(undefined);
+  const railElement = useRef<HTMLDivElement | null>(null);
+  const railRef = useCallback((element: HTMLDivElement | null) => {
+    railElement.current = element;
+    return commentsRailRef(element);
+  }, []);
+  /** The toggle pressed was just hidden: the keyboard follows to the one showing now. */
+  const railToggled = useRef(false);
+  const toggleRail = (open: boolean): void => {
+    railToggled.current = true;
+    setCommentsRailOpen(open);
+  };
+  useEffect(() => {
+    if (!railToggled.current) return;
+    railToggled.current = false;
+    claimFocus(railElement.current?.querySelector<HTMLElement>("[data-comments-toggle]"), "gesture", { preventScroll: true });
+  }, [railOpen]);
+  // A place picked to comment on needs the composer: the rail opens for it.
+  useEffect(() => {
+    if (draftAnchor !== undefined) setCommentsRailOpen(true);
+  }, [draftAnchor]);
+  /** A marker in the artifact was pressed: open the rail on its thread. */
+  const revealThread = (threadId: string): void => {
+    setCommentsRailOpen(true);
+    setReveal((last) => ({ threadId, nonce: (last?.nonce ?? 0) + 1 }));
+  };
+  const seatName = (id: string): string | undefined => {
+    const node = nodeAt(canvasName, id);
+    return node === undefined ? undefined : titleOf(node);
+  };
+
   /**
    * The head an edit is written against, read when the write starts, not
    * when it was queued: a landed edit moves it before the next queued write
@@ -375,32 +411,37 @@ function SelectedArtifact({
         onClose();
         openMention(ref);
       }}
-      seatName={(id) => {
-        const node = nodeAt(canvasName, id);
-        return node === undefined ? undefined : titleOf(node);
-      }}
+      seatName={seatName}
       draftAnchor={draftAnchor}
       now={now}
       onStart={(text, anchor) => comment(text, anchor)}
       onReply={(threadId, text) => comment(text, undefined, threadId)}
       onClearAnchor={() => setDraftAnchor(undefined)}
+      onCollapse={() => toggleRail(false)}
+      reveal={reveal}
     />
   );
   const rail = (
-    <>
-      {comments}
-      <MentionedIn
-        canvasName={canvasName}
-        target={{ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
-        now={now}
-        nameOf={(place) => (place.kind === "task" ? tasks.find((task) => task.taskId === place.taskId)?.title : undefined)}
-        beforeOpen={onClose}
-      />
-    </>
+    <div className="artifact-rail" ref={railRef}>
+      {railOpen ? (
+        <>
+          {comments}
+          <MentionedIn
+            canvasName={canvasName}
+            target={{ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
+            now={now}
+            nameOf={(place) => (place.kind === "task" ? tasks.find((task) => task.taskId === place.taskId)?.title : undefined)}
+            beforeOpen={onClose}
+          />
+        </>
+      ) : (
+        <ArtifactCommentsEdge threads={threads} seatName={seatName} onOpen={() => toggleRail(true)} />
+      )}
+    </div>
   );
 
   return (
-    <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel={artifact.title} rail={rail} railLabel="Comments">
+    <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel={artifact.title} rail={rail} railLabel="Comments" railCollapsed={!railOpen}>
       <header className="artifact-head">
         <ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={14} />
         <input

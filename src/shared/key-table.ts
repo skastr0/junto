@@ -389,7 +389,7 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     id: "rail.toggle",
     area: "Agent and terminal",
     name: "Show or hide the agent's connections",
-    does: "Widen or narrow the list of connected agents beside the agent in front",
+    does: "Widen or narrow the list of connected agents beside the agent in front, or open or close an artifact's comments",
     mac: ["Cmd+B"],
     other: [],
     where: ["terminal", "working"],

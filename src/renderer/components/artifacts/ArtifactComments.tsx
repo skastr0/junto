@@ -1,15 +1,73 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, PanelRightClose } from "lucide-react";
 import type { Anchor } from "@shared/thread-subject";
 import type { SubjectThread } from "../../lib/subject-threads-source";
 import type { MentionCandidate } from "../../lib/mention-draft";
-import { Button, Eyebrow, PaneHeader } from "../ui";
+import { AgentPortrait } from "../AgentPortrait";
+import { Button, Eyebrow, IconButton, PaneHeader } from "../ui";
 import { PostText } from "../tasks/TaskThread";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel, ageLabel, anchorLabel } from "./artifacts-pane-model";
+import { commentCount, commentSeats } from "./comments-rail-model";
+import "./artifact-comments.css";
+
+/** Faces the collapsed edge stacks before it says "+N". */
+const EDGE_SEATS = 4;
+
+/**
+ * The comments rail collapsed: a thin edge that says whether the artifact has
+ * comments, how many, and which seats took part, by their portraits. The
+ * whole edge is one toggle; Cmd+B is the same toggle from the keyboard.
+ */
+export function ArtifactCommentsEdge({
+  threads,
+  seatName,
+  onOpen,
+}: {
+  readonly threads: ReadonlyArray<SubjectThread>;
+  readonly seatName?: (nodeId: string) => string | undefined;
+  readonly onOpen: () => void;
+}) {
+  const count = commentCount(threads);
+  const seats = commentSeats(threads);
+  const shown = seats.slice(0, EDGE_SEATS);
+  const names = seats.map((id) => seatName?.(id) ?? id);
+  return (
+    <button
+      type="button"
+      data-comments-toggle=""
+      className="artifact-comments-edge"
+      data-has-comments={count > 0 ? "true" : undefined}
+      aria-label={count > 0 ? `Comments, ${String(count)}` : "Comments"}
+      aria-expanded={false}
+      aria-keyshortcuts="Meta+B"
+      title={names.length > 0 ? `Open comments, from ${names.join(", ")}` : "Open comments"}
+      onClick={onOpen}
+    >
+      <MessageSquare size={14} aria-hidden className="artifact-comments-edge__mark" />
+      {count > 0 ? (
+        <span className="artifact-comments-edge__count" data-testid="comments-edge-count">
+          {count}
+        </span>
+      ) : null}
+      {shown.length > 0 ? (
+        <span className="artifact-comments-edge__seats" aria-hidden>
+          {shown.map((id) => (
+            <span key={id} className="artifact-comments-edge__seat" data-testid="comments-edge-seat" data-seat-id={id}>
+              <AgentPortrait identity={id} size={20} frame="round" outline={false} badge={false} />
+            </span>
+          ))}
+          {seats.length > shown.length ? (
+            <span className="artifact-comments-edge__more">+{seats.length - shown.length}</span>
+          ) : null}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 /**
  * The comments rail: the artifact's threads in time order, each hung on a
@@ -31,8 +89,14 @@ export function ArtifactComments({
   mentionable,
   nodeKindOf,
   onOpenMention,
+  onCollapse,
+  reveal,
 }: {
   readonly canvasName: string;
+  /** Collapses the rail to its edge; absent, the rail has no collapse. */
+  readonly onCollapse?: () => void;
+  /** A thread to bring into view and flash: a marker in the artifact was pressed. */
+  readonly reveal?: { readonly threadId: string; readonly nonce: number };
   /** Seats in reach of the Artifacts node: the only ones a comment may name. */
   readonly mentionable: ReadonlyArray<MentionCandidate>;
   readonly threads: ReadonlyArray<SubjectThread>;
@@ -63,7 +127,24 @@ export function ArtifactComments({
 
   return (
     <div className="artifact-comments">
-      <PaneHeader eyebrow={`Comments, ${threads.length}`} />
+      <PaneHeader
+        eyebrow={`Comments, ${commentCount(threads)}`}
+        actions={
+          onCollapse ? (
+            <IconButton
+              data-comments-toggle=""
+              aria-label="Comments"
+              aria-expanded
+              aria-keyshortcuts="Meta+B"
+              title="Collapse comments"
+              size="sm"
+              onClick={onCollapse}
+            >
+              <PanelRightClose size={14} aria-hidden />
+            </IconButton>
+          ) : undefined
+        }
+      />
       <div className="artifact-comments__new">
         <div className="artifact-comments__anchor">
           <Eyebrow tone={draftAnchor ? "cyan" : "faint"} size="xs">
@@ -121,6 +202,7 @@ export function ArtifactComments({
               onOpenMention={onOpenMention}
               onReply={(text) => onReply(thread.threadId, text)}
               onFocus={onFocusAnchor ? () => onFocusAnchor(thread.anchor) : undefined}
+              reveal={reveal?.threadId === thread.threadId ? reveal.nonce : undefined}
             />
           ))}
         </ol>
@@ -139,8 +221,11 @@ function ThreadView({
   mentionable,
   nodeKindOf,
   onOpenMention,
+  reveal,
 }: {
   readonly canvasName: string;
+  /** Changes each time a marker for this thread is pressed. */
+  readonly reveal?: number;
   readonly mentionable: ReadonlyArray<MentionCandidate>;
   readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
   readonly onOpenMention: (ref: MentionRef) => void;
@@ -152,6 +237,14 @@ function ThreadView({
 }) {
   const [reply, setReply] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
+  const itemRef = useRef<HTMLLIElement>(null);
+  const [flash, setFlash] = useState(false);
+  // Scrolls, never focuses: the operator's keyboard stays where it was.
+  useEffect(() => {
+    if (reveal === undefined) return;
+    itemRef.current?.scrollIntoView({ block: "nearest" });
+    setFlash(true);
+  }, [reveal]);
   const send = async (): Promise<void> => {
     const text = reply.trim();
     if (text.length === 0) return;
@@ -160,7 +253,13 @@ function ThreadView({
     if (refused === null) setReply((now) => (now.trim() === text ? "" : now));
   };
   return (
-    <li className="artifact-thread">
+    <li
+      ref={itemRef}
+      className="artifact-thread"
+      data-thread-id={thread.threadId}
+      data-revealed={flash ? "true" : undefined}
+      onAnimationEnd={() => setFlash(false)}
+    >
       <div className="artifact-thread__head">
         <button type="button" className="artifact-thread__anchor" onClick={onFocus} disabled={onFocus === undefined}>
           <MessageSquare size={12} aria-hidden />

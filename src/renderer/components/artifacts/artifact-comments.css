@@ -1,0 +1,104 @@
+/* The comments rail's own parts: the root that holds it, the collapsed edge,
+   and a revealed thread's flash. The rail's threads and composer are in
+   artifacts.css. Tokens only. */
+
+.artifact-rail {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* Collapsed: the whole 40px edge is one toggle, read top down: the mark,
+   the count, then the faces of the seats that took part. */
+.artifact-comments-edge {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-faint);
+  cursor: pointer;
+}
+
+.artifact-comments-edge[data-has-comments="true"] {
+  color: var(--color-ink-2);
+}
+
+.artifact-comments-edge:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.artifact-comments-edge:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+.artifact-comments-edge__mark {
+  flex: none;
+}
+
+.artifact-comments-edge__count {
+  color: var(--color-amber-fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-compact);
+}
+
+.artifact-comments-edge__seats {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 4px;
+}
+
+/* Stacked: each face tucks under the one above it, ringed in the rail's
+   ground so the overlap reads. */
+.artifact-comments-edge__seat {
+  display: block;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 0 0 2px var(--color-raise-2);
+  line-height: 0;
+}
+
+.artifact-comments-edge__seat + .artifact-comments-edge__seat {
+  margin-top: -6px;
+}
+
+.artifact-comments-edge__more {
+  margin-top: 4px;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A marker in the artifact was pressed: its thread flashes once. Opacity
+   only, on a layer over the thread. */
+.artifact-thread {
+  position: relative;
+}
+
+.artifact-thread[data-revealed="true"]::after {
+  position: absolute;
+  inset: 0;
+  background: var(--color-selection);
+  content: "";
+  pointer-events: none;
+  animation: artifact-thread-reveal 1200ms ease-out forwards;
+}
+
+@keyframes artifact-thread-reveal {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}

@@ -1,5 +1,6 @@
 import { activateSelectedNodeSurface } from "./activate-node-surface";
 import { actorRailExpanded, actorRailMode, setActorRailExpanded } from "./actor-rail";
+import { commentsRailInFront, commentsRailOpen, setCommentsRailOpen } from "./artifact-comments-rail";
 import { cycleActorMirror } from "./actor-mirrors";
 import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
@@ -90,9 +91,14 @@ export const KEY_ACTIONS: KeyActions = {
   "canvas.zoomReset": () => resetCanvasZoom(),
   // With no connections list in front the key passes, and the choice it
   // would have flipped for every other agent is left alone.
+  // An artifact's comments rail in front takes it the same way.
   "rail.toggle": () => {
-    if (!railInFront()) return false;
-    setActorRailExpanded(!actorRailExpanded());
+    if (railInFront()) {
+      setActorRailExpanded(!actorRailExpanded());
+      return true;
+    }
+    if (!commentsRailInFront()) return false;
+    setCommentsRailOpen(!commentsRailOpen());
     return true;
   },
   // Nothing selected, or nothing it can open: the key passes.
