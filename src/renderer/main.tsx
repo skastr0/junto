@@ -75,12 +75,6 @@ const PreviewCardGallery = lazy(() =>
   import("./components/gallery/PreviewCardGallery").then((m) => ({ default: m.PreviewCardGallery })),
 );
 
-// Dev gallery for the file viewers (`#/gallery/files`).
-const FILES_GALLERY = "#/gallery/files";
-const FileViewGallery = lazy(() =>
-  import("./components/gallery/FileViewGallery").then((m) => ({ default: m.FileViewGallery })),
-);
-
 // Dev gallery for the kind seats (`#/gallery/kinds`).
 const KINDS_GALLERY = "#/gallery/kinds";
 const KindSeatGallery = lazy(() =>
@@ -108,14 +102,6 @@ function AppRoot() {
     return (
       <Suspense fallback={null}>
         <PreviewCardGallery />
-      </Suspense>
-    );
-  }
-
-  if (window.location.hash.startsWith(FILES_GALLERY)) {
-    return (
-      <Suspense fallback={null}>
-        <FileViewGallery />
       </Suspense>
     );
   }

@@ -1,4 +1,4 @@
-import type { ComponentPropsWithRef, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { FOCUS_RING_INSET } from "./focus";
 
 /**
@@ -20,7 +20,7 @@ export function IconButton({
   readonly size?: "xs" | "sm" | "md";
   readonly className?: string;
   readonly children: ReactNode;
-} & ComponentPropsWithRef<"button">) {
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   const tones = {
     default: "text-steel hover:bg-ink/10 hover:text-ink",
     danger: "text-steel hover:bg-ink/10 hover:text-crimson",

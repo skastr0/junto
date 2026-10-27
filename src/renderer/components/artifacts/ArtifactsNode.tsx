@@ -61,8 +61,6 @@ import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { paneEntryOf } from "../../lib/pane-focus";
 import { useListNav } from "../../lib/list-nav";
 import { topModal } from "../../lib/modal-stack";
-import { itemsQuickOpen } from "../../lib/quick-open";
-import { useQuickOpen } from "../quick-open/use-quick-open";
 
 /** Ages in the list move on without a write; a minute is fine enough. */
 const CLOCK_MS = 60_000;
@@ -148,28 +146,6 @@ export function ArtifactsNode({
     },
   });
 
-  /** A pick in the palette opens that artifact, wherever the list filter sat. */
-  const quickOpen = useQuickOpen({
-    nodeId,
-    enabled: entries.length > 0,
-    source: useMemo(
-      () =>
-        itemsQuickOpen({
-          kind: "artifact",
-          items: entries,
-          itemOf: ({ artifact }) => ({
-            row: { id: artifact.artifactId, title: artifact.title, detail: TYPE_NOUN[artifact.type] },
-            match: { identity: [artifact.title], metadata: [TYPE_NOUN[artifact.type]] },
-          }),
-        }),
-      [entries],
-    ),
-    onOpen: (item) => {
-      setSelectedId(item.id);
-      setError(null);
-    },
-  });
-
   const sidebar = (
     <>
       <PaneHeader
@@ -181,18 +157,15 @@ export function ArtifactsNode({
           </span>
         }
         actions={
-          <>
-            {quickOpen.trigger}
-            <IconButton
-              aria-label="New artifact"
-              title="New artifact"
-              size="sm"
-              aria-expanded={creating !== null}
-              onClick={() => setCreating(creating === null ? "menu" : null)}
-            >
-              <Plus size={14} />
-            </IconButton>
-          </>
+          <IconButton
+            aria-label="New artifact"
+            title="New artifact"
+            size="sm"
+            aria-expanded={creating !== null}
+            onClick={() => setCreating(creating === null ? "menu" : null)}
+          >
+            <Plus size={14} />
+          </IconButton>
         }
       />
       {creating === "menu" ? (
@@ -274,7 +247,6 @@ export function ArtifactsNode({
 
   return (
     <FocusSurface measure="workspace" height="immersive" label="Artifacts" onClose={onClose}>
-      {quickOpen.palette}
       {selected === null ? (
         <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel="Artifact">
           <PaneEmpty

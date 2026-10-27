@@ -9,8 +9,6 @@ import { type SeatChoice } from "../../lib/task-ui";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { topModal } from "../../lib/modal-stack";
-import { itemsQuickOpen } from "../../lib/quick-open";
-import { useQuickOpen } from "../quick-open/use-quick-open";
 import { paneEntryOf } from "../../lib/pane-focus";
 import { FocusSurface } from "../FocusSurface";
 import { BoardSettings } from "../rules/BoardSettings";
@@ -140,35 +138,12 @@ export function TasksNode({
     }
   };
 
-  /** A pick in the palette opens that task, wherever the list filter sat. */
-  const quickOpen = useQuickOpen({
-    nodeId: node,
-    enabled: tasks.length > 0,
-    source: useMemo(
-      () =>
-        itemsQuickOpen({
-          kind: "task",
-          items: tasks,
-          itemOf: (view) => ({
-            row: { id: view.taskId, title: view.title, detail: numberLabel(view) },
-            match: { identity: [view.title, numberLabel(view)] },
-          }),
-        }),
-      [tasks],
-    ),
-    onOpen: (item) => {
-      setSelectedId(item.id);
-      setError(null);
-    },
-  });
-
   const sidebar = (
     <>
       <PaneHeader
         eyebrow={`Tasks, ${openCount(tasks)} open`}
         actions={
           <>
-            {quickOpen.trigger}
             <IconButton
               aria-label="Board settings"
               title="Board settings: instructions, rules, checks, handoff"
@@ -240,7 +215,6 @@ export function TasksNode({
 
   return (
     <FocusSurface measure="workspace" height="immersive" label="Tasks" onClose={onClose}>
-      {quickOpen.palette}
       {settings ? (
         <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Board settings">
           <section className="tasks-settings" data-testid="tasks-settings">
