@@ -40,7 +40,8 @@ import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import { MentionedIn } from "../threads/MentionedIn";
-import { newPostOpId, subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
+import { makePostOps } from "../../lib/post-op";
+import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
@@ -435,14 +436,17 @@ function SelectedArtifact({
   /** The document's save, run before a text-anchored comment posts. */
   const saveDocument = useRef<(() => Promise<string | null>) | null>(null);
   /** Post through the one comment path (03); the refusal in words, or null. */
+  /** A resend after a lost answer is the same post: it keeps its op id, so it posts once. */
+  const postOps = useRef(makePostOps()).current;
   const comment = (text: string, anchor: Anchor | undefined, threadId?: string): Promise<string | null> =>
     postAfterSave(threadId === undefined ? anchor : undefined, saveDocument.current, async () => {
       const outcome = await subjectThreadsSource().post(canvasName, subject, {
         text,
-        opId: newPostOpId(),
+        opId: postOps.opFor({ text, anchor, ...(threadId === undefined ? {} : { threadId }) }),
         ...(anchor === undefined ? {} : { anchor }),
         ...(threadId === undefined ? {} : { threadId }),
       });
+      postOps.settle();
       if (!outcome.ok) return outcome.message;
       if (threadId === undefined) setDraftAnchor(undefined);
       return null;
