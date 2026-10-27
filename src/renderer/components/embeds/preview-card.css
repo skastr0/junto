@@ -52,7 +52,7 @@
   overflow: hidden;
   color: var(--color-ink);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
   line-height: var(--leading-dense);
   text-overflow: ellipsis;
