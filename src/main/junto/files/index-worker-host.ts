@@ -22,7 +22,8 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
   /** Sessions main holds, per root: replayed into a fresh worker. */
   const holds = new Map<string, Set<string>>();
   let current: { readonly worker: Worker; readonly index: ReturnType<typeof portRootIndex> } | undefined;
-  let backoff = 0;
+  /** Restarts in a row without a worker living RESTART_SETTLED_MS. */
+  let restarts = 0;
   let restart: ReturnType<typeof setTimeout> | undefined;
 
   const end = (): void => {
@@ -47,11 +48,13 @@ export const workerRootIndex = (emit: (root: string, event: RootEvent) => void):
       index.lost(cause);
       if (holds.size === 0 || restart !== undefined) return;
       // Held roots lost their watch: restart, and have their trees list again.
-      backoff = Date.now() - started > RESTART_SETTLED_MS ? 0 : Math.min(RESTART_MAX_MS, Math.max(RESTART_FIRST_MS, backoff * 2));
+      if (Date.now() - started > RESTART_SETTLED_MS) restarts = 0;
+      const delay = restarts === 0 ? 0 : Math.min(RESTART_MAX_MS, RESTART_FIRST_MS * 2 ** (restarts - 1));
+      restarts += 1;
       restart = setTimeout(() => {
         restart = undefined;
         if (holds.size > 0) live();
-      }, backoff);
+      }, delay);
       restart.unref();
       for (const root of holds.keys()) emit(root, { kind: "reset" });
     };
