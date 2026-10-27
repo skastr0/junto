@@ -37,7 +37,7 @@ const seedDocument = async (page: Page, artifactId: ItemId, title: string, markd
     { canvas: CANVAS, node: asNodeId(SHELF), artifactId, opId: mintOpId(), title, markdown },
   );
   // A refused seed would leave the list empty and fail later at a pick, far from the cause.
-  expect(JSON.stringify(result)).not.toMatch(/"ok":false|"error"/);
+  expect(result, "main applies the seed").toMatchObject({ kind: "applied" });
 };
 
 test("a body mention opens its target again after the operator picked the source in the open modal", async () => {
