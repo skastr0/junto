@@ -1,8 +1,15 @@
-/* What the code editor hangs on its lines (code-editor-lines.ts): the plus in
-   the gutter that starts a comment, the lines a held press drags over, and
-   the rows a host draws between lines. House tokens only, as CodeView's plus:
-   a quiet raised button, not a coloured one. */
-.code-editor .cm-commentGutter .cm-gutterElement {
+/* What the code editor and the live Markdown field hang on their lines
+   (code-editor-lines.ts): the plus in the gutter that starts a comment, the
+   lines a held press drags over, and the rows a host draws between lines.
+   House tokens only, as CodeView's plus: a quiet raised button, not a
+   coloured one. */
+
+/* The Markdown field has no gutter of its own; the plus's column is bare. */
+.live-markdown .cm-gutters {
+  border-right: 0;
+  background: transparent;
+}
+:is(.code-editor, .live-markdown) .cm-commentGutter .cm-gutterElement {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11,7 +18,7 @@
 }
 
 /* The target is 24px square (WCAG 2.2 target size); the face drawn inside it is the 16px CodeView plus. */
-.code-editor .cm-commentButton {
+:is(.code-editor, .live-markdown) .cm-commentButton {
   display: grid;
   flex: none;
   place-items: center;
@@ -28,7 +35,7 @@
   cursor: pointer;
 }
 
-.code-editor .cm-commentButton__face {
+:is(.code-editor, .live-markdown) .cm-commentButton__face {
   display: grid;
   place-items: center;
   width: 16px;
@@ -38,20 +45,20 @@
   background: var(--color-raise);
 }
 
-.code-editor .cm-commentButton:hover .cm-commentButton__face {
+:is(.code-editor, .live-markdown) .cm-commentButton:hover .cm-commentButton__face {
   border-color: var(--color-dim);
 }
 
-.code-editor .cm-commentButton:focus-visible {
+:is(.code-editor, .live-markdown) .cm-commentButton:focus-visible {
   outline: 2px solid var(--color-cyan);
   outline-offset: -2px;
 }
 
-.code-editor .cm-commentRange {
+:is(.code-editor, .live-markdown) .cm-commentRange {
   background: var(--color-selection-inactive);
 }
 
-.code-editor .cm-lineRow {
+:is(.code-editor, .live-markdown) .cm-lineRow {
   white-space: normal;
   font-family: var(--font-body);
 }

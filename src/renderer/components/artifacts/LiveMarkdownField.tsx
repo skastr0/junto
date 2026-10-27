@@ -1,7 +1,7 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderText } from "@codemirror/view";
 import { mentionRefOf, parseMentionHref } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
@@ -11,6 +11,8 @@ import type { MentionCandidate } from "../../lib/mention-draft";
 import { openMention } from "../../lib/mention-open";
 import { usePreviewFace } from "../../lib/use-preview-face";
 import { PreviewCard } from "../embeds/PreviewCard";
+import { lineComments, lineRows, setLineRows, type LineHandlers, type LineRange, type LineRow } from "../ui/code-editor-lines";
+import "../ui/code-editor-lines.css";
 import { textSplice } from "./artifacts-pane-model";
 import { DocumentMentionChip } from "./DocumentMentionChip";
 import { liveMarkdown, type LiveMarkdownHandlers, type MentionMount, redrawEffect } from "./live-markdown";
@@ -30,6 +32,8 @@ export type LiveMarkdownFieldHandle = {
   readonly view: () => EditorView | null;
   /** Put text in as not typed: it is not reported, and undo does not reach it. */
   readonly replace: (text: string) => void;
+  /** Bring a line into the middle of the view with the caret at its start, and write there. */
+  readonly revealLine: (line: number) => void;
 };
 
 /** A selection worth acting on, as the text and where it starts. */
@@ -87,6 +91,9 @@ export function LiveMarkdownField({
   onRest,
   onSelection,
   onAnchor,
+  onLineComment,
+  rows,
+  renderRow,
   className,
   handle,
 }: {
@@ -109,12 +116,32 @@ export function LiveMarkdownField({
   readonly onSelection?: ((selection: FieldSelection | null) => void) | undefined;
   /** A press on a comment anchor's mark. */
   readonly onAnchor?: ((id: string) => void) | undefined;
+  /** A press on the gutter's plus, as in the code editor: the lines it covers and their text. */
+  readonly onLineComment?: ((range: LineRange) => void) | undefined;
+  /** Rows drawn after lines, each named by its key. */
+  readonly rows?: ReadonlyArray<LineRow> | undefined;
+  readonly renderRow?: ((key: string) => ReactNode) | undefined;
   readonly className?: string;
   readonly handle?: Ref<LiveMarkdownFieldHandle>;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const access = useRef(new Compartment());
+  const comments = useRef(new Compartment());
+  /** The hosts the editor made for rows between lines, each drawn into by a portal. */
+  const [rowMounts, setRowMounts] = useState<ReadonlyMap<HTMLElement, string>>(new Map());
+  const lines = useRef<LineHandlers["current"]>({});
+  lines.current = {
+    comment: onLineComment,
+    mount: (key, element) => setRowMounts((prior) => new Map(prior).set(element, key)),
+    unmount: (_key, element) =>
+      setRowMounts((prior) => {
+        if (!prior.has(element)) return prior;
+        const next = new Map(prior);
+        next.delete(element);
+        return next;
+      }),
+  };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The hosts the editor's mention widgets made, each drawn into by a portal. */
   const [mounts, setMounts] = useState<ReadonlyMap<HTMLElement, MentionMount>>(new Map());
@@ -168,6 +195,13 @@ export function LiveMarkdownField({
           annotations: [fromHost.of(true), Transaction.addToHistory.of(false)],
         });
       },
+      revealLine: (line) => {
+        const editor = view.current;
+        if (editor === null) return;
+        const at = editor.state.doc.line(Math.min(Math.max(1, line), editor.state.doc.lines)).from;
+        editor.dispatch({ selection: EditorSelection.cursor(at), effects: EditorView.scrollIntoView(at, { y: "center" }) });
+        claimFocus(editor.contentDOM, "gesture");
+      },
     }),
     [],
   );
@@ -184,11 +218,13 @@ export function LiveMarkdownField({
       state: EditorState.create({
         doc: value,
         extensions: [
+          comments.current.of([]),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           liveMarkdown(handlers),
           mentionPicker(() => ({ canvasName: mentionsRef.current?.canvasName ?? "", candidates: mentionsRef.current?.candidates ?? [] })),
           keymap.of([{ key: "Escape", run: stopWriting }]),
+          lineRows(lines),
           access.current.of(editable(readOnly)),
           placeholderText(placeholder),
           // An explicit tab stop on the text: no second stop, but the scroller around it has a focusable inside even read-only (axe scrollable-region-focusable).
@@ -223,6 +259,16 @@ export function LiveMarkdownField({
     view.current?.dispatch({ effects: access.current.reconfigure(editable(readOnly)) });
   }, [readOnly]);
 
+  // The gutter's plus, only for a host that takes line comments.
+  const commenting = onLineComment !== undefined;
+  useEffect(() => {
+    view.current?.dispatch({ effects: comments.current.reconfigure(commenting ? lineComments(lines) : []) });
+  }, [commenting]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: setLineRows.of(rows ?? []) });
+  }, [rows]);
+
   // Mentions that arrive after the editor drew its widgets: they are drawn again, as chips and cards.
   const drawsMentions = mentions !== undefined;
   useEffect(() => {
@@ -237,7 +283,7 @@ export function LiveMarkdownField({
   // A drawn chip or card has its size now: the editor measures again.
   useLayoutEffect(() => {
     view.current?.requestMeasure();
-  }, [mounts]);
+  }, [mounts, rowMounts]);
 
   /** Enter on the surface writes again, at the caret it left. */
   const onSurfaceKey = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -271,6 +317,7 @@ export function LiveMarkdownField({
             ),
           )
         : null}
+      {renderRow ? [...rowMounts].map(([element, key]) => createPortal(renderRow(key), element, key)) : null}
     </>
   );
 }
