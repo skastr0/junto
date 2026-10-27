@@ -29,7 +29,7 @@ import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { writeRuling } from "../src/main/junto/work/resource-rulings";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
-import { linkedFromBodies } from "../src/main/junto/work/body-links";
+import { linkedFromBodies, rebuildBodyLinks } from "../src/main/junto/work/body-links";
 import { seat } from "./support/model-nodes";
 
 const recorder = Layer.effect(
@@ -172,6 +172,24 @@ describe("body backlinks", () => {
     const ghost = mintItemId();
     expect(await read({ nodeId: asNodeId("agent-a"), artifactId: ghost })).toEqual([]);
     expect(await read({ nodeId: BOARD, artifactId: ghost })).toEqual([]);
+  });
+
+  it("rebuilds every row from the bodies, as a backfill does, and writes the same rows", async () => {
+    const budget = await createDocument("Budget", "spent");
+    const plan = await createDocument("Plan", `The ${link(SHELF, budget, "Budget")} is fixed.`);
+    const before = await read({ nodeId: SHELF, artifactId: budget });
+    expect(before).toHaveLength(1);
+    // Something lost the rows, as an install that predates the projection did.
+    await runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe("DELETE FROM work_artifact_links", [])),
+    );
+    expect(await read({ nodeId: SHELF, artifactId: budget })).toEqual([]);
+    const written = await runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => rebuildBodyLinks(sql, canvas)),
+    );
+    expect(written).toBe(1);
+    expect(await read({ nodeId: SHELF, artifactId: budget })).toEqual(before);
+    expect((await read({ nodeId: SHELF, artifactId: budget }))[0]?.source.artifactId).toBe(plan);
   });
 
   it("holds the head's body in the table at the version that wrote it", async () => {

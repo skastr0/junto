@@ -14,8 +14,8 @@
  */
 import { Effect } from "effect";
 import type { SqlClient, SqlError } from "effect/unstable/sql";
-import type { ArtifactType } from "@shared/artifact";
-import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
+import { decodeArtifactBody, type ArtifactType } from "@shared/artifact";
+import { bodyLinksOf, type ArtifactLinkRef, type LinkedFromBody } from "@shared/artifact-links";
 import { asNodeId } from "@shared/model";
 import type { Canvas } from "@shared/model";
 import type { ItemId } from "@shared/work-ids";
@@ -74,4 +74,40 @@ export const linkedFromBodies = (
             },
           ];
     });
+  });
+
+/**
+ * Rebuild a canvas's link rows from the bodies it holds: every artifact's head
+ * version body, read back into `work_artifact_links`. This is the walk a
+ * backfill calls once for rows written before the projection existed, and the
+ * repair a replica runs when the bodies it was waiting on arrive. A head whose
+ * body is not held keeps no rows: a body that cannot be read links nothing.
+ * Idempotent: the rows of every artifact it reads are replaced, never added to.
+ */
+export const rebuildBodyLinks = (sql: SqlClient.SqlClient, canvasName: string): Effect.Effect<number, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const heads = yield* sql.unsafe<{ readonly artifact_id: string; readonly version: number; readonly inline_body_json: string | null }>(
+      `SELECT heads.artifact_id AS artifact_id, heads.version AS version, versions.inline_body_json AS inline_body_json
+       FROM artifact_heads heads
+       LEFT JOIN artifact_versions versions
+         ON versions.canvas_name = heads.canvas_name
+        AND versions.artifact_id = heads.artifact_id
+        AND versions.version = heads.version
+       WHERE heads.canvas_name = ?`,
+      [canvasName],
+    );
+    let written = 0;
+    for (const head of heads) {
+      yield* sql`DELETE FROM work_artifact_links WHERE canvas_name = ${canvasName} AND source_artifact_id = ${head.artifact_id}`;
+      if (head.inline_body_json === null) continue;
+      const decoded = decodeArtifactBody(JSON.parse(head.inline_body_json) as unknown);
+      if (decoded._tag === "Failure") continue;
+      for (const link of bodyLinksOf(decoded.success)) {
+        yield* sql`
+          INSERT INTO work_artifact_links (canvas_name, source_artifact_id, target_node_id, target_artifact_id, line, source_version)
+          VALUES (${canvasName}, ${head.artifact_id}, ${link.target.nodeId}, ${link.target.artifactId}, ${link.line}, ${head.version})`;
+        written += 1;
+      }
+    }
+    return written;
   });
