@@ -16,6 +16,10 @@ const MODES: ReadonlyArray<{ readonly verb: TargetVerb; readonly label: string }
   { verb: "derives", label: "Derives" },
 ];
 
+/** The rule main refused with, without the transport's wrapping or an error name before it. */
+const plainReason = (message: string): string =>
+  message.replace(/^Error invoking remote method '[^']*':\s*/u, "").replace(/^(?:\w*Error|\w*Refused|FiberFailure):\s*/u, "");
+
 const consequence = (verb: TargetVerb, target: string): string =>
   verb === "flows"
     ? `The task moves to ${target} when it finishes here.`
@@ -41,7 +45,7 @@ export function BoardTargets({ nodeId }: { readonly nodeId: string }) {
   const choose = (wire: string, verb: Verb): void => {
     setRefusal(undefined);
     commitCommands((current) => reverbed(current, wire, verb), {
-      onRefused: (reason) => setRefusal({ wire, reason }),
+      onRefused: (reason) => setRefusal({ wire, reason: plainReason(reason) }),
     });
   };
 
