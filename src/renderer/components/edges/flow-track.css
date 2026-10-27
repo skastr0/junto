@@ -7,7 +7,12 @@
    so the chevrons slide on the compositor every frame and never repaint.
    The period is TRACK_PERIOD_MS (lib/flow-track.ts), and every run starts
    at the same wall-clock phase (--flow-track-t0). A run slides while it is
-   in view (data-track-visible), as a ring turns only on screen. */
+   in view (data-track-visible), as a ring turns only on screen.
+
+   A derives track (data-verb="derives") holds its filled arrowheads still
+   and breathes instead: each run's opacity eases down and back together on
+   one wall clock (--flow-track-breath-t0), every frame, on the compositor.
+   It is the one track that fades, and only by breathing. */
 /* Above every card (CARD_Z 32), so nothing paints over a sliding run and
    none is lifted into a layer for overlapping one; under a hovered far seat
    (2000) and the seat clusters (3000), which ride above everything. */
@@ -17,6 +22,9 @@
   left: 0;
   z-index: var(--layer-canvas-track);
   color: var(--wire-verb-flows);
+}
+.junto-flow-track[data-verb="derives"] {
+  color: var(--wire-verb-derives);
 }
 .junto-flow-track__run {
   position: absolute;
@@ -29,8 +37,11 @@
   top: 0;
   height: 100%;
 }
-.junto-flow-track__run[data-track-visible] > .junto-flow-track__mover {
+.junto-flow-track[data-verb="flows"] .junto-flow-track__run[data-track-visible] > .junto-flow-track__mover {
   animation: junto-flow-track 450ms linear var(--flow-track-t0, 0ms) infinite;
+}
+.junto-flow-track[data-verb="derives"] .junto-flow-track__run[data-track-visible] {
+  animation: junto-derive-track 1600ms ease-in-out var(--flow-track-breath-t0, 0ms) infinite;
 }
 .junto-flow-track__marks {
   position: absolute;
@@ -46,6 +57,10 @@
   from { transform: translateX(0); }
   to { transform: translateX(100%); }
 }
+@keyframes junto-derive-track {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
 /* Selected: the track deepens in its own ink, as a selected wire blooms. */
 .junto-flow-track[data-selected] .junto-flow-track__run {
   filter: drop-shadow(0 0 2px color-mix(in oklab, currentColor 60%, transparent));
@@ -54,6 +69,10 @@
 html[data-surface-motion="paused"] .junto-flow-track__run > .junto-flow-track__mover {
   animation-play-state: paused;
 }
+html[data-surface-motion="paused"] .junto-flow-track[data-verb="derives"] .junto-flow-track__run {
+  animation-play-state: paused;
+}
 @media (prefers-reduced-motion: reduce) {
   .junto-flow-track__run[data-track-visible] > .junto-flow-track__mover { animation: none; }
+  .junto-flow-track[data-verb="derives"] .junto-flow-track__run[data-track-visible] { animation: none; }
 }

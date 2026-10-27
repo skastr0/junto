@@ -12,7 +12,13 @@
 // marks translate one period and loop. The short corner pieces carry no
 // marks. Each run's marks are phased by the distance walked to it, so the
 // period carries on round every corner.
+//
+// A derives wire (a board whose finished task spawns a copy into every
+// target) is laid the same way with filled arrowheads that never move
+// forward: they hold their place and breathe together, so the two task
+// verbs read apart at a glance and the moment Rewire swaps one for the other.
 
+import type { TaskPathVerb } from "@shared/physics";
 import type { CanvasTier } from "./canvas-tier";
 
 /** A plain wire's stroke (WireEdge). */
@@ -27,6 +33,11 @@ const TRACK_ARM = 4;
 const TRACK_SPREAD = 4.4;
 /** One period's slide: 40 canvas units a second at near (flow-track.css). */
 export const TRACK_PERIOD_MS = 450;
+/** One breath of a derives track (flow-track.css). */
+export const TRACK_BREATH_MS = 1600;
+/** A derives arrowhead: its back and tip either side of the period's middle. */
+const DERIVE_BACK = 3;
+const DERIVE_TIP = 3.5;
 
 /**
  * How much larger the track is laid as the camera pulls back, so a chevron
@@ -188,19 +199,22 @@ export const trackFit = (scale: number, room = Number.POSITIVE_INFINITY): number
 export const trackHeight = (fit: number): number => (TRACK_SPREAD + TRACK_WIDTH) * 2 * fit;
 
 /**
- * One period of the track as a mask: a single open chevron, white, pointing
- * along +x, a period at `scale` long and drawn at `fit`. The strip's colour
- * fills it, so the hue stays a stylesheet token.
+ * One period of the track as a mask, white, pointing along +x, a period at
+ * `scale` long and drawn at `fit`: an open chevron for flows, a filled
+ * arrowhead for derives. The strip's colour fills it, so the hue stays a
+ * stylesheet token.
  */
-export const trackTile = (scale: number, fit = scale): string => {
+export const trackTile = (scale: number, fit = scale, verb: TaskPathVerb = "flows"): string => {
   const p = TRACK_PERIOD * scale;
   const h = trackHeight(fit);
-  const arm = TRACK_ARM * fit;
   const spread = TRACK_SPREAD * fit;
   const c = p / 2;
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${p}" height="${h}" viewBox="0 0 ${p} ${h}">` +
-    `<polyline points="${c - arm / 2},${h / 2 - spread} ${c + arm / 2},${h / 2} ${c - arm / 2},${h / 2 + spread}" ` +
-    `fill="none" stroke="white" stroke-width="${TRACK_WIDTH * fit}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const mark =
+    verb === "derives"
+      ? `<path d="M${c - DERIVE_BACK * fit} ${h / 2 - spread}L${c + DERIVE_TIP * fit} ${h / 2}L${c - DERIVE_BACK * fit} ${h / 2 + spread}Z" ` +
+        `fill="white" stroke="white" stroke-width="${0.6 * fit}" stroke-linejoin="round"/>`
+      : `<polyline points="${c - (TRACK_ARM * fit) / 2},${h / 2 - spread} ${c + (TRACK_ARM * fit) / 2},${h / 2} ${c - (TRACK_ARM * fit) / 2},${h / 2 + spread}" ` +
+        `fill="none" stroke="white" stroke-width="${TRACK_WIDTH * fit}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${p}" height="${h}" viewBox="0 0 ${p} ${h}">${mark}</svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 };

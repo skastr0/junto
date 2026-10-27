@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo } from "react";
 import { ViewportPortal } from "@xyflow/react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
+import type { TaskPathVerb } from "@shared/physics";
 import { canvasTier$ } from "../../lib/canvas-tier";
 import {
+  TRACK_BREATH_MS,
   TRACK_PERIOD,
   TRACK_PERIOD_MS,
   TRACK_SCALE,
@@ -28,12 +30,25 @@ import "./flow-track.css";
  * region or wire is lifted into a layer of its own for overlapping one. It
  * takes no pointer; the wire's own path stays the hit target.
  *
+ * A derives wire draws the same track with filled arrowheads that hold
+ * their place and breathe (flow-track.css), never sliding.
+ *
  * Tracks that lie side by side closer than a chevron is tall (two task
  * wires on one side of a board, pulled back to far) draw their chevrons
  * smaller to fit the room between them rather than cross: every track publishes its
  * runs, and each run reads the room beside it from all of them.
  */
-export function FlowTrack({ id, path, selected }: { readonly id: string; readonly path: string; readonly selected: boolean }) {
+export function FlowTrack({
+  id,
+  path,
+  selected,
+  verb,
+}: {
+  readonly id: string;
+  readonly path: string;
+  readonly selected: boolean;
+  readonly verb: TaskPathVerb;
+}) {
   const scale = TRACK_SCALE[use$(canvasTier$)];
   const period = TRACK_PERIOD * scale;
   // A lane stitch narrower than half a chevron is ridden straight through.
@@ -52,7 +67,7 @@ export function FlowTrack({ id, path, selected }: { readonly id: string; readonl
 
   return (
     <ViewportPortal>
-      <div className="junto-flow-track" data-edge-id={id} data-selected={selected ? "" : undefined}>
+      <div className="junto-flow-track" data-edge-id={id} data-verb={verb} data-selected={selected ? "" : undefined}>
         {runs.map((run, index) => {
           const fit = trackFit(scale, room[index]);
           const height = trackHeight(fit);
@@ -68,7 +83,7 @@ export function FlowTrack({ id, path, selected }: { readonly id: string; readonl
                 width: run.length,
                 height,
                 transform: `rotate(${run.angle}deg)`,
-                ["--flow-track-tile" as string]: tileOf(scale, fit),
+                ["--flow-track-tile" as string]: tileOf(scale, fit, verb),
                 ["--flow-track-size" as string]: `${period}px ${height}px`,
               }}
             >
@@ -96,11 +111,11 @@ const room$ = observable((): Record<string, string> =>
 );
 
 const tiles = new Map<string, string>();
-const tileOf = (scale: number, fit: number): string => {
-  const key = `${scale}:${fit.toFixed(3)}`;
+const tileOf = (scale: number, fit: number, verb: TaskPathVerb): string => {
+  const key = `${verb}:${scale}:${fit.toFixed(3)}`;
   let tile = tiles.get(key);
   if (tile === undefined) {
-    tile = trackTile(scale, fit);
+    tile = trackTile(scale, fit, verb);
     tiles.set(key, tile);
   }
   return tile;
@@ -118,12 +133,14 @@ let observer: IntersectionObserver | undefined;
 let unsubMotion: (() => void) | undefined;
 
 /**
- * Every run slides on one clock, wall time, so a run that comes into view
- * lines up with the runs already sliding and the period carries on round
- * every corner.
+ * Every run slides, or breathes, on one clock, wall time, so a run that
+ * comes into view lines up with the runs already moving and the period
+ * carries on round every corner.
  */
 const syncPhase = (el: HTMLElement): void => {
-  el.style.setProperty("--flow-track-t0", `${String(-Math.round(Date.now() % TRACK_PERIOD_MS))}ms`);
+  const now = Date.now();
+  el.style.setProperty("--flow-track-t0", `${String(-Math.round(now % TRACK_PERIOD_MS))}ms`);
+  el.style.setProperty("--flow-track-breath-t0", `${String(-Math.round(now % TRACK_BREATH_MS))}ms`);
 };
 
 /** Motion back on (window shown again): the runs restart, so resync them. */

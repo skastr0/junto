@@ -7,6 +7,7 @@ import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
 import { WIRE_PULSE_TOKEN, wirePulses$, wirePulseScheduler } from "../../lib/wire-pulse";
 import { WIRE_WIDTH } from "../../lib/flow-track";
+import { isTaskPathVerb } from "@shared/physics";
 import { FlowTrack } from "./FlowTrack";
 import "./wire-pulse.css";
 
@@ -17,8 +18,10 @@ import "./wire-pulse.css";
  * Flows, the task-to-task dependency, is the one wire drawn otherwise, at the
  * operator's ask: a track of open chevrons in ink, half again a wire's weight,
  * opaque at every tier and in every state, sliding toward the dependent board
- * (FlowTrack, lib/flow-track.ts). Its own path stays, unpainted, as the hit
- * target. Everything below is about the hairline.
+ * (FlowTrack, lib/flow-track.ts). Derives, its sibling on the same board
+ * pair, draws that track as still filled arrowheads that breathe in place.
+ * Either way the wire's own path stays, unpainted, as the hit target.
+ * Everything below is about the hairline.
  *
  * Weight, dash, halo, and travelling light all used to encode something — wire
  * family, worded config, live traffic — and stacked into a picture that had to
@@ -95,7 +98,10 @@ export function WireEdge({
   const labelX = stitched?.labelX ?? plannedRoute?.labelX ?? fallbackLabelX;
   const labelY = stitched?.labelY ?? plannedRoute?.labelY ?? fallbackLabelY;
 
-  const track = data?.verb === "flows";
+  // Both task verbs draw a track: flows slides its chevrons, derives holds
+  // its arrowheads still (FlowTrack).
+  const verb = data?.verb;
+  const track = isTaskPathVerb(verb) ? verb : null;
 
   const className = [
     "junto-edge",
@@ -123,7 +129,7 @@ export function WireEdge({
           ["--wire-hue" as string]: color,
         }}
       />
-      {track ? <FlowTrack id={id} path={path} selected={Boolean(selected)} /> : null}
+      {track ? <FlowTrack id={id} path={path} selected={Boolean(selected)} verb={track} /> : null}
       {pulse ? (
         // A transient second path, only while traffic crosses: at idle the
         // wire is still one hairline. pathLength 1 lets the stylesheet run

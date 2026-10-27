@@ -1,6 +1,7 @@
 /**
- * The flows track: chevrons laid along a wire's straight runs, phased round
- * every corner, sliding on the compositor and never faded.
+ * The task tracks: marks laid along a wire's straight runs, phased round
+ * every corner. Flows chevrons slide on the compositor and are never faded;
+ * derives arrowheads hold still and breathe in place.
  */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -8,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { roundedOrthogonalPath } from "../src/shared/wire-route";
 import {
   flattenWirePath,
+  TRACK_BREATH_MS,
   TRACK_PERIOD,
   TRACK_PERIOD_MS,
   TRACK_SCALE,
@@ -135,7 +137,44 @@ describe("flow track motion and paint", () => {
     expect(css).toMatch(/data-surface-motion="paused"\] \.junto-flow-track__run > \.junto-flow-track__mover \{\s*animation-play-state: paused;/);
   });
 
-  it("is never faded", () => {
-    expect(css.replace(/\/\*[\s\S]*?\*\//g, "")).not.toMatch(/opacity/);
+  it("is never faded: only a derives track breathes", () => {
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@keyframes junto-derive-track \{[\s\S]*?\n\}/, "");
+    expect(rules).not.toMatch(/opacity/);
+  });
+});
+
+describe("derives track", () => {
+  const breath = /@keyframes junto-derive-track \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+
+  it("draws a filled arrowhead, pointing along the wire, in the period a flows chevron takes", () => {
+    const tile = decodeURIComponent(trackTile(1, 1, "derives"));
+    expect(tile).toContain(`width="${TRACK_PERIOD}"`);
+    expect(tile).toContain('fill="white"');
+    expect(tile).toMatch(/<path d="M[\d.]+ [\d.]+L([\d.]+) [\d.]+L[\d.]+ [\d.]+Z"/);
+    const [, back, tip] = /M([\d.]+) .*?L([\d.]+) /.exec(tile)!;
+    expect(Number(tip)).toBeGreaterThan(Number(back));
+    expect(decodeURIComponent(trackTile(1))).toContain("<polyline");
+  });
+
+  it("holds still: its marks never slide", () => {
+    expect(css).toContain('.junto-flow-track[data-verb="flows"] .junto-flow-track__run[data-track-visible] > .junto-flow-track__mover {');
+    expect(css).not.toMatch(/data-verb="derives"\][^{]*__mover \{\s*animation/);
+  });
+
+  it("breathes on the compositor, opacity alone, every run on one clock", () => {
+    expect(breath).not.toBe("");
+    for (const decl of breath.matchAll(/([a-z-]+)\s*:/g)) expect(decl[1]).toBe("opacity");
+    expect(css).toContain(
+      `.junto-flow-track[data-verb="derives"] .junto-flow-track__run[data-track-visible] {\n  animation: junto-derive-track ${TRACK_BREATH_MS}ms ease-in-out var(--flow-track-breath-t0, 0ms) infinite;`,
+    );
+  });
+
+  it("stills only under reduced motion or a hidden window", () => {
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{[^}]*\}\s*\.junto-flow-track\[data-verb="derives"\] \.junto-flow-track__run\[data-track-visible\] \{ animation: none; \}/);
+    expect(css).toMatch(/data-surface-motion="paused"\] \.junto-flow-track\[data-verb="derives"\] \.junto-flow-track__run \{\s*animation-play-state: paused;/);
+  });
+
+  it("paints in its own token", () => {
+    expect(css).toMatch(/\.junto-flow-track\[data-verb="derives"\] \{\s*color: var\(--wire-verb-derives\);/);
   });
 });

@@ -174,7 +174,8 @@
 :root {
   /* Ink: the flows track. */
   --wire-verb-flows: oklch(0.9 0.01 250);
-  /* Derives: the flows ink until canvas-edges gives it a hue of its own. */
+  /* Derives: the flows ink. Its still, breathing arrowheads tell it from
+     the sliding flows chevrons, so it needs no hue of its own. */
   --wire-verb-derives: var(--wire-verb-flows);
 
   /* Cold: teal through violet, several near-grey. */
