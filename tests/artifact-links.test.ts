@@ -125,6 +125,20 @@ describe("the links in an artifact's body", () => {
     expect(line.indexOf("y")).toBe(1);
   });
 
+  it("never shows a neighbour as a fragment: a window edge lands on a link boundary", () => {
+    // Two links close together in a long line: the first's window runs into the
+    // second, and must not open it half-way.
+    const markdown = `${"a".repeat(300)} ${artifact(SHELF, BUDGET, "Budget")} ${artifact(SHELF, PLAN, "Plan")} ${"b".repeat(300)}`;
+    const body = decodeArtifactBody({ type: "document", markdown });
+    if (body._tag === "Failure") throw new Error("body");
+    const line = bodyLinksOf(body.success)[0]!.line;
+    expect(line).toContain(artifact(SHELF, BUDGET, "Budget"));
+    // Either whole or not at all — never a piece of it.
+    const plan = artifact(SHELF, PLAN, "Plan");
+    expect(line.includes(plan) || !line.includes("item=01M5EVKRB1X4P80GXRGDK8V5AT")).toBe(true);
+    expect(line).not.toContain("&item=01M5EVKRB1X4P80GXRGDK8V5AT)");
+  });
+
   it("keeps a second link on the same line as its own row, each windowed on itself", () => {
     const markdown = `${"a".repeat(200)} ${artifact(SHELF, BUDGET, "Budget")} ${"b".repeat(200)} ${artifact(SHELF, PLAN, "Plan")} ${"c".repeat(200)}`;
     const body = decodeArtifactBody({ type: "document", markdown });

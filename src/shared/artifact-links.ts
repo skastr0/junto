@@ -74,12 +74,22 @@ const lineHolding = (text: string, link: { readonly start: number; readonly end:
   const stop = link.end - lineFrom;
   const flat = line.replace(/\s+/gu, " ").trim();
   if (flat.length <= ARTIFACT_LINK_LINE_MAX) return flat;
+  // The window's edges move to a link boundary they are inside, inward, so a
+  // neighbour is never shown as a fragment (`…&item=01M5…`) for a reader to
+  // mis-take for raw text. Our own link always stays whole between them.
+  const links = mentionLinksOf(line).map((one) => ({ start: one.start, end: one.end }));
+  const edgeOf = (at: number): { readonly start: number; readonly end: number } | undefined =>
+    links.find((one) => at > one.start && at < one.end);
   const room = Math.max(0, ARTIFACT_LINK_LINE_MAX - (stop - start) - 2);
-  const before = Math.min(start, Math.floor(room / 2));
-  const after = Math.min(line.length - stop, room - before);
-  const head = start - before > 0 ? "…" : "";
-  const tail = stop + after < line.length ? "…" : "";
-  return lineOf(`${head}${line.slice(start - before, stop + after)}${tail}`);
+  const wantedFrom = Math.min(start, Math.floor(room / 2));
+  const wantedTo = Math.min(line.length - start, stop - start + (room - wantedFrom));
+  let from = Math.max(0, start - wantedFrom);
+  let to = Math.min(line.length, start + wantedTo);
+  from = edgeOf(from)?.end ?? from;
+  to = edgeOf(to)?.start ?? to;
+  const head = from > 0 ? "…" : "";
+  const tail = to < line.length ? "…" : "";
+  return lineOf(`${head}${line.slice(from, to)}${tail}`);
 };
 
 /** A link target as an artifact link, or undefined when it names no item (a seat, a page). */
