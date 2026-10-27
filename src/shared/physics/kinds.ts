@@ -75,6 +75,9 @@ export const KindSpecs = {
   // Automations offer no port: only the operator and overseers write them,
   // and seats read them by reach, never by an edge.
   automations: { kind: "automations", role: "sink", offers: emptyOffers },
+  // Files offer no port and take no edge: seats use the filesystem, and file
+  // comment threads follow reach.
+  files: { kind: "files", role: "sink", offers: emptyOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
 } as const satisfies KindSpecTable;

@@ -161,7 +161,7 @@ export type CanvasCopyResult =
   | { readonly ok: false; readonly refusal: CanvasCopyRefusal };
 
 const namesNoMachine = (node: Node): boolean => {
-  if (node.kind === "agent" || node.kind === "terminal") return node.host === UNNAMED_MACHINE;
+  if (node.kind === "agent" || node.kind === "terminal" || node.kind === "files") return node.host === UNNAMED_MACHINE;
   if (node.kind !== "region") return false;
   return (
     Object.keys(node.defaults?.paths ?? {}).includes(UNNAMED_MACHINE) ||
@@ -208,6 +208,9 @@ const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | und
     // A page's name stays home with it: a page stub names only its machine.
     case "page":
       return { kind: "stub", of: "page", ...placed(node), host: editorMachineName };
+    // A files node stays home until its stub can be stored (stubs.stub_of).
+    case "files":
+      return staysHome(node.kind);
     default:
       return staysHome(node.kind);
   }

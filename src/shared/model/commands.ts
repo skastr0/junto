@@ -6,6 +6,7 @@ import { TasksContract } from "../work-model";
 import { CanvasName, Color, Frame, HostId, NodeId, Side } from "./base";
 import {
   FileCard,
+  Files,
   GitCard,
   Launch,
   Node,
@@ -80,6 +81,8 @@ export const NodeEdit = Schema.Union([
   }),
   edit("link", { url: set(Schema.String), label }),
   edit("git", { label, cwd: set(GitCard.fields.cwd) }),
+  // The operator may move the root; the machine it lives on is fixed.
+  edit("files", { label, root: set(Files.fields.root) }),
   edit("region", {
     label,
     hold: set(Schema.Boolean),

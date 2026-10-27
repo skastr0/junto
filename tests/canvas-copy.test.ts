@@ -10,7 +10,7 @@ import {
 import { productNodeKindEnabled } from "../src/shared/features";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, asNodeId, type Node, type Region, type Wire } from "../src/shared/model";
-import { page, seat as seatNode, wire } from "./support/model-nodes";
+import { files, page, seat as seatNode, wire } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook-installation");
@@ -199,6 +199,11 @@ describe("a canvas cut for one machine", () => {
       ok: false,
       refusal: { reason: "a-row-names-no-machine", nodeId: "private" },
     });
+    const unnamedFiles = { ...source, nodes: [...nodes, files("stray-folder", { host: "local" as never })] };
+    expect(exportCanvasCopy(unnamedFiles, { installationId: MINI, machineName: "mini" })).toEqual({
+      ok: false,
+      refusal: { reason: "a-row-names-no-machine", nodeId: "stray-folder" },
+    });
   });
 });
 
@@ -227,6 +232,7 @@ describe("each kind, cut for each machine", () => {
     page("browser", { ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile" }),
     { kind: "note", id: asNodeId("memo"), ...inRemote(360), text: "Note body stays home." },
     { kind: "automations", id: asNodeId("routines"), ...inRemote(660), label: "Morning routines" },
+    files("folder", { ...inRemote(860), host: "macbook" as never, root: "/Users/op/files-root", label: "Files label stays home" }),
   ];
   const lin = seat("lin", "linux", { x: 2300, y: 50 });
   const everything: CanvasCopySource = {
@@ -274,6 +280,8 @@ describe("each kind, cut for each machine", () => {
     ["note", "memo", undefined],
     // A copy would fire the same mail and tasks twice: automations never cross (07).
     ["automations", "routines", undefined],
+    // Host-local: a files node stays home until its stub can be stored.
+    ["files", "folder", undefined],
   ];
 
   for (const destination of destinations) {
@@ -301,6 +309,8 @@ describe("each kind, cut for each machine", () => {
           "Page name stays home",
           "plan.md",
           "Morning routines",
+          "files-root",
+          "Files label stays home",
           "0 3 * * *",
         ]) {
           expect(sent).not.toContain(never);

@@ -53,6 +53,8 @@ export const artifacts = (id: string, more: Partial<NodeOf<"artifacts">> = {}): 
   ({ kind: "artifacts", ...placed(id), ...more });
 export const automations = (id: string, more: Partial<NodeOf<"automations">> = {}): NodeOf<"automations"> =>
   ({ kind: "automations", ...placed(id), ...more });
+export const files = (id: string, more: Partial<NodeOf<"files">> = {}): NodeOf<"files"> =>
+  ({ kind: "files", ...placed(id), host: THIS_MACHINE, root: "/Users/me/Projects/junto", ...more });
 export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> => ({
   kind: "page",
   ...placed(id),

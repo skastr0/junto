@@ -94,6 +94,8 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
       return { ...base, url: node.url, label: node.label ?? null };
     case "git":
       return { ...base, label: node.label ?? null, cwd: node.cwd };
+    case "files":
+      return { ...base, label: node.label ?? null, host: node.host, root: node.root };
     case "stub":
       return { ...base, stub_of: node.of, label: node.label ?? null, host: node.host ?? null };
     case "region":
@@ -181,6 +183,9 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
       break;
     case "git":
       fields = { ...label, cwd: row.cwd };
+      break;
+    case "files":
+      fields = { ...label, host: row.host, root: row.root };
       break;
     case "stub":
       fields = { of: row.stub_of, ...label, ...optional(row, "host") };

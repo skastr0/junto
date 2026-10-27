@@ -35,7 +35,7 @@ const hostOnly = (url: string): string | undefined => {
 
 /**
  * The card's title, unless the desktop would make it from a field that never
- * crosses: a seat's agent key, a peer's host, a repository's folder, a task
+ * crosses: a seat's agent key, a peer's host, a repository's or a files node's folder, a task
  * board's contract. Those carry their own name or nothing.
  */
 const titleFor = (node: Node): string | undefined => {
@@ -43,6 +43,7 @@ const titleFor = (node: Node): string | undefined => {
     case "agent":
     case "peer":
     case "git":
+    case "files":
       return explicit(node.label);
     case "task":
       return explicit(node.name);

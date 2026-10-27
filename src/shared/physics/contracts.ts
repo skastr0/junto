@@ -136,6 +136,12 @@ export const NodeContracts: {
     events: [],
     inputs: [],
   },
+  files: {
+    kind: "files",
+    ports: portsOf("files"),
+    events: [],
+    inputs: [],
+  },
 };
 
 export const contractOf = (
