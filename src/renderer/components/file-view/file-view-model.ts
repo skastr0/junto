@@ -134,7 +134,13 @@ export const extractTitle = (path: string, page?: number, max = ARTIFACT_MAX_TIT
   const dot = name.lastIndexOf(".");
   const extension = dot > 0 && name.length - dot <= 16 ? name.slice(dot) : "";
   const room = Math.max(1, max - suffix.length - extension.length - 1);
-  return `${name.slice(0, room)}\u2026${extension}${suffix}`;
+  // Cut between characters, never inside one: an emoji at the cut goes whole.
+  let kept = "";
+  for (const character of name) {
+    if (kept.length + character.length > room) break;
+    kept += character;
+  }
+  return `${kept}\u2026${extension}${suffix}`;
 };
 
 // ---------------------------------------------------------------------------

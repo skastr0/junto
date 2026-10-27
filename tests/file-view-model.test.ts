@@ -117,6 +117,13 @@ describe("pages", () => {
     expect(extractTitle(`${"w".repeat(240)}.png`).endsWith("\u2026.png")).toBe(true);
     expect(extractTitle(`${"w".repeat(240)}.png`).length).toBe(ARTIFACT_MAX_TITLE_LENGTH);
   });
+
+  it("never cuts a title inside a character", () => {
+    const title = extractTitle(`${"\u{1F600}".repeat(120)}.png`);
+    expect(title.length).toBeLessThanOrEqual(ARTIFACT_MAX_TITLE_LENGTH);
+    expect(title).toBe(`${"\u{1F600}".repeat(97)}\u2026.png`);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(title)).toBe(false);
+  });
 });
 
 describe("a box from the keyboard", () => {
