@@ -3,11 +3,16 @@ import { History, RotateCcw } from "lucide-react";
 import { artifactText, type ArtifactVersionRecord } from "@shared/artifact";
 import { Button, ListRow } from "../ui";
 import { actorLabel, ageLabel } from "./artifacts-pane-model";
+import { DocumentEditor } from "./DocumentEditor";
+
+/** A past version takes no writes. */
+const refuseWrite = async (): Promise<string | null> => "An old version cannot be edited. Restore it first.";
 
 /**
- * Every version of one artifact, newest first. Picking one shows it as the
- * text an agent reads; Restore writes it back as a new version on the head,
- * so history only ever grows.
+ * Every version of one artifact, newest first. Picking one shows it: a
+ * document rendered as it reads, with no caret, anything else as the text an
+ * agent reads. Restore writes it back as a new version on the head, so
+ * history only ever grows.
  */
 export function ArtifactHistory({
   versions,
@@ -53,7 +58,17 @@ export function ArtifactHistory({
                   Restore as version {head + 1}
                 </Button>
               </div>
-              <pre className="artifact-history__text">{artifactText(shown.body)}</pre>
+              {shown.body.type === "document" ? (
+                <DocumentEditor
+                  key={shown.version}
+                  body={shown.body}
+                  version={shown.version}
+                  readOnly
+                  onPatch={refuseWrite}
+                />
+              ) : (
+                <pre className="artifact-history__text">{artifactText(shown.body)}</pre>
+              )}
             </>
           )}
         </div>
