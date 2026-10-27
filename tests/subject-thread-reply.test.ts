@@ -24,7 +24,7 @@ import type { MailMessageId, MailSenderStamp } from "../src/shared/crew";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
-import { artifacts, automations, canvasOf, page, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { artifacts, automations, canvasOf, files, page, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { AUTOMATION_SEAT_ID } from "../src/shared/mail-author";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import type { SubjectCommentInput } from "../src/shared/subject-comment";
@@ -94,6 +94,7 @@ const seat = (id: string, x: number) =>
 
 const SHELF = "shelf";
 const PAGE = "page";
+const FILES = "tree";
 
 const NODES = [
   region("team", { x: -40, y: -40, width: 900, height: 400 }),
@@ -103,6 +104,7 @@ const NODES = [
   automations("auto", { x: 640, y: 40, width: 160, height: 100 }),
   artifacts(SHELF, { x: 400, y: 200, width: 120, height: 100 }),
   page(PAGE, { x: 600, y: 200, width: 120, height: 100 }),
+  files(FILES, { x: 760, y: 200, width: 120, height: 100 }),
   region("other", { x: -40, y: 600, width: 400, height: 300 }),
   taskBoard(FAR_BOARD, { x: 200, y: 640, width: 120, height: 100 }),
   seatNode("outsider", { x: 0, y: 640, width: 120, height: 48, bindingId: "bind-outsider" as never, launch: { kind: "harness", argv: ["claude"] } }),
@@ -310,6 +312,7 @@ describe("subject threads", () => {
     { kind: "artifacts", on: "an artifact", subjectOf: async () => ({ kind: "artifact", nodeId: asNodeId(SHELF), artifactId: ItemId.make("01M5G0BJD8MBEJG2QVX5VM6DJ1") } as const) },
     { kind: "task", on: "a task", subjectOf: async () => ({ kind: "task", nodeId: asNodeId(BOARD), taskId: ItemId.make(await createTask()) } as const) },
     { kind: "page", on: "a page", subjectOf: async () => ({ kind: "page", nodeId: asNodeId(PAGE) } as const) },
+    { kind: "files", on: "a file", subjectOf: async () => ({ kind: "file", nodeId: asNodeId(FILES), path: "src/main.ts" } as const) },
   ] as const;
   for (const { kind, on, subjectOf } of mentioned) {
     it.skipIf(!productNodeKindEnabled(kind))(`a seat mentioned on ${on} replies with msg reply, and the reply posts there`, async () => {
@@ -331,6 +334,21 @@ describe("subject threads", () => {
       expect(posted === undefined ? undefined : threadSubjectOf(posted)).toMatchObject(subject);
     });
   }
+
+  // A Files node's title falls back to its root's basename, which never leaves its machine.
+  it.skipIf(!productNodeKindEnabled("files"))("a reply on a file names its Files node by label or \"files\", never by its folder", async () => {
+    const subject = { kind: "file", nodeId: asNodeId(FILES), path: "src/main.ts" } as const;
+    const peerLink = mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "@peer", CANVAS);
+    await runtime.runPromise(postSubjectComment(
+      { subject, text: `${peerLink} look`, actor: { kind: "seat", seatId: `seat_${"a".repeat(64)}` as ActorSeatId, nodeId: asNodeId("agent") }, opId: mintOpId() } as SubjectCommentInput,
+      { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [] },
+    ));
+    const mention = (await mailbox("peer")).find((message) => message.metadata?.subjectNotice === "mention");
+    const replied = await call("peer", "msg.reply", { target: FILES, inReplyTo: mention!.messageId, text: "on it" });
+    expect(replied.ok, JSON.stringify(replied)).toBe(true);
+    expect(replied.data.recipient).toMatchObject({ nodeId: FILES, name: "files" });
+    expect(JSON.stringify(replied.data)).not.toContain("junto");
+  });
 
   it("a reply whose inReplyTo is not this seat's mail is refused UnknownTarget, to a wired seat and to a task node", async () => {
     const missing = ulid();

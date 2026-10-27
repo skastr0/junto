@@ -919,7 +919,9 @@ const mailSenderStamp = (
 /** Who a mail went to, as the sender reads it back. */
 const recipientOf = (board: Canvas, nodeId: string): SeatIdentity => {
   const node = findNode(board, nodeId);
-  return node === undefined ? { nodeId, name: nodeId, regions: [] } : seatIdentity(board, node);
+  if (node === undefined) return { nodeId, name: nodeId, regions: [] };
+  // A Files node's title falls back to its root's basename, and the root never leaves its machine.
+  return node.kind === "files" ? { ...seatIdentity(board, node), name: node.label ?? "files" } : seatIdentity(board, node);
 };
 
 /** The operator, who is no node, as a reply's recipient. */
