@@ -47,7 +47,7 @@ import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threa
 import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
-import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
+import { ArtifactSheetEditor, type SheetCellLinks } from "./ArtifactSheetEditor";
 import {
   ageLabel,
   isLinkUrl,
@@ -98,6 +98,10 @@ export function ArtifactsNode({
     (write) => write.op.op === "create" && !entries.some((entry) => entry.artifact.artifactId === write.artifactId),
   );
   const [selectedId, setSelectedId] = useState<string | null>(initialArtifactId ?? null);
+  // An open asked for while the modal is up, a link followed from inside it, picks that artifact.
+  useEffect(() => {
+    if (initialArtifactId !== undefined) setSelectedId(initialArtifactId);
+  }, [initialArtifactId]);
   const [type, setType] = useState<TypeFilter>("all");
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
@@ -396,6 +400,14 @@ function SelectedArtifact({
     }),
     [canvasName, mentionable, resources, linkable, readOnly, create],
   );
+  // A sheet's cells take the same [[ as the document.
+  const sheetLinks = useMemo<SheetCellLinks | undefined>(
+    () =>
+      documentMentions.links === undefined
+        ? undefined
+        : { canvasName, links: documentMentions.links, nodeKindOf: documentMentions.nodeKindOf },
+    [canvasName, documentMentions],
+  );
 
   useEffect(() => setTitle(artifact.title), [artifact.title]);
 
@@ -519,6 +531,7 @@ function SelectedArtifact({
             readOnly={readOnly}
             onPatch={(patches) => edit((baseVersion) => ({ kind: "patch", type: "sheet", baseVersion, patches: [...patches] }))}
             onCommentCells={(range) => setDraftAnchor({ kind: "cells", range })}
+            cellLinks={sheetLinks}
           />
         );
       case "pad":

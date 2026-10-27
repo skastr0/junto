@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -15,7 +16,10 @@ import { Result } from "effect";
 import { Copy, MessageSquare, Plus, Trash2 } from "lucide-react";
 import { ulid } from "ulid";
 import { applySheetPatch, type SheetPatch } from "@shared/artifact";
+import { mentionLinksOf, mentionRefOf } from "@shared/mention";
+import type { NodeKind } from "@shared/model/kinds";
 import type { SheetGrid } from "@shared/model/sheet";
+import type { NodeId } from "@shared/physics/schema";
 import {
   isNumericColumn,
   sheetColumnLetter,
@@ -27,8 +31,13 @@ import {
 } from "@shared/sheet";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import { MentionCombobox, type ComboboxLinks } from "../ui/MentionCombobox";
 import "./artifact-sheet.css";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
+import { linkPiecesOf, useLinkTitles, type LinkTitleOf } from "../../lib/link-titles";
+import { openMention } from "../../lib/mention-open";
+import type { MentionCandidate } from "../../lib/mention-draft";
+import { markColor, RESOURCE_KIND_VISUAL } from "../../lib/resource-visuals";
 
 /** Typing settles into one `cell` patch after this pause, or on blur and Enter. */
 export const SHEET_CELL_DEBOUNCE_MS = 400;
@@ -37,6 +46,32 @@ type CellAt = { readonly row: number; readonly column: number };
 type Selection = { readonly anchor: CellAt; readonly focus: CellAt };
 type CellDraft = { readonly rowId: string; readonly columnId: string; readonly value: string };
 type ColumnDraft = { readonly columnId: string; readonly value: string };
+
+/**
+ * What a cell's links need from its host (plan 0.11, 02): the canvas the
+ * links name, what `[[` links to (and how it makes a document by a title),
+ * and the node kinds that read a link back as what it names.
+ */
+export type SheetCellLinks = {
+  readonly canvasName: string;
+  readonly links: ComboboxLinks;
+  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+};
+
+/** Only `[[` opens a list in a cell: @ and # stay words. */
+const NO_CELL_MENTIONS: ReadonlyArray<MentionCandidate> = [];
+
+/** Room the `[[` list needs under a cell before it opens above it instead. */
+const LINK_LIST_ROOM_PX = 240;
+
+/** The first link in a cell's text that names something on the canvas, to open. */
+const firstLinkOf = (text: string, nodeKindOf: SheetCellLinks["nodeKindOf"]) => {
+  for (const link of mentionLinksOf(text)) {
+    const ref = mentionRefOf(link.target, nodeKindOf);
+    if (ref !== undefined) return ref;
+  }
+  return undefined;
+};
 
 /** Ids the writer mints for new rows and columns: unique without reading the grid. */
 export const mintSheetRowId = (): string => `r${ulid()}`;
@@ -102,6 +137,12 @@ const applyLocal = (grid: SheetGrid, patches: ReadonlyArray<SheetPatch>): SheetG
  * character, which starts the edit with it. In an edit Enter commits and
  * moves down, Tab commits and moves across, Escape puts the cell back.
  * Delete or Backspace clears the cell, Cmd+Backspace removes its row.
+ *
+ * With `cellLinks` a cell holds links (plan 0.11, 02): out of an edit each
+ * one draws as its words, an artifact's title as it is now; in an edit the
+ * cell is the house link field, where `[[` links an artifact in reach or
+ * makes a document by the title, and a link already there stays one unit.
+ * Cmd+Enter or Cmd+click opens the cell's first link.
  */
 export function ArtifactSheetEditor({
   grid,
@@ -109,6 +150,7 @@ export function ArtifactSheetEditor({
   onPatch,
   onCommentCells,
   title,
+  cellLinks,
 }: {
   readonly grid: SheetGrid;
   /** The artifact's title, so two open sheets read apart. */
@@ -117,6 +159,8 @@ export function ArtifactSheetEditor({
   /** Resolves with the refusal line, or null when the patches landed. */
   readonly onPatch: (patches: ReadonlyArray<SheetPatch>) => Promise<string | null>;
   readonly onCommentCells?: (range: string) => void;
+  /** Links in cells; without it a cell is plain text and `[[` is only brackets. */
+  readonly cellLinks?: SheetCellLinks | undefined;
 }) {
   const [draft, setDraft] = useState<SheetGrid>(grid);
   const draftRef = useRef(draft);
@@ -136,6 +180,13 @@ export function ArtifactSheetEditor({
   const [selection, setSelection] = useState<Selection | null>(null);
   /** The cell in an edit, if any; every other cell only navigates. */
   const [editing, setEditing] = useState<CellAt | null>(null);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
+  /** Where the edited cell's `[[` list opens: under it, or over it when the grid has no room below. */
+  const [listPlacement, setListPlacement] = useState<"below" | "above">("below");
+  /** A `[[` create is in flight in the edited cell; an edit ended meanwhile ends when its link is in. */
+  const creating = useRef(false);
+  const doneAfterCreate = useRef(false);
   /** What the edited cell held when the edit began, for Escape. */
   const editOrigin = useRef("");
   /** A cell the keyboard moved to: focused once its row is drawn. */
@@ -223,11 +274,34 @@ export function ArtifactSheetEditor({
   );
 
   const onCellDone = useCallback(() => {
+    // The link a create is making goes in first; the edit ends after it.
+    if (creating.current) {
+      doneAfterCreate.current = true;
+      return;
+    }
     commitCell();
     setCellDraft(null);
     cellDraftRef.current = null;
     setEditing(null);
   }, [commitCell]);
+
+  /** The link field's text, taken only while its cell is in the edit: a create that lands after the edit ended writes nothing. */
+  const onEditChange = useCallback(
+    (at: CellAt, rowId: string, columnId: string, value: string) => {
+      if (sameCell(editingRef.current, at)) onCellChange(rowId, columnId, value);
+    },
+    [onCellChange],
+  );
+
+  const onEditCreating = useCallback(
+    (busy: boolean) => {
+      creating.current = busy;
+      if (busy || !doneAfterCreate.current) return;
+      doneAfterCreate.current = false;
+      onCellDone();
+    },
+    [onCellDone],
+  );
 
   const onCellSelect = useCallback((at: CellAt, extend: boolean) => {
     setSelection((current) =>
@@ -294,6 +368,15 @@ export function ArtifactSheetEditor({
     const column = draftRef.current.columns[at.column];
     if (readOnly || !row || !column) return;
     editOrigin.current = row.cells[column.id] ?? "";
+    if (cellLinks !== undefined) {
+      const cell = scrollerRef.current?.querySelector(`[data-cell="${cellName(at)}"]`)?.getBoundingClientRect();
+      const grid = scrollerRef.current?.getBoundingClientRect();
+      const below = cell && grid ? grid.bottom - cell.bottom : LINK_LIST_ROOM_PX;
+      const above = cell && grid ? cell.top - grid.top : 0;
+      setListPlacement(below >= LINK_LIST_ROOM_PX || below >= above ? "below" : "above");
+    }
+    creating.current = false;
+    doneAfterCreate.current = false;
     setEditing(at);
     if (seed !== null) onCellChange(row.id, column.id, seed);
   };
@@ -310,7 +393,11 @@ export function ArtifactSheetEditor({
     }
     setCellDraft(null);
     cellDraftRef.current = null;
+    creating.current = false;
+    doneAfterCreate.current = false;
     setEditing(null);
+    // The cell keeps the keyboard: a link field gives way to the cell's own input.
+    if (cellLinks !== undefined) pendingFocus.current = { at, tries: 0 };
     const row = draftRef.current.rows[at.row];
     const column = draftRef.current.columns[at.column];
     if (!row || !column) return;
@@ -319,10 +406,18 @@ export function ArtifactSheetEditor({
     }
   };
 
-  const keyRef = useRef<(event: ReactKeyboardEvent<HTMLInputElement>, at: CellAt) => void>(() => {});
+  const keyRef = useRef<(event: ReactKeyboardEvent<HTMLElement>, at: CellAt) => void>(() => {});
   keyRef.current = (event, at) => {
     const mod = event.metaKey || event.ctrlKey || event.altKey;
     if (sameCell(editing, at)) {
+      if ((event.key === "Enter" || event.key === "Tab") && creating.current) {
+        // The link a create is making is not in yet: the edit waits for it.
+        event.preventDefault();
+        return;
+      }
+      // A link field gives way to the cell's own input as the edit ends, so the cell takes the keyboard back unless the edit moves on.
+      const linkField = cellLinks !== undefined;
+      if (linkField && (event.key === "Enter" || event.key === "Tab")) pendingFocus.current = { at, tries: 0, event: event.nativeEvent };
       if (event.key === "Enter") {
         event.preventDefault();
         onCellDone();
@@ -333,7 +428,8 @@ export function ArtifactSheetEditor({
         cancelEdit(at);
       } else if (event.key === "Tab") {
         onCellDone();
-        if (move(at, { row: 0, column: event.shiftKey ? -1 : 1 }, false, event.nativeEvent)) event.preventDefault();
+        // At the grid's edge a plain cell lets Tab leave; a link field is gone by then, so the cell keeps it.
+        if (move(at, { row: 0, column: event.shiftKey ? -1 : 1 }, false, event.nativeEvent) || linkField) event.preventDefault();
       }
       return;
     }
@@ -342,6 +438,9 @@ export function ArtifactSheetEditor({
     if (step !== undefined && !mod) {
       event.preventDefault();
       move(liveSelectionRef.current?.focus ?? at, step, event.shiftKey, event.nativeEvent);
+    } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && cellLinks !== undefined) {
+      event.preventDefault();
+      openCellLink(at);
     } else if ((event.key === "Enter" || event.key === "F2") && !mod) {
       event.preventDefault();
       startEdit(at, null);
@@ -365,9 +464,27 @@ export function ArtifactSheetEditor({
     }
   };
   const onCellKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLInputElement>, at: CellAt) => keyRef.current(event, at),
+    (event: ReactKeyboardEvent<HTMLElement>, at: CellAt) => keyRef.current(event, at),
     [],
   );
+
+  /** Open the first link a cell holds; a cell with none does nothing. */
+  function openCellLink(at: CellAt): void {
+    const row = draftRef.current.rows[at.row];
+    const column = draftRef.current.columns[at.column];
+    if (!row || !column || cellLinks === undefined) return;
+    const ref = firstLinkOf(row.cells[column.id] ?? "", cellLinks.nodeKindOf);
+    if (ref !== undefined) openMention(ref);
+  }
+  const openCellLinkRef = useRef(openCellLink);
+  openCellLinkRef.current = openCellLink;
+
+  // Every cell's text, so each link draws as its artifact's title now.
+  const cellTexts = useMemo(
+    () => (cellLinks === undefined ? [] : draft.rows.flatMap((row) => Object.values(row.cells).filter((text) => text.includes("](junto:")))),
+    [cellLinks, draft],
+  );
+  const titleOf = useLinkTitles(cellLinks?.canvasName, cellTexts);
 
   // The cell the keyboard moved to takes focus once drawn; a row outside the
   // drawn window scrolls in first.
@@ -538,6 +655,12 @@ export function ArtifactSheetEditor({
                   onCellKeyDown={onCellKeyDown}
                   onStartEdit={startEditRef}
                   onDeleteRow={onDeleteRow}
+                  cellLinks={readOnly ? undefined : cellLinks}
+                  titleOf={cellLinks === undefined ? undefined : titleOf}
+                  listPlacement={listPlacement}
+                  onEditChange={onEditChange}
+                  onEditCreating={onEditCreating}
+                  onOpenLink={openCellLinkRef}
                 />
               );
             })}
@@ -610,7 +733,9 @@ export function ArtifactSheetEditor({
           </span>
         ) : (
           <span className="junto-artifact-sheet__note" id={hintId}>
-            {`${String(draft.rows.length)} × ${String(draft.columns.length)}. Cells are plain text. Enter edits, shift and arrows select a range.`}
+            {cellLinks === undefined
+              ? `${String(draft.rows.length)} × ${String(draft.columns.length)}. Cells are plain text. Enter edits, shift and arrows select a range.`
+              : `${String(draft.rows.length)} × ${String(draft.columns.length)}. Enter edits, [[ links an artifact, Cmd+Enter opens a link, shift and arrows select a range.`}
           </span>
         )}
         <span className="sr-only" role="status" aria-live="polite" data-testid="artifact-sheet-status">
@@ -638,6 +763,12 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
   onCellKeyDown,
   onStartEdit,
   onDeleteRow,
+  cellLinks,
+  titleOf,
+  listPlacement,
+  onEditChange,
+  onEditCreating,
+  onOpenLink,
 }: {
   readonly row: SheetGrid["rows"][number];
   readonly index: number;
@@ -656,9 +787,17 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
   readonly onCellDone: () => void;
   readonly onCellSelect: (at: CellAt, extend: boolean) => void;
   readonly onCellFocus: (at: CellAt) => void;
-  readonly onCellKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>, at: CellAt) => void;
+  readonly onCellKeyDown: (event: ReactKeyboardEvent<HTMLElement>, at: CellAt) => void;
   readonly onStartEdit: { readonly current: (at: CellAt) => void };
   readonly onDeleteRow: (rowId: string) => void;
+  /** Present when cells take links and can be edited: an edit is the link field. */
+  readonly cellLinks: SheetCellLinks | undefined;
+  /** Present when cells draw links: each link's words. */
+  readonly titleOf: LinkTitleOf | undefined;
+  readonly listPlacement: "below" | "above";
+  readonly onEditChange: (at: CellAt, rowId: string, columnId: string, value: string) => void;
+  readonly onEditCreating: (busy: boolean) => void;
+  readonly onOpenLink: { readonly current: (at: CellAt) => void };
 }) {
   const rowStyle = { height: SHEET_ROW_HEIGHT_PX } satisfies CSSProperties;
   return (
@@ -690,6 +829,11 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
             ? edgesOf(selection, index, columnIndex)
             : null;
         const inEdit = editingColumn === columnIndex;
+        const raw = row.cells[column.id] ?? "";
+        const label = `${column.name || column.id} row ${String(index + 1)}`;
+        // Out of an edit a link draws as its words over the cell's own text, which reads the same words.
+        const pieces = titleOf === undefined || inEdit || typing !== null ? null : linkPiecesOf(raw, titleOf);
+        const linked = pieces !== null && pieces.some((piece) => piece.link !== undefined);
         return (
           <td
             key={column.id}
@@ -700,16 +844,48 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
             data-edge-bottom={edge?.bottom ? "" : undefined}
             data-edge-left={edge?.left ? "" : undefined}
           >
+            {inEdit && cellLinks !== undefined ? (
+              <div className="junto-artifact-sheet__cell-edit">
+                <MentionCombobox
+                  value={typing ? typing.value : raw}
+                  onValueChange={(value) => onEditChange(at, row.id, column.id, value)}
+                  canvasName={cellLinks.canvasName}
+                  candidates={NO_CELL_MENTIONS}
+                  listLabel={() => ""}
+                  nodeKindOf={cellLinks.nodeKindOf}
+                  links={cellLinks.links}
+                  placement={listPlacement}
+                  dense
+                  rows={1}
+                  fieldRef={focusAtEnd}
+                  aria-label={label}
+                  data-testid="artifact-sheet-cell-edit"
+                  onCreating={onEditCreating}
+                  onBlur={(event: ReactFocusEvent<HTMLTextAreaElement>) => {
+                    // A pick in the list keeps the field; only leaving the cell ends the edit.
+                    if (event.currentTarget.closest("td")?.contains(event.relatedTarget as Node | null)) return;
+                    onCellDone();
+                  }}
+                  onKeyDown={(event) => onCellKeyDown(event, at)}
+                />
+              </div>
+            ) : (
             <input
-              aria-label={`${column.name || column.id} row ${String(index + 1)}`}
+              aria-label={label}
               data-cell={`${sheetColumnLetter(columnIndex)}${String(index + 1)}`}
               data-editing={inEdit ? "true" : undefined}
               tabIndex={activeColumn === columnIndex ? 0 : -1}
-              value={typing ? typing.value : (row.cells[column.id] ?? "")}
+              value={typing ? typing.value : pieces !== null && linked ? pieces.map((piece) => piece.text).join("") : raw}
               data-numeric={numericByColumn[column.id] ? "true" : undefined}
+              data-links={linked ? "true" : undefined}
               // Outside an edit a cell only navigates: keys move, they do not type.
               readOnly={readOnly || !inEdit}
               onMouseDown={(event: ReactMouseEvent<HTMLInputElement>) => {
+                if (linked && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  onOpenLink.current(at);
+                  return;
+                }
                 if (event.shiftKey) {
                   event.preventDefault();
                   onCellSelect(at, true);
@@ -721,9 +897,34 @@ const ArtifactSheetRow = memo(function ArtifactSheetRow({
               onBlur={onCellDone}
               onKeyDown={(event) => onCellKeyDown(event, at)}
             />
+            )}
+            {linked ? (
+              <span aria-hidden className="junto-artifact-sheet__words">
+                {pieces.map((piece, at) =>
+                  piece.link === undefined ? (
+                    <span key={at}>{piece.text}</span>
+                  ) : (
+                    <span
+                      key={at}
+                      className="junto-artifact-sheet__link"
+                      style={{ "--mark": markColor(RESOURCE_KIND_VISUAL.artifact.tone) } as CSSProperties}
+                    >
+                      {piece.text}
+                    </span>
+                  ),
+                )}
+              </span>
+            ) : null}
           </td>
         );
       })}
     </tr>
   );
 });
+
+/** The link field takes the keyboard as it opens, with the caret after the text, as a cell's edit does. */
+const focusAtEnd = (element: HTMLTextAreaElement | null): void => {
+  if (element === null) return;
+  claimFocus(element, "gesture", { preventScroll: true });
+  element.setSelectionRange(element.value.length, element.value.length);
+};
