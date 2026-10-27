@@ -68,6 +68,20 @@
   }
 }
 
+/* The narrow sidebar's header keeps its eyebrow on one line beside the
+   controls. */
+.two-pane[data-sidebar-width="narrow"] .two-pane__sidebar .pane-header {
+  gap: 4px;
+  padding: 0 4px 0 8px;
+}
+
+.two-pane[data-sidebar-width="narrow"] .two-pane__sidebar .pane-header > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Collapsed rail: a 40px edge on the right at every width, so it is never
    dropped below the main pane. After the narrow-sidebar rules, before the
    collapsed-sidebar ones. */
