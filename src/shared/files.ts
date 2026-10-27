@@ -145,6 +145,12 @@ export type FilesSearchResult =
   /** A newer search from the same window for the same node took its place. Drop it. */
   | { readonly kind: "superseded"; readonly query: string };
 
+/** How many files are under a root, for the card. `capped`: the count stopped at `FILES_COUNT_CAP` (a home folder, say). */
+export type FilesCount = { readonly files: number; readonly capped: boolean };
+
+/** A count outside a git work tree stops here. */
+export const FILES_COUNT_CAP = 100_000;
+
 /** One dropped item copied in, by the name it got (` 2`, ` 3` when the name was taken). */
 export type FileImported = { readonly path: FilePath; readonly dir: boolean };
 
@@ -168,6 +174,13 @@ export interface JuntoFilesApi {
      */
     readonly open: (ref: FilesNodeRef) => Promise<FilesResult<FilesRoot>>;
     readonly close: (ref: FilesNodeRef) => Promise<FilesResult<null>>;
+    /**
+     * Files under the root, for the card; no `open` needed and none made. It
+     * reads the index when a window holds the root, else counts once (git
+     * ls-files, or a walk up to `FILES_COUNT_CAP`). Ask again on `onChange`.
+     * Optional only until the renderer's stand-in (`files-source.ts`) carries it.
+     */
+    readonly count?: (ref: FilesNodeRef) => Promise<FilesResult<FilesCount>>;
     /** One folder's entries, folders first, then by name. */
     readonly list: (ref: FilesNodeRef, dir: FilePath) => Promise<FilesResult<ReadonlyArray<FileEntry>>>;
     /** Ranked filenames for quick open. Send a rising `seq` per keystroke; an older one answers `superseded`. */

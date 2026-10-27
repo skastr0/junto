@@ -129,6 +129,10 @@ export const registerFilesIpc = (): FilesService => {
     const ref = decodeRef(rawRef);
     return ref === undefined ? noNode : service.close(event.sender.id, ref);
   });
+  ipc.handle(IPC_CHANNELS.filesCount, (_event, rawRef: unknown) => {
+    const ref = decodeRef(rawRef);
+    return ref === undefined ? noNode : service.count(ref);
+  });
   ipc.handle(IPC_CHANNELS.filesList, (_event, ref: unknown, dir: unknown) =>
     withRefPath(ref, dir, (r, p) => service.list(r, p)),
   );

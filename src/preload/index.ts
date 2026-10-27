@@ -788,6 +788,7 @@ const filesApi: JuntoFilesApi = {
   files: {
     open: (ref) => invoke(IPC_CHANNELS.filesOpen, IPC_TIMEOUT_MS, ref),
     close: (ref) => invoke(IPC_CHANNELS.filesClose, IPC_TIMEOUT_MS, ref),
+    count: (ref) => invoke(IPC_CHANNELS.filesCount, IPC_TIMEOUT_MS, ref),
     list: (ref, dir) => invoke(IPC_CHANNELS.filesList, IPC_TIMEOUT_MS, ref, dir),
     search: (ref, query, seq) => invoke(IPC_CHANNELS.filesSearch, IPC_TIMEOUT_MS, ref, query, seq),
     read: (ref, path) => invoke(IPC_CHANNELS.filesRead, IPC_TIMEOUT_MS, ref, path),

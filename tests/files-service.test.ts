@@ -316,6 +316,18 @@ describe("search", () => {
     expect(after.matches.map((match) => match.path)).toEqual(["src/new-files.ts"]);
   });
 
+  it("counts files for the card without a session, then from the held index", async () => {
+    let listed = ["a.ts", "b.ts", "c/d.ts"];
+    const { files } = service({ names: fakeNames(() => listed) });
+    expect(value(await files.count(ref))).toEqual({ files: 3, capped: false });
+    expect(files.heldRoots()).toEqual([]);
+    value(await files.open(1, ref));
+    listed = ["a.ts"];
+    expect(value(await files.count(ref))).toEqual({ files: 1, capped: false });
+    facts = { host: "laptop", root };
+    expect(errorOf(await files.count(ref))).toBe("elsewhere");
+  });
+
   it("drops the root's watcher and index with the last session", async () => {
     const { files } = service();
     value(await files.open(1, ref));

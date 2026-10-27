@@ -276,6 +276,7 @@ export const IPC_CHANNELS = {
   /** Files node (0.11): node plus relative path in, never an absolute path out (`src/shared/files.ts`). */
   filesOpen: "junto:files-open",
   filesClose: "junto:files-close",
+  filesCount: "junto:files-count",
   filesList: "junto:files-list",
   filesSearch: "junto:files-search",
   filesRead: "junto:files-read",

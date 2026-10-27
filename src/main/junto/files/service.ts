@@ -1,8 +1,10 @@
 import { lstat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
+  FILES_COUNT_CAP,
   parseFilePath,
   type FileEntry,
+  type FilesCount,
   type FileImported,
   type FilePath,
   type FileRead,
@@ -55,7 +57,7 @@ export type FilesNodeFacts = { readonly host: string; readonly root: string };
 export type NameSources = {
   readonly isGitRoot: (root: string, signal: AbortSignal) => Promise<boolean>;
   readonly gitNames: (root: string, sink: NameSink, signal: AbortSignal) => Promise<void>;
-  readonly walkNames: (root: string, sink: NameSink, signal: AbortSignal) => Promise<void>;
+  readonly walkNames: (root: string, sink: NameSink, signal: AbortSignal, cap?: number) => Promise<void>;
   readonly gitIgnored: (root: string, paths: ReadonlyArray<string>, signal: AbortSignal) => Promise<ReadonlySet<string>>;
 };
 
@@ -241,6 +243,29 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       });
   };
 
+  /** Cards on the same unheld root share one count. */
+  const counting = new Map<string, Promise<FilesCount>>();
+
+  /** Count names without keeping them: one git ls-files, or a walk that stops at the cap. */
+  const countOnce = async (root: string): Promise<FilesCount> => {
+    const signal = new AbortController().signal;
+    let files = 0;
+    const sink: NameSink = (batch) => {
+      files += batch.length;
+    };
+    if (await names.isGitRoot(root, signal)) {
+      try {
+        await names.gitNames(root, sink, signal);
+        return { files, capped: false };
+      } catch (cause) {
+        console.error("[files] git ls-files failed, walking instead", cause);
+        files = 0;
+      }
+    }
+    await names.walkNames(root, sink, signal, FILES_COUNT_CAP);
+    return { files, capped: files >= FILES_COUNT_CAP };
+  };
+
   const holderFor = (root: string): Holder => {
     const existing = holders.get(root);
     if (existing !== undefined) return existing;
@@ -313,6 +338,21 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       holder.matchSets.set(key, set);
       return ok({ kind: "results", query, matches, total: index.size });
     },
+
+    count: (ref: FilesNodeRef): Promise<FilesResult<FilesCount>> =>
+      withRoot(ref, async ({ root }) => {
+        const holder = holders.get(root);
+        if (holder !== undefined) {
+          const index = await ensureIndex(holder);
+          await holder.deltas;
+          return ok({ files: index.size, capped: false });
+        }
+        const running = counting.get(root);
+        if (running !== undefined) return ok(await running);
+        const once = countOnce(root).finally(() => counting.delete(root));
+        counting.set(root, once);
+        return ok(await once);
+      }),
 
     list: (ref: FilesNodeRef, dir: FilePath): Promise<FilesResult<ReadonlyArray<FileEntry>>> =>
       withRoot(ref, (root) => listDir(root, dir)),
