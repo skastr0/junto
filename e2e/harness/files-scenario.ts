@@ -133,3 +133,17 @@ export const drop = async (target: Locator, transfer: JSHandle<DataTransfer>): P
   await hover(target, transfer);
   await dropOn(target, transfer);
 };
+
+/**
+ * A drag from one tree row onto another, with the mouse in steps, so the tree sees a drag rather than a click.
+ * Playwright's dragTo makes a single move, which can stay under the tree's drag threshold.
+ */
+export const dragRow = async (page: Page, from: Locator, to: Locator): Promise<void> => {
+  const start = await from.boundingBox();
+  const end = await to.boundingBox();
+  if (start === null || end === null) throw new Error("a tree row has no size to drag from or to");
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
+  await page.mouse.up();
+};
