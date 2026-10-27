@@ -88,6 +88,11 @@ export function FilesNode({
   const ref = useMemo<FilesNodeRef>(() => ({ canvas: canvasName, node: nodeId }), [canvasName, nodeId]);
   const root = useFilesRoot(ref);
   const [selected, setSelected] = useState<FilePath | null>(initialPath ?? null);
+  /** The page an extract's link named, until the operator leaves that file: coming back opens it where they left. */
+  const [pageOnce, setPageOnce] = useState(initialPage);
+  useEffect(() => {
+    if (selected !== initialPath) setPageOnce(undefined);
+  }, [selected, initialPath]);
   const draftsVersion = useDraftsVersion();
   const node = nodeAt(canvasName, nodeId);
   const folderName = root.state === "ready" ? root.value.name : node === undefined ? "Files" : titleOf(node);
@@ -250,7 +255,7 @@ export function FilesNode({
             canvasName={canvasName}
             filesRef={ref}
             path={selected}
-            {...(initialPage !== undefined && selected === initialPath ? { initialPage } : {})}
+            {...(pageOnce !== undefined && selected === initialPath ? { initialPage: pageOnce } : {})}
             sidebar={sidebar}
             save={save}
             onClose={onClose}
@@ -281,6 +286,9 @@ function SelectedFile({
 }) {
   const nodeId = filesRef.node;
   const [read, setRead] = useState<Loaded<FileRead>>({ state: "loading" });
+  /** The stamp of the first read: the viewer remounts on a change on disk, and the named page is for the first one only. */
+  const firstStamp = useRef<number | null>(null);
+  if (firstStamp.current === null && read.state === "ready") firstStamp.current = read.value.stamp.mtimeMs;
   /** The file moved on disk under an unsaved draft: reload or keep. */
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -519,7 +527,7 @@ function SelectedFile({
               if (drawn === null) setBoxDraft(null);
               else pickBox(drawn);
             }}
-            {...(initialPage === undefined ? {} : { initialPage })}
+            {...(initialPage === undefined || value.stamp.mtimeMs !== firstStamp.current ? {} : { initialPage })}
             // Every read carries its stamp: a PDF read as text or too large reloads on a change too.
             version={value.stamp.mtimeMs}
           />
