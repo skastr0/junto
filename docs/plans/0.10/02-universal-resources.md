@@ -283,8 +283,6 @@ old, so it is advisory and the ruling decides (remote-lead).
 |---|---|---|---|
 | Ids unique | By construction (ULID) | Yes | Cannot collide |
 | Task numbers | Not minted | Minted | Nothing to disagree |
-| One open task per seat (04 inv. 2), own start or self-assign | Reliable | Yes | First ruled wins |
-| One open task per seat, assigned by another seat | Advisory | Yes | First ruled wins |
 | One assignee per task (04 inv. 1) | Advisory | Yes | First ruled wins |
 | Only the assignee transitions (04 inv. 3) | Reliable | Yes, against the ruled assignee | Refused, dependents refused |
 | Reach (01) | On the local copy | Yes, at the ruling seq (01 rule 3) | Refused, except the assignee's own transitions (01) |
@@ -295,15 +293,17 @@ old, so it is advisory and the ruling decides (remote-lead).
 | Artifact `replace` on `baseVersion` | Advisory | Yes | Refused `Stale` with the head; the body is kept |
 | Artifact `patch` | Advisory | Rebased onto the head (05) | Refused only when the rebase conflicts; the patch is kept |
 
-**First ruled wins** is the honest rule for one open task per seat. Seat S
-on a machine that is away starts task X; meanwhile, on the editing machine,
-the operator assigns Z to S. When S's machine returns, S's start of X is
-refused, and S's pending work on X rolls back in Junto's record (not in git:
-commits and files are the seat's, and Junto never touches them). The refusal
-tells S exactly what to do: unassign Z or ask for it to move, then start X
-again. Ruling order puts nothing above "first": the operator, the seat's own
-machine and wall-clock time get no priority, because clocks across machines
-are not trusted and a priority rule would only move the surprise elsewhere.
+**First ruled wins** is the honest rule for one assignee per task. A seat
+holds any number of open tasks (04 inv. 2, since 0.10.3), so nothing caps
+what one seat takes. Seat S on a machine that is away assigns itself task X;
+meanwhile, on the editing machine, the operator assigns X to seat T. When S's
+machine returns, S's assign of X is refused, and S's pending work on X rolls
+back in Junto's record (not in git: commits and files are the seat's, and
+Junto never touches them). The refusal tells S exactly what to do: take
+another task, or ask T to unassign X. Ruling order puts nothing above
+"first": the operator, the seat's own machine and wall-clock time get no
+priority, because clocks across machines are not trusted and a priority rule
+would only move the surprise elsewhere.
 
 ### Ruling order
 
