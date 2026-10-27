@@ -20,9 +20,9 @@ and is noted unverified.
       experimental and the first notes line says where to switch it on.
 - [x] Schema steps (product-lead): step 51 is the files node, expand only,
       50 to 51. Step 52 rebuilds stubs so other machines show a Files stub; it
-      is with the operator. If approved, the notes name both steps and the
-      head is 52; if not, 0.11 has 51 only, the head is 51, and the notes say
-      the stub comes later (other machines then show no Files stub).
+      is with the operator. If approved, the notes name it; if not, the notes say
+      the stub comes later (other machines then show no Files stub). The links
+      step below comes on top of either.
 - [x] Artifact links add a third step, `work_artifact_links`, expand only
       (`docs/plans/0.11/02-artifact-links.md`; product-feed lands it, canvas
       coordinates its number with step 52). So the head is 52 or 53 if the
