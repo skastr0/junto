@@ -153,6 +153,7 @@ export type SurfaceKeyId =
   | "inDocument.stop"
   | "inDocument.mention"
   | "inDocument.bold"
+  | "inDocument.italic"
   | "inDocument.follow"
   | "inDocument.thread"
   | "inSheet.move"
@@ -714,6 +715,17 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Make the selection bold, or plain again",
     keys: ["Cmd+B"],
     keysOther: ["Ctrl+B"],
+    where: ["field"],
+  }),
+  // Not Cmd+I: that opens the needs-you feed from every field. Not
+  // Cmd+Shift+I: off macOS it is the developer tools in a dev build.
+  surfaceKey({
+    id: "inDocument.italic",
+    area: "Inside a document",
+    name: "Italic",
+    does: "Make the selection italic, or plain again",
+    keys: ["Cmd+E"],
+    keysOther: ["Ctrl+E"],
     where: ["field"],
   }),
   surfaceKey({
