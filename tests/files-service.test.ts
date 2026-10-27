@@ -14,9 +14,11 @@ import {
 import { fileUrl } from "@shared/file-url";
 import { asNodeId } from "@shared/physics/schema";
 import { makeFilesService, type FilesNodeFacts, type NameSources } from "../src/main/junto/files/service";
+import { gitNames, walkNames } from "../src/main/junto/files/sources";
+import { execFileSync } from "node:child_process";
 import { numberedName } from "../src/main/junto/files/fs-ops";
 import { createFileProtocolHandler } from "../src/main/junto/files/protocol";
-import { BURST, watchRoot, type WatchFactory } from "../src/main/junto/files/watcher";
+import { BURST, watchRoot, type WatchBatch, type WatchFactory } from "../src/main/junto/files/watcher";
 
 const p = (raw: string): FilePath => {
   const path = parseFilePath(raw);
@@ -94,6 +96,58 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
+});
+
+describe("symlinks that point out of the root", () => {
+  const listed = async (list: (sink: (names: ReadonlyArray<string>) => void) => Promise<void>) => {
+    const names: string[] = [];
+    await list((batch) => names.push(...batch));
+    return names.sort();
+  };
+
+  it("the walk lists a link only when it resolves inside the root", async () => {
+    await symlink(join(root, "README.md"), join(root, "link-in.md"));
+    await symlink(join(root, "gone.txt"), join(root, "dangling.txt"));
+    const signal = new AbortController().signal;
+    expect(await listed((sink) => walkNames(root, sink, signal))).toEqual(["README.md", "link-in.md", "src/a.ts"]);
+    // A folder of the root walked on its own still judges links by the root.
+    await symlink(join(root, "README.md"), join(root, "src", "up.md"));
+    await symlink(join(outside, "secret.txt"), join(root, "src", "out.txt"));
+    expect(await listed((sink) => walkNames(join(root, "src"), sink, signal, undefined, root))).toEqual(["a.ts", "up.md"]);
+  });
+
+  it("git lists a tracked or untracked link only when it resolves inside the root", async () => {
+    const git = (...args: string[]) => execFileSync("git", ["-C", root, ...args], { stdio: "ignore" });
+    git("init", "-q");
+    await symlink(join(root, "README.md"), join(root, "link-in.md"));
+    git("add", "README.md", "src/a.ts", "link-out.txt", "link-in.md");
+    await symlink(join(outside, "secret.txt"), join(root, "untracked-out.txt"));
+    await symlink(join(root, "src", "a.ts"), join(root, "untracked-in.ts"));
+    await writeFile(join(root, "notes.txt"), "n\n");
+    const signal = new AbortController().signal;
+    expect(await listed((sink) => gitNames(root, sink, signal))).toEqual([
+      "README.md", "link-in.md", "notes.txt", "src/a.ts", "untracked-in.ts",
+    ]);
+  });
+
+  it("a link that appears pointing out is never indexed", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    const { files } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      names: fakeNames(() => ["README.md"]),
+    });
+    value(await files.open(1, ref));
+    value(await files.search(1, ref, "md", 1));
+    await symlink(join(outside, "secret.txt"), join(root, "new-out.txt"));
+    await symlink(join(root, "README.md"), join(root, "new-in.txt"));
+    watch.fire("new-out.txt");
+    watch.fire("new-in.txt");
+    while (queued.length > 0) queued.shift()?.();
+    const found = value(await files.search(1, ref, "new", 2));
+    expect(found).toMatchObject({ matches: [{ path: "new-in.txt" }] });
+  });
 });
 
 describe("which node is served", () => {
@@ -374,6 +428,71 @@ describe("search", () => {
     expect(ignoredAsked).toContain("dist/out.js");
   });
 
+  it("still applies deltas after one overflow sent the index stale", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    let scans = 0;
+    let listed = ["a.ts"];
+    const { files } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      names: {
+        isGitRoot: async () => true,
+        gitNames: async (_root, sink) => {
+          scans += 1;
+          sink(listed);
+        },
+        walkNames: async () => undefined,
+        gitIgnored: async () => new Set<string>(),
+      },
+    });
+    value(await files.open(1, ref));
+    value(await files.search(1, ref, "a", 1));
+    // Quiet windows of 99 paths each (no streak, no burst) until more are queued than a rebuild costs.
+    for (let window = 0; window < 50; window += 1) {
+      for (let i = 0; i < 99; i += 1) watch.fire(`w${String(window)}-${String(i)}.txt`);
+      while (queued.length > 0) queued.shift()?.();
+    }
+    listed = ["a.ts", "b.ts"];
+    value(await files.search(1, ref, "b", 2));
+    expect(scans).toBe(2);
+    await writeFile(join(root, "new.ts"), "");
+    watch.fire("new.ts");
+    while (queued.length > 0) queued.shift()?.();
+    const found = value(await files.search(1, ref, "new", 3));
+    expect(found).toMatchObject({ matches: [{ path: "new.ts" }] });
+    expect(scans).toBe(2);
+  });
+
+  it("a burst that lands mid-scan leaves the new index stale", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    let scans = 0;
+    const { files } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      names: {
+        isGitRoot: async () => true,
+        gitNames: async (_root, sink) => {
+          scans += 1;
+          if (scans === 1) {
+            watch.fire(null);
+            while (queued.length > 0) queued.shift()?.();
+          }
+          sink(["a.ts"]);
+        },
+        walkNames: async () => undefined,
+        gitIgnored: async () => new Set<string>(),
+      },
+    });
+    value(await files.open(1, ref));
+    value(await files.search(1, ref, "a", 1));
+    value(await files.search(1, ref, "a", 2));
+    expect(scans).toBe(2);
+    value(await files.search(1, ref, "a", 3));
+    expect(scans).toBe(2);
+  });
+
   it("drops the root's watcher and index with the last session", async () => {
     const { files } = service();
     value(await files.open(1, ref));
@@ -410,6 +529,51 @@ describe("watcher", () => {
     for (let i = 0; i <= BURST; i += 1) listener?.("change", `f${String(i)}`);
     queued.shift()?.();
     expect(batches.at(-1)).toEqual({ kind: "burst" });
+  });
+
+  it("a log written every 50 ms never holds a burst open: edits keep going out", () => {
+    // A virtual clock: timers run in time order, nothing waits on a real one.
+    let now = 0;
+    let next = 0;
+    const timers = new Map<number, { at: number; fn: () => void }>();
+    const advanceTo = (until: number): void => {
+      for (;;) {
+        let id = -1;
+        let at = Number.POSITIVE_INFINITY;
+        for (const [key, timer] of timers) if (timer.at < at) [id, at] = [key, timer.at];
+        if (at > until) break;
+        const timer = timers.get(id)!;
+        timers.delete(id);
+        now = at;
+        timer.fn();
+      }
+      now = until;
+    };
+    let listener: ((event: string, filename: string | null) => void) | undefined;
+    const batches: WatchBatch[] = [];
+    watchRoot("/r", (batch) => batches.push(batch), (_root, l) => {
+      listener = l;
+      return { close: () => undefined };
+    }, {
+      set: (fn, ms) => {
+        next += 1;
+        timers.set(next, { at: now + ms, fn });
+        return next;
+      },
+      clear: (handle) => timers.delete(handle as number),
+    });
+    // A checkout first: one burst.
+    for (let i = 0; i <= BURST; i += 1) listener?.("change", `f${String(i)}`);
+    const edits = [120_000, 300_000, 480_000];
+    for (let t = 0; t < 600_000; t += 50) {
+      advanceTo(t);
+      listener?.("change", "app.log");
+      if (edits.includes(t)) listener?.("change", `edit-${String(t)}.ts`);
+    }
+    advanceTo(600_500);
+    const sent = batches.flatMap((batch) => (batch.kind === "paths" ? batch.paths : []));
+    for (const t of edits) expect(sent).toContain(`edit-${String(t)}.ts`);
+    expect(batches.filter((batch) => batch.kind === "burst").length).toBeLessThanOrEqual(2);
   });
 
   it("folds a burst spread over back-to-back windows into one, and one more at its end", () => {

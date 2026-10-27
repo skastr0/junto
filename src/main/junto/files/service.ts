@@ -34,7 +34,7 @@ import {
   type Scope,
 } from "./fs-ops";
 import { COMPACT_AFTER, NameIndexBuilder, type MatchSet, type NameIndex } from "./name-index";
-import { gitIgnored, gitNames, isGitRoot, walkNames, type NameSink } from "./sources";
+import { gitIgnored, gitNames, isGitRoot, linkInside, walkNames, type NameSink } from "./sources";
 import { watchRoot, type Timers, type WatchBatch, type WatchFactory } from "./watcher";
 
 /**
@@ -57,7 +57,7 @@ export type FilesNodeFacts = { readonly host: string; readonly root: string };
 export type NameSources = {
   readonly isGitRoot: (root: string, signal: AbortSignal) => Promise<boolean>;
   readonly gitNames: (root: string, sink: NameSink, signal: AbortSignal) => Promise<void>;
-  readonly walkNames: (root: string, sink: NameSink, signal: AbortSignal, cap?: number) => Promise<void>;
+  readonly walkNames: (root: string, sink: NameSink, signal: AbortSignal, cap?: number, within?: string) => Promise<void>;
   readonly gitIgnored: (root: string, paths: ReadonlyArray<string>, signal: AbortSignal) => Promise<ReadonlySet<string>>;
 };
 
@@ -96,6 +96,8 @@ type Holder = {
   deltas: Promise<void>;
   /** Paths waiting in `deltas`. */
   queued: number;
+  /** Bursts seen: a build that saw one arrive mid-scan leaves the index stale. */
+  bursts: number;
   readonly matchSets: Map<string, MatchSet>;
 };
 
@@ -155,6 +157,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
   const buildIndex = (holder: Holder): Promise<NameIndex> => {
     const build = async (): Promise<NameIndex> => {
       holder.heldDuringBuild = [];
+      const bursts = holder.bursts;
       const signal = holder.abort.signal;
       holder.repo ??= await names.isGitRoot(holder.root, signal);
       let builder = new NameIndexBuilder();
@@ -172,11 +175,25 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       }
       const index = await builder.finish();
       holder.index = index;
-      holder.stale = false;
+      // A burst keeps no paths: one that came mid-scan may be missing, so build again next time.
+      holder.stale = holder.bursts !== bursts;
       holder.matchSets.clear();
       const held = holder.heldDuringBuild;
       holder.heldDuringBuild = undefined;
-      if (held.length > 0) await applyDeltas(holder, index, held);
+      // On the chain, so no batch that came after the build interleaves with these.
+      if (held.length > 0 && !holder.stale) {
+        holder.queued += held.length;
+        holder.deltas = holder.deltas
+          .then(() => applyDeltas(holder, index, held))
+          .catch((cause: unknown) => {
+            console.error("[files] index delta failed; rebuilding on next search", cause);
+            holder.stale = true;
+          })
+          .finally(() => {
+            holder.queued -= held.length;
+          });
+        await holder.deltas;
+      }
       return index;
     };
     const building = build().finally(() => {
@@ -203,12 +220,13 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
    */
   const applyDeltas = async (holder: Holder, index: NameIndex, paths: ReadonlyArray<string>): Promise<void> => {
     const signal = holder.abort.signal;
-    if (holder.stale || signal.aborted) return;
+    // A delta for an index a rebuild replaced: the new scan already has it.
+    if (holder.stale || signal.aborted || holder.index !== index) return;
     const ignoredNow = holder.repo === true ? await names.gitIgnored(holder.root, paths, signal) : new Set<string>();
     const walked: string[] = [];
     const gone: string[] = [];
     for (const path of paths) {
-      if (holder.stale || signal.aborted) return;
+      if (holder.stale || signal.aborted || holder.index !== index) return;
       if (ignoredNow.has(path)) continue;
       const info = await lstat(join(holder.root, path)).catch(() => undefined);
       if (info === undefined) {
@@ -217,11 +235,15 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       } else if (info.isDirectory()) {
         await names.walkNames(join(holder.root, path), (batch) => {
           for (const name of batch) walked.push(`${path}/${name}`);
-        }, signal);
+        }, signal, undefined, holder.root);
+      } else if (info.isSymbolicLink() && !(await linkInside(holder.root, join(holder.root, path)))) {
+        // Points out of the root (or nowhere): no row that could only fail.
+        if (index.has(path)) index.remove(path);
       } else {
         index.add(path);
       }
     }
+    if (holder.index !== index) return;
     if (gone.length > SWEEP_MAX) {
       holder.stale = true;
       return;
@@ -240,6 +262,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       return;
     }
     if (batch.kind === "burst") {
+      holder.bursts += 1;
       holder.stale = true;
       sendTo(holder, (node) => ({ node, kind: "reset" }));
       return;
@@ -257,11 +280,11 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     const index = holder.index;
     if (index === undefined || holder.stale) return;
     // More queued than a rebuild costs: go stale now and drop the queue.
-    holder.queued += paths.length;
-    if (index.drift + holder.queued > COMPACT_AFTER) {
+    if (index.drift + holder.queued + paths.length > COMPACT_AFTER) {
       holder.stale = true;
       return;
     }
+    holder.queued += paths.length;
     holder.deltas = holder.deltas
       .then(() => applyDeltas(holder, index, paths))
       .catch((cause: unknown) => {
@@ -316,9 +339,11 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       stale: false,
       deltas: Promise.resolve(),
       queued: 0,
+      bursts: 0,
       matchSets: new Map(),
     };
     holders.set(root, holder);
+    counts.delete(root);
     return holder;
   };
 
@@ -391,7 +416,8 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
         if (running !== undefined) return ok(await running);
         const once = countOnce(root)
           .then((count) => {
-            counts.set(root, count);
+            // A root opened meanwhile counts from its index from now on.
+            if (!holders.has(root)) counts.set(root, count);
             return count;
           })
           .finally(() => counting.delete(root));

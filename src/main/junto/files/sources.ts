@@ -1,5 +1,5 @@
-import { opendir } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, opendir, realpath } from "node:fs/promises";
+import { join, sep } from "node:path";
 import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
 import { GIT_GUARD_ARGS } from "../adapters/git-guard";
 import { spawnServiceChild } from "../../services/process";
@@ -7,8 +7,10 @@ import { spawnServiceChild } from "../../services/process";
 /**
  * Where a Files root's filenames come from: `git ls-files` when the root is
  * in a work tree (tracked plus untracked, minus ignored), else a walk that
- * skips `.git` and `node_modules`. Names only, never a stat per file. Both
- * stream into `sink` in chunks, so a 200k root never blocks the loop.
+ * skips `.git` and `node_modules`. Names only, never a stat per tracked
+ * file. Both stream into `sink` in chunks, so a 200k root never blocks the
+ * loop. A symlink is listed only when it resolves inside the root: one that
+ * points out could only answer `outside-root`.
  */
 
 export type NameSink = (names: ReadonlyArray<string>) => void;
@@ -80,15 +82,65 @@ export const isGitRoot = async (root: string, signal: AbortSignal): Promise<bool
   return code === 0 && answer.trim() === "true";
 };
 
-/** Tracked and untracked files under `root`, relative to it, ignored ones left out. */
+/** Whether the symlink at `link` (absolute) resolves inside `root` (a realpath). A dangling one does not. */
+export const linkInside = async (root: string, link: string): Promise<boolean> => {
+  const target = await realpath(link).catch(() => undefined);
+  return target !== undefined && (target === root || target.startsWith(root + sep));
+};
+
+const GIT_LINK_MODE = "120000";
+/** A submodule: a folder, never a file. */
+const GIT_SUBMODULE_MODE = "160000";
+const UNTRACKED_LSTATS = 64;
+
+/**
+ * Tracked and untracked files under `root` (a realpath), relative to it,
+ * ignored ones left out. Tracked entries carry their mode, so only symlinks
+ * are resolved; untracked ones (few, outside ignored folders) take an lstat
+ * each to find theirs.
+ */
 export const gitNames = async (root: string, sink: NameSink, signal: AbortSignal): Promise<void> => {
-  const code = await streamGit(
+  const links: string[] = [];
+  let last = "";
+  const tracked = await streamGit(
     root,
-    ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate"],
-    (names) => sink(names.filter((name) => !inSkippedDir(name))),
+    // --format cannot combine with --others; an unmerged path repeats, adjacent.
+    ["ls-files", "-z", "--cached", "--format=%(objectmode) %(path)"],
+    (records) => {
+      const names: string[] = [];
+      for (const record of records) {
+        const space = record.indexOf(" ");
+        const mode = record.slice(0, space);
+        const name = record.slice(space + 1);
+        if (name === last || inSkippedDir(name) || mode === GIT_SUBMODULE_MODE) continue;
+        last = name;
+        if (mode === GIT_LINK_MODE) links.push(name);
+        else names.push(name);
+      }
+      if (names.length > 0) sink(names);
+    },
     signal,
   );
-  if (code !== 0 && !signal.aborted) throw new Error(`git ls-files exited ${String(code)}`);
+  if (tracked !== 0 && !signal.aborted) throw new Error(`git ls-files exited ${String(tracked)}`);
+  const untracked: string[] = [];
+  const others = await streamGit(
+    root,
+    ["ls-files", "-z", "--others", "--exclude-standard"],
+    (names) => untracked.push(...names.filter((name) => !inSkippedDir(name))),
+    signal,
+  );
+  if (others !== 0 && !signal.aborted) throw new Error(`git ls-files exited ${String(others)}`);
+  for (let at = 0; at < untracked.length && !signal.aborted; at += UNTRACKED_LSTATS) {
+    const chunk = untracked.slice(at, at + UNTRACKED_LSTATS);
+    const isLink = await Promise.all(
+      chunk.map((name) => lstat(join(root, name)).then((info) => info.isSymbolicLink(), () => false)),
+    );
+    sink(chunk.filter((_, i) => !isLink[i]));
+    links.push(...chunk.filter((_, i) => isLink[i]));
+  }
+  const inside = await Promise.all(links.map((name) => linkInside(root, join(root, name))));
+  const kept = links.filter((_, i) => inside[i]);
+  if (kept.length > 0) sink(kept);
 };
 
 /** Which of `paths` (relative to `root`) git ignores, for deltas in a git root. */
@@ -106,12 +158,17 @@ export const gitIgnored = async (
   return ignored;
 };
 
-/** Every file under `root`, skipping `SKIPPED_DIRS` and never following a symlinked folder. */
+/**
+ * Every file under `root`, skipping `SKIPPED_DIRS`, never following a
+ * symlinked folder, and listing a symlink only when it resolves inside `within`.
+ */
 export const walkNames = async (
   root: string,
   sink: NameSink,
   signal: AbortSignal,
   cap = WALK_CAP,
+  /** The Files root (a realpath) symlinks must resolve inside; `root` itself unless walking a folder of it. */
+  within = root,
 ): Promise<void> => {
   const queue: string[] = [""];
   let batch: string[] = [];
@@ -134,7 +191,7 @@ export const walkNames = async (
         const path = dir === "" ? entry.name : `${dir}/${entry.name}`;
         if (entry.isDirectory()) {
           if (!SKIPPED_DIRS.has(entry.name)) queue.push(path);
-        } else if (entry.isFile() || entry.isSymbolicLink()) {
+        } else if (entry.isFile() || (entry.isSymbolicLink() && (await linkInside(within, join(root, path))))) {
           batch.push(path);
           seen += 1;
           if (batch.length >= WALK_BATCH) flush();
