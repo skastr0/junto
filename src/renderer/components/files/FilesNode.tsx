@@ -171,7 +171,24 @@ export function FilesNode({
     <>
       <PaneHeader
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
-        actions={quickOpen.trigger}
+        actions={
+          <>
+            {quickOpen.trigger}
+            <IconButton
+              aria-label="Reveal folder in Finder"
+              title="Reveal folder in Finder"
+              size="sm"
+              disabled={root.state !== "ready"}
+              onClick={() =>
+                void filesSource()
+                  .revealInFinder(ref, ROOT_PATH)
+                  .then((result) => setTreeError(result.ok ? null : filesErrorLine(result.error)))
+              }
+            >
+              <FolderSearch size={14} />
+            </IconButton>
+          </>
+        }
       />
       <label className="files-filter">
         <Search size={12} aria-hidden />
@@ -312,7 +329,8 @@ function SelectedFile({
   };
   const outside = async (open: "openInDefaultApp" | "revealInFinder"): Promise<void> => {
     const result = await filesSource()[open](filesRef, path);
-    setError(result.ok ? null : filesErrorLine(result.error));
+    // Main opens nothing that would run (a script, an app, an executable): say that, not a read refusal.
+    setError(result.ok ? null : open === "openInDefaultApp" && result.error === "denied" ? RUNS_LINE : filesErrorLine(result.error));
   };
 
   const view = read.state === "ready" ? fileViewOf(path, read.value) : null;
@@ -516,6 +534,8 @@ function FileRail({
     </div>
   );
 }
+
+const RUNS_LINE = "Junto does not open programs or scripts. Reveal it in Finder instead.";
 
 const formatSize = (bytes: number): string =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
