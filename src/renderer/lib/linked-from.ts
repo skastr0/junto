@@ -1,13 +1,13 @@
 /**
  * Body backlinks, read (0.11 artifact links, L4): the artifacts whose body
  * links to an artifact, newest first, from main's `work_artifact_links`
- * (L1, product-feed). Mail and comments stay with `useMentionedIn`.
- *
- * Until L1's bridge is on `window.junto` nothing is offered: the source
- * answers empty, and tests install their own.
+ * (`window.junto.artifactLinks`, L1). Mail and comments stay with
+ * `useMentionedIn`. Without the bridge the source answers empty; tests
+ * install their own.
  */
 import { useEffect, useRef, useState } from "react";
 import type { ArtifactLinkRef, LinkedFromBody } from "@shared/artifact-links";
+import type { ArtifactLinksApi } from "@shared/artifact-links-ipc";
 import { mentionLinksOf } from "@shared/mention";
 import { getJuntoApi } from "./junto-api";
 
@@ -29,10 +29,7 @@ export const readableLine = (line: string): string => {
   return shown.replace(/\[([^\]\n]*)\]\([^)\s]*$/u, "$1…").trim();
 };
 
-export type BodyLinksSource = {
-  readonly linkedFrom: (canvasName: string, target: ArtifactTarget) => Promise<ReadonlyArray<BodyLink>>;
-  readonly onChanged: (listener: (event: { readonly canvasName: string }) => void) => () => void;
-};
+export type BodyLinksSource = ArtifactLinksApi;
 
 const NONE: BodyLinksSource = { linkedFrom: async () => [], onChanged: () => () => undefined };
 
@@ -43,8 +40,7 @@ export const installBodyLinks = (source: BodyLinksSource | null): void => {
   installed = source;
 };
 
-const bridged = (): BodyLinksSource | undefined =>
-  (getJuntoApi() as { readonly artifactLinks?: BodyLinksSource } | undefined)?.artifactLinks;
+const bridged = (): BodyLinksSource | undefined => getJuntoApi()?.artifactLinks;
 
 export const bodyLinksSource = (): BodyLinksSource => installed ?? bridged() ?? NONE;
 
