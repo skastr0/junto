@@ -119,3 +119,16 @@ React). Recheck each is still there at the go, and that the disk has room
       task board derive wire between two boards, and a database that migrated
       from v49. Frames to the needs-you feed.
 - [ ] Website download page is not touched by this lane.
+
+## Result
+
+0.10.3 shipped from bump commit 6051eddef (on 82dd749ff, a test-only commit
+past cut hash b817db2d3), on product-lead's word after the step 50 gate. Shared
+unit lane 706 of 707 files, isolated 434 of 437 (3 skipped), ship lane ok. The
+first build run failed one isolated test, `stubs-migration.test.ts` (remote-v13
+case), on its 5 second timeout under a 15-minute load of 55; it passes 3 of 3
+alone in about a second, and the rerun on the same export was green. Notarization
+submission e4a6327a-1832-4384-bfca-c6ad5b1a8072 accepted, published 2026-10-27,
+machine build fa758533...; the feed serves 0.10.3 and its zip hashes to the
+stapled sha256 3157d415...7898. Unverified at publish: what the CLI prints for
+a derived task, and a 0.10.2 CLI against the new app.
