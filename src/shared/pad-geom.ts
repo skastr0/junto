@@ -152,19 +152,6 @@ export const anchorPoint = (shape: PadShape, side: PadSide): PadPoint => {
   }
 };
 
-const oppositeSide = (side: PadSide): PadSide => {
-  switch (side) {
-    case "top":
-      return "bottom";
-    case "right":
-      return "left";
-    case "bottom":
-      return "top";
-    case "left":
-      return "right";
-  }
-};
-
 const inferSide = (from: PadShape, to: PadShape): PadSide => {
   const dx = to.x + to.w / 2 - (from.x + from.w / 2);
   const dy = to.y + to.h / 2 - (from.y + from.h / 2);
@@ -204,7 +191,8 @@ export const routeEdge = (
   toSide?: PadSide,
 ): PadPoint[] => {
   const startSide = fromSide ?? inferSide(from, to);
-  const endSide = toSide ?? (from.id === to.id ? startSide : oppositeSide(inferSide(to, from)));
+  // inferSide(to, from) is already the side of `to` that faces `from`.
+  const endSide = toSide ?? (from.id === to.id ? startSide : inferSide(to, from));
   const start = anchorPoint(from, startSide);
   const end = anchorPoint(to, endSide);
 

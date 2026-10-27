@@ -49,3 +49,18 @@ describe("pad connectors", () => {
     expect(connectEdge(drawn, asPadElementId("e3"), A, "right", { shape: b, side: "top" })).toBeDefined();
   });
 });
+
+describe("pad edge routes", () => {
+  test("an edge leaves the side facing its target and lands on the target's facing side", async () => {
+    const { routeEdge } = await import("../src/shared/pad-geom");
+    const right = routeEdge(shape("a", 0, 0), shape("b", 300, 0));
+    expect(right[0]).toEqual({ x: 100, y: 30 });
+    expect(right.at(-1)).toEqual({ x: 300, y: 30 });
+    const left = routeEdge(shape("b", 300, 0), shape("a", 0, 0));
+    expect(left.at(-1)).toEqual({ x: 100, y: 30 });
+    const down = routeEdge(shape("a", 0, 0), shape("c", 0, 200));
+    expect(down.at(-1)).toEqual({ x: 50, y: 200 });
+    const inside = (p: { x: number; y: number }, x: number) => p.x > x && p.x < x + 100 && p.y > 0 && p.y < 60;
+    for (const point of right) expect(inside(point, 0) || inside(point, 300)).toBe(false);
+  });
+});
