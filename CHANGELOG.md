@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+Draft for 0.11.0, worded from `docs/plans/0.11/README.md` before the tracks
+land. Every bullet is checked against the code at the cut, the upgrade
+paragraph is written once the schema step is known, and this line is deleted
+at the bump.
+
+- Files: a node that opens a folder on this machine as a file tree and opens
+  a file in the main pane, laid out like Artifacts. The node keeps the folder
+  it was made in, from the region's folder for this machine, and you can
+  change it. Other machines see the node by its label only; the folder path
+  never leaves this machine.
+- Edit code and text in the node: it highlights, edits and saves with Cmd+S.
+  If the file changed since you opened it, the save is refused and offers
+  reload or keep. Markdown opens in the same live editor as artifacts. Files
+  over 5 MB are not opened in the editor.
+- Cmd+P opens quick open inside a node's window, with a button in the header:
+  file names in Files, items in Artifacts, Tasks and Automations.
+- Drop files from Finder on a Files card, on its window, or on a folder in the
+  tree, and they are copied into that folder. A name that exists gets " 2",
+  " 3" and so on; nothing is moved or overwritten. Dragging inside the tree
+  renames. Delete moves a file to the Trash.
+- PDFs and images preview in the main pane. Any other file offers Open in its
+  default app and Reveal in Finder.
+- Comment anywhere in a file: on lines of code, on a box on an image, or on a
+  box on a PDF page. A line comment finds its lines again after edits by its
+  quote.
+- Extract to artifact: a box drawn on a PDF page or an image becomes an image
+  artifact in an Artifacts node in reach, with a link back to the file, page
+  and box.
+
 ## 0.10.3 — 2026-10-27
 
 Opening the database with 0.10.3 moves it to version 50, and 0.10.2 then

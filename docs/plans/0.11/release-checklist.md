@@ -1,0 +1,123 @@
+# 0.11.0 release checklist
+
+Owner: product-releases. Status: draft 2026-10-27, no track has reported done.
+Plan: `README.md` in this folder. Same lane as 0.10.3
+(`docs/plans/0.10/13-release-checklist-0.10.3.md`), with a minor bump. Heavy
+runs ask product-lead for a slot and wait for the one-minute load to be under
+40 (`sysctl -n vm.loadavg`). Nothing here bumps or builds until product-lead
+says every track is done and verified. The operator tests nothing: a check
+that needs a person is decided from code and reasoning, takes the safe option,
+and is noted unverified.
+
+## 0. Decisions I need before the cut
+
+- [ ] Ship tier of `files` (`SHIP_FEATURES` in `src/shared/feature-catalog.ts`).
+      The plan says "experimental tier, on in all-on". `experimental` means
+      compiled in and OFF until the operator turns it on in Settings, so the
+      0.11 headline would not be visible after the upgrade. The notes draft
+      says on. If it ships experimental, the first notes line must say where
+      to turn it on. Asked product-lead 2026-10-27. Answer:
+- [ ] The schema step for the `files` kind (plan F1, "expand only"): the
+      version it lands on (50 to 51 expected). Sections 1 and 5 depend on it.
+
+## 1. State step (if F1 adds one)
+
+Notes open with it, as 0.10.3 did: the older release refuses the newer
+database, and going back means opening the backup taken at the upgrade. Run on
+a copy of `~/.junto/state/junto.db`, never the live file (canvas-verifier, via
+canvas-lead).
+
+- [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
+      `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
+- [ ] The copy migrates from v50; `PRAGMA quick_check` ok, foreign keys empty.
+- [ ] Counts unchanged: every table, every wire and its verb, tasks.
+- [ ] Backup written before the stamp, opens on 0.10.3 at v50.
+- [ ] A second open runs no step and makes no backup.
+- [ ] Built app launches a fresh v50 home made by the 0.10.3 engine and
+      migrates it (the 7b run of 0.10.3).
+- [ ] Diff the step's files between the receipts' commit and the cut.
+
+## 2. Dependencies and packaging
+
+- [ ] `@pierre/trees` 1.0.0-beta.6 added; `@pierre/diffs` 1.1.21 to 1.6.2
+      (`CodeView.tsx` and the git review still work); `pdfjs-dist` 6.4.299
+      with its worker bundled. If the F3 spike fails, the fallback is
+      CodeMirror with `@codemirror/language-data`: confirm which shipped.
+- [ ] Packaged app, not the dev tree: the PDF worker loads under the CSP
+      (`worker-src 'self' blob:`), a PDF opens and scrolls, Shiki highlights.
+- [ ] `junto-file:` protocol serves byte ranges in the packaged app.
+- [ ] Linux and machine builds: a Files node on a machine host works, or the
+      machine bundle is confirmed not to need the service (remote-lead).
+
+## 3. Security (the cut is blocked on these)
+
+- [ ] `docs/security-doctrine.md` has the "Files node" paragraph, reviewed by
+      remote-lead.
+- [ ] The renderer never names an absolute path: every call names the node and
+      a relative path. A path with `..` and a symlink pointing outside the root
+      are refused (`outside-root`). Receipt: test names and run.
+- [ ] Delete goes to the Trash, never `unlink`. Receipt:
+- [ ] A stale write is refused `stale`; a drop never overwrites. Receipt:
+- [ ] Other machines get a stub with the label and no root path. Receipt:
+- [ ] Text reads cap at 5 MB.
+
+## 4. Before the cut
+
+- [ ] Every track in the plan's tracker reports done and verified by a seat
+      that did not write it (product-automation and product-verify in the real
+      app), and product-lead names the cut hash. If main moved past it with
+      code, say so before bumping.
+- [ ] Notes re-read against the cut, bullet by bullet; delete the draft line.
+- [ ] `lint:design-tokens`, `lint:product-name`, `lint:no-middot`,
+      `lint:layers` pass at the cut hash; `tests/motion-law.test.ts` passes.
+- [ ] `git status` clean of other seats' paths.
+- [ ] Carried from 0.10.3, still unverified: what the CLI prints for a derived
+      task, and a 0.10.2 or 0.10.3 CLI against the new app (cli-lead's answer
+      on files commands: none in 0.11).
+
+## 5. Milestone runs (real app, one per feature)
+
+Each: frames dark and bright to the needs-you feed for new UI.
+
+- [ ] F1 Files node: made from the palette, takes the region's folder, change
+      root, card shows folder name and file count, stub on a second machine.
+- [ ] F2 Files modal: tree, open, create, rename, move, trash, watch picks up
+      an outside change.
+- [ ] F3 Editor: opens and saves a TypeScript file; a stale save offers reload
+      or keep; Cmd+S; unsaved mark; Markdown opens live.
+- [ ] F4 Quick open: Cmd+P in Files, Artifacts, Tasks and Automations; button.
+- [ ] F5 Drops: Finder files on the card, on the window, on a folder row; name
+      collision gets " 2"; tree drag renames.
+- [ ] F6 Preview: PDF (pages, zoom, selection), image, an unknown type offers
+      Open and Reveal.
+- [ ] F7 Comments: line, image box and PDF page box; the rail lists them; a
+      line comment re-finds its lines after an edit.
+- [ ] F8 Extract: a PDF box becomes an image artifact in an Artifacts node in
+      reach with the source, page and box in its description.
+- [ ] Accessibility for the tree, palette and viewers (product-accessibility).
+
+## 6. The cut (on product-lead's word only)
+
+Pre-stage and recheck at the go: Developer ID identity 4452968868, `asc`
+credentials, Orb builder `vellum-v015-build-clean` running, disk room. The
+build script `cut-build.sh` lived in my scratchpad and a purge deleted it once;
+recreate it from this recipe if it is gone: archive export of the bump commit
+with its own git dir, `cp -cR` of `node_modules`, delete the
+`node_modules/node_modules` link (without it the unit lane fails on a second
+React), wait for load under 40, set `JUNTO_MACHINE_LINUX_ORB`,
+`JUNTO_MAC_TEAM_ID` and `JUNTO_MAC_SIGNING_IDENTITY`, `bun run app:build:ship`.
+
+1. `bun scripts/bump-version.ts --minor --dry-run` shows 0.10.3 to 0.11.0.
+2. Run it without `--dry-run`; rename `## Unreleased` in `CHANGELOG.md` to
+   `## 0.11.0 — <date>`, new empty `## Unreleased` above, draft line deleted.
+3. `git commit -m "chore(release): bump 0.11.0" -- package.json CHANGELOG.md`.
+4. Clean export and `app:build:ship` at once. A lone timeout in a lane: rerun
+   that file alone, then the build.
+5. Publish on product-lead's word: from `~/Projects/junto-landing`,
+   `bun scripts/release/publish-mac-release.ts --repo-root <export> --dry-run`,
+   then without `--dry-run`.
+6. Feed check, redirects followed: `curl -sSL
+   https://releases.juntoagents.com/mac/arm64/latest-mac.yml` says 0.11.0; the
+   feed zip hashes to the stapled sha256.
+7. Delete the export, keep the notarization receipt, mail product-lead the
+   hash, artifact names and sizes, sha256, submission id.
