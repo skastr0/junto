@@ -123,6 +123,8 @@ Each: frames dark and bright to the needs-you feed for new UI.
       root, card shows folder name and file count, stub on a second machine.
 - [ ] F2 Files modal: tree, open, create, rename, move, trash, watch picks up
       an outside change.
+      Receipt, search: performance-lead's review (via product-lead), 200k
+      files, keystroke p95 25 ms end to end, main block per build under 10 ms.
 - [ ] F3 Editor: opens and saves a TypeScript file; a stale save offers reload
       or keep; Cmd+S; unsaved mark; Markdown opens live.
 - [ ] F4 Quick open: Cmd+P in Files, Artifacts, Tasks and Automations; button.
@@ -140,10 +142,18 @@ Each: frames dark and bright to the needs-you feed for new UI.
       pad text, sheet cell) and mail and comments, an archived source drops
       out, `junto artifact create|edit` resolve `[[Title]]` (zero or several
       matches refused with the candidates) and `show` lists linked from.
-- [ ] Known limit in the notes: file comment threads stay at the old path when
-      a file is renamed or moved outside Junto; a rename in Junto carries them
-      (lands after L1). Confirm it landed before the notes claim it.
+- [x] Known limit in the notes: file comment threads stay at the old path when
+      a file is renamed or moved outside Junto (Finder, git); a rename or move
+      made in Junto carries them. Landed in 63d77dc27 (product-lead,
+      2026-10-27). Receipt for the carry itself: the F7 comments run.
 - [ ] Accessibility for the tree, palette and viewers (product-accessibility).
+
+## Open before the cut (product-lead, 2026-10-27)
+
+All Files and artifact-links tracks are built. Remaining: product-shell's L4
+polish, canvas-verifier on 23d5c772b, product-sheet's exploratory list, and
+the operator's answers (the Files stub, tags). Tags change the notes if they
+land; the stub decides step 53.
 
 ## 6. The cut (on product-lead's word only)
 
