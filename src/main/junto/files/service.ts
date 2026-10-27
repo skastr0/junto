@@ -119,11 +119,12 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
         session.subscriber,
         event.kind === "lost"
           ? { node, kind: "closed", error: "root-missing" }
-          : event.kind === "reset"
-            ? { node, kind: "reset" }
-            : { node, kind: "paths", paths: event.paths },
+          : event.kind === "paths"
+            ? { node, kind: "paths", paths: event.paths }
+            : { node, kind: event.kind },
       );
     }
+    if (event.kind === "missing" || event.kind === "back") counts.delete(root);
     // The holder is gone with its watch: so are the sessions on it.
     if (event.kind === "lost") for (const key of keys) forget(key);
   };
@@ -287,8 +288,8 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       withRoot(ref, (root) => listDir(root, dir)),
     read: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> =>
       withRoot(ref, (root) => readFileAt(root, path)),
-    write: (ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp): Promise<FilesResult<FileStamp>> =>
-      withRoot(ref, (root) => writeFileAt(root, path, text, base)),
+    write: (ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp | null): Promise<FilesResult<FileStamp>> =>
+      (base === null ? changing : withRoot)(ref, (root) => writeFileAt(root, path, text, base)),
     create: (ref: FilesNodeRef, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
       changing(ref, (root) => createAt(root, path, dir)),
     rename: (ref: FilesNodeRef, path: FilePath, name: string): Promise<FilesResult<FilePath>> =>

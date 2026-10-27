@@ -105,7 +105,8 @@ export const makeLocalFiles = (
     },
     write: async (ref, path, text, base) => {
       const held = rootOf(ref.node).get(path);
-      if (held !== undefined && (held.mtimeMs !== base.mtimeMs || held.size !== base.size)) return refused("stale");
+      if (base === null && held !== undefined) return refused("exists");
+      if (base !== null && held !== undefined && (held.mtimeMs !== base.mtimeMs || held.size !== base.size)) return refused("stale");
       const stamp = put(ref.node, path, text);
       changed(ref.node, path);
       return ok(stamp);
