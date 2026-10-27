@@ -125,6 +125,8 @@ import {
   type ResizeHandle,
 } from "./pad-editor-model";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
+import { keyIs } from "../../lib/key-match";
+import { connectTargets, connectedWords, selectedWords, shapeName, walkShapes } from "./pad-walk";
 
 type Gesture =
   | { readonly kind: "idle" }
@@ -274,6 +276,9 @@ export function PadEditor({
   }, []);
   const [spaceDown, setSpaceDown] = useState(false);
   const [hoverId, setHoverId] = useState<string | undefined>();
+  // The target a keyboard connector has walked to, and what the pad last said for a screen reader.
+  const [keyTarget, setKeyTarget] = useState<string | undefined>();
+  const [spoken, setSpoken] = useState("");
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
@@ -728,6 +733,70 @@ export function PadEditor({
     });
   };
 
+  // A walked target belongs to one selection and the connect tool.
+  useEffect(() => setKeyTarget(undefined), [tool, selectedId]);
+
+  /**
+   * The pad by keyboard, on the focused canvas: Enter or an arrow picks the
+   * first shape, Tab and Shift+Tab walk the shapes in reading order (or,
+   * with the connect tool, the targets, and Enter writes the edge). Walking
+   * off either end lets Tab leave the canvas. True when the key was used.
+   */
+  const walkByKey = useCallback(
+    (event: KeyboardEvent): boolean => {
+      const current = padRef.current;
+      const from = selectedId ? shapeById(current, selectedId) : undefined;
+      const take = () => {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      };
+      const next = keyIs(event, "inPad.next");
+      if (next || keyIs(event, "inPad.prev")) {
+        const step = next ? 1 : -1;
+        if (tool === "connect" && from) {
+          const target = walkShapes(connectTargets(current, from.id), keyTarget, step);
+          setKeyTarget(target?.id);
+          if (!target) return false;
+          setSpoken(`Connect ${shapeName(from)} to ${shapeName(target)}, Enter connects`);
+          return take();
+        }
+        if (!from) return false;
+        const shape = walkShapes(current.shapes, from.id, step);
+        if (!shape) {
+          setSelectedId(undefined);
+          return false;
+        }
+        setSelectedId(shape.id);
+        setSpoken(selectedWords(current, shape));
+        return take();
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return false;
+      if (event.key === "Enter" && tool === "connect" && from && keyTarget) {
+        const to = shapeById(current, keyTarget);
+        const edge = to ? connectEdge(current, newPadElementId("edge"), from.id, undefined, { shape: to }) : undefined;
+        setKeyTarget(undefined);
+        if (!to || !edge) {
+          setSpoken(`${shapeName(from)} is already connected there`);
+          return take();
+        }
+        void commit([upsertEdgePatch(edge)]).then((ok) => {
+          if (ok) setSpoken(connectedWords(from, to));
+        });
+        return take();
+      }
+      if (!selectedId && (event.key === "Enter" || event.key.startsWith("Arrow"))) {
+        const first = walkShapes(current.shapes, undefined, 1);
+        if (!first) return false;
+        setSelectedId(first.id);
+        setSpoken(selectedWords(current, first));
+        return take();
+      }
+      return false;
+    },
+    [commit, keyTarget, selectedId, tool],
+  );
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === " " && !isOperatorTyping(event.target) && !isControlTarget(event.target)) {
@@ -754,6 +823,7 @@ export function PadEditor({
         event.stopPropagation();
         return;
       }
+      if (!typing && event.target === svgRef.current && walkByKey(event)) return;
       const control = !typing && isControlTarget(event.target);
       const action = editorKeyAction(event, { typing, control });
       if (action) {
@@ -825,6 +895,7 @@ export function PadEditor({
       window.removeEventListener("keyup", onKeyUp, true);
     };
   }, [
+    walkByKey,
     applyDelete,
     applyDuplicate,
     applyNudge,
@@ -1137,6 +1208,16 @@ export function PadEditor({
     ? shapeById(shown, selectedId) ?? imageById(shown, selectedId)
     : undefined;
   const hoverShape = hoverId ? shapeById(shown, hoverId) : undefined;
+  const keyTargetShape = tool === "connect" && selectedId && keyTarget ? shapeById(shown, keyTarget) : undefined;
+  const keyDraft: Extract<Gesture, { readonly kind: "edge" }> | undefined =
+    keyTargetShape && selectedId
+      ? {
+          kind: "edge",
+          from: selectedId as PadElementId,
+          current: { x: keyTargetShape.x + keyTargetShape.w / 2, y: keyTargetShape.y + keyTargetShape.h / 2 },
+          target: { shape: keyTargetShape },
+        }
+      : undefined;
 
   const editedEdge = editingLabel && !shownSelected && selectedId
     ? shown.edges.find((edge) => edge.id === selectedId)
@@ -1207,7 +1288,7 @@ export function PadEditor({
           data-panning={spaceDown || gesture.kind === "pan" ? "true" : "false"}
           tabIndex={0}
           role="application"
-          aria-label="Pad canvas"
+          aria-label="Drawing pad, Enter picks a shape"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -1314,6 +1395,7 @@ export function PadEditor({
             ) : null}
             {gesture.kind === "edge" ? <EdgeDraft pad={shown} gesture={gesture} pal={pal} zoom={camera.zoom} /> : null}
             {gesture.kind === "idle" && hoverShape ? <PortMarks shape={hoverShape} zoom={camera.zoom} /> : null}
+            {gesture.kind === "idle" && keyDraft ? <EdgeDraft pad={shown} gesture={keyDraft} pal={pal} zoom={camera.zoom} /> : null}
             {shownSelected && canResize(selectedLayer) ? (
               <SelectionChrome item={shownSelected} zoom={camera.zoom} />
             ) : null}
@@ -1361,6 +1443,9 @@ export function PadEditor({
             onEditText={() => beginLabelEdit()}
           />
         ) : null}
+        <div className="sr-only" role="status" aria-live="polite" data-testid="pad-spoken">
+          {spoken}
+        </div>
         <div className="pad-hint" role="status" aria-live="polite" data-empty={hint ? undefined : "true"}>
           {hint}
         </div>

@@ -147,6 +147,25 @@ test("the pad draws an agent's flow legibly in both themes", async () => {
     await page.getByRole("button", { name: "Fit view" }).click();
     await shot(page, "connected-dark");
 
+    // By keyboard: Enter picks the first shape, Tab walks, and the connect tool walks targets and writes with Enter.
+    const spoken = page.getByTestId("pad-spoken");
+    await svg.focus();
+    await page.keyboard.press("Escape");
+    await svg.focus();
+    await page.keyboard.press("Enter");
+    await expect(spoken).toContainText(/^Selected .+, 1 of \d+$/u);
+    await page.keyboard.press("Tab");
+    await expect(spoken).toContainText(/, 2 of \d+$/u);
+    const edgesNow = await page.getByTestId("pad-edge").count();
+    await page.keyboard.press("a");
+    await page.keyboard.press("Tab");
+    await expect(spoken).toContainText(/^Connect .+ to .+, Enter connects$/u);
+    await shot(page, "key-connect-dark");
+    await page.keyboard.press("Enter");
+    await expect(spoken).toContainText(/^Connected .+ to .+/u, { timeout: 10_000 });
+    await expect(page.getByTestId("pad-edge")).toHaveCount(edgesNow + 1);
+    await page.keyboard.press("Escape");
+
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
     await expect(page.locator("html")).toHaveAttribute("data-theme", "bright", { timeout: 5_000 });
     await shot(page, "flow-bright");
