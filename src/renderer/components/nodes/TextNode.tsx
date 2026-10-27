@@ -18,7 +18,7 @@ import { state$ } from "../../lib/state";
 import { accentColor, INK } from "../../lib/theme";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { productNodeKindEnabled, TASKS_ENABLED } from "@shared/features";
-import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
+import { consumeWorkDetailOpen, filesDetailOpening, workDetailOpen$ } from "../../lib/work-detail-open";
 import {
   markNoteSurfaceSaved,
   noteSurfaceId,
@@ -122,6 +122,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const [renaming, setRenaming] = useState(false);
   const [workDetail, setWorkDetail] = useState(false);
   const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
+  const [workDetailPage, setWorkDetailPage] = useState<number | undefined>();
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = kind;
@@ -187,7 +188,9 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
     if (!isWorkDetailTarget) return;
     const consumed = consumeWorkDetailOpen(id);
     if (!workDetailAllowed || !consumed) return;
-    setWorkDetailItemId(consumed.itemId || undefined);
+    const opening = filesDetailOpening(consumed);
+    setWorkDetailItemId(opening.initialItemId);
+    setWorkDetailPage(opening.initialPage);
     setWorkDetail(true);
   }, [isWorkDetailTarget, workDetailAllowed, id]);
 
@@ -325,9 +328,11 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         <FilesDetail
           nodeId={id}
           initialItemId={workDetailItemId}
+          {...(workDetailPage === undefined ? {} : { initialPage: workDetailPage })}
           onClose={() => {
             setWorkDetail(false);
             setWorkDetailItemId(undefined);
+            setWorkDetailPage(undefined);
           }}
         />
       ) : null}

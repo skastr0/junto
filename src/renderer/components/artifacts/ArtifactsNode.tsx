@@ -510,7 +510,7 @@ function SelectedArtifact({
               ? {
                   onOpenSource: (source: FileSource) => {
                     onClose();
-                    openWorkDetail(source.nodeId, { itemId: source.path });
+                    openWorkDetail(source.nodeId, { itemId: source.path, ...(source.page === undefined ? {} : { page: source.page }) });
                   },
                 }
               : {})}

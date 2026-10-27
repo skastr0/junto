@@ -10,6 +10,7 @@ import { canConnect, targetPlanOn } from "../src/renderer/lib/edge-mutations";
 import { toFlowOfCanvas } from "../src/renderer/lib/convert";
 import { nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
 import { cardDropNotice, countLine } from "../src/renderer/lib/files-card";
+import { consumeWorkDetailOpen, filesDetailOpening, openWorkDetail } from "../src/renderer/lib/work-detail-open";
 import { nodeCatalogEntries } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 import { canvasOf, seat } from "./support/model-nodes";
 import type { FilePath } from "../src/shared/files";
@@ -131,5 +132,31 @@ describe("the card's count", () => {
     expect(countLine({ ok: true, value: { files: 100_000, capped: true } })).toBe("100,000+ files");
     expect(countLine({ ok: false, error: "root-missing" })).toBeUndefined();
     expect(countLine(undefined)).toBeUndefined();
+  });
+});
+
+describe("an open that names a page", () => {
+  it("reaches the Files modal with its file and page", () => {
+    openWorkDetail("files-1", { itemId: "docs/brief.pdf", page: 3 });
+    const consumed = consumeWorkDetailOpen("files-1");
+    expect(consumed).toEqual({ itemId: "docs/brief.pdf", page: 3 });
+    expect(filesDetailOpening(consumed!)).toEqual({ initialItemId: "docs/brief.pdf", initialPage: 3 });
+  });
+
+  it("carries no page when none was named, nor after a paged open was consumed", () => {
+    openWorkDetail("files-1", { itemId: "docs/brief.pdf", page: 3 });
+    consumeWorkDetailOpen("files-1");
+    openWorkDetail("files-1", { itemId: "notes.md" });
+    const consumed = consumeWorkDetailOpen("files-1");
+    expect(consumed).toEqual({ itemId: "notes.md" });
+    expect(filesDetailOpening(consumed!)).toEqual({ initialItemId: "notes.md" });
+    openWorkDetail("files-1", { itemId: "a.pdf", page: 0 });
+    expect(filesDetailOpening(consumeWorkDetailOpen("files-1")!)).toEqual({ initialItemId: "a.pdf" });
+  });
+
+  it("is consumed only by the node it names", () => {
+    openWorkDetail("files-1", { itemId: "a.pdf", page: 2 });
+    expect(consumeWorkDetailOpen("files-2")).toBeNull();
+    expect(consumeWorkDetailOpen("files-1")?.page).toBe(2);
   });
 });
