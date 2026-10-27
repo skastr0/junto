@@ -251,7 +251,8 @@ function SwatchGroup({
           <span
             className="pad-swatch__dot"
             data-field={field}
-            style={{ ["--swatch" as string]: swatch.value }}
+            // The fill's edge drops the alpha so the five read apart.
+            style={{ ["--swatch" as string]: swatch.value, ["--swatch-edge" as string]: swatch.value.slice(0, 7) }}
           />
         </button>
       ))}

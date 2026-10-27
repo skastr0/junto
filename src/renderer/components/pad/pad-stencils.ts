@@ -11,28 +11,44 @@ import type {
   PadShape,
   PadShapeStatus,
 } from "@shared/pad";
+import { themeRuntime } from "@shared/theme";
 import { newPadElementId, upsertEdgePatch, upsertShapePatch } from "./pad-editor-model";
 
-/**
- * Stored paint is theme-free, so swatches are exact hex that reads on the
- * dark and the light ground: fills at 18 percent alpha, strokes at the
- * midpoint of the two themes' tokens.
- */
-export const PAD_FILL_SWATCHES = [
-  { id: "amber", name: "Amber", value: "#e8a33d2e" },
-  { id: "cyan", name: "Cyan", value: "#39c6d62e" },
-  { id: "green", name: "Green", value: "#5fb98e2e" },
-  { id: "crimson", name: "Crimson", value: "#e5484d2e" },
-  { id: "steel", name: "Steel", value: "#8fa3b02e" },
+const SWATCH_HUES = [
+  { id: "amber", name: "Amber" },
+  { id: "cyan", name: "Cyan" },
+  { id: "green", name: "Green" },
+  { id: "crimson", name: "Crimson" },
+  { id: "steel", name: "Steel" },
 ] as const;
+type SwatchHue = (typeof SWATCH_HUES)[number]["id"];
 
-export const PAD_STROKE_SWATCHES = [
-  { id: "amber", name: "Amber", value: "#d98a1f" },
-  { id: "cyan", name: "Cyan", value: "#37a9bd" },
-  { id: "green", name: "Green", value: "#41986f" },
-  { id: "crimson", name: "Crimson", value: "#d93e42" },
-  { id: "steel", name: "Steel", value: "#748893" },
-] as const;
+const hexChannels = (hex: string): number[] =>
+  [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+
+const hexOf = (channels: ReadonlyArray<number>): string =>
+  `#${channels.map((n) => Math.round(n).toString(16).padStart(2, "0")).join("")}`;
+
+/** The hue's token, halfway between the dark and the bright theme. */
+const midHue = (hue: SwatchHue): string => {
+  const dark = hexChannels(themeRuntime("dark")[hue]!);
+  const light = hexChannels(themeRuntime("light")[hue]!);
+  return hexOf(dark.map((n, index) => (n + light[index]!) / 2));
+};
+
+/** 18 percent alpha, as the two hex digits paint carries after the color. */
+const FILL_ALPHA = "2e";
+
+/**
+ * Stored paint is theme-free, so swatches are exact hex taken from the
+ * theme tokens that reads on the dark and the bright ground: fills are the
+ * dark token at 18 percent alpha, strokes the midpoint of the two themes.
+ */
+export const PAD_FILL_SWATCHES: ReadonlyArray<{ readonly id: SwatchHue; readonly name: string; readonly value: string }> =
+  SWATCH_HUES.map((hue) => ({ ...hue, value: `${themeRuntime("dark")[hue.id]!}${FILL_ALPHA}` }));
+
+export const PAD_STROKE_SWATCHES: ReadonlyArray<{ readonly id: SwatchHue; readonly name: string; readonly value: string }> =
+  SWATCH_HUES.map((hue) => ({ ...hue, value: midHue(hue.id) }));
 
 export const PAD_STATUSES: ReadonlyArray<{ readonly value: PadShapeStatus; readonly name: string }> = [
   { value: "none", name: "No status" },
@@ -83,7 +99,7 @@ type StencilSpec = {
   readonly links?: ReadonlyArray<readonly [number, number]>;
 };
 
-const fill = (id: (typeof PAD_FILL_SWATCHES)[number]["id"]): string =>
+const fill = (id: SwatchHue): string =>
   PAD_FILL_SWATCHES.find((swatch) => swatch.id === id)!.value;
 
 export const PAD_STENCILS: ReadonlyArray<StencilSpec> = [
