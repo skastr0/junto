@@ -102,6 +102,7 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@dnd-kit/helpers": "^0.5.0",
     "@dnd-kit/react": "^0.5.0",
     "@effect/platform-bun": "4.0.0-rc.112",
