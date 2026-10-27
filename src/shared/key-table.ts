@@ -164,11 +164,15 @@ export type SurfaceKeyId =
   | "inSheet.type"
   | "inSheet.clear"
   | "inPad.tool"
+  | "inPad.pan"
   | "inPad.order"
   | "inPad.delete"
   | "inPad.nudge"
   | "inPad.label"
   | "inPad.undo"
+  | "inPad.redo"
+  | "inPad.duplicate"
+  | "inPad.escape"
   | "message.send"
   | "message.sendQuietly";
 
@@ -801,8 +805,17 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     id: "inPad.tool",
     area: "Inside the drawing pad",
     name: "Pick a tool",
-    does: "Pick a tool: select, box, ellipse, triangle, label, pin, image, ink",
-    keys: ["V", "R", "O", "T", "L", "P", "I", "D"],
+    does: "Pick a tool: select, box, ellipse, triangle, label, comment, image, ink, connect",
+    keys: ["V", "R", "O", "T", "L", "P", "I", "D", "A"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.pan",
+    area: "Inside the drawing pad",
+    name: "Pan the drawing",
+    does: "Hold Space and drag to pan the drawing",
+    keys: [],
+    shown: [["Space", "drag"]],
     where: ["working"],
   }),
   surfaceKey({
@@ -833,8 +846,8 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
   surfaceKey({
     id: "inPad.label",
     area: "Inside the drawing pad",
-    name: "Edit the label",
-    does: "Edit the selected shape's label",
+    name: "Edit the text",
+    does: "Edit the text of the selected shape, or the label of the selected edge",
     keys: ["Enter"],
     where: ["working"],
   }),
@@ -845,6 +858,32 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Undo the last change to the drawing",
     keys: ["Cmd+Z"],
     keysOther: ["Ctrl+Z"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.redo",
+    area: "Inside the drawing pad",
+    name: "Redo in the drawing",
+    does: "Redo the change to the drawing that was undone",
+    keys: ["Cmd+Shift+Z"],
+    keysOther: ["Ctrl+Shift+Z"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.duplicate",
+    area: "Inside the drawing pad",
+    name: "Duplicate",
+    does: "Duplicate the selected shape, a little down and right",
+    keys: ["Cmd+D"],
+    keysOther: ["Ctrl+D"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.escape",
+    area: "Inside the drawing pad",
+    name: "Step back",
+    does: "Stop what is under way, then back to the select tool, then clear the selection, then close",
+    keys: ["Escape"],
     where: ["working"],
   }),
   surfaceKey({
