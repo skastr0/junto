@@ -29,6 +29,8 @@ import {
 } from "../harness/files-scenario";
 
 const CANVAS = "files-audit";
+/** A name long enough to truncate in the tree, for the fade check on the dark frame. */
+const LONG_NAME = "a-file-name-long-enough-to-run-past-the-tree-width-so-the-truncation-fade-shows-in-both-themes.md";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/files-audit";
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 /** U+00B7, banned from every visible surface by the copy law. Written as an escape so this file stays clear of it. */
@@ -69,6 +71,9 @@ test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
   test("every Files surface passes axe and carries no middle dot, bright and dark", async () => {
     test.setTimeout(900_000);
     const stage = await stageFiles();
+    // Files the frames need in the tree before the modal opens: the long name, and one draft per theme.
+    writeFileSync(join(stage.fixture.root, LONG_NAME), "long name\n");
+    for (const theme of ["bright", "dark"]) writeFileSync(join(stage.fixture.root, `draft-${theme}.md`), `draft for the ${theme} frame\n`);
     const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root)]) } });
     const found: string[] = [];
     try {
@@ -80,6 +85,8 @@ test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
 
         const modal = await openFilesModal(page);
         found.push(...(await scan(page, `${theme}-modal-empty`, MODAL)));
+        await expect(treeRow(modal, LONG_NAME)).toBeVisible({ timeout: 15_000 });
+        await treeRow(modal, LONG_NAME).screenshot({ path: join(SHOTS, `${theme}-long-name-row.png`) });
 
         await openInTree(modal, "src/big.ts");
         found.push(...(await scan(page, `${theme}-code`, MODAL)));
@@ -107,6 +114,19 @@ test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
         await expect(modal.locator('[data-files-drop="true"]')).toHaveAttribute("data-drop", "folder");
         found.push(...(await scan(page, `${theme}-drop-folder`, MODAL)));
         await leave(treeRow(modal, "src"), transfer);
+
+        // Edit a draft, then change it on disk: the Unsaved mark shows, and a save offers reload or keep.
+        const draft = `draft-${theme}.md`;
+        await openInTree(modal, draft);
+        await modal.getByRole("textbox", { name: draft, exact: true }).fill(`edited in the ${theme} frame\n`);
+        await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toBeVisible({ timeout: 10_000 });
+        found.push(...(await scan(page, `${theme}-unsaved`, MODAL)));
+        writeFileSync(join(stage.fixture.root, draft), "changed on disk\n");
+        await page.keyboard.press("Meta+s");
+        await expect(modal.getByRole("alert").getByRole("button", { name: "Keep mine" })).toBeVisible({ timeout: 15_000 });
+        found.push(...(await scan(page, `${theme}-stale-save`, MODAL)));
+        await modal.getByRole("alert").getByRole("button", { name: "Reload from disk" }).click();
+        await expect(modal.getByRole("status").filter({ hasText: "Unsaved" })).toHaveCount(0);
 
         await page.keyboard.press("Escape");
         await expect(modal).toHaveCount(0);
