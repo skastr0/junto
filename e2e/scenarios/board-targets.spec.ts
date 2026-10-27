@@ -59,9 +59,8 @@ test("board targets: list, toggle rewrites the verb, a derives loop is refused",
     await expect(page.locator('.react-flow__node[data-id="build"]')).toBeVisible({ timeout: 30_000 });
     await seedTask(page, "build");
     await seedTask(page, "docs");
-    // The cards list the task once the window has it; until then a double press opens the new-task form.
-    for (const board of ["build", "docs"]) await expect(page.locator(`.react-flow__node[data-id="${board}"]`)).toContainText("A task", { timeout: 20_000 });
-    await page.locator('.react-flow__node[data-id="build"]').dblclick();
+    // The card's centre can be its add-task button; press the corner instead.
+    await page.locator('.react-flow__node[data-id="build"]').dblclick({ position: { x: 10, y: 10 } });
     await page.getByRole("button", { name: "Board settings" }).click();
     const targets = page.getByTestId("board-targets");
     await expect(targets).toBeVisible({ timeout: 15_000 });
@@ -74,7 +73,7 @@ test("board targets: list, toggle rewrites the verb, a derives loop is refused",
 
     // Build already derives to Docs, so Docs deriving back to Build closes a loop.
     await page.keyboard.press("Escape");
-    await page.locator('.react-flow__node[data-id="docs"]').dblclick();
+    await page.locator('.react-flow__node[data-id="docs"]').dblclick({ position: { x: 10, y: 10 } });
     await page.getByRole("button", { name: "Board settings" }).click();
     const docs = page.getByTestId("board-targets");
     await docs.getByRole("radiogroup", { name: /Build/ }).getByRole("radio", { name: "Derives" }).click();
