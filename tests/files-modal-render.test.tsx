@@ -51,7 +51,8 @@ describe("the Files modal", () => {
     expect(document.querySelector(".files-head__name")?.textContent).toBe("a.ts");
     const read = await files.read(nodeId, "src/a.ts");
     if (!read.ok || read.value.kind !== "text") throw new Error("expected text");
-    await act(async () => setFileDraft(nodeId, "src/a.ts", { text: "two", base: read.value.stamp }));
+    const base = read.value.stamp;
+    await act(async () => setFileDraft(nodeId, "src/a.ts", { text: "two", base }));
     await flush();
     expect(document.querySelector(".files-head__unsaved")?.textContent).toBe("Unsaved");
     await press(buttonNamed("Save"));
