@@ -5,20 +5,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
-import {
-  Circle,
-  Image as ImageIcon,
-  Maximize2,
-  MessageSquare,
-  MousePointer2,
-  Pencil,
-  Square,
-  Triangle,
-  Type,
-  Undo2,
-} from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import type { ContentRef } from "@shared/content";
@@ -49,9 +36,11 @@ import {
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
-import { IconButton, Kbd } from "../ui";
+import { Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
 import { PadEdgeMark, PadShapeOutline, PadShapeWords } from "./PadMarks";
+import { PadSelectionBar, PadToolbar, type PadToolbarSelection } from "./PadToolbar";
+import { imageRow, restyleShape, stencilPatches, type PadShapeStyle, type PadStencilId } from "./pad-stencils";
 import { openMention } from "../../lib/mention-open";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { state$ } from "../../lib/state";
@@ -605,12 +594,26 @@ export function PadEditor({
         setHint(result.error);
         return;
       }
-      if (result.kind !== "ok") return;
-      const ref = result.refs[0];
-      if (!ref) return;
-      await placeRefAt(ref, scene);
+      if (result.kind !== "ok" || result.refs.length === 0) return;
+      if (result.refs.length === 1) {
+        await placeRefAt(result.refs[0]!, scene);
+        return;
+      }
+      // Several images land in one row, as one write and one undo.
+      const z = nextLayerZ(padRef.current.images);
+      const images = imageRow(result.refs.length, scene, DEFAULT_IMAGE_SIZE).map((box, index) => ({
+        id: newPadElementId("image"),
+        ...box,
+        z: z + index,
+        ref: result.refs[index]!,
+      }));
+      const ok = await commit(images.map(upsertImagePatch));
+      if (ok) {
+        setSelectedId(images[0]!.id);
+        setHint(null);
+      }
     },
-    [placeRefAt],
+    [commit, placeRefAt],
   );
 
   const canvasName = use$(state$.canvasName) || "";
@@ -650,27 +653,56 @@ export function PadEditor({
     input.click();
   }, []);
 
+  // Any shape but a card takes text, and an edge takes a label.
   const beginLabelEdit = useCallback((id?: string) => {
     const target = id ?? selectedId;
-    const shape = target ? shapeById(padRef.current, target) : undefined;
-    if (!shape || shape.type !== "label") return;
-    setSelectedId(shape.id);
-    setLabelDraft(shape.text ?? "");
+    if (!target) return;
+    const shape = shapeById(padRef.current, target);
+    const edge = shape ? undefined : padRef.current.edges.find((item) => item.id === target);
+    if (shape ? shape.type === "card" : !edge) return;
+    setSelectedId(target);
+    setLabelDraft((shape ? shape.text : edge?.label) ?? "");
     setEditingLabel(true);
   }, [selectedId]);
 
   const finishLabelEdit = useCallback(
     async (save: boolean) => {
-      const shape = selectedId ? shapeById(padRef.current, selectedId) : undefined;
       setEditingLabel(false);
-      if (!save || !shape || shape.type !== "label") return;
+      if (!save || !selectedId) return;
       const text = labelDraft.trim();
-      const next = text.length > 0 ? { ...shape, text } : { ...shape, text: undefined };
-      if (next.text === shape.text) return;
-      await commit([upsertShapePatch(next)]);
+      const shape = shapeById(padRef.current, selectedId);
+      if (shape) {
+        if (shape.type === "card" || text === (shape.text ?? "")) return;
+        await commit([upsertShapePatch(restyleShape(shape, { text }))]);
+        return;
+      }
+      const edge = padRef.current.edges.find((item) => item.id === selectedId);
+      if (!edge || text === (edge.label ?? "")) return;
+      const { label: _label, ...rest } = edge;
+      await commit([upsertEdgePatch(text.length > 0 ? { ...rest, label: text } : rest)]);
     },
     [commit, labelDraft, selectedId],
   );
+
+  const restyleSelected = useCallback(
+    (style: PadShapeStyle) => {
+      const shape = selectedId ? shapeById(padRef.current, selectedId) : undefined;
+      if (!shape || shape.type === "card") return;
+      const next = restyleShape(shape, style);
+      if (JSON.stringify(next) === JSON.stringify(shape)) return;
+      void commit([upsertShapePatch(next)]);
+    },
+    [commit, selectedId],
+  );
+
+  const insertStencil = (id: PadStencilId) => {
+    // One batch: one write, one version, one undo frame.
+    const { patches, ids } = stencilPatches(id, viewCentre(), nextLayerZ(padRef.current.shapes));
+    setTool("select");
+    void commit(patches).then((ok) => {
+      if (ok) setSelectedId(ids[0]);
+    });
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1046,76 +1078,51 @@ export function PadEditor({
     ? shapeById(shown, selectedId) ?? imageById(shown, selectedId)
     : undefined;
 
+  const editedEdge = editingLabel && !shownSelected && selectedId
+    ? shown.edges.find((edge) => edge.id === selectedId)
+    : undefined;
   const labelView = (() => {
-    if (!editingLabel || !shownSelected) return undefined;
-    const view = sceneToView(camera, { x: shownSelected.x, y: shownSelected.y });
-    return { left: view.x, top: view.y, width: shownSelected.w * camera.zoom };
+    if (!editingLabel) return undefined;
+    if (shownSelected) {
+      const view = sceneToView(camera, { x: shownSelected.x, y: shownSelected.y });
+      return { left: view.x, top: view.y, width: shownSelected.w * camera.zoom };
+    }
+    const points = editedEdge ? edgePoints(shown, editedEdge) : undefined;
+    const mid = points?.[Math.floor(points.length / 2)];
+    if (!mid) return undefined;
+    const view = sceneToView(camera, mid);
+    return { left: view.x - 60, top: view.y - 12, width: 120 };
   })();
+
+  const selectedShape = selectedId ? shapeById(pad, selectedId) : undefined;
+  const selectedEdge = selectedId && !selectedShape
+    ? pad.edges.find((edge) => edge.id === selectedId)
+    : undefined;
+  const toolbarSelection: PadToolbarSelection | undefined =
+    selectedShape && selectedShape.type !== "card"
+      ? { layer: "shape", shape: selectedShape }
+      : selectedEdge
+        ? { layer: "edge", edge: selectedEdge }
+        : undefined;
 
   return (
     <div className="pad-surface__body">
-      <div className="pad-toolbar" role="toolbar" aria-label="Pad tools">
-        <div className="pad-toolbar__group">
-          <ToolButton tool="select" current={tool} onSelect={setTool} label="Select (V)">
-            <MousePointer2 size={13} />
-          </ToolButton>
-          <ToolButton tool="box" current={tool} onSelect={setTool} label="Box (R)">
-            <Square size={13} />
-          </ToolButton>
-          <ToolButton tool="ellipse" current={tool} onSelect={setTool} label="Ellipse (O)">
-            <Circle size={13} />
-          </ToolButton>
-          <ToolButton tool="triangle" current={tool} onSelect={setTool} label="Triangle (T)">
-            <Triangle size={13} />
-          </ToolButton>
-          <ToolButton tool="label" current={tool} onSelect={setTool} label="Label (L)">
-            <Type size={13} />
-          </ToolButton>
-          {pins.kind === "area" ? (
-            <ToolButton tool="area" current={tool} onSelect={setTool} label="Comment on an area (P)">
-              <MessageSquare size={13} />
-            </ToolButton>
-          ) : null}
-          <ToolButton tool="image" current={tool} onSelect={setTool} label="Image (I)">
-            <ImageIcon size={13} />
-          </ToolButton>
-          <ToolButton tool="ink" current={tool} onSelect={setTool} label="Ink (D)">
-            <Pencil size={13} />
-          </ToolButton>
-        </div>
-        <div className="pad-toolbar__sep" />
-        <div className="pad-toolbar__group">
-          <IconButton
-            aria-label="Undo"
-            title="Undo"
-            size="sm"
-            disabled={undoDepth === 0 || commitBusy}
-            onClick={undo}
-          >
-            <Undo2 size={13} />
-          </IconButton>
-          <IconButton aria-label="Fit view" title="Fit view" size="sm" onClick={fit}>
-            <Maximize2 size={13} />
-          </IconButton>
-        </div>
-        <div className="pad-toolbar__hint">
-          <Kbd>[</Kbd>
-          <Kbd>]</Kbd>
-          <span>z</span>
-          <Kbd>⌫</Kbd>
-          <span>delete</span>
-          {pins.kind === "area" ? (
-            <>
-              <Kbd>P</Kbd>
-              <span>comment</span>
-            </>
-          ) : null}
-          <Kbd>I</Kbd>
-          <span>image</span>
-          <Kbd>D</Kbd>
-          <span>ink</span>
-        </div>
-      </div>
+      <PadToolbar
+        tool={tool}
+        onTool={setTool}
+        areaTool={pins.kind === "area"}
+        canUndo={undoDepth > 0 && !commitBusy}
+        onUndo={undo}
+        onFit={fit}
+        onStencil={insertStencil}
+      />
+      {toolbarSelection && gesture.kind === "idle" ? (
+        <PadSelectionBar
+          selection={toolbarSelection}
+          onRestyle={restyleSelected}
+          onEditText={() => beginLabelEdit()}
+        />
+      ) : null}
       <div className="pad-workspace">
       <div
         className="pad-stage"
@@ -1155,12 +1162,12 @@ export function PadEditor({
           onDoubleClick={(event) => {
             const hit = hitTest(pad, sceneOf(event), viewSlop(camera, HIT_VIEW_PX));
             const shape = hit ? shapeById(pad, hit.id) : undefined;
-            if (shape?.type === "label") {
-              beginLabelEdit(shape.id);
-            } else if (shape?.type === "card") {
+            if (shape?.type === "card") {
               // A card opens what it names; a gone one opens nothing.
               const ref = padCardRef(shape, canvasName);
               if (ref !== undefined) openMention(ref);
+            } else if (hit && (hit.layer === "shape" || hit.layer === "edge")) {
+              beginLabelEdit(hit.id);
             }
           }}
         >
@@ -1331,7 +1338,7 @@ export function PadEditor({
             style={{ left: labelView.left, top: labelView.top, width: Math.max(72, labelView.width) }}
             value={labelDraft}
             ref={claimFocusOnMount}
-            aria-label="Label text"
+            aria-label={editedEdge ? "Edge label" : "Shape text"}
             onChange={(event) => setLabelDraft(event.target.value)}
             onBlur={() => void finishLabelEdit(true)}
             onKeyDown={(event) => {
@@ -1418,32 +1425,3 @@ function SelectionChrome({
     </g>
   );
 }
-
-function ToolButton({
-  tool,
-  current,
-  onSelect,
-  label,
-  children,
-}: {
-  readonly tool: PadTool;
-  readonly current: PadTool;
-  readonly onSelect: (tool: PadTool) => void;
-  readonly label: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="pad-tool"
-      data-testid={`pad-tool-${tool}`}
-      aria-label={label}
-      title={label}
-      aria-pressed={current === tool}
-      onClick={() => onSelect(tool)}
-    >
-      {children}
-    </button>
-  );
-}
-
