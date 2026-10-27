@@ -99,13 +99,6 @@ export const numberLabel = (view: Pick<TaskView, "number">): string =>
 export const openCount = (views: ReadonlyArray<TaskView>): number =>
   views.filter((view) => isOpenTaskState(view.current.state)).length;
 
-/** The task a seat holds anywhere on the canvas, if any (invariant 2). */
-export const openTaskOfSeat = (
-  views: ReadonlyArray<TaskView>,
-  seat: SeatNodeId,
-): TaskView | undefined =>
-  views.find((view) => view.current.assignee === seat && isOpenTaskState(view.current.state));
-
 /** What the canvas tells the ruler besides the tasks. */
 export type TaskCanvasFacts = {
   readonly downstream: (node: TaskNodeId) => ReadonlyArray<TaskNodeId>;
@@ -116,26 +109,15 @@ export type TaskCanvasFacts = {
 /** The context the ruler is asked in for one task: the same one it rules the write in. */
 export const taskContextFor = (
   view: TaskView,
-  all: ReadonlyArray<TaskView>,
   facts: TaskCanvasFacts,
   at: number,
 ): TaskContext => ({
   taskId: view.taskId,
   at,
-  openTaskOf: (seat) => openTaskOfSeat(all, seat)?.taskId,
   downstream: facts.downstream(view.current.node),
   stampDefaultOf: facts.stampDefaultOf,
   seatReaches: (seat) => facts.seatReaches(seat, view.current.node),
 });
-
-/** `#42` for a task id among the canvas's tasks, to say which task keeps a seat busy. */
-export const numberOfTask = (
-  all: ReadonlyArray<TaskView>,
-  taskId: string,
-): string | undefined => {
-  const view = all.find((candidate) => candidate.taskId === taskId);
-  return view === undefined ? undefined : numberLabel(view);
-};
 
 export type LayerSummary = {
   readonly node: TaskNodeId;

@@ -61,10 +61,7 @@ export const offeredVerbs = (
   ctx: TaskContext,
 ): ReadonlyArray<TaskVerb> =>
   TASK_VERBS.filter((verb) => {
-    const ruling = ruleTaskCommand(task, actor, probe(verb), {
-      ...ctx,
-      openTaskOf: () => undefined,
-    });
+    const ruling = ruleTaskCommand(task, actor, probe(verb), ctx);
     return ruling.ok || ruling.refusal.detail.kind === "next-required";
   });
 

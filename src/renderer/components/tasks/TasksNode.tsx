@@ -31,7 +31,6 @@ import {
   agoLabel,
   listedTasks,
   numberLabel,
-  numberOfTask,
   openCount,
   pendingByTask,
   queuedCreates,
@@ -275,7 +274,7 @@ export function SelectedTask({
   const { current } = view;
   const [title, setTitle] = useState(view.title);
   useEffect(() => setTitle(view.title), [view.title]);
-  const ctx = taskContextFor(view, all, facts, now);
+  const ctx = taskContextFor(view, facts, now);
   const archived = current.state === "archived";
   const isClosed = current.state === "done" || current.state === "canceled" || archived;
 
@@ -341,7 +340,6 @@ export function SelectedTask({
         actor={OPERATOR}
         ctx={ctx}
         seats={seats}
-        numberOf={(taskId) => numberOfTask(all, taskId)}
         nodeName={nodeName}
         onCommand={apply}
       />

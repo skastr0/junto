@@ -137,8 +137,6 @@ export const taskRefusalLostTo = (detail: TaskRefusalDetail, nameOf: (seat: Seat
       return detail.assignee === undefined ? "the task has no assignee" : `${nameOf(detail.assignee)} holds the task`;
     case "already-assigned":
       return `${nameOf(detail.assignee)} already holds the task`;
-    case "seat-busy":
-      return `${nameOf(detail.seat)} already works task ${detail.taskId}`;
     case "not-reviewer":
       return `${reviewerName(detail.reviewer, nameOf)} is not a reviewer of the task`;
     case "own-task":

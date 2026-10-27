@@ -143,13 +143,9 @@ describe("task repository", () => {
     expect(again.task.assignee).toBe(ada);
   });
 
-  it("holds one open task per seat across the canvas", async () => {
-    const one = await create("one");
-    const two = await create("two");
-    applied(await submit(command({ kind: "assign", seat: ada }, one.taskId)));
-    const refused = await submit(command({ kind: "assign", seat: ada }, two.taskId));
-    expect(refused.kind).toBe("refused");
-    if (refused.kind === "refused") expect(refused.error.details).toMatchObject({ reason: "already_held" });
+  it("lets one seat hold many open tasks across the canvas", async () => {
+    const tasks = [await create("one"), await create("two"), await create("three")];
+    for (const { taskId } of tasks) expect(applied(await submit(command({ kind: "assign", seat: ada }, taskId))).task.assignee).toBe(ada);
   });
 
   it("records a refused transition's detail on its ruling row as a token the seat's machine words", async () => {

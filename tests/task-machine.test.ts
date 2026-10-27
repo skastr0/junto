@@ -6,7 +6,6 @@ import { ActorSeatId } from "../src/shared/actor-seat";
 import {
   currentApprovals,
   emptyTaskBoard,
-  oneOpenTaskViolations,
   ruleTaskBoardCommand,
   ruleTaskCommand,
   taskDomain,
@@ -159,15 +158,9 @@ describe("assignment", () => {
     });
   });
 
-  it("refuses a seat that already holds an open task anywhere on the canvas", () => {
+  it("assigns a seat that already holds an open task anywhere on the canvas", () => {
     const elsewhere = record({ id: T2, node: ship, state: "input-required", assignee: bo });
-    expect(refused(one(record(), seat(ada), { kind: "assign", seat: bo }, env(), [elsewhere]))).toEqual({
-      kind: "seat-busy",
-      seat: bo,
-      taskId: T2,
-    });
-    const closed = record({ id: T2, state: "done", assignee: bo });
-    expect(one(record(), seat(ada), { kind: "assign", seat: bo }, env(), [closed]).ok).toBe(true);
+    expect(ok(one(record(), seat(ada), { kind: "assign", seat: bo }, env(), [elsewhere])).task.assignee).toBe(bo);
   });
 
   it("assigns only a seat that reaches the task node, unless the operator assigns", () => {
@@ -749,7 +742,6 @@ describe("one task on its own", () => {
     const ctx = {
       taskId: T1,
       at: 5,
-      openTaskOf: () => undefined,
       downstream: [],
       stampDefaultOf: () => ({ required: 0 }),
       seatReaches: () => true,
@@ -757,17 +749,18 @@ describe("one task on its own", () => {
     const shaped = { state: "assigned" as const, node: build, assignee: ada, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [], label: "kept" };
     const ruled = ruleTaskCommand(shaped, seat(ada), { kind: "start" }, ctx);
     expect(ruled.ok && ruled.task).toEqual({ ...shaped, state: "working" });
-    expect(ruleTaskCommand(shaped, seat(ada), { kind: "assign", seat: ada }, { ...ctx, openTaskOf: () => T1 }).ok).toBe(false);
+    expect(ruleTaskCommand(shaped, seat(ada), { kind: "assign", seat: ada }, ctx).ok).toBe(false);
   });
 });
 
-describe("one open task per seat across the canvas", () => {
-  it("names every seat holding two open tasks; closed tasks do not count", () => {
-    expect(oneOpenTaskViolations([
-      { id: T1, state: "working", assignee: ada },
-      { id: T2, state: "in-review", assignee: ada },
-      { id: T3, state: "done", assignee: bo },
-    ])).toEqual([{ seat: ada, taskIds: [T1, T2] }]);
+describe("many open tasks per seat across the canvas", () => {
+  it("lets a seat holding open tasks in every open state take one more, by itself or from another", () => {
+    const held = [
+      record({ id: T2, state: "working", assignee: ada }),
+      record({ id: T3, node: ship, state: "in-review", assignee: ada }),
+    ];
+    expect(ok(one(record(), seat(ada), { kind: "assign", seat: ada }, env(), held)).task).toMatchObject({ state: "assigned", assignee: ada });
+    expect(ok(one(record(), seat(bo), { kind: "assign", seat: ada }, env(), held)).task.assignee).toBe(ada);
   });
 });
 
@@ -777,7 +770,6 @@ describe("refusal text", () => {
       { kind: "illegal-transition", from: "done", command: "start" },
       { kind: "not-assignee" },
       { kind: "already-assigned", assignee: ada },
-      { kind: "seat-busy", seat: ada, taskId: T1 },
       { kind: "not-reviewer", reviewer: { kind: "operator" } },
       { kind: "own-task", seat: ada },
       { kind: "stale-epoch", expected: 2 },

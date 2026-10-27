@@ -25,7 +25,6 @@ import type {
   TaskActor,
   TaskCommand,
   TaskCore,
-  TaskId,
   TaskNodeId,
 } from "@shared/task-model";
 import "./task-verbs.css";
@@ -55,15 +54,13 @@ const VERB_VARIANT: Record<TaskVerb, ButtonVariant> = {
 /**
  * The verbs a task allows its viewer right now (plan 04). Which verbs show is
  * the ruler's answer (`offeredVerbs`); this only draws them. Assign picks a
- * seat in reach; a seat that already holds a task shows disabled with the
- * task it holds.
+ * seat in reach; one the ruler refuses shows disabled.
  */
 export function TaskVerbBar({
   task,
   actor,
   ctx,
   seats,
-  numberOf,
   nodeName = (node) => node,
   pending = false,
   onCommand,
@@ -73,8 +70,6 @@ export function TaskVerbBar({
   readonly ctx: TaskContext;
   /** Seats in reach of the task's node. */
   readonly seats: ReadonlyArray<SeatChoice>;
-  /** `#42` for a task id, to say which task keeps a seat busy. */
-  readonly numberOf: (taskId: TaskId) => string | undefined;
   /** Name of a task node, for the send-on picker. */
   readonly nodeName?: (node: TaskNodeId) => string;
   readonly pending?: boolean;
@@ -117,10 +112,6 @@ export function TaskVerbBar({
             value: choice.node,
             label: choice.name,
             disabled: choice.refusal !== undefined,
-            detail:
-              choice.refusal?.kind === "seat-busy"
-                ? `holds ${numberOf(choice.refusal.taskId) ?? "a task"}`
-                : undefined,
           }))}
           onChange={setSeat}
           placeholder="Assign to…"

@@ -174,8 +174,6 @@ export type TaskContext = {
   readonly taskId: TaskId;
   /** The ruling's time, stamped on stamps. */
   readonly at: number;
-  /** The open task a seat holds anywhere on the canvas, if any (invariant 2). */
-  readonly openTaskOf: (seat: SeatNodeId) => TaskId | undefined;
   /** Task nodes this task's node `flows` into, in wire order. */
   readonly downstream: ReadonlyArray<TaskNodeId>;
   /** The stamp default a task node sets for tasks that arrive on it. */
@@ -314,8 +312,6 @@ export const ruleTaskCommand = <T extends TaskCore>(
       }
       // Only the operator assigns outside reach: no seat or automation hands work, and mail, to a sibling region.
       if (actor.kind !== "operator" && !ctx.seatReaches(command.seat)) return refuse({ kind: "not-in-reach", nodeId: command.seat });
-      const held = ctx.openTaskOf(command.seat);
-      if (held !== undefined && held !== ctx.taskId) return refuse({ kind: "seat-busy", seat: command.seat, taskId: held });
       return rule({ ...task, state: "assigned", assignee: command.seat }, [{ kind: "assignment-notice", seat: command.seat }]);
     }
     case "unassign":
@@ -435,13 +431,6 @@ export const ruleTaskCommand = <T extends TaskCore>(
 
 // ── the machine, on a canvas's tasks ───────────────────────────────────────
 
-const openTaskOf = (state: TaskBoardState, seat: SeatNodeId): TaskId | undefined => {
-  for (const task of state.tasks.values()) {
-    if (task.assignee === seat && isOpenTaskState(task.state)) return task.id;
-  }
-  return undefined;
-};
-
 /** The tasks `task` depends on that do not meet it (`meetsDependency`), in dependency order. */
 const unfinishedDependencies = (state: TaskBoardState, task: Pick<TaskRecord, "dependsOn">): ReadonlyArray<UnfinishedDependency> =>
   task.dependsOn.flatMap((id) => {
@@ -459,7 +448,6 @@ export const taskContextOf = (
   taskId: task.id,
   unfinishedDependencies: unfinishedDependencies(state, task),
   at: env.at,
-  openTaskOf: (seat) => openTaskOf(state, seat),
   downstream: env.downstream(task.node),
   stampDefaultOf: env.stampDefaultOf,
   seatReaches: (seat) => env.seatReaches(seat, task.node),
@@ -583,8 +571,6 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
         : `Only the assignee, ${detail.assignee}, moves this task`;
     case "already-assigned":
       return `The task is assigned to ${detail.assignee}; unassign it first`;
-    case "seat-busy":
-      return `${detail.seat} already holds open task ${detail.taskId}`;
     case "not-reviewer":
       return detail.reviewer.kind === "operator"
         ? "The operator is not a reviewer of this task"
@@ -669,9 +655,6 @@ export const taskRefusalWordsOf = (reason: string, token: string | undefined, co
 
 /** What to do next, where a refusal's own words do not say it. */
 const taskRefusalNextStep = (detail: TaskRefusalDetail): string | undefined => {
-  if (detail.kind === "seat-busy") {
-    return `a seat holds one open task: ${detail.seat} finishes ${detail.taskId} first, or it is released with junto task unassign ${detail.taskId}`;
-  }
   if (detail.kind !== "not-assignee") return undefined;
   return detail.assignee === undefined
     ? "assign it first: junto task assign <task> takes it for this seat; any seat in reach of the task node, or the operator, may assign it"
@@ -727,7 +710,6 @@ const isDefiniteTaskRefusal = (detail: TaskRefusalDetail): boolean => {
       return true;
     case "not-assignee":
     case "already-assigned":
-    case "seat-busy":
     case "not-reviewer":
     case "own-task":
     case "stale-epoch":
@@ -785,27 +767,3 @@ export const taskDomain = (env: TaskDomainEnv): ResourceDomain<TaskBoardState, T
 
 /** How a task reads in a message: its number when it has one. */
 export const taskLabel = (task: Pick<TaskRecord, "number">): string => formatTaskNumber(task.number);
-
-// ── canvas invariants ──────────────────────────────────────────────────────
-
-export type OneOpenTaskViolation = {
-  readonly seat: SeatNodeId;
-  readonly taskIds: ReadonlyArray<TaskId>;
-};
-
-/**
- * Seats holding more than one open task across the canvas (invariant 2).
- * Reviews do not count. Empty when the canvas holds; the v28 remap checks it.
- */
-export const oneOpenTaskViolations = (
-  tasks: Iterable<{ readonly id: TaskId; readonly state: TaskState; readonly assignee?: SeatNodeId }>,
-): ReadonlyArray<OneOpenTaskViolation> => {
-  const held = new Map<SeatNodeId, TaskId[]>();
-  for (const task of tasks) {
-    if (task.assignee === undefined || !isOpenTaskState(task.state)) continue;
-    const ids = held.get(task.assignee);
-    if (ids === undefined) held.set(task.assignee, [task.id]);
-    else ids.push(task.id);
-  }
-  return [...held].filter(([, ids]) => ids.length > 1).map(([seat, taskIds]) => ({ seat, taskIds }));
-};

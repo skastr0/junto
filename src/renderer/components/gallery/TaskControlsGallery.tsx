@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { asNodeId } from "@shared/model";
 import { ruleTaskCommand, taskRefusalMessage, type TaskContext } from "@shared/task-machine";
 import {
-  formatTaskNumber,
   seatNodeId,
   taskNodeId,
-  taskNumber,
   type Reviewer,
   type TaskActor,
   type TaskCommand,
@@ -34,7 +32,6 @@ const cy = seatNodeId(asNodeId("seat-cy"));
 const BUILD = taskNodeId(asNodeId("tasks-build"));
 const QA = taskNodeId(asNodeId("tasks-qa"));
 const SHIP = taskNodeId(asNodeId("tasks-ship"));
-const HELD = ItemId.make("01JZ0000000000000000000009");
 const THIS = ItemId.make("01JZ0000000000000000000001");
 
 const SEATS: ReadonlyArray<SeatChoice> = [
@@ -52,7 +49,6 @@ const asSeat = (seat: typeof ada): Reviewer => ({ kind: "seat", seat });
 const ctxFor = (downstream: ReadonlyArray<typeof QA>): TaskContext => ({
   taskId: THIS,
   at: 1,
-  openTaskOf: (seat) => (seat === bo ? HELD : undefined),
   downstream,
   stampDefaultOf: () => ({ required: 0 }),
   seatReaches: () => true,
@@ -168,7 +164,6 @@ function Frame({ entry }: { readonly entry: Case }) {
           actor={entry.actor}
           ctx={ctx}
           seats={SEATS}
-          numberOf={(id) => (id === HELD ? formatTaskNumber(taskNumber(12)!) : undefined)}
           nodeName={(node) => NODE_NAMES.get(node) ?? node}
           onCommand={onCommand}
         />

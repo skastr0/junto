@@ -9,7 +9,6 @@ import {
   layerSummary,
   listedTasks,
   numberLabel,
-  numberOfTask,
   openCount,
   tasksCardBody,
   taskContextFor,
@@ -49,16 +48,14 @@ describe("local tasks source", () => {
     expect(await source.list(CANVAS, qa)).toEqual([]);
   });
 
-  it("refuses a second open task for one seat, naming the task it holds", async () => {
+  it("lets one seat take a second open task", async () => {
     const source = sourceWith();
     const one = await create(source, "one");
     const two = await create(source, "two");
     expect((await source.apply(CANVAS, build, one, { kind: "assign", seat: ada })).ok).toBe(true);
-    const refused = await source.apply(CANVAS, build, two, { kind: "assign", seat: ada });
-    expect(refused).toMatchObject({ ok: false, refusal: { detail: { kind: "seat-busy", seat: ada, taskId: one } } });
-    expect(refused.ok === false && refused.message).toContain("already holds");
+    expect((await source.apply(CANVAS, build, two, { kind: "assign", seat: ada })).ok).toBe(true);
     const all = await source.all(CANVAS);
-    expect(numberOfTask(all, one)).toBe("#1");
+    expect(all.filter((view) => view.current.assignee === ada).map((view) => view.current.state)).toEqual(["assigned", "assigned"]);
   });
 
   it("notifies subscribers on a ruled write and not on a refused one", async () => {
@@ -166,18 +163,16 @@ describe("local tasks source", () => {
     expect(waiting.status).toBe("needs-you");
   });
 
-  it("builds the ruler's context from the canvas's tasks", async () => {
+  it("builds the ruler's context from the canvas's facts", async () => {
     const source = sourceWith([qa]);
     const one = await create(source, "one");
     await source.apply(CANVAS, build, one, { kind: "assign", seat: bo });
     const all = await source.all(CANVAS);
-    const ctx = taskContextFor(all[0]!, all, {
+    const ctx = taskContextFor(all[0]!, {
       downstream: () => [qa],
       stampDefaultOf: () => ({ required: 1 }),
       seatReaches: (seat) => seat === ada,
     }, 5);
-    expect(ctx.openTaskOf(bo)).toBe(one);
-    expect(ctx.openTaskOf(ada)).toBeUndefined();
     expect(ctx.downstream).toEqual([qa]);
     expect(ctx.seatReaches(bo)).toBe(false);
   });
@@ -233,8 +228,8 @@ describe("tasks over the resource IPC", () => {
           type: "ClaimConflict",
           message: "refused",
           details: {
-            reason: TASK_REFUSAL_REASON["seat-busy"],
-            expected: { kind: "seat-busy", seat: ada, taskId: id },
+            reason: TASK_REFUSAL_REASON["already-assigned"],
+            expected: { kind: "already-assigned", assignee: bo },
           },
         },
       };
@@ -243,8 +238,8 @@ describe("tasks over the resource IPC", () => {
     expect(await source.apply(CANVAS, build, id, { kind: "start" })).toEqual({ ok: true });
     expect(await source.apply(CANVAS, build, id, { kind: "pause" })).toEqual({ ok: true, queued: true });
     const refused = await source.apply(CANVAS, build, id, { kind: "assign", seat: ada });
-    expect(refused).toMatchObject({ ok: false, refusal: { detail: { kind: "seat-busy" } } });
-    expect(refused.ok === false && refused.message).toContain("already holds");
+    expect(refused).toMatchObject({ ok: false, refusal: { detail: { kind: "already-assigned" } } });
+    expect(refused.ok === false && refused.message).toContain("unassign it first");
     expect(new Set(seen).size).toBe(3);
   });
 

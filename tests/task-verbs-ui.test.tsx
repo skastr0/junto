@@ -36,7 +36,6 @@ const core = (over: Partial<TaskCore> = {}): TaskCore => ({
 const ctx = (over: Partial<TaskContext> = {}): TaskContext => ({
   taskId: ItemId.make("01JZ0000000000000000000001"),
   at: 1,
-  openTaskOf: () => undefined,
   downstream: [],
   stampDefaultOf: () => ({ required: 0 }),
   seatReaches: () => true,
@@ -49,7 +48,7 @@ const verbsIn = (html: string): string[] =>
 describe("TaskVerbBar", () => {
   it("draws assign and cancel on the backlog, with the assign picker", () => {
     const html = renderToStaticMarkup(
-      <TaskVerbBar task={core()} actor={operator} ctx={ctx()} seats={seats} numberOf={() => undefined} onCommand={noop} />,
+      <TaskVerbBar task={core()} actor={operator} ctx={ctx()} seats={seats} onCommand={noop} />,
     );
     expect(verbsIn(html)).toEqual(["assign", "cancel"]);
     expect(html).toContain("Assign to");
@@ -57,7 +56,7 @@ describe("TaskVerbBar", () => {
 
   it("draws unassign and cancel on a working task for the operator", () => {
     const html = renderToStaticMarkup(
-      <TaskVerbBar task={core({ state: "working", assignee: ada })} actor={operator} ctx={ctx()} seats={seats} numberOf={() => undefined} onCommand={noop} />,
+      <TaskVerbBar task={core({ state: "working", assignee: ada })} actor={operator} ctx={ctx()} seats={seats} onCommand={noop} />,
     );
     expect(verbsIn(html)).toEqual(["unassign", "cancel"]);
     expect(html).not.toContain("Assign to");
@@ -66,7 +65,7 @@ describe("TaskVerbBar", () => {
   it("draws nothing for an archived task", () => {
     expect(
       renderToStaticMarkup(
-        <TaskVerbBar task={core({ state: "archived" })} actor={operator} ctx={ctx()} seats={seats} numberOf={() => undefined} onCommand={noop} />,
+        <TaskVerbBar task={core({ state: "archived" })} actor={operator} ctx={ctx()} seats={seats} onCommand={noop} />,
       ),
     ).toBe("");
   });
@@ -75,7 +74,7 @@ describe("TaskVerbBar", () => {
     const working = core({ state: "working", assignee: ada });
     const bar = (downstream: ReadonlyArray<typeof qa>) =>
       renderToStaticMarkup(
-        <TaskVerbBar task={working} actor={{ kind: "seat", seat: ada }} ctx={ctx({ downstream })} seats={seats} numberOf={() => undefined} onCommand={noop} />,
+        <TaskVerbBar task={working} actor={{ kind: "seat", seat: ada }} ctx={ctx({ downstream })} seats={seats} onCommand={noop} />,
       );
     expect(bar([qa])).not.toContain("Send on to");
     const two = bar([qa, ship]);

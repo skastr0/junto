@@ -139,7 +139,6 @@ describe("task refusals", () => {
     "illegal-transition": { kind: "illegal-transition", from: "done", command: "start" },
     "not-assignee": { kind: "not-assignee" },
     "already-assigned": { kind: "already-assigned", assignee: SEAT },
-    "seat-busy": { kind: "seat-busy", seat: SEAT, taskId: "01M5ETKKW2KX682NBXQZYA69MY" as never },
     "not-reviewer": { kind: "not-reviewer", reviewer: { kind: "operator" } },
     "own-task": { kind: "own-task", seat: SEAT },
     "stale-epoch": { kind: "stale-epoch", expected: 2 },

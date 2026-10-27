@@ -6,7 +6,6 @@ import type { ActorSeatId } from "../src/shared/actor-seat";
 import {
   currentApprovals,
   emptyTaskBoard,
-  oneOpenTaskViolations,
   ruleTaskBoardCommand,
   taskDomain,
   type TaskBoardState,
@@ -32,7 +31,7 @@ import {
 import { ItemId } from "../src/shared/work-ids";
 
 // The task machine under random command sequences: every ruling is checked
-// against the invariants of plan 04 (one assignee, one open task per seat,
+// against the invariants of plan 04 (one assignee, any number of open tasks per seat,
 // only the assignee transitions, closed states stay closed) and the moves
 // the diagram draws. Seeded: a failure names the seed that replays it.
 
@@ -151,11 +150,9 @@ const MOVES: Readonly<Record<TaskState, ReadonlyArray<TaskState>>> = {
 };
 
 describe("task machine properties", () => {
-  it("holds the invariants after every ruling: one open task per seat, open means assigned, backlog means nobody", forall((seed) => {
+  it("holds the invariants after every ruling: open means assigned, backlog means nobody", forall((seed) => {
     const out: string[] = [];
     walk(seed, (_, after, step) => {
-      const violations = oneOpenTaskViolations(after.tasks.values());
-      if (violations.length > 0) out.push(`${step.command.kind}: seat holds ${violations[0]!.taskIds.length} open tasks`);
       for (const task of after.tasks.values()) {
         if (isOpenTaskState(task.state) && task.assignee === undefined) out.push(`${task.id} ${task.state} without an assignee after ${step.command.kind}`);
         if (task.state === "backlog" && task.assignee !== undefined) out.push(`${task.id} backlog with assignee after ${step.command.kind}`);
@@ -163,6 +160,31 @@ describe("task machine properties", () => {
     });
     return out;
   }));
+
+  it("assigns a backlog task whenever the operator asks, whatever its seat already holds", forall((seed) => {
+    const out: string[] = [];
+    walk(seed, (before, _after, step, applied) => {
+      if (step.command.kind !== "assign" || step.actor.kind !== "operator" || before.tasks.get(step.taskId)?.state !== "backlog") return;
+      if (!applied) out.push(`operator assign of backlog ${step.taskId} refused`);
+    });
+    return out;
+  }));
+
+  it("lets one seat hold several open tasks at once", () => {
+    const most = Math.max(...SEEDS.map((seed) => {
+      let peak = 0;
+      walk(seed, (_, after) => {
+        const held = new Map<string, number>();
+        for (const task of after.tasks.values()) {
+          if (task.assignee === undefined || !isOpenTaskState(task.state)) continue;
+          held.set(task.assignee, (held.get(task.assignee) ?? 0) + 1);
+        }
+        peak = Math.max(peak, ...held.values(), 0);
+      });
+      return peak;
+    }));
+    expect(most).toBeGreaterThan(1);
+  });
 
   it("moves a task only along the diagram, and a closed task only to archived", forall((seed) => {
     const out: string[] = [];

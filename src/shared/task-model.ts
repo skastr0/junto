@@ -66,7 +66,7 @@ export const TASK_STATES = [
 ] as const;
 export type TaskState = (typeof TASK_STATES)[number];
 
-/** States a seat holds. At most one per seat across the canvas (invariant 2). */
+/** States a seat holds. A seat may hold any number of them. */
 export const OPEN_TASK_STATES = ["assigned", "working", "input-required", "in-review"] as const satisfies
   ReadonlyArray<TaskState>;
 export type OpenTaskState = (typeof OPEN_TASK_STATES)[number];
@@ -316,7 +316,6 @@ export type TaskRefusalDetail =
   | { readonly kind: "illegal-transition"; readonly from: TaskState; readonly command: TaskCommandKind }
   | { readonly kind: "not-assignee"; readonly assignee?: SeatNodeId }
   | { readonly kind: "already-assigned"; readonly assignee: SeatNodeId }
-  | { readonly kind: "seat-busy"; readonly seat: SeatNodeId; readonly taskId: TaskId }
   | { readonly kind: "not-reviewer"; readonly reviewer: Reviewer }
   | { readonly kind: "own-task"; readonly seat: SeatNodeId }
   | { readonly kind: "stale-epoch"; readonly expected: number }
@@ -361,7 +360,6 @@ export const TASK_REFUSAL_REASON = {
   "illegal-transition": "invalid_transition",
   "not-assignee": "invalid_transition",
   "already-assigned": "already_held",
-  "seat-busy": "already_held",
   "not-reviewer": "invalid_input",
   "own-task": "reviewer_is_author",
   "stale-epoch": "stale",

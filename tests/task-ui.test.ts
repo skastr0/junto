@@ -36,7 +36,6 @@ const build = taskNodeId(asNodeId("tasks-build"));
 const qa = taskNodeId(asNodeId("tasks-qa"));
 const ship = taskNodeId(asNodeId("tasks-ship"));
 const T1 = ItemId.make("01JZ0000000000000000000001");
-const T9 = ItemId.make("01JZ0000000000000000000009");
 
 const operator: TaskActor = { kind: "operator" };
 const seat = (s: typeof ada): TaskActor => ({ kind: "seat", seat: s });
@@ -54,7 +53,6 @@ const core = (over: Partial<TaskCore> = {}): TaskCore => ({
 const ctx = (over: Partial<TaskContext> = {}): TaskContext => ({
   taskId: T1,
   at: 1,
-  openTaskOf: () => undefined,
   downstream: [],
   stampDefaultOf: () => ({ required: 0 }),
   seatReaches: () => true,
@@ -113,18 +111,14 @@ describe("verbs are the ruler's answer", () => {
     expect(offeredVerbs(core({ state: "archived" }), operator, ctx())).toEqual([]);
   });
 
-  it("is not blocked by the probe seat standing for a busy seat", () => {
-    expect(offeredVerbs(core(), operator, ctx({ openTaskOf: () => T9 }))).toContain("assign");
-  });
 });
 
 describe("assign and reviewer choices", () => {
-  it("marks a seat that holds another open task with the task it holds", () => {
-    const busy = ctx({ openTaskOf: (s) => (s === bo ? T9 : undefined) });
-    const choices = assignChoices(core(), operator, busy, seats);
+  it("offers every seat in reach to assign, whatever open tasks it holds", () => {
+    const choices = assignChoices(core(), operator, ctx(), seats);
     expect(choices.map((c) => [c.name, c.refusal?.kind])).toEqual([
       ["Ada", undefined],
-      ["Bo", "seat-busy"],
+      ["Bo", undefined],
       ["Cy", undefined],
     ]);
   });
