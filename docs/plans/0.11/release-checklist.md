@@ -23,10 +23,15 @@ and is noted unverified.
       is with the operator. If approved, the notes name both steps and the
       head is 52; if not, 0.11 has 51 only, the head is 51, and the notes say
       the stub comes later (other machines then show no Files stub).
-- [ ] Which of the two it is, known before the notes' upgrade paragraph and
+- [x] Artifact links add a third step, `work_artifact_links`, expand only
+      (`docs/plans/0.11/02-artifact-links.md`; product-feed lands it, canvas
+      coordinates its number with step 52). So the head is 52 or 53 if the
+      stub step is approved, 51 or 52 if not. The notes carry `<HEAD>` until
+      the cut; read `CURRENT_STATE_SCHEMA_VERSION` then.
+- [ ] Which steps landed, known before the notes' upgrade paragraph and
       section 1 are filled in.
 
-## 1. State steps (51, and 52 if approved)
+## 1. State steps (51, links, and the stub step if approved)
 
 Notes open with it, as 0.10.3 did: the older release refuses the newer
 database, and going back means opening the backup taken at the upgrade. Run on
@@ -35,7 +40,7 @@ canvas-lead).
 
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
-- [ ] The copy migrates from v50 to the head (51, or 52); `PRAGMA quick_check` ok, foreign keys empty.
+- [ ] The copy migrates from v50 to the head (51 to 53, see section 0); `PRAGMA quick_check` ok, foreign keys empty.
 - [ ] Counts unchanged: every table, every wire and its verb, tasks.
 - [ ] Backup written before the stamp, opens on 0.10.3 at v50.
 - [ ] A second open runs no step and makes no backup.
@@ -123,6 +128,15 @@ Each: frames dark and bright to the needs-you feed for new UI.
       line comment re-finds its lines after an edit.
 - [ ] F8 Extract: a PDF box becomes an image artifact in an Artifacts node in
       reach with the source, page and box in its description.
+- [ ] L1 to L5 Artifact links: `[[` picks an artifact in reach, an unresolved
+      title offers Create document and writes the link, the chip shows the
+      current title after a rename, "Linked from" lists body links (document,
+      pad text, sheet cell) and mail and comments, an archived source drops
+      out, `junto artifact create|edit` resolve `[[Title]]` (zero or several
+      matches refused with the candidates) and `show` lists linked from.
+- [ ] Known limit in the notes: file comment threads stay at the old path when
+      a file is renamed or moved outside Junto; a rename in Junto carries them
+      (lands after L1). Confirm it landed before the notes claim it.
 - [ ] Accessibility for the tree, palette and viewers (product-accessibility).
 
 ## 6. The cut (on product-lead's word only)

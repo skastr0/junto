@@ -6,12 +6,13 @@ Draft for 0.11.0, worded from `docs/plans/0.11/README.md` before the tracks
 land. Every bullet is checked against the code at the cut, and this line is
 deleted at the bump.
 
-Opening the database with 0.11.0 moves it to version 51, and 0.10.3 then
+Opening the database with 0.11.0 moves it to version <HEAD>, and 0.10.3 then
 refuses it as newer than supported. To go back to 0.10.3, open the backup
-taken at the upgrade. The step only adds the Files node kind; every node,
-wire and task is kept as it was. (If the stub step is approved, this names
-version 52 and says it rebuilds stubs, so other machines show a Files stub; if
-not, add that the Files stub on other machines comes later.)
+taken at the upgrade. The steps add the Files node kind and a table that
+records which artifacts link to which (and, if approved, rebuild stubs so other
+machines show a Files stub); every node, wire and task is kept as it was.
+(<HEAD> is read from `CURRENT_STATE_SCHEMA_VERSION` at the cut. If the stub
+step is not approved, add that the Files stub on other machines comes later.)
 
 - Files: a node that opens a folder on this machine as a file tree and opens
   a file in the main pane, laid out like Artifacts. The node keeps the folder
@@ -36,6 +37,18 @@ not, add that the Files stub on other machines comes later.)
 - Extract to artifact: a box drawn on a PDF page or an image becomes an image
   artifact in an Artifacts node in reach, with a link back to the file, page
   and box.
+- Artifact links: type [[ in a document to link another artifact by title, and
+  a title that matches nothing offers to create that document. The link is
+  stored like a mention and draws as a chip with the artifact's current title,
+  so a rename never breaks it. Every artifact lists what links to it, from
+  other artifacts' bodies (document text, pad text and sheet cells, with the
+  line around the link) as well as from comments and mail. In the CLI,
+  `junto artifact create` and `edit` accept [[Title]] and resolve it within the
+  seat's reach; no match or more than one is refused with the candidates, and
+  `junto artifact show` lists what links to the artifact.
+- Comments on a file stay at the file's path. If a file is renamed or moved
+  outside Junto, in Finder or by git, its threads stay at the old path; a
+  rename made in Junto carries them.
 - Security: Junto's git commands no longer run anything a folder's own git
   config names. A repository you open in the git node or a Files node, a
   downloaded one included, cannot run a file system monitor, a filter driver,
