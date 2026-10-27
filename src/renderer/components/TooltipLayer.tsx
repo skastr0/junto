@@ -182,6 +182,8 @@ export function TooltipLayer() {
   };
 
   const hide = () => {
+    // Nothing showing or pending: a press on any control must not cost a render.
+    if (!activeRef.current && !pendingTargetRef.current && timerRef.current === null) return;
     clearTimer();
     if (activeRef.current) removeDescription(activeRef.current.target);
     activeRef.current = null;
@@ -265,7 +267,10 @@ export function TooltipLayer() {
     };
     const onFocusIn = (event: FocusEvent) => {
       const target = triggerFor(event.target);
-      if (target) show(target, true);
+      // Keyboard focus shows the tip at once. The focus a click leaves behind
+      // does not: the pointer already had its turn on hover, and a tip popping
+      // back on every press costs two renders and a paint per click.
+      if (target && event.target instanceof Element && event.target.matches(":focus-visible")) show(target, true);
     };
     const onFocusOut = (event: FocusEvent) => {
       const target = activeRef.current?.target ?? pendingTargetRef.current;
