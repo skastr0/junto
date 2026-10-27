@@ -43,7 +43,7 @@ test.describe.fixme("quick open in every node that has items (F4)", () => {
 
       await page.keyboard.press("Enter");
       await expect(palette(page)).toHaveCount(0);
-      await expect(modal.getByRole("textbox", { name: "README.md", exact: true })).toHaveValue(/A root for the Files node/);
+      await expect(modal.getByRole("textbox", { name: "README.md", exact: true })).toContainText("A root for the Files node");
 
       await page.keyboard.press("Meta+p");
       await expect(palette(page)).toBeVisible();
