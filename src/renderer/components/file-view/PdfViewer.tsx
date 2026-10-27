@@ -29,6 +29,7 @@ export function PdfViewer({
   data,
   boxes = [],
   onComment,
+  initialPage,
 }: FileViewProps & {
   /** The PDF's bytes instead of its address: the dev gallery has no Files node to serve them. */
   readonly data?: Uint8Array;
@@ -80,6 +81,16 @@ export function PdfViewer({
     paneElement.scrollTo({ top: entry.top - PAGE_GUTTER });
     setPage(target);
   };
+
+  // An extract's link back opens on its page, once, as soon as the pages are laid out.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current || initialPage === undefined || tops.length === 0 || paneElement === null) return;
+    opened.current = true;
+    const entry = tops[Math.min(tops.length, Math.max(1, initialPage)) - 1]!;
+    paneElement.scrollTo({ top: entry.top - PAGE_GUTTER });
+    setPage(Math.min(tops.length, Math.max(1, initialPage)));
+  }, [initialPage, tops, paneElement]);
 
   const tools = useBoxTools({
     canvasName,

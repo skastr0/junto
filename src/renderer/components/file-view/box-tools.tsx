@@ -31,6 +31,8 @@ export type FileViewProps = {
   readonly boxes?: ReadonlyArray<FileThreadBox>;
   /** Comment on a drawn box. Absent: the box offers extract only. */
   readonly onComment?: (comment: BoxComment) => void;
+  /** The page a PDF opens on (an extract's source page); the first when absent. */
+  readonly initialPage?: number;
 };
 
 type ExtractState =
