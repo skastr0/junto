@@ -97,7 +97,7 @@
 
 .excalidraw-pad__tool[aria-pressed="true"] {
   border-color: var(--color-amber);
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 .excalidraw-pad__tool:focus-visible {
