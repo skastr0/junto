@@ -141,16 +141,20 @@ export function ArtifactsNode({
       event.preventDefault();
       setSelectedId(next.artifact.artifactId);
       setError(null);
-      const list = event.currentTarget;
-      requestAnimationFrame(() => claimFocus(list.querySelector<HTMLElement>("[data-selected='true']"), "gesture"));
+      // A new pick mounts a new pane, list included: find it again once it shows.
+      const surface = event.currentTarget.closest<HTMLElement>(".two-pane")?.parentElement ?? null;
+      requestAnimationFrame(() => claimFocus(surface?.querySelector<HTMLElement>(".artifacts-list [data-selected='true']"), "gesture"));
       return;
     }
     if (event.key === "Enter" && visible[at] !== undefined) {
       event.preventDefault();
       setSelectedId(visible[at].artifact.artifactId);
       setError(null);
-      const main = event.currentTarget.closest(".two-pane")?.querySelector<HTMLElement>(":scope > .two-pane__main");
-      requestAnimationFrame(() => claimFocus(main ? paneEntryOf(main) : null, "gesture"));
+      const surface = event.currentTarget.closest<HTMLElement>(".two-pane")?.parentElement ?? null;
+      requestAnimationFrame(() => {
+        const main = surface?.querySelector<HTMLElement>(":scope > .two-pane > .two-pane__main");
+        claimFocus(main ? paneEntryOf(main) : null, "gesture");
+      });
     }
   };
 
@@ -354,7 +358,10 @@ function SelectedArtifact({
     setCommentsRailOpen(open);
   };
   useEffect(() => {
-    if (!railToggled.current) return;
+    // Closed by its key from the composer: the composer is gone and the
+    // keyboard with it, so the edge takes it rather than the page.
+    const dropped = document.activeElement === null || document.activeElement === document.body;
+    if (!railToggled.current && !dropped) return;
     railToggled.current = false;
     claimFocus(railElement.current?.querySelector<HTMLElement>("[data-comments-toggle]"), "gesture", { preventScroll: true });
   }, [railOpen]);
