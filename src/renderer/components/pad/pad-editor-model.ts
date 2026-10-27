@@ -208,16 +208,19 @@ export const wheelCamera = (
     readonly deltaMode: number;
     readonly ctrlKey: boolean;
     readonly metaKey: boolean;
+    readonly shiftKey?: boolean;
   },
   viewPt: PadPoint,
 ): Camera => {
   // Line mode (a notched mouse on some systems) reports lines, not pixels.
   const unit = wheel.deltaMode === 1 ? 16 : wheel.deltaMode === 2 ? 400 : 1;
-  const dx = wheel.deltaX * unit;
-  const dy = wheel.deltaY * unit;
+  // Shift on a plain mouse wheel scrolls sideways; a trackpad already sends deltaX.
+  const sideways = wheel.shiftKey === true && wheel.deltaX === 0;
+  const dx = (sideways ? wheel.deltaY : wheel.deltaX) * unit;
+  const dy = (sideways ? 0 : wheel.deltaY) * unit;
   if (wheel.ctrlKey || wheel.metaKey) {
-    const factor = Math.exp(-clamp(dy, -50, 50) / 100);
-    if (camera.zoom * factor < CAMERA_ZOOM_MIN || camera.zoom * factor > CAMERA_ZOOM_MAX) return camera;
+    // zoomAt clamps the zoom, so a fast pinch lands on the limit, never short of it.
+    const factor = Math.exp(-clamp(wheel.deltaY * unit, -50, 50) / 100);
     return zoomAt(camera, viewPt, factor);
   }
   return panBy(camera, -dx, -dy);
