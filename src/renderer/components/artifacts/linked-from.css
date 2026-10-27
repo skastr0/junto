@@ -6,6 +6,20 @@
   gap: 3px;
 }
 
+/* The chip keeps its whole title; who and when wrap under it when the rail is narrow. */
+.linked-from__head {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.linked-from__meta {
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
 .linked-from__line {
   display: -webkit-box;
   overflow: hidden;

@@ -136,4 +136,24 @@ describe("linked from", () => {
     expect(readableLine(`See ${stored.slice(0, 30)}…`)).toBe("See Plan…");
     expect(readableLine("plain words")).toBe("plain words");
   });
+
+  it("says you for the operator's own comment, whatever name main gives it", async () => {
+    installMentions({
+      entries: [
+        {
+          messageId: "m1",
+          threadId: "m1",
+          mailbox: shelf,
+          subject: { kind: "artifact", nodeId: shelf, artifactId: NOTES },
+          author: { kind: "operator", name: "operator" },
+          at: 1,
+        } as unknown as Entry,
+      ],
+    });
+    installBodies([[]]);
+    act(() => root.render(<LinkedFrom canvasName={CANVAS} target={target} now={1} nameOf={() => "Research notes"} />));
+    await flush();
+    expect(rows()[0]!.textContent).toContain("Research notes");
+    expect(rows()[0]!.textContent).toContain("comment by you");
+  });
 });

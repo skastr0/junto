@@ -50,7 +50,9 @@ export function LinkedFrom({
   for (const entry of posts.entries) {
     const place = placeOf(entry);
     if (place === undefined) continue;
-    const meta = `${entry.subject === undefined ? "mail" : "comment"} by ${entry.author.name}, ${agoLabel(entry.at, now)}`;
+    // The operator reads their own posts as theirs, whatever name main gives them.
+    const who = entry.author.kind === "operator" ? "you" : entry.author.name;
+    const meta = `${entry.subject === undefined ? "mail" : "comment"} by ${who}, ${agoLabel(entry.at, now)}`;
     rows.push({ kind: "post", key: `post:${entry.messageId}`, at: entry.at, place, meta });
   }
   rows.sort((a, b) => b.at - a.at);
@@ -74,7 +76,7 @@ export function LinkedFrom({
             const place: MentionRef = { kind: "artifact", nodeId: link.source.nodeId, artifactId: link.source.artifactId };
             return (
               <li key={row.key} className="linked-from__row" data-testid="linked-from-row" data-kind="body">
-                <span className="mentioned-in__row">
+                <span className="linked-from__head">
                   <ResourceChip
                     kind="artifact"
                     artifactType={link.type}
@@ -82,7 +84,7 @@ export function LinkedFrom({
                     missing={!nodes.has(link.source.nodeId)}
                     onOpen={() => open(place)}
                   />
-                  <span className="mentioned-in__meta">in its text, {agoLabel(link.at, now)}</span>
+                  <span className="linked-from__meta">in its text, {agoLabel(link.at, now)}</span>
                 </span>
                 {readableLine(link.line) === "" ? null : <span className="linked-from__line">{readableLine(link.line)}</span>}
               </li>
@@ -91,9 +93,11 @@ export function LinkedFrom({
           const node = nodes.get(row.place.nodeId);
           const label = nameOf?.(row.place) ?? (node === undefined ? row.place.nodeId : titleOf(node));
           return (
-            <li key={row.key} className="mentioned-in__row" data-testid="linked-from-row" data-kind="post">
-              <ResourceChip {...mentionMark(row.place)} label={label} missing={node === undefined} onOpen={() => open(row.place)} />
-              <span className="mentioned-in__meta">{row.meta}</span>
+            <li key={row.key} className="linked-from__row" data-testid="linked-from-row" data-kind="post">
+              <span className="linked-from__head">
+                <ResourceChip {...mentionMark(row.place)} label={label} missing={node === undefined} onOpen={() => open(row.place)} />
+                <span className="linked-from__meta">{row.meta}</span>
+              </span>
             </li>
           );
         })}

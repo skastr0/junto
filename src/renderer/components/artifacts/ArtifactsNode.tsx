@@ -39,7 +39,7 @@ import { ArtifactKeys } from "./ArtifactKeys";
 import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
-import { openWorkDetail } from "../../lib/work-detail-open";
+import { openWorkDetail, useFollowOpen } from "../../lib/work-detail-open";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import { useArtifactsInReach } from "../../lib/artifacts-in-reach";
 import { makePostOps } from "../../lib/post-op";
@@ -84,11 +84,14 @@ export function ArtifactsNode({
   canvasName,
   nodeId,
   initialArtifactId,
+  openKey,
   onClose,
 }: {
   readonly canvasName: string;
   readonly nodeId: NodeId;
   readonly initialArtifactId?: string;
+  /** Which open this is: a new one selects `initialArtifactId` again, though the operator moved on. */
+  readonly openKey?: number;
   readonly onClose: () => void;
 }) {
   const entries = useNodeArtifacts(canvasName, nodeId);
@@ -98,10 +101,9 @@ export function ArtifactsNode({
     (write) => write.op.op === "create" && !entries.some((entry) => entry.artifact.artifactId === write.artifactId),
   );
   const [selectedId, setSelectedId] = useState<string | null>(initialArtifactId ?? null);
-  // An open asked for while the modal is up, a link followed from inside it, picks that artifact.
-  useEffect(() => {
-    if (initialArtifactId !== undefined) setSelectedId(initialArtifactId);
-  }, [initialArtifactId]);
+  // An open asked for while the modal is up, a link followed from inside it, picks that artifact,
+  // the same one included after the operator picked another.
+  useFollowOpen(initialArtifactId, openKey, setSelectedId);
   const [type, setType] = useState<TypeFilter>("all");
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
@@ -597,7 +599,14 @@ function SelectedArtifact({
             canvasName={canvasName}
             target={{ nodeId: artifact.nodeId, artifactId: artifact.artifactId }}
             now={now}
-            nameOf={(place) => (place.kind === "task" ? tasks.find((task) => task.taskId === place.taskId)?.title : undefined)}
+            nameOf={(place) =>
+              place.kind === "task"
+                ? tasks.find((task) => task.taskId === place.taskId)?.title
+                : place.kind === "artifact"
+                  ? (inReach.find((other) => other.ref.nodeId === place.nodeId && other.ref.artifactId === place.artifactId)?.title ??
+                    siblings.find((sibling) => sibling.artifact.artifactId === place.artifactId)?.artifact.title)
+                  : undefined
+            }
             beforeOpen={onClose}
           />
         </>
