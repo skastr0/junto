@@ -61,6 +61,9 @@ test("the palette offers Files, the card takes a drop and opens the modal, dark 
     await expect(card).toContainText(basename(root));
     // The count comes from files.count with no session open.
     await expect(card).toContainText(/\d[\d,]*\+? files?/, { timeout: 20_000 });
+    // What the card counts before any drop; each plain drop adds one.
+    let expected = Number((await card.innerText()).match(/(\d[\d,]*) files?/)?.[1]?.replaceAll(",", ""));
+    expect(Number.isInteger(expected)).toBe(true);
 
     for (const [index, theme] of (["dark", "bright"] as const).entries()) {
       await setTheme(page, theme);
@@ -86,8 +89,10 @@ test("the palette offers Files, the card takes a drop and opens the modal, dark 
       // README.md is taken, and so is the last drop's copy.
       await expect(card).toContainText(`Copied as README ${index + 2}.md.`);
       await card.screenshot({ path: join(SHOTS, `card-drop-${theme}.png`) });
-      // The notice gives the line back to the count, which counted the copy.
-      await expect(card).toContainText(/\d[\d,]*\+? files?/, { timeout: 10_000 });
+      // The notice gives the line back to the count, which counted the copy with no
+      // modal open: nothing holds the root, so this is main's kept count, renewed by the import.
+      expected += 1;
+      await expect(card).toContainText(`${expected} files`, { timeout: 10_000 });
       await card.screenshot({ path: join(SHOTS, `card-count-after-drop-${theme}.png`) });
 
       const modal = await openFilesModal(page);
