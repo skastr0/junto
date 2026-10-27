@@ -175,14 +175,17 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | Track | Owner | State |
 |---|---|---|
 | F1 node kind (step 51) | canvas | landed 9f7573e49 (reland after 7ff0f339e) |
+| F1 card, mount, factory, card drop | canvas | landed 6dd83fcf7; file count open |
 | F1 stub (step 52) | canvas | waiting on operator |
-| F2 service, protocol, doctrine | tech | assigned |
-| F2 modal | product-shell | assigned |
+| F2 service, protocol, doctrine | tech | landed 0614a0ba2, 5cac62452, 418fd8909, f7fded164; index over budget on 1 to 2 character queries |
+| git config commands neutralised (security) | tech | landed e9cc0324e |
+| shared-index commit guard | tech-ci | dd438c028, needs `core.hooksPath` set by the operator |
+| F2 modal | product-shell | on main, real-app check next |
 | F3 editor (CodeMirror, spike 0613f3324) | product-documents | building |
-| F4 quick open | product-modals, product-keyboard | assigned |
-| F5 drops | product-sheet, canvas (card) | assigned |
+| F4 quick open | product-modals, product-keyboard | landed dc55407e1, eaf25846c, 093768fd6 |
+| F5 drops | product-sheet, canvas (card) | landed 4dc94d928, 664645da8, c51b2e6df |
 | F6 preview | product-pad | assigned |
 | F7 comments | product-feed | assigned |
 | F8 extract | product-pad, product-documents | assigned |
 | msg reply file subject, onboard files row | cli | after F7 contract |
-| remote review | remote-lead | shape accepted, doctrine paragraph pending |
+| remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
