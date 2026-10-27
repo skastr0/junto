@@ -80,6 +80,7 @@ export function DocumentEditor({
   onAnchor,
   revealAnchor,
   mentions,
+  title,
 }: {
   readonly body: DocumentBody;
   readonly version: ArtifactVersion;
@@ -100,6 +101,8 @@ export function DocumentEditor({
   readonly revealAnchor?: { readonly anchor: TextAnchor; readonly nonce: number };
   /** Mentions drawn as chips and embeds, and offered on @ and #. Without it a mention reads as its words. */
   readonly mentions?: DocumentMentions;
+  /** The artifact's title, so two open documents read apart. */
+  readonly title?: string;
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ readonly quote: string; readonly offset: number } | null>(null);
@@ -331,7 +334,7 @@ export function DocumentEditor({
           className="artifact-document__live"
           tabIndex={0}
           role="group"
-          aria-label="Document"
+          aria-label={title ? `${title}, document` : "Document"}
           aria-keyshortcuts="Enter"
           onKeyDown={onSurfaceKey}
         />
