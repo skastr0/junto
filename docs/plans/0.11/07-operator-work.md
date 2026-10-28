@@ -130,9 +130,25 @@ N5's shape (remote-lead, accepted by product-lead):
 - **Tokens arrive once.** Over the operator's SSH route, on stdin, written
   atomically at 0600, never in argv, an environment value, a copy, a row or
   a log, as the Boat machine key is.
-- **Scope checked after minting.** A service account's permissions are
-  immutable, and 1Password documents no command that lists a token's
-  vaults, so the check is `op vault get` on the vault the region names.
+- **Scope by construction** (remote-security). A service account's
+  permissions are immutable, and 1Password documents no read-back of them,
+  so Junto mints each token itself with `op service-account create` under
+  the operator's own `op` session on the window's machine, with fixed argv:
+  the one vault, `read_items` for the read tokens, `read_items` and
+  `write_items` for the window's token, never `--can-create-vaults`. The
+  create argv is the proof of scope, recorded as names. A token the
+  operator pastes in instead is shown in the machine list as
+  operator-scoped, unverified. `op vault get` on the named vault is a
+  liveness check. `op vault list` showing more than the one vault is a
+  best-effort warning, unverified for service accounts.
+- **A closed environment for `op`**: the token, `PATH`, `HOME` and nothing
+  else. `OP_CONNECT_HOST` and `OP_CONNECT_TOKEN` override a service-account
+  token, so a stray one would redirect every read. The token is a known
+  value for the scrub and never enters a seat's environment; only the
+  values it resolves do.
+- **Doctrine says what each token gives**: the window machine's write token
+  lets any process there write the vault, and each read token lets any seat
+  on its machine read the whole vault.
 - **`op` is a secret tool.** Fixed argv, the value on stdin, stdout parsed
   in memory, stderr classification only. Writes per token are limited per
   hour (100 on Teams and Families, 1,000 on Business).
