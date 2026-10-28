@@ -317,11 +317,34 @@ export const precheck = <State, Op, Fact>(
   return check(command);
 };
 
-/** The earlier pending commands a new command builds on: those of this writer that touch the same item, or the same node when it names no item. */
+/**
+ * How a kind orders a command on the node itself (no `itemId`) against its
+ * item commands. `before-items`: a task create names no item, and every item
+ * command on the node builds on it and it on them. `apart`: the artifact
+ * domain's one node command, a label colour (03 Colours), reads no artifact,
+ * so it builds only on earlier node commands on the node and no item command
+ * builds on it; an unrelated artifact's refused or unpulled edit never holds
+ * it back. Total, so a new kind says which it is.
+ */
+export const NODE_COMMAND_ORDER: { readonly [K in ResourceKind]: "before-items" | "apart" } = {
+  task: "before-items",
+  artifact: "apart",
+  thread: "before-items",
+  automation: "before-items",
+};
+
+/**
+ * The earlier pending commands a new command builds on: those of this writer
+ * that touch the same item, or the same node when it names no item, as the
+ * kind orders node commands (`NODE_COMMAND_ORDER`).
+ */
 export const afterOf = <Op>(pending: ReadonlyArray<ResourceCommand<Op>>, target: ResourceRef): ReadonlyArray<OpId> =>
   pending
-    .filter(({ target: earlier }) =>
-      earlier.kind === target.kind && earlier.nodeId === target.nodeId && (target.itemId === undefined || earlier.itemId === undefined || earlier.itemId === target.itemId))
+    .filter(({ target: earlier }) => {
+      if (earlier.kind !== target.kind || earlier.nodeId !== target.nodeId) return false;
+      if (NODE_COMMAND_ORDER[target.kind] === "apart") return earlier.itemId === target.itemId;
+      return target.itemId === undefined || earlier.itemId === undefined || earlier.itemId === target.itemId;
+    })
     .map(({ opId }) => opId);
 
 /**

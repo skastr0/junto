@@ -17,8 +17,12 @@ import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/model";
 import type { NodeId } from "../src/shared/physics/schema";
 import {
+  afterOf,
+  emptyRuled,
   mintItemId,
   mintOpId,
+  overlay,
+  rule,
   type ItemId,
   type ResourceActor,
   type ResourceCommand,
@@ -87,6 +91,48 @@ describe("the ruler's labelColour op", () => {
     const state = created.kind === "apply" ? domain.apply(emptyArtifactState(), created.facts[0]!) : emptyArtifactState();
     const coloured = domain.rule(state, command({ op: "labelColour", label: "docs", colour: "green" }));
     expect(coloured.kind === "apply" && domain.apply(state, coloured.facts[0]!)).toBe(state);
+  });
+});
+
+describe("a colour beside the node's item commands", () => {
+  const domain = artifactDomain({ now: () => 7, bodyRef: () => ({ sha256: "0".repeat(64), byteLength: 1, mediaType: "text/markdown" }) as never });
+  const writer = "seat-machine" as InstallationId;
+  const everywhere: RulingContext = { inReach: () => true };
+  const queue = (pending: ReadonlyArray<ResourceCommand<ArtifactOp>>, next: ResourceCommand<ArtifactOp>) => ({
+    ...next,
+    after: afterOf(pending, next.target),
+  });
+  const withA = () => {
+    const a = mintItemId();
+    const created = rule(domain, emptyRuled(emptyArtifactState()), writer, command({ op: "create", title: "A", body: { type: "document", markdown: "x" } }, a), everywhere);
+    return { a, ruled: created.ruled };
+  };
+
+  it("applies a colour queued after an edit the ruler refuses, and no item command builds on a colour", () => {
+    const { a, ruled } = withA();
+    const stale = queue([], command({ op: "edit", edit: { kind: "replace", baseVersion: 9 as never, body: { type: "document", markdown: "y" } } }, a));
+    const colour = queue([stale], command({ op: "labelColour", label: "docs", colour: "teal" }));
+    expect(colour.after).toEqual([]);
+    const second = queue([stale, colour], command({ op: "labelColour", label: "docs", colour: "red" }));
+    expect(second.after).toEqual([colour.opId]);
+    expect(queue([stale, colour], command({ op: "retitle", title: "B" }, a)).after).toEqual([stale.opId]);
+
+    const edited = rule(domain, ruled, writer, stale, everywhere);
+    // Refused (a base the head never reached): any refusal of A's edit would sink a colour that built on it.
+    expect(edited.ruling).toMatchObject({ kind: "refused" });
+    const coloured = rule(domain, edited.ruled, writer, colour, everywhere);
+    expect(coloured.ruling).toMatchObject({ kind: "applied", facts: [{ fact: "artifact.label.coloured", label: "docs", colour: "teal" }] });
+  });
+
+  it("lists a colour pending while an edit on the node waits for its base", () => {
+    const { a, ruled } = withA();
+    const edit = queue([], command({ op: "edit", edit: { kind: "replace", baseVersion: 1 as never, body: { type: "document", markdown: "y" } } }, a));
+    const colour = queue([edit], command({ op: "labelColour", label: "docs", colour: "teal" }));
+    const read = overlay(domain, ruled, writer, [edit, colour], { ...everywhere, baseComplete: (target) => target.itemId !== a });
+    expect(read.pending).toEqual([
+      { opId: edit.opId, status: "at_risk", waiting: "base_not_pulled", root: edit.opId },
+      { opId: colour.opId, status: "pending" },
+    ]);
   });
 });
 
