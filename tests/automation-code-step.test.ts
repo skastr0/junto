@@ -127,7 +127,7 @@ describe("a code step's run", () => {
     ...over,
   });
 
-  it("asks the runner with the stamped author and installation, the input as data, and the default bounds", async () => {
+  it("asks the runner with the input as data and the default bounds", async () => {
     const asked: Array<CodeRunRequest> = [];
     const runner = {
       runCode: (request: CodeRunRequest) =>
@@ -139,8 +139,6 @@ describe("a code step's run", () => {
     expect(await Effect.runPromise(runCodeStep(runner, context()))).toEqual({ index: 0, ruling: "continued", output: { count: 3 }, durationMs: 12 });
     expect(asked[0]).toMatchObject({
       canvasName: "factory",
-      author: "overseer",
-      rulingInstallation: EDITOR,
       language: "typescript",
       timeoutMs: 60_000,
       maxOutputBytes: 65_536,
@@ -175,7 +173,7 @@ describe("a code step's run", () => {
     if (long.ruling !== "failed") throw new Error("not failed");
     expect(long.message).toHaveLength(500);
     expect(long.logTail).toHaveLength(4_096);
-    expect(codeRefusalOf(0, { _tag: "CodeNotPermitted", check: "allowance", refusal: "author", machine: "mini", canvasName: "factory", message: "no" } as never)).toEqual({
+    expect(codeRefusalOf(0, { _tag: "CodeNotPermitted", check: "digest", machine: "mini", canvasName: "factory", message: "no" } as never)).toEqual({
       index: 0,
       ruling: "refused",
       reason: "not_permitted",

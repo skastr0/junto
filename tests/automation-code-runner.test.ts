@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ContentRef } from "@shared/content";
-import type { CodeAllowance } from "../src/main/junto/automation/code-allowance";
 import {
   makeCodeRunner,
   type CodeInput,
@@ -23,15 +22,8 @@ import {
 
 const BUN = execFileSync("/usr/bin/env", ["which", "bun"], { encoding: "utf8" }).trim();
 const CANVAS = "factory";
-const RULER = "installation-editor";
 
 let root: string;
-/** The allowance rows, as CodeAllowanceRepository.read answers them. */
-const allowances = new Map<string, CodeAllowance>();
-const writeAllowance = (canvas: string, allowance: CodeAllowance | undefined): void => {
-  if (allowance === undefined) allowances.delete(canvas);
-  else allowances.set(canvas, allowance);
-};
 let runRoot: string;
 let childHome: string;
 const sources = new Map<string, Uint8Array>();
@@ -53,7 +45,6 @@ const INPUT: CodeInput = {
 
 const runner = (overrides: { readonly runtime?: () => string | undefined } = {}) => makeCodeRunner({
   machine: "mac-mini",
-  readAllowance: (canvasName) => Effect.succeed(allowances.get(canvasName)),
   runRoot,
   readSource: (ref) => Effect.succeed(sources.get(ref.sha256) ?? { state: "missing" }),
   runtime: overrides.runtime ?? (() => BUN),
@@ -69,8 +60,6 @@ const runner = (overrides: { readonly runtime?: () => string | undefined } = {})
 
 const request = (language: CodeLanguage, source: string, more: Partial<CodeRunRequest> = {}): CodeRunRequest => ({
   canvasName: CANVAS,
-  author: "operator",
-  rulingInstallation: RULER,
   source: refOf(source),
   language,
   input: INPUT,
@@ -90,8 +79,6 @@ beforeEach(async () => {
   mkdirSync(runRoot, { recursive: true });
   mkdirSync(childHome, { recursive: true });
   sources.clear();
-  allowances.clear();
-  writeAllowance(CANVAS, { scope: "operator-and-overseers", installations: [RULER] });
 });
 
 afterEach(() => {
@@ -276,21 +263,6 @@ describe("admission", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     return Exit.isFailure(exit) ? JSON.parse(JSON.stringify(exit.cause)) : undefined;
   };
-
-  it("refuses a canvas this machine does not allow", async () => {
-    writeAllowance(CANVAS, undefined);
-    expect(JSON.stringify(await refused(request("shell", "exit 0")))).toContain("\"refusal\":\"canvas\"");
-  });
-
-  it("refuses code ruled by an installation the allowance does not name", async () => {
-    expect(JSON.stringify(await refused(request("shell", "exit 0", { rulingInstallation: "installation-other" })))).toContain("\"refusal\":\"installation\"");
-  });
-
-  it("refuses an overseer's code under an operator-only allowance", async () => {
-    writeAllowance(CANVAS, { scope: "operator", installations: [RULER] });
-    expect(JSON.stringify(await refused(request("shell", "exit 0", { author: "overseer" })))).toContain("\"refusal\":\"author\"");
-    expect(await run(request("shell", "exit 0", { author: "operator" }))).toMatchObject({ kind: "continue" });
-  }, 30_000);
 
   it("refuses bytes that do not match the digest", async () => {
     const req = request("shell", "exit 0");

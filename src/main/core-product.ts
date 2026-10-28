@@ -39,7 +39,6 @@ import { HarnessInventoryLive } from "./junto/term/templates/harness-inventory";
 import { NativeConfigLive } from "./junto/native-config/service";
 import { ProductModelDependentsLive } from "./junto/view-state/model-dependents";
 import { ViewStateRepositoryLive } from "./junto/view-state/repository";
-import { CodeAllowanceRepositoryLive } from "./junto/automation/code-allowance";
 import { ModelLive } from "./junto/model/layer";
 
 /** The same product services in both shells, over one state connection. */
@@ -67,8 +66,6 @@ export const makeCoreProductLayer = (home: string) => {
       OpRepositoryLive,
       // The operator's arrangement: machine-local rows, written as it changes.
       ViewStateRepositoryLive,
-      // Which canvases this machine runs code steps for: machine-local rows, the owner's alone.
-      CodeAllowanceRepositoryLive,
       // The automation store, and the recorder its ruler records each ruling through.
       makeAutomationRepositoryLive(),
       Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),

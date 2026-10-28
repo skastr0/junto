@@ -5,6 +5,10 @@
  * by construction: written only by this machine's owner through the core, not
  * a fact, never in a copy, never named by the exchange. A canvas's delete
  * takes its allowance with it. Added by state migration 56 -> 57.
+ *
+ * Unread: the operator ruled that code steps have no per-machine allowance
+ * (5020cea97). The step is committed, so the tables stay, empty, until a
+ * consolidate step the operator approves removes them.
  */
 export const MACHINE_CODE_ALLOWANCES_SQL = `
   CREATE TABLE IF NOT EXISTS machine_code_allowances (

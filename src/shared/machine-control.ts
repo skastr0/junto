@@ -8,7 +8,6 @@ import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchan
 import type { MachineLogRead, MachineLogsInput } from "./machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 import { EncodedFailure } from "./failure";
-import type { MachineCodeAllowInput, MachineCodeAllowed, MachineCodeCanvasInput, MachineCodeShowInput, MachineCodeShown } from "./machine-code";
 import { BoatAddInput, BoatConnectData, BoatDisconnectData, BoatMachineView, BoatStatusData } from "./boat";
 import type {
   MachineLinkInput, MachineLinkData, MachineLinkKeyInput, MachineLinkKeyData, MachineLinkAcceptInput, MachineLinkAcceptData,
@@ -107,7 +106,6 @@ export const MachineOpName = Schema.Literals([
   "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
   "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
   "machine.wake", "machine.sleep",
-  "machine.code-allow", "machine.code-deny", "machine.code-show",
   "machine.link", "machine.link-key", "machine.link-accept", "machine.link-open", "machine.link-revoke",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
@@ -133,9 +131,6 @@ export interface MachineArgsByOp {
   readonly "machine.boat-delete": MachineTargetInput;
   readonly "machine.wake": MachineTargetInput;
   readonly "machine.sleep": MachineTargetInput;
-  readonly "machine.code-allow": MachineCodeAllowInput;
-  readonly "machine.code-deny": MachineCodeCanvasInput;
-  readonly "machine.code-show": MachineCodeShowInput;
   readonly "machine.link": MachineLinkInput;
   readonly "machine.link-key": MachineLinkKeyInput;
   readonly "machine.link-accept": MachineLinkAcceptInput;
@@ -164,9 +159,6 @@ export interface MachineDataByOp {
   readonly "machine.boat-delete": MachineRemoved;
   readonly "machine.wake": BoatMachineView;
   readonly "machine.sleep": BoatMachineView;
-  readonly "machine.code-allow": MachineCodeAllowed;
-  readonly "machine.code-deny": MachineCodeAllowed;
-  readonly "machine.code-show": MachineCodeShown;
   readonly "machine.link": MachineLinkData;
   readonly "machine.link-key": MachineLinkKeyData;
   readonly "machine.link-accept": MachineLinkAcceptData;

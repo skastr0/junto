@@ -9,11 +9,10 @@
  *   bun (`BUN_BE_BUN=1`): the app ships it at `<resources>/bin/junto`, a
  *   windowless core at `bin/junto`, so there is no Electron and nothing else
  *   to install (docs/machines.md Rules 1 and 10). Shell is `/bin/sh <file>`.
- * - **Admission** (docs/security-doctrine.md, Code steps, checks 2 and 4):
- *   this machine's owner allowed the canvas, the installation that ruled the
- *   code and its author (`code-allowance.ts`), and the copy run verifies
- *   against the ref's digest. Checks 1, 3 and 5 belong to the automation
- *   domain, before it calls here.
+ * - **Admission** (docs/security-doctrine.md, Code steps): the copy run
+ *   verifies against the ref's digest. The other checks (an applied ruling,
+ *   its author, the automation naming this machine) belong to the automation
+ *   domain, before it calls here; there is no per-machine allowance.
  * - **Input is data.** The input is JSON on stdin; the source is copied into
  *   a 0700 directory made for the run, verified there, run there with that
  *   directory as its working directory, and removed after it. Neither is ever
@@ -54,7 +53,6 @@ import {
 } from "../credentials/scrub";
 import type { ContentServiceShape } from "../content/service";
 import { juntoCliPathPrefixes } from "../term/templates/seat-env";
-import { allowanceRefusal, type CodeAllowance, type CodeAuthor } from "./code-allowance";
 import { CODE_LAUNCHER_SOURCE, CODE_SDK_SOURCE } from "./code-sdk";
 
 export type CodeLanguage = "typescript" | "shell";
@@ -70,10 +68,6 @@ export type CodeInput = {
 
 export type CodeRunRequest = {
   readonly canvasName: string;
-  /** The actor of the ruling that last set the code ref (check 3 is the domain's). */
-  readonly author: CodeAuthor;
-  /** The installation that ruled it: the canvas's editing machine, or a standby ruler. */
-  readonly rulingInstallation: string;
   readonly source: ContentRef;
   readonly language: CodeLanguage;
   readonly input: CodeInput;
@@ -95,9 +89,7 @@ export type CodeResult =
 
 /** A failed admission check: the firing log names the check and the machine. */
 export class CodeNotPermitted extends Schema.TaggedError<CodeNotPermitted>()("CodeNotPermitted", {
-  check: Schema.Literals(["allowance", "digest"]),
-  /** For an allowance: what it does not cover. */
-  refusal: Schema.optionalKey(Schema.Literals(["canvas", "installation", "author"])),
+  check: Schema.Literal("digest"),
   machine: Schema.String,
   canvasName: Schema.String,
   message: Schema.String,
@@ -162,8 +154,6 @@ const decodeAnswer = Schema.decodeUnknownSync(CodeAnswer, { onExcessProperty: "e
 export type CodeRunnerDeps = {
   /** This machine's name, for refusals. */
   readonly machine: string;
-  /** This machine's allowance for a canvas, read before every run (`CodeAllowanceRepository.read`). */
-  readonly readAllowance: (canvasName: string) => Effect.Effect<CodeAllowance | undefined, unknown>;
   /** The source's bytes, or why they are not held here. */
   readonly readSource: (ref: ContentRef) => Effect.Effect<Uint8Array | { readonly state: string }, unknown>;
   /** The `junto` binary TypeScript runs on; undefined when this machine has none. */
@@ -426,23 +416,6 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
   const runRoot = deps.runRoot ?? tmpdir();
 
   const runCode = (request: CodeRunRequest): Effect.Effect<CodeResult, CodeRunError> => Effect.gen(function* () {
-    // An allowance that cannot be read admits nothing.
-    const allowance = yield* deps.readAllowance(request.canvasName).pipe(Effect.orElseSucceed(() => undefined));
-    const refusal = allowanceRefusal(allowance, request.rulingInstallation, request.author);
-    if (refusal !== undefined) {
-      return yield* new CodeNotPermitted({
-        check: "allowance",
-        refusal,
-        machine: deps.machine,
-        canvasName: request.canvasName,
-        message: refusal === "canvas"
-          ? `${deps.machine} does not run code steps for this canvas; its owner allows them with junto machine code allow`
-          : refusal === "installation"
-            ? `${deps.machine} does not run code steps ruled by ${request.rulingInstallation} for this canvas`
-            : `${deps.machine} runs code steps for this canvas by the operator only`,
-      });
-    }
-
     const read = yield* deps.readSource(request.source).pipe(
       Effect.mapError((cause) => new CodeSourceUnavailable({ machine: deps.machine, state: "unreadable", message: scrubMessage(String(cause)) })),
     );

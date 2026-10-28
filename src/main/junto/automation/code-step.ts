@@ -8,7 +8,7 @@
  * The domain holds checks 1, 3 and 5 of the security doctrine before this
  * runs: the definition came as an applied ruling, its code's author is the
  * one stamped there (`codeAuthor`), and the automation names this machine.
- * The runner holds checks 2 and 4: the digest and this machine's allowance.
+ * The runner holds check 2: the digest of the bytes it runs.
  */
 import { Context, Effect, Layer } from "effect";
 import {
@@ -24,7 +24,6 @@ import {
 } from "@shared/automation";
 import { ContentService } from "../content/service";
 import { MachineRepository } from "../machines/repository";
-import { CodeAllowanceRepository } from "./code-allowance";
 import { contentSourceReader, makeCodeRunner, type CodeResult, type CodeRunError, type CodeRunRequest } from "./code-runner";
 
 export type CodeStep = Extract<Action, { readonly kind: "code" }>;
@@ -41,8 +40,7 @@ export const AutomationCodeRunnerLive = Layer.effect(
   Effect.gen(function* () {
     const content = yield* ContentService;
     const machine = yield* (yield* MachineRepository).machineName.pipe(Effect.orElseSucceed(() => "this machine"));
-    const allowances = yield* CodeAllowanceRepository;
-    return makeCodeRunner({ machine, readSource: contentSourceReader(content), readAllowance: allowances.read });
+    return makeCodeRunner({ machine, readSource: contentSourceReader(content) });
   }),
 );
 
@@ -159,8 +157,6 @@ export const runCodeStep = (
   return runner
     .runCode({
       canvasName: context.canvasName,
-      author: ruled.author.kind === "operator" ? "operator" : "overseer",
-      rulingInstallation: ruled.installation,
       source: step.source,
       language: step.language,
       input,
