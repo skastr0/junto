@@ -104,6 +104,28 @@
   flex: 1 1 140px;
 }
 
+/* A watch read as a sentence: words sit on the fields' line, and a picker takes the room left. */
+.automation-editor__sentence {
+  align-items: center;
+  gap: 6px;
+}
+
+.automation-editor__sentence > * {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.automation-editor__sentence > :has(textarea) {
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.automation-editor__word {
+  font-size: var(--text-body);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
 .automation-editor__tools {
   display: flex;
   gap: 2px;

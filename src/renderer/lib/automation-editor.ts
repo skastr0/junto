@@ -47,6 +47,12 @@ export type TargetRef = SeatWatch["seat"];
 /** A task, or any task on one board. */
 export type TaskTarget = TaskWatch["task"];
 export type TaskBecomes = TaskWatch["becomes"];
+/**
+ * An artifact, or any artifact in one Artifacts node, as a task watch's
+ * `{node}` is any task on a board. Stand-in for automation-lead's A2 names
+ * (plan 0.11/05): becomes `ArtifactWatch["artifact"]` once that lands.
+ */
+export type ArtifactTarget = TargetRef | { readonly node: NodeId };
 export type ArtifactEvent = ArtifactWatch["event"];
 type CommentAction = Extract<Action, { readonly kind: "comment" }>;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
@@ -67,8 +73,12 @@ export const SIGNALS: ReadonlyArray<WatchedSignal> = ["escalate", "blocked", "fe
 export type WatchDraft =
   | { readonly kind: "seat"; readonly seat?: TargetRef; readonly becomes: SeatBecomes }
   | { readonly kind: "task"; readonly task?: TaskTarget; readonly becomes: TaskBecomes }
-  | { readonly kind: "artifact"; readonly artifact?: TargetRef; readonly event: ArtifactEvent }
+  | { readonly kind: "artifact"; readonly artifact?: ArtifactTarget; readonly event: ArtifactEvent }
   | { readonly kind: "signal"; readonly from?: TargetRef; readonly signal: WatchedSignal };
+
+/** The node a task or artifact watch covers, or undefined for one item, picked or not. */
+export const watchedNode = (target: TaskTarget | ArtifactTarget | undefined): NodeId | undefined =>
+  target === undefined || "kind" in target ? undefined : target.node;
 
 export type ConditionDraft = Extract<WatchDraft, { readonly kind: ConditionKind }>;
 
@@ -529,6 +539,9 @@ const becomesWords: Readonly<Record<SeatBecomes, string>> = {
 const taskWords = (task: TaskTarget | undefined, nameOf: NameOf): string =>
   task === undefined ? "a task" : "kind" in task ? nameOf(task) : "any task on its board";
 
+const artifactWords = (artifact: ArtifactTarget | undefined, nameOf: NameOf): string =>
+  artifact === undefined ? "an artifact" : "kind" in artifact ? nameOf(artifact) : "any artifact in its node";
+
 const signalWords: Readonly<Record<WatchedSignal, string>> = {
   escalate: "escalates",
   blocked: "is blocked",
@@ -542,7 +555,7 @@ export const watchWords = (watch: WatchDraft, nameOf: NameOf): string => {
     case "task":
       return `${taskWords(watch.task, nameOf)} is ${watch.becomes.replace("-", " ")}`;
     case "artifact":
-      return `${watch.artifact ? nameOf(watch.artifact) : "an artifact"} is ${watch.event}`;
+      return `${artifactWords(watch.artifact, nameOf)} is ${watch.event}`;
     case "signal":
       return `${watch.from ? nameOf(watch.from) : "any seat"} ${signalWords[watch.signal]}`;
     default:
@@ -596,11 +609,41 @@ export const TRIGGER_LABEL: Readonly<Record<EditableTriggerKind, string>> = {
   change: "When something changes",
 };
 
+/** What a watch is on, as the sentence's subject: "When a task in Release becomes done". */
 export const WATCH_LABEL: Readonly<Record<WatchKind, string>> = {
-  seat: "A seat",
-  task: "A task",
-  artifact: "An artifact",
-  signal: "A signal",
+  seat: "a seat",
+  task: "a task",
+  artifact: "an artifact",
+  signal: "a signal",
+};
+
+/**
+ * A watch is a trigger, read "becomes", or a condition, read "is": the state
+ * a seat comes to as the trigger fires, or holds as a condition is checked.
+ */
+export type WatchMode = "becomes" | "is";
+
+const seatStateWords: Readonly<Record<WatchMode, Readonly<Record<SeatBecomes, string>>>> = {
+  becomes: becomesWords,
+  is: { idle: "is idle", working: "is working", attention: "needs you", gone: "is gone" },
+};
+
+/** A seat state as the sentence's verb: "goes idle" as it fires, "is idle" as it holds. */
+export const seatStateWord = (state: SeatBecomes, mode: WatchMode): string => seatStateWords[mode][state];
+
+/** A task state as the sentence's last word: "in review". */
+export const taskStateWord = (state: TaskBecomes): string => state.replace("-", " ");
+
+export const ARTIFACT_EVENT_WORD: Readonly<Record<ArtifactEvent, string>> = {
+  edited: "edited",
+  commented: "commented on",
+};
+
+/** A signal as the sentence's verb: "When a signal from any seat says blocked". */
+export const SIGNAL_WORD: Readonly<Record<WatchedSignal, string>> = {
+  blocked: "says blocked",
+  escalate: "escalates",
+  feedback: "says ready for review",
 };
 
 const skipWords: Readonly<Record<SkipReason, string>> = {

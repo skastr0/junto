@@ -14,8 +14,10 @@ import type { NodeId } from "@shared/physics/schema";
 import { automationTargets } from "@shared/region-reach";
 import {
   ACTION_LABEL,
+  ARTIFACT_EVENT_WORD,
   ARTIFACT_EVENTS,
   SEAT_BECOMES,
+  SIGNAL_WORD,
   SIGNALS,
   TASK_BECOMES,
   TRIGGER_LABEL,
@@ -23,6 +25,9 @@ import {
   blankWatch,
   draftProblems,
   editDraft,
+  seatStateWord,
+  taskStateWord,
+  watchedNode,
   type ActionDraft,
   type ActionKind,
   type AutomationDraft,
@@ -33,6 +38,7 @@ import {
   type NameOf,
   type TriggerDraft,
   type WatchDraft,
+  type WatchMode,
 } from "../../lib/automation-editor";
 import type { MentionCandidate, MentionTrigger } from "../../lib/mention-draft";
 import { useMentionItems } from "../../lib/mention-items";
@@ -99,9 +105,6 @@ function TargetPicker<K extends TargetKind>({
   );
 }
 
-const options = <T extends string>(values: ReadonlyArray<T>, words: (value: T) => string = (value) => value.replace("-", " ")) =>
-  values.map((value) => ({ value, label: words(value) }));
-
 const problemAt = (problems: ReadonlyArray<DraftProblem>, match: (problem: DraftProblem) => boolean): string | undefined =>
   problems.find(match)?.message;
 
@@ -141,14 +144,62 @@ function Problem({ id, message }: { readonly id: string; readonly message: strin
   ) : null;
 }
 
+/** A task board or an Artifacts node in reach, by its name. */
+type NodeChoice = { readonly id: NodeId; readonly title: string };
+
 type Pickers = {
   readonly candidates: ReadonlyArray<MentionCandidate>;
   readonly canvasName: string;
   readonly nameOf: NameOf;
-  readonly boards: ReadonlyArray<{ readonly id: NodeId; readonly title: string }>;
+  readonly boards: ReadonlyArray<NodeChoice>;
+  readonly artifactNodes: ReadonlyArray<NodeChoice>;
 };
 
-/** A watch's fields: what is watched and the state or event it waits for. */
+/** A word of the sentence between its fields. Read in order with them, so it is not hidden from a screen reader. */
+const Word = ({ children }: { readonly children: string }) => <span className="automation-editor__word">{children}</span>;
+
+const ONE = "one";
+const nodeValue = (node: NodeId): string => `node:${node}`;
+
+/**
+ * Which items a task or artifact watch covers: every one in a node in reach,
+ * by its name, or one item, picked. A node no longer in reach still shows,
+ * named as such, so a loaded watch never reads as a different one.
+ */
+function ScopeSelect({
+  label,
+  one,
+  nodes,
+  covered,
+  onChange,
+}: {
+  readonly label: string;
+  readonly one: string;
+  readonly nodes: ReadonlyArray<NodeChoice>;
+  readonly covered: NodeId | undefined;
+  readonly onChange: (node: NodeId | undefined) => void;
+}) {
+  const lost = covered !== undefined && !nodes.some((node) => node.id === covered);
+  return (
+    <Select
+      dense
+      aria-label={label}
+      value={covered === undefined ? ONE : nodeValue(covered)}
+      options={[
+        ...nodes.map((node) => ({ value: nodeValue(node.id), label: node.title })),
+        ...(lost ? [{ value: nodeValue(covered), label: "a node out of reach" }] : []),
+        { value: ONE, label: one },
+      ]}
+      onChange={(value) => onChange(value === ONE ? undefined : (value.slice("node:".length) as NodeId))}
+    />
+  );
+}
+
+/**
+ * A watch as a sentence: "a task in Release becomes done". A trigger reads
+ * "becomes", a condition "is"; the trigger's "When" and the conditions'
+ * "Only when" are their section's.
+ */
 function WatchFields({
   watch,
   onChange,
@@ -161,14 +212,26 @@ function WatchFields({
   readonly conditionOnly?: boolean;
 }) {
   const kinds = conditionOnly ? (["seat", "task"] as const) : (["seat", "task", "artifact", "signal"] as const);
+  const mode: WatchMode = conditionOnly ? "is" : "becomes";
+  /** A new task or artifact watch starts on the first node in reach, the common case, else on one item. */
+  const blank = (kind: WatchDraft["kind"]): WatchDraft => {
+    const watch = blankWatch(kind);
+    const board = pickers.boards[0];
+    const artifacts = pickers.artifactNodes[0];
+    if (watch.kind === "task" && board !== undefined) return { ...watch, task: { node: board.id } };
+    if (watch.kind === "artifact" && artifacts !== undefined) return { ...watch, artifact: { node: artifacts.id } };
+    return watch;
+  };
   return (
-    <div className="automation-editor__row">
+    <div className="automation-editor__row automation-editor__sentence">
+      {conditionOnly ? null : <Word>When</Word>}
       <Select
+        dense
         aria-label="What it watches"
         value={watch.kind}
         options={kinds.map((kind) => ({ value: kind, label: WATCH_LABEL[kind] }))}
         onChange={(kind) => {
-          if (kind !== watch.kind) onChange(blankWatch(kind as WatchDraft["kind"]));
+          if (kind !== watch.kind) onChange(blank(kind as WatchDraft["kind"]));
         }}
       />
       {watch.kind === "seat" ? (
@@ -182,79 +245,90 @@ function WatchFields({
             onChange={(seat) => onChange({ ...watch, seat })}
           />
           <Select
-            aria-label="Becomes"
+            dense
+            aria-label={mode === "becomes" ? "Becomes" : "Is"}
             value={watch.becomes}
-            options={options(SEAT_BECOMES)}
+            options={SEAT_BECOMES.map((state) => ({ value: state, label: seatStateWord(state, mode) }))}
             onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
           />
         </>
       ) : null}
       {watch.kind === "task" ? (
         <>
-          <Select
-            aria-label="Which task"
-            value={watch.task !== undefined && !("kind" in watch.task) ? `board:${watch.task.node}` : "one"}
-            options={[
-              { value: "one", label: "This task" },
-              ...pickers.boards.map((board) => ({ value: `board:${board.id}`, label: `Any task on ${board.title}` })),
-            ]}
-            onChange={(which) =>
-              onChange({
-                ...watch,
-                task: which === "one" ? undefined : { node: which.slice("board:".length) as NodeId },
-              })
-            }
+          <Word>in</Word>
+          <ScopeSelect
+            label="Which tasks"
+            one="one task"
+            nodes={pickers.boards}
+            covered={watchedNode(watch.task)}
+            onChange={(node) => onChange({ ...watch, task: node === undefined ? undefined : { node } })}
           />
-          {watch.task === undefined || "kind" in watch.task ? (
+          {watchedNode(watch.task) === undefined ? (
             <TargetPicker
               {...pickers}
               kinds={["task"]}
               label="Task"
               placeholder="#task"
-              value={watch.task?.kind === "task" ? watch.task : undefined}
+              value={watch.task !== undefined && "kind" in watch.task && watch.task.kind === "task" ? watch.task : undefined}
               onChange={(task) => onChange({ ...watch, task })}
             />
           ) : null}
+          <Word>{mode}</Word>
           <Select
-            aria-label="Becomes"
+            dense
+            aria-label={mode === "becomes" ? "Becomes" : "Is"}
             value={watch.becomes}
-            options={options(TASK_BECOMES)}
+            options={TASK_BECOMES.map((state) => ({ value: state, label: taskStateWord(state) }))}
             onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
           />
         </>
       ) : null}
       {watch.kind === "artifact" ? (
         <>
-          <TargetPicker
-            {...pickers}
-            kinds={["artifact"]}
-            label="Artifact"
-            placeholder="#artifact"
-            value={watch.artifact?.kind === "artifact" ? watch.artifact : undefined}
-            onChange={(artifact) => onChange({ ...watch, artifact })}
+          <Word>in</Word>
+          <ScopeSelect
+            label="Which artifacts"
+            one="one artifact"
+            nodes={pickers.artifactNodes}
+            covered={watchedNode(watch.artifact)}
+            onChange={(node) => onChange({ ...watch, artifact: node === undefined ? undefined : { node } })}
           />
+          {watchedNode(watch.artifact) === undefined ? (
+            <TargetPicker
+              {...pickers}
+              kinds={["artifact"]}
+              label="Artifact"
+              placeholder="#artifact"
+              value={watch.artifact !== undefined && "kind" in watch.artifact && watch.artifact.kind === "artifact" ? watch.artifact : undefined}
+              onChange={(artifact) => onChange({ ...watch, artifact })}
+            />
+          ) : null}
+          <Word>is</Word>
           <Select
+            dense
             aria-label="Event"
             value={watch.event}
-            options={options(ARTIFACT_EVENTS)}
+            options={ARTIFACT_EVENTS.map((event) => ({ value: event, label: ARTIFACT_EVENT_WORD[event] }))}
             onChange={(event) => onChange({ ...watch, event: event as typeof watch.event })}
           />
         </>
       ) : null}
       {watch.kind === "signal" ? (
         <>
+          <Word>from</Word>
           <TargetPicker
             {...pickers}
             kinds={["seat"]}
             label="From seat, or any"
-            placeholder="@seat, or any seat"
+            placeholder="any seat, or @seat"
             value={watch.from?.kind === "seat" ? watch.from : undefined}
             onChange={(from) => onChange(from === undefined ? { kind: "signal", signal: watch.signal } : { ...watch, from })}
           />
           <Select
+            dense
             aria-label="Signal"
             value={watch.signal}
-            options={options(SIGNALS)}
+            options={SIGNALS.map((signal) => ({ value: signal, label: SIGNAL_WORD[signal] }))}
             onChange={(signal) => onChange({ ...watch, signal: signal as typeof watch.signal })}
           />
         </>
@@ -431,14 +505,13 @@ export function AutomationEditor({
   // Task boards and Artifacts nodes offer only the items handed to them: without these every #picker is empty.
   const candidates = useAutomationTargets(canvasName, draft.nodeId, draft.author, useMentionItems(canvasName));
   const nameOf = useTargetNames(candidates, canvasName);
-  const boards = useMemo(
-    () =>
-      automationTargets(canvas, draft.nodeId, draft.author)
-        .filter((node) => node.kind === "task")
-        .map((node) => ({ id: node.id, title: titleOf(canvas.nodes.get(node.id)!) })),
-    [canvas, draft.nodeId, draft.author],
-  );
-  const pickers: Pickers = { candidates, canvasName, nameOf, boards };
+  const { boards, artifactNodes } = useMemo(() => {
+    const inReach = automationTargets(canvas, draft.nodeId, draft.author);
+    const choices = (kind: "task" | "artifacts"): ReadonlyArray<NodeChoice> =>
+      inReach.filter((node) => node.kind === kind).map((node) => ({ id: node.id, title: titleOf(canvas.nodes.get(node.id)!) }));
+    return { boards: choices("task"), artifactNodes: choices("artifacts") };
+  }, [canvas, draft.nodeId, draft.author]);
+  const pickers: Pickers = { candidates, canvasName, nameOf, boards, artifactNodes };
   // Problems show once a save was tried on this automation, not while it is being written.
   const [triedOn, setTriedOn] = useState<string>();
   const tried = triedOn === draft.automationId;

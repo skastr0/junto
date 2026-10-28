@@ -9,7 +9,7 @@ import { AutomationEditor } from "../src/renderer/components/automations/Automat
 import { newDraft, type AutomationDraft } from "../src/renderer/lib/automation-editor";
 import { makeLocalTasksSource, setTasksSource } from "../src/renderer/lib/tasks-source";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { automations, taskBoard } from "./support/model-nodes";
+import { artifacts, automations, taskBoard } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,7 +59,11 @@ beforeEach(async () => {
     canvas: asCanvasName(CANVAS),
     seq: 0,
     wires: [],
-    nodes: [automations("automations-1", { z: 0 }), taskBoard("board-1", { x: 400, z: 1, name: "Release" })],
+    nodes: [
+      automations("automations-1", { z: 0 }),
+      taskBoard("board-1", { x: 400, z: 1, name: "Release" }),
+      artifacts("shelf-1", { x: 800, z: 2, label: "Specs" }),
+    ],
   });
   const tasks = makeLocalTasksSource();
   setTasksSource(tasks);
@@ -84,5 +88,20 @@ describe("automation editor pickers", () => {
     type(picker, "#");
     const offered = [...host.querySelectorAll('[role="option"]')].map((option) => option.textContent ?? "");
     expect(offered.some((text) => text.includes("Ship labels"))).toBe(true);
+  });
+
+  it("reads as a sentence, its scope naming the boards and Artifacts nodes in reach", async () => {
+    const draft = newDraft("01M627SVX2BMGZAMXFA2F5BYAD" as AutomationDraft["automationId"], shelf, { kind: "operator" });
+    await render({ ...draft, trigger: { kind: "change", on: { kind: "task", task: { node: board }, becomes: "done" } } });
+    const sentence = host.querySelector(".automation-editor__sentence")!;
+    expect([...sentence.querySelectorAll(".automation-editor__word")].map((word) => word.textContent)).toEqual(["When", "in", "becomes"]);
+    expect(host.textContent).not.toContain("This task");
+    // A node scope needs no item picked.
+    expect(host.querySelector('textarea[aria-label="Task"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Which tasks"]')?.textContent).toContain("Release");
+
+    await render({ ...draft, trigger: { kind: "change", on: { kind: "artifact", artifact: { node: asNodeId("shelf-1") }, event: "commented" } } });
+    expect(host.querySelector('[aria-label="Which artifacts"]')?.textContent).toContain("Specs");
+    expect(host.querySelector('[aria-label="Event"]')?.textContent).toContain("commented on");
   });
 });
