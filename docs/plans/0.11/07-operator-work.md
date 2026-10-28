@@ -115,6 +115,28 @@ Rule 9 stands as it is: it protects secrets already on a machine.
   secret form waits; artifact, proof and text forms ship without it.
 - **Out:** Junto's own encrypted store that syncs across machines.
 
+N5's shape (remote-lead, accepted by product-lead):
+
+- **Built on what exists.** Region sources already have kind `onepassword`
+  (`op://vault/item/field`, with `tokenFrom` naming the source of the
+  service-account token), resolved on each machine (`model/region.ts`,
+  `region-env/sources.ts`).
+- **A dedicated vault.** A service account can never reach the Personal,
+  Private, Employee or default Shared vault (1Password, service accounts).
+- **One write token, read-only elsewhere.** The machine where the window
+  runs holds the only token with `write_items` (which requires
+  `read_items`). Every other machine holds a `read_items` token. Only the
+  secret form writes.
+- **Tokens arrive once.** Over the operator's SSH route, on stdin, written
+  atomically at 0600, never in argv, an environment value, a copy, a row or
+  a log, as the Boat machine key is.
+- **Scope checked after minting.** A service account's permissions are
+  immutable, and 1Password documents no command that lists a token's
+  vaults, so the check is `op vault get` on the vault the region names.
+- **`op` is a secret tool.** Fixed argv, the value on stdin, stdout parsed
+  in memory, stderr classification only. Writes per token are limited per
+  hour (100 on Teams and Families, 1,000 on Business).
+
 | Track | Owner | Reviewer |
 |---|---|---|
-| N5 the vault contract and the 1Password backend (`op` with a service account per machine), region secrets as vault references, the secret form writing to it | remote (remote-lead places) | remote-security, tech-lead |
+| N5 the vault contract and the 1Password backend (`op` with a service account per machine), region secrets as vault references, the secret form writing to it | remote-core | remote-security, tech-lead |
