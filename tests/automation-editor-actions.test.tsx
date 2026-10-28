@@ -10,13 +10,15 @@ import { AutomationEditor } from "../src/renderer/components/automations/Automat
 import {
   blankTrigger,
   cadenceWords,
+  codeRulingWords,
   draftProblems,
   editDraft,
   finishDraft,
+  firingWords,
   newDraft,
-  valuesForTrigger,
   type AutomationDraft,
 } from "../src/renderer/lib/automation-editor";
+import { automationValuesOf, type ActionRuling, type Firing } from "../src/shared/automation";
 import { setTasksSource, makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { automations } from "./support/model-nodes";
@@ -135,17 +137,17 @@ describe("an action's text", () => {
 
 describe("the values a trigger carries", () => {
   it("offers fired.at to a schedule and a poll, and what a change trigger watched", () => {
-    expect(valuesForTrigger(blankTrigger("schedule"))).toEqual(["fired.at"]);
-    expect(valuesForTrigger(blankTrigger("poll"))).toEqual(["fired.at"]);
+    expect(automationValuesOf(blankTrigger("schedule"))).toEqual(["fired.at"]);
+    expect(automationValuesOf(blankTrigger("poll"))).toEqual(["fired.at"]);
 
     const seatWatch = blankTrigger("change");
-    expect(valuesForTrigger(seatWatch)).toEqual(["seat.name", "seat.state", "fired.at"]);
+    expect(automationValuesOf(seatWatch)).toEqual(["seat.name", "seat.state", "fired.at"]);
 
     const taskWatch = editDraft(newDraft(id, node, { kind: "operator" }), {
       type: "trigger",
       trigger: { kind: "change", on: { kind: "task", becomes: "done" } },
     });
-    expect(valuesForTrigger(taskWatch.trigger)).toEqual([
+    expect(automationValuesOf(taskWatch.trigger)).toEqual([
       "task.title",
       "task.state",
       "task.link",
@@ -196,6 +198,45 @@ describe("what an action keeps", () => {
     const problem = draftProblems(stale).find((entry) => entry.at === "action");
     expect(problem?.message).toBe("This trigger carries no {{task.title}}. It carries {{fired.at}}.");
     expect(finishDraft(stale).ok).toBe(false);
+  });
+});
+
+describe("a code step's result in words", () => {
+  const firingId = ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF1");
+  const firing = (actions: ReadonlyArray<ActionRuling>): Firing => ({
+    firingId,
+    automationId: id,
+    at: 1_700_000_000_000,
+    cause: { kind: "run" },
+    outcome: { kind: "fired", actions },
+  });
+
+  it("says what a code step answered, and names the values later steps can use", () => {
+    expect(codeRulingWords({ index: 1, ruling: "continued", output: { total: 3, state: "ok" }, durationMs: 120 })).toBe(
+      "answered {{code.total}}, {{code.state}} in 120 ms",
+    );
+    expect(codeRulingWords({ index: 0, ruling: "continued", output: {}, durationMs: 1500 })).toBe("answered no values in 1.5 s");
+  });
+
+  it("says why a step stopped or failed", () => {
+    expect(codeRulingWords({ index: 0, ruling: "stopped", durationMs: 40 })).toBe("stopped the automation in 40 ms");
+    expect(codeRulingWords({ index: 0, ruling: "stopped", reason: "nothing to do", durationMs: 40 })).toBe("stopped: nothing to do");
+    expect(codeRulingWords({ index: 0, ruling: "failed", message: "timeout", durationMs: 60_000 })).toBe("failed: timeout");
+    expect(codeRulingWords({ index: 0, ruling: "failed", message: "bad", exitCode: 2, durationMs: 80 })).toBe("failed: bad (exit 2)");
+    expect(codeRulingWords({ index: 0, ruling: "applied" })).toBeUndefined();
+  });
+
+  it("counts a step that continued as one that acted, and says how many stopped or failed", () => {
+    expect(firingWords(firing([{ index: 0, ruling: "continued", output: {}, durationMs: 10 }]))).toBe("Run by hand, fired, 1 of 1 action applied");
+    expect(
+      firingWords(
+        firing([
+          { index: 0, ruling: "continued", output: {}, durationMs: 10 },
+          { index: 1, ruling: "stopped", durationMs: 5 },
+          { index: 2, ruling: "failed", message: "timeout", durationMs: 60_000 },
+        ]),
+      ),
+    ).toBe("Run by hand, fired, 1 of 3 actions applied, 1 stopped, 1 failed");
   });
 });
 

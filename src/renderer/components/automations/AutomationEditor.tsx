@@ -8,6 +8,7 @@
  */
 import { useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
+import { automationValuesOf, type CodeLanguage } from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
@@ -29,7 +30,6 @@ import {
   editDraft,
   seatStateWord,
   taskStateWord,
-  valuesForTrigger,
   watchedNode,
   type ActionDraft,
   type ActionKind,
@@ -543,6 +543,33 @@ function ActionFields({
           />
         </>
       );
+    case "code":
+      return (
+        <>
+          <Select
+            aria-label="Code language"
+            value={action.language}
+            options={[
+              { value: "typescript", label: "TypeScript" },
+              { value: "shell", label: "Shell" },
+            ]}
+            onChange={(language) => onChange({ ...action, language: language as CodeLanguage })}
+          />
+          <FieldLabel>
+            Timeout, in seconds
+            <Input
+              dense
+              inputMode="numeric"
+              value={action.timeoutSeconds}
+              aria-label="Timeout, in seconds"
+              onChange={(event) => onChange({ ...action, timeoutSeconds: event.target.value })}
+            />
+          </FieldLabel>
+          <p className="automation-editor__note">
+            {action.source === undefined ? "Write the code before this automation can save." : "Code written."}
+          </p>
+        </>
+      );
     case "comment":
       return (
         <>
@@ -614,7 +641,7 @@ export function AutomationEditor({
   const pickers: Pickers = { candidates, canvasName, nameOf, boards, artifactNodes };
   // Each text an action writes may name what fired it; the trigger decides the set.
   const values = useMemo(
-    (): ReadonlyArray<ValueChoice> => valuesForTrigger(draft.trigger).map((name) => ({ name, words: VALUE_WORDS[name] })),
+    (): ReadonlyArray<ValueChoice> => automationValuesOf(draft.trigger).map((name) => ({ name, words: VALUE_WORDS[name] })),
     [draft.trigger],
   );
   // Problems show once a save was tried on this automation, not while it is being written.

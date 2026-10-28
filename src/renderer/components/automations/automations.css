@@ -181,11 +181,21 @@
 }
 
 .automation-history__row {
-  display: flex;
-  gap: 12px;
   padding: 4px 12px;
   font-size: var(--text-label);
   color: var(--color-ink-2);
+}
+
+.automation-history__line {
+  display: flex;
+  gap: 12px;
+}
+
+/* A code step's own line sits under its firing, in the words' column. */
+.automation-history__step {
+  margin: 1px 0 0 calc(9rem + 12px);
+  font-family: var(--font-mono);
+  color: var(--color-dim);
 }
 
 .automation-history__row[data-outcome="skipped"] {

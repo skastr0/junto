@@ -12,14 +12,18 @@
 import { Result, Schema } from "effect";
 import { isValidCronExpression, describeCronExpression } from "@shared/cron-expression";
 import {
+  AUTOMATION_CODE_TIMEOUT_DEFAULT_MS,
+  AUTOMATION_CODE_TIMEOUT_MAX_MS,
+  AUTOMATION_CODE_TIMEOUT_MIN_MS,
   AUTOMATION_NAME_MAX_CHARS,
   AUTOMATION_STEPS_MAX,
   AUTOMATION_TEXT_MAX_CHARS,
-  AUTOMATION_VALUES,
   DEFAULT_AUTOMATION_LIMITS,
   MAX_PER_HOUR_CEILING,
   POLL_MIN_EVERY_MS,
   AutomationDefinition,
+  automationValuesOf,
+  isCodeValueName,
   valueNamesIn,
   type Action,
   type ActionRuling,
@@ -27,6 +31,7 @@ import {
   type AutomationAuthor,
   type AutomationId,
   type AutomationValue,
+  type CodeLanguage,
   type Condition,
   type Firing,
   type SeatBecomes,
@@ -36,6 +41,7 @@ import {
   type WatchedSignal,
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { TASK_STATES } from "@shared/task-model";
 
 // ── Shapes the contract names ──────────────────────────────────────────────
@@ -92,6 +98,18 @@ export type ActionDraft =
   | { readonly kind: "mail"; readonly to?: TargetRef; readonly text: string }
   /** Mail sent as a prompt: the seat is asked to act, not only told. Seat only. */
   | { readonly kind: "prompt"; readonly to?: TargetRef; readonly text: string }
+  /**
+   * A program on the automation's machine. The code itself is staged content:
+   * the draft holds the ref it is saved at, and the pane's code editor writes
+   * the text (`codePut`) before the definition names it.
+   */
+  | {
+      readonly kind: "code";
+      readonly language: CodeLanguage;
+      /** The timeout as typed, in seconds: the contract stores milliseconds. */
+      readonly timeoutSeconds: string;
+      readonly source?: ContentRef;
+    }
   | { readonly kind: "create-task"; readonly node?: NodeId; readonly title: string; readonly assign?: TargetRef }
   | { readonly kind: "assign-task"; readonly task?: TargetRef; readonly to?: TargetRef }
   | {
@@ -169,6 +187,8 @@ export const blankAction = (kind: ActionKind): ActionDraft => {
       return { kind, text: "" };
     case "prompt":
       return { kind, text: "" };
+    case "code":
+      return { kind, language: "typescript", timeoutSeconds: String(AUTOMATION_CODE_TIMEOUT_DEFAULT_MS / 1000) };
     case "create-task":
       return { kind, title: "" };
     case "assign-task":
@@ -218,6 +238,21 @@ const triggerDraftOf = (trigger: Trigger): TriggerDraft => {
   }
 };
 
+/** A stored action as the draft holds it: a code step's code is staged content, named by its ref. */
+const actionDraftOf = (action: Action): ActionDraft => {
+  switch (action.kind) {
+    case "code":
+      return {
+        kind: "code",
+        language: action.language,
+        timeoutSeconds: String((action.timeoutMs ?? AUTOMATION_CODE_TIMEOUT_DEFAULT_MS) / 1000),
+        source: action.source,
+      };
+    default:
+      return action;
+  }
+};
+
 const conditionDraftOf = (condition: Condition): ConditionDraft => {
   const { holds: _holds, ...watch } = condition;
   return watch;
@@ -232,7 +267,7 @@ export const draftOf = (automation: Automation): AutomationDraft => ({
   enabled: automation.enabled,
   trigger: triggerDraftOf(automation.trigger),
   when: (automation.when ?? []).map(conditionDraftOf),
-  then: automation.then,
+  then: automation.then.map(actionDraftOf),
   whenKeys: keysFor(automation.when?.length ?? 0),
   thenKeys: keysFor(automation.then.length),
   minIntervalMinutes: minutesText(automation.limits.minIntervalMs),
@@ -341,6 +376,8 @@ const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
       return { kind, title: text };
     case "assign-task":
       return { kind };
+    case "code":
+      return blankAction("code");
     default:
       return kind satisfies never;
   }
@@ -432,30 +469,37 @@ const triggerProblem = (trigger: TriggerDraft): string | undefined => {
  * refuses the same name at save (`valueRefusal`), and the editor says it
  * before the round trip, in the same words.
  */
-const valueProblem = (text: string, carried: ReadonlyArray<string>): string | undefined => {
-  const missing = valueNamesIn(text).find((name) => !carried.includes(name));
+const valueProblem = (text: string, carried: ReadonlyArray<string>, afterCode: boolean): string | undefined => {
+  const missing = valueNamesIn(text).find((name) => !carried.includes(name) && !(afterCode && isCodeValueName(name)));
   if (missing === undefined) return undefined;
   return `This trigger carries no {{${missing}}}. It carries ${carried.map((name) => `{{${name}}}`).join(", ")}.`;
 };
 
-const actionProblem = (action: ActionDraft, carried: ReadonlyArray<string>): string | undefined => {
+const actionProblem = (action: ActionDraft, carried: ReadonlyArray<string>, afterCode: boolean): string | undefined => {
   switch (action.kind) {
     case "mail":
       if (action.to === undefined) return "Pick who the mail goes to.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text, carried);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text, carried, afterCode);
     case "prompt":
       if (action.to === undefined) return "Pick the seat to prompt.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text, carried);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text, carried, afterCode);
     case "create-task":
       if (action.node === undefined) return "Pick the task board.";
-      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title, carried);
+      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title, carried, afterCode);
     case "assign-task":
       if (action.task === undefined) return "Pick the task to assign.";
       if (action.to === undefined) return "Pick the seat to assign it to.";
       return undefined;
     case "comment":
       if (action.on === undefined) return "Pick what the comment is on.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text, carried);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text, carried, afterCode);
+    case "code": {
+      const seconds = wholeNumber(action.timeoutSeconds);
+      const ms = seconds === undefined ? undefined : seconds * 1000;
+      if (ms === undefined || ms < AUTOMATION_CODE_TIMEOUT_MIN_MS || ms > AUTOMATION_CODE_TIMEOUT_MAX_MS)
+        return `A code step waits ${AUTOMATION_CODE_TIMEOUT_MIN_MS / 1000} seconds to ${AUTOMATION_CODE_TIMEOUT_MAX_MS / 1000 / 60} minutes.`;
+      return action.source === undefined ? "Write the code for this step." : undefined;
+    }
     default:
       return action satisfies never;
   }
@@ -473,10 +517,13 @@ export const draftProblems = (draft: AutomationDraft): ReadonlyArray<DraftProble
     if (message) problems.push({ at: "condition", index, message });
   });
   if (draft.then.length === 0) problems.push({ at: "actions", message: "Add at least one action." });
-  const carried = valuesForTrigger(draft.trigger);
+  const carried = automationValuesOf(draft.trigger);
+  /** Whether a code step ran before this action, so it may name `{{code.<field>}}`. */
+  let afterCode = false;
   draft.then.forEach((action, index) => {
-    const message = actionProblem(action, carried);
+    const message = actionProblem(action, carried, afterCode);
     if (message) problems.push({ at: "action", index, message });
+    if (action.kind === "code") afterCode = true;
   });
   const minInterval = minutesMs(draft.minIntervalMinutes);
   const maxPerHour = wholeNumber(draft.maxPerHour);
@@ -514,6 +561,15 @@ const actionOf = (action: ActionDraft): unknown => {
       return { ...action, title: action.title.trim() };
     case "assign-task":
       return action;
+    case "code": {
+      const seconds = wholeNumber(action.timeoutSeconds);
+      return {
+        kind: "code",
+        language: action.language,
+        source: action.source,
+        timeoutMs: seconds === undefined ? AUTOMATION_CODE_TIMEOUT_DEFAULT_MS : seconds * 1000,
+      };
+    }
     default:
       return action satisfies never;
   }
@@ -632,15 +688,6 @@ export const cadenceWords = (trigger: TriggerDraft): string | undefined => {
   }
 };
 
-/**
- * The values an action's text may name, from the trigger it fires under: a
- * change trigger carries what it watched, and every trigger `fired.at`.
- */
-export const valuesForTrigger = (trigger: TriggerDraft): ReadonlyArray<AutomationValue> =>
-  trigger.kind === "change"
-    ? [...AUTOMATION_VALUES[trigger.on.kind], ...AUTOMATION_VALUES.every]
-    : AUTOMATION_VALUES.every;
-
 /** What each value is, in a few words, beside its name in the Insert value list. */
 export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
   "task.title": "the task's title",
@@ -671,6 +718,8 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
       return `assign ${action.task ? nameOf(action.task) : "a task"} to ${action.to ? nameOf(action.to) : "a seat"}`;
     case "comment":
       return `comment on ${action.on ? nameOf(action.on) : "a task, artifact or page"}`;
+    case "code":
+      return `run ${action.language === "typescript" ? "TypeScript" : "shell"} code`;
     default:
       return action satisfies never;
   }
@@ -682,6 +731,7 @@ export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
   "create-task": "Create a task",
   "assign-task": "Assign a task",
   comment: "Comment",
+  code: "Run code",
 };
 
 export const TRIGGER_LABEL: Readonly<Record<EditableTriggerKind, string>> = {
@@ -755,6 +805,32 @@ const causeWords = (cause: Firing["cause"]): string => {
 };
 
 /** One line of the firing history: `Scheduled, fired, 2 of 2 actions applied`. */
+const durationWords = (ms: number): string => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`);
+
+/**
+ * A code step's ruling in words: what it answered, or why it stopped or
+ * failed. Undefined for a ruling that is not a code step's, so a caller can
+ * pick the code steps out of a firing.
+ */
+export const codeRulingWords = (ruling: ActionRuling): string | undefined => {
+  switch (ruling.ruling) {
+    case "continued": {
+      const fields = Object.keys(ruling.output);
+      return `answered ${fields.length === 0 ? "no values" : fields.map((name) => `{{code.${name}}}`).join(", ")} in ${durationWords(ruling.durationMs)}`;
+    }
+    case "stopped":
+      return ruling.reason === undefined ? `stopped the automation in ${durationWords(ruling.durationMs)}` : `stopped: ${ruling.reason}`;
+    case "failed":
+      return `failed: ${ruling.message}${ruling.exitCode === undefined ? "" : ` (exit ${ruling.exitCode})`}`;
+    case "applied":
+    case "queued":
+    case "refused":
+      return undefined;
+    default:
+      return ruling satisfies never;
+  }
+};
+
 export const firingWords = (firing: Firing): string => {
   const cause = causeWords(firing.cause);
   switch (firing.outcome.kind) {
@@ -763,10 +839,15 @@ export const firingWords = (firing: Firing): string => {
       const count = (ruling: ActionRuling["ruling"]): number => actions.filter((action) => action.ruling === ruling).length;
       const queued = count("queued");
       const refused = count("refused");
+      const stopped = count("stopped");
+      const failed = count("failed");
+      // A code step that continued did its part: it acted, as an applied action did.
       return [
-        `${cause}, fired, ${count("applied")} of ${actions.length} ${actions.length === 1 ? "action" : "actions"} applied`,
+        `${cause}, fired, ${count("applied") + count("continued")} of ${actions.length} ${actions.length === 1 ? "action" : "actions"} applied`,
         ...(queued > 0 ? [`${queued} queued`] : []),
         ...(refused > 0 ? [`${refused} refused`] : []),
+        ...(stopped > 0 ? [`${stopped} stopped`] : []),
+        ...(failed > 0 ? [`${failed} failed`] : []),
       ].join(", ");
     }
     case "skipped":

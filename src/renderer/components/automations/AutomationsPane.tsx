@@ -33,6 +33,7 @@ import {
   draftOf,
   editDraft,
   finishDraft,
+  codeRulingWords,
   firingWords,
   historyOrder,
   newDraft,
@@ -128,13 +129,25 @@ function FiringHistory({
               className="automation-history__row"
               data-outcome={firing.outcome.kind}
             >
-              <time
-                dateTime={new Date(firing.at).toISOString()}
-                className="automation-history__time"
-              >
-                {timeWords(firing.at)}
-              </time>
-              <span>{firingWords(firing)}</span>
+              <div className="automation-history__line">
+                <time
+                  dateTime={new Date(firing.at).toISOString()}
+                  className="automation-history__time"
+                >
+                  {timeWords(firing.at)}
+                </time>
+                <span>{firingWords(firing)}</span>
+              </div>
+              {firing.outcome.kind === "fired"
+                ? firing.outcome.actions.map((ruling) => {
+                    const words = codeRulingWords(ruling);
+                    return words === undefined ? null : (
+                      <p key={ruling.index} className="automation-history__step">
+                        Step {ruling.index + 1} {words}
+                      </p>
+                    );
+                  })
+                : null}
             </li>
           ))}
         </ol>
