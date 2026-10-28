@@ -795,7 +795,7 @@ function ActionFields({
       return (
         <>
           <ArtifactTargetFields
-            label="Label"
+            label="Which artifact"
             pickerLabel="Artifact to label"
             to={action.to}
             pickers={pickers}

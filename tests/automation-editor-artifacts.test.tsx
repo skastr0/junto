@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ARTIFACT_LABEL_RULE } from "../src/shared/artifact-labels";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
@@ -54,8 +55,10 @@ describe("artifact automations, the draft", () => {
 
   it("a label that is not one is refused at the trigger, in the header's rule", () => {
     expect(triggerProblem(draftWith(onArtifact("edited", "no//levels"), [{ kind: "mail", to: seat, text: "x" }]))).toBe(
-      "A label is lowercase letters, numbers, spaces, - _ and /, 40 at most.",
+      ARTIFACT_LABEL_RULE,
     );
+    // A trailing / breaks the rule the sentence states.
+    expect(triggerProblem(draftWith(onArtifact("labelled", "publish/"), [{ kind: "mail", to: seat, text: "x" }]))).toBe(ARTIFACT_LABEL_RULE);
     // Case folds as the header folds it: Publish is publish.
     expect(triggerProblem(draftWith(onArtifact("edited", "Publish"), [{ kind: "mail", to: seat, text: "x" }]))).toBeUndefined();
   });
@@ -88,7 +91,7 @@ describe("artifact automations, the draft", () => {
       actionProblem(draftWith(trigger, [{ kind: "create-artifact", node: shelf, title: "Digest", body: "{{task.title}}" }])),
     ).toContain("This trigger carries no {{task.title}}.");
     expect(actionProblem(draftWith(trigger, [{ kind: "create-artifact", node: shelf, title: "Digest", labels: ["a//b"] }]))).toBe(
-      "A label is lowercase letters, numbers, spaces, - _ and /, 40 at most.",
+      ARTIFACT_LABEL_RULE,
     );
   });
 
@@ -167,7 +170,7 @@ describe("artifact automations, the form", () => {
     expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Text to append"]')?.value).toBe(APPEND_HEADING);
 
     await render(draftWith({ kind: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" }, [{ kind: "label-artifact", add: ["done"] }]));
-    expect(host.querySelector('[aria-label="Label"]')?.textContent).toContain("one artifact");
+    expect(host.querySelector('[aria-label="Which artifact"]')?.textContent).toContain("one artifact");
     expect(host.querySelector('textarea[aria-label="Artifact to label"]')).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Labels to add"]')?.value).toBe("done");
   });

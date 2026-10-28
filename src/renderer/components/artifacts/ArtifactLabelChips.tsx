@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Tag, X } from "lucide-react";
-import { ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabelsOf } from "@shared/artifact-labels";
+import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabelsOf } from "@shared/artifact-labels";
 import { claimFocus } from "../../lib/focus-ownership";
 import { Combobox, IconButton } from "../ui";
 import type { LabelChoice } from "./artifacts-pane-model";
@@ -10,7 +10,7 @@ import { LabelColourDot, LabelColourMenu, useColourMenu } from "./LabelColourMen
 /** Chips the header shows before the rest wait behind a count that opens the picker. */
 const HEADER_CHIPS = 3;
 
-const RULE = "Labels take lowercase letters, digits, spaces, - _ and /, up to 40 characters, with no / or space at either end.";
+const RULE = ARTIFACT_LABEL_RULE;
 const FULL = `An artifact holds at most ${String(ARTIFACT_LABELS_MAX)} labels.`;
 const REVERTED = "Labels not saved: the change was refused, and they are back as they were.";
 

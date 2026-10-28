@@ -19,6 +19,9 @@ import { Schema } from "effect";
 export const ARTIFACT_LABEL_MAX_LENGTH = 40;
 export const ARTIFACT_LABELS_MAX = 20;
 
+/** The rule in one sentence, for every place that refuses a label: the header, the automation editor. */
+export const ARTIFACT_LABEL_RULE = "Labels take lowercase letters, digits, spaces, - _ and /, up to 40 characters, with no / or space at either end and no //.";
+
 /**
  * The canonical form: already folded, no leading or trailing `/` or space, no
  * `//`. A label written any other way is not this schema's value; the

@@ -40,7 +40,7 @@ import {
   type Watch,
   type WatchedSignal,
 } from "@shared/automation";
-import { artifactLabelsOf } from "@shared/artifact-labels";
+import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelsOf } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { TASK_STATES } from "@shared/task-model";
@@ -537,11 +537,13 @@ const valueProblem = (text: string, carried: ReadonlyArray<string>, afterCode: b
   return `This trigger carries no {{${missing}}}. It carries ${carried.map((name) => `{{${name}}}`).join(", ")}.`;
 };
 
-const LABEL_RULE = "A label is lowercase letters, numbers, spaces, - _ and /, 40 at most.";
-
 /** Labels as typed: undefined when every one folds to a label, else why not. */
 const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
-  artifactLabelsOf(labels) === undefined ? (labels.length > 20 ? "An artifact carries at most 20 labels." : LABEL_RULE) : undefined;
+  artifactLabelsOf(labels) === undefined
+    ? labels.length > ARTIFACT_LABELS_MAX
+      ? `An artifact holds at most ${ARTIFACT_LABELS_MAX} labels.`
+      : ARTIFACT_LABEL_RULE
+    : undefined;
 
 /** Labels as typed, folded, unique and sorted, or none. */
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
