@@ -4,6 +4,8 @@ import type { AgentSignalKind } from "../../shared/agent-signals";
 import type { WorkOpName } from "../../shared/work-control";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeJsonCommand } from "../core/output";
+import type { AttachFlags } from "../core/signal-attach";
+import type { FormFlags } from "../core/signal-form";
 import { loadSignalRaiseArgs } from "../core/signal-input";
 import { WorkSocket } from "../core/socket";
 
@@ -76,41 +78,81 @@ const attachOptions = {
   ),
 };
 
+/**
+ * The reply form a blocked or escalate signal asks for (0.11/07, N4): what the
+ * operator produces in the signal. One per signal; a text reply needs none.
+ */
+const formOptions = {
+  askSecret: Flag.string("ask-secret").pipe(
+    Flag.optional,
+    Flag.withDescription(
+      "Ask the operator for a secret by the environment variable you read: --ask-secret CLOUDFLARE_API_TOKEN. Your region must declare it as a secret; the value goes where your region keeps it, never into the signal, mail or a log. Read it from your environment once the answer says it is set",
+    ),
+  ),
+  askArtifact: Flag.string("ask-artifact").pipe(
+    Flag.optional,
+    Flag.withDescription(
+      "Ask the operator to write a document in the signal, saved in this Artifacts node (its name, id or junto:// ref, in your reach). With --min-words and --label",
+    ),
+  ),
+  minWords: Flag.integer("min-words").pipe(
+    Flag.optional,
+    Flag.withDescription("With --ask-artifact: the answer counts once the document has at least this many words"),
+  ),
+  label: Flag.string("label").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("With --ask-artifact: a label for the document. Repeat for each; labels fold to lowercase"),
+  ),
+  askProof: Flag.boolean("ask-proof").pipe(
+    Flag.withDescription("Ask the operator for proof of work: text with links or files"),
+  ),
+};
+
 const call = (op: WorkOpName, args: unknown, timeout?: number) =>
   Effect.gen(function* () {
     const socket = yield* WorkSocket;
     return yield* socket.call(op, args, timeout);
   });
 
+const raise = (kind: AgentSignalKind, input: string, detail: Option.Option<string>, timeout: Option.Option<number>, suggest: ReadonlyArray<string>, attach: AttachFlags, form: FormFlags = {}) =>
+  executeJsonCommand(
+    kind,
+    Effect.gen(function* () {
+      const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach, toUndefined(timeout), suggest, form);
+      return yield* call("signal.raise", args, toUndefined(timeout));
+    }),
+  );
+
 const raiseCommand = (kind: AgentSignalKind, description: string) =>
   Command.make(
     kind,
     { input: sentenceArg, detail: detailOption, ...attachOptions, timeout: timeoutOption },
-    ({ input, detail, timeout, suggest, ...attach }) =>
-      executeJsonCommand(
-        kind,
-        Effect.gen(function* () {
-          const args = yield* loadSignalRaiseArgs(
-            kind,
-            input,
-            toUndefined(detail),
-            attach,
-            toUndefined(timeout),
-            suggest,
-          );
-          return yield* call("signal.raise", args, toUndefined(timeout));
-        }),
-      ),
+    ({ input, detail, timeout, suggest, ...attach }) => raise(kind, input, detail, timeout, suggest, attach),
   ).pipe(Command.withDescription(description));
 
-export const escalateCommand = raiseCommand(
+/** Blocked and escalate also ask for a reply form. */
+const raiseWithFormCommand = (kind: AgentSignalKind, description: string) =>
+  Command.make(
+    kind,
+    { input: sentenceArg, detail: detailOption, ...attachOptions, ...formOptions, timeout: timeoutOption },
+    ({ input, detail, timeout, suggest, askSecret, askArtifact, minWords, label, askProof, ...attach }) =>
+      raise(kind, input, detail, timeout, suggest, attach, {
+        askSecret: toUndefined(askSecret),
+        askArtifact: toUndefined(askArtifact),
+        minWords: toUndefined(minWords),
+        label,
+        askProof,
+      }),
+  ).pipe(Command.withDescription(description));
+
+export const escalateCommand = raiseWithFormCommand(
   "escalate",
-  "Needs the operator's attention; you keep working. Any time.",
+  "Needs the operator's attention; you keep working. Any time. Ask for what they must produce with --ask-secret, --ask-artifact or --ask-proof.",
 );
 
-export const blockedCommand = raiseCommand(
+export const blockedCommand = raiseWithFormCommand(
   "blocked",
-  "Work is entirely blocked on the operator; stop and wait for the answer.",
+  "Work is entirely blocked on the operator; stop and wait for the answer. Ask for what they must produce with --ask-secret, --ask-artifact or --ask-proof.",
 );
 
 export const feedbackCommand = raiseCommand(

@@ -16,6 +16,7 @@ import {
   stdinUses,
 } from "./signal-attach";
 import { InputError } from "./errors";
+import { type FormFlags, foldFormInput, planFormFlags, SignalFormRequest } from "./signal-form";
 import { decodeJsonText } from "./json";
 
 /**
@@ -134,6 +135,8 @@ export const SignalRaiseCliInput = Schema.Struct({
    * the card.
    */
   suggest: Schema.optionalKey(AgentSignalSuggestions),
+  /** The reply form the operator answers in (`signal-form.ts`); blocked and escalate only. */
+  form: Schema.optionalKey(SignalFormRequest),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
@@ -150,6 +153,8 @@ export const loadSignalRaiseArgs = (
   timeoutMs?: number,
   /** `--suggest` values: replies the operator can send in one click. */
   suggestFlags: ReadonlyArray<string> = [],
+  /** `--ask-secret`, `--ask-artifact` with `--min-words` and `--label`, `--ask-proof`. */
+  formFlags: FormFlags = {},
 ) =>
   Effect.gen(function* () {
     const flags: AttachFlags = Array.isArray(attachFlags) ? { attach: attachFlags } : (attachFlags as AttachFlags);
@@ -160,6 +165,8 @@ export const loadSignalRaiseArgs = (
     // Flags are checked before anything is read, so a bad one costs nothing.
     const fromFlags = planAttachFlags(flags, liveAttachProbe);
     if (!fromFlags.ok) return yield* Effect.fail(fromFlags.error);
+    const formFromFlags = planFormFlags(kind, formFlags);
+    if (!formFromFlags.ok) return yield* Effect.fail(formFromFlags.error);
     const body = yield* readSource(plan.input);
     const payload = plan.input.json
       ? yield* decodeJsonText(SignalRaiseCliInput, body, plan.input.kind)
@@ -182,6 +189,18 @@ export const loadSignalRaiseArgs = (
         }),
       );
     }
+    if (formFromFlags.form !== undefined && payload.form !== undefined) {
+      return yield* Effect.fail(
+        new InputError({
+          message: "a form given twice: in the JSON input and in the --ask flags",
+          path: "form",
+          hint: "use the flags or the JSON form, not both",
+        }),
+      );
+    }
+    const formFromInput = payload.form === undefined ? undefined : foldFormInput(kind, payload.form);
+    if (formFromInput !== undefined && !formFromInput.ok) return yield* Effect.fail(formFromInput.error);
+    const form = formFromFlags.form ?? formFromInput?.form;
     const suggested = suggestFlags.length > 0 ? [...suggestFlags] : [...(payload.suggest ?? [])];
     if (suggested.length > AGENT_SIGNAL_MAX_SUGGESTIONS) {
       return yield* Effect.fail(
@@ -222,12 +241,13 @@ export const loadSignalRaiseArgs = (
             ...(timeoutMs === undefined ? {} : { timeoutMs }),
           })
         : [];
-    const args: SignalRaiseArgs = {
+    const args: SignalRaiseArgs & { readonly form?: SignalFormRequest } = {
       kind,
       text: payload.text,
       ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),
       ...(attach.length > 0 ? { attach } : {}),
       ...(suggested.length > 0 ? { suggest: suggested } : {}),
+      ...(form === undefined ? {} : { form }),
     };
     return args;
   });
