@@ -60,7 +60,7 @@ a filesystem sandbox against the account that owns the files.
 | Owner command | An owner-only control socket, mode 0600 in a 0700 directory, admits the OS account. The CLI refuses owner and machine commands whenever `JUNTO_WORK_TOKEN` is present, including an empty or malformed value. Closed commands invoke the same services as the window. |
 | App window | The committed trusted renderer identity and origin, validated before privileged IPC dispatch. Arbitrary pages do not receive its bridge. |
 | Overseer seat | A live human-granted overseer flag and a closed operation set, attributed to the real seat. It does not become the operator. |
-| Another machine | The bound link peer plus authorization for the particular canvas, channel, operation and resource. A successful hello grants no general execution authority. |
+| Another machine | The bound link peer plus authorization for the particular canvas, channel, operation and resource. A successful hello grants no general execution authority. Besides owner control on `seats` from the editing machine, an automation's seat control is the only way another machine starts or stops a seat here, judged as Seat control says. |
 | Paired phone | Its restricted companion transport and live device registry, limited to the companion operations. It is not a machine link or a general operator-command relay. |
 
 Settings the operator writes apply as written on the machine they name,
@@ -305,8 +305,31 @@ One machine writes each immutable row. `(writer, seq)` identifies it; the
 receiver checks its actual content, not only a peer-supplied hash. An identical
 row is harmless; different content under the same identity closes the link.
 Only the closed exchange operations for mail, receipts, signals, seat
-sessions, resource commands and rulings are admitted. A generic repository
-decoder must not expose disabled work kinds through the link.
+sessions, resource commands, seat controls and rulings are admitted. A
+generic repository decoder must not expose disabled work kinds through the
+link.
+
+**Seat control.** An automation starts or stops a seat on another machine
+with a closed pair of rows (`src/shared/seat-control-row.ts`). `seat.control`
+names the seat, start or stop, and the firing and action it comes from, and
+nothing else: no executable, argument, folder, environment or text. The
+seat's machine derives the launch from authored intent, as for `seats`. It
+is written under the automation's own identity on the automation's machine
+and admitted only from there, by where the automation was at the count the
+row states, as an automation's mail is. The seat's
+machine then judges it again with one function, the same one its own
+automations' local controls run: the automation must be folded there, still
+on its node and not archived, and the seat must be an agent in the
+automation author's reach. A control that arrives while the canvas is paused
+there is refused, never held, and a pause sweeps pending ones to refused. A
+pending one is judged again on every fold, copy and boot, and is refused
+stale after a day on either the row's clock or this machine's. A seat
+settles at most six controls in a rolling minute, counted on its own machine,
+because it cannot trust another machine's loop rule. Each firing and action
+settles once. `seat.control.settled` is written by the seat's machine with
+one of six closed reasons (not_permitted, not_found, paused, stale, rate,
+failed), never harness or spawn text. A compromised automation machine can
+start and stop every seat its automations reach, within that bound.
 
 Before registering a writer, materializing a row or advancing a cursor, the
 receiver verifies the peer's authority for that exact canvas, the row's writer,
