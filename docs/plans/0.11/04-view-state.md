@@ -53,6 +53,8 @@ the data.
 | Sidebar collapsed, per node | `TwoPane.tsx:15` "session memory" | V3 |
 | A resized modal's size, per surface | `FocusSurface.tsx:284` | V3 |
 | Comments rail shown or hidden | `artifact-comments-rail.ts:7` | V3 |
+| Seat sidebar: which sections are open | `sidebar-sections.ts` | V3 |
+| The actor rail | `actor-rail.ts` | V3 |
 
 Search text typed into a filter box is not kept. Any other operator choice a
 seat finds held only in memory joins this table: mail product-lead with the
