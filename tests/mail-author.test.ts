@@ -11,16 +11,23 @@ import {
   type MailAuthor,
   type MailAuthorKind,
 } from "../src/shared/mail-author";
+import { ItemId } from "../src/shared/work-ids";
 import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference";
 
 const seat = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"2".repeat(64)}`);
+const NIGHTLY_ID = ItemId.make("01M629AAAAAAAAAAAAAAAAAAAA");
 const nightly = Schema.decodeUnknownSync(AutomationNodeId)("nightly");
 
 describe("mail authors", () => {
   it("reads a seat, the operator and an automation from identity and node together", () => {
     expect(mailAuthorOf({ seatId: seat, nodeId: "peer" })).toEqual({ kind: "seat", seatId: seat, nodeId: "peer" });
     expect(mailAuthorOf(operatorActorRef("factory"))).toEqual({ kind: "operator" });
-    expect(mailAuthorOf(automationActorRef("factory", nightly))).toEqual({ kind: "automation", nodeId: "nightly" });
+    expect(mailAuthorOf(automationActorRef("factory", nightly, NIGHTLY_ID))).toEqual({ kind: "automation", nodeId: "nightly", automationId: NIGHTLY_ID });
+    // Mail from before 0.11 names no automation.
+    expect(mailAuthorOf({ seatId: AUTOMATION_SEAT_ID, nodeId: "nightly" })).toEqual({ kind: "automation", nodeId: "nightly" });
+    // Only the automation identity names which automation wrote.
+    expect(mailAuthorOf({ seatId: seat, nodeId: "peer", automationId: NIGHTLY_ID })).toEqual({ kind: "malformed" });
+    expect(mailAuthorOf({ ...operatorActorRef("factory"), automationId: NIGHTLY_ID })).toEqual({ kind: "malformed" });
   });
 
   it("names no author for the operator's or an automation's identity off its own node", () => {
@@ -48,6 +55,6 @@ describe("mail authors", () => {
     // An automation's node is branded: a plain string is not one.
     expectTypeOf<Extract<MailAuthor, { kind: "automation" }>["nodeId"]>().not.toEqualTypeOf<string>();
     // @ts-expect-error a plain string is not an automation's node
-    automationActorRef("factory", "nightly");
+    automationActorRef("factory", "nightly", NIGHTLY_ID);
   });
 });

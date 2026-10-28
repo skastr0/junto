@@ -11,8 +11,8 @@
  * briefing, the references, play or pause. The machine that takes a copy
  * keeps them where its own are kept, so a seat reads them the one way.
  */
-import { Effect } from "effect";
-import { exportCanvasCopy, type CanvasCopy, type CopiedReference } from "@shared/canvas-copy";
+import { Effect, Option } from "effect";
+import { exportCanvasCopy, type CanvasCopy, type CopiedAutomation, type CopiedReference } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
@@ -20,6 +20,7 @@ import type { AgentSignal } from "@shared/agent-signals";
 import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, signalAttachmentCrosses, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
+import { AutomationRepository } from "../../automation/repository";
 import { MachineRepository } from "../../machines/repository";
 import { ModelRecords } from "../../model/records";
 import { ModelService } from "../../model/service";
@@ -106,6 +107,7 @@ export const makeLiveRowExchange = (
     const pause = yield* PausePlane;
     const signals = yield* AgentSignalRepository;
     const self = yield* machines.installationId;
+    const automationStore = yield* Effect.serviceOption(AutomationRepository);
 
     const installations = machineInstallations.pipe(Effect.provideService(MachineRepository, machines));
 
@@ -113,7 +115,22 @@ export const makeLiveRowExchange = (
       canvasPlacement(canvasName).pipe(
         Effect.provideService(MachineRepository, machines),
         Effect.provideService(ModelRecords, records),
+        // Where automations run, when this process folds them.
+        (placed) => Option.isSome(automationStore) ? Effect.provideService(placed, AutomationRepository, automationStore.value) : placed,
       );
+
+    /** Every live automation of a canvas and the machine it runs on, by real short name. */
+    const copiedAutomations = (canvasName: string) =>
+      Effect.gen(function* () {
+        const editorName = yield* machines.machineName;
+        const state = Option.isSome(automationStore) ? yield* automationStore.value.loadState(canvasName) : new Map();
+        const copied: Array<CopiedAutomation> = [];
+        for (const { automation, archived } of state.values()) {
+          if (archived) continue;
+          copied.push({ automationId: automation.automationId, nodeId: automation.nodeId, machine: automation.machine ?? editorName });
+        }
+        return copied;
+      });
 
     /**
      * This machine's canvas, cut for that machine. Absent when this machine
@@ -152,13 +169,14 @@ export const makeLiveRowExchange = (
             ],
             playing: pause.stateFor(canvasName).playing,
             seatIdOf: (seat: Seat) => deriveActorSeatId(byName.get(seat.host)!, seat.bindingId),
+            automations: yield* copiedAutomations(canvasName),
           },
           { installationId: peer, machineName: target.machineName },
         );
         return cut.ok ? cut.copy : undefined;
       });
 
-    /** Keep the count sent to that machine, and where every seat was at it. */
+    /** Keep the count sent to that machine, and where every seat and automation was at it. */
     const copySent = (copy: CanvasCopy): Effect.Effect<void, unknown> =>
       Effect.gen(function* () {
         const byName = yield* installations;
@@ -173,7 +191,17 @@ export const makeLiveRowExchange = (
             return machine === undefined ? [] : [{ nodeId: peer.id, seatId: peer.seatId, machine }];
           }),
         ];
-        yield* repository.recordCanvasCopySent({ canvasName: copy.canvasName, target: copy.target, seq: copy.seq, seats });
+        const automations = copy.automations?.flatMap((automation) => {
+          const machine = byName.get(automation.machine);
+          return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
+        });
+        yield* repository.recordCanvasCopySent({
+          canvasName: copy.canvasName,
+          target: copy.target,
+          seq: copy.seq,
+          seats,
+          ...(automations === undefined ? {} : { automations }),
+        });
       });
 
     /** One place's references as the copy states them: written where they differ. */

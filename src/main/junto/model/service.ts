@@ -628,6 +628,27 @@ export class ModelService extends Context.Service<ModelService>()(
             Effect.mapError((cause) => modelError("command", cause)),
           );
       });
+      /**
+       * Move the canvas count with no node or wire changed: a placement that
+       * lives beside the canvas moved (an automation placed or moved, plan
+       * 0.11/05 S2), and every copy cut from now on carries it. Joins the
+       * caller's transaction; the change is published when it commits.
+       */
+      const advanceCount = Effect.fn("ModelService.advanceCount")(function* (name: string) {
+        return yield* sql.withTransaction(Effect.gen(function* () {
+          const current = yield* canvas(name);
+          const seq = yield* records.advanceSeq(name);
+          const event: Changed = { canvas: current.name, seq, nodes: [], wires: [], removedNodes: [], removedWires: [] };
+          const applied = follow(current, event);
+          if (applied._tag !== "Applied") return yield* refused("The canvas sequence changed unexpectedly.");
+          yield* stage(name, applied.canvas);
+          yield* publishChange(event, current);
+          return seq;
+        })).pipe(
+          Effect.provideService(StateTransactionOperation, "model.advanceCount"),
+          Effect.mapError((cause) => modelError("advanceCount", cause)),
+        );
+      });
       const ensureSeed = sql.withTransaction(Effect.gen(function* () {
         if ((yield* records.listCanvases()).length === 0)
           yield* command({ _tag: "CreateCanvas", canvas: Schema.decodeUnknownSync(CanvasName)(SEED_CANVAS_NAME) }, "operator");
@@ -653,6 +674,7 @@ export class ModelService extends Context.Service<ModelService>()(
         open,
         command,
         installCopy,
+        advanceCount,
         listCanvases: records.listCanvases,
         listCanvasSummaries: records.listCanvasSummaries,
         ensureSeed,

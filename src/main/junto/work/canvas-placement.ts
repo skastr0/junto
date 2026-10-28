@@ -1,15 +1,17 @@
 /**
  * The canvas as this machine holds it (`CanvasPlacement`): which machine edits
- * it, where each seat lives and what each node is called. The exchange judges
- * rows by it; the ruling recorder writes the notices this machine owes by it.
+ * it, where each seat and automation lives and what each node is called. The
+ * exchange judges rows by it; the ruling recorder writes the notices this
+ * machine owes by it.
  */
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type { InstallationId } from "@shared/installation-id";
 import { titleOf } from "@shared/model/title";
 import type { Node } from "@shared/model";
 import type { CanvasPlacement } from "@shared/work-exchange";
 import { deriveActorSeatId } from "../actor-seat-id";
+import { AutomationRepository } from "../automation/repository";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 
@@ -39,6 +41,28 @@ const homesOf = (nodes: ReadonlyArray<Node>, byName: ReadonlyMap<string, Install
   return homes;
 };
 
+const automationKey = (nodeId: string, automationId: string): string => JSON.stringify([nodeId, automationId]);
+
+/**
+ * Where each live automation of a canvas runs, by node and id, from the
+ * rulings this machine folded: the machine it names, or the editing machine
+ * for one that names none. One whose machine this machine does not know is
+ * left out, and its rows are no one's.
+ */
+export const automationHomesOf = (canvasName: string, editor: InstallationId, byName: ReadonlyMap<string, InstallationId>) =>
+  Effect.gen(function* () {
+    const homes = new Map<string, InstallationId>();
+    const repository = yield* Effect.serviceOption(AutomationRepository);
+    if (Option.isNone(repository)) return homes;
+    const state = yield* repository.value.loadState(canvasName);
+    for (const { automation, archived } of state.values()) {
+      if (archived) continue;
+      const machine = automation.machine === undefined ? editor : byName.get(automation.machine);
+      if (machine !== undefined) homes.set(automationKey(automation.nodeId, automation.automationId), machine);
+    }
+    return homes;
+  });
+
 export const canvasPlacement = (canvasName: string) =>
   Effect.gen(function* () {
     const records = yield* ModelRecords;
@@ -47,15 +71,22 @@ export const canvasPlacement = (canvasName: string) =>
     const self = yield* (yield* MachineRepository).installationId;
     const editor = ((yield* records.canvasEditor(canvasName)) ?? self) as InstallationId;
     const nodes = yield* records.listNodes(canvasName);
-    const homes = homesOf(nodes, yield* machineInstallations);
+    const byName = yield* machineInstallations;
+    const homes = homesOf(nodes, byName);
+    const automations = yield* automationHomesOf(canvasName, editor, byName);
     const names = new Map(nodes.map((node) => [node.id as string, titleOf(node)]));
-    const holders = new Set<InstallationId>([editor, ...[...homes.values()].map((home) => home.machine)]);
+    const holders = new Set<InstallationId>([
+      editor,
+      ...[...homes.values()].map((home) => home.machine),
+      ...automations.values(),
+    ]);
     return {
       canvasId: header.canvas_id,
       editor,
       holds: (machine) => holders.has(machine),
       seatOf: (nodeId) => homes.get(nodeId),
       nameOf: (nodeId) => names.get(nodeId),
+      automationOf: (nodeId, automationId) => automations.get(automationKey(nodeId, automationId)),
     } satisfies CanvasPlacement;
   });
 

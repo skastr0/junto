@@ -86,16 +86,25 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    editing machine. Definitions are still written and ruled on the editing
    machine. A move takes effect on each machine when that machine holds the
    ruling: the old machine stops, and the new one starts counting from the
-   move, with no missed slot fired. Until mail and commands are valid from an
-   automation's own machine (Rule 4 still says the editing machine), its
-   actions anywhere else are ruled refused `not_available`.
+   move, with no missed slot fired. Placing, moving or archiving an
+   automation moves the canvas count, as a seat's move does, and the copy at
+   that count carries each automation's id, Automations node and machine; the
+   Automations node itself crosses as its place and label. A machine with an
+   automation and no seat gets the canvas too. It acts as a seat on that
+   machine (Rule 4); a comment action off the machine that rules the canvas
+   is refused `not_available` until threads cross.
 4. **Synced rows are immutable and have one writer.** Sync between two machines
    is: send the other side what it lacks and is entitled to. No claims, no
    transfer of authority, no conflict handling. Applying a row twice changes
-   nothing. A machine writes only for its own seats: mail from a seat, and a
-   receipt or signal for a seat, are valid only from the machine that seat is
-   on; mail from the operator or an automation, and an answer to a signal,
-   only from the machine that edits the canvas. A resource's notice (the
+   nothing. A machine writes only for its own seats and automations: mail
+   from a seat, and a receipt or signal for a seat, are valid only from the
+   machine that seat is on; mail and prompts from an automation only from the
+   machine it runs on, named by its Automations node and its automation id,
+   at the canvas count the row states (mail from before 0.11 names no
+   automation and is the editing machine's alone); mail from the operator,
+   and an answer to a signal, only from the machine that edits the canvas.
+   The receipts for an automation's mail go to the machine it runs on. A
+   resource's notice (the
    refusal of a seat's command, from the refused node, under a fixed
    identity no caller names) is valid only in that seat's own mailbox, only
    from a node that holds no seat, and only from the machine that seat was on
@@ -109,8 +118,13 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    against region reach on its own canvas (`src/shared/region-reach.ts`),
    keyed by the writing installation and the opId. A seat's command row is
    valid only from the machine placement says that seat was on when it was
-   written; an operator's or an automation's command, and every ruling, only
-   from the machine that edits the canvas, which takes them from no peer.
+   written, and an automation's from the machine it was on, by node and id,
+   at the count the row states. The ruler takes an automation's reach from
+   its own copy of the definition (the author's), never from the row; one it
+   does not hold reaches nothing. An operator's command, and every ruling,
+   is valid only from the machine that edits the canvas, which takes them
+   from no peer. Until fleet state lands (plan 0.11/06) the machine that
+   rules a canvas is the one that edits it (`authorityOf`).
    The resource facts a ruling applies ride inside its `ruling.applied` row,
    written in the ruling's transaction and carrying its opId, so every row
    still stands alone and none names a predecessor. Every row a machine
@@ -304,9 +318,10 @@ uses are Rule 4's; who gets them is Rule 5's.
   refuses at once if either fails: the target names a node of its kind on
   its copy (`unknown_target`), and the canvas's queue has room, at most
   50,000 unruled rows or 256 MiB (`queue_full`, retryable). Then it writes
-  the command as its own `command.queued` row. Only a seat's command is
-  queued; the operator and automations write on the editing machine
-  (`not_permitted` anywhere else).
+  the command as its own `command.queued` row. A seat's command is queued,
+  and an automation's on the machine it runs on; the operator writes on the
+  editing machine (`not_permitted` anywhere else, and for an automation on a
+  machine it does not run on).
 - **The 2 s wait.** While a link to the editing machine is open, the write
   waits up to 2 s for its ruling to come back. With no link it does not
   wait. It answers `applied`, `refused` with the ruler's error, its opId and

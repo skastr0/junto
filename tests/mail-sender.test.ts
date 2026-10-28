@@ -9,6 +9,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { AutomationNodeId, automationActorRef, noticeActorRef, type MailAuthorKind } from "../src/shared/mail-author";
 import { authorTakesReply, mailHeaderSender, storedMailAuthorKindOf, type MailHeaderSender } from "../src/shared/mail-sender";
+import { ItemId } from "../src/shared/work-ids";
 import { OPERATOR_SEAT_ID, operatorActorRef, type ActorRef } from "../src/shared/work-reference";
 
 const SEAT: ActorRef = {
@@ -27,7 +28,7 @@ describe("whose a stored row is", () => {
   it("reads each author from the writer admission stamped", () => {
     expect(storedMailAuthorKindOf(writtenBy(SEAT), "agent-2")).toBe("seat");
     expect(storedMailAuthorKindOf(writtenBy(operatorActorRef("factory")), "agent-1")).toBe("operator");
-    expect(storedMailAuthorKindOf(writtenBy(automationActorRef("factory", NIGHTLY)), "agent-1")).toBe("automation");
+    expect(storedMailAuthorKindOf(writtenBy(automationActorRef("factory", NIGHTLY, ItemId.make("01M629AAAAAAAAAAAAAAAAAAAA"))), "agent-1")).toBe("automation");
     expect(storedMailAuthorKindOf(writtenBy(noticeActorRef("factory", "task-1")), "agent-1")).toBe("notice");
   });
 

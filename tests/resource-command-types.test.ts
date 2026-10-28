@@ -337,7 +337,7 @@ describe("resource command types", () => {
     expect(actors.map((kind) => writtenOn(kind === "seat" ? seat("a") : kind === "operator" ? { kind } : { kind, nodeId: asNodeId("x"), automationId: mintItemId() }))).toEqual([
       "seat-machine",
       "editing-machine",
-      "editing-machine",
+      "automation-machine",
     ]);
   });
 });

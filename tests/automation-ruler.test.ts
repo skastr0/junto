@@ -5,6 +5,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
+import { ModelService } from "../src/main/junto/model/service";
 import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
@@ -67,14 +68,17 @@ const harness = () => {
     }),
   );
   const runtime = ManagedRuntime.make(Layer.mergeAll(makeAutomationRepositoryLive(), recorder).pipe(Layer.provideMerge(sql)));
+  // Every canvas count the ruler moved, as the model would move it.
+  const counted: Array<string> = [];
+  const model = { advanceCount: (canvas: string) => Effect.sync(() => (counted.push(canvas), counted.length)) } as unknown as ModelService["Service"];
   const submit = (c: ResourceCommand<AutomationOp>) =>
-    runtime.runPromise(submitAutomationCommand(WRITER, c, context, env));
+    runtime.runPromise(submitAutomationCommand(WRITER, c, context, env).pipe(Effect.provideService(ModelService, model)));
   const list = () => runtime.runPromise(Effect.flatMap(AutomationRepository, (r) => r.list("factory", NODE)));
   const close = async () => {
     await runtime.dispose();
     database.close();
   };
-  return { submit, list, recorded, close };
+  return { submit, list, recorded, counted, close };
 };
 
 describe("submitAutomationCommand", () => {
@@ -131,6 +135,28 @@ describe("submitAutomationCommand", () => {
       const gone = await h.submit(command({ kind: "archive" }, "01M5ESMJNGY0103BZJ3NYHP5G4"));
       expect(gone).toMatchObject({ kind: "applied", archived: true });
       expect(await h.list()).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+});
+
+describe("an automation's placement moves the canvas count", () => {
+  it("on create, on a move and on archive, and not on an edit, a toggle or a replay", async () => {
+    const h = harness();
+    try {
+      await h.submit(command({ kind: "create", automationId: ID, enabled: true, definition }, "01M629FFFFFFFFFFFFFFFFFFF1"));
+      expect(h.counted).toEqual(["factory"]);
+      await h.submit(command({ kind: "set-enabled", enabled: false }, "01M629FFFFFFFFFFFFFFFFFFF2"));
+      await h.submit(command({ kind: "edit", baseVersion: 1 as never, definition: { ...definition, name: "Standup 2" } }, "01M629FFFFFFFFFFFFFFFFFFF3"));
+      expect(h.counted).toEqual(["factory"]);
+      await h.submit(command({ kind: "set-machine", machine: "mini" as never }, "01M629FFFFFFFFFFFFFFFFFFF4"));
+      expect(h.counted).toEqual(["factory", "factory"]);
+      // The same move again is answered from its ruling: the count stays.
+      await h.submit(command({ kind: "set-machine", machine: "mini" as never }, "01M629FFFFFFFFFFFFFFFFFFF4"));
+      expect(h.counted).toEqual(["factory", "factory"]);
+      await h.submit(command({ kind: "archive" }, "01M629FFFFFFFFFFFFFFFFFFF5"));
+      expect(h.counted).toEqual(["factory", "factory", "factory"]);
     } finally {
       await h.close();
     }

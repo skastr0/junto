@@ -264,18 +264,25 @@ decoder must not expose disabled work kinds through the link.
 Before registering a writer, materializing a row or advancing a cursor, the
 receiver verifies the peer's authority for that exact canvas, the row's writer,
 author and subject, and the recipient's entitlement. A machine writes for its
-own seats. Operator mail, an automation's mail and signal answers or
-dismissals come from the canvas's editing machine, where automations run; the
-editing machine takes them from no peer. A mail author is one of a closed set
-of kinds (seat, operator, automation, notice), each admitted from one
-machine; an identity on a node that is not its own is no author. A notice is
+own seats and automations. An automation's mail and prompts come from the
+machine it runs on, named by its Automations node and its automation id, and
+are judged as a seat's are: by where that automation was at the canvas count
+the row states, from the copies the editing machine sent. Placing or moving
+an automation moves that count. Operator mail, mail from before 0.11 that
+names no automation, and signal answers or dismissals come from the canvas's
+editing machine, which takes them from no peer. A mail author is one of a
+closed set of kinds (seat, operator, automation, notice), each admitted from
+one machine; only the automation identity may name an automation id; an identity on a node that is not its own is no author. A notice is
 a resource's word to one seat, in that seat's own mailbox, written by that
 seat's machine: its sender is the resource node, stamped from the author like
 every sender, never taken from a row's metadata. A command's actor is
 judged the same way: a seat's command row is valid only from the machine
-placement says that seat was on when it was written, and an operator's or an
-automation's command is written on the editing machine and taken from no
-peer. Rulings come only from the editing machine, which takes them from no
+placement says that seat was on when it was written, an automation's only
+from the machine it was on, by node and id, at the count the row states, and
+an operator's command is written on the editing machine and taken from no
+peer. The ruler takes an automation's reach from its own copy of the
+definition, its author's, never from the row; an automation it does not hold
+reaches nothing. Rulings come only from the editing machine, which takes them from no
 peer, and a refusal carries only its closed reason, never text a seat or a
 domain wrote. A receipt cannot claim
 delivery to another machine's seat. Rejection leaves rows and cursor unchanged.

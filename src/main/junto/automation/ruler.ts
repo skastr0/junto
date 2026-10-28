@@ -33,6 +33,7 @@ import {
 } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
+import { ModelService } from "../model/service";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "../work/resource-rulings";
 import { RulingRecorder } from "../work/ruling-recorder";
@@ -89,6 +90,10 @@ const parse = (json: string): unknown => {
 /** The automation a command names: the created id, or the target item. */
 const automationIdOf = (command: ResourceCommand<AutomationOp>): AutomationId | undefined =>
   command.op.kind === "create" ? command.op.automationId : command.target.itemId;
+
+/** The ops that change where an automation runs, or whether it runs anywhere. */
+const placesAutomation = (op: AutomationOp): boolean =>
+  op.kind === "create" || op.kind === "set-machine" || op.kind === "archive";
 
 const unreadable = (what: string) =>
   AutomationPersistenceError.make({ operation: "submit", message: `${what} is unreadable`, cause: undefined });
@@ -158,6 +163,12 @@ export const submitAutomationCommand = Effect.fn("automations.submit")(function*
     let outcome: AutomationSubmitOutcome;
     if (ruling.kind === "applied") {
       yield* repository.applyFacts(canvas, ruling.facts);
+      // Placing, moving or archiving an automation is a placement: it moves the
+      // canvas count, so the copy at the new count says where it runs (S2).
+      if (placesAutomation(command.op) && ruling.facts.length > 0) {
+        const model = yield* Effect.serviceOption(ModelService);
+        if (Option.isSome(model)) yield* model.value.advanceCount(canvas);
+      }
       const automationId = automationIdOf(command);
       // The domain refuses a command with no automation, so an applied one always names it.
       if (automationId === undefined) return yield* Effect.die("an applied automation ruling names no automation");

@@ -15,6 +15,7 @@ import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
+  AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
 } from "../work/exchange/state-schema";
@@ -707,7 +708,19 @@ export const STATE_SCHEMA_V55_IDENTITY = {
     "31bc26cf1526c7ee14be85d01222b5ffb55abf7e2e5ebd6893104fb498d19340",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 55;
+/**
+ * Version 56 keeps where each automation was at each count the editing
+ * machine sent (0.11, 05 S2): `automation_placements`, by Automations node
+ * and automation id, judged as `canvas_placements` judges a seat. A canvas
+ * from before the step has no rows: an automation's rows are judged from
+ * the next copy sent. Expand only.
+ */
+export const STATE_SCHEMA_V56_IDENTITY = {
+  actualSchemaSha256:
+    "6e207db7a4cb7cba786ef105c061b9396e3a6f263d676b08f8ae390f9ccd4105",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 56;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -715,7 +728,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 55;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V55_IDENTITY;
+  STATE_SCHEMA_V56_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1146,6 +1159,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V54_IDENTITY,
     migrate: (database) => database.exec(VIEW_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 55,
+    toVersion: 56,
+    name: "keep where each automation was",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V55_IDENTITY,
+    migrate: (database) => database.exec(AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL),
   },
 ];
 

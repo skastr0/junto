@@ -55,8 +55,8 @@ export const actorMailOf = (canvas: Canvas, canvasName: string, actor: ResourceA
       if (Option.isNone(nodeId)) return undefined;
       const node = canvas.nodes.get(asNodeId(actor.nodeId));
       return {
-        stamp: automationSenderStamp(nodeId.value, node === undefined ? actor.nodeId : titleOf(node)),
-        sentBy: automationActorRef(canvasName, nodeId.value),
+        stamp: automationSenderStamp(nodeId.value, actor.automationId, node === undefined ? actor.nodeId : titleOf(node)),
+        sentBy: automationActorRef(canvasName, nodeId.value, actor.automationId),
       };
     }
   }

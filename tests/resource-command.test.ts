@@ -178,7 +178,7 @@ describe("envelope", () => {
   it("writes the operator's and an automation's commands only on the editing machine", () => {
     expect(writtenOn(seat("a"))).toBe("seat-machine");
     expect(writtenOn({ kind: "operator" })).toBe("editing-machine");
-    expect(writtenOn({ kind: "automation", nodeId: asNodeId("auto"), automationId: mintItemId() })).toBe("editing-machine");
+    expect(writtenOn({ kind: "automation", nodeId: asNodeId("auto"), automationId: mintItemId() })).toBe("automation-machine");
   });
 
   it("marks only stale, rebase conflicts and a full queue as retryable", () => {

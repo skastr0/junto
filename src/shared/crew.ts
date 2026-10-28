@@ -74,6 +74,8 @@ const MailSenderRegions = Schema.Array(MailSenderRegion).pipe(
 export const MailSenderStamp = Schema.Struct({
   fromSeat: ActorSeatId,
   senderNodeId: Schema.optionalKey(Schema.String),
+  /** Which automation of `senderNodeId` wrote, for an automation's mail; stamped from the author like the node. */
+  senderAutomationId: Schema.optionalKey(Schema.String),
   senderName: Schema.optionalKey(Schema.String),
   senderRegions: Schema.optionalKey(MailSenderRegions),
   senderGeneration: Schema.String,
@@ -93,6 +95,8 @@ export const MailExtension = Schema.Struct({
   refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
   fromSeat: ActorSeatId,
   senderNodeId: Schema.optionalKey(Schema.String),
+  /** Which automation of `senderNodeId` wrote, for an automation's mail; stamped from the author like the node. */
+  senderAutomationId: Schema.optionalKey(Schema.String),
   senderName: Schema.optionalKey(Schema.String),
   senderRegions: Schema.optionalKey(MailSenderRegions),
   senderGeneration: Schema.String,

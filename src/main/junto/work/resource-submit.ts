@@ -7,13 +7,15 @@
  * with none open it does not wait. It then answers applied, refused, or
  * queued with the opId; queued is a success, and `junto op show` reads it later.
  */
-import { Context, Effect, Layer, Semaphore } from "effect";
+import { Context, Effect, Layer, Option, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { CommandQueueFull, CommandTargetUnknown, type QueuedCommand, type RulingAppliedResult } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import { RULING_WAIT_MS, afterOf, refusalError } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
+import { AutomationRepository } from "../automation/repository";
+import { MachineRepository } from "../machines/repository";
 import { WorkRepository } from "./repository";
 
 /** Whether a canvas's commands are ruled here, or queued for the machine that edits it. */
@@ -74,6 +76,19 @@ export const makeResourceSubmitLayer = (
           Effect.mapError((error) => storeFailed(error.message)),
         );
 
+      // Where an automation runs, as this machine folded its rulings: the machine it names, by real short name.
+      const automations = yield* Effect.serviceOption(AutomationRepository);
+      const machines = yield* Effect.serviceOption(MachineRepository);
+      const runsHere = (canvasName: string, actor: { readonly nodeId: string; readonly automationId: string }) =>
+        Effect.gen(function* () {
+          if (Option.isNone(automations) || Option.isNone(machines)) return false;
+          const entry = (yield* automations.value.loadState(canvasName)).get(actor.automationId as never);
+          if (entry === undefined || entry.archived || entry.automation.nodeId !== actor.nodeId) return false;
+          // One that names no machine runs on the editing machine, which rules its writes and queues none.
+          const machine = entry.automation.machine;
+          return machine !== undefined && machine === (yield* machines.value.machineName);
+        }).pipe(Effect.orElseSucceed(() => false));
+
       const route = (canvasName: string) =>
         Effect.flatMap(canvasRow(canvasName), (row): Effect.Effect<SubmitRoute, WorkErrorBody> => {
           if (row === undefined) {
@@ -87,11 +102,17 @@ export const makeResourceSubmitLayer = (
 
       const queue = (command: QueuedCommand, editor: InstallationId) =>
         Effect.gen(function* () {
-          // Only a seat's command is queued: the operator and automations write on the editing machine,
-          // and that machine refuses their command rows from any other, so none is ever written here.
-          if (command.actor.kind !== "seat") {
+          // A seat's command, and an automation's that runs here, is queued. The operator writes on
+          // the machine that rules the canvas, which refuses its command rows from any other, and so
+          // would it an automation's from a machine the automation is not on: none is written here.
+          if (command.actor.kind === "operator" || (command.actor.kind === "automation" && !(yield* runsHere(command.canvasName, command.actor)))) {
             return yield* Effect.fail(
-              refusalError({ reason: "not_permitted", message: "The operator and automations write on the machine that edits the canvas" }),
+              refusalError({
+                reason: "not_permitted",
+                message: command.actor.kind === "operator"
+                  ? "The operator writes on the machine that edits the canvas"
+                  : "An automation writes on the machine it runs on",
+              }),
             );
           }
           const row = yield* canvasRow(command.canvasName);

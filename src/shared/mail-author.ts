@@ -1,12 +1,14 @@
 import { Option, Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
+import type { ItemId } from "./work-ids";
 import { OPERATOR_SEAT_ID, WorkNodeId, operatorActorRef, type ActorRef } from "./work-reference";
 
 /**
  * Who wrote a mail, by kind (docs/machines.md, rule 4). Each kind has one
  * machine it may be written on: a seat's mail on the machine that seat lives
- * on, the operator's and an automation's on the machine that edits the canvas,
- * a resource's notice on the machine of the seat whose mailbox it is in.
+ * on, an automation's on the machine it runs on (by node and automation id),
+ * the operator's on the machine that edits the canvas, a resource's notice on
+ * the machine of the seat whose mailbox it is in.
  * The union is closed: a new kind fails `tsc` in every admission until that
  * admission says where the kind is written.
  *
@@ -40,11 +42,12 @@ export const AutomationNodeId = WorkNodeId.pipe(
 export type AutomationNodeId = typeof AutomationNodeId.Type;
 const decodeAutomationNodeId = Schema.decodeUnknownOption(AutomationNodeId);
 
-/** The author of mail an automation sends: its own node, never the operator. */
-export const automationActorRef = (canvasName: string, nodeId: AutomationNodeId): ActorRef => ({
+/** The author of mail an automation sends: its own node and its own id, never the operator. */
+export const automationActorRef = (canvasName: string, nodeId: AutomationNodeId, automationId: ItemId): ActorRef => ({
   seatId: AUTOMATION_SEAT_ID,
   canvasName,
   nodeId,
+  automationId,
 });
 
 /** The author of a notice from a resource node: never the operator, never a seat. */
@@ -57,7 +60,8 @@ export const noticeActorRef = (canvasName: string, nodeId: string): ActorRef => 
 export type MailAuthor =
   | { readonly kind: "seat"; readonly seatId: ActorSeatId; readonly nodeId: string }
   | { readonly kind: "operator" }
-  | { readonly kind: "automation"; readonly nodeId: AutomationNodeId }
+  /** `automationId` names which automation of the node: absent only on mail from before 0.11. */
+  | { readonly kind: "automation"; readonly nodeId: AutomationNodeId; readonly automationId?: ItemId }
   /** A resource's notice into one seat's mailbox: `nodeId` is the resource, `mailbox` the seat's node. */
   | { readonly kind: "notice"; readonly nodeId: string; readonly mailbox: string }
   /** A fixed identity on a node that is not its own, or a notice outside a mailbox: no machine writes it. */
@@ -70,7 +74,9 @@ export type MailAuthorKind = MailAuthor["kind"];
  * together. `mailbox` is the node of the mailbox the row is in, for mail; a
  * notice anywhere else, or into its own node, is malformed.
  */
-export const mailAuthorOf = (actor: Pick<ActorRef, "seatId" | "nodeId">, mailbox?: string): MailAuthor => {
+export const mailAuthorOf = (actor: Pick<ActorRef, "seatId" | "nodeId" | "automationId">, mailbox?: string): MailAuthor => {
+  // Only an automation names which automation wrote.
+  if (actor.automationId !== undefined && actor.seatId !== AUTOMATION_SEAT_ID) return { kind: "malformed" };
   const operatorNode = actor.nodeId === OPERATOR_NODE_ID;
   if (actor.seatId === OPERATOR_SEAT_ID) return operatorNode ? { kind: "operator" } : { kind: "malformed" };
   if (operatorNode) return { kind: "malformed" };
@@ -81,7 +87,10 @@ export const mailAuthorOf = (actor: Pick<ActorRef, "seatId" | "nodeId">, mailbox
   }
   if (actor.seatId === AUTOMATION_SEAT_ID) {
     const nodeId = decodeAutomationNodeId(actor.nodeId);
-    return Option.isSome(nodeId) ? { kind: "automation", nodeId: nodeId.value } : { kind: "malformed" };
+    if (Option.isNone(nodeId)) return { kind: "malformed" };
+    return actor.automationId === undefined
+      ? { kind: "automation", nodeId: nodeId.value }
+      : { kind: "automation", nodeId: nodeId.value, automationId: actor.automationId };
   }
   return { kind: "seat", seatId: actor.seatId, nodeId: actor.nodeId };
 };

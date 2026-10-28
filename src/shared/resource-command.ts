@@ -35,9 +35,9 @@ export type ResourceRef = typeof ResourceRef.Type;
 
 /**
  * Who a command is from. A seat's command is written by the machine the seat
- * is on; the operator's and an automation's only by the editing machine
- * (`writtenOn`). A command from anywhere else is not refused: it closes the
- * link, as a forged mail author does.
+ * is on, an automation's by the machine it runs on, and the operator's only
+ * by the editing machine (`writtenOn`). A command from anywhere else is not
+ * refused: it closes the link, as a forged mail author does.
  */
 export const ResourceActor = Schema.Union([
   /** The same author mail carries, so a command row is judged on the placement history mail is (`authorOf`, work-exchange.ts). */
@@ -47,13 +47,14 @@ export const ResourceActor = Schema.Union([
 ]);
 export type ResourceActor = typeof ResourceActor.Type;
 
-export type CommandWriter = "seat-machine" | "editing-machine";
+export type CommandWriter = "seat-machine" | "automation-machine" | "editing-machine";
 export const writtenOn = (actor: ResourceActor): CommandWriter => {
   switch (actor.kind) {
     case "seat":
       return "seat-machine";
-    case "operator":
     case "automation":
+      return "automation-machine";
+    case "operator":
       return "editing-machine";
   }
 };

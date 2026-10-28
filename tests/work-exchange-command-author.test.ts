@@ -2,9 +2,10 @@
  * R2 condition 1 (docs/plans/0.10/02-universal-resources.md): the machine that
  * edits a canvas takes a `command.queued` row for seat S only from the machine
  * S was on at the canvas count the row states, judged on the same placement
- * history as mail (docs/machines.md, rule 4). The operator and automations
- * never queue: their commands are written on the editing machine, so one from
- * a peer is refused. Each case runs the real receive path over a real database.
+ * history as mail (docs/machines.md, rule 4). The operator never queues: its
+ * commands are written on the editing machine, so one from a peer is refused.
+ * An automation's is judged where it was, by node and id
+ * (tests/work-exchange-automation-placement.test.ts); here it runs nowhere. Each case runs the real receive path over a real database.
  */
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -160,7 +161,7 @@ describe("a command row from the mini, on the machine that edits the canvas", ()
     ["its seat is on another machine", () => commandRow(seatActor("far"), 3), false],
     ["it names another identity than the seat at that node", () => commandRow(seatActor("stays", SEATS.far), 3), false],
     ["it is the operator's", () => commandRow({ kind: "operator" }, 3), false],
-    ["it is an automation's", () => commandRow({ kind: "automation", nodeId: "nightly", automationId: "01M5ESR3G8AN1BA0AVVQC2X4WY" }, 3), false],
+    ["it is an automation's that runs on no machine here", () => commandRow({ kind: "automation", nodeId: "nightly", automationId: "01M5ESR3G8AN1BA0AVVQC2X4WY" }, 3), false],
     ["it states a count never sent to the mini", () => commandRow(seatActor("stays"), 4), false],
   ];
 
@@ -175,16 +176,16 @@ describe("who a command row says wrote it", () => {
     expect(rowAuthorOf(commandRow(seatActor("stays"), 3))).toEqual({ kind: "seat", seatId: SEATS.stays, nodeId: "stays" });
     expect(rowAuthorOf(commandRow({ kind: "operator" }, 3))).toEqual({ kind: "operator" });
     expect(rowAuthorOf(commandRow({ kind: "automation", nodeId: "nightly", automationId: "01M5ESR3G8AN1BA0AVVQC2X4WY" }, 3)))
-      .toEqual({ kind: "automation", nodeId: "nightly" });
+      .toEqual({ kind: "automation", nodeId: "nightly", automationId: "01M5ESR3G8AN1BA0AVVQC2X4WY" });
   });
 
   it("is malformed when a seat actor carries the operator's or an automation's identity", () => {
     expect(rowAuthorOf(commandRow(seatActor("stays", AUTOMATION_SEAT_ID), 3))).toEqual({ kind: "malformed" });
   });
 
-  it("is refused from every peer for the operator and an automation, and judged by placement for a seat", () => {
+  it("is refused from every peer for the operator, and judged by placement for a seat and an automation", () => {
     expect(editorTakesFromNoPeer(commandRow({ kind: "operator" }, 3))).toBe(true);
-    expect(editorTakesFromNoPeer(commandRow({ kind: "automation", nodeId: "nightly", automationId: "01M5ESR3G8AN1BA0AVVQC2X4WY" }, 3))).toBe(true);
+    expect(editorTakesFromNoPeer(commandRow({ kind: "automation", nodeId: "nightly", automationId: "01M5ESR3G8AN1BA0AVVQC2X4WY" }, 3))).toBe(false);
     expect(editorTakesFromNoPeer(commandRow(seatActor("stays"), 3))).toBe(false);
   });
 

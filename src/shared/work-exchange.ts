@@ -220,7 +220,7 @@ export type CanvasPlacement = {
   readonly canvasId: string;
   /** The machine that may change the canvas; it keeps all of it. */
   readonly editor: InstallationId;
-  /** Does this machine hold the canvas: it edits it, or one of its seats is on it. */
+  /** Does this machine hold the canvas: it edits it, or one of its seats or automations is on it. */
   readonly holds: (machine: InstallationId) => boolean;
   /** The seat at a node: its identity and the machine it lives on. Undefined for a node that is no seat. */
   readonly seatOf: (
@@ -228,7 +228,18 @@ export type CanvasPlacement = {
   ) => { readonly seatId: ActorSeatId; readonly machine: InstallationId } | undefined;
   /** A node's name as this machine's copy of the canvas gives it, for the words of a notice written here. */
   readonly nameOf?: (nodeId: string) => string | undefined;
+  /**
+   * The machine an automation of an Automations node runs on, by its id.
+   * Undefined for an automation this machine does not know there.
+   */
+  readonly automationOf?: (nodeId: string, automationId: string) => InstallationId | undefined;
 };
+
+/**
+ * The machine that rules the canvas now. Until fleet state (plan 0.11/06)
+ * lands, that is the machine that edits it; this is the one place that changes.
+ */
+export const authorityOf = (placement: Pick<CanvasPlacement, "editor">): InstallationId => placement.editor;
 
 /**
  * What a machine may state of a signal to a peer, or nothing. The machine the
@@ -293,8 +304,8 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
         case "operator":
           return { kind: "operator" };
         case "automation":
-          // Under the identity automation mail carries, so its node is checked the same way.
-          return mailAuthorOf({ seatId: AUTOMATION_SEAT_ID, nodeId: actor.nodeId });
+          // Under the identity automation mail carries, so its node and id are checked the same way.
+          return mailAuthorOf({ seatId: AUTOMATION_SEAT_ID, nodeId: actor.nodeId, automationId: actor.automationId });
         default: {
           const unreachable: never = actor;
           return unreachable;
@@ -314,10 +325,12 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
 
 /**
  * The one machine this author writes on, or none. A seat writes on the
- * machine it lives on, under that seat's own identity. The operator and an
- * automation write only on the machine that edits the canvas: automations run
- * there and nowhere else, and never on a seat's node. A resource's notice is
- * written by the machine of the seat it is for, into that seat's mailbox.
+ * machine it lives on, under that seat's own identity, and an automation on
+ * the machine it names, under its node and its id, never on a seat's node.
+ * The operator writes only on the machine that edits the canvas, and so does
+ * an automation's mail from before 0.11, which names no automation. A
+ * resource's notice is written by the machine of the seat it is for, into
+ * that seat's mailbox.
  */
 export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): InstallationId | undefined => {
   switch (author.kind) {
@@ -329,7 +342,9 @@ export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): 
       return placement.editor;
     case "automation":
       // Never under a seat's node: a mail would name that seat as its sender.
-      return placement.seatOf(author.nodeId) === undefined ? placement.editor : undefined;
+      // An automation's own machine; mail from before 0.11 names no automation, and was the editor's.
+      if (placement.seatOf(author.nodeId) !== undefined) return undefined;
+      return author.automationId === undefined ? placement.editor : placement.automationOf?.(author.nodeId, author.automationId);
     case "notice":
       // Written by the machine of the seat whose mailbox it is in, from a node that is no seat's.
       return placement.seatOf(author.nodeId) === undefined ? placement.seatOf(author.mailbox)?.machine : undefined;
@@ -353,9 +368,10 @@ export const writtenByItsAuthor = (
 
 /**
  * Does the machine that edits the canvas refuse this row from every peer? It
- * does for an author only it writes for (the operator, an automation) and for
- * one no machine writes for. A seat's row, and a notice, it judges against
- * where a seat was at the canvas count the row states (`judgedAt`).
+ * does for an author only it writes for (the operator, an automation that
+ * names no automation) and for one no machine writes for. A seat's row, an
+ * automation's and a notice it judges against where that seat or automation
+ * was at the canvas count the row states (`judgedAt`).
  */
 export const editorTakesFromNoPeer = (fact: ExchangeFact): boolean => {
   const author = rowAuthorOf(fact);
@@ -363,8 +379,9 @@ export const editorTakesFromNoPeer = (fact: ExchangeFact): boolean => {
     case "seat":
     case "notice":
       return false;
-    case "operator":
     case "automation":
+      return author.automationId === undefined;
+    case "operator":
     case "malformed":
       return true;
     default: {
@@ -375,16 +392,20 @@ export const editorTakesFromNoPeer = (fact: ExchangeFact): boolean => {
 };
 
 /**
- * The seat whose placement the editing machine judges a row by: the author
- * seat itself, under its own identity, or for a notice the seat whose mailbox
- * it is in, by node. A notice's own node must hold no seat now nor at the
- * stated count (`seatless`). None for an author only the editing machine
- * writes, or no machine does.
+ * The seat or automation whose placement the editing machine judges a row
+ * by: the author seat itself, under its own identity, an automation by its
+ * node and id, or for a notice the seat whose mailbox it is in, by node. A
+ * notice's own node must hold no seat now nor at the stated count
+ * (`seatless`), nor may an automation's. None for an author only the editing
+ * machine writes, or no machine does.
  */
 export const judgedAt = (
   fact: ExchangeFact,
   placement: CanvasPlacement,
-): { readonly nodeId: string; readonly seatId?: ActorSeatId; readonly seatless?: string } | undefined => {
+):
+  | { readonly nodeId: string; readonly seatId?: ActorSeatId; readonly seatless?: string; readonly automationId?: undefined }
+  | { readonly nodeId: string; readonly automationId: string }
+  | undefined => {
   const author = rowAuthorOf(fact);
   switch (author.kind) {
     case "seat":
@@ -393,8 +414,11 @@ export const judgedAt = (
       return placement.seatOf(author.nodeId) === undefined
         ? { nodeId: author.mailbox, seatless: author.nodeId }
         : undefined;
-    case "operator":
     case "automation":
+      return author.automationId === undefined || placement.seatOf(author.nodeId) !== undefined
+        ? undefined
+        : { nodeId: author.nodeId, automationId: author.automationId };
+    case "operator":
     case "malformed":
       return undefined;
     default: {
@@ -404,31 +428,40 @@ export const judgedAt = (
   }
 };
 
+/** Who wrote the mail a receipt answers: its node, and for an automation its id. */
+export type ReceiptMailAuthor = { readonly nodeId: string; readonly automationId?: string };
+
 /**
- * Is this machine entitled to the row? The editing machine gets every row of
- * its canvas. Any other machine gets the mail addressed to its seats, the
- * receipts for mail its seats wrote, every ruling, and every shot purge
- * (`purgeReaches`); never another
- * machine's command, which stays pending only where it was written. `mailAuthorNodeId` is the author of the
- * mail a receipt answers, when the caller holds that mail.
+ * Is this machine entitled to the row? The machine that rules the canvas
+ * (`authorityOf`) gets every row of it. Any other machine gets the mail
+ * addressed to its seats, the receipts for mail its seats or automations
+ * wrote, every ruling, and every shot purge (`purgeReaches`); never another
+ * machine's command, which stays pending only where it was written.
+ * `mailAuthor` is the author of the mail a receipt answers, when the caller
+ * holds that mail.
  */
 export const entitledTo = (
   machine: InstallationId,
   fact: ExchangeFact,
   placement: CanvasPlacement,
-  mailAuthorNodeId?: string,
+  mailAuthor?: ReceiptMailAuthor,
 ): boolean => {
-  if (machine === placement.editor) return true;
+  const authority = authorityOf(placement);
+  if (machine === authority) return true;
   switch (fact.body.operation) {
     case "command.queued":
     case "ruling.applied":
     case "ruling.refused":
-      return commandRowEntitled(machine, placement.editor, fact.body);
+      return commandRowEntitled(machine, authority, fact.body);
     case "shot.purged":
       return purgeReaches(machine);
   }
   if (fact.body.operation === "message.append") {
     return placement.seatOf(fact.item.sink.nodeId)?.machine === machine;
   }
-  return mailAuthorNodeId !== undefined && placement.seatOf(mailAuthorNodeId)?.machine === machine;
+  if (mailAuthor === undefined) return false;
+  const home = mailAuthor.automationId === undefined
+    ? placement.seatOf(mailAuthor.nodeId)?.machine
+    : placement.automationOf?.(mailAuthor.nodeId, mailAuthor.automationId);
+  return home === machine;
 };

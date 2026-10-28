@@ -28,6 +28,7 @@ const nodes: ReadonlyArray<Node> = [
 const copy = (): CanvasCopy => {
   const result = exportCanvasCopy(
     {
+      automations: [],
       canvasName: asCanvasName("factory"),
       canvasId: "canvas-factory",
       seq: 1,

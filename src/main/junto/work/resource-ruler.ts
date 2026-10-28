@@ -24,6 +24,7 @@ import { ArtifactOp } from "@shared/artifact";
 import { TARGET_NODE_KINDS, type OpState, type QueuedCommand } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import type { Canvas } from "@shared/model";
+import type { NodeId } from "@shared/physics/schema";
 import { productResourceKindEnabled } from "@shared/features";
 import { refusalError, type Refusal, type ResourceKind } from "@shared/resource-command";
 import { rulingContextOf } from "@shared/ruling-context";
@@ -31,10 +32,11 @@ import { taskRefusalMessage } from "@shared/task-machine";
 import { TaskCommandWire, checkTaskCommand } from "@shared/task-model";
 import type { OpId } from "@shared/work-ids";
 import { ModelService } from "../model/service";
+import { AutomationRepository } from "../automation/repository";
 import { ArtifactRepository } from "./artifact-repository";
 import { WorkRepository, type RecordRulingInput, type UnruledCommand } from "./repository";
 import { RulingRecorder } from "./ruling-recorder";
-import { taskCanvasEnv } from "./task-control";
+import { taskCanvasEnv, type AutomationAuthorOf } from "./task-control";
 import { noteResourceChanged } from "./resource-changes";
 import { TaskRepository } from "./task-repository";
 
@@ -195,8 +197,24 @@ export const makeResourceRuler = (ports: RulerPorts) =>
 
 const failed = (message: string) => (cause: unknown) => new ResourceRulerError({ message, cause });
 
-/** No automation writes through the exchange: an arriving command from another machine has no author here. */
-const noAutomationAuthor = () => undefined;
+/** Where the ruler reads an automation's author: its own folded definitions, never the row. */
+export type AutomationAuthors = (canvasName: string, command: QueuedCommand) => Effect.Effect<AutomationAuthorOf, ResourceRulerError>;
+
+const noAutomationAuthor: AutomationAuthors = () => Effect.succeed(() => undefined);
+
+/**
+ * An automation's command is ruled with its author's reach, as this machine
+ * holds its definition: the live automation of that id on that node. Another
+ * node, or one archived or unknown here, has no author, so it reaches nothing.
+ */
+export const automationAuthorsOf = (repository: AutomationRepository["Service"]): AutomationAuthors => (canvasName, command) =>
+  Effect.gen(function* () {
+    const { actor } = command;
+    if (actor.kind !== "automation") return () => undefined;
+    const entry = (yield* repository.loadState(canvasName)).get(actor.automationId);
+    const author = entry === undefined || entry.archived || entry.automation.nodeId !== actor.nodeId ? undefined : entry.automation.author;
+    return (node: NodeId) => (node === actor.nodeId ? author : undefined);
+  }).pipe(Effect.mapError(failed("an automation's author could not be read")));
 
 const decodeTaskOp = Schema.decodeUnknownResult(TaskCommandWire, { onExcessProperty: "error" });
 const decodeArtifactOp = Schema.decodeUnknownResult(ArtifactOp, { onExcessProperty: "error" });
@@ -206,7 +224,7 @@ const undecodable = (kind: ResourceKind): DomainVerdict => ({
   refusal: { reason: "invalid_input", message: `The ${kind} op does not decode` },
 });
 
-export const taskRuler = (repo: TaskRepository["Service"]): DomainRuler => (writer, command, canvas) =>
+export const taskRuler = (repo: TaskRepository["Service"], authors: AutomationAuthors = noAutomationAuthor): DomainRuler => (writer, command, canvas) =>
   Effect.gen(function* () {
     const wire = decodeTaskOp(command.op);
     if (Result.isFailure(wire)) return undecodable("task");
@@ -214,20 +232,21 @@ export const taskRuler = (repo: TaskRepository["Service"]): DomainRuler => (writ
     if (!checked.ok) {
       return { kind: "refuse", refusal: { reason: checked.refusal.reason, message: taskRefusalMessage(checked.refusal.detail) } } as const;
     }
+    const author = yield* authors(command.canvasName, command);
     const outcome = yield* repo
-      .submit(writer, { ...command, op: checked.command }, rulingContextOf(canvas, noAutomationAuthor), taskCanvasEnv(canvas))
+      .submit(writer, { ...command, op: checked.command }, rulingContextOf(canvas, author), taskCanvasEnv(canvas, author))
       .pipe(Effect.mapError(failed("the task ruler could not rule")));
     // Committed, with the notices it owed this machine's seats: the panes on this machine read the task again.
     if (outcome.kind === "applied" && !outcome.replay) noteResourceChanged("task", command.canvasName);
     return { kind: "ruled" } as const;
   });
 
-export const artifactRuler = (repo: ArtifactRepository["Service"]): DomainRuler => (writer, command, canvas) =>
+export const artifactRuler = (repo: ArtifactRepository["Service"], authors: AutomationAuthors = noAutomationAuthor): DomainRuler => (writer, command, canvas) =>
   Effect.gen(function* () {
     const op = decodeArtifactOp(command.op);
     if (Result.isFailure(op)) return undecodable("artifact");
     const decoded = { ...command, op: op.success };
-    const context = rulingContextOf(canvas, noAutomationAuthor);
+    const context = rulingContextOf(canvas, yield* authors(command.canvasName, command));
     // A command on the node itself (a label colour) names no artifact.
     const outcome = yield* (command.target.itemId === undefined ? repo.submitNode(writer, decoded, context) : repo.submit(writer, decoded, context))
       .pipe(Effect.mapError(failed("the artifact ruler could not rule")));
@@ -250,6 +269,8 @@ export const ResourceRulerLive: Layer.Layer<
     const model = yield* ModelService;
     const artifacts = yield* ArtifactRepository;
     const tasks = yield* Effect.serviceOption(TaskRepository);
+    const automations = yield* Effect.serviceOption(AutomationRepository);
+    const authors = Option.isSome(automations) ? automationAuthorsOf(automations.value) : noAutomationAuthor;
     const edits = (canvasName: string) =>
       Effect.map(
         sql<{ edits: number }>`
@@ -270,8 +291,8 @@ export const ResourceRulerLive: Layer.Layer<
         work.commandState(canvasName, writer, opId).pipe(Effect.mapError(failed("a command's state could not be read"))),
       record: (input) => recorder.record(input).pipe(Effect.mapError(failed("a refusal could not be recorded"))),
       domains: {
-        artifact: artifactRuler(artifacts),
-        ...(Option.isSome(tasks) ? { task: taskRuler(tasks.value) } : {}),
+        artifact: artifactRuler(artifacts, authors),
+        ...(Option.isSome(tasks) ? { task: taskRuler(tasks.value, authors) } : {}),
       },
     });
   }),

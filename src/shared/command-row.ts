@@ -139,7 +139,7 @@ export const commandQueuedBody = <Op extends typeof QueuedOp.Type>(command: Reso
 /** Which ruling a ruling row is, by (writer installation, opId). */
 export const rulingKeyOf = (ruling: RulingResult): CommandKey => commandKey(ruling.writer, ruling.opId);
 
-/** Who may write a row of this kind for a canvas: a command row its actor's machine, a ruling only the editing machine. */
+/** Who may write a row of this kind for a canvas: a seat's or an automation's command its actor's machine, the operator's command and a ruling only the editing machine. */
 export type CommandRowWriter =
   | { readonly kind: "actor-machine" }
   | { readonly kind: "editing-machine" };
@@ -149,7 +149,7 @@ export const commandRowWriter = (
 ): CommandRowWriter => {
   switch (body.operation) {
     case "command.queued":
-      return body.command.actor.kind === "seat" ? { kind: "actor-machine" } : { kind: "editing-machine" };
+      return body.command.actor.kind === "operator" ? { kind: "editing-machine" } : { kind: "actor-machine" };
     case "ruling.applied":
     case "ruling.refused":
       return { kind: "editing-machine" };
@@ -162,11 +162,11 @@ export const isCommandRowBody = (body: { readonly operation: string }): body is 
   body.operation === "command.queued" || body.operation === "ruling.applied" || body.operation === "ruling.refused";
 
 /**
- * Was this row written by a machine that may write it? A ruling, and a
- * command of the operator or an automation, only by the machine that edits
- * the canvas (02 condition 4, Rule 4). A seat's command is judged on where
- * its seat was, as mail is, by the author check. A row that fails closes the
- * link.
+ * Was this row written by a machine that may write it? A ruling, and the
+ * operator's command, only by the machine that rules the canvas (02
+ * condition 4, Rule 4). A seat's or an automation's command is judged on
+ * where that seat or automation was, as mail is, by the author check. A row
+ * that fails closes the link.
  */
 export const commandRowWrittenBy = (
   writer: InstallationId,

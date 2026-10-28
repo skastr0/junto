@@ -15,6 +15,7 @@ import {
   type CanvasPlacement,
 } from "../src/shared/work-exchange";
 import { AutomationNodeId, automationActorRef, noticeActorRef } from "../src/shared/mail-author";
+import { ItemId } from "../src/shared/work-ids";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { operatorActorRef } from "../src/shared/work-reference";
 
@@ -36,9 +37,13 @@ const placement: CanvasPlacement = {
       peer: { seatId: seat("2"), machine: mini },
       far: { seatId: seat("3"), machine: other },
     })[nodeId],
+  // `nightly` runs on the mini.
+  automationOf: (nodeId, automationId) => (nodeId === "nightly" && automationId === NIGHTLY_ID ? mini : undefined),
 };
+const NIGHTLY_ID = ItemId.make("01M629AAAAAAAAAAAAAAAAAAAA");
+const nightly = () => Schema.decodeUnknownSync(AutomationNodeId)("nightly");
 
-const mail = (writer: string, from: { seatId: string; nodeId: string }, to: string, seq = "1") => ({
+const mail = (writer: string, from: { seatId: string; nodeId: string; automationId?: string }, to: string, seq = "1") => ({
   protocol: WORK_PROTOCOL,
   id: { route: { eventHome: writer, entityHome: writer }, seq },
   recordType: "fact",
@@ -288,11 +293,23 @@ describe("who may hand a row over, and who wrote it", () => {
     expect(writtenByItsAuthor(decode(receipt(editor, operator)), placement)).toBe(false);
   });
 
-  it("holds an automation's mail to the machine that edits the canvas", () => {
-    const automation = automationActorRef("factory", Schema.decodeUnknownSync(AutomationNodeId)("nightly"));
-    expect(writtenByItsAuthor(decode(mail(editor, automation, "peer")), placement)).toBe(true);
-    // From the machine the target seat lives on, or any other: never.
-    expect(writtenByItsAuthor(decode(mail(mini, automation, "peer")), placement)).toBe(false);
+  it("holds an automation's mail to the machine it runs on, and mail from before 0.11 to the editing machine", () => {
+    const automation = automationActorRef("factory", nightly(), NIGHTLY_ID);
+    expect(writtenByItsAuthor(decode(mail(mini, automation, "peer")), placement)).toBe(true);
+    // From the editing machine, or any other: never.
+    expect(writtenByItsAuthor(decode(mail(editor, automation, "far")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(mail(other, automation, "far")), placement)).toBe(false);
+    // An automation this machine does not place is no one's.
+    const unknown = automationActorRef("factory", nightly(), ItemId.make("01M629BBBBBBBBBBBBBBBBBBBB"));
+    expect(writtenByItsAuthor(decode(mail(mini, unknown, "peer")), placement)).toBe(false);
+    // Mail from before 0.11 names no automation: the editing machine's alone.
+    const before = { seatId: automation.seatId, nodeId: automation.nodeId };
+    expect(writtenByItsAuthor(decode(mail(editor, before, "peer")), placement)).toBe(true);
+    expect(writtenByItsAuthor(decode(mail(mini, before, "peer")), placement)).toBe(false);
+    // Under a seat's node an automation is no one.
+    expect(writtenByItsAuthor(decode(mail(mini, { ...automation, nodeId: "peer" }, "lead")), placement)).toBe(false);
+    // Only the automation identity names an automation.
+    expect(writtenByItsAuthor(decode(mail(mini, { seatId: seat("2"), nodeId: "peer", automationId: NIGHTLY_ID }, "lead")), placement)).toBe(false);
     expect(writtenByItsAuthor(decode(mail(other, automation, "far")), placement)).toBe(false);
     // An automation's identity on a seat's node is no one's, from any machine, and on the operator's node no one's.
     expect(writtenByItsAuthor(decode(mail(mini, { seatId: automation.seatId, nodeId: "peer" }, "lead")), placement)).toBe(false);
@@ -323,9 +340,12 @@ describe("who may hand a row over, and who wrote it", () => {
     expect(judgedAt(decode(mail(editor, operatorActorRef("factory"), "peer")), placement)).toBeUndefined();
   });
 
-  it("has the editing machine take the operator's and an automation's rows from no peer", () => {
-    const automation = automationActorRef("factory", Schema.decodeUnknownSync(AutomationNodeId)("nightly"));
-    expect(editorTakesFromNoPeer(decode(mail(mini, automation, "peer")))).toBe(true);
+  it("has the editing machine take the operator's rows from no peer, and judge an automation's where it was", () => {
+    const automation = automationActorRef("factory", nightly(), NIGHTLY_ID);
+    expect(editorTakesFromNoPeer(decode(mail(mini, automation, "peer")))).toBe(false);
+    expect(judgedAt(decode(mail(mini, automation, "peer")), placement)).toEqual({ nodeId: "nightly", automationId: NIGHTLY_ID });
+    // Mail from before 0.11 names no automation: from no peer.
+    expect(editorTakesFromNoPeer(decode(mail(mini, { seatId: automation.seatId, nodeId: automation.nodeId }, "peer")))).toBe(true);
     expect(editorTakesFromNoPeer(decode(mail(mini, operatorActorRef("factory"), "peer")))).toBe(true);
     expect(editorTakesFromNoPeer(decode(mail(mini, { seatId: seat("2"), nodeId: "operator" }, "lead")))).toBe(true);
     expect(editorTakesFromNoPeer(decode(receipt(mini, automation)))).toBe(true);
@@ -349,8 +369,11 @@ describe("what a machine is entitled to", () => {
 
   it("gives another machine the receipts for mail its seats wrote, when the author is known", () => {
     const taken = decode(receipt(editor, lead));
-    expect(entitledTo(mini, taken, placement, "peer")).toBe(true);
-    expect(entitledTo(mini, taken, placement, "far")).toBe(false);
+    expect(entitledTo(mini, taken, placement, { nodeId: "peer" })).toBe(true);
+    expect(entitledTo(mini, taken, placement, { nodeId: "far" })).toBe(false);
     expect(entitledTo(mini, taken, placement)).toBe(false);
+    // Mail an automation wrote: its receipts go to the machine it runs on.
+    expect(entitledTo(mini, taken, placement, { nodeId: "nightly", automationId: NIGHTLY_ID })).toBe(true);
+    expect(entitledTo(other, taken, placement, { nodeId: "nightly", automationId: NIGHTLY_ID })).toBe(false);
   });
 });

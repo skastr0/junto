@@ -339,12 +339,12 @@ export const performAction = (
             metadata: {
               factoryMail: true,
               ...mailExtensionMetadata({
-                ...automationSenderStamp(from.value, automation.name),
+                ...automationSenderStamp(from.value, automation.automationId, automation.name),
                 mailKind: action.kind === "prompt" ? "prompt" : "notice",
               }),
             },
           }),
-          automationActorRef(canvasName, from.value),
+          automationActorRef(canvasName, from.value, automation.automationId),
         );
         return written.ok ? ({ index, ruling: "applied" } as const) : ({ index, ruling: "refused", reason: "invalid_input" } as const);
       }

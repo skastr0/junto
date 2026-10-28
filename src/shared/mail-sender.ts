@@ -89,10 +89,11 @@ export const noticeSenderStamp = (nodeId: string, name: string): MailSenderStamp
   senderHarness: "unknown",
 });
 
-/** The stamp an automation's mail carries: written under AUTOMATION_SEAT_ID from its own node. */
-export const automationSenderStamp = (nodeId: AutomationNodeId, name: string): MailSenderStamp => ({
+/** The stamp an automation's mail carries: written under AUTOMATION_SEAT_ID from its own node, with its id. */
+export const automationSenderStamp = (nodeId: AutomationNodeId, automationId: string, name: string): MailSenderStamp => ({
   fromSeat: AUTOMATION_SEAT_ID,
   senderNodeId: nodeId,
+  senderAutomationId: automationId,
   senderName: name,
   senderGeneration: "automation",
   senderHarness: "unknown",

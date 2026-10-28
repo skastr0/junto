@@ -9,7 +9,9 @@ import {
   ExchangeFact,
   compareSequence,
   editorTakesFromNoPeer,
+  authorityOf,
   entitledTo,
+  type ReceiptMailAuthor,
   judgedAt,
   peerMayPassOn,
   writtenByItsAuthor,
@@ -2624,7 +2626,8 @@ const admitMailboxMessage = (
     if (
       (MAILBOX_PROJECTION_ONLY_KEYS as ReadonlyArray<string>).includes(key) ||
       key === "fromSeat" ||
-      key === "senderNodeId"
+      key === "senderNodeId" ||
+      key === "senderAutomationId"
     ) {
       continue;
     }
@@ -2634,6 +2637,7 @@ const admitMailboxMessage = (
     ...rest,
     fromSeat: sentBy.seatId,
     senderNodeId: sentBy.nodeId,
+    ...(sentBy.automationId === undefined ? {} : { senderAutomationId: sentBy.automationId }),
   };
   return { ...message, metadata: admitted };
 };
@@ -2996,8 +3000,8 @@ export type ExchangeRowsInput = {
 
 export type ExchangeRow = {
   readonly fact: ExchangeFact;
-  /** For a receipt, the node that wrote the mail it answers, when held. */
-  readonly mailAuthorNodeId: string | undefined;
+  /** For a receipt, who wrote the mail it answers, when held. */
+  readonly mailAuthor: ReceiptMailAuthor | undefined;
 };
 
 export type ExchangeRowsPage = {
@@ -3023,6 +3027,12 @@ export type CanvasCopySent = {
   readonly seats: ReadonlyArray<{
     readonly nodeId: string;
     readonly seatId: string;
+    readonly machine: InstallationId;
+  }>;
+  /** Where each automation was in that copy, by Automations node and automation id. */
+  readonly automations?: ReadonlyArray<{
+    readonly nodeId: string;
+    readonly automationId: string;
     readonly machine: InstallationId;
   }>;
   readonly sentAt?: string;
@@ -3130,16 +3140,17 @@ export const heldMailRow = Effect.fn("work.heldMailRow")(function* (
 });
 const decodeMailMetadata = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)));
 
-/** The node that wrote the mail a receipt answers, when this machine holds that mail. */
+/** Who wrote the mail a receipt answers, when this machine holds that mail: its node, and an automation's id. */
 const exchangeMailAuthor = Effect.fn("work.exchangeMailAuthor")(function* (
   reader: SqlClient.SqlClient,
   fact: ExchangeFact,
-): Effect.fn.Return<string | undefined, WorkSqlFailure> {
+): Effect.fn.Return<ReceiptMailAuthor | undefined, WorkSqlFailure> {
   if (fact.body.operation !== "delivery.accepted") return undefined;
   const { deliveredItem } = fact.body.receipt;
-  const rows = yield* reader.unsafe<{ node_id: string | null }>(
+  const rows = yield* reader.unsafe<{ node_id: string | null; automation_id: string | null }>(
     `
-      SELECT json_extract(fact.result_json, '$.sentBy.nodeId') AS node_id
+      SELECT json_extract(fact.result_json, '$.sentBy.nodeId') AS node_id,
+        json_extract(fact.result_json, '$.sentBy.automationId') AS automation_id
       FROM work_messages AS mail
       JOIN work_facts AS fact
         ON fact.event_home = mail.fact_event_home
@@ -3149,7 +3160,9 @@ const exchangeMailAuthor = Effect.fn("work.exchangeMailAuthor")(function* (
     `,
     [deliveredItem.sink.canvasName, deliveredItem.sink.nodeId, deliveredItem.itemId],
   );
-  return rows[0]?.node_id ?? undefined;
+  const row = rows[0];
+  if (row === undefined || row.node_id === null) return undefined;
+  return row.automation_id === null ? { nodeId: row.node_id } : { nodeId: row.node_id, automationId: row.automation_id };
 });
 
 const exchangeCursorOf = Effect.fn("work.exchangeCursorOf")(function* (
@@ -3186,6 +3199,47 @@ const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function
   const seat = judgedAt(fact, placement);
   if (seat === undefined) return false;
   const writer = fact.id.route.eventHome;
+  if (seat.automationId !== undefined) {
+    // An automation is judged as a seat is: where it was at the stated count,
+    // on a node that held no seat then, by a copy sent to the writer at that count.
+    const placed = yield* reader.unsafe<{ found: number }>(
+      `
+        SELECT 1 AS found
+        FROM automation_placements AS placed
+        WHERE placed.canvas_name = ?
+          AND placed.node_id = ?
+          AND placed.automation_id = ?
+          AND placed.machine = ?
+          AND placed.from_seq <= ?
+          AND (placed.until_seq IS NULL OR ? < placed.until_seq)
+          AND NOT EXISTS (
+            SELECT 1 FROM canvas_placements AS held
+            WHERE held.canvas_name = placed.canvas_name
+              AND held.node_id = placed.node_id
+              AND held.from_seq <= ?
+              AND (held.until_seq IS NULL OR ? < held.until_seq)
+          )
+          AND EXISTS (
+            SELECT 1 FROM canvas_copies_sent AS sent
+            WHERE sent.canvas_name = placed.canvas_name AND sent.target = ? AND sent.seq = ?
+          )
+        LIMIT 1
+      `,
+      [
+        fact.item.sink.canvasName,
+        seat.nodeId,
+        seat.automationId,
+        writer,
+        fact.basis.seq,
+        fact.basis.seq,
+        fact.basis.seq,
+        fact.basis.seq,
+        writer,
+        fact.basis.seq,
+      ],
+    );
+    return placed.length > 0;
+  }
   const rows = yield* reader.unsafe<{ found: number }>(
     `
       SELECT 1 AS found
@@ -4183,6 +4237,34 @@ export const WorkRepositoryLive = Layer.effect(
                 [input.canvasName, seat.nodeId, input.seq, seat.seatId, seat.machine],
               );
             }
+            // Automations the same way, keyed by node and id: a move closes the old row at this count.
+            if (input.automations === undefined) return;
+            const openAutomations = yield* sql.unsafe<{ node_id: string; automation_id: string; from_seq: number; machine: string }>(
+              "SELECT node_id, automation_id, from_seq, machine FROM automation_placements WHERE canvas_name = ? AND until_seq IS NULL",
+              [input.canvasName],
+            );
+            const automationKey = (nodeId: string, automationId: string) => JSON.stringify([nodeId, automationId]);
+            const automationsNow = new Map(input.automations.map((placed) => [automationKey(placed.nodeId, placed.automationId), placed]));
+            const keptAutomations = new Set<string>();
+            for (const row of openAutomations) {
+              const key = automationKey(row.node_id, row.automation_id);
+              if (automationsNow.get(key)?.machine === row.machine) {
+                keptAutomations.add(key);
+              } else if (input.seq > row.from_seq) {
+                yield* sql.unsafe(
+                  "UPDATE automation_placements SET until_seq = ? WHERE canvas_name = ? AND node_id = ? AND automation_id = ? AND from_seq = ?",
+                  [input.seq, input.canvasName, row.node_id, row.automation_id, row.from_seq],
+                );
+              }
+            }
+            for (const [key, placed] of automationsNow) {
+              if (keptAutomations.has(key)) continue;
+              yield* sql.unsafe(
+                `INSERT OR IGNORE INTO automation_placements(canvas_name, node_id, automation_id, from_seq, until_seq, machine)
+                 VALUES (?, ?, ?, ?, NULL, ?)`,
+                [input.canvasName, placed.nodeId, placed.automationId, input.seq, placed.machine],
+              );
+            }
           }),
         )
         .pipe(
@@ -4282,7 +4364,7 @@ export const WorkRepositoryLive = Layer.effect(
           );
           const rows: ExchangeRow[] = [];
           for (const fact of page.taken) {
-            rows.push({ fact, mailAuthorNodeId: yield* exchangeMailAuthor(sql, fact) });
+            rows.push({ fact, mailAuthor: yield* exchangeMailAuthor(sql, fact) });
           }
           if (page.cutAt !== undefined) return { rows, through: page.cutAt, more: true };
           const more = stored.length > input.limit;
@@ -4356,26 +4438,27 @@ export const WorkRepositoryLive = Layer.effect(
               if (workRecordContentSha256(semantic) !== fact.contentSha256) {
                 return yield* Effect.fail(refuseExchange("a row does not match its hash"));
               }
-              // The machine that edits the canvas judges a seat against where
-              // it was at the count the row states, and takes the operator's
-              // and an automation's rows from no peer: only it writes those.
-              // Any other machine takes the editing machine's rows as already
+              // The machine that rules the canvas judges a seat or an
+              // automation against where it was at the count the row states,
+              // and takes the operator's rows from no peer: only it writes those.
+              // Any other machine takes the ruling machine's rows as already
               // judged, and judges a writer's own rows against the copy it holds.
-              // A ruling, and the operator's or an automation's command, is
-              // the editing machine's own row: from any other writer it
-              // closes the link before its author is looked at.
+              // A ruling, and the operator's command, is the ruling machine's
+              // own row: from any other writer it closes the link before its
+              // author is looked at.
               // A shot's purge is the operator's, so the editing machine's alone, whoever passes it on.
               if (
                 (isCommandRowBody(fact.body) &&
-                  !commandRowWrittenBy(fact.id.route.eventHome, placement.editor, fact.body)) ||
+                  !commandRowWrittenBy(fact.id.route.eventHome, authorityOf(placement), fact.body)) ||
                 (fact.body.operation === "shot.purged" && fact.id.route.eventHome !== placement.editor)
               ) {
                 return yield* Effect.fail(refuseExchange("only the machine that edits a canvas writes this row"));
               }
+              const authority = authorityOf(placement);
               const authored =
-                placement.editor === self
+                authority === self
                   ? !editorTakesFromNoPeer(fact) && (yield* exchangeAuthorWasThere(writer, fact, placement))
-                  : peer === placement.editor || writtenByItsAuthor(fact, placement);
+                  : peer === authority || writtenByItsAuthor(fact, placement);
               if (!authored) {
                 return yield* Effect.fail(refuseExchange("a row was not written where its author lives"));
               }

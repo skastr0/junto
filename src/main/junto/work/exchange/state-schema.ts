@@ -85,3 +85,26 @@ export const CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL = `
     ON canvas_placements(canvas_name, node_id)
     WHERE until_seq IS NULL;
 `;
+
+/**
+ * Which machine each automation was on from which count to which, as the
+ * machine that edits a canvas sent it in its copies: an automation is judged
+ * as a seat is (`canvas_placements`), by its Automations node and its id,
+ * since one node holds automations on many machines. Added by state
+ * migration 55 -> 56.
+ */
+export const AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS automation_placements (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    automation_id TEXT NOT NULL CHECK (length(automation_id) BETWEEN 1 AND 128),
+    from_seq INTEGER NOT NULL CHECK (from_seq BETWEEN 0 AND 9007199254740991),
+    until_seq INTEGER CHECK (until_seq IS NULL OR until_seq > from_seq),
+    machine TEXT NOT NULL CHECK (length(machine) BETWEEN 1 AND 128),
+    PRIMARY KEY (canvas_name, node_id, automation_id, from_seq)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS automation_placements_open
+    ON automation_placements(canvas_name, node_id, automation_id)
+    WHERE until_seq IS NULL;
+`;

@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
+import { ItemId } from "./work-ids";
 
 /**
  * Canonical work identity references shared by the durable domain model and
@@ -39,6 +40,12 @@ export const ActorRef = Schema.Struct({
   seatId: ActorSeatId,
   canvasName: WorkCanvasName,
   nodeId: WorkNodeId,
+  /**
+   * Which automation of the node wrote, under the automation identity only
+   * (`mail-author.ts`): one Automations node holds automations on many
+   * machines. Absent on an automation's mail from before 0.11.
+   */
+  automationId: Schema.optionalKey(ItemId),
 });
 export type ActorRef = typeof ActorRef.Type;
 

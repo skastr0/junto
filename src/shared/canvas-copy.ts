@@ -15,6 +15,7 @@ import { productNodeKindEnabled } from "./features";
 import { InstallationId } from "./installation-id";
 import {
   Artifacts,
+  Automations,
   CanvasName,
   HostId,
   Label,
@@ -33,6 +34,7 @@ import {
   type Node,
 } from "./model";
 import type { ResourceKind } from "./region-reach";
+import { ItemId } from "./work-ids";
 import type { SeatGuidance } from "./seat-guidance";
 
 /** The word a row may not use for a machine: it would mean a different one on every copy. */
@@ -98,10 +100,16 @@ const CopiedTask = Schema.Struct({ kind: TaskBoard.fields.kind, ...geometry, nam
 const CopiedArtifacts = Schema.Struct({ kind: Artifacts.fields.kind, ...geometry, label: Artifacts.fields.label });
 /** Bare text on the map: the text is its label. */
 const CopiedLabel = Schema.Struct({ kind: Label.fields.kind, ...geometry, text: Label.fields.text });
+/** The Automations node, so every machine places the automations on it; its automations ride rulings. */
+const CopiedAutomations = Schema.Struct({ kind: Automations.fields.kind, ...geometry, label: Automations.fields.label });
 
-const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, Stub]);
+const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, CopiedAutomations, Stub]);
 export type CopiedResource = typeof CopiedResource.Type;
 
+
+/** One automation's place: its node, its id and the machine that runs it. */
+const CopiedAutomation = Schema.Struct({ automationId: ItemId, nodeId: NodeId, machine: HostId });
+export type CopiedAutomation = typeof CopiedAutomation.Type;
 
 export const CanvasCopy = Schema.Struct({
   canvasName: CanvasName,
@@ -121,6 +129,12 @@ export const CanvasCopy = Schema.Struct({
   briefing: Schema.optionalKey(Schema.String),
   references: Schema.Array(CopiedReference),
   playing: Schema.Boolean,
+  /**
+   * Where every automation runs at this count, by Automations node and id:
+   * the editing machine judges an automation's rows by it as by a seat's.
+   * Absent in a copy from before 0.11.
+   */
+  automations: Schema.optionalKey(Schema.Array(CopiedAutomation)),
 });
 export type CanvasCopy = typeof CanvasCopy.Type;
 
@@ -143,6 +157,8 @@ export type CanvasCopySource = {
   readonly references: ReadonlyArray<CopiedReference>;
   readonly playing: boolean;
   readonly seatIdOf: (seat: Seat) => ActorSeatId;
+  /** Every live automation and the machine it runs on, the editing machine's for one that names none. */
+  readonly automations: ReadonlyArray<CopiedAutomation>;
 };
 
 export type CanvasCopyTarget = {
@@ -154,7 +170,7 @@ export type CanvasCopyTarget = {
 export type CanvasCopyRefusal =
   | { readonly reason: "the-editing-machine-holds-the-canvas" }
   | { readonly reason: "a-row-names-no-machine"; readonly nodeId: string }
-  | { readonly reason: "no-seat-on-that-machine" };
+  | { readonly reason: "no-seat-or-automation-on-that-machine" };
 
 export type CanvasCopyResult =
   | { readonly ok: true; readonly copy: CanvasCopy }
@@ -178,8 +194,8 @@ const placed = (node: Node) => ({
   z: node.z,
 });
 
-/** The kinds that cross: every kind a seat reaches, and the cards beside them. */
-type CrossingKind = ResourceKind | "label" | StubOf;
+/** The kinds that cross: every kind a seat reaches, the cards beside them, and where automations sit. */
+type CrossingKind = ResourceKind | "label" | "automations" | StubOf;
 
 /** Takes only a kind that does not cross, so a crossing kind with no case fails to compile. */
 const staysHome = (_kind: Exclude<Node["kind"], CrossingKind>): undefined => undefined;
@@ -200,6 +216,8 @@ const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | und
       return { kind: "artifacts", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
     case "label":
       return { kind: "label", ...placed(node), text: node.text };
+    case "automations":
+      return { kind: "automations", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
     // A stub is called by what the operator wrote, never by its path or address.
     case "file":
     case "link":
@@ -299,7 +317,10 @@ export const exportCanvasCopy = (
       regions.push(node);
     }
   }
-  if (seats.length === 0) return { ok: false, refusal: { reason: "no-seat-on-that-machine" } };
+  // A machine with automations and no seat holds the canvas too: it runs them.
+  if (seats.length === 0 && !source.automations.some((automation) => automation.machine === target.machineName)) {
+    return { ok: false, refusal: { reason: "no-seat-or-automation-on-that-machine" } };
+  }
 
   const placed = { nodes: new Map(source.nodes.map((node) => [node.id, node])) };
   const mine = new Set<string>();
@@ -335,6 +356,7 @@ export const exportCanvasCopy = (
         (reference) => reference.regionId === undefined || mine.has(reference.regionId),
       ),
       playing: source.playing,
+      automations: source.automations,
     },
   };
 };

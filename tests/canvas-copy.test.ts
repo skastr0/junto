@@ -1,3 +1,4 @@
+import { ItemId } from "../src/shared/work-ids";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
@@ -70,6 +71,7 @@ const wires: ReadonlyArray<Wire> = [
 ];
 
 const source: CanvasCopySource = {
+  automations: [],
   canvasName: asCanvasName("factory"),
   canvasId: "canvas-factory",
   seq: 41,
@@ -177,6 +179,18 @@ describe("a canvas cut for one machine", () => {
     expect(JSON.stringify(copy)).not.toContain("written by the operator");
   });
 
+  it("goes to a machine with an automation and no seat, and says where every automation runs", () => {
+    const automations = [
+      { automationId: ItemId.make("01M629AAAAAAAAAAAAAAAAAAAA"), nodeId: asNodeId("routines"), machine: "stranger" as never },
+      { automationId: ItemId.make("01M629BBBBBBBBBBBBBBBBBBBB"), nodeId: asNodeId("routines"), machine: "mini" as never },
+    ];
+    const cut = exportCanvasCopy({ ...source, automations }, { installationId: id("stranger"), machineName: "stranger" });
+    expect(cut.ok).toBe(true);
+    if (!cut.ok) return;
+    expect(cut.copy.seats).toEqual([]);
+    expect(cut.copy.automations).toEqual(automations);
+  });
+
   it("is refused for the editing machine, for a machine with no seat, and while a row names no machine", () => {
     expect(exportCanvasCopy(source, { installationId: EDITOR, machineName: "macbook" })).toEqual({
       ok: false,
@@ -184,7 +198,7 @@ describe("a canvas cut for one machine", () => {
     });
     expect(exportCanvasCopy(source, { installationId: id("stranger"), machineName: "stranger" })).toEqual({
       ok: false,
-      refusal: { reason: "no-seat-on-that-machine" },
+      refusal: { reason: "no-seat-or-automation-on-that-machine" },
     });
     const unnamed = { ...source, nodes: [...nodes, seat("stray", "local", { x: 50, y: 300 })] };
     expect(exportCanvasCopy(unnamed, { installationId: MINI, machineName: "mini" })).toEqual({
@@ -278,8 +292,8 @@ describe("each kind, cut for each machine", () => {
     // A page's name stays home: a page stub names only its machine.
     ["page", "named-browser", { kind: "stub", of: "page", id: "named-browser", ...at(810), host: "macbook" }],
     ["note", "memo", undefined],
-    // A copy would fire the same mail and tasks twice: automations never cross (07).
-    ["automations", "routines", undefined],
+    // Every machine places the automations on it (0.11/05 S2); what they do rides rulings, never the copy.
+    ["automations", "routines", { kind: "automations", id: "routines", ...at(660), label: "Morning routines" }],
     // Host-local: a files node stays home until its stub can be stored.
     ["files", "folder", undefined],
   ];
@@ -308,7 +322,6 @@ describe("each kind, cut for each machine", () => {
           "Note body stays home",
           "Page name stays home",
           "plan.md",
-          "Morning routines",
           "files-root",
           "Files label stays home",
           "0 3 * * *",
