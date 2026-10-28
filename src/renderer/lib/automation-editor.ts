@@ -41,6 +41,7 @@ import {
   type Watch,
   type WatchedSignal,
 } from "@shared/automation";
+import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "@shared/wire/agent-signals";
 import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelOf, artifactLabelsMatch, artifactLabelsOf, type ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -71,8 +72,17 @@ export type CommentTarget = CommentAction["on"];
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
-export type ActionKind = Action["kind"];
+/**
+ * The contract's action kinds, and `signal` (0.11/07 N2, automation-lead)
+ * until it lands in `@shared/automation`: a stand-in, refused in words until then.
+ */
+export type ActionKind = Action["kind"] | "signal";
 export type SeatControlOp = Extract<Action, { readonly kind: "seat-control" }>["op"];
+/** What a raised signal asks of the operator: read it (`notice`) or produce something (`work`). N2 stand-in. */
+export type SignalRaise = "notice" | "work";
+export const SIGNAL_RAISES: ReadonlyArray<SignalRaise> = ["notice", "work"];
+/** The artifacts a raised signal may show (N2's `AUTOMATION_SIGNAL_SHOWS_MAX`). */
+export const SIGNAL_SHOWS_MAX = 8;
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -145,6 +155,14 @@ export type ActionDraft =
     }
   /** Text written at a document's end, exactly as written: the editor starts it with a dated heading. */
   | { readonly kind: "append-artifact"; readonly to?: ArtifactTarget; readonly text: string }
+  /** A signal in the needs-you feed, raised by the automation; it may show artifacts. */
+  | {
+      readonly kind: "signal";
+      readonly signal: SignalRaise;
+      readonly title: string;
+      readonly detail?: string;
+      readonly show?: ReadonlyArray<TargetRef>;
+    }
   /** A seat started or stopped where it runs. Seat only; it writes no text. */
   | { readonly kind: "seat-control"; readonly seat?: TargetRef; readonly op: SeatControlOp }
   /** Labels added to and removed from one artifact, as typed. */
@@ -244,6 +262,8 @@ export const blankAction = (kind: ActionKind): ActionDraft => {
       return { kind };
     case "seat-control":
       return { kind, op: "start" };
+    case "signal":
+      return { kind, signal: "notice", title: "" };
     default:
       return kind satisfies never;
   }
@@ -463,6 +483,12 @@ const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
       return { kind };
     case "seat-control":
       return seat === undefined ? { kind, op: "start" } : { kind, op: "start", seat };
+    case "signal": {
+      // A title carries over as the title; a text as the detail.
+      const title = old.kind === "create-task" || old.kind === "create-artifact" ? old.title : "";
+      const detail = title === "" ? text : "";
+      return { kind, signal: "notice", title, ...(detail === "" ? {} : { detail }) };
+    }
     default:
       return kind satisfies never;
   }
@@ -573,6 +599,14 @@ const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
   artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
 
+/** Whether the contract takes a signal step yet (N2): until it does, the editor says so rather than sending one. */
+const CONTRACT_HAS_SIGNAL = Schema.is(AutomationDefinition)({
+  name: "probe",
+  trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS },
+  then: [{ kind: "signal", signal: "notice", title: "probe" }],
+  limits: DEFAULT_AUTOMATION_LIMITS,
+});
+
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
 
 const actionProblem = (
@@ -635,6 +669,17 @@ const actionProblem = (
     }
     case "seat-control":
       return action.seat === undefined ? "Pick the seat to start or stop." : undefined;
+    case "signal": {
+      if (!CONTRACT_HAS_SIGNAL) return "Raising signals is not available yet.";
+      const detail = action.detail ?? "";
+      return (
+        textProblem(action.title, AGENT_SIGNAL_MAX_TEXT_LENGTH, "signal title") ??
+        valueProblem(action.title, carried, afterCode) ??
+        (detail.trim().length > AGENT_SIGNAL_MAX_DETAIL_LENGTH ? `The detail is longer than ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters.` : undefined) ??
+        valueProblem(detail, carried, afterCode) ??
+        ((action.show ?? []).some((shown) => shown.kind !== "artifact") ? "A signal shows artifacts only." : undefined)
+      );
+    }
     default:
       return action satisfies never;
   }
@@ -728,6 +773,17 @@ const actionOf = (action: ActionDraft): unknown => {
       return action;
     case "seat-control":
       return action;
+    case "signal": {
+      const detail = action.detail?.trim() ?? "";
+      const show = action.show ?? [];
+      return {
+        kind: action.kind,
+        signal: action.signal,
+        title: action.title.trim(),
+        ...(detail === "" ? {} : { detail }),
+        ...(show.length === 0 ? {} : { show }),
+      };
+    }
     case "label-artifact": {
       const add = foldedLabels(action.add);
       const remove = foldedLabels(action.remove);
@@ -903,6 +959,8 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
       return `label ${artifactTargetWords(action.to, nameOf)}`;
     case "seat-control":
       return `${action.op} ${action.seat ? nameOf(action.seat) : "a seat"}`;
+    case "signal":
+      return action.signal === "notice" ? "raise a notice" : "raise work for you";
     default:
       return action satisfies never;
   }
@@ -919,6 +977,7 @@ export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
   "append-artifact": "Append to an artifact",
   "label-artifact": "Label an artifact",
   "seat-control": "Start or stop a seat",
+  signal: "Raise a signal",
 };
 
 export const TRIGGER_LABEL: Readonly<Record<EditableTriggerKind, string>> = {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARTIFACT_LABEL_RULE, type ArtifactLabel } from "../src/shared/artifact-labels";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
+import { ItemId } from "../src/shared/work-ids";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
 import {
   APPEND_HEADING,
@@ -129,6 +130,16 @@ describe("artifact automations, the draft", () => {
     expect(actionProblem(draftWith(draft.trigger, [{ kind: "seat-control", op: "start", seat }]))).toBeUndefined();
   });
 
+  it("signal raises a notice or work, carries a title over as its title, and shows artifacts only", () => {
+    const draft = draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "create-task", title: "Write 500 words" }]);
+    expect(editDraft(draft, { type: "action-kind", index: 0, kind: "signal" }).then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words" });
+    expect(actionWords({ kind: "signal", signal: "notice", title: "x" }, nameOf)).toBe("raise a notice");
+    expect(actionWords({ kind: "signal", signal: "work", title: "x" }, nameOf)).toBe("raise work for you");
+    // Until N2's contract lands the editor says it is not available; after, it asks for the title.
+    const blank = actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: " " }]));
+    expect(["Raising signals is not available yet.", "Write the signal title."]).toContain(blank);
+  });
+
   it("each artifact action says what it writes", () => {
     expect(actionWords({ kind: "create-artifact", node: shelf, title: "x" }, nameOf)).toBe("create an artifact in shelf-1");
     expect(actionWords({ kind: "append-artifact", to: { fired: true }, text: "x" }, nameOf)).toBe("append to the artifact that fired");
@@ -207,6 +218,19 @@ describe("artifact automations, the form", () => {
     // Mounted and empty while nothing is to say, so its first words are announced.
     expect(host.querySelector('[role="status"].automation-editor__label-note')?.textContent).toBe("");
     expect(host.querySelector('input[aria-label="Only with this label, optional"]')?.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("a signal step asks notice or work, a title and detail with values, and grows one artifact picker at a time", async () => {
+    await render(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "signal", signal: "work", title: "Write 500 words" }]));
+    expect(host.querySelector('[aria-label="What the signal asks"]')?.textContent).toContain("Work, for you to do");
+    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="Signal title"]')?.value).toBe("Write 500 words");
+    expect(host.querySelector('[aria-label="Signal detail, optional"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Artifact to show, optional"]')).not.toBeNull();
+
+    const reading = { kind: "artifact", nodeId: shelf, artifactId: ItemId.make("01M627SVX2BMGZAMXFA2F5BYAE") } as const;
+    await render(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "signal", signal: "notice", title: "Read", show: [reading] }]));
+    expect(host.querySelector('[aria-label="Artifact to show, 1 of 2"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Artifact to show, 2 of 2"]')).not.toBeNull();
   });
 
   it("create-artifact lists the Artifacts nodes in reach by name", async () => {

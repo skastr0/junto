@@ -19,6 +19,8 @@ import {
   ARTIFACT_EVENT_WORD,
   ARTIFACT_EVENTS,
   SEAT_BECOMES,
+  SIGNAL_RAISES,
+  SIGNAL_SHOWS_MAX,
   SIGNAL_WORD,
   SIGNALS,
   TASK_BECOMES,
@@ -41,6 +43,8 @@ import {
   type DraftProblem,
   type EditableTriggerKind,
   type NameOf,
+  type SignalRaise,
+  type TargetRef,
   type TriggerDraft,
   type WatchDraft,
   type WatchMode,
@@ -865,6 +869,46 @@ function ActionFields({
           />
         </>
       );
+    case "signal":
+      return (
+        <>
+          <Select
+            dense
+            aria-label="What the signal asks"
+            value={action.signal}
+            options={SIGNAL_RAISES.map((raise) => ({ value: raise, label: SIGNAL_RAISE_WORD[raise] }))}
+            onChange={(raise) => onChange({ ...action, signal: raise as SignalRaise })}
+          />
+          <ActionText
+            label="Signal title"
+            noun="title"
+            multiline={false}
+            value={action.title}
+            placeholder="What you see in the feed, one sentence"
+            values={values}
+            onValue={(title) => onChange({ ...action, title })}
+          />
+          <ActionText
+            label="Signal detail, optional"
+            noun="detail"
+            value={action.detail ?? ""}
+            placeholder="More to read when you open it"
+            values={values}
+            onValue={(detail) => {
+              const { detail: _old, ...rest } = action;
+              onChange(detail === "" ? rest : { ...rest, detail });
+            }}
+          />
+          <ShownArtifacts
+            pickers={pickers}
+            show={action.show ?? []}
+            onChange={(show) => {
+              const { show: _old, ...rest } = action;
+              onChange(show.length === 0 ? rest : { ...rest, show });
+            }}
+          />
+        </>
+      );
     case "label-artifact":
       return (
         <>
@@ -900,6 +944,49 @@ function ActionFields({
     default:
       return action satisfies never;
   }
+}
+
+const SIGNAL_RAISE_WORD: Readonly<Record<SignalRaise, string>> = {
+  notice: "A notice, to read",
+  work: "Work, for you to do",
+};
+
+/**
+ * The artifacts a signal opens from the feed: one picker each, and one more
+ * empty while there is room. Clearing a picker takes its artifact out.
+ */
+function ShownArtifacts({
+  pickers,
+  show,
+  onChange,
+}: {
+  readonly pickers: Pickers;
+  readonly show: ReadonlyArray<TargetRef>;
+  readonly onChange: (show: ReadonlyArray<TargetRef>) => void;
+}) {
+  const artifacts = show.filter((shown): shown is Extract<TargetRef, { readonly kind: "artifact" }> => shown.kind === "artifact");
+  const slots = artifacts.length < SIGNAL_SHOWS_MAX ? [...artifacts, undefined] : artifacts;
+  return (
+    <>
+      {slots.map((shown, index) => (
+        <TargetPicker
+          // A slot is its place: the list only grows at its end and closes up when one is cleared.
+          key={index}
+          {...pickers}
+          kinds={["artifact"]}
+          label={slots.length === 1 ? "Artifact to show, optional" : `Artifact to show, ${index + 1} of ${slots.length}`}
+          placeholder="#artifact"
+          value={shown}
+          onChange={(picked) => {
+            const next = [...artifacts];
+            if (picked === undefined) next.splice(index, 1);
+            else next[index] = picked;
+            onChange(next);
+          }}
+        />
+      ))}
+    </>
+  );
 }
 
 const ACTION_KINDS = Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>;
