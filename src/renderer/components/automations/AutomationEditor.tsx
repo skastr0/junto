@@ -35,6 +35,7 @@ import {
   type WatchDraft,
 } from "../../lib/automation-editor";
 import type { MentionCandidate, MentionTrigger } from "../../lib/mention-draft";
+import { useMentionItems } from "../../lib/mention-items";
 import { useAutomationTargets } from "../../lib/mention-sources";
 import { useCanvas } from "../../lib/use-model";
 import { useTargetNames } from "../../lib/automation-names";
@@ -427,7 +428,8 @@ export function AutomationEditor({
   readonly refusal?: string;
 }) {
   const canvas = useCanvas(canvasName);
-  const candidates = useAutomationTargets(canvasName, draft.nodeId, draft.author);
+  // Task boards and Artifacts nodes offer only the items handed to them: without these every #picker is empty.
+  const candidates = useAutomationTargets(canvasName, draft.nodeId, draft.author, useMentionItems(canvasName));
   const nameOf = useTargetNames(candidates, canvasName);
   const boards = useMemo(
     () =>
