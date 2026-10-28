@@ -118,8 +118,8 @@ afterEach(() => {
 
 describe("header label chips", () => {
   it("removes one chip by sending the rest of the set", () => {
-    const onChange = vi.fn(async () => true);
-    render(<ArtifactLabelChips labels={L("draft", "review")} used={L()} readOnly={false} onChange={onChange} />);
+    const onChange = vi.fn(async () => "applied" as const);
+    render(<ArtifactLabelChips waiting={false} labels={L("draft", "review")} used={L()} readOnly={false} onChange={onChange} />);
     expect(host.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("Labels");
     press('[aria-label="Remove draft"]');
     expect(onChange).toHaveBeenCalledWith(["review"]);
@@ -127,8 +127,8 @@ describe("header label chips", () => {
   });
 
   it("adds a typed label on Enter, focused in the picker, and keeps it open for the next", () => {
-    const onChange = vi.fn(async () => true);
-    render(<ArtifactLabelChips labels={L("draft")} used={L("draft", "review")} readOnly={false} onChange={onChange} />);
+    const onChange = vi.fn(async () => "applied" as const);
+    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L("draft", "review")} readOnly={false} onChange={onChange} />);
     press('[aria-label="Add labels"]');
     expect(document.activeElement).toBe(field());
     type("Project/Junto");
@@ -139,8 +139,8 @@ describe("header label chips", () => {
   });
 
   it("says the rule in place of sending a word that breaks it", () => {
-    const onChange = vi.fn(async () => true);
-    render(<ArtifactLabelChips labels={L()} used={L()} readOnly={false} onChange={onChange} />);
+    const onChange = vi.fn(async () => "applied" as const);
+    render(<ArtifactLabelChips waiting={false} labels={L()} used={L()} readOnly={false} onChange={onChange} />);
     press('[aria-label="Add labels"]');
     type("a//b");
     key("Enter");
@@ -149,13 +149,37 @@ describe("header label chips", () => {
   });
 
   it("goes back to the ruled set when the write is refused", async () => {
-    render(<ArtifactLabelChips labels={L("draft")} used={L()} readOnly={false} onChange={async () => false} />);
+    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "refused" as const} />);
     await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
     expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
   });
 
+  it("goes back to the ruled set when a queued write is refused once it stops waiting", async () => {
+    const chips = (waiting: boolean) => (
+      <ArtifactLabelChips waiting={waiting} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "queued" as const} />
+    );
+    render(chips(false));
+    await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
+    render(chips(true));
+    expect(host.querySelector('[aria-label="Remove draft"]')).toBeNull();
+    render(chips(false));
+    expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
+  });
+
+  it("keeps a later change shown when an earlier one is refused after it", async () => {
+    const rulings: Array<(ruling: "applied" | "refused") => void> = [];
+    const onChange = () => new Promise<"applied" | "refused">((resolve) => rulings.push(resolve));
+    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c")} used={L()} readOnly={false} onChange={onChange} />);
+    press('[aria-label="Remove a"]');
+    press('[aria-label="Remove b"]');
+    await act(async () => rulings[0]?.("refused"));
+    expect([...host.querySelectorAll(".artifact-labels__word")].map((w) => w.textContent)).toEqual(["c"]);
+    await act(async () => rulings[1]?.("refused"));
+    expect([...host.querySelectorAll(".artifact-labels__word")].map((w) => w.textContent)).toEqual(["a", "b", "c"]);
+  });
+
   it("shows three chips and the rest behind a count, and closes on Escape back to the add button", () => {
-    render(<ArtifactLabelChips labels={L("a", "b", "c", "d", "e")} used={L()} readOnly={false} onChange={async () => true} />);
+    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d", "e")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
     expect(host.querySelectorAll(".artifact-labels__chips .artifact-labels__chip")).toHaveLength(3);
     press('[aria-label="2 more labels"]');
     expect(host.querySelectorAll(".artifact-labels__held .artifact-labels__chip")).toHaveLength(5);
@@ -165,11 +189,11 @@ describe("header label chips", () => {
   });
 
   it("shows an archived artifact's labels without add or remove, and nothing when it has none", () => {
-    render(<ArtifactLabelChips labels={L("draft")} used={L()} readOnly onChange={async () => true} />);
+    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly onChange={async () => "applied" as const} />);
     expect(host.textContent).toContain("draft");
     expect(host.querySelector('[aria-label="Add labels"]')).toBeNull();
     expect(host.querySelector('[aria-label^="Remove"]')).toBeNull();
-    render(<ArtifactLabelChips labels={L()} used={L()} readOnly onChange={async () => true} />);
+    render(<ArtifactLabelChips waiting={false} labels={L()} used={L()} readOnly onChange={async () => "applied" as const} />);
     expect(host.querySelector('[aria-label="Labels"]')).toBeNull();
   });
 });

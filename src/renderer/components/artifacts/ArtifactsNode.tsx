@@ -248,7 +248,9 @@ export function ArtifactsNode({
         </div>
         <ArtifactLabelFilter
           choices={choices}
-          onToggle={(label) => setLabels(labels.includes(label) ? labels.filter((one) => one !== label) : [...labels, label].sort())}
+          onToggle={(label) =>
+            setLabels((picked) => (picked.includes(label) ? picked.filter((one) => one !== label) : [...picked, label].sort()))
+          }
           onClear={() => setLabels([])}
         />
       </div>
@@ -650,7 +652,8 @@ function SelectedArtifact({
           labels={artifact.labels}
           used={usedLabels}
           readOnly={readOnly}
-          onChange={(next) => apply({ op: "labels", labels: [...next] }).then((ruling) => ruling.kind === "applied" || ruling.kind === "queued")}
+          waiting={pending.some((write) => write.op.op === "labels")}
+          onChange={(next) => apply({ op: "labels", labels: [...next] }).then((ruling) => ruling.kind)}
         />
         <span className="artifact-head__meta">
           {TYPE_NOUN[artifact.type]}, version {artifact.version}

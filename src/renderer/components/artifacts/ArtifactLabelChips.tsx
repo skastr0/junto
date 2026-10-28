@@ -57,26 +57,41 @@ export const addLabel = (
  * An artifact's labels in its header (0.11, 03): chips after the title,
  * each removable, and a picker that completes from the labels this node
  * already uses or adds a new one. Every change sends the whole next set; it
- * shows at once and goes back to the ruled set when it is refused.
+ * shows at once and goes back to the ruled set when it is refused, at once or
+ * after it waited in the queue.
  */
 export function ArtifactLabelChips({
   labels,
   used,
   readOnly,
+  waiting,
   onChange,
 }: {
   readonly labels: ReadonlyArray<ArtifactLabel>;
   /** Every label this Artifacts node uses, to complete from. */
   readonly used: ReadonlyArray<ArtifactLabel>;
   readonly readOnly: boolean;
-  /** Send the whole next set; true once it applied or queued, false when it was refused or failed. */
-  readonly onChange: (labels: ReadonlyArray<ArtifactLabel>) => Promise<boolean>;
+  /** A labels write of this artifact's is queued, not yet ruled by the editing machine. */
+  readonly waiting: boolean;
+  /** Send the whole next set; how it was ruled, a failure to send reading as refused. */
+  readonly onChange: (labels: ReadonlyArray<ArtifactLabel>) => Promise<"applied" | "queued" | "refused">;
 }) {
-  /** The set last sent, shown until the ruled set changes or the write comes back refused. */
-  const [sent, setSent] = useState<ReadonlyArray<ArtifactLabel> | null>(null);
+  /**
+   * The set last sent, shown until the ruled set changes, its write comes back
+   * refused, or, queued, nothing waits any more: a queued write the editing
+   * machine refused leaves the ruled set as it was. `seq` names the latest
+   * send, so an earlier one ruled late never takes back a later one.
+   */
+  const [sent, setSent] = useState<{ readonly labels: ReadonlyArray<ArtifactLabel>; readonly seq: number; readonly queued: boolean } | null>(
+    null,
+  );
+  const seq = useRef(0);
   const ruled = labels.join("\n");
   useEffect(() => setSent(null), [ruled]);
-  const held = sent ?? labels;
+  useEffect(() => {
+    if (!waiting) setSent((last) => (last?.queued === true ? null : last));
+  }, [waiting]);
+  const held = sent?.labels ?? labels;
 
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState("");
@@ -112,13 +127,15 @@ export function ArtifactLabelChips({
   }, [picking]);
 
   const send = (next: ReadonlyArray<ArtifactLabel>): void => {
-    setSent(next);
-    void onChange(next).then(
-      (landed) => {
-        if (!landed) setSent(null);
-      },
-      () => setSent(null),
-    );
+    const mine = ++seq.current;
+    setSent({ labels: next, seq: mine, queued: false });
+    const settle = (ruling: "applied" | "queued" | "refused"): void =>
+      setSent((last) => {
+        if (last?.seq !== mine) return last;
+        if (ruling === "refused") return null;
+        return ruling === "queued" ? { ...last, queued: true } : last;
+      });
+    void onChange(next).then(settle, () => settle("refused"));
   };
   const add = (raw: string): void => {
     const next = addLabel(held, raw);
