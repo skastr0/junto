@@ -177,9 +177,12 @@ needs no lease and no clock. It follows from who must agree to a commit.
   run on a listed machine, is the operator's statement that the other
   machine is dead. It starts a term in which this machine commits alone. If
   the other machine was in fact ruling, both committed. The later term wins
-  on contact; the losing term's entries after the fork are queued again as
-  commands and shown as 'ruled while another machine held authority'.
-  Nothing is dropped. This is the only path to divergence, and only the
+  on contact. The losing term's entries after the fork are kept under the
+  mark 'ruled while another machine held authority': seat and automation
+  rows are queued again as commands, and operator and structure entries
+  wait for the operator to apply or discard them (an operator write is
+  never queued). The banner and `junto authority status` show how many
+  wait. Nothing is dropped. This is the only path to divergence, and only the
   operator takes it.
 
 ### 3. What a fallback holds, and how it stays current
