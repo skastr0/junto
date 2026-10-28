@@ -111,9 +111,12 @@ export const applyAutomationCommand = (command: ResourceCommand<AutomationOp>) =
     const outcome = yield* submitAutomationCommand(writer.value, command, rulingContextOf(canvas, () => undefined), env);
     if (outcome.kind === "refused") return outcome;
     // An applied run fires now, so its firing is in the history read next, when it runs on this machine.
-    if (command.op.kind === "run" && outcome.facts.length > 0) {
-      const runner = yield* Effect.serviceOption(AutomationRunnerService);
-      if (Option.isSome(runner)) yield* runner.value.onRun(name, outcome.automation.automationId);
+    // Any other applied write reads the canvas now: a canvas's first automation takes its baseline
+    // here, so the next change fires instead of becoming that baseline (B1).
+    const runner = yield* Effect.serviceOption(AutomationRunnerService);
+    if (outcome.facts.length > 0 && Option.isSome(runner)) {
+      if (command.op.kind === "run") yield* runner.value.onRun(name, outcome.automation.automationId);
+      else yield* runner.value.wake(name).pipe(Effect.catchCause((cause) => Effect.logWarning("automation pass after a save failed", cause)));
     }
     for (const listener of listeners) listener(name, command.target.nodeId as NodeId);
     return outcome;

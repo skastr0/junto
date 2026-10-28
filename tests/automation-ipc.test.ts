@@ -347,6 +347,49 @@ describe("comment triggers, read from each Artifacts node's mailbox", () => {
     }, work);
   });
 
+  it("fire on the first comment after a canvas's first automation is saved: the save takes the baseline", () => {
+    let mailbox = [comment("01M5ESKJFC1A88R1MH1NEZWJ71")];
+    const work: Partial<WorkServiceShape> = { readMailbox: () => Effect.succeed(mailbox) };
+    return run(async (handlers, _changed, _sql, inApp) => {
+      const onComment = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "artifact", artifact: { kind: "artifact", nodeId: ARTIFACTS, artifactId: ARTIFACT }, event: "commented" } },
+        limits: { minIntervalMs: 0, maxPerHour: 60 },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onComment as never } });
+      // No pass between the save and the comment: the comment's own wake is the next one.
+      mailbox = [...mailbox, comment("01M5ESKJFC1A88R1MH1NEZWJ73")];
+      await inApp(Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).wake("factory");
+      }));
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => f.cause)).toEqual([{ kind: "change", key: `artifact:${ARTIFACT}:commented:01M5ESKJFC1A88R1MH1NEZWJ73` }]);
+    }, work);
+  });
+
+  it("still fire for one automation after another is saved beside it", () => {
+    let mailbox = [comment("01M5ESKJFC1A88R1MH1NEZWJ71")];
+    const work: Partial<WorkServiceShape> = { readMailbox: () => Effect.succeed(mailbox) };
+    return run(async (handlers, _changed, _sql, inApp) => {
+      const onComment = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "artifact", artifact: { kind: "artifact", nodeId: ARTIFACTS, artifactId: ARTIFACT }, event: "commented" } },
+        limits: { minIntervalMs: 0, maxPerHour: 60 },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onComment as never } });
+      const other = "01M5ESKJFC1A88R1MH1NEZWJ2R";
+      await handlers.apply("factory", { nodeId: NODE, automationId: other, op: { kind: "create", automationId: other, enabled: true, definition: { ...onComment, name: "Other" } as never } });
+      mailbox = [...mailbox, comment("01M5ESKJFC1A88R1MH1NEZWJ73")];
+      await inApp(Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).wake("factory");
+      }));
+      for (const automationId of [ID, other]) {
+        const { firings } = await handlers.firings("factory", { automationId: automationId as never });
+        expect(firings.map((f) => f.cause), automationId).toEqual([{ kind: "change", key: `artifact:${ARTIFACT}:commented:01M5ESKJFC1A88R1MH1NEZWJ73` }]);
+      }
+    }, work);
+  });
+
   it("take a node's first good read as its baseline, when its read failed on the runner's first pass", () => {
     let mailbox = [comment("01M5ESKJFC1A88R1MH1NEZWJ71"), comment("01M5ESKJFC1A88R1MH1NEZWJ72")];
     let down = true;
