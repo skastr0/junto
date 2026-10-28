@@ -387,6 +387,90 @@ as sources to copy from and never changes; a copy never overwrites, it
 takes the next free name (`name 2`). All channels sit behind
 `trustedRendererIpc`.
 
+## Code steps
+
+An automation's `code` step runs authored TypeScript, or later a shell
+script, on the automation's machine as that machine's OS account. It is not a
+sandbox. The code may be written on one machine and run on another, so a
+machine runs it only when all five checks hold, at every firing:
+
+1. The automation's definition reached this machine as an applied automation
+   ruling from the canvas's editing machine. A row never carries code.
+2. The code is a content ref in that ruling. Its bytes travel as content
+   does: bounded, entitled to the automation's machine and the editing
+   machine only, never in a canvas copy.
+3. The code's author was the operator, or a seat holding a live overseer
+   grant on the editing machine's copy when the editing machine ruled it.
+   The editing machine stamps that author from the admitted command's actor,
+   never from the op, and the author is the actor of the ruling that last set
+   the code ref: changing a trigger or another step does not change who wrote
+   the program. The automation domain refuses code from any other seat and
+   from an automation actor. Code never writes code.
+4. This machine's allowance covers the canvas, the canvas's editing
+   installation and the author. The allowance is a machine-local setting
+   under `~/.junto`, written only by `junto machine code allow <canvas>` on
+   that machine or by install over the operator's own SSH route, both owner
+   commands refused from a seat environment. It is never a row, never set
+   from a link and never carried in a copy, the same as secrets; `status`
+   may report its state (allowed, scope) so the window can warn at save. Its
+   scope is operator only, or operator and overseers, which is the default
+   when allowed (the operator's decision). It binds the editing installation
+   it was given for, so a handover needs a new allowance. The editing machine
+   needs one too.
+5. The automation names this machine.
+
+A failed check is refused `not_permitted`, and the firing log names the
+check and the machine. A move changes the machine, its files, its secrets and
+its allowance, never the program. A move to a machine without an allowance
+fails closed there, shown at save and in the firing log. The machine the
+code left keeps the bytes it received.
+
+What an allowance admits. With operator and overseers, it lets the editing
+machine and every machine hosting an overseer seat on that canvas run code
+here as the OS account, and any process on those machines, since seat
+credentials are readable off the process table (Trust and its limits).
+Operator only narrows that to the editing machine. A compromised editing
+machine controls the code on every machine that allows its canvas. The
+allowance guards against other machines, not against code already running
+here, which as the OS account can rewrite it. Revoking an overseer grant
+leaves code that overseer wrote in place; editing the automation or
+withdrawing the allowance stops it. Withdrawing stops future runs, not one in
+flight, which ends at its timeout. An automation that mails or prompts an
+overseer gives that overseer input, never authority to write code.
+
+Each run:
+
+- Copies the bytes into a fresh 0700 directory made for that run, verifies
+  that copy against the digest, and runs that copy, with the directory as
+  its working directory. The directory is removed after the run.
+- Runs TypeScript with the core's own runtime by absolute path, never one
+  found on `PATH`. Imports resolve only to the SDK and the runtime's
+  built-ins: no package install, no package resolution from a folder, and no
+  `.env`, `bunfig.toml`, `package.json` or `tsconfig.json` read from any
+  folder, the same as git config (Files node).
+- Runs shell as `/bin/sh <path>`. The path is in argv; the source bytes, the
+  trigger and its values never are.
+- Gives the child an environment of the region's values on that machine
+  plus `PATH`, `HOME`, `TMPDIR` and `LANG`, and nothing of the core's.
+  `JUNTO_WORK_TOKEN` is set to the empty string, so the CLI refuses owner
+  and machine commands (`src/cli/core/owner-access.ts:7`); that guards
+  against confused use, not attack.
+- Gives the child no Junto credential. Input arrives as JSON on stdin and the
+  result goes out on fd 3. The SDK has no Junto operation; if it gains one,
+  the child gets a credential for the automation actor alone, for that
+  firing, revoked on exit or timeout, never a seat token or the owner socket.
+- Bounds time and output and holds the loop rule. A timeout or an exceeded
+  bound stops the process group under the process rule (Install, update and
+  machine safety).
+- Records in the firing row the definition version, the code digest and the
+  machine, so the log says which bytes ran where.
+
+A child that receives a secret can read and disclose it, including in its
+result, whose values later steps can mail. Argv past the executable, the
+environment, stdin, stdout and the result never enter a log or a failure. The
+child's stderr contributes a tail only through the stderr-tail rule below,
+with the child's environment among the known values.
+
 ## Failures and logs
 
 Failures cross the link with their cause chain, and every machine keeps a log
@@ -421,7 +505,7 @@ into a failure or a log.
 
 **Stderr tails.** Only processes Junto spawns without a terminal contribute a
 tail: the remote core under SSH, the OpenSSH client, install, update and
-service commands, and the build check. A secret tool's stderr (`security`,
+service commands, the build check and a code step's child. A secret tool's stderr (`security`,
 `secret-tool`, `op`, an operator's command) stays classification only. The
 machine that read the bytes makes the tail, in this order:
 
@@ -434,7 +518,7 @@ machine that read the bytes makes the tail, in this order:
 3. Replace every known value with `[redacted]` through `redactSecretValues`
    (`src/main/junto/credentials/redact.ts`). Known values are the generation
    credential and every value in the process environment and in each live
-   seat's child environment, region values included, except those named
+   seat's and code step's child environment, region values included, except those named
    `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`,
    `COLORTERM`, `LANG`, `LC_*`, `JUNTO_HOME`, `JUNTO_SEAT`, `JUNTO_NODE_REF`,
    `JUNTO_SOCKET`, `JUNTO_WORK_SOCKET`, `JUNTO_WORK_HOME` and `JUNTO_CLI`:
