@@ -101,6 +101,20 @@ canvas-lead).
 
 ## 4. Before the cut
 
+- [ ] **Cut blocker.** The retired-state package audit must pass on the
+      renderer bundle. An all-on Preview export of main failed it: renderer
+      `index-*.js` 8.43 MB over the 8 MiB scan bound
+      (`maxAsarEntryBytes`, `scripts/audit-retired-state-signatures.ts:92`;
+      reported by remote-lead via remote-verify). Decision (product-lead): the
+      renderer splits, the bound stays. performance-lead owns the split and
+      sends the hash. Receipt wanted: the audit passing on a Preview export
+      and on the ship export at the cut hash. Ship profile at 66009c9cc
+      (checked 2026-10-28, clean export, `JUNTO_FEATURE_PROFILE=ship
+      electron-vite build`): `index-y8KIeOa9.js` is 8,357,477 bytes, 31,131
+      under the 8,388,608 bound (size measured; the audit itself not run on
+      it). A 30 KiB margin means any renderer growth before the cut can trip
+      it; recheck at the cut hash either way.
+
 - [ ] Every track in the plan's tracker reports done and verified by a seat
       that did not write it (product-automation and product-verify in the real
       app), and product-lead names the cut hash. If main moved past it with
