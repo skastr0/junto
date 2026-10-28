@@ -145,6 +145,11 @@
   background: var(--label-fill);
 }
 
+/* The count sits on the fill once picked: dim falls under 4.5 there, the word token does not. */
+.artifacts-filter__label-pair[data-label-colour] .artifacts-filter__label-count {
+  color: var(--label-fg);
+}
+
 .artifacts-filter__swatch {
   display: grid;
   width: 20px;
