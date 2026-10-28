@@ -64,6 +64,7 @@ import {
 } from "@shared/resource-command";
 import { canonicalJson } from "@shared/work-canonical-json";
 import type { WorkErrorBody } from "@shared/work-control";
+import type { ArtifactLabel } from "@shared/artifact-labels";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { ContentService } from "../content/service";
 import { StateTransactionOperation } from "../state/service";
@@ -101,6 +102,8 @@ export type ArtifactVersionRead = {
 export type ArtifactListQuery = {
   readonly nodeIds: ReadonlyArray<NodeId>;
   readonly type?: ArtifactType;
+  /** Every label must match, each by equality or by sitting under it (as `artifactLabelsMatch`). */
+  readonly labels?: ReadonlyArray<ArtifactLabel>;
   readonly archived: boolean;
   readonly limit: number;
 };
@@ -210,8 +213,8 @@ const parse = (json: string): unknown => {
   }
 };
 
-/** A head row as the contract's Artifact, or nothing when the row does not decode. */
-export const artifactOfRow = (row: HeadRow): Artifact | undefined => {
+/** A head row as the contract's Artifact, or nothing when the row does not decode. Labels live beside the head row. */
+export const artifactOfRow = (row: HeadRow, labels: ReadonlyArray<string> = []): Artifact | undefined => {
   const decoded = decodeArtifact({
     artifactId: row.artifact_id,
     nodeId: row.node_id,
@@ -222,9 +225,33 @@ export const artifactOfRow = (row: HeadRow): Artifact | undefined => {
     updatedAt: row.updated_at,
     archived: row.archived === 1,
     taskIds: parse(row.task_ids_json),
+    labels,
   });
   return Result.isSuccess(decoded) ? decoded.success : undefined;
 };
+
+/** The labels of each artifact asked for, in the canonical order the rows hold. */
+const labelRows = (
+  sql: SqlClient.SqlClient,
+  canvasName: string,
+  artifactIds: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyMap<string, ReadonlyArray<string>>, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const held = new Map<string, string[]>();
+    if (artifactIds.length === 0) return held;
+    const rows = yield* sql.unsafe<{ readonly artifact_id: string; readonly label: string }>(
+      `SELECT artifact_id, label FROM artifact_labels
+       WHERE canvas_name = ? AND artifact_id IN (${artifactIds.map(() => "?").join(", ")})
+       ORDER BY artifact_id, label`,
+      [canvasName, ...artifactIds],
+    );
+    for (const row of rows) {
+      const list = held.get(row.artifact_id);
+      if (list === undefined) held.set(row.artifact_id, [row.label]);
+      else list.push(row.label);
+    }
+    return held;
+  });
 
 const decodeActor = Schema.decodeUnknownResult(ResourceActorSchema);
 
@@ -361,6 +388,12 @@ export const projectArtifactFacts = (
             VALUES (${canvas}, ${a.artifactId}, ${a.version}, ${opId}, ${actorJson(a.createdBy)}, ${a.updatedAt},
               NULL, ${JSON.stringify(fact.bodyRef)}, ${body})`;
           yield* projectLinks(a.artifactId, a.version, fact.body ?? bodyOf(fact.bodyRef));
+          // A create carries its labels; a fact applied twice writes the same rows.
+          for (const label of a.labels) {
+            yield* sql`
+              INSERT OR IGNORE INTO artifact_labels (canvas_name, artifact_id, label)
+              VALUES (${canvas}, ${a.artifactId}, ${label})`;
+          }
           break;
         }
         case "artifact.edited": {
@@ -377,6 +410,19 @@ export const projectArtifactFacts = (
           yield* projectLinks(fact.artifactId, fact.version, bodyOf(fact.bodyRef));
           break;
         }
+        case "artifact.labelled":
+          // The whole set: the rows are replaced, so applying the fact twice
+          // leaves the same table, and no version or body moves.
+          yield* sql`DELETE FROM artifact_labels WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          for (const label of fact.labels) {
+            yield* sql`
+              INSERT INTO artifact_labels (canvas_name, artifact_id, label)
+              VALUES (${canvas}, ${fact.artifactId}, ${label})`;
+          }
+          yield* sql`
+            UPDATE artifact_heads SET updated_at = ${fact.at}
+            WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          break;
         case "artifact.retitled":
           yield* sql`
             UPDATE artifact_heads SET title = ${fact.title}, updated_at = ${fact.at}
@@ -481,7 +527,8 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       Effect.gen(function* () {
         const row = yield* headRow({ canvas, id });
         if (Option.isNone(row)) return Option.none<ArtifactHeadRead>();
-        const artifact = artifactOfRow(row.value);
+        const labels = yield* labelRows(sql, canvas, [id]);
+        const artifact = artifactOfRow(row.value, labels.get(id) ?? []);
         if (artifact === undefined) return yield* unreadable("head", `artifact ${id}`);
         const what = `artifact ${id} at version ${artifact.version}`;
         const stored = yield* bodyRow({ canvas, id, version: artifact.version });
@@ -543,12 +590,25 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
             AND ${sql.in("node_id", query.nodeIds)}
             AND archived = ${query.archived ? 1 : 0}
             ${query.type === undefined ? sql`` : sql`AND type = ${query.type}`}
+            ${query.labels === undefined || query.labels.length === 0
+              ? sql``
+              : sql`AND ${sql.and(
+                  query.labels.map(
+                    (label) => sql`EXISTS (
+                      SELECT 1 FROM artifact_labels matched
+                      WHERE matched.canvas_name = artifact_heads.canvas_name
+                        AND matched.artifact_id = artifact_heads.artifact_id
+                        AND (matched.label = ${label} OR substr(matched.label, 1, length(${label}) + 1) = ${label} || '/'))`,
+                  ),
+                )}`}
           ORDER BY updated_at DESC, artifact_id DESC
           LIMIT ${query.limit + 1}`,
       })(undefined);
+      const page = rows.slice(0, query.limit);
+      const labels = yield* labelRows(sql, canvasName, page.map((row) => row.artifact_id));
       const artifacts: Artifact[] = [];
-      for (const row of rows.slice(0, query.limit)) {
-        const artifact = artifactOfRow(row);
+      for (const row of page) {
+        const artifact = artifactOfRow(row, labels.get(row.artifact_id) ?? []);
         if (artifact === undefined) return yield* unreadable("list", `artifact ${row.artifact_id}`);
         artifacts.push(artifact);
       }

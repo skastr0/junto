@@ -13,6 +13,7 @@
  * it by ref before it rules an edit on it.
  */
 import { Result, Schema } from "effect";
+import { ArtifactLabels, artifactLabelsOf } from "./artifact-labels";
 import { ContentRef } from "./content";
 import {
   Artifact,
@@ -85,6 +86,8 @@ export const ArtifactFact = Schema.Union([
     at: Schema.Number,
   }),
   Schema.Struct({ fact: Schema.Literal("artifact.retitled"), artifactId: ItemId, title: Schema.String, at: Schema.Number }),
+  /** The whole label set, canonical, so applying it twice changes nothing. */
+  Schema.Struct({ fact: Schema.Literal("artifact.labelled"), artifactId: ItemId, labels: ArtifactLabels, at: Schema.Number }),
   Schema.Struct({ fact: Schema.Literal("artifact.archived"), artifactId: ItemId, archived: Schema.Boolean, at: Schema.Number }),
   Schema.Struct({ fact: Schema.Literal("artifact.tasks"), artifactId: ItemId, taskIds: Schema.Array(ItemId), at: Schema.Number }),
 ]);
@@ -177,6 +180,8 @@ export const ruleArtifactCommand = (
     }
     const body = decodeArtifactBody(op.body);
     if (Result.isFailure(body)) return refuse({ reason: "invalid_input", message: String(body.failure) });
+    const labels = artifactLabelsOf(op.labels ?? []);
+    if (labels === undefined) return refuse({ reason: "invalid_input", message: "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //, and an artifact holds at most 20" });
     return apply(inlineIfSmall({
       fact: "artifact.created",
       bodyRef: bodyRef(body.success),
@@ -190,6 +195,7 @@ export const ruleArtifactCommand = (
         updatedAt: at,
         archived: false,
         taskIds: op.taskIds ?? [],
+        labels,
       },
       body: body.success,
     } as const, "body"));
@@ -233,6 +239,16 @@ export const ruleArtifactCommand = (
     }
     case "retitle":
       return apply({ fact: "artifact.retitled", artifactId, title: op.title, at });
+    case "labels": {
+      const labels = artifactLabelsOf(op.labels);
+      if (labels === undefined) {
+        return refuse({
+          reason: "invalid_input",
+          message: "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //, and an artifact holds at most 20",
+        });
+      }
+      return apply({ fact: "artifact.labelled", artifactId, labels, at });
+    }
     case "archive":
       return entry.artifact.archived
         ? refuse({ reason: "invalid_transition", message: `artifact ${artifactId} is already archived` })
@@ -315,6 +331,11 @@ export const applyArtifactFact = (state: ArtifactState, fact: ArtifactFact): Art
       return withEntry(state, fact.artifactId, (entry) => ({
         ...entry,
         artifact: { ...entry.artifact, taskIds: fact.taskIds, updatedAt: fact.at },
+      }));
+    case "artifact.labelled":
+      return withEntry(state, fact.artifactId, (entry) => ({
+        ...entry,
+        artifact: { ...entry.artifact, labels: fact.labels, updatedAt: fact.at },
       }));
   }
 };

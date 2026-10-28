@@ -90,10 +90,12 @@ const command = (
   op,
 });
 
+/** A statement as a store write runs it: inside the transaction a ruling's facts fold in. */
 const sql = (statement: (client: SqlClient.SqlClient) => Effect.Effect<unknown, unknown>) =>
   runtime.runPromise(
     Effect.gen(function* () {
-      return yield* statement(yield* SqlClient.SqlClient);
+      const client = yield* SqlClient.SqlClient;
+      return yield* client.withTransaction(statement(client) as Effect.Effect<unknown, never>);
     }),
   );
 
@@ -277,6 +279,7 @@ describe("ArtifactRepository", () => {
             updatedAt: 1,
             archived: false,
             taskIds: [],
+            labels: [],
           },
         },
         { fact: "artifact.edited", artifactId: id, version: v(2), bodyRef, author: operator, at: 2 },

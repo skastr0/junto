@@ -43,7 +43,7 @@ import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
-import { ARTIFACT_LINKS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
+import { ARTIFACT_LABELS_STATE_SCHEMA_SQL, ARTIFACT_LINKS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
 import { rebuildMentions } from "../work/mention-backlinks";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
@@ -669,7 +669,17 @@ export const STATE_SCHEMA_V52_IDENTITY = {
     "810f2dd7a207fb19aa8a85a5b9d796b35c655a3fd6e5a8fe376909d3960150d5",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 52;
+/**
+ * Version 53 keeps an artifact's labels (0.11, 03): `artifact_labels`, one
+ * row per label the head carries, replaced whole by every labels ruling. A
+ * head from before the step has no rows and reads as none. Expand only.
+ */
+export const STATE_SCHEMA_V53_IDENTITY = {
+  actualSchemaSha256:
+    "a769e869bb7f8b86fceb67fe349e336757e60581298d05cf24762a1b03672be3",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 53;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -677,7 +687,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 52;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V52_IDENTITY;
+  STATE_SCHEMA_V53_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1084,6 +1094,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V51_IDENTITY,
     migrate: (database) => database.exec(ARTIFACT_LINKS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 52,
+    toVersion: 53,
+    name: "add the artifact labels",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V52_IDENTITY,
+    migrate: (database) => database.exec(ARTIFACT_LABELS_STATE_SCHEMA_SQL),
   },
 ];
 

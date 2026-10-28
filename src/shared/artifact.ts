@@ -20,7 +20,8 @@
  * Pure: no Node, no Electron, no storage. Bytes never live in a body; files
  * and pad images are content refs.
  */
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { ArtifactLabel } from "./artifact-labels";
 import { ContentRef } from "./content";
 import { NodeId } from "./physics/schema";
 import { ResourceActor } from "./resource-command";
@@ -227,6 +228,12 @@ export const Artifact = Schema.Struct({
   archived: Schema.Boolean,
   /** Tasks this artifact names; shown as chips. A task names artifacts as evidence. */
   taskIds: Schema.Array(ItemId),
+  /**
+   * Grouping labels (03), canonical: folded, unique, sorted, at most 20. A
+   * head written before the labels step decodes to none. Labels are not
+   * versioned body: they never move `version`.
+   */
+  labels: Schema.Array(ArtifactLabel).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
 export type Artifact = typeof Artifact.Type;
 
@@ -364,9 +371,13 @@ export const ArtifactOp = Schema.Union([
     title: Title,
     body: ArtifactBody,
     taskIds: Schema.optionalKey(Schema.Array(ItemId)),
+    /** Folded by the ruler; a label it cannot read refuses the create as invalid input. */
+    labels: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
   Schema.Struct({ op: Schema.Literal("edit"), edit: ArtifactEdit }),
   Schema.Struct({ op: Schema.Literal("retitle"), title: Title }),
+  /** The whole set, so two writers resolve as every other artifact op does. */
+  Schema.Struct({ op: Schema.Literal("labels"), labels: Schema.Array(Schema.String) }),
   Schema.Struct({ op: Schema.Literal("archive") }),
   Schema.Struct({ op: Schema.Literal("restore") }),
   Schema.Struct({ op: Schema.Literal("tasks"), taskIds: Schema.Array(ItemId) }),

@@ -306,3 +306,9 @@ export const STATE_SCHEMA_V52_SQL = stepped(
   STATE_SCHEMA_V51_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 52)!.migrate,
 );
+
+/** Step 53 adds `artifact_labels`. */
+export const STATE_SCHEMA_V53_SQL = stepped(
+  STATE_SCHEMA_V52_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 53)!.migrate,
+);

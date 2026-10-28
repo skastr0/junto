@@ -182,6 +182,8 @@ export const opLabel = (op: ArtifactOp): string => {
       return op.edit.kind === "replace" ? "Replace the content" : "Edit";
     case "retitle":
       return `Rename to ${op.title}`;
+    case "labels":
+      return op.labels.length === 0 ? "Clear its labels" : `Label it ${op.labels.join(", ")}`;
     case "archive":
       return "Archive";
     case "restore":

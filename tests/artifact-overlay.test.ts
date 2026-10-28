@@ -84,11 +84,13 @@ const ruledHere = async (version: 1 | 2) => {
     fact: "artifact.created" as const,
     bodyRef: artifactBodyRef(body),
     body,
-    artifact: { artifactId: id, nodeId: node, type: "document" as const, title: "Remote", version: v(1), createdBy: operator, updatedAt: 1, archived: false, taskIds: [] },
+    artifact: { artifactId: id, nodeId: node, type: "document" as const, title: "Remote", version: v(1), createdBy: operator, updatedAt: 1, archived: false, taskIds: [], labels: [] },
   };
   const edited = { fact: "artifact.edited" as const, artifactId: id, version: v(2), bodyRef: artifactBodyRef({ type: "document", markdown: "from afar" }), author: operator, at: 2 };
   await runtime.runPromise(Effect.gen(function* () {
-    yield* projectArtifactFacts(yield* SqlClient.SqlClient, canvas, mintOpId(), version === 1 ? [created] : [created, edited], () => undefined);
+    const sql = yield* SqlClient.SqlClient;
+    // A ruling's facts fold in the ruling's transaction, as the exchange does.
+    yield* sql.withTransaction(projectArtifactFacts(sql, canvas, mintOpId(), version === 1 ? [created] : [created, edited], () => undefined));
   }));
   return id;
 };

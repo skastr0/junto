@@ -73,3 +73,26 @@ export const ARTIFACT_LINKS_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS work_artifact_links_target
     ON work_artifact_links (canvas_name, target_node_id, target_artifact_id);
 `;
+
+/**
+ * An artifact's labels (0.11, 03): one row per label the head carries, the
+ * whole set replaced by every labels ruling so two writers resolve as every
+ * other artifact op does. A label is canonical (folded, 1 to 40 characters);
+ * the head row keeps its versions and body, so labels never move a version.
+ * A head written before this step simply has no rows here and reads as none.
+ * Added by state migration 52 -> 53.
+ */
+export const ARTIFACT_LABELS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS artifact_labels (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    artifact_id TEXT NOT NULL CHECK (length(artifact_id) = 26),
+    label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 40),
+    PRIMARY KEY (canvas_name, artifact_id, label),
+    FOREIGN KEY (canvas_name, artifact_id)
+      REFERENCES artifact_heads (canvas_name, artifact_id)
+      ON DELETE CASCADE
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS artifact_labels_by_label
+    ON artifact_labels (canvas_name, label);
+`;
