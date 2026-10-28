@@ -1,7 +1,7 @@
 import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import { actorEdgeRows, type ActorEdgeRow } from "./actor-edges";
 import { isMirrorablePeer } from "./actor-mirrors";
-import { sectionOpen, setSectionOpen, type SectionOpenMap } from "./sidebar-sections";
+import { nodeViewStore, useNodeView } from "./node-view-state";
 
 /**
  * The agent modal's rail: the agents a seat is connected to, each drawn as
@@ -12,12 +12,13 @@ import { sectionOpen, setSectionOpen, type SectionOpenMap } from "./sidebar-sect
 
 export type ActorRailMode = "none" | "collapsed" | "expanded";
 
-/** Whether the rail is expanded: one choice for every agent, kept with the other sidebar state. */
-const RAIL_OPEN_KEY = "seat-rail";
+/** Whether the rail is expanded: one choice for every agent, kept in view state so a quit brings it back (0.11, 04, V3). */
+export const actorRailExpanded = (): boolean => nodeViewStore().actorRailExpanded();
 
-export const actorRailExpanded = (map?: SectionOpenMap): boolean => sectionOpen(RAIL_OPEN_KEY, true, map);
+/** The rail's choice, read again as it changes in any window. */
+export const useActorRailExpanded = (): boolean => useNodeView((store) => store.actorRailExpanded());
 
-export const setActorRailExpanded = (expanded: boolean): void => setSectionOpen(RAIL_OPEN_KEY, expanded);
+export const setActorRailExpanded = (expanded: boolean): void => nodeViewStore().writeActorRailExpanded(expanded);
 
 export type ActorRailPeers = {
   /** Connected agents with a terminal to move to, one entry per agent. */

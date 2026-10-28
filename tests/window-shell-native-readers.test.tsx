@@ -10,7 +10,9 @@ import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import { terminal$ } from "../src/renderer/lib/terminal-state";
-import { sidebarSections$ } from "../src/renderer/lib/sidebar-sections";
+import { setActorRailExpanded } from "../src/renderer/lib/actor-rail";
+import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
 import { actorTerminalRailsPx } from "../src/renderer/lib/focus-measure";
 import { SeatMessageForm, SeatMessageToolbarAction } from "../src/renderer/components/nodes/SeatMessage";
 import { WorkFocusShell } from "../src/renderer/components/workbench/WorkFocusShell";
@@ -57,7 +59,7 @@ beforeEach(() => {
   state$.actorRefs.set([]);
   dock$.registry.set(initialWorkbenchState());
   terminal$.openByNodeId.set({});
-  sidebarSections$.open.set({});
+  setNodeViewStore(makeMemoryNodeViewStore());
   host = document.createElement("div"); document.body.append(host);
   root = createRoot(host);
 });
@@ -66,7 +68,7 @@ afterEach(async () => {
   await act(async () => { root.unmount(); await flush(); });
   host.remove();
   dock$.registry.set(initialWorkbenchState()); terminal$.openByNodeId.set({});
-  sidebarSections$.open.set({});
+  setNodeViewStore(makeMemoryNodeViewStore());
   modelStore.canvas$(canvas).nodes.set({}); modelStore.canvas$(canvas).wires.set({});
   state$.canvasName.set(""); state$.selectedNodeId.set("");
   (window as unknown as { junto: unknown }).junto = oldApi;
@@ -111,7 +113,7 @@ it("budgets the focused terminal's rail from native wires and follows collapse a
     modelStore.wire$(canvas, "connection").set(decodeWire({ id: "connection", from: "seat", to: "peer", verb: "messages" })); await flush();
   });
   expect(rails()).toBe(`${actorTerminalRailsPx("expanded")}px`);
-  await act(async () => { sidebarSections$.open["seat-rail"].set(false); await flush(); });
+  await act(async () => { setActorRailExpanded(false); await flush(); });
   expect(rails()).toBe(`${actorTerminalRailsPx("collapsed")}px`);
   await act(async () => { modelStore.wire$(canvas, "connection").delete(); await flush(); });
   expect(rails()).toBe("0px");

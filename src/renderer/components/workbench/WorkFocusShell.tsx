@@ -20,10 +20,9 @@ import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { clampToFrame, watchOperatorResize } from "../../lib/operator-resize";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
-import { actorRailExpanded } from "../../lib/actor-rail";
+import { useActorRailExpanded } from "../../lib/actor-rail";
 import { modelStore } from "../../lib/use-model";
 import { roleOfKind } from "../../lib/model-kind";
-import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { WorkbenchChrome } from "./WorkbenchChrome";
@@ -37,7 +36,7 @@ import { saveAndCloseNoteSurface } from "./NoteSurface";
  * through a selector that returns the mode, so the shell re-renders when the
  * mode changes, never on a node move.
  */
-const railsForFrontSurface = (frontId: string | undefined): number => {
+const railsForFrontSurface = (frontId: string | undefined, railExpanded: boolean): number => {
   if (!frontId) return 0;
   const nodeId = parseTerminalSurfaceId(frontId);
   if (!nodeId || !terminal$.openByNodeId[nodeId].get()) return 0;
@@ -47,7 +46,7 @@ const railsForFrontSurface = (frontId: string | undefined): number => {
   const connected = Object.values(modelStore.canvas$(canvas).wires.get()).some(
     wire => wire.from === nodeId || wire.to === nodeId,
   );
-  return actorTerminalRailsPx(!connected ? "none" : actorRailExpanded(sidebarSections$.open.get()) ? "expanded" : "collapsed");
+  return actorTerminalRailsPx(!connected ? "none" : railExpanded ? "expanded" : "collapsed");
 };
 
 /** Map shell size family → FocusSurface measure token. */
@@ -95,7 +94,8 @@ export function WorkFocusShell() {
 
   const paneCount = panesForLayout(focusLayout);
   const pane0 = focusMru[0];
-  const terminalRailsPx = use$(() => (sizeKey === "terminal" ? railsForFrontSurface(pane0) : 0));
+  const railExpanded = useActorRailExpanded();
+  const terminalRailsPx = use$(() => (sizeKey === "terminal" ? railsForFrontSurface(pane0, railExpanded) : 0));
   const pane1 = paneCount === 2 ? focusMru[1] : undefined;
   const tabs = focusMru.slice(paneCount);
   const activeId = pane0;

@@ -16,13 +16,12 @@ import { use$ } from "@legendapp/state/react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import { actorRailExpanded, actorRailPeers, setActorRailExpanded } from "../../lib/actor-rail";
+import { actorRailPeers, setActorRailExpanded, useActorRailExpanded } from "../../lib/actor-rail";
 import { openActorMirror } from "../../lib/actor-mirrors";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { preambleByNodeId$ } from "../../lib/preamble-state";
 import { useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { seatSaying, seatUrgency, type SeatGroup } from "../../lib/seat-line";
-import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { seatUrgencyOrder } from "../../lib/urgency-order";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
@@ -139,7 +138,7 @@ function RailBubble({
 
 export function ActorRail({ node }: { readonly node: { readonly id: string } }) {
   const canvas = useCanvas(use$(state$.canvasName));
-  const expanded = actorRailExpanded(use$(sidebarSections$.open));
+  const expanded = useActorRailExpanded();
   const { agents, others } = useMemo(() => actorRailPeers(canvas, node.id), [canvas, node.id]);
 
   // Order: most urgent first, by name inside a group. Seats report their own
