@@ -68,9 +68,45 @@ can name the thing that fired it.
 A1 and A3 build on a stand-in of A2's names and switch when it lands. The
 empty picker is a bug: A1 fixes it first, on its own commit.
 
-## Open: code steps (with the operator)
+## Open: 24/7 automations and code steps (with the operator)
 
-The operator wants an automation to run a program (shell or TypeScript, or
-a Prism workflow) whose result decides whether the chain continues: poll an
-API every minute, process it in code, act on success. Being designed with
-the operator; nothing above depends on it.
+The operator wants most automations to run around the clock on the Mac mini
+or a VPS, seats there working 24/7, and actions aimed at a seat on an
+offline machine to wait. They also want code steps: a shell or TypeScript
+file, or a Prism workflow, whose result decides whether the chain goes on.
+
+What the rules say (`docs/machines.md`): one editing machine per canvas
+(Rule 2) rules every write and runs every automation (0.10/07 Runner), so
+with the editor asleep nothing fires and no task changes anywhere. Seats on
+the mini already run 24/7. So the 24/7 machine must be the editor.
+
+remote-lead's answer (mail 01M628012VMPZT17Y778N6Q2FD, 2026-10-28):
+
+- **Editing from the MacBook is synchronous.** The window sends each write
+  over the link to the mini's core, which applies it as the operator; with
+  no link the window is read-only and says why. Rule 4 is unchanged. Large,
+  medium risk: a new link channel granting operator authority per machine,
+  a closed op set, refused from a seat environment.
+- **The MacBook opens the link** (Rule 7 is symmetric; today only the editor
+  opens links). Small to medium, low risk.
+- **No live handover.** Create the 24/7 canvas on the mini (free), or move a
+  canvas once while quiesced (medium to large). Live handover is extra large.
+- **Forced product choices** with the mini as editor: browser pages need a
+  window's Electron (Rule 10); Files nodes on the MacBook go dark there.
+- **Offline targets.** Mail and prompts already wait (Rule 6). Seat start
+  and stop become a held action on the runner, retried when the link opens,
+  local to the editor. Small.
+- **Code steps run on the editing machine only.** No remote-execution row
+  pair; to work on another machine, a step prompts a seat there and the
+  runner triggers on what it reports.
+- **Security conditions for code steps:** (i) only the operator authors
+  one, from the window or an owner command, never a seat or an overseer;
+  (ii) the program is a path on the editor, never bytes that crossed;
+  (iii) values never go into a shell string or argv, only structured input
+  such as stdin JSON; (iv) secrets resolve on that machine only and argv,
+  environment and output stay out of logs; (v) a timeout, a size bound and
+  the loop rule.
+
+Prism (`../prism`, read 2026-10-28): every workflow task is an agent run
+(`src/workflows.ts:592`); `prism workflow run` prints JSON and exits non-zero
+on a failed task, and has no input flag (`src/cli.ts:829`).
