@@ -8,7 +8,8 @@ import { WireError } from "../src/cli/core/errors";
 import { renderFailureEnvelope } from "../src/cli/core/output";
 import { WorkSocket } from "../src/cli/core/socket";
 import { overseerExamples, overseerSchemas } from "../src/cli/commands/overseer";
-import { automationWriteArgs, codeFilesOf, withSources } from "../src/cli/commands/overseer-automation";
+import { AUTOMATION_WRITE_DESCRIPTIONS, automationWriteArgs, codeFilesOf, withSources } from "../src/cli/commands/overseer-automation";
+import { AUTOMATION_VALUES } from "../src/shared/automation";
 
 const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
 
@@ -106,6 +107,21 @@ describe("overseer automation writes", () => {
     const run = Effect.runSync(writeArgs("automation.run", JSON.stringify({ target: "A", automation: "x" }), Option.some(OP)));
     expect(Result.isSuccess(decodeOverseerArgs("automation.run", run))).toBe(true);
     expect(Effect.runSyncExit(writeArgs("automation.run", "{}", Option.some("op-1")))._tag).toBe("Failure");
+  });
+
+  it("names every value of every trigger, and the prompt action, in create's and edit's help", () => {
+    for (const verb of ["automation.create", "automation.edit"] as const) {
+      for (const name of Object.values(AUTOMATION_VALUES).flat()) expect(AUTOMATION_WRITE_DESCRIPTIONS[verb], name).toContain(`{{${name}}}`);
+    }
+    expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: prompt");
+  });
+
+  it("sends a prompt example naming values as written, for main to check against its trigger", () => {
+    const prompt = overseerExamples.find((example) => example.name.startsWith("prompt a seat"))!;
+    const args = Effect.runSync(writeArgs("automation.create", JSON.stringify(prompt.input), Option.none()));
+    const wire = decodeOverseerArgs("automation.create", args);
+    if (Result.isFailure(wire)) throw new Error(wire.failure.message);
+    expect(wire.success.then).toEqual([{ kind: "prompt", to: "@product-verify", text: "{{task.title}} is done ({{task.link}}), check it in the real app." }]);
   });
 
   it("finds each code step that names a file, by language, and refuses file with source or an unknown language", () => {

@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
+import { AUTOMATION_VALUES, DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
 import {
   AutomationCreateCliArgs,
   AutomationEditCliArgs,
@@ -38,11 +38,16 @@ export const AUTOMATION_WRITE_CLI_SCHEMAS: { readonly [Op in AutomationWriteOp]:
   "automation.run": AutomationOneCliArgs,
 };
 
+const braced = (names: ReadonlyArray<string>) => names.map((name) => `{{${name}}}`).join(", ");
+
+/** The values each trigger carries, as the help says them (0.11, 05, A4). */
+export const VALUES_HELP = `Text in mail, prompt and comment actions, and a new task's title, may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
+
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    "Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach",
+    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. ${VALUES_HELP}`,
   "automation.edit":
-    "Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused",
+    `Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused. Values in text are checked against the trigger as stored after the change. ${VALUES_HELP}`,
   "automation.enable": "Turn an automation on",
   "automation.disable": "Turn an automation off. Its history stays",
   "automation.move":
@@ -171,6 +176,17 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
     trigger: { kind: "schedule", cron: "0 9 * * 1-5", timezone: "America/Sao_Paulo" },
     then: [{ kind: "mail", to: "@cli-lead", text: "Standup in ten minutes" }],
   }),
+  example(
+    "create",
+    "prompt a seat when a task on a board is done, naming the task",
+    "{{task.title}} and {{task.link}} are the task that fired it; a prompt asks the seat to act.",
+    {
+      target: "Automations",
+      name: "verify what is done",
+      trigger: { kind: "change", on: { kind: "task", task: { node: "Release" }, becomes: "done" } },
+      then: [{ kind: "prompt", to: "@product-verify", text: "{{task.title}} is done ({{task.link}}), check it in the real app." }],
+    },
+  ),
   example(
     "create",
     "open a review task when a seat goes idle",
