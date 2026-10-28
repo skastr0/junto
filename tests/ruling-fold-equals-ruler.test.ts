@@ -22,6 +22,17 @@ import { SqlClient } from "effect/unstable/sql";
 import { FastCheck as fc } from "effect/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
+import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
+import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { PausePlaneLive } from "../src/main/junto/pause-plane";
+import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
+import { ReferencesRepositoryLive } from "../src/main/junto/references/repository";
+import { SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";
+import { makeSettingsLive } from "../src/main/junto/settings/service";
+import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import type { AutomationDefinition, AutomationOp } from "../src/shared/automation";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
@@ -37,8 +48,8 @@ import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema
 import { rulingRowOf, type RulingAppliedResult } from "../src/shared/command-row";
 import type { RecordRulingInput } from "../src/main/junto/work/repository";
 import type { ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
-import { artifacts } from "./support/model-nodes";
-import { seedCanvasRows } from "./support/seed-canvas";
+import { artifacts, automations, seat } from "./support/model-nodes";
+import { ModelStoresLive, seedCanvasRows } from "./support/seed-canvas";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { OpId, ResourceActor, ResourceCommand, RulingContext } from "../src/shared/resource-command";
@@ -135,9 +146,10 @@ const judgeThenFold = <A, E>(store: Store, submit: Effect.Effect<A, E, TaskRepos
       yield* store.sql.withTransaction(
         Effect.forEach(rulings, (input) =>
           Effect.gen(function* () {
-            yield* writeRuling(store.sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record });
+            // The facts first, then the ruling row, as the ruler writes them: the row stands on the count they moved.
             const applied = appliedRow(input);
             if (applied !== undefined) yield* foldRuling(store.sql, input.canvasName, applied, at);
+            yield* writeRuling(store.sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record });
           }),
         ),
       );
@@ -444,9 +456,9 @@ describe("the fold equals the ruler, for artifacts", () => {
               yield* sql.withTransaction(
                 Effect.forEach(rulings, (input) =>
                   Effect.gen(function* () {
-                    yield* work.recordRuling(input);
                     const row = appliedRow(input);
                     if (row !== undefined) yield* foldRuling(sql, input.canvasName, row, at, { bodies: input.bodies, command: input.command as ResourceCommand<ArtifactOp> });
+                    yield* work.recordRuling(input);
                   }),
                 ),
               );
@@ -475,5 +487,185 @@ describe("the fold equals the ruler, for artifacts", () => {
       { numRuns: 25, seed: 20261028 },
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["create", "edit", "labelColour", "labels", "retitle"]));
+  }, 120_000);
+});
+
+// ---------------------------------------------------------------------------
+// Automations: placing or moving one moves the canvas count through the model, so each store holds the real model.
+
+type AutomationStore = {
+  readonly root: string;
+  readonly runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient | WorkRepository | AutomationRepository | RulingRecorder, unknown>;
+  readonly recorded: Array<RecordRulingInput>;
+};
+const automationStores: Array<AutomationStore> = [];
+const ROUTINES = asNodeId("routines");
+
+const makeAutomationStore = async (installation: string): Promise<AutomationStore> => {
+  const root = await mkdtemp(join(tmpdir(), `junto-fold-auto-${installation}-`));
+  const recorded: Array<RecordRulingInput> = [];
+  const recorder = Layer.effect(
+    RulingRecorder,
+    Effect.map(WorkRepository, (work) =>
+      RulingRecorder.of({
+        record: (input) => work.recordRuling(input).pipe(Effect.tap(() => Effect.sync(() => recorded.push(input))), Effect.asVoid, Effect.orDie),
+      })),
+  );
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      Layer.mergeAll(makeAutomationRepositoryLive(), recorder),
+      Layer.provideMerge(
+        ModelStoresLive,
+        Layer.provideMerge(
+          Layer.mergeAll(
+            WorkRepositoryLive,
+            CrewRepositoryLive,
+            makeSettingsLive(),
+            makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+            SeatGuidanceRepositoryLive,
+            AgentSignalRepositoryLive,
+            ReferencesRepositoryLive,
+            Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
+            makeMachineRepositoryLive({ defaultName: () => installation, makeInstallationId: () => installation as InstallationId }),
+          ),
+          Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
+        ),
+      ),
+    ),
+  );
+  await runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          for (const machine of new Set([WRITER, installation])) {
+            yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES (${machine}, ${new Date(START).toISOString()})`;
+          }
+          yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${installation}, ${new Date(START).toISOString()})`;
+          yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [automations("routines"), seat("lead")] }]]) });
+          yield* sql`UPDATE canvases SET editor_installation_id = ${WRITER} WHERE canvas_name = ${CANVAS}`;
+        }),
+      );
+    }),
+  );
+  const store = { root, runtime, recorded };
+  automationStores.push(store);
+  return store;
+};
+
+const closeAutomationStores = async () => {
+  for (const store of automationStores.splice(0)) {
+    await store.runtime.dispose();
+    await rm(store.root, { recursive: true, force: true });
+  }
+};
+
+const AUTOMATION_IDS = ["01M62AV0000000000000000001", "01M62AV0000000000000000002"] as const;
+const automationDefinition = (text: string): AutomationDefinition => ({
+  name: "Nightly",
+  trigger: { kind: "schedule", cron: "0 2 * * *", timezone: "UTC" },
+  then: [{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("lead") }, text }],
+  limits: { minIntervalMs: 60_000, maxPerHour: 12 },
+});
+const machineName = fc.constantFrom(undefined, "mini", "studio");
+const automationOp: fc.Arbitrary<{ readonly op: AutomationOp; readonly item: string }> = fc.oneof(
+  { weight: 3, arbitrary: fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), enabled: fc.boolean(), machine: machineName, text: fc.constantFrom("Done?", "Status?") }).map(
+    ({ item, enabled, machine, text }) => ({
+      item,
+      op: { kind: "create", automationId: item, enabled, ...(machine === undefined ? {} : { machine }), definition: automationDefinition(text) } as unknown as AutomationOp,
+    })) },
+  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), base: fc.integer({ min: 1, max: 2 }), text: fc.constantFrom("Done?", "Report") }).map(({ item, base, text }) => ({
+    item,
+    op: { kind: "edit", baseVersion: base, definition: automationDefinition(text) } as unknown as AutomationOp,
+  })),
+  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), enabled: fc.boolean() }).map(({ item, enabled }) => ({ item, op: { kind: "set-enabled", enabled } as AutomationOp })),
+  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), machine: fc.constantFrom("mini", "studio") }).map(({ item, machine }) => ({
+    item,
+    op: { kind: "set-machine", machine } as unknown as AutomationOp,
+  })),
+  fc.record({ item: fc.constantFrom(...AUTOMATION_IDS), kind: fc.constantFrom("archive", "run") }).map(({ item, kind }) => ({ item, op: { kind } as AutomationOp })),
+);
+
+const automationEnv = { targetsOf: () => new Set([asNodeId("lead")]), isOverseer: () => false };
+const submitAutomation = (index: number, step: { readonly op: AutomationOp; readonly item: string }) =>
+  submitAutomationCommand(
+    WRITER,
+    {
+      opId: `01M62AV${String(index).padStart(19, "0")}`,
+      canvasName: CANVAS,
+      actor: { kind: "operator" },
+      target: { kind: "automation", nodeId: ROUTINES, ...(step.op.kind === "create" ? {} : { itemId: step.item }) },
+      basis: null,
+      after: [],
+      op: step.op,
+    } as unknown as ResourceCommand<AutomationOp>,
+    everywhere,
+    automationEnv as never,
+  );
+
+describe("the fold equals the ruler, for automations", () => {
+  afterEach(closeAutomationStores);
+
+  it("directly, judged then folded, and on a replica", async () => {
+    const applied = new Set<string>();
+    await fc.assert(
+      fc.asyncProperty(fc.array(automationOp, { minLength: 1, maxLength: 12 }), async (steps) => {
+        const direct = await makeAutomationStore(WRITER);
+        const judged = await makeAutomationStore(WRITER);
+        const replica = await makeAutomationStore("replica");
+        const ruled: Array<{ input: RecordRulingInput; at: number }> = [];
+        for (const [index, step] of steps.entries()) {
+          const at = START + index * 1000;
+          vi.setSystemTime(at);
+          const before = direct.recorded.length;
+          await direct.runtime.runPromise(submitAutomation(index, step));
+          for (const input of direct.recorded.slice(before)) {
+            ruled.push({ input, at });
+            if (input.ruling.kind === "applied") applied.add(step.op.kind);
+          }
+          await judged.runtime.runPromise(
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const work = yield* WorkRepository;
+              const mark = judged.recorded.length;
+              yield* sql.withTransaction(Effect.flatMap(submitAutomation(index, step), () => Effect.fail(new Judged()))).pipe(
+                Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
+              );
+              const rulings = judged.recorded.splice(mark);
+              yield* sql.withTransaction(
+                Effect.forEach(rulings, (input) =>
+                  Effect.gen(function* () {
+                    // The facts first, then the ruling row: a placement moves the count the row stands on.
+                    const row = appliedRow(input);
+                    if (row !== undefined) yield* foldRuling(sql, input.canvasName, row, at, { command: input.command as ResourceCommand<AutomationOp> });
+                    yield* work.recordRuling(input);
+                  }),
+                ),
+              );
+              judged.recorded.push(...rulings);
+            }),
+          );
+        }
+        await replica.runtime.runPromise(
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            for (const { input, at } of ruled) {
+              const row = appliedRow(input);
+              yield* Effect.sync(() => vi.setSystemTime(at));
+              if (row !== undefined) yield* sql.withTransaction(foldRuling(sql, input.canvasName, row, at));
+            }
+          }),
+        );
+        const tablesOfStore = (store: AutomationStore, leaveOut: ReadonlySet<string>) => engineTablesOf(store as unknown as EngineStore, leaveOut);
+        const sameEverywhere = new Set(["installation", "known_installations", "machine_configuration"]);
+        expect(await tablesOfStore(judged, sameEverywhere)).toEqual(await tablesOfStore(direct, sameEverywhere));
+        // A replica holds the rulings as exchange rows, and takes the canvas count from the copy, never the fold.
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases"]);
+        expect(await tablesOfStore(replica, resourcesOnly)).toEqual(await tablesOfStore(direct, resourcesOnly));
+        await closeAutomationStores();
+      }),
+      { numRuns: 25, seed: 20261028 },
+    );
+    expect([...applied].sort()).toEqual(expect.arrayContaining(["archive", "create", "edit", "set-enabled", "set-machine"]));
   }, 120_000);
 });
