@@ -93,6 +93,21 @@ machine, beside seats on that machine that work around the clock.
   from where, and how a machine whose automations need task changes keeps
   working while the editing machine is asleep.
 
+remote-lead's design (mail 01M6286J00YZGMR9N766ACN5DQ), in this order:
+
+| Slice | What | Owner | Reviewer |
+|---|---|---|---|
+| S1 placement | an automation names its machine; every machine folds automation rulings and runs only its own (`live.ts:590`); claims, cursors, history local | automation-lead | remote-lead |
+| S5 links from any end | drop Rule 7's editor-only link opening | remote | remote-security |
+| S2 writes from its machine | mail, prompts and `command.queued` with actor automation, valid from the automation's machine | remote | remote-security |
+| S3 firing log | `automation.firing` rows to the editor: cause, skips, each action applied, refused or held | remote | automation-lead |
+| S4 held seat control | `seat.control` start and stop, held as mail is | remote | remote-security |
+| S6 boards ruled on their machine | a task board names its ruling machine, so it changes while the editor sleeps | with the operator | |
+
+First-version limits: seat-state and signal triggers watch only seats on the
+automation's own machine; a comment action off the editor is `not_available`
+until threads cross. Doctrine edits land with each slice.
+
 ## Code steps (operator, 2026-10-28)
 
 - **One step kind, `code`.** TypeScript first, with a small Junto SDK; a
