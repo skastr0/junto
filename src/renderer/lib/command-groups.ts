@@ -387,6 +387,17 @@ export type CanvasCommandGroups = {
    * window's. The read after it is fresh; returns the unsubscribe.
    */
   readonly onChange: (listener: (canvasName: string) => void) => () => void;
+  /**
+   * What a change that landed under this window should do to it: null when the
+   * store already says what the window says (the window's own echo, leases
+   * aside), else the operator rows and extras to apply, with leases left for
+   * the hotbar's own recompute to refill.
+   */
+  readonly settle: (
+    canvasName: string,
+    slots: ReadonlyArray<HotbarSlot>,
+    extras: ReadonlyArray<ExtraGroup>,
+  ) => { readonly slots: HotbarSlot[]; readonly extras: ExtraGroup[] } | null;
 };
 
 /**
@@ -402,6 +413,12 @@ export const makeCanvasCommandGroups = (
 ): CanvasCommandGroups => {
   /** What this window last saw, so an echo of its own write is not written back. */
   const seen = new Map<string, { slots: ReadonlyArray<ViewCommandSlot>; extras: ReadonlyArray<ExtraGroup> }>();
+  /**
+   * Rows this window is in the middle of writing. The store announces each row
+   * as it lands, and half a board is not news to the window that is writing
+   * the other half, so those announcements are dropped until the loop is done.
+   */
+  let writing = false;
 
   const heldOf = (canvasName: string) => {
     const known = seen.get(canvasName);
@@ -420,10 +437,15 @@ export const makeCanvasCommandGroups = (
       if (!canvasName) return;
       const next = storedSlotsOf(operatorHeldSlots(slots));
       const known = heldOf(canvasName);
-      next.forEach((slot, index) => {
-        const held = known.slots[index];
-        if (held && !sameStoredSlots([slot], [held])) store.writeSlot(canvasName, index, slot);
-      });
+      writing = true;
+      try {
+        next.forEach((slot, index) => {
+          const held = known.slots[index];
+          if (held && !sameStoredSlots([slot], [held])) store.writeSlot(canvasName, index, slot);
+        });
+      } finally {
+        writing = false;
+      }
       seen.set(canvasName, { slots: next, extras: known.extras });
     },
     recall: (canvasName) => {
@@ -435,7 +457,12 @@ export const makeCanvasCommandGroups = (
       const known = heldOf(canvasName);
       if (sameExtras(known.extras, extras)) return;
       const next = extras.map((group) => [...group]);
-      store.writeExtras(canvasName, next);
+      writing = true;
+      try {
+        store.writeExtras(canvasName, next);
+      } finally {
+        writing = false;
+      }
       seen.set(canvasName, { slots: known.slots, extras: next });
     },
     recallExtras: (canvasName) => {
@@ -444,10 +471,24 @@ export const makeCanvasCommandGroups = (
     },
     onChange: (listener) =>
       store.onChange((canvasName) => {
-        // A push is the truth from here on, so the next read goes to the store.
-        seen.delete(canvasName);
+        if (writing) return;
         listener(canvasName);
       }),
+    settle: (canvasName, slots, extras) => {
+      if (!canvasName) return null;
+      // A push is read from the store, never from the window's last read.
+      const saved = store.read(canvasName);
+      const savedSlots = saved ? [...saved.slots] : storedSlotsOf([]);
+      const savedExtras = saved ? [...saved.extras] : ([] as ReadonlyArray<ExtraGroup>);
+      seen.set(canvasName, { slots: savedSlots, extras: savedExtras });
+      // Like for like: what the window holds the operator had chosen, against
+      // the operator rows the store keeps. A live lease is not a difference.
+      const saysTheSame =
+        sameStoredSlots(storedSlotsOf(operatorHeldSlots(slots)), savedSlots) &&
+        sameExtras(savedExtras, extras);
+      if (saysTheSame) return null;
+      return { slots: liveSlotsOf(savedSlots), extras: savedExtras.map((group) => [...group]) };
+    },
   };
 };
 

@@ -468,6 +468,47 @@ describe("kept in view state", () => {
     expect(memory.recallExtras("alpha")).toEqual([["c"], ["a", "b"]]);
   });
 
+  it("settles nothing on an echo while a lease is held, so the lease stays where it was", () => {
+    const store = makeMemoryViewStateStore();
+    const memory = makeCanvasCommandGroups(store);
+    memory.remember("alpha", board([[0, fixed("a")]]));
+    // The window's live board: the operator row plus a lease the store never saw.
+    const live = board([[0, fixed("a")], [4, leased("s")]]);
+    expect(memory.settle("alpha", live, [])).toBeNull();
+
+    // Another window's write does settle, and leases are left to recompute.
+    makeCanvasCommandGroups(store).remember("alpha", board([[2, group("b", "c")]]));
+    expect(memory.settle("alpha", live, [])).toEqual({ slots: board([[2, group("b", "c")]]), extras: [] });
+  });
+
+  it("never shows a half-written board: a window's own multi-row write is not announced to it", () => {
+    const store = makeMemoryViewStateStore();
+    const memory = makeCanvasCommandGroups(store);
+    const heard: Array<ReadonlyArray<HotbarSlot>> = [];
+    memory.onChange((canvas) => heard.push(memory.recall(canvas)));
+    memory.remember("alpha", board([[0, group("a", "b")], [1, fixed("c")], [2, fixed("d")]]));
+    // Three rows changed, and none of them was read back as a board of its own.
+    expect(heard).toEqual([]);
+    const opened = makeCanvasCommandGroups(store);
+    expect(opened.recall("alpha")).toEqual(board([[0, group("a", "b")], [1, fixed("c")], [2, fixed("d")]]));
+  });
+
+  it("converges a second window from per-row pushes, and that window writes nothing back", () => {
+    const counted = countingStore();
+    const first = makeCanvasCommandGroups(counted.store);
+    const second = makeCanvasCommandGroups(counted.store);
+    let seenBySecond: ReadonlyArray<HotbarSlot> = emptyHotbarSlots();
+    second.onChange((canvas) => {
+      const next = second.settle(canvas, seenBySecond, []);
+      if (next) seenBySecond = next.slots;
+    });
+    counted.slotWrites.length = 0;
+    first.remember("alpha", board([[0, group("a", "b")], [1, fixed("c")], [2, fixed("d")]]));
+    expect(seenBySecond).toEqual(board([[0, group("a", "b")], [1, fixed("c")], [2, fixed("d")]]));
+    // Exactly the three rows the first window wrote: the second wrote none back.
+    expect(counted.slotWrites.map((write) => write.index)).toEqual([0, 1, 2]);
+  });
+
   it("hands a push from the store to this window, and drops its own echo", () => {
     const store = makeMemoryViewStateStore();
     const memory = makeCanvasCommandGroups(store);

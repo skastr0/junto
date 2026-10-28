@@ -210,19 +210,19 @@ export const useCommandGroupUpkeep = (): void => {
     [],
   );
   // A saved arrangement that changed under this window: another window's
-  // write, or this one's echoed back. Applied only when it says something
-  // different, so an echo costs no write of its own and the loop ends.
+  // write, or this one's echoed back. `settle` says nothing when the store
+  // already agrees with the board (an echo, a lease aside), so an echo costs
+  // no write of its own and the loop ends.
   useEffect(
     () =>
       canvasCommandGroups.onChange((canvasName) => {
         if (canvasName !== state$.canvasName.peek()) return;
-        const slots = canvasCommandGroups.recall(canvasName);
-        const extras = canvasCommandGroups.recallExtras(canvasName);
         const held = state$.extraCommandGroups.peek()[canvasName] ?? [];
-        if (saysTheSame(state$.hotbarSlots.peek(), slots) && saysTheSame(held, extras)) return;
+        const next = canvasCommandGroups.settle(canvasName, state$.hotbarSlots.peek(), held);
+        if (!next) return;
         batch(() => {
-          state$.hotbarSlots.set(slots);
-          state$.extraCommandGroups.set({ ...state$.extraCommandGroups.peek(), [canvasName]: [...extras] });
+          state$.hotbarSlots.set(next.slots);
+          state$.extraCommandGroups.set({ ...state$.extraCommandGroups.peek(), [canvasName]: next.extras });
         });
         recomputeHotbar();
       }),
