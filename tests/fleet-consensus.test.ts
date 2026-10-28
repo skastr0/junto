@@ -172,6 +172,52 @@ describe("a list edit", () => {
   });
 });
 
+describe("status", () => {
+  it("can commit at once on one machine, and on the operator's machine right after alone", () => {
+    const one = new Cluster(14, ["macbook"], ["macbook"]);
+    one.run(40);
+    expect(one.node("macbook").status()).toMatchObject({ role: "leader", fresh: true, canCommit: true });
+    const three = new Cluster(15, ["macbook", "mini", "vps"], ["macbook", "mini", "vps"]);
+    three.run(200);
+    three.crash("mini");
+    three.crash("vps");
+    three.run(50);
+    expect(three.node("macbook").status().canCommit).toBe(false);
+    three.diverged = true;
+    three.node("macbook").alone();
+    three.drain("macbook");
+    // No timeout before it can commit: it is the whole quorum.
+    expect(three.node("macbook").status()).toMatchObject({ fresh: true, canCommit: true });
+  });
+
+  it("is fresh as soon as a quorum answers a new authority, and not while it hands over", () => {
+    const cluster = new Cluster(16, ["a", "b", "c"], ["a", "b", "c"]);
+    cluster.run(200);
+    const leader = cluster.leader()!;
+    expect(leader.status()).toMatchObject({ fresh: true, canCommit: true });
+    leader.transfer();
+    expect(leader.status()).toMatchObject({ fresh: true, canCommit: false });
+  });
+
+  it("names the committed list, and a list not yet committed apart", () => {
+    const cluster = new Cluster(17, ["macbook", "mini", "vps"], ["macbook", "mini"]);
+    cluster.run(200);
+    cluster.partition(["macbook", "vps"], ["mini"]);
+    cluster.node("macbook").proposeList(["macbook", "mini", "vps"]);
+    expect(cluster.node("macbook").status()).toMatchObject({
+      members: { list: ["macbook", "mini"] },
+      pendingList: { list: ["macbook", "mini", "vps"], old: ["macbook", "mini"] },
+    });
+    // Fresh lapses at the first window that heard no quorum of the joint list: at most one election timeout.
+    cluster.run(2 * cluster.electionTicks);
+    expect(cluster.node("macbook").status().canCommit).toBe(false);
+    cluster.heal();
+    cluster.run(300);
+    const status = cluster.leader()!.status();
+    expect(status.pendingList).toBeUndefined();
+  });
+});
+
 describe("transfer", () => {
   it("hands the authority to a caught-up machine on a clean leave, with no election timeout", () => {
     const cluster = new Cluster(11, ["a", "b", "c"], ["a", "b", "c"]);

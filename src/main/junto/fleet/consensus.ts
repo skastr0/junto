@@ -96,9 +96,18 @@ export type Status = {
   readonly leader: MachineId | null;
   readonly commit: number;
   readonly lastIndex: number;
+  /** The committed list: who rules this canvas now. */
   readonly members: MemberList;
-  /** An authority that heard a quorum within an election timeout; false everywhere else. */
+  /** The latest list entry when it is not yet committed (a joint edit, or `alone` not yet applied); absent otherwise. */
+  readonly pendingList?: MemberList;
+  /**
+   * An authority that heard a quorum within an election timeout, or is a
+   * quorum on its own (one machine, a pair's fallback, `alone`); false
+   * everywhere else.
+   */
   readonly fresh: boolean;
+  /** This machine takes a proposal now and can commit it: a fresh authority not handing over. The one definition. */
+  readonly canCommit: boolean;
 };
 
 /** How far `alone` moves the term: past any term an election reaches, so its term is never shared. */
@@ -222,9 +231,15 @@ export class ConsensusNode {
   }
 
   status(): Status {
+    const latest = this.members();
+    const committed = this.committedMembers();
+    const fresh = this.role === "leader" && (this.fresh || isQuorum(latest, new Set([this.id])));
     return {
       id: this.id, role: this.role, term: this.term, leader: this.leader, commit: this.commit,
-      lastIndex: this.lastIndex(), members: this.members(), fresh: this.role === "leader" && this.fresh,
+      lastIndex: this.lastIndex(), members: committed,
+      ...(JSON.stringify(latest) === JSON.stringify(committed) ? {} : { pendingList: latest }),
+      fresh,
+      canCommit: fresh && this.transferTo === null,
     };
   }
 
@@ -539,6 +554,8 @@ export class ConsensusNode {
   private onAppendReply(message: Extract<Message, { type: "append-reply" }>): void {
     if (this.role !== "leader") return;
     this.heardSince.add(message.from);
+    // Fresh as soon as a quorum answers; it lapses only at a window's end that heard none.
+    if (isQuorum(this.members(), new Set([...this.heardSince, this.id]))) this.fresh = true;
     if (!message.success) {
       this.nextIndex.set(message.from, Math.max(1, Math.min(message.index + 1, (this.nextIndex.get(message.from) ?? 1) - 1)));
       this.sendAppend(message.from);
