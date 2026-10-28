@@ -51,12 +51,15 @@ function CodeResult({ ruling }: { readonly ruling: ActionRuling | undefined }) {
       <p className="automation-code__words">{words}</p>
       {output.length > 0 ? (
         <dl className="automation-code__values">
-          {output.map(([name, value]) => (
-            <div key={name} className="automation-code__value">
-              <dt>{`{{code.${name}}}`}</dt>
-              <dd>{valueWords(value)}</dd>
-            </div>
-          ))}
+          {output.map(([name, value]) => {
+            const words = valueWords(value);
+            return (
+              <div key={name} className="automation-code__value">
+                <dt>{`{{code.${name}}}`}</dt>
+                <dd title={words}>{words}</dd>
+              </div>
+            );
+          })}
         </dl>
       ) : null}
       {ruling.ruling === "failed" && ruling.logTail !== undefined ? (

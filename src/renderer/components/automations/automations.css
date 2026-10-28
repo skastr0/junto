@@ -365,7 +365,7 @@
 
 .automation-code__tail {
   margin: 0;
-  max-height: 8rem;
+  max-height: 128px;
   overflow: auto;
   border: 1px solid var(--color-stroke);
   border-radius: var(--radius-sm);
