@@ -1,9 +1,9 @@
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option, Schema } from "effect";
 import { ARTIFACT_TYPES } from "../../shared/artifact";
+import { ARTIFACT_LABEL_COLOURS } from "../../shared/artifact-labels";
 import {
   ARTIFACT_ARGS,
-  ARTIFACT_LABEL_COLOURS,
   ARTIFACT_HISTORY_LIMIT_MAX,
   ARTIFACT_LIST_LIMIT_MAX,
   type ArtifactControlOp,

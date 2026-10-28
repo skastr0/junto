@@ -37,8 +37,6 @@ import {
   ARTIFACT_LINKED_FROM_MAX,
   type ArtifactColourResult,
   type ArtifactCommentResult,
-  type ArtifactLabelColour,
-  type ArtifactLabelColours,
   type ArtifactWriteResult,
   type BodyInput,
 } from "@shared/artifact-control";
@@ -58,7 +56,14 @@ import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { operatorActorRef } from "@shared/work-reference";
 import { ArtifactFact } from "@shared/artifact-domain";
-import { ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabelsOf } from "@shared/artifact-labels";
+import {
+  ARTIFACT_LABELS_MAX,
+  type ArtifactLabel,
+  type ArtifactLabelColour,
+  type ArtifactLabelColours,
+  artifactLabelOf,
+  artifactLabelsOf,
+} from "@shared/artifact-labels";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
 import { localQueue, precheckInput, queuedArtifactCommands } from "./queued-commands";
@@ -126,8 +131,8 @@ export type ArtifactPorts = {
   readonly labelColours?: (canvasName: string, nodeIds: ReadonlyArray<NodeId>) => Effect.Effect<ReadonlyMap<NodeId, ArtifactLabelColours>, WorkErrorBody>;
   /**
    * Rule `{ op: "labelColour" }` on an Artifacts node, here or queued for the
-   * editing machine, as `submit` does for an artifact. Absent until the store
-   * holds colours (C1): the verb answers not available.
+   * editing machine, as `submit` does for an artifact. Absent, the verb
+   * answers not available.
    */
   readonly colourLabel?: (write: LabelColourWrite, context: RulingContext) => Effect.Effect<LabelColourOutcome, WorkErrorBody>;
   /** The artifacts whose head body links `target`, newest first, archived ones left out (L1). Absent, show lists none. */
@@ -138,7 +143,8 @@ export type ArtifactPorts = {
 export type LabelColourWrite = {
   readonly opId: OpId;
   readonly canvasName: string;
-  readonly actor: ArtifactCaller["actor"];
+  /** A seat, or the operator writing from a window (resource IPC). */
+  readonly actor: ArtifactCommenter["actor"];
   readonly nodeId: NodeId;
   readonly label: ArtifactLabel;
   readonly colour: ArtifactLabelColour | null;
@@ -264,6 +270,52 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
             if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName);
           })),
       ),
+    labelColours: (canvasName, nodeIds) => withRepo((repo) => repo.labelColours(canvasName, nodeIds)),
+    colourLabel: (write, context) => {
+      // On the node itself, no item: the ruler sends it to submitNode (C1).
+      const command: ResourceCommand<ArtifactOp> = {
+        opId: write.opId,
+        canvasName: write.canvasName,
+        actor: write.actor,
+        target: { kind: "artifact", nodeId: write.nodeId },
+        basis: null,
+        after: [],
+        op: { op: "labelColour", label: write.label, colour: write.colour },
+      };
+      return withRepo((repo) =>
+        Effect.gen(function* () {
+          const remote = yield* Effect.serviceOption(ResourceSubmit);
+          if (Option.isSome(remote)) {
+            const route = yield* remote.value.route(command.canvasName).pipe(Effect.mapError((error) => ({ message: error.message })));
+            if (route.kind === "editor") {
+              const queued = yield* remote.value.queue(command as QueuedCommand, route.editor).pipe(Effect.mapError((error) => ({ message: error.message })));
+              // An applied ruling names the node, not a head: there is nothing to read back.
+              switch (queued.kind) {
+                case "queued":
+                  return { kind: "queued" as const, opId: command.opId, changed: false };
+                case "refused":
+                  return { kind: "refused" as const, opId: command.opId, error: queued.error };
+                case "applied":
+                  return { kind: "applied" as const, opId: command.opId, changed: queued.ruling.facts.length > 0 };
+              }
+            }
+          }
+          const writer = yield* repo.localWriter();
+          if (Option.isNone(writer)) return yield* Effect.fail({ message: "this machine has no installation id yet" });
+          const ruled = yield* repo.submitNode(writer.value, command, context);
+          return ruled.kind === "applied"
+            ? { kind: "applied" as const, opId: ruled.opId, changed: ruled.facts.length > 0 }
+            : { kind: "refused" as const, opId: ruled.opId, error: ruled.error };
+        }),
+      ).pipe(
+        // A resend answered from the stored ruling made nothing.
+        Effect.tap((outcome) =>
+          Effect.sync(() => {
+            if (outcome.kind === "applied" && outcome.changed) noteResourceChanged("artifact", command.canvasName);
+          })),
+        Effect.map((outcome): LabelColourOutcome => (outcome.kind === "refused" ? outcome : { kind: outcome.kind, opId: outcome.opId })),
+      );
+    },
     comment: postSubjectComment,
     queuedLabels: (canvasName, artifactId) =>
       Effect.map(localQueue(canvasName), (queue) => {

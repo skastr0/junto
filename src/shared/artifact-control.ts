@@ -18,7 +18,7 @@ import {
   ArtifactVersion,
   type ArtifactActor,
 } from "./artifact";
-import { ARTIFACT_LABELS_MAX } from "./artifact-labels";
+import { ARTIFACT_LABELS_MAX, ArtifactLabelColour, type ArtifactLabelColours } from "./artifact-labels";
 import { Anchor } from "./thread-subject";
 import type { LinkedFromBody } from "./artifact-links";
 import type { MentionedIn } from "./mention-ipc";
@@ -142,15 +142,6 @@ export const ArtifactLabelArgs = Schema.Struct({
 export type ArtifactLabelArgs = typeof ArtifactLabelArgs.Type;
 
 /**
- * The eight label colours (03, Colours), stored as names, never hex.
- * Stand-in until C1 exports `ARTIFACT_LABEL_COLOURS` and `ArtifactLabelColour`
- * from `artifact-labels.ts`; the names are fixed, so the swap is an import.
- */
-export const ARTIFACT_LABEL_COLOURS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
-export const ArtifactLabelColour = Schema.Literals(ARTIFACT_LABEL_COLOURS);
-export type ArtifactLabelColour = typeof ArtifactLabelColour.Type;
-
-/**
  * A label's colour in an Artifacts node: every artifact there that carries
  * the label draws in it. `colour: null` unsets it. The label need not be
  * carried yet, and nothing inherits across `/` levels.
@@ -207,9 +198,6 @@ export const isArtifactWriteOp = (op: string): op is ArtifactWriteOp =>
 
 // ---------------------------------------------------------------------------
 // Results
-
-/** The colour of each label set in a node that has one; a label left out has none. */
-export type ArtifactLabelColours = Readonly<Record<string, ArtifactLabelColour>>;
 
 /** A list row: the head without its body, and the colours of the labels it carries that have one. */
 export type ArtifactListItem = Pick<
