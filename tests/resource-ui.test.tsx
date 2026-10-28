@@ -113,7 +113,7 @@ describe("TwoPane", () => {
   it("a pane that names its node keeps the sidebar collapse in view state, per node", () => {
     setNodeViewStore(makeMemoryNodeViewStore());
     const pane = (node: string) => (
-      <TwoPane keptBy={{ canvas: "main", node }} sidebarLabel="Tasks" mainLabel="Task" sidebar={<PaneHeader title="Tasks" />}>
+      <TwoPane keptBy={{ canvas: "main", node }} sidebarLabel="Tasks" mainLabel="Task" sidebar={<PaneHeader eyebrow="Tasks" />}>
         <span>main</span>
       </TwoPane>
     );
