@@ -509,6 +509,19 @@ describe("kept in view state", () => {
     expect(counted.slotWrites.map((write) => write.index)).toEqual([0, 1, 2]);
   });
 
+  it("drops a canvas it is not showing, so the way back reads the store", () => {
+    const store = makeMemoryViewStateStore();
+    const windowA = makeCanvasCommandGroups(store);
+    const windowB = makeCanvasCommandGroups(store);
+    windowA.remember("one", board([[0, fixed("a")]]));
+    expect(windowA.recall("one")).toEqual(board([[0, fixed("a")]]));
+    // A hears that a canvas changed, but it is not the one on screen and its
+    // listener ignores it: the rows it read before must not survive the push.
+    windowA.onChange(() => {});
+    windowB.remember("one", board([[0, fixed("b")]]));
+    expect(windowA.recall("one")).toEqual(board([[0, fixed("b")]]));
+  });
+
   it("hands a push from the store to this window, and drops its own echo", () => {
     const store = makeMemoryViewStateStore();
     const memory = makeCanvasCommandGroups(store);

@@ -472,6 +472,10 @@ export const makeCanvasCommandGroups = (
     onChange: (listener) =>
       store.onChange((canvasName) => {
         if (writing) return;
+        // Another window may change a canvas this one is not showing; the rows
+        // this window last read for it are stale from here on, so the read on
+        // the way back goes to the store.
+        seen.delete(canvasName);
         listener(canvasName);
       }),
     settle: (canvasName, slots, extras) => {
