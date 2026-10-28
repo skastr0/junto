@@ -167,8 +167,10 @@ not detection of secrets hidden in arbitrary prose.
 
 ## Links
 
-The first version uses the operator's chosen OpenSSH routes. Only the editing
-machine opens links. During explicit first setup, the opening end creates its
+The first version uses the operator's chosen OpenSSH routes. Any machine
+opens links to the machines it has a route to; a machine other than the
+editing machine opens them only by its link key, below. During explicit first
+setup, the opening end creates its
 pin only from the checked hello on the selected route, never from an install
 receipt or status. Before that hello, the receiving end stores the expected
 opener's identity through the owner's setup command over that SSH account.
@@ -199,17 +201,55 @@ authority. Every first pin requires explicit owner setup in the order above.
 Migration and discovery cannot authorize setup. Update and ordinary reconnect
 never create or revive a pin.
 
-SSH authenticates a host and an account. The incoming installation id is an
-assertion authorized by that account, not cryptographic proof of a particular
-installation. The local relay only transports bytes; it does not independently
-authenticate the originating installation. Junto adds no signing or SSH key
-system for this first version.
-Before another machine may open links, the authentication model is reviewed;
-a link-only key with a forced command bound to its opener is the candidate.
+SSH authenticates a host and an account. Over the account's own access, the
+incoming installation id is an assertion authorized by that account, not
+cryptographic proof of a particular installation, and the relay only
+transports bytes. A link key binds the id to the key instead:
+
+- `junto machine link <from> <to>`, an owner command on the editing machine,
+  sets it up over routes that machine already holds, so `from` never gains
+  general access to `to`. Each route is resolved once with `ssh -G` and
+  recorded; a ProxyJump, ProxyCommand or HostKeyAlias is refused. A later
+  change to `~/.ssh/config` never changes a pinned link; relinking picks it
+  up. The host key the editing machine already verified becomes the link's
+  own known hosts, so there is no trust on first use.
+- `from` makes an ed25519 key for `to` in process, created exclusive at
+  0600 under a 0700 directory (`src/main/junto/link/link-keys.ts`). The
+  private key never leaves `from` and never enters a copy, a row, a log or a
+  failure. Keys and facts travel on stdin, never argv.
+- `to` pins `from` with `machine_peers.binding = key` and writes one
+  `authorized_keys` line, `command="... junto link --opener <id>",restrict`,
+  built from typed fields only: the key must be an ed25519 blob and the id
+  must pass the installation id schema, because a quote, a newline, an
+  options prefix or a second key would open an unrestricted line. Junto owns
+  only lines with its tag; every other byte survives.
+- `junto link --opener` takes the id from argv alone, never from
+  `SSH_ORIGINAL_COMMAND` or a client-sent environment value, and writes it
+  as the first frame on the core socket. The core takes that frame only
+  first, decoded closed; a second one closes the link. The hello must carry
+  exactly that id.
+- A bound dial runs with `-F none`, no agent, that key alone, the recorded
+  route and its own known hosts, strict (`src/main/junto/ssh/program.ts`).
+- A peer pinned with `binding = key` is refused any link without its opener
+  frame (`opener-key-required`). The binding lives in `machine_peers`, the
+  one source of identity facts, never in `authorized_keys`: a line removed by
+  another tool leaves the peer refused, shown as `line-missing`, never
+  admitted unbound. Only retiring the peer clears the binding.
+- Retiring a peer removes its line on every machine the editing machine
+  reaches; one it cannot reach is listed as still holding the key until the
+  removal lands. The editing machine is keyed to both ends the same way.
+
+So a machine whose only access to an account is its link key can claim only
+its own installation id there. A peer pinned before step 58 keeps the
+account's own access (`binding` NULL) until it is keyed. Anyone with a shell
+in the receiving account can run `junto link --opener` with any id or edit
+`authorized_keys`; that is the account's own authority, outside the claim.
+Junto adds no signing of rows.
 
 The link has SSH agent, X11 and port forwarding disabled. Junto does not
 silently weaken host-key checking, discover and use routes, copy private keys,
-or grant another machine reusable SSH access. Existing account-level access
+or grant another machine reusable SSH access beyond a link key's forced
+command. Existing account-level access
 remains the operator's responsibility.
 
 Hello must finish before data channels open. Both builds must match exactly;
