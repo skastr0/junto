@@ -154,8 +154,9 @@ until threads cross. Doctrine edits land with each slice.
 
 Remote's earlier conditions (i) "only the operator authors" and (ii) "a path
 on the machine, never bytes that crossed" are replaced by the two decisions
-above; remote designs how code authored elsewhere is trusted on the machine
-that runs it.
+above. **No per-machine allowance** (operator, 2026-10-28, settled): a code
+step runs on its automation's machine with no extra step on that machine;
+overseer seats build automations and their code end to end.
 
 | Track | Owner | Reviewer |
 |---|---|---|
