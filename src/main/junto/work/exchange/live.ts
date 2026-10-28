@@ -12,6 +12,7 @@
  * keeps them where its own are kept, so a seat reads them the one way.
  */
 import { Effect, Option } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { exportCanvasCopy, type CanvasCopy, type CopiedAutomation, type CopiedReference } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type Seat } from "@shared/model";
@@ -27,6 +28,7 @@ import { ModelService } from "../../model/service";
 import { PausePlane } from "../../pause-plane";
 import { onReferencesChanged } from "../../references/changes";
 import { ReferencesRepository } from "../../references/repository";
+import { StateTransactionOperation } from "../../state/service";
 import { onSeatGuidanceChanged } from "../../seat-guidance/changes";
 import { seatGuidanceIndex } from "../../seat-guidance/index-memory";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
@@ -96,8 +98,10 @@ export const makeLiveRowExchange = (
   | ReferencesRepository
   | PausePlane
   | AgentSignalRepository
+  | SqlClient.SqlClient
 > =>
   Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
     const machines = yield* MachineRepository;
     const records = yield* ModelRecords;
     const model = yield* ModelService;
@@ -136,6 +140,9 @@ export const makeLiveRowExchange = (
      * This machine's canvas, cut for that machine. Absent when this machine
      * does not edit the canvas, has not pinned that machine, or the cut is
      * refused: that machine has no seat on it, or a row names no machine.
+     * One read transaction: the count, the nodes and every automation's
+     * machine are read as one state, so no move committed between the reads
+     * is sent as standing at the count before it.
      */
     const cutCopy = (canvasName: string, peer: InstallationId): Effect.Effect<CanvasCopy | undefined, unknown> =>
       Effect.gen(function* () {
@@ -174,7 +181,7 @@ export const makeLiveRowExchange = (
           { installationId: peer, machineName: target.machineName },
         );
         return cut.ok ? cut.copy : undefined;
-      });
+      }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
 
     /** Keep the count sent to that machine, and where every seat and automation was at it. */
     const copySent = (copy: CanvasCopy): Effect.Effect<void, unknown> =>

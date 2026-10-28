@@ -824,3 +824,65 @@ describe("mail held for a seat that moves to another machine", () => {
     expect((await inbox(mini, "helper")).sort()).toEqual([...sent].sort());
   });
 });
+
+describe("a seat that moves while its copy is cut", () => {
+  const helper = seat("helper", { ...place, x: 0, y: 200, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-helper" as never });
+
+  it("is sent where it stood at the count the copy states, never where the move put it", async () => {
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
+    // The macbook's exchange reads its nodes through a hook that starts the move mid-cut, outside the cut's fiber.
+    const root = join(tmpdir(), `junto-exchange-copy-macbook-${randomUUID()}`);
+    const runtime = makeRuntime(root, "macbook", MACBOOK);
+    let move: Promise<unknown> | undefined;
+    let armed = false;
+    const moveHelper = Effect.flatMap(ModelService, (model) =>
+      model.command(command({ _tag: "Edit", canvas: "factory", id: "helper", change: { kind: "agent", host: "mini" } }), "operator"),
+    );
+    const exchange = await runtime.runPromise(
+      Effect.gen(function* () {
+        const machines = yield* MachineRepository;
+        yield* machines.configureName("macbook");
+        yield* machines.pinPeer({ machineName: "mini", installationId: MINI });
+        const records = yield* ModelRecords;
+        const hooked = {
+          ...records,
+          listNodes: (canvas: string) =>
+            Effect.gen(function* () {
+              if (move === undefined && armed) {
+                move = runtime.runPromise(moveHelper);
+                // Room for the move to commit, were nothing holding it back.
+                yield* Effect.sleep("40 millis");
+              }
+              return yield* records.listNodes(canvas);
+            }),
+        } as typeof records;
+        return yield* makeLiveRowExchange({ mailArrived: () => {} }).pipe(Effect.provideService(ModelRecords, hooked));
+      }),
+    );
+    const macbook: Machine = { name: "macbook", self: MACBOOK, root, runtime, exchange, channel: makeRowsChannel(exchange), arrived: [] };
+    booted.push(macbook);
+    await runtime.runPromise(seedCanvas("factory", [lead, peer, helper]));
+    const before = (await header(macbook))!.seq;
+    armed = true;
+    await link(macbook, mini);
+    expect(move).toBeDefined();
+    await move;
+    armed = false;
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+
+    const placed = await macbook.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql.unsafe("SELECT machine, from_seq, until_seq FROM canvas_placements WHERE node_id = 'helper' ORDER BY from_seq");
+      }),
+    );
+    const after = (await header(macbook))!.seq;
+    expect(after).toBeGreaterThan(before);
+    // On the macbook at the count first sent, on the mini from the count the move made.
+    expect(placed).toEqual([
+      { machine: MACBOOK, from_seq: before, until_seq: after },
+      { machine: MINI, from_seq: after, until_seq: null },
+    ]);
+  });
+});
