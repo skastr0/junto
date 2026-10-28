@@ -17,12 +17,6 @@ export const LinkFrame = Schema.Union([
   Schema.Struct({ type: Schema.Literal("event"), channel: Channel, payload: Schema.Json }),
   /** A windowed channel's event bytes, as read, whose handlers have finished. */
   Schema.Struct({ type: Schema.Literal("credit"), channel: Channel, bytes: CreditBytes }),
-  /**
-   * Written by this machine's own relay, before any byte from the far end,
-   * when the SSH key that ran it is bound to one opener (`junto link --opener`).
-   * Taken only as the first frame of an accepted connection.
-   */
-  Schema.Struct({ type: Schema.Literal("opener"), installationId: InstallationId }),
   /** Sent once by the end that closes, so the other end can say who closed and why. */
   Schema.Struct({ type: Schema.Literal("close"), failure: EncodedFailure }),
 ]);

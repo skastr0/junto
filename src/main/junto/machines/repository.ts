@@ -13,12 +13,7 @@ import { KnownInstallations } from "./known-installations";
 const Timestamp = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)));
 const PeerIdentity = Schema.Struct({ machineName: MachineName, installationId: InstallationId });
 export type MachinePeerIdentity = typeof PeerIdentity.Type;
-/**
- * `binding: "key"`: the peer links to this machine only through a link key
- * bound to it (docs/machines.md, The link), set by the broker step and
- * changed only by retirement. Absent: the account's own SSH access, as before.
- */
-export type MachinePeer = MachinePeerIdentity & { readonly boundAt: string; readonly binding?: "key" };
+export type MachinePeer = MachinePeerIdentity & { readonly boundAt: string };
 
 export class MachinePersistenceError extends Schema.TaggedError<MachinePersistenceError>()(
   "MachinePersistenceError", { operation: Schema.String, message: Schema.String, cause: Schema.Unknown },
@@ -29,8 +24,7 @@ export class MachineRepository extends Context.Service<MachineRepository, {
   readonly machineName: Effect.Effect<string, MachinePersistenceError>;
   readonly configuration: Effect.Effect<StoredMachineConfiguration, MachinePersistenceError>;
   readonly configureName: (name: string) => Effect.Effect<StoredMachineConfiguration, MachinePersistenceError>;
-  /** `binding: "key"` marks the peer as linking only through its link key (MachinePeer). */
-  readonly pinPeer: (identity: MachinePeerIdentity, options?: { readonly binding?: "key" }) => Effect.Effect<MachinePeer, MachinePersistenceError>;
+  readonly pinPeer: (identity: MachinePeerIdentity) => Effect.Effect<MachinePeer, MachinePersistenceError>;
   readonly peer: (machineName: string) => Effect.Effect<MachinePeer | undefined, MachinePersistenceError>;
   readonly peers: Effect.Effect<ReadonlyArray<MachinePeer>, MachinePersistenceError>;
   readonly retirePeer: (machineName: string) => Effect.Effect<void, MachinePersistenceError>;

@@ -118,7 +118,19 @@ export type CodeStepContext = {
   readonly cause: FiringCause["kind"];
   readonly event: unknown;
   readonly values: Readonly<Record<string, string>>;
+  /** Under an artifact trigger, the artifact that fired it, its body included (B1): structured input, never text. */
+  readonly artifact?: CodeArtifact;
   readonly env: Readonly<Record<string, string>>;
+};
+
+/** The artifact a code step reads when an artifact's change fired it. */
+export type CodeArtifact = {
+  readonly artifactId: string;
+  readonly nodeId: string;
+  readonly title: string;
+  readonly version: number;
+  readonly labels: ReadonlyArray<string>;
+  readonly body: unknown;
 };
 
 /**
@@ -135,6 +147,15 @@ export const runCodeStep = (
   if (runner === undefined) return Effect.succeed({ index, ruling: "refused", reason: "not_available" });
   const ruled = automation.codeRuling;
   if (ruled?.installation === undefined) return Effect.succeed({ index, ruling: "refused", reason: "not_permitted" });
+  // The artifact rides beside the base input: the SDK reads the stdin JSON whole.
+  const input = {
+    automation: { automationId: automation.automationId, name: automation.name, nodeId: automation.nodeId },
+    firing: { firingId: context.firingId, at: context.at, cause: context.cause },
+    trigger: automation.trigger,
+    event: context.event ?? null,
+    values: context.values,
+    ...(context.artifact === undefined ? {} : { artifact: context.artifact }),
+  };
   return runner
     .runCode({
       canvasName: context.canvasName,
@@ -142,13 +163,7 @@ export const runCodeStep = (
       rulingInstallation: ruled.installation,
       source: step.source,
       language: step.language,
-      input: {
-        automation: { automationId: automation.automationId, name: automation.name, nodeId: automation.nodeId },
-        firing: { firingId: context.firingId, at: context.at, cause: context.cause },
-        trigger: automation.trigger,
-        event: context.event ?? null,
-        values: context.values,
-      },
+      input,
       timeoutMs: step.timeoutMs ?? AUTOMATION_CODE_TIMEOUT_DEFAULT_MS,
       maxOutputBytes: AUTOMATION_CODE_OUTPUT_MAX_BYTES,
       env: context.env,

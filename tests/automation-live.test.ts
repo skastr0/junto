@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { automationMailId, changesBetween, conditionHolds, performAction, signalChange, taskChangesOf, type ConditionView } from "../src/main/junto/automation/live";
+import { automationMailId, artifactsWritten, changesBetween, conditionHolds, performAction, signalChange, taskChangesOf, type ConditionView } from "../src/main/junto/automation/live";
 import { type Automation, AutomationId, AutomationVersion, FiringId } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -150,13 +150,34 @@ describe("changesBetween, artifacts", () => {
   const view = (artifacts: ConditionView["artifacts"]): ConditionView => ({ tasks: [], seatTasks: {}, seatOnCanvas: () => false, seats: [], artifacts });
   const A = "01M5ESKJFC1A88R1MH1NEZWJ70";
 
+  const row = (version: number, labels: ReadonlyArray<string> = [], updatedAt = version, createdByAutomation = false) =>
+    ({ artifactId: A, node: "artifacts-1", version, labels: labels as never, updatedAt, createdByAutomation });
+
   it("says an edit when a known artifact's head moves, and nothing for a new one", () => {
-    const one = view([{ artifactId: A, node: "artifacts-1", version: 1 }]);
-    const two = view([{ artifactId: A, node: "artifacts-1", version: 2 }]);
+    const one = view([row(1)]);
+    const two = view([row(2)]);
     expect(changesBetween(view([]), one)).toEqual([]);
     expect(changesBetween(one, two)).toEqual([
-      { kind: "artifact", key: `artifact:${A}:edited:2`, nodeId: "artifacts-1", artifactId: A, event: "edited", byAutomation: false },
+      { kind: "artifact", key: `artifact:${A}:edited:2`, nodeId: "artifacts-1", artifactId: A, event: "edited", labels: [], gained: [], byAutomation: false },
     ]);
+  });
+
+  it("says a label gained, a new artifact's labels too, and never one removed", () => {
+    const plain = view([row(1, ["draft"], 10)]);
+    const labelled = view([row(1, ["draft", "publish"], 11)]);
+    expect(changesBetween(plain, labelled)).toEqual([
+      { kind: "artifact", key: `artifact:${A}:labelled:11:publish`, nodeId: "artifacts-1", artifactId: A, event: "labelled", labels: ["draft", "publish"], gained: ["publish"], byAutomation: false },
+    ]);
+    expect(changesBetween(labelled, view([row(1, ["publish"], 12)]))).toEqual([]);
+    expect(changesBetween(view([]), view([row(1, ["publish"], 13)]))).toMatchObject([{ event: "labelled", gained: ["publish"] }]);
+  });
+
+  it("marks what an automation wrote: a new artifact it created, a write the rulings say was its", () => {
+    expect(changesBetween(view([]), view([row(1, ["publish"], 1, true)]))).toMatchObject([{ event: "labelled", byAutomation: true }]);
+    const before = view([row(1, [], 1)]);
+    const after = view([row(2, ["publish"], 2)]);
+    expect(artifactsWritten(before, after)).toEqual([A]);
+    expect(changesBetween(before, after, true, new Set([A])).map((event) => event.kind === "artifact" && event.byAutomation)).toEqual([true, true]);
   });
 });
 
@@ -177,7 +198,7 @@ describe("changesBetween, comments", () => {
 
   it("says a comment the pass before did not hold, once, and none of the old ones", () => {
     expect(changesBetween(view([old]), view([old, fresh]))).toEqual([
-      { kind: "artifact", key: `artifact:${A}:commented:${fresh.messageId}`, nodeId: "artifacts-1", artifactId: A, event: "commented", byAutomation: false },
+      { kind: "artifact", key: `artifact:${A}:commented:${fresh.messageId}`, nodeId: "artifacts-1", artifactId: A, event: "commented", labels: [], gained: [], byAutomation: false },
     ]);
     expect(changesBetween(view([old, fresh]), view([old, fresh]))).toEqual([]);
   });

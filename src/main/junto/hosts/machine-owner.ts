@@ -18,7 +18,7 @@ import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
 import { noteMachinesChanged } from "./machine-changes";
 import { HostRegistryRows } from "./registry";
-import type { MachineLinkSetup } from "./machine-link";
+import type { CodeAllowanceOwner } from "../automation/code-allowance-owner";
 
 export interface MachineOwnerOptions {
   readonly ownStatus: Effect.Effect<MachineOwnStatus, unknown>;
@@ -37,8 +37,8 @@ export interface MachineOwnerOptions {
   readonly seatStop?: (input: MachineSeatInput) => Effect.Effect<Pick<MachineSeatStopped, "outcome">, unknown>;
   /** Reads a seat's settled terminal grid, here or on the machine that runs it. */
   readonly seatRead?: (input: MachineSeatReadInput) => Effect.Effect<Omit<MachineSeatRead, "canvas" | "seatId">, unknown>;
-  /** Links bound to their opener's key (`junto machine link`). */
-  readonly linkSetup?: MachineLinkSetup;
+  /** This machine's code allowance rows (`junto machine code`). */
+  readonly code?: CodeAllowanceOwner;
 }
 export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
   message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
@@ -80,16 +80,12 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         const pins = yield* machines.peers;
         const ownId = yield* machines.installationId;
         const ownBuild = yield* options.ownStatus.pipe(Effect.flatMap(status => Schema.decodeUnknownEffect(MachineBuild)(status.build)));
-        const pending = options.linkSetup?.pending() ?? [];
         return { machines: yield* Effect.forEach(listed, machine => Effect.gen(function* () {
           const pin = pins.find(row => row.machineName === machine.id);
           const reportedBuild = machine.isThisMachine || pin === undefined ? undefined : yield* options.peerBuild(machine.id);
           const peerBuild = reportedBuild === undefined ? undefined : yield* Schema.decodeUnknownEffect(MachineBuild)(reportedBuild);
-          const held = pending.filter((row) => row.holder === machine.id).map((row) => row.machineName);
           return { machine, setUp: machine.isThisMachine || pin !== undefined, needsUpdate: peerBuild !== undefined && peerBuild !== ownBuild,
-            ...(machine.isThisMachine ? { installationId: ownId } : pin === undefined ? {} : { installationId: pin.installationId }),
-            ...(pin?.binding !== "key" || options.linkSetup === undefined ? {} : { linkKey: options.linkSetup.lineHeld(pin.installationId) ? "bound" as const : "line-missing" as const }),
-            ...(held.length === 0 ? {} : { holdsRevokedKeys: held }) };
+            ...(machine.isThisMachine ? { installationId: ownId } : pin === undefined ? {} : { installationId: pin.installationId }) };
         })) };
       }
       case "machine.add": {
@@ -155,24 +151,19 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         if (options.seatRead === undefined) return yield* Effect.fail(new SeatControlUnavailable({ message: "This Junto process cannot read seats" }));
         return { canvas, seatId, ...(yield* options.seatRead(request.args)) } satisfies MachineSeatRead;
       }
-      case "machine.link":
-      case "machine.link-key":
-      case "machine.link-accept":
-      case "machine.link-open":
-      case "machine.link-revoke": {
-        const setup = options.linkSetup;
-        if (setup === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "This Junto process sets up no link keys"));
-        if (request.op === "machine.link") return yield* setup.link(request.args);
-        if (request.op === "machine.link-key") return yield* setup.key(request.args);
-        if (request.op === "machine.link-accept") return yield* setup.accept(request.args);
-        if (request.op === "machine.link-open") return yield* setup.open(request.args);
-        return yield* setup.revoke(request.args);
+      case "machine.code-allow":
+      case "machine.code-deny":
+      case "machine.code-show": {
+        const code = options.code;
+        if (code === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "This Junto process keeps no code allowance"));
+        if (request.op === "machine.code-allow") return yield* code.allow(request.args);
+        if (request.op === "machine.code-deny") return yield* code.deny(request.args);
+        return yield* code.show(request.args);
       }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
       case "machine.remove": {
         const name = request.args.name;
-        const removed = yield* machines.peer(name);
         yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
           const current = yield* rows.read;
           const host = current.hosts.find(row => row.id === name);
@@ -182,11 +173,6 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           yield* rows.delete(name);
         })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"),
           Effect.tap(() => options.disconnect(name))));
-        // Its key comes off here and off every machine this one reaches; one it cannot reach stays listed.
-        if (removed !== undefined && options.linkSetup !== undefined) {
-          yield* options.linkSetup.forget(name, removed.installationId);
-          yield* options.linkSetup.revokeEverywhere(removed).pipe(Effect.ignore);
-        }
         yield* hosts.list;
         return { machineName: name, removed: true };
       }
@@ -194,7 +180,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
   });
   // Reads and seat control take no machine mutation lock: a seat start must not wait behind a send.
-  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read"]);
+  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
+    // The allowance is rows in this machine's database, not the machine registry.
+    "machine.code-allow", "machine.code-deny", "machine.code-show"]);
   return {
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
       (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition)).pipe(

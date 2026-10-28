@@ -59,12 +59,6 @@ interface SshRouteDetails {
   readonly knownHostsFile?: string;
   readonly hostKeyAlias?: string;
   readonly hostKeyPolicy: SshHostKeyPolicy;
-  /**
-   * A link route bound to its own key: dialed with no SSH config file, no
-   * agent, that one key and that one known-hosts file (docs/machines.md, The
-   * link). Its endpoint is the literal user and host resolved at setup.
-   */
-  readonly bound?: true;
 }
 
 const sshRoutes = new WeakMap<SshRoute, SshRouteDetails>();
@@ -184,7 +178,6 @@ export const parseSshRoute = (input: {
   readonly knownHostsFile?: unknown;
   readonly hostKeyAlias?: unknown;
   readonly hostKeyPolicy?: unknown;
-  readonly bound?: true;
 }): Effect.Effect<SshRoute, SshInputError> =>
   Effect.gen(function* () {
     const endpoint = yield* parseSshEndpoint(input.endpoint);
@@ -225,9 +218,6 @@ export const parseSshRoute = (input: {
     if (knownHostsFile !== undefined && hostKeyPolicy !== "system") {
       return yield* Effect.fail(new SshInputError({ message: "a pinned known-hosts file requires strict host-key checking" }));
     }
-    if (input.bound === true && (identityFile === undefined || knownHostsFile === undefined || hostKeyAlias !== undefined || !/^[^@]+@[^@]+$/.test(endpoint))) {
-      return yield* Effect.fail(new SshInputError({ message: "a key-bound route needs a literal user and host, its own key and its own known-hosts file" }));
-    }
     const route = Object.freeze({
       [SshRouteTypeId]: SshRouteTypeId,
     }) as SshRoute;
@@ -238,7 +228,6 @@ export const parseSshRoute = (input: {
       ...(knownHostsFile === undefined ? {} : { knownHostsFile }),
       ...(hostKeyAlias === undefined ? {} : { hostKeyAlias }),
       hostKeyPolicy,
-      ...(input.bound === true ? { bound: true as const } : {}),
     });
     return route;
   });

@@ -36,6 +36,7 @@
 import { Schema } from "effect";
 import { isValidCronExpression } from "./cron-expression";
 import { InstallationId } from "./installation-id";
+import { ArtifactLabel, ArtifactLabels, artifactLabelsMatch } from "./artifact-labels";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
 import { HostId } from "./remote-hosts";
@@ -141,7 +142,8 @@ const Timezone = Schema.String.pipe(Schema.check(Schema.makeFilter((timezone) =>
 export const SeatBecomes = Schema.Literals(["idle", "working", "attention", "gone"]);
 export type SeatBecomes = typeof SeatBecomes.Type;
 
-export const ArtifactEvent = Schema.Literals(["edited", "commented"]);
+/** `labelled`: an artifact gains a label, created with it included; a label removed fires nothing. */
+export const ArtifactEvent = Schema.Literals(["edited", "commented", "labelled"]);
 export type ArtifactEvent = typeof ArtifactEvent.Type;
 
 export const WatchedSignal = Schema.Literals(["escalate", "blocked", "feedback"]);
@@ -177,8 +179,17 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
   const Watch = Schema.Union([
     Schema.Struct(seatWatch),
     Schema.Struct(taskWatch),
-    /** `{node}`: any artifact in that Artifacts node, as a task watch's `{node}` is any task on a board. */
-    Schema.Struct({ kind: Schema.Literal("artifact"), artifact: Schema.Union([ref, Schema.Struct({ node })]), event: ArtifactEvent }),
+    /**
+     * `{node}`: any artifact in that Artifacts node, as a task watch's `{node}`
+     * is any task on a board. `label`: with `labelled`, the label gained (one
+     * under it counts); otherwise only an artifact carrying it.
+     */
+    Schema.Struct({
+      kind: Schema.Literal("artifact"),
+      artifact: Schema.Union([ref, Schema.Struct({ node })]),
+      event: ArtifactEvent,
+      label: Schema.optionalKey(ArtifactLabel),
+    }),
     /**
      * Without `from`, any seat's signal: the runner matches it only from seats
      * among `automationTargets(canvas, node, author)` at fire time, never a
@@ -210,6 +221,9 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     }),
   ]);
 
+  /** An artifact an action writes: one it names, or `{fired: true}`, the artifact whose change fired it. */
+  const ArtifactTarget = Schema.Union([ref, Schema.Struct({ fired: Schema.Literal(true) })]);
+
   const Action = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("mail"), to: ref, text: Body }),
     /** Mail delivered as a prompt (`junto msg send --prompt`): the seat is asked to act. `to` must be a seat (`actionRefusal`). */
@@ -217,6 +231,23 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     Schema.Struct({ kind: Schema.Literal("create-task"), node, title: Name, assign: Schema.optionalKey(ref) }),
     Schema.Struct({ kind: Schema.Literal("assign-task"), task: ref, to: ref }),
     Schema.Struct({ kind: Schema.Literal("comment"), on: commentable, anchor: Schema.optionalKey(Anchor), text: Body }),
+    /** A document in an Artifacts node; its title and body may name values. Absent body: an empty document. */
+    Schema.Struct({
+      kind: Schema.Literal("create-artifact"),
+      node,
+      title: Name,
+      body: Schema.optionalKey(Body),
+      labels: Schema.optionalKey(ArtifactLabels),
+    }),
+    /** Text at the end of a document, as written, against the head it reads; the text may name values. */
+    Schema.Struct({ kind: Schema.Literal("append-artifact"), to: ArtifactTarget, text: Body }),
+    /** Labels added to and removed from an artifact's set; at least one, never one label in both. */
+    Schema.Struct({
+      kind: Schema.Literal("label-artifact"),
+      to: ArtifactTarget,
+      add: Schema.optionalKey(ArtifactLabels),
+      remove: Schema.optionalKey(ArtifactLabels),
+    }),
     /**
      * A program run on the automation's machine (Code steps). Its source is
      * staged content, never text in the row, so a change of code is a new
@@ -244,7 +275,7 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     limits: AutomationLimits,
   });
 
-  return { Watch, Condition, Trigger, Action, Definition } as const;
+  return { Watch, Condition, Trigger, ArtifactTarget, Action, Definition } as const;
 };
 
 // ── The stored form ────────────────────────────────────────────────────────
@@ -258,6 +289,8 @@ export type Condition = typeof Condition.Type;
 export const Trigger = stored.Trigger;
 export type Trigger = typeof Trigger.Type;
 export type TriggerKind = Trigger["kind"];
+export const ArtifactTarget = stored.ArtifactTarget;
+export type ArtifactTarget = typeof ArtifactTarget.Type;
 export const Action = stored.Action;
 export type Action = typeof Action.Type;
 export type ActionKind = Action["kind"];
@@ -392,6 +425,11 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
       return [action.task.nodeId, action.to.nodeId];
     case "comment":
       return [action.on.nodeId];
+    case "create-artifact":
+      return [action.node];
+    case "append-artifact":
+    case "label-artifact":
+      return "fired" in action.to ? [] : [action.to.nodeId];
     case "code":
       return [];
     default:
@@ -413,11 +451,62 @@ export const targetNodeIds = (automation: Automation): ReadonlyArray<NodeId> => 
   return [...ids];
 };
 
-/** A prompt goes to a seat only: anything else is refused when the automation is saved. */
-export const actionRefusal = (action: Action): Refusal | undefined =>
-  action.kind === "prompt" && action.to.kind !== "seat"
-    ? { reason: "invalid_input", message: "a prompt goes to a seat", next_step: "Name a seat as the prompt's to, or send mail instead" }
+/**
+ * What one action may not say, refused when the automation is saved: a
+ * prompt to anything but a seat, an artifact write to anything but an
+ * artifact, a label change that changes nothing or names one label both ways.
+ */
+export const actionRefusal = (action: Action): Refusal | undefined => {
+  switch (action.kind) {
+    case "prompt":
+      return action.to.kind === "seat"
+        ? undefined
+        : { reason: "invalid_input", message: "a prompt goes to a seat", next_step: "Name a seat as the prompt's to, or send mail instead" };
+    case "append-artifact":
+    case "label-artifact": {
+      if (!("fired" in action.to) && action.to.kind !== "artifact") {
+        return { reason: "invalid_input", message: `${action.kind} writes to an artifact`, next_step: "Name an artifact, or the artifact that fired" };
+      }
+      if (action.kind === "append-artifact") return undefined;
+      const add = action.add ?? [];
+      const remove = action.remove ?? [];
+      if (add.length === 0 && remove.length === 0) {
+        return { reason: "invalid_input", message: "label-artifact adds or removes at least one label" };
+      }
+      const both = add.find((label) => remove.includes(label));
+      return both === undefined
+        ? undefined
+        : { reason: "invalid_input", message: `label ${both} is both added and removed`, next_step: "Name each label once, to add or to remove" };
+    }
+    default:
+      return undefined;
+  }
+};
+
+/** `{fired: true}` names the artifact whose change fired the automation, so only an artifact trigger carries one. */
+export const firedTargetRefusal = (definition: Pick<AutomationDefinition, "trigger" | "then">): Refusal | undefined => {
+  const artifactTrigger = definition.trigger.kind === "change" && definition.trigger.on.kind === "artifact";
+  const firedWrite = definition.then.some(
+    (action) => (action.kind === "append-artifact" || action.kind === "label-artifact") && "fired" in action.to,
+  );
+  return firedWrite && !artifactTrigger
+    ? {
+        reason: "invalid_input",
+        message: "only an artifact trigger has an artifact that fired",
+        next_step: "Name the artifact to write, or trigger on an artifact",
+      }
     : undefined;
+};
+
+/** Whether an artifact's labels pass a watch's label: carried for an edit or a comment, gained for `labelled`. */
+export const artifactWatchLabelMatches = (
+  watch: Extract<Watch, { readonly kind: "artifact" }>,
+  labels: ReadonlyArray<ArtifactLabel>,
+  gained: ReadonlyArray<ArtifactLabel>,
+): boolean => {
+  if (watch.event === "labelled") return watch.label === undefined ? gained.length > 0 : artifactLabelsMatch(gained, [watch.label]);
+  return watch.label === undefined || artifactLabelsMatch(labels, [watch.label]);
+};
 
 // ── Values ─────────────────────────────────────────────────────────────────
 
@@ -430,7 +519,7 @@ export const actionRefusal = (action: Action): Refusal | undefined =>
  */
 export const AUTOMATION_VALUES = {
   task: ["task.title", "task.state", "task.link", "task.assignee", "board.title"],
-  artifact: ["artifact.title", "artifact.link", "artifacts.title"],
+  artifact: ["artifact.title", "artifact.link", "artifact.labels", "artifacts.title"],
   seat: ["seat.name", "seat.state"],
   signal: ["signal.kind", "signal.from", "signal.text"],
   every: ["fired.at"],
@@ -482,7 +571,12 @@ export const actionText = (action: Action): string | undefined => {
       return action.text;
     case "create-task":
       return action.title;
+    case "append-artifact":
+      return action.text;
+    case "create-artifact":
+      return action.body === undefined ? action.title : `${action.title}\n${action.body}`;
     case "assign-task":
+    case "label-artifact":
     case "code":
       return undefined;
     default:

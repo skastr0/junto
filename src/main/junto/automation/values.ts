@@ -12,6 +12,7 @@ import type { Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import type { TaskView } from "@shared/task-model";
+import type { ArtifactHeadRead } from "../work/artifact-repository";
 import type { ChangeEvent } from "./plan";
 
 /** The change that fired an automation, if a change did, when it fired, and what its code steps so far answered. */
@@ -24,7 +25,7 @@ export type Fired = {
 };
 
 /** What the firing's task or artifact reads as, fetched once for its actions. */
-export type FiredReads = { readonly task?: TaskView; readonly artifactTitle?: string };
+export type FiredReads = { readonly task?: TaskView; readonly artifact?: ArtifactHeadRead };
 
 /** A link a seat can open, labelled with its name; the bare name when the canvas cannot word it. */
 const linkOf = (ref: MentionRef, label: string, canvasName: string): string => {
@@ -77,12 +78,14 @@ export const firedValue = (
       }
     }
     case "artifact": {
-      const title = reads.artifactTitle;
+      const title = reads.artifact?.artifact.title;
       switch (name) {
         case "artifacts.title":
           return nodeTitle(canvas, event.nodeId);
         case "artifact.title":
           return title;
+        case "artifact.labels":
+          return reads.artifact?.artifact.labels.join(", ");
         case "artifact.link":
           return title === undefined
             ? undefined

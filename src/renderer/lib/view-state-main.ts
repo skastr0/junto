@@ -22,7 +22,6 @@ import type {
   ViewFocusSize,
   ViewNodeState,
   ViewOpenItem,
-  ViewStateEvent,
   ViewStateSnapshot,
   ViewStateWrite,
 } from "@shared/view-state";
@@ -207,16 +206,13 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
   };
 
   let hydrating = true;
-  const pending: ViewStateEvent[] = [];
+  const pending: ViewStateWrite[] = [];
 
   const reload = async (): Promise<void> => {
-    // A canvas that just lost its board still has readers holding the old
-    // one: announce every canvas that had one before, as well as after.
-    const known = new Set(boards.keys());
     try {
       const snapshot = await api.snapshot();
       hydrate(snapshot);
-      for (const canvas of new Set([...known, ...boards.keys()])) emitCanvas(canvas);
+      for (const canvas of boards.keys()) emitCanvas(canvas);
       emitNodes();
     } catch {
       // A store that cannot be read leaves the mirror as it was; the next
@@ -235,28 +231,22 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     );
   };
 
-  const applyEvent = (event: ViewStateEvent): void => {
-    if (event.area === "reload") {
-      // Rows went with a node or canvas: read the snapshot again.
-      void reload();
-      return;
-    }
-    apply(event);
-    announce(event);
-  };
-
   void (async () => {
     await reload();
     hydrating = false;
-    for (const event of pending.splice(0)) applyEvent(event);
+    for (const write of pending.splice(0)) {
+      apply(write);
+      announce(write);
+    }
   })();
 
-  const off = api.onChanged((event) => {
+  const off = api.onChanged((write) => {
     if (hydrating) {
-      pending.push(event);
+      pending.push(write);
       return;
     }
-    applyEvent(event);
+    apply(write);
+    announce(write);
   });
   // The page's lifetime owns the transport; a store made once lives with it.
   void off;

@@ -20,8 +20,10 @@ import { nextCronOccurrenceIn } from "@shared/cron-expression";
 import type { NodeId } from "@shared/physics/schema";
 import type { TaskState } from "@shared/task-model";
 import type { ItemId } from "@shared/work-ids";
+import type { ArtifactLabel } from "@shared/artifact-labels";
 import {
   type ArtifactEvent,
+  artifactWatchLabelMatches,
   type Automation,
   type FiringCause,
   limitSkip,
@@ -159,6 +161,9 @@ export type ChangeEvent =
       readonly nodeId: NodeId;
       readonly artifactId: ItemId;
       readonly event: ArtifactEvent;
+      /** The labels it carries now, and for `labelled` the ones it gained. */
+      readonly labels: ReadonlyArray<ArtifactLabel>;
+      readonly gained: ReadonlyArray<ArtifactLabel>;
       readonly byAutomation: boolean;
     }
   | { readonly kind: "signal"; readonly key: string; readonly seat: NodeId; readonly signal: WatchedSignal; readonly text: string };
@@ -178,6 +183,7 @@ export const changeMatches = (watch: Watch, event: ChangeEvent, targets: Readonl
         event.kind === "artifact" &&
         !event.byAutomation &&
         watch.event === event.event &&
+        artifactWatchLabelMatches(watch, event.labels, event.gained) &&
         ("kind" in watch.artifact
           ? watch.artifact.kind === "artifact" && watch.artifact.nodeId === event.nodeId && watch.artifact.artifactId === event.artifactId
           : watch.artifact.node === event.nodeId)

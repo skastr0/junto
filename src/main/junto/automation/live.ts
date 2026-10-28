@@ -22,6 +22,7 @@
  */
 import { createHash } from "node:crypto";
 import { Context, Duration, Effect, Layer, Option, Queue, Schedule, Schema, Semaphore, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
 import { TASK_TITLE_MAX, type TaskId, type TaskState } from "@shared/task-model";
@@ -64,6 +65,9 @@ import { SeatStateSource } from "./seat-state-source";
 import type { SeatStateFiring } from "@shared/seat-state-trigger";
 import { type Fired, type FiredReads, firedValue } from "./values";
 import { AutomationCodeRunner, runCodeStep } from "./code-step";
+import { artifactsWrittenByAutomation } from "./artifact-writers";
+import { type ArtifactPort, isArtifactAction, performArtifactAction } from "./artifact-actions";
+import type { ArtifactLabel } from "@shared/artifact-labels";
 
 /** How often the loop looks for due slots: cron and poll slots are minutes apart. */
 export const AUTOMATION_TICK = Duration.seconds(15);
@@ -110,8 +114,26 @@ export type ArtifactCommentRow = {
   readonly byAutomation: boolean;
 };
 
-/** An artifact as a change trigger reads it. */
-export type ArtifactVersionRow = { readonly artifactId: string; readonly node: string; readonly version: number };
+/** An artifact as a change trigger reads it: its head, its labels, and whether an automation made it. */
+export type ArtifactVersionRow = {
+  readonly artifactId: string;
+  readonly node: string;
+  readonly version: number;
+  readonly labels: ReadonlyArray<ArtifactLabel>;
+  /** Moves with every write, labels included: it keys a label change. */
+  readonly updatedAt: number;
+  readonly createdByAutomation: boolean;
+};
+
+/** The artifacts whose head or labels moved between two passes: the ones whose last writer is asked (artifact-writers.ts). */
+export const artifactsWritten = (before: ConditionView | undefined, after: ConditionView): ReadonlyArray<string> => {
+  if (before === undefined) return [];
+  const prior = new Map((before.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact]));
+  return (after.artifacts ?? []).flatMap((artifact) => {
+    const was = prior.get(artifact.artifactId);
+    return was !== undefined && (was.version !== artifact.version || was.updatedAt !== artifact.updatedAt) ? [artifact.artifactId] : [];
+  });
+};
 
 /**
  * One task change per applied ruling, in the order they landed: a task that
@@ -139,23 +161,27 @@ export const changesBetween = (
   after: ConditionView,
   /** False when the runtime seat-state source says seat changes: they are its, never the index's. */
   seatChanges = true,
+  /** The artifacts an automation wrote last (`artifactsWrittenByAutomation`): their edits and labels fire nothing. */
+  writtenByAutomation: ReadonlySet<string> = new Set(),
 ): ReadonlyArray<ChangeEvent> => {
   if (before === undefined) return [];
   const events: Array<ChangeEvent> = [];
-  // An edit is a new head version of an artifact the pass before knew. Automations write no artifacts.
-  const versions = new Map((before.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact.version]));
+  // An edit is a new head version of an artifact the pass before knew; a label is
+  // gained when the set holds one it did not, or a new artifact arrives carrying it.
+  const prior = new Map((before.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact]));
   for (const artifact of after.artifacts ?? []) {
-    const prior = versions.get(artifact.artifactId);
-    if (prior === undefined || prior === artifact.version) continue;
-    events.push({
-      kind: "artifact",
-      key: `artifact:${artifact.artifactId}:edited:${artifact.version}`,
-      nodeId: artifact.node as NodeId,
-      artifactId: artifact.artifactId as ItemId,
-      event: "edited",
-      byAutomation: false,
-    });
+    const was = prior.get(artifact.artifactId);
+    const byAutomation = was === undefined ? artifact.createdByAutomation : writtenByAutomation.has(artifact.artifactId);
+    const about = { kind: "artifact", nodeId: artifact.node as NodeId, artifactId: artifact.artifactId as ItemId, labels: artifact.labels, byAutomation } as const;
+    if (was !== undefined && was.version !== artifact.version) {
+      events.push({ ...about, key: `artifact:${artifact.artifactId}:edited:${artifact.version}`, event: "edited", gained: [] });
+    }
+    const gained = artifact.labels.filter((label) => !(was?.labels ?? []).includes(label));
+    if (gained.length > 0) {
+      events.push({ ...about, key: `artifact:${artifact.artifactId}:labelled:${artifact.updatedAt}:${gained.join(",")}`, event: "labelled", gained });
+    }
   }
+  const labelsOf = new Map((after.artifacts ?? []).map((artifact) => [artifact.artifactId, artifact.labels]));
   // A comment the pass before did not hold. The first pass knows every comment, so old ones fire nothing.
   const heard = new Set((before.comments ?? []).map((comment) => comment.messageId));
   for (const comment of after.comments ?? []) {
@@ -166,6 +192,8 @@ export const changesBetween = (
       nodeId: comment.node as NodeId,
       artifactId: comment.artifactId as ItemId,
       event: "commented",
+      labels: labelsOf.get(comment.artifactId) ?? [],
+      gained: [],
       byAutomation: comment.byAutomation,
     });
   }
@@ -401,8 +429,11 @@ export const performAction = (
         });
         return ruledAs(index, assigned);
       }
-      // A code step is run by the runner's own port (performCode), never here.
+      // A code step and an artifact write have the runner's own ports (performCode, performArtifactAction).
       case "code":
+      case "create-artifact":
+      case "append-artifact":
+      case "label-artifact":
         return notAvailable(index);
     }
   });
@@ -436,6 +467,7 @@ export const AutomationRunnerLive = Layer.effect(
     const seatStates = yield* Effect.serviceOption(SeatStateSource);
     const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
     const codeRunner = yield* Effect.serviceOption(AutomationCodeRunner);
+    const sql = yield* Effect.serviceOption(SqlClient.SqlClient);
     // The comments each Artifacts node holds: rows whose thread subject is one
     // of its artifacts. A node whose mailbox could not be read is named in
     // `unread`, never taken as holding none.
@@ -473,7 +505,14 @@ export const AutomationRunnerLive = Layer.effect(
       if (Option.isNone(artifactStore) || nodeIds.length === 0) return Effect.succeed([]);
       return artifactStore.value.list(canvasName, { nodeIds, archived: false, limit: TASK_STATES_READ_MAX }).pipe(
         Effect.map(({ artifacts }) =>
-          artifacts.map((artifact) => ({ artifactId: artifact.artifactId, node: artifact.nodeId, version: artifact.version })),
+          artifacts.map((artifact) => ({
+            artifactId: artifact.artifactId,
+            node: artifact.nodeId,
+            version: artifact.version,
+            labels: artifact.labels,
+            updatedAt: artifact.updatedAt,
+            createdByAutomation: artifact.createdBy.kind === "automation",
+          })),
         ),
         Effect.orElseSucceed(() => [] as ReadonlyArray<ArtifactVersionRow>),
       );
@@ -487,6 +526,9 @@ export const AutomationRunnerLive = Layer.effect(
         ? Effect.fail(notQueued)
         : Effect.flatMap(submit.value.route(canvasName), (route) =>
             route.kind === "here" ? Effect.fail(notQueued) : submit.value.queue(command, route.editor));
+    const artifactPort: ArtifactPort | undefined = Option.isSome(artifactStore) && Option.isSome(machines)
+      ? { repository: artifactStore.value, writer: machines.value.installationId }
+      : undefined;
     const tasks: Option.Option<TaskPort> = Option.isSome(taskStore) && Option.isSome(machines)
       ? Option.some({
           repository: taskStore.value,
@@ -509,7 +551,7 @@ export const AutomationRunnerLive = Layer.effect(
       }
       if (event?.kind === "artifact" && Option.isSome(artifactStore)) {
         return artifactStore.value.head(canvasName, event.artifactId).pipe(
-          Effect.map((head) => (Option.isSome(head) ? { artifactTitle: head.value.artifact.title } : {})),
+          Effect.map((head) => (Option.isSome(head) ? { artifact: head.value } : {})),
           Effect.orElseSucceed(() => ({})),
         );
       }
@@ -561,9 +603,27 @@ export const AutomationRunnerLive = Layer.effect(
           cause: fired.cause ?? "run",
           event: fired.event ?? null,
           values,
+          ...(reads.artifact === undefined
+            ? {}
+            : {
+                artifact: {
+                  artifactId: reads.artifact.artifact.artifactId,
+                  nodeId: reads.artifact.artifact.nodeId,
+                  title: reads.artifact.artifact.title,
+                  version: reads.artifact.artifact.version,
+                  labels: reads.artifact.artifact.labels,
+                  body: reads.artifact.body,
+                },
+              }),
           env,
         });
       }).pipe(Effect.catchCause(() => Effect.succeed(notAvailable(index))));
+    // An action's text with its `{{name}}` values said as this firing says them; a value it lacks stays as written.
+    const resolveFor = (canvasName: string, fired: Fired) => (text: string): Effect.Effect<string> =>
+      valueNamesIn(text).length === 0
+        ? Effect.succeed(text)
+        : Effect.map(firedReads(canvasName, fired), (reads) =>
+            resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName) ?? `{{${name}}}`));
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       runsHere,
@@ -572,13 +632,21 @@ export const AutomationRunnerLive = Layer.effect(
       // A code step runs on the automation's own machine, which is here: it writes nothing another machine judges.
       perform: (canvasName, automation, action, index, firingId, fired) =>
         action.kind === "code" ? performCode(canvasName, automation, action, index, firingId, fired)
+        // An artifact write is ruled where the canvas is ruled; it does not queue yet (B1).
+        : isArtifactAction(action) ? performArtifactAction(artifactPort, {
+            canvas: canvases.get(canvasName),
+            canvasName,
+            automation,
+            action,
+            index,
+            fired,
+            resolve: resolveFor(canvasName, fired),
+            idOf: (part) => automationMailId(firingId, index, part),
+            rules: here.get(canvasName)?.edits === true,
+          })
         // An automation acts from its own machine (S2): mail goes out from here, and a task write is
         // ruled here when this machine rules the canvas, or proposed to the machine that does.
-        : performAction(work, here.get(canvasName)?.edits === true ? tasks : Option.map(tasks, (task) => ({ ...task, queue: queueFor(canvasName) })), canvases.get(canvasName), canvasName, automation, action, index, firingId, (text) =>
-          valueNamesIn(text).length === 0
-            ? Effect.succeed(text)
-            : Effect.map(firedReads(canvasName, fired), (reads) =>
-                resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName) ?? `{{${name}}}`)), here.get(canvasName)?.edits === true).pipe(
+        : performAction(work, here.get(canvasName)?.edits === true ? tasks : Option.map(tasks, (task) => ({ ...task, queue: queueFor(canvasName) })), canvases.get(canvasName), canvasName, automation, action, index, firingId, resolveFor(canvasName, fired), here.get(canvasName)?.edits === true).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
         ),
       mintFiringId: () => FiringId.make(ulid()),
@@ -636,11 +704,11 @@ export const AutomationRunnerLive = Layer.effect(
     const load = (canvasName: string) =>
       model.canvas(canvasName).pipe(
         Effect.flatMap((canvas) =>
-          Effect.map(Effect.all([
+          Effect.flatMap(Effect.all([
             readConditionView(canvasName, canvas),
             readArtifacts(canvasName, canvas),
             readComments(canvasName, canvas),
-          ]), ([read, artifacts, { comments: readNow, unread }]) => {
+          ]), ([read, artifacts, { comments: readNow, unread }]) => Effect.gen(function* () {
             const held = views.get(canvasName);
             // A node whose read failed keeps the comments it held, so the next good read finds only new ones.
             const comments = [...readNow, ...(held?.comments ?? []).filter((comment) => unread.has(comment.node))];
@@ -653,14 +721,16 @@ export const AutomationRunnerLive = Layer.effect(
               if (node.kind === "artifacts" && !unread.has(node.id)) baselined.add(node.id);
             }
             commentsRead.set(canvasName, baselined);
-            const changes = changesBetween(before, view, Option.isNone(seatStates));
+            const written = artifactsWritten(before, view);
+            const automated = Option.isNone(sql) ? new Set<string>() : yield* artifactsWrittenByAutomation(sql.value, canvasName, written);
+            const changes = changesBetween(before, view, Option.isNone(seatStates), automated);
             // Keep the artifacts this read left out, as they were, for the next diff.
             const seenArtifacts = new Set(artifacts.map((artifact) => artifact.artifactId));
             const keptArtifacts = (before?.artifacts ?? []).filter((artifact) => !seenArtifacts.has(artifact.artifactId));
             canvases.set(canvasName, canvas);
             views.set(canvasName, { ...view, artifacts: [...artifacts, ...keptArtifacts], comments });
             return changes;
-          }),
+          })),
         ),
         Effect.catchCause(() =>
           Effect.sync(() => {

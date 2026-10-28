@@ -55,8 +55,7 @@ export interface ForwardProgram {
 type RemoteInvocation =
   | { readonly _tag: "Argv"; readonly command: RemoteCommand }
   | { readonly _tag: "HomeDirectoryLookup" }
-  | { readonly _tag: "MasterWarm" }
-  | { readonly _tag: "ResolveConfig" };
+  | { readonly _tag: "MasterWarm" };
 
 interface OneShotPayload {
   readonly _tag: "OneShot";
@@ -125,18 +124,6 @@ export const homeDirectoryLookup = (target: SshTarget): OneShotProgram =>
     _tag: "OneShot",
     target,
     invocation: { _tag: "HomeDirectoryLookup" },
-    timeoutMs: ONE_SHOT_TIMEOUT_MS.short,
-  });
-
-/**
- * `ssh -G`: the route as OpenSSH would dial it, from this account's config,
- * printed and never dialed. A key-bound route is recorded from it once.
- */
-export const resolveSshConfig = (target: SshTarget): OneShotProgram =>
-  opaque<OneShotProgram>("oneShot", {
-    _tag: "OneShot",
-    target,
-    invocation: { _tag: "ResolveConfig" },
     timeoutMs: ONE_SHOT_TIMEOUT_MS.short,
   });
 
@@ -253,8 +240,6 @@ const invocationText = (invocation: RemoteInvocation): string => {
       return `printf '%s\\n' "$HOME"`;
     case "MasterWarm":
       return "true";
-    case "ResolveConfig":
-      throw new TypeError("a config lookup runs no remote command");
 
   }
 };
@@ -316,8 +301,6 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
       endpoint: route.endpoint,
       isolated: route.knownHostsFile !== undefined || route.hostKeyAlias !== undefined,
       options: [
-        // A key-bound link reads no config file, so no Host block can add a key, a jump or a command.
-        ...(route.bound === true ? ["-F", "none", "-o", "IdentityAgent=none"] : []),
         ...(route.port === undefined ? [] : ["-p", String(route.port)]),
         ...(route.knownHostsFile === undefined ? [] : [
           "-o", "StrictHostKeyChecking=yes",
@@ -348,7 +331,6 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
     connection: "shared" | "dedicated",
   ): Command.Command => {
     const route = targetArgs(target);
-    if (invocation._tag === "ResolveConfig") return ssh(["-G", ...BASE_OPTIONS, ...route.options, route.endpoint]);
     return ssh([
       ...BASE_OPTIONS,
       ...route.options,

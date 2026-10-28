@@ -10,9 +10,7 @@
 import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ModelDependents } from "../model/dependents";
-import { afterSqlCommit } from "../state/sql-commit";
 import { makeWorkModelDependents } from "../work/model-dependents";
-import { publishViewStateChange } from "./changes";
 import { removeViewCanvas, removeViewNodes } from "./remove";
 
 export const ProductModelDependentsLive = Layer.effect(
@@ -25,14 +23,11 @@ export const ProductModelDependentsLive = Layer.effect(
         Effect.gen(function* () {
           yield* work.removeCanvas(canvas);
           yield* removeViewCanvas(sql, canvas);
-          // A window still showing the canvas must drop its rows.
-          yield* afterSqlCommit(sql, publishViewStateChange);
         }),
       removeNodes: (canvas, ids) =>
         Effect.gen(function* () {
           yield* work.removeNodes(canvas, ids);
           yield* removeViewNodes(sql, canvas, ids);
-          yield* afterSqlCommit(sql, publishViewStateChange);
         }),
     });
   }),

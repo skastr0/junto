@@ -389,6 +389,12 @@ export const resolveTargets = (
         return { ...a, task: ref(a.task, "task", `${at}.task`), to: ref(a.to, "seat", `${at}.to`) };
       case "comment":
         return { ...a, on: ref(a.on, "subject", `${at}.on`) };
+      case "create-artifact":
+        return { ...a, node: node(a.node, `${at}.node`) };
+      // `{fired: true}` names the artifact that fired, resolved at fire time.
+      case "append-artifact":
+      case "label-artifact":
+        return typeof a.to === "string" ? { ...a, to: ref(a.to, "artifact", `${at}.to`) } : { ...a, to: a.to };
       // A code step names no target: its source is a staged content ref.
       case "code":
         return a;

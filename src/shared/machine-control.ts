@@ -8,11 +8,8 @@ import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchan
 import type { MachineLogRead, MachineLogsInput } from "./machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 import { EncodedFailure } from "./failure";
+import type { MachineCodeAllowInput, MachineCodeAllowed, MachineCodeCanvasInput, MachineCodeShowInput, MachineCodeShown } from "./machine-code";
 import { BoatAddInput, BoatConnectData, BoatDisconnectData, BoatMachineView, BoatStatusData } from "./boat";
-import type {
-  MachineLinkInput, MachineLinkData, MachineLinkKeyInput, MachineLinkKeyData, MachineLinkAcceptInput, MachineLinkAcceptData,
-  MachineLinkOpenInput, MachineLinkOpenData, MachineLinkRevokeInput, MachineLinkRevokeData,
-} from "./machine-link";
 import { MachineInstallResult as InstallResult } from "./machine-install";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
@@ -69,16 +66,7 @@ export type MachinePeerStatus = typeof MachinePeerStatus.Type;
 export const MachineStatusData = Schema.Union([MachineOwnStatus, MachinePeerStatus]);
 export type MachineStatusData = typeof MachineStatusData.Type;
 export const MachineListData = Schema.Struct({
-  machines: Schema.Array(Schema.Struct({
-    machine: RemoteHost, setUp: Schema.Boolean, needsUpdate: Schema.Boolean, installationId: Schema.optionalKey(InstallationId),
-    /**
-     * A peer that links here only by its link key: `bound`, or `line-missing`
-     * when its authorized_keys line is gone, which is drift that linking again repairs.
-     */
-    linkKey: Schema.optionalKey(Schema.Literals(["bound", "line-missing"])),
-    /** Removed machines whose link key this one may still hold: it could not be reached to remove it. */
-    holdsRevokedKeys: Schema.optionalKey(Schema.Array(MachineName).pipe(Schema.check(Schema.isMaxLength(32)))),
-  })).pipe(Schema.check(Schema.isMaxLength(32))),
+  machines: Schema.Array(Schema.Struct({ machine: RemoteHost, setUp: Schema.Boolean, needsUpdate: Schema.Boolean, installationId: Schema.optionalKey(InstallationId) })).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type MachineListData = typeof MachineListData.Type;
 export const MachineAddInput = Schema.Struct({
@@ -106,7 +94,7 @@ export const MachineOpName = Schema.Literals([
   "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
   "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
   "machine.wake", "machine.sleep",
-  "machine.link", "machine.link-key", "machine.link-accept", "machine.link-open", "machine.link-revoke",
+  "machine.code-allow", "machine.code-deny", "machine.code-show",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -131,11 +119,9 @@ export interface MachineArgsByOp {
   readonly "machine.boat-delete": MachineTargetInput;
   readonly "machine.wake": MachineTargetInput;
   readonly "machine.sleep": MachineTargetInput;
-  readonly "machine.link": MachineLinkInput;
-  readonly "machine.link-key": MachineLinkKeyInput;
-  readonly "machine.link-accept": MachineLinkAcceptInput;
-  readonly "machine.link-open": MachineLinkOpenInput;
-  readonly "machine.link-revoke": MachineLinkRevokeInput;
+  readonly "machine.code-allow": MachineCodeAllowInput;
+  readonly "machine.code-deny": MachineCodeCanvasInput;
+  readonly "machine.code-show": MachineCodeShowInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -159,9 +145,7 @@ export interface MachineDataByOp {
   readonly "machine.boat-delete": MachineRemoved;
   readonly "machine.wake": BoatMachineView;
   readonly "machine.sleep": BoatMachineView;
-  readonly "machine.link": MachineLinkData;
-  readonly "machine.link-key": MachineLinkKeyData;
-  readonly "machine.link-accept": MachineLinkAcceptData;
-  readonly "machine.link-open": MachineLinkOpenData;
-  readonly "machine.link-revoke": MachineLinkRevokeData;
+  readonly "machine.code-allow": MachineCodeAllowed;
+  readonly "machine.code-deny": MachineCodeAllowed;
+  readonly "machine.code-show": MachineCodeShown;
 }

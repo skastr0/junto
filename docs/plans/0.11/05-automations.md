@@ -85,6 +85,21 @@ artifact; a run's result is logged where people read it. Labels landed in
 - **Values:** `artifact.labels`, and `artifact.body` for code steps only
   (as structured input, never pasted into text).
 
+**B1 contract (automation-lead, agreed with product-automations and cli-lead).**
+The artifact watch takes `event: "labelled"` and `label?`: with `labelled`,
+the label gained (one under it counts, and an artifact created carrying it
+has gained it); otherwise only an artifact carrying it. The actions are
+`create-artifact {node, title, body?, labels?}` (a document),
+`append-artifact {to, text}` (text at the end of a document as written,
+against the head it read; a newer head is read again at most twice) and
+`label-artifact {to, add?, remove?}` (the whole set written; a label in both
+is refused at save). `to` is an artifact or `{fired: true}`, which only an
+artifact trigger carries. `artifact.labels` is a value; a code step's input
+gains `artifact {artifactId, nodeId, title, version, labels, body}`. An
+artifact whose last ruling was an automation's fires nothing
+(`artifact-writers.ts`). The writes are ruled where the canvas is ruled and
+are not available elsewhere until artifact commands queue.
+
 | Track | Owner | Reviewer |
 |---|---|---|
 | B1 contract and runtime | automation-lead | product-feed |

@@ -39,7 +39,7 @@ import {
   type ObservabilitySnapshot,
   type ViewStateApplyResult,
 } from "@shared/ipc";
-import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "@shared/view-state";
+import type { ViewStateSnapshot, ViewStateWrite } from "@shared/view-state";
 import type { AutomationsChanged } from "@shared/automation";
 import {
   ARTIFACTS_ENABLED,
@@ -632,7 +632,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     snapshot: () => invoke<ViewStateSnapshot>(IPC_CHANNELS.viewStateSnapshot, IPC_TIMEOUT_MS),
     apply: (write: ViewStateWrite) =>
       invoke<ViewStateApplyResult>(IPC_CHANNELS.viewStateApply, IPC_TIMEOUT_MS, write),
-    onChanged: (listener) => subscribe<ViewStateEvent>(IPC_CHANNELS.viewStateChanged, listener),
+    onChanged: (listener) => subscribe<ViewStateWrite>(IPC_CHANNELS.viewStateChanged, listener),
   },
   observabilityQuery: (query?: ObservabilityQuery) =>
     invoke<ObservabilitySnapshot>(

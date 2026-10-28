@@ -93,11 +93,35 @@ describe("an artifact watch on a node", () => {
       nodeId: asNodeId(nodeId),
       artifactId: ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ51"),
       event: "edited",
+      labels: [],
+      gained: [],
       byAutomation,
     });
     expect(changeMatches(watch, edited("artifacts-1"), new Set())).toBe(true);
     expect(changeMatches(watch, edited("artifacts-2"), new Set())).toBe(false);
     expect(changeMatches(watch, edited("artifacts-1", true), new Set())).toBe(false);
+  });
+
+  it("with a label: an edit to one carrying it, or the label gained, one under it included", () => {
+    const node = { node: asNodeId("artifacts-1") };
+    const change = (event: "edited" | "labelled", labels: ReadonlyArray<string>, gained: ReadonlyArray<string>): ChangeEvent => ({
+      kind: "artifact",
+      key: "a",
+      nodeId: asNodeId("artifacts-1"),
+      artifactId: ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ51"),
+      event,
+      labels: labels as never,
+      gained: gained as never,
+      byAutomation: false,
+    });
+    const editedPublish = { kind: "artifact", artifact: node, event: "edited", label: "publish" } as never;
+    expect(changeMatches(editedPublish, change("edited", ["publish"], []), new Set())).toBe(true);
+    expect(changeMatches(editedPublish, change("edited", ["draft"], []), new Set())).toBe(false);
+    const gainsRelease = { kind: "artifact", artifact: node, event: "labelled", label: "release" } as never;
+    expect(changeMatches(gainsRelease, change("labelled", ["release/1.2"], ["release/1.2"]), new Set())).toBe(true);
+    expect(changeMatches(gainsRelease, change("labelled", ["release", "draft"], ["draft"]), new Set())).toBe(false);
+    const gainsAny = { kind: "artifact", artifact: node, event: "labelled" } as never;
+    expect(changeMatches(gainsAny, change("labelled", ["draft"], ["draft"]), new Set())).toBe(true);
   });
 });
 

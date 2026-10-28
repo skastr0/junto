@@ -14,7 +14,7 @@ export interface LinkHello {
 const HelloFields = Schema.Struct({ build: Schema.String, installationId: Schema.String, machineName: Schema.String });
 
 /** Which hello check refused the peer. */
-export const HelloCheck = Schema.Literals(["first-frame", "repeated", "decode", "self-link", "route-name", "setup-identity", "opener", "opener-key", "opener-key-required"]);
+export const HelloCheck = Schema.Literals(["first-frame", "repeated", "decode", "self-link", "route-name", "setup-identity"]);
 export type HelloCheck = typeof HelloCheck.Type;
 
 export class LinkHelloRefused extends Schema.TaggedError<LinkHelloRefused>()("LinkHelloRefused", {

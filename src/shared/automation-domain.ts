@@ -28,6 +28,7 @@ import {
   targetNodeIds,
   triggerRefusal,
   actionRefusal,
+  firedTargetRefusal,
   valueRefusal,
 } from "./automation";
 import { NodeId } from "./physics/schema";
@@ -122,7 +123,7 @@ const definitionRefusal = (
     const refused = actionRefusal(action);
     if (refused !== undefined) return refused;
   }
-  const values = valueRefusal(automation);
+  const values = valueRefusal(automation) ?? firedTargetRefusal(automation);
   if (values !== undefined) return values;
   const allowed = targetsOf(automation.nodeId, automation.author);
   const own = editor.kind === "seat" ? targetsOf(automation.nodeId, editor) : allowed;
