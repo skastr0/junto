@@ -15,6 +15,7 @@ import type { Message } from "@shared/work-model";
 import { productResourceKindEnabled } from "@shared/features";
 import { Effect, Option, Result, Schema } from "effect";
 import { decodeArtifactOp, type ArtifactBody, type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
+import { artifactLabelOf, type ArtifactLabelColour, type ArtifactLabelColours } from "@shared/artifact-labels";
 import type { Canvas } from "@shared/model";
 import type { ContentRef } from "@shared/content";
 import { operatorReachesResource } from "@shared/content-pull";
@@ -29,6 +30,8 @@ import {
   ArtifactHistoryInput,
   ArtifactListInput,
   ArtifactPendingInput,
+  ArtifactColourInput,
+  ArtifactLabelColoursInput,
   RESOURCE_IPC_CHANNELS,
   TaskAllInput,
   TaskApplyInput,
@@ -48,6 +51,7 @@ import {
   type ThreadResourceSubject,
   type ArtifactApplyOutcome,
   type ArtifactHead,
+  type ResourceApplyOutcome,
   type ArtifactPendingWrite,
   type TaskApplyOutcome,
   type TaskCanvasFacts,
@@ -76,7 +80,7 @@ import { commentOnTask, liveTaskPorts, taskCanvasEnv, taskRulingContext, type Ta
 export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   readonly tasks: Pick<TaskPorts, "list" | "submit" | "find" | "comment">;
-  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull" | "comment">;
+  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull" | "comment" | "labelColours" | "colourLabel">;
   /** The rows a node's mailbox holds: a task's or an artifact's comments are held at its node. */
   readonly mailbox: (canvasName: string, nodeId: NodeId) => Effect.Effect<ReadonlyArray<Message>, WorkErrorBody>;
   /** This machine's unruled queue with its overlays: `op list`'s own read (`queuedOverlays`). */
@@ -270,6 +274,56 @@ export const applyArtifact = (
     // Queued for the machine that edits the canvas: `junto op show` reads what became of it.
     if (outcome.kind === "queued") return { kind: "queued" as const, opId };
     return { kind: "applied" as const, opId, facts: outcome.facts };
+  }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
+
+const coloursOff: WorkErrorBody = {
+  type: "InputError",
+  message: "label colours are not held by this build yet",
+  details: { reason: "not_available", retryable: false },
+};
+
+/** The label colours set in one Artifacts node (03 Colours); none when the store holds none. */
+export const artifactLabelColours = (
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  nodeId: NodeId,
+): Effect.Effect<ArtifactLabelColours, WorkErrorBody> =>
+  ports.artifacts.labelColours === undefined
+    ? Effect.succeed(Object.create(null) as ArtifactLabelColours)
+    : Effect.map(ports.artifacts.labelColours(canvasName, [nodeId]), (held) => held.get(nodeId) ?? (Object.create(null) as ArtifactLabelColours));
+
+/**
+ * A label's colour on an Artifacts node, as the operator: one
+ * `{ op: "labelColour" }` on the node, no item. A label that breaks the rule
+ * is refused here, as the ruler would refuse it.
+ */
+export const colourArtifactLabel = (
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  nodeId: NodeId,
+  opId: OpId,
+  label: string,
+  colour: ArtifactLabelColour | null,
+): Effect.Effect<ResourceApplyOutcome> =>
+  Effect.gen(function* () {
+    const canvas = yield* ports.topology(canvasName);
+    const wrongTarget = targetRefusal(canvas, nodeId, "artifacts");
+    if (wrongTarget !== undefined) return { kind: "refused" as const, opId, error: wrongTarget };
+    const folded = artifactLabelOf(label);
+    if (folded === undefined) {
+      return {
+        kind: "refused" as const,
+        opId,
+        error: refusalError({ reason: "invalid_input", message: "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //" }),
+      };
+    }
+    if (ports.artifacts.colourLabel === undefined) return { kind: "refused" as const, opId, error: coloursOff };
+    const outcome = yield* ports.artifacts.colourLabel(
+      { opId, canvasName, actor: operator, nodeId, label: folded, colour },
+      rulingContextOf(canvas, () => undefined),
+    );
+    if (outcome.kind === "refused") return { kind: "refused" as const, opId, error: outcome.error };
+    return { kind: outcome.kind, opId };
   }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
 
 // ── threads ────────────────────────────────────────────────────────────────
@@ -559,6 +613,9 @@ export const registerResourceIpc = (
     on(artifact.apply, ArtifactApplyInput, (input) =>
       applyArtifact(ports, input.canvasName, input.nodeId, input.artifactId, input.opId, input.op), authoring.artifact);
     on(artifact.pending, ArtifactPendingInput, (input) => pendingArtifacts(ports, input.canvasName, input.nodeId));
+    on(artifact.labelColours, ArtifactLabelColoursInput, (input) => artifactLabelColours(ports, input.canvasName, input.nodeId));
+    on(artifact.colour, ArtifactColourInput, (input) =>
+      colourArtifactLabel(ports, input.canvasName, input.nodeId, input.opId, input.label, input.colour), authoring.artifact);
   }
   // Threads on any of the kinds, each kind behind its own product.
   const thread = RESOURCE_IPC_CHANNELS.thread;

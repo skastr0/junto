@@ -18,6 +18,8 @@ import {
   applyArtifact,
   applyTask,
   artifactHistory,
+  artifactLabelColours,
+  colourArtifactLabel,
   listArtifacts,
   listTasks,
   pendingArtifacts,
@@ -58,6 +60,7 @@ const portsOf = (over: {
   readonly taskSubmit?: ResourceIpcPorts["tasks"]["submit"];
   readonly artifactSubmit?: ResourceIpcPorts["artifacts"]["submit"];
   readonly queue?: ResourceIpcPorts["queue"];
+  readonly colours?: Pick<ResourceIpcPorts["artifacts"], "labelColours" | "colourLabel">;
 } = {}) => {
   const calls: Calls = { pulled: [], submitted: [], listed: [] };
   const ports: ResourceIpcPorts = {
@@ -99,6 +102,7 @@ const portsOf = (over: {
           Effect.succeed({ kind: "applied", opId: command.opId, artifactId: ART, version: 1, facts: [{ fact: "x" }] } as never);
       },
       comment: () => Effect.die("no comment in this suite"),
+      ...over.colours,
     },
     mailbox: () => Effect.succeed([]),
     queue: over.queue ?? (() => Effect.succeed(undefined)),
@@ -204,6 +208,43 @@ describe("artifacts over IPC", () => {
     const outcome = await run(applyArtifact(ports, "factory", asNodeId("A"), ART, OP, op));
     expect(outcome).toMatchObject({ kind: "applied", opId: OP, facts: [{ fact: "x" }] });
     expect(calls.submitted[0]).toMatchObject({ actor: { kind: "operator" }, target: { kind: "artifact", nodeId: "A", itemId: ART }, opId: OP });
+  });
+});
+
+describe("label colours over IPC", () => {
+  const writes: Array<unknown> = [];
+  const colours: Pick<ResourceIpcPorts["artifacts"], "labelColours" | "colourLabel"> = {
+    labelColours: (_canvas, nodeIds) =>
+      Effect.succeed(new Map(nodeIds.map((id) => [id, (id === "A" ? { docs: "teal" } : {}) as never]))),
+    colourLabel: (write) => {
+      writes.push(write);
+      return Effect.succeed({ kind: "queued", opId: write.opId, changed: false } as never);
+    },
+  };
+
+  it("reads a node's colours, and none where the build holds none", async () => {
+    expect(await run(artifactLabelColours(portsOf({ colours }).ports, "factory", asNodeId("A")))).toEqual({ docs: "teal" });
+    expect({ ...(await run(artifactLabelColours(portsOf().ports, "factory", asNodeId("A")))) }).toEqual({});
+  });
+
+  it("writes the folded label as the operator, on the node, and refuses a bad label or a node that is not Artifacts", async () => {
+    writes.length = 0;
+    const { ports } = portsOf({ colours });
+    expect(await run(colourArtifactLabel(ports, "factory", asNodeId("A"), OP, "  Docs ", "blue"))).toEqual({ kind: "queued", opId: OP });
+    expect(writes).toEqual([{ opId: OP, canvasName: "factory", actor: { kind: "operator" }, nodeId: "A", label: "docs", colour: "blue" }]);
+    expect(await run(colourArtifactLabel(ports, "factory", asNodeId("A"), OP, "a//b", null))).toMatchObject({
+      kind: "refused",
+      error: { details: { reason: "invalid_input" } },
+    });
+    expect(await run(colourArtifactLabel(ports, "factory", asNodeId("T"), OP, "docs", null))).toMatchObject({
+      kind: "refused",
+      error: { details: { reason: "invalid_input" } },
+    });
+    expect(writes).toHaveLength(1);
+    expect(await run(colourArtifactLabel(portsOf().ports, "factory", asNodeId("A"), OP, "docs", "red"))).toMatchObject({
+      kind: "refused",
+      error: { details: { reason: "not_available" } },
+    });
   });
 });
 

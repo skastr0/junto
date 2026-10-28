@@ -19,6 +19,7 @@ import type { ActorSeatId } from "./actor-seat";
 import { ArtifactOp, ArtifactVersion, type ArtifactBody, type ArtifactVersionRecord } from "./artifact";
 import { MailMessageId } from "./crew";
 import type { ArtifactEntry, ArtifactFact } from "./artifact-domain";
+import { ArtifactLabelColour, type ArtifactLabelColours } from "./artifact-labels";
 import type { OpOverlay } from "./op-control";
 import { NodeId } from "./physics/schema";
 import { RefusalReason } from "./resource-command";
@@ -177,6 +178,16 @@ export const ArtifactApplyInput = Schema.Struct({
   op: ArtifactOp,
 }).annotate(strict);
 
+export const ArtifactLabelColoursInput = TaskListInput;
+/** A label's colour on an Artifacts node (03 Colours): the node, never an artifact. `colour: null` unsets it. */
+export const ArtifactColourInput = Schema.Struct({
+  canvasName: CanvasNameInput,
+  nodeId: NodeId,
+  opId: OpId,
+  label: Schema.String,
+  colour: Schema.NullOr(ArtifactLabelColour),
+}).annotate(strict);
+
 /** An artifact as listed: the head, its body when loaded (else null), and the body's ref. */
 export type ArtifactHead = Pick<ArtifactEntry, "artifact" | "body" | "bodyRef">;
 
@@ -298,6 +309,19 @@ export type ArtifactResourceApi = {
   ) => Promise<ArtifactApplyOutcome>;
   /** This machine's unruled writes to the node's artifacts, in queue order. */
   readonly pending: (canvasName: string, nodeId: NodeId) => Promise<ReadonlyArray<ArtifactPendingWrite>>;
+  /** The label colours set in this Artifacts node (03 Colours); a label with none is absent. */
+  readonly labelColours: (canvasName: string, nodeId: NodeId) => Promise<ArtifactLabelColours>;
+  /**
+   * Set or unset (`colour: null`) a label's colour in this node, as one
+   * `{ op: "labelColour" }` on the node. The label is folded by the ruler.
+   */
+  readonly colour: (
+    canvasName: string,
+    nodeId: NodeId,
+    opId: OpId,
+    label: string,
+    colour: ArtifactLabelColour | null,
+  ) => Promise<ResourceApplyOutcome>;
   readonly onChanged: (listener: (changed: ResourceChanged) => void) => () => void;
 };
 

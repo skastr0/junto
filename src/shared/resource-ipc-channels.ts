@@ -18,6 +18,8 @@ export const RESOURCE_IPC_CHANNELS = {
     body: "junto:resource-artifact-body",
     apply: "junto:resource-artifact-apply",
     pending: "junto:resource-artifact-pending",
+    labelColours: "junto:resource-artifact-label-colours",
+    colour: "junto:resource-artifact-colour",
     changed: "junto:resource-artifact-changed",
   },
   thread: {

@@ -664,6 +664,10 @@ const artifactResourceApi: ResourceIpcApi["artifact"] = {
   apply: (canvasName, nodeId, artifactId, opId, op) =>
     invoke(RESOURCE_IPC_CHANNELS.artifact.apply, IPC_TIMEOUT_MS, { canvasName, nodeId, artifactId, opId, op }),
   pending: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.artifact.pending, IPC_TIMEOUT_MS, { canvasName, nodeId }),
+  labelColours: (canvasName, nodeId) =>
+    invoke(RESOURCE_IPC_CHANNELS.artifact.labelColours, IPC_TIMEOUT_MS, { canvasName, nodeId }),
+  colour: (canvasName, nodeId, opId, label, colour) =>
+    invoke(RESOURCE_IPC_CHANNELS.artifact.colour, IPC_TIMEOUT_MS, { canvasName, nodeId, opId, label, colour }),
   onChanged: (listener) => subscribe<ResourceChanged>(RESOURCE_IPC_CHANNELS.artifact.changed, listener),
 };
 

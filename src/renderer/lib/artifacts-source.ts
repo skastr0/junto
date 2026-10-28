@@ -47,6 +47,7 @@ import {
   type Ruled,
 } from "@shared/resource-command";
 import { InstallationId } from "@shared/installation-id";
+import type { ArtifactLabelColour } from "@shared/artifact-labels";
 
 export type ArtifactRuling = ArtifactApplyOutcome;
 
@@ -99,6 +100,9 @@ export const makeLocalArtifactsSource = (
   const domain = artifactDomain({ now, bodyRef: localBodyRef });
   const ruled = new Map<string, Ruled<ArtifactState, ArtifactFact>>();
   const versions = new Map<ItemId, ReadonlyArray<ArtifactVersionRecord>>();
+  /** Label colours by canvas and node, as main's `artifact_label_colours` holds them. */
+  const colours = new Map<string, Record<string, ArtifactLabelColour>>();
+  const coloursKey = (canvasName: string, nodeId: NodeId): string => `${canvasName}\n${nodeId}`;
   const listeners = new Set<(changed: ResourceChanged) => void>();
   const changed = (canvasName: string): void => {
     for (const listener of listeners) listener({ canvasName });
@@ -185,6 +189,28 @@ export const makeLocalArtifactsSource = (
       return result.ruling.kind === "applied"
         ? { kind: "applied", opId: result.ruling.opId, facts: result.ruling.facts }
         : { kind: "refused", opId: result.ruling.opId, error: result.ruling.error };
+    },
+    labelColours: async (canvasName, nodeId) =>
+      Object.assign(Object.create(null) as Record<string, ArtifactLabelColour>, colours.get(coloursKey(canvasName, nodeId))),
+    colour: async (canvasName, nodeId, opId, label, colour) => {
+      const result = rule(
+        domain,
+        ruledOf(canvasName),
+        writer,
+        { opId, canvasName, actor, target: { kind: "artifact", nodeId }, basis: null, after: [], op: { op: "labelColour", label, colour } },
+        { inReach: () => true },
+      );
+      ruled.set(canvasName, result.ruled);
+      if (result.ruling.kind === "refused") return { kind: "refused", opId, error: result.ruling.error };
+      for (const fact of result.ruling.facts) {
+        if (fact.fact !== "artifact.label.coloured") continue;
+        const held = colours.get(coloursKey(canvasName, nodeId)) ?? (Object.create(null) as Record<string, ArtifactLabelColour>);
+        if (fact.colour === null) delete held[fact.label];
+        else held[fact.label] = fact.colour;
+        colours.set(coloursKey(canvasName, nodeId), held);
+      }
+      changed(canvasName);
+      return { kind: "applied", opId };
     },
     onChanged: (listener) => {
       listeners.add(listener);
