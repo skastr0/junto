@@ -44,6 +44,7 @@ import {
   type ArtifactFact,
   type ArtifactState,
   artifactDomain,
+  emptyArtifactState,
 } from "@shared/artifact-domain";
 import type { InstallationId } from "@shared/installation-id";
 import type { NodeId } from "@shared/physics/schema";
@@ -64,7 +65,7 @@ import {
 } from "@shared/resource-command";
 import { canonicalJson } from "@shared/work-canonical-json";
 import type { WorkErrorBody } from "@shared/work-control";
-import type { ArtifactLabel } from "@shared/artifact-labels";
+import { type ArtifactLabel, ArtifactLabelColour, type ArtifactLabelColours } from "@shared/artifact-labels";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { ContentService } from "../content/service";
 import { StateTransactionOperation } from "../state/service";
@@ -124,6 +125,19 @@ export type ArtifactSubmitOutcome =
     }
   | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody; readonly root: OpId };
 
+/**
+ * A command on the Artifacts node itself (`labelColour`, 03 Colours) as the
+ * ruler stored it: it names no artifact and makes no version.
+ */
+export type ArtifactNodeSubmitOutcome =
+  | {
+      readonly kind: "applied";
+      readonly opId: OpId;
+      /** The facts this ruling applied; empty when a retry is answered from the stored ruling. */
+      readonly facts: ReadonlyArray<ArtifactFact>;
+    }
+  | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody; readonly root: OpId };
+
 export class ArtifactRepository extends Context.Service<ArtifactRepository,
   {
     /** Heads on the given nodes, newest change first; `more` when the limit cut the list. */
@@ -166,6 +180,21 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
       command: ResourceCommand<ArtifactOp>,
       context: RulingContext,
     ) => Effect.Effect<ArtifactSubmitOutcome, ArtifactPersistenceError>;
+    /**
+     * Rule one command on the Artifacts node itself (its target names no
+     * item: `labelColour`) and write what it makes. The ruler sends every
+     * command with no `itemId` here.
+     */
+    readonly submitNode: (
+      writer: InstallationId,
+      command: ResourceCommand<ArtifactOp>,
+      context: RulingContext,
+    ) => Effect.Effect<ArtifactNodeSubmitOutcome, ArtifactPersistenceError>;
+    /** The label colours set in each Artifacts node asked for; a node with none maps to an empty record. */
+    readonly labelColours: (
+      canvasName: string,
+      nodeIds: ReadonlyArray<NodeId>,
+    ) => Effect.Effect<ReadonlyMap<NodeId, ArtifactLabelColours>, ArtifactPersistenceError>;
     /**
      * The writer's check of a command it is about to queue for the editing
      * machine, over the ruled artifacts held here, its own unruled `queued`
@@ -276,6 +305,14 @@ const StoredRuling = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("refused"), error: Schema.Unknown, root: Schema.String }),
 ]);
 const decodeStoredRuling = Schema.decodeUnknownResult(StoredRuling);
+
+/** What the ruler keeps of a ruling on the node itself: the node it applied to. */
+const StoredNodeRuling = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("applied"), nodeId: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("refused"), error: Schema.Unknown, root: Schema.String }),
+]);
+const decodeStoredNodeRuling = Schema.decodeUnknownResult(StoredNodeRuling);
+const decodeLabelColour = Schema.decodeUnknownResult(ArtifactLabelColour);
 
 /** The artifact a command names: the target item, which the domain requires. */
 const targetOf = (command: ResourceCommand<ArtifactOp>): ItemId | undefined => command.target.itemId;
@@ -437,6 +474,20 @@ export const projectArtifactFacts = (
           yield* sql`
             UPDATE artifact_heads SET task_ids_json = ${JSON.stringify(fact.taskIds)}, updated_at = ${fact.at}
             WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          break;
+        case "artifact.label.coloured":
+          // The node's (node, label) row is the colour, or there is none: a
+          // fact applied twice leaves the same row, and no head moves.
+          if (fact.colour === null) {
+            yield* sql`
+              DELETE FROM artifact_label_colours
+              WHERE canvas_name = ${canvas} AND node_id = ${fact.nodeId} AND label = ${fact.label}`;
+          } else {
+            yield* sql`
+              INSERT INTO artifact_label_colours (canvas_name, node_id, label, colour)
+              VALUES (${canvas}, ${fact.nodeId}, ${fact.label}, ${fact.colour})
+              ON CONFLICT (canvas_name, node_id, label) DO UPDATE SET colour = excluded.colour`;
+          }
           break;
       }
     }
@@ -745,6 +796,67 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submit"), Effect.mapError(persistence("submit")));
 
+    const submitNode = Effect.fn("artifacts.submitNode")(function* (
+      writer: InstallationId,
+      command: ResourceCommand<ArtifactOp>,
+      context: RulingContext,
+    ) {
+      const canvas = command.canvasName;
+      const prior = yield* rulingRow({ canvas, writer, opId: command.opId });
+      if (Option.isSome(prior)) {
+        const stored = decodeStoredNodeRuling(parse(prior.value.ruling_json));
+        if (Result.isSuccess(stored)) {
+          return stored.success.kind === "applied"
+            ? { kind: "applied" as const, opId: command.opId, facts: [] }
+            : { kind: "refused" as const, opId: command.opId, error: stored.success.error as WorkErrorBody, root: stored.success.root as OpId };
+        }
+        return yield* unreadable("submitNode", `the ruling of ${command.opId}`);
+      }
+      const rulings = yield* priorRulings(canvas, writer, command);
+      const now = Date.now();
+      // A node command reads no artifact: it rules on an empty state, as every machine would.
+      const domain = artifactDomain({ now: () => now, bodyRef: artifactBodyRef });
+      const ruled = rule(domain, { state: emptyArtifactState(), rulings }, writer, command, context);
+      const ruling = ruled.ruling;
+      if (ruling.kind === "applied") yield* projectArtifactFacts(sql, canvas, command.opId, ruling.facts, () => undefined);
+      const outcome: ArtifactNodeSubmitOutcome =
+        ruling.kind === "applied"
+          ? { kind: "applied", opId: ruling.opId, facts: ruling.facts }
+          : { kind: "refused", opId: ruling.opId, error: ruling.error, root: ruling.root };
+      const record: RulingRecord =
+        outcome.kind === "applied"
+          ? { kind: "applied", nodeId: command.target.nodeId }
+          : { kind: "refused", error: outcome.error, root: outcome.root };
+      yield* recorder.record({
+        canvasName: canvas,
+        writer,
+        command,
+        kind: "artifact",
+        record,
+        ruling: ruling as ResourceRuling<typeof Schema.Json.Type>,
+        at: new Date(now).toISOString(),
+      });
+      return outcome;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submitNode"), Effect.mapError(persistence("submitNode")));
+
+    const labelColours = Effect.fn("artifacts.labelColours")(function* (canvasName: string, nodeIds: ReadonlyArray<NodeId>) {
+      // Null-prototype records: `__proto__` and `constructor` are labels like any other.
+      const held = new Map<NodeId, Record<string, ArtifactLabelColour>>(
+        nodeIds.map((id) => [id, Object.create(null) as Record<string, ArtifactLabelColour>]),
+      );
+      if (nodeIds.length === 0) return held as ReadonlyMap<NodeId, ArtifactLabelColours>;
+      const rows = yield* sql<{ readonly node_id: string; readonly label: string; readonly colour: string }>`
+        SELECT node_id, label, colour FROM artifact_label_colours
+        WHERE canvas_name = ${canvasName} AND ${sql.in("node_id", nodeIds)}
+        ORDER BY node_id, label`;
+      for (const row of rows) {
+        const colour = decodeLabelColour(row.colour);
+        if (Result.isFailure(colour)) return yield* unreadable("labelColours", `the colour of ${row.label} on ${row.node_id}`);
+        held.get(row.node_id as NodeId)![row.label] = colour.success;
+      }
+      return held as ReadonlyMap<NodeId, ArtifactLabelColours>;
+    }, Effect.mapError(persistence("labelColours")));
+
     const installationRow = SqlSchema.findOneOption({
       Request: Schema.Void,
       Result: Schema.Struct({ installation_id: Schema.String }),
@@ -793,6 +905,17 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       return Option.fromNullishOr(precheck(domain, { state: entries, rulings: refused }, writer, queued, command, context));
     }, Effect.mapError(persistence("precheck")));
 
-    return ArtifactRepository.of({ list, head, body, history, localWriter, submit, overlay: overlayOf, precheck: precheckOf });
+    return ArtifactRepository.of({
+      list,
+      head,
+      body,
+      history,
+      localWriter,
+      submit,
+      submitNode,
+      labelColours,
+      overlay: overlayOf,
+      precheck: precheckOf,
+    });
   }),
 );

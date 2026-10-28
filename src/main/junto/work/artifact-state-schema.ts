@@ -96,3 +96,20 @@ export const ARTIFACT_LABELS_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS artifact_labels_by_label
     ON artifact_labels (canvas_name, label);
 `;
+
+/**
+ * A label's colour in an Artifacts node (0.11, 03 Colours): one row per
+ * (node, label) with a colour, a name never hex, set and unset by
+ * `artifact.label.coloured`. It belongs to the node, not to an artifact, so
+ * no head owns it: a colour may be set before any artifact carries the label
+ * and stays when the last one drops it. Added by state migration 53 -> 54.
+ */
+export const ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS artifact_label_colours (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 40),
+    colour TEXT NOT NULL CHECK (colour IN ('red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink')),
+    PRIMARY KEY (canvas_name, node_id, label)
+  ) STRICT, WITHOUT ROWID;
+`;

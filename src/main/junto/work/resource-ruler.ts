@@ -226,8 +226,10 @@ export const artifactRuler = (repo: ArtifactRepository["Service"]): DomainRuler 
   Effect.gen(function* () {
     const op = decodeArtifactOp(command.op);
     if (Result.isFailure(op)) return undecodable("artifact");
-    const outcome = yield* repo
-      .submit(writer, { ...command, op: op.success }, rulingContextOf(canvas, noAutomationAuthor))
+    const decoded = { ...command, op: op.success };
+    const context = rulingContextOf(canvas, noAutomationAuthor);
+    // A command on the node itself (a label colour) names no artifact.
+    const outcome = yield* (command.target.itemId === undefined ? repo.submitNode(writer, decoded, context) : repo.submit(writer, decoded, context))
       .pipe(Effect.mapError(failed("the artifact ruler could not rule")));
     // Committed: the panes on this machine read the artifacts again.
     if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName);

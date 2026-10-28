@@ -13,7 +13,7 @@
  * it by ref before it rules an edit on it.
  */
 import { Result, Schema } from "effect";
-import { ArtifactLabels, artifactLabelsOf } from "./artifact-labels";
+import { ArtifactLabel, ArtifactLabelColour, ArtifactLabels, artifactLabelOf, artifactLabelsOf } from "./artifact-labels";
 import { ContentRef } from "./content";
 import {
   Artifact,
@@ -26,7 +26,7 @@ import {
   FIRST_ARTIFACT_VERSION,
   ruleArtifactEdit,
 } from "./artifact";
-import type { NodeId } from "./physics/schema";
+import { NodeId } from "./physics/schema";
 import {
   ResourceActor,
   type DomainVerdict,
@@ -90,6 +90,19 @@ export const ArtifactFact = Schema.Union([
   Schema.Struct({ fact: Schema.Literal("artifact.labelled"), artifactId: ItemId, labels: ArtifactLabels, at: Schema.Number }),
   Schema.Struct({ fact: Schema.Literal("artifact.archived"), artifactId: ItemId, archived: Schema.Boolean, at: Schema.Number }),
   Schema.Struct({ fact: Schema.Literal("artifact.tasks"), artifactId: ItemId, taskIds: Schema.Array(ItemId), at: Schema.Number }),
+  /**
+   * A label's colour in an Artifacts node (03, Colours), canonical label,
+   * `colour: null` unset. It names the node, not an artifact, and the state
+   * the ruler holds does not change: main projects it into
+   * `artifact_label_colours`, so applying it twice leaves the same row.
+   */
+  Schema.Struct({
+    fact: Schema.Literal("artifact.label.coloured"),
+    nodeId: NodeId,
+    label: ArtifactLabel,
+    colour: Schema.NullOr(ArtifactLabelColour),
+    at: Schema.Number,
+  }),
 ]);
 export type ArtifactFact = typeof ArtifactFact.Type;
 
@@ -173,6 +186,18 @@ export const ruleArtifactCommand = (
     return refuse({ reason: "invalid_input", message: `an artifact command targets an artifact, not a ${target.kind}` });
   }
   const artifactId = target.itemId;
+  // The one op on the node itself: any label in the rule, any colour or none.
+  // It reads no artifact, so it rules the same on every state.
+  if (op.op === "labelColour") {
+    if (artifactId !== undefined) {
+      return refuse({ reason: "invalid_input", message: "a label colour is set on the Artifacts node, so its command names no target.itemId" });
+    }
+    const label = artifactLabelOf(op.label);
+    if (label === undefined) {
+      return refuse({ reason: "invalid_input", message: "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //" });
+    }
+    return apply({ fact: "artifact.label.coloured", nodeId: target.nodeId, label, colour: op.colour, at });
+  }
   if (artifactId === undefined) {
     return refuse({ reason: "invalid_input", message: "an artifact command names its artifact as target.itemId" });
   }
@@ -341,6 +366,9 @@ export const applyArtifactFact = (state: ArtifactState, fact: ArtifactFact): Art
         ...entry,
         artifact: { ...entry.artifact, labels: fact.labels, updatedAt: fact.at },
       }));
+    case "artifact.label.coloured":
+      // A colour is the node's, not an artifact's: no head moves.
+      return state;
   }
 };
 

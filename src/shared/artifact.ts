@@ -21,7 +21,7 @@
  * and pad images are content refs.
  */
 import { Effect, Result, Schema } from "effect";
-import { ArtifactLabels } from "./artifact-labels";
+import { ArtifactLabelColour, ArtifactLabels } from "./artifact-labels";
 import { ContentRef } from "./content";
 import { NodeId } from "./physics/schema";
 import { ResourceActor } from "./resource-command";
@@ -381,6 +381,12 @@ export const ArtifactOp = Schema.Union([
   Schema.Struct({ op: Schema.Literal("archive") }),
   Schema.Struct({ op: Schema.Literal("restore") }),
   Schema.Struct({ op: Schema.Literal("tasks"), taskIds: Schema.Array(ItemId) }),
+  /**
+   * A label's colour in the Artifacts node (03, Colours): the one op on the
+   * node, not an item, so its command names no `itemId`. The label is folded
+   * by the ruler; `colour: null` unsets it.
+   */
+  Schema.Struct({ op: Schema.Literal("labelColour"), label: Schema.String, colour: Schema.NullOr(ArtifactLabelColour) }),
 ]);
 export type ArtifactOp = typeof ArtifactOp.Type;
 

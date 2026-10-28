@@ -83,3 +83,23 @@ export const artifactLabelsMatch = (
   wanted: ReadonlyArray<ArtifactLabel>,
 ): boolean =>
   wanted.every((one) => labels.some((held) => held === one || held.startsWith(`${one}/`)));
+
+/**
+ * Label colours (0.11, 03 Colours): a colour belongs to a label in its
+ * Artifacts node, not to one artifact, and is one of these names or unset.
+ * Names are stored, never hex; product-typography maps each to house tokens.
+ * `project/junto` and `project/junto/release` are separate labels with
+ * separate colours: nothing inherits. A colour may be set for a label no
+ * artifact carries, and stays when the last one drops it.
+ */
+export const ARTIFACT_LABEL_COLOURS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
+
+export const ArtifactLabelColour = Schema.Literals(ARTIFACT_LABEL_COLOURS);
+export type ArtifactLabelColour = typeof ArtifactLabelColour.Type;
+
+/**
+ * The colours set in one Artifacts node, by label; a label with no colour is
+ * absent. Plain data, so it crosses IPC and JSON as is, and built with a null
+ * prototype: `__proto__` and `constructor` are valid labels.
+ */
+export type ArtifactLabelColours = Readonly<Record<ArtifactLabel, ArtifactLabelColour>>;

@@ -43,7 +43,11 @@ import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
-import { ARTIFACT_LABELS_STATE_SCHEMA_SQL, ARTIFACT_LINKS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
+import {
+  ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL,
+  ARTIFACT_LABELS_STATE_SCHEMA_SQL,
+  ARTIFACT_LINKS_STATE_SCHEMA_SQL,
+} from "../work/artifact-state-schema";
 import { rebuildMentions } from "../work/mention-backlinks";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
@@ -679,7 +683,18 @@ export const STATE_SCHEMA_V53_IDENTITY = {
     "a769e869bb7f8b86fceb67fe349e336757e60581298d05cf24762a1b03672be3",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 53;
+/**
+ * Version 54 keeps a label's colour in its Artifacts node (0.11, 03
+ * Colours): `artifact_label_colours`, one row per (node, label) with a
+ * colour, by name. A node from before the step has no rows: every label
+ * draws uncoloured. Expand only.
+ */
+export const STATE_SCHEMA_V54_IDENTITY = {
+  actualSchemaSha256:
+    "d1d2f81a0ecd06cc8bdd70dad1e5906671fdb386a2ee2462cb5f0f77c01d260c",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 54;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -687,7 +702,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 53;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V53_IDENTITY;
+  STATE_SCHEMA_V54_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1102,6 +1117,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V52_IDENTITY,
     migrate: (database) => database.exec(ARTIFACT_LABELS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 53,
+    toVersion: 54,
+    name: "add the artifact label colours",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V53_IDENTITY,
+    migrate: (database) => database.exec(ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL),
   },
 ];
 
