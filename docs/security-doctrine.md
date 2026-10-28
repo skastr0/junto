@@ -414,11 +414,13 @@ machine runs it only when all five checks hold, at every firing:
    canvas's authority list gains a machine, rulings from that machine's terms
    are not trusted for code here until this machine's owner allows again;
    until then those code steps are refused `not_permitted`, naming the
-   machine. The allowance is a machine-local setting under `~/.junto`,
-   written only by `junto machine code allow <canvas>` on that machine or by
-   install over the operator's own SSH route, both owner commands refused
-   from a seat environment. It is never a row, never set from a link and
-   never carried in a copy, the same as secrets; `status` may report its
+   machine. The allowance is machine-local, in this machine's `junto.db`,
+   set through the core only by `junto machine code allow <canvas>` on that
+   machine or by install over the operator's own SSH route, both owner
+   commands refused from a seat environment. It is never an exchanged row,
+   never set from a link and never carried in a copy, the same as secrets;
+   the author and the ruling machine it is checked against are stamped from
+   the ruling that last set the code ref (check 3). `status` may report its
    state (allowed, scope) so the window can warn at save. Its scope is
    operator only, or operator and overseers, which is the default when
    allowed (the operator's decision). A machine that rules needs its own
@@ -456,9 +458,18 @@ Each run:
   found on `PATH`. Imports resolve only to the SDK and the runtime's
   built-ins: no package install, no package resolution from a folder, and no
   `.env`, `bunfig.toml`, `package.json` or `tsconfig.json` read from any
-  folder, the same as git config (Files node). The flags that do this are
-  unverified until a test plants each of those files in the run directory's
-  parent and in `HOME` and proves none loads and nothing installs.
+  folder, the same as git config (Files node). Flags alone do not hold this
+  on bun 1.4.3: a cwd `.env` and `bunfig.toml` preload load by default, a
+  parent `tsconfig.json` applies its paths, and a runtime plugin's resolver
+  sees only the entry, so a parent or `HOME` `node_modules` resolves through
+  every import form. So the step is bundled in memory with a closed
+  resolver, run as a module with no folder, `require` is limited to
+  built-ins and a computed `import()` is refused
+  (`src/main/junto/automation/code-sdk.ts`;
+  `tests/automation-code-runner.test.ts` plants each file in the parent and
+  in `HOME`). This keeps folders from changing what a step means. It is not
+  a sandbox against the step's author: `eval` or `new Function` reaches the
+  runtime's own resolver.
 - Runs shell as `/bin/sh <path>`. The path is in argv; the source bytes, the
   trigger and its values never are.
 - Gives the child an environment of the region's values on that machine
@@ -477,7 +488,9 @@ Each run:
   machine, so the log says which bytes ran where.
 
 A child that receives a secret can read and disclose it, including in its
-result, whose values later steps can mail. Argv past the executable, the
+result, whose values later steps can mail. A result that carries a region
+value as written fails the step; an encoded or transformed value passes.
+Argv past the executable, the
 environment, stdin, stdout and the result never enter a log or a failure. The
 child's stderr contributes a tail only through the stderr-tail rule below,
 with the child's environment among the known values.
