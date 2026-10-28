@@ -191,7 +191,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | artifact links L1 to L5 | see 02-artifact-links.md | started |
 | artifact labels T1 to T4 | product-feed, product-sheet, product-modals, cli-lead | done, reviewed, verified dark and bright on 696e7a292 (4b3379114, two nodes included); T1 70cc43ab1, T2 eed18eb5e to 696e7a292, T3 5d03f65d4 + 158873761, T4 7b2f0d976 + 0da13852c; operator rejected keep-for-the-window: filters persist with 04-view-state; colours added (C1 to C4) |
 | label colours C1 to C4 | product-shell, product-sheet, product-typography, cli-lead | started; see 03-artifact-labels.md Colours |
-| view state survives a restart V1 to V3 | product-feed, product-modals, product-shell | started; see 04-view-state.md |
+| view state survives a restart V1 to V3 | product-feed, product-modals, product-shell | started; see 04-view-state.md; V2 renderer half a814caf86 + af56e79f0 on a stand-in, the quit proof waits on V1 |
 | automations that know what fired them A1 to A4 | product-automations, automation-lead, product-cron, cli-lead | started; see 05-automations.md; code steps open with the operator |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
 
