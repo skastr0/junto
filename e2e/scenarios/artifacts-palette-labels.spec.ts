@@ -2,9 +2,9 @@
  * 0.11 artifact labels, T3, in the real app: Cmd+P in the Artifacts modal
  * ranks a label after the title, as metadata, and each row's quieter line
  * names the labels it carries so a label hit is legible. Two labelled
- * artifacts, one found by its title and one by its label, the title hit
- * first; a query that only a label carries still finds it; an artifact with
- * no labels keeps the type alone. Shots in both themes.
+ * artifacts, one found by its title and one only by its label, the title hit
+ * first; a word only a label carries still finds its artifact; an artifact
+ * with no labels keeps the type alone. Shots in both themes.
  *   scripts/with-app-run-lock.sh scripts/run-e2e.sh e2e/scenarios/artifacts-palette-labels.spec.ts
  */
 import { mkdirSync } from "node:fs";
@@ -50,7 +50,8 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
         { canvas: CANVAS, node, artifactId: mintItemId(), opId: mintOpId(), title, labels },
       );
     expect((await create("Launch plan", ["release"])).kind).toBe("applied");
-    expect((await create("Explanations", ["planning"])).kind).toBe("applied");
+    // No "plan" anywhere in this title: only its label can find it under that query.
+    expect((await create("Storytelling", ["planning"])).kind).toBe("applied");
     // No labels: its row keeps the type alone on the quieter line.
     expect((await create("Shelf notes", [])).kind).toBe("applied");
 
@@ -67,10 +68,10 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
     await expect(palette).toBeVisible();
     await expect(field).toBeFocused();
 
-    // "plan" is a word in one title and a label on the other: the title leads,
-    // and each row's quieter line says the labels it carries.
+    // "plan" is a word in Launch plan and only a label on Storytelling: a title
+    // hit leads a metadata one, and each row's quieter line says what it carries.
     await field.fill("plan");
-    await expect(titles).toHaveText(["Launch plan", "Explanations"]);
+    await expect(titles).toHaveText(["Launch plan", "Storytelling"]);
     await expect(details).toHaveText(["Document, release", "Document, planning"]);
     await expect(palette.locator('[data-active="true"]')).toContainText("Launch plan");
 
