@@ -256,6 +256,84 @@ Doctrine, in the commits that land each slice:
   operator-only fork.
 - `0.10/07`: Runner, one per machine (S1).
 
+## F1 and F2 (tech-lead's answer)
+
+**F1: write the core ourselves.** No TypeScript Raft library is both
+maintained and used (searched 2026-10-28: `@maboke123/raft-core` 0.2.1 is
+young and little used; `@coaty/consensus.raft` is an etcd port whose own
+README says the JavaScript Raft libraries are unmaintained). More to the
+point, ours is not textbook Raft. The pair's casting vote, list-order
+priority at election, `junto authority alone`, and a log that has to live in
+our STRICT tables inside StateEngine transactions all sit outside a
+library's model. So copy etcd/raft's shape, not its code. The core is one
+pure function, `step(state, message | tick) → {persist, send, apply}`, with
+no I/O, no clock and no Effect runtime inside. Effect drives it: persist in
+one transaction, then send, then apply. The simulation runs the same pure
+core under a seeded scheduler and a virtual clock. It checks Raft's four
+safety properties on every step (election safety, log matching, leader
+completeness, state-machine safety), plus ours: no two machines apply
+different entries at one index, a pair commits only through the fallback,
+and a list edit changes one machine per committed entry. Its size is the
+simulation, not the core.
+
+The pair is safe as designed. Every pair quorum contains the fallback ({P, F}
+when P rules, {F} when F rules), so any two quorums intersect. One group per
+canvas, with heartbeats batched per machine pair over the one link, so a
+hundred canvases do not mean a hundred timers per peer.
+
+**F2: SQLite holds it cleanly, if the authority judges ahead and applies at
+commit through the one fold.** Today a ruler writes the projection and its
+`ruling.applied` in one transaction, and every other machine reaches the same
+tables by `foldRuling` (`src/main/junto/work/ruling-projection.ts`). F2 makes
+the fold the only apply path, on the authority too.
+
+1. **Judge.** The authority takes a canvas's pending commands as one batch.
+   In one `BEGIN IMMEDIATE`, inside a savepoint, it runs today's rulers
+   unchanged and keeps the rulings they record. Then it rolls the savepoint
+   back. Savepoint rollback already discards `afterSqlCommit` callbacks.
+   Content puts are content-addressed, so a rolled-back body is garbage,
+   never wrong.
+2. **Append.** In the same transaction it writes the rulings as log entries
+   `(term, index)` and its own durable acknowledgement. Then it sends them.
+   No transaction is ever open across the network.
+3. **Apply at commit.** When a quorum holds them, one transaction folds the
+   entries through `foldRuling`, advances `commit_index` and `applied_index`,
+   and only then publishes notices and answers `applied` or `refused`.
+4. **One batch in flight per canvas.** The next batch is judged after the
+   previous one is applied, so every judgment sees committed state plus the
+   earlier commands of its own batch (the savepoint). That needs no
+   speculative overlay and no undo. Step-down deletes log rows above
+   `commit_index`, and the projection was never touched. Throughput is one
+   batch per round trip (p50 35 ms), and bursts are absorbed into the batch.
+
+What F2 has to prove first: **the fold equals the ruler.** For each of the
+four rulers (task, artifact, artifact node, automation), a property test
+runs a command sequence through the ruler's direct write and through judge,
+rollback and fold, and compares every table both reach. Any difference is a
+bug today as well, because replicas already depend on it.
+
+Storage, STRICT, with no JSON: `canvas_log (canvas_name, log_index, term,
+kind, ...)` holding a ruling's id or a `structure.changed` seq, with the
+bodies staying in the rows that already hold them, and
+`canvas_consensus (canvas_name PK, current_term, voted_for, commit_index,
+applied_index)`.
+
+Two settings change:
+- **Durability.** WAL with `synchronous=NORMAL` can lose the last commits on
+  power loss. That is acceptable today, but not for a vote or an
+  acknowledgement, which Raft requires to be durable before the reply.
+  Consensus transactions run with `synchronous=FULL` (it is per connection,
+  set around the transaction) and are measured. The remainder stay NORMAL.
+- **Stale reads.** Safety needs no clock, but freshness does. An authority
+  that has not heard a quorum within the election timeout marks its reads
+  stale, the way Raft's CheckQuorum does. That is the one place a timer
+  touches state, and it only labels reads.
+
+Compaction: entries at or below `applied_index` that every listed machine
+holds are dropped. A machine further behind catches up by a canvas copy, as
+a new machine does today. Migration (F6) is the log empty at term 1,
+`commit_index` = `applied_index` = 0, with today's tables as the snapshot.
+
 ## 4. Canvas structure under one authority (canvas-lead's answer)
 
 **Structure moves with authority.** Whichever machine rules a canvas also
