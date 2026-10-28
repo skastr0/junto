@@ -82,12 +82,12 @@ test("automations A1 to A3: the operator's example fires, pickers, an artifact w
     await crewOccupySeat(page, CANVAS, lead, seat);
 
     const board = taskNodeId(asNodeId("release"));
-    const taskCommand = (taskId: string, command: unknown) =>
+    const taskCommand = (taskId: ReturnType<typeof mintItemId>, command: unknown) =>
       page.evaluate(
         ({ canvas, board, taskId, opId, command }) => window.junto!.resource!.task!.apply(canvas, board, taskId, opId, command as never),
         { canvas: CANVAS, board, taskId, opId: mintOpId(), command },
       );
-    const tasks: Record<string, string> = {};
+    const tasks: Record<string, ReturnType<typeof mintItemId>> = {};
     for (const title of ["Ship the wire spec", "Cut the release notes"]) {
       const taskId = mintItemId();
       tasks[title] = taskId;
