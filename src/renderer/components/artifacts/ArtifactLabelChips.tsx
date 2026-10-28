@@ -4,6 +4,8 @@ import { ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabel
 import { claimFocus } from "../../lib/focus-ownership";
 import { Combobox, IconButton } from "../ui";
 import type { LabelChoice } from "./artifacts-pane-model";
+import { labelColourWords, type LabelColours } from "../../lib/artifact-label-colours";
+import { LabelColourDot, LabelColourMenu } from "./LabelColourMenu";
 
 /** Chips the header shows before the rest wait behind a count that opens the picker. */
 const HEADER_CHIPS = 3;
@@ -68,6 +70,7 @@ export function ArtifactLabelChips({
   waiting,
   onChange,
   readRuled,
+  colours,
 }: {
   readonly labels: ReadonlyArray<ArtifactLabel>;
   /** Every label this Artifacts node uses, to complete from. */
@@ -82,6 +85,8 @@ export function ArtifactLabelChips({
    * ruled set; undefined when the read fails or the artifact is gone.
    */
   readonly readRuled: () => Promise<{ readonly waiting: boolean; readonly labels: ReadonlyArray<ArtifactLabel> } | undefined>;
+  /** The node's label colours: each chip draws in its own, and its word opens the swatch menu. */
+  readonly colours?: LabelColours;
 }) {
   /**
    * The set last sent, shown until the ruled set changes or its write comes
@@ -126,6 +131,8 @@ export function ArtifactLabelChips({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState<string | undefined>(undefined);
   const [refused, setRefused] = useState<string | null>(null);
+  /** The label whose swatch menu is open, and the word that opened it. */
+  const [colouring, setColouring] = useState<{ readonly label: ArtifactLabel; readonly anchor: HTMLElement } | null>(null);
   /** A sent set that came back refused, said in the live region the group always carries. */
   const [reverted, setReverted] = useState(false);
   const options = useMemo(() => labelOptions(used, held, query), [used, held, query]);
@@ -164,6 +171,8 @@ export function ArtifactLabelChips({
     claimFocus(field(), "gesture");
     const outside = (event: PointerEvent): void => {
       if (event.target instanceof Node && group.current?.contains(event.target)) return;
+      // The swatch menu a chip in the picker opened portals out of the group.
+      if (event.target instanceof Element && event.target.closest(".label-colour-menu")) return;
       setQuery("");
       setRefused(null);
       setPicking(false);
@@ -201,16 +210,37 @@ export function ArtifactLabelChips({
 
   if (held.length === 0 && readOnly) return null;
 
-  const chip = (label: ArtifactLabel) => (
-    <span key={label} className="artifact-labels__chip" title={label}>
-      <span className="artifact-labels__word">{label}</span>
-      {readOnly ? null : (
-        <IconButton size="xs" aria-label={`Remove ${label}`} title="Remove" onClick={() => remove(label)}>
-          <X size={11} />
-        </IconButton>
-      )}
-    </span>
-  );
+  const chip = (label: ArtifactLabel) => {
+    const colour = colours?.colourOf(label) ?? null;
+    return (
+      <span key={label} className="artifact-labels__chip" title={label} data-label-colour={colour ?? undefined}>
+        {colours === undefined || readOnly ? (
+          <span className="artifact-labels__word">{label}</span>
+        ) : (
+          <button
+            type="button"
+            className="artifact-labels__word artifact-labels__colour"
+            aria-label={labelColourWords(label, colour)}
+            aria-haspopup="menu"
+            aria-expanded={colouring?.label === label}
+            title="Colour"
+            onClick={(event) => {
+              const anchor = event.currentTarget;
+              setColouring((open) => (open?.label === label && open.anchor === anchor ? null : { label, anchor }));
+            }}
+          >
+            <LabelColourDot colour={colour} />
+            {label}
+          </button>
+        )}
+        {readOnly ? null : (
+          <IconButton size="xs" aria-label={`Remove ${label}`} title="Remove" onClick={() => remove(label)}>
+            <X size={11} />
+          </IconButton>
+        )}
+      </span>
+    );
+  };
   const hidden = held.length - HEADER_CHIPS;
 
   return (
@@ -289,6 +319,15 @@ export function ArtifactLabelChips({
           )}
         </div>
       )}
+      {colouring === null || colours === undefined ? null : (
+        <LabelColourMenu
+          anchor={colouring.anchor}
+          label={colouring.label}
+          colour={colours.colourOf(colouring.label)}
+          onPick={(colour) => colours.setColour(colouring.label, colour)}
+          onClose={() => setColouring(null)}
+        />
+      )}
       <span className="sr-only" role="status">
         {reverted ? REVERTED : ""}
       </span>
@@ -304,33 +343,66 @@ export function ArtifactLabelFilter({
   choices,
   onToggle,
   onClear,
+  colours,
 }: {
   readonly choices: ReadonlyArray<LabelChoice>;
   readonly onToggle: (label: ArtifactLabel) => void;
   readonly onClear: () => void;
+  /** The node's label colours: each toggle draws in its own, and the swatch beside it sets it. */
+  readonly colours?: LabelColours;
 }) {
+  const [colouring, setColouring] = useState<{ readonly label: ArtifactLabel; readonly anchor: HTMLElement } | null>(null);
   if (choices.length === 0) return null;
   return (
     <div className="artifacts-filter__labels" role="group" aria-label="Labels">
-      {choices.map(({ label, count, picked }) => (
-        <button
-          key={label}
-          type="button"
-          aria-pressed={picked}
-          aria-label={`${label}, ${String(count)} ${count === 1 ? "artifact" : "artifacts"}`}
-          className="artifacts-filter__label"
-          title={label}
-          onClick={() => onToggle(label)}
-        >
-          <span className="artifacts-filter__label-word">{label}</span>
-          <span className="artifacts-filter__label-count">{count}</span>
-        </button>
-      ))}
+      {choices.map(({ label, count, picked }) => {
+        const colour = colours?.colourOf(label) ?? null;
+        return (
+          <span key={label} className="artifacts-filter__label-pair" data-label-colour={colour ?? undefined}>
+            {colours === undefined ? null : (
+              <button
+                type="button"
+                className="artifacts-filter__swatch"
+                aria-label={`Colour for ${labelColourWords(label, colour)}`}
+                aria-haspopup="menu"
+                aria-expanded={colouring?.label === label}
+                title="Colour"
+                onClick={(event) => {
+                  const anchor = event.currentTarget;
+                  setColouring((open) => (open?.label === label ? null : { label, anchor }));
+                }}
+              >
+                <LabelColourDot colour={colour} />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-pressed={picked}
+              aria-label={`${label}, ${String(count)} ${count === 1 ? "artifact" : "artifacts"}`}
+              className="artifacts-filter__label"
+              title={label}
+              onClick={() => onToggle(label)}
+            >
+              <span className="artifacts-filter__label-word">{label}</span>
+              <span className="artifacts-filter__label-count">{count}</span>
+            </button>
+          </span>
+        );
+      })}
       {choices.some((choice) => choice.picked) ? (
         <button type="button" className="artifacts-filter__label artifacts-filter__label--clear" onClick={onClear}>
           Clear
         </button>
       ) : null}
+      {colouring === null || colours === undefined ? null : (
+        <LabelColourMenu
+          anchor={colouring.anchor}
+          label={colouring.label}
+          colour={colours.colourOf(colouring.label)}
+          onPick={(colour) => colours.setColour(colouring.label, colour)}
+          onClose={() => setColouring(null)}
+        />
+      )}
     </div>
   );
 }

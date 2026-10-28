@@ -124,6 +124,47 @@
   outline-offset: 1px;
 }
 
+.artifacts-filter__label-pair {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+}
+
+.artifacts-filter__label-pair .artifacts-filter__label {
+  min-width: 0;
+}
+
+/* Coloured: the stroke and the word take the colour; picked, the fill too. */
+.artifacts-filter__label-pair[data-label-colour] .artifacts-filter__label {
+  border-color: var(--label-stroke);
+  color: var(--label-fg);
+}
+
+.artifacts-filter__label-pair[data-label-colour] .artifacts-filter__label[aria-pressed="true"] {
+  background: var(--label-fill);
+}
+
+.artifacts-filter__swatch {
+  display: grid;
+  width: 20px;
+  min-height: 24px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.artifacts-filter__swatch:hover {
+  background: var(--color-overlay-2);
+}
+
+.artifacts-filter__swatch:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 0;
+}
+
 .artifacts-filter__label-word {
   min-width: 0;
   overflow: hidden;
@@ -207,6 +248,112 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Label colours (0.11, 03 Colours): a colour names its tokens (C3), the label's
+   text always beside it. Unset draws as before. */
+[data-label-colour="red"] {
+  --label-mark: var(--color-label-red);
+  --label-fill: var(--color-label-red-fill);
+  --label-stroke: var(--color-label-red-stroke);
+  --label-fg: var(--color-label-red-fg);
+}
+
+[data-label-colour="orange"] {
+  --label-mark: var(--color-label-orange);
+  --label-fill: var(--color-label-orange-fill);
+  --label-stroke: var(--color-label-orange-stroke);
+  --label-fg: var(--color-label-orange-fg);
+}
+
+[data-label-colour="yellow"] {
+  --label-mark: var(--color-label-yellow);
+  --label-fill: var(--color-label-yellow-fill);
+  --label-stroke: var(--color-label-yellow-stroke);
+  --label-fg: var(--color-label-yellow-fg);
+}
+
+[data-label-colour="green"] {
+  --label-mark: var(--color-label-green);
+  --label-fill: var(--color-label-green-fill);
+  --label-stroke: var(--color-label-green-stroke);
+  --label-fg: var(--color-label-green-fg);
+}
+
+[data-label-colour="teal"] {
+  --label-mark: var(--color-label-teal);
+  --label-fill: var(--color-label-teal-fill);
+  --label-stroke: var(--color-label-teal-stroke);
+  --label-fg: var(--color-label-teal-fg);
+}
+
+[data-label-colour="blue"] {
+  --label-mark: var(--color-label-blue);
+  --label-fill: var(--color-label-blue-fill);
+  --label-stroke: var(--color-label-blue-stroke);
+  --label-fg: var(--color-label-blue-fg);
+}
+
+[data-label-colour="purple"] {
+  --label-mark: var(--color-label-purple);
+  --label-fill: var(--color-label-purple-fill);
+  --label-stroke: var(--color-label-purple-stroke);
+  --label-fg: var(--color-label-purple-fg);
+}
+
+[data-label-colour="pink"] {
+  --label-mark: var(--color-label-pink);
+  --label-fill: var(--color-label-pink-fill);
+  --label-stroke: var(--color-label-pink-stroke);
+  --label-fg: var(--color-label-pink-fg);
+}
+
+.label-colour-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border: 1px solid var(--color-dim);
+  border-radius: 50%;
+}
+
+.label-colour-dot[data-label-colour] {
+  border-color: transparent;
+  background: var(--label-mark);
+}
+
+.label-colour-menu {
+  padding: 4px;
+}
+
+.label-colour-menu__item {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+  text-align: start;
+}
+
+.label-colour-menu__item:hover,
+.label-colour-menu__item:focus-visible {
+  background: var(--color-overlay-2);
+}
+
+.label-colour-menu__item:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+.label-colour-menu__check {
+  margin-left: auto;
+  color: var(--color-dim);
+}
+
 /* Labels in the header: up to three chips after the title, the rest behind a
    count; the picker floats under them so adding one never adds a row. */
 .artifact-labels {
@@ -250,6 +397,34 @@
   color: var(--color-ink-2);
   font-size: var(--text-label);
   line-height: var(--leading-compact);
+}
+
+.artifact-labels__chip[data-label-colour] {
+  border-color: var(--label-stroke);
+  background: var(--label-fill);
+  color: var(--label-fg);
+}
+
+.artifact-labels__colour {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.artifact-labels__colour:hover {
+  background: var(--color-overlay-2);
+}
+
+.artifact-labels__colour:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 0;
 }
 
 .artifact-labels__word {

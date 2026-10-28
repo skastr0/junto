@@ -46,6 +46,7 @@ import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources"
 import { useArtifactsInReach } from "../../lib/artifacts-in-reach";
 import { makePostOps } from "../../lib/post-op";
 import { useKeptArtifactsFilter } from "../../lib/artifacts-filter-kept";
+import { type LabelColours, useLabelColours } from "../../lib/artifact-label-colours";
 import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
@@ -123,6 +124,7 @@ export function ArtifactsNode({
   const visible = useMemo(() => visibleArtifacts(entries, filter), [entries, filter]);
   const choices = useMemo(() => labelChoices(entries, filter), [entries, filter]);
   const used = useMemo(() => labelsInNode(entries), [entries]);
+  const colours = useLabelColours(canvasName, nodeId);
   const selected = entries.find((entry) => entry.artifact.artifactId === selectedId) ?? visible[0] ?? null;
   const archivedCount = entries.filter((entry) => entry.artifact.archived).length;
 
@@ -252,6 +254,7 @@ export function ArtifactsNode({
             setLabels((picked) => (picked.includes(label) ? picked.filter((one) => one !== label) : [...picked, label].sort()))
           }
           onClear={() => setLabels(() => [])}
+          colours={colours}
         />
       </div>
       {/* A list holds list items only: each row sits in one, and the empty line sits outside it, where the rows would be. */}
@@ -323,6 +326,7 @@ export function ArtifactsNode({
           queued={queued}
           pending={pending.filter((write) => write.artifactId === selected.artifact.artifactId)}
           usedLabels={used}
+          labelColours={colours}
           apply={(op) => apply(selected.artifact.artifactId, op)}
           createLinked={createLinked}
           onClose={onClose}
@@ -341,6 +345,7 @@ function SelectedArtifact({
   queued,
   pending,
   usedLabels,
+  labelColours,
   apply,
   createLinked,
   onClose,
@@ -354,6 +359,8 @@ function SelectedArtifact({
   readonly pending: ReadonlyArray<ArtifactPendingWrite>;
   /** Every label this node uses, for the header's add to complete from. */
   readonly usedLabels: ReadonlyArray<ArtifactLabel>;
+  /** This node's label colours, drawn on the chips and set from their menu. */
+  readonly labelColours: LabelColours;
   readonly sidebar: React.ReactNode;
   readonly now: number;
   readonly error: string | null;
@@ -651,6 +658,7 @@ function SelectedArtifact({
         <ArtifactLabelChips
           labels={artifact.labels}
           used={usedLabels}
+          colours={labelColours}
           readOnly={readOnly}
           waiting={pending.some((write) => write.op.op === "labels")}
           onChange={(next) => apply({ op: "labels", labels: [...next] }).then((ruling) => ruling.kind)}
