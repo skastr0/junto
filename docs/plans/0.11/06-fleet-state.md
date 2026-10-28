@@ -269,22 +269,40 @@ preferred machine would.
   "a copy replaces an older one" (Rule 2) still works by `seq` alone, and a
   returning machine catches up by applying `structure.changed` in `seq`
   order. Each entry records the authority's term beside its `seq`.
-- **The one hazard: a tail that never shipped.** Rows go to links after they
-  commit locally (`followLocalCommits`, `src/main/junto/work/exchange/live.ts`).
-  An authority that crashes can therefore hold committed structure changes
-  past the count its successor took over at. On its return those entries
-  must not be installed: the canvas already has other changes at those
-  counts. Each one becomes an ordinary command queued to the current
-  authority, ruled against the canvas as it is now, and shown to the
-  operator as "written on <machine> after it lost authority". Rulings on
-  resource state have the same tail, so question 1's answer should cover
-  both the same way.
+- **No tail.** An earlier draft of this section had a tail rule. Quorum
+  commit (section 1 of the design) makes it unnecessary: a committed entry is
+  always on the successor, and an uncommitted one was never shown.
+- **The window predicts a drop and settles it at commit.** The window already
+  shows a command first and sends it afterwards (`store.show`, then
+  `store.deliver`, in `src/renderer/lib/model-authoring.ts`). That stays.
+  "Nothing is shown before commit" applies to every other reader: panes,
+  seats, automations, the exchange. It does not apply to the window's own
+  echo of the operator's own gesture. Without the prediction, a dropped card
+  would jump back for one round trip and then forward again. That is the
+  double move `Canvas.tsx`'s `finishDrag` was fixed to stop. A drag commits
+  once, at the drop, so 35 to 130 ms on the tailnet never shows. Until the
+  commit arrives, the save state reads `saving`.
+- **An operator's edit in flight when authority moves.** Commands from
+  seats wait in their writers' queues. The operator's edits do not: they are
+  synchronous and are never queued. If the authority steps down before such
+  an edit commits, the window gets a retryable refusal ("authority moved to
+  <machine>"). The prediction rolls back through the re-read the window
+  already does on a refusal (`readAgain` in `src/renderer/lib/mutations.ts`),
+  and nothing goes into undo. The window then sends the edit once to the new
+  authority, built afresh against the canvas as that authority holds it.
+- **The authority list is a quorum change, not an ordinary edit.**
+  Adding or removing a machine changes who must agree. In a pair, reordering
+  does too, because the order decides which machine holds the casting vote.
+  Each such edit commits under the old quorum and changes one machine at a
+  time. Anything larger is a sequence of such edits, as in Raft's
+  single-server change. Reordering three or more machines changes only the
+  tie-break and is an ordinary edit.
 - **Unchanged:** a seat's `host` still has one writer, the authority, and a
   machine acts on a move once it holds that count (Rule 3). Secret values
   never travel. Region folders and environment are data the fallback holds,
   but a seat starts only on its own machine, from that machine's folder.
-- **What becomes of the first answer:** the structure journal stays, now for
-  catch-up and the tail rule. Stated counts with re-judgment on arrival are
+- **What becomes of the first answer:** the structure journal stays, now as
+  entries in the one log. Stated counts with re-judgment on arrival are
   dropped: the one authority rules each queued command against its current
   canvas, as the ruler does today.
 
