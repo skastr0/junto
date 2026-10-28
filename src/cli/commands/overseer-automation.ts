@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { AUTOMATION_VALUES, DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
+import { AUTOMATION_VALUES, type CodeLanguage, DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
 import {
   AutomationCreateCliArgs,
   AutomationEditCliArgs,
@@ -57,7 +57,8 @@ export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]
 };
 
 /** How the content store names a code step's bytes, by its language. */
-export const CODE_MEDIA_TYPES = { typescript: "text/typescript", shell: "text/x-shellscript" } as const;
+// Keyed by K1's languages, so one it adds fails tsc here, not a write at run time.
+export const CODE_MEDIA_TYPES: Readonly<Record<CodeLanguage, string>> = { typescript: "text/typescript", shell: "text/x-shellscript" };
 
 type CodeFile = { readonly index: number; readonly file: string; readonly mediaType: string };
 
