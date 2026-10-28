@@ -12,6 +12,7 @@ import { machineHarnessSignIn } from "@shared/machine-harness-status";
 import { makeMachineCopy, type MachineCopyOptions } from "./junto/hosts/machine-copy";
 import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/machine-owner";
 import { join } from "node:path";
+import { makeCodeAllowanceOwner } from "./junto/automation/code-allowance-owner";
 import { makeMachineLinkSetup } from "./junto/hosts/machine-link";
 import { machinePackageCliDir } from "./junto/term/templates/seat-env";
 import { makeCoreProductLayer } from "./core-product";
@@ -423,11 +424,13 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy>();
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
+    const code = yield* makeCodeAllowanceOwner;
     const linkSetup = yield* makeMachineLinkSetup({ home: options.home, juntoPath: () => {
       const bin = machinePackageCliDir();
       return bin === undefined ? undefined : join(bin, "junto");
     } });
     const actions = yield* makeMachineOwnerActions({
+      code,
       linkSetup,
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,

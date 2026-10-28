@@ -19,6 +19,7 @@ import { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 import { MachineLogRead, MachineLogsInput } from "./machine-log";
 import { EncodedFailure } from "./failure";
 import { BoatAddInput, BoatConnectData, BoatDisconnectData, BoatMachineView, BoatStatusData } from "./boat";
+import { MachineCodeAllowInput, MachineCodeAllowed, MachineCodeCanvasInput, MachineCodeShowInput, MachineCodeShown } from "./machine-code";
 import { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 import {
   MachineLinkInput, MachineLinkData, MachineLinkKeyInput, MachineLinkKeyData, MachineLinkAcceptInput, MachineLinkAcceptData,
@@ -154,6 +155,9 @@ export const OperatorMachineBoatAddRequest = request("machine.boat-add", BoatAdd
 export const OperatorMachineBoatDeleteRequest = request("machine.boat-delete", MachineTargetInput);
 export const OperatorMachineWakeRequest = request("machine.wake", MachineTargetInput);
 export const OperatorMachineSleepRequest = request("machine.sleep", MachineTargetInput);
+export const OperatorMachineCodeAllowRequest = request("machine.code-allow", MachineCodeAllowInput);
+export const OperatorMachineCodeDenyRequest = request("machine.code-deny", MachineCodeCanvasInput);
+export const OperatorMachineCodeShowRequest = request("machine.code-show", MachineCodeShowInput);
 export const OperatorMachineLinkRequest = request("machine.link", MachineLinkInput);
 export const OperatorMachineLinkKeyRequest = request("machine.link-key", MachineLinkKeyInput);
 export const OperatorMachineLinkAcceptRequest = request("machine.link-accept", MachineLinkAcceptInput);
@@ -184,6 +188,9 @@ OperatorMachineBoatAddRequest,
 OperatorMachineBoatDeleteRequest,
 OperatorMachineWakeRequest,
 OperatorMachineSleepRequest,
+OperatorMachineCodeAllowRequest,
+OperatorMachineCodeDenyRequest,
+OperatorMachineCodeShowRequest,
 OperatorMachineLinkRequest,
 OperatorMachineLinkKeyRequest,
 OperatorMachineLinkAcceptRequest,
@@ -232,6 +239,9 @@ export const OperatorMachineBoatAddResponse = response("machine.boat-add", BoatA
 export const OperatorMachineBoatDeleteResponse = response("machine.boat-delete", MachineRemoved);
 export const OperatorMachineWakeResponse = response("machine.wake", BoatMachineView);
 export const OperatorMachineSleepResponse = response("machine.sleep", BoatMachineView);
+export const OperatorMachineCodeAllowResponse = response("machine.code-allow", MachineCodeAllowed);
+export const OperatorMachineCodeDenyResponse = response("machine.code-deny", MachineCodeAllowed);
+export const OperatorMachineCodeShowResponse = response("machine.code-show", MachineCodeShown);
 export const OperatorMachineLinkResponse = response("machine.link", MachineLinkData);
 export const OperatorMachineLinkKeyResponse = response("machine.link-key", MachineLinkKeyData);
 export const OperatorMachineLinkAcceptResponse = response("machine.link-accept", MachineLinkAcceptData);
@@ -298,6 +308,9 @@ OperatorMachineBoatAddResponse,
 OperatorMachineBoatDeleteResponse,
 OperatorMachineWakeResponse,
 OperatorMachineSleepResponse,
+OperatorMachineCodeAllowResponse,
+OperatorMachineCodeDenyResponse,
+OperatorMachineCodeShowResponse,
 OperatorMachineLinkResponse,
 OperatorMachineLinkKeyResponse,
 OperatorMachineLinkAcceptResponse,
