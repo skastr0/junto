@@ -306,7 +306,7 @@ export function ArtifactsNode({
     <FocusSurface measure="workspace" height="immersive" label="Artifacts" onClose={onClose}>
       {quickOpen.palette}
       {selected === null ? (
-        <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel="Artifact">
+        <TwoPane keptBy={{ canvas: canvasName, node: nodeId }} sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel="Artifact">
           <PaneEmpty
             glyph={<ResourceGlyphMark kind="artifact" artifactType="document" size={20} />}
             title={entries.length === 0 ? "No artifacts yet" : "Pick an artifact"}
@@ -324,6 +324,7 @@ export function ArtifactsNode({
         <SelectedArtifact
           key={selected.artifact.artifactId}
           canvasName={canvasName}
+          nodeId={nodeId}
           entry={selected}
           sidebar={sidebar}
           now={now}
@@ -343,6 +344,7 @@ export function ArtifactsNode({
 
 function SelectedArtifact({
   canvasName,
+  nodeId,
   entry,
   sidebar,
   now,
@@ -359,6 +361,7 @@ function SelectedArtifact({
   /** Make a document by a `[[` title in this node: its mention, or null when it was refused. */
   readonly createLinked: (title: string) => Promise<MentionOf<"artifact"> | null>;
   readonly canvasName: string;
+  readonly nodeId: string;
   readonly entry: ArtifactHead;
   readonly queued: boolean;
   readonly pending: ReadonlyArray<ArtifactPendingWrite>;
@@ -645,7 +648,7 @@ function SelectedArtifact({
   );
 
   return (
-    <TwoPane sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel={artifact.title} rail={rail} railLabel="Comments" railCollapsed={!railOpen}>
+    <TwoPane keptBy={{ canvas: canvasName, node: nodeId }} sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel={artifact.title} rail={rail} railLabel="Comments" railCollapsed={!railOpen}>
       <header className="artifact-head">
         <ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={14} />
         <input

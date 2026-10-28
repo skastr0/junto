@@ -7,7 +7,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ListRow, PaneEmpty, ResourceChip, StampTally, TaskStateMark, TwoPane } from "../src/renderer/components/ui";
+import { ListRow, PaneEmpty, PaneHeader, ResourceChip, StampTally, TaskStateMark, TwoPane } from "../src/renderer/components/ui";
+import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
 import { TASK_STATES, stampTally } from "../src/renderer/lib/resource-visuals";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -107,5 +109,27 @@ describe("TwoPane", () => {
       </TwoPane>,
     );
     expect(host.querySelector("[aria-label='Comments']")).not.toBeNull();
+  });
+  it("a pane that names its node keeps the sidebar collapse in view state, per node", () => {
+    setNodeViewStore(makeMemoryNodeViewStore());
+    const pane = (node: string) => (
+      <TwoPane keptBy={{ canvas: "main", node }} sidebarLabel="Tasks" mainLabel="Task" sidebar={<PaneHeader title="Tasks" />}>
+        <span>main</span>
+      </TwoPane>
+    );
+    const toggle = () => host.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
+    render(pane("tasks-1"));
+    act(() => toggle().click());
+    expect(nodeViewStore().sidebarCollapsed("main", "tasks-1")).toBe(true);
+    expect(host.querySelector(".two-pane")!.getAttribute("data-sidebar")).toBe("collapsed");
+    // Another node with the same sidebar label keeps its own.
+    render(pane("tasks-2"));
+    expect(host.querySelector(".two-pane")!.getAttribute("data-sidebar")).toBeNull();
+    act(() => root.unmount());
+    root = createRoot(host);
+    render(pane("tasks-1"));
+    expect(host.querySelector(".two-pane")!.getAttribute("data-sidebar")).toBe("collapsed");
+    act(() => host.querySelector<HTMLButtonElement>(".two-pane__strip [data-sidebar-toggle]")!.click());
+    expect(nodeViewStore().sidebarCollapsed("main", "tasks-1")).toBe(false);
   });
 });

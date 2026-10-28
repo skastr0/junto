@@ -284,7 +284,7 @@ export function FilesNode({
       {quickOpen.palette}
       <div {...drop.surface} className="files-body">
         {empty !== null || selected === null || root.state !== "ready" ? (
-          <TwoPane sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
+          <TwoPane keptBy={{ canvas: ref.canvas, node: ref.node }} sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
             {empty ?? <PaneEmpty title="Opening the folder" />}
           </TwoPane>
         ) : (
@@ -604,7 +604,7 @@ function SelectedFile({
   })();
 
   return (
-    <TwoPane
+    <TwoPane keptBy={{ canvas: filesRef.canvas, node: filesRef.node }}
       sidebar={sidebar}
       sidebarLabel="Files"
       sidebarWidth="narrow"

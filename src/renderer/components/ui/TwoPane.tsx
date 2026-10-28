@@ -1,16 +1,22 @@
 import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { claimFocus } from "../../lib/focus-ownership";
+import { nodeViewStore, useNodeView } from "../../lib/node-view-state";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Eyebrow } from "./Eyebrow";
 import { FocusMaximizeButton } from "./FocusWindow";
 import { IconButton } from "./IconButton";
 import "./two-pane.css";
 
-// --- sidebar collapse (session memory, by sidebar label) ----------------------
+// --- sidebar collapse -----------------------------------------------------------
 //
 // Kept outside the component: Artifacts mounts a different TwoPane for the
 // empty pane and for a selected artifact, and the sidebar must stay as the
-// operator left it across them.
+// operator left it across them. A pane that names its node keeps it in view
+// state, per node, so a quit brings it back (0.11, 04, V3); any other pane
+// keeps it for the session by sidebar label.
+
+/** The node a pane belongs to, which keeps its sidebar collapse. */
+export type TwoPaneNode = { readonly canvas: string; readonly node: string };
 
 const collapsedSidebars = new Set<string>();
 const collapseListeners = new Set<() => void>();
@@ -22,7 +28,7 @@ const setSidebarCollapsed = (label: string, collapsed: boolean): void => {
   for (const listener of collapseListeners) listener();
 };
 
-const useSidebarCollapsed = (label: string): boolean =>
+const useSessionCollapsed = (label: string): boolean =>
   useSyncExternalStore(
     (listener) => {
       collapseListeners.add(listener);
@@ -31,13 +37,32 @@ const useSidebarCollapsed = (label: string): boolean =>
     () => collapsedSidebars.has(label),
   );
 
+const useSidebarCollapsed = (label: string, keptBy: TwoPaneNode | undefined): boolean => {
+  const session = useSessionCollapsed(label);
+  const kept = useNodeView((store) => (keptBy ? store.sidebarCollapsed(keptBy.canvas, keptBy.node) : false));
+  return keptBy ? kept : session;
+};
+
+const writeCollapsed = (label: string, keptBy: TwoPaneNode | undefined, collapsed: boolean): void => {
+  if (keptBy) nodeViewStore().writeSidebarCollapsed(keptBy.canvas, keptBy.node, collapsed);
+  else setSidebarCollapsed(label, collapsed);
+};
+
 /** What the header of a TwoPane sidebar needs to offer its own collapse. */
-const SidebarContext = createContext<{ readonly label: string } | null>(null);
+const SidebarContext = createContext<{ readonly label: string; readonly keptBy?: TwoPaneNode } | null>(null);
 
 /** The sidebar whose toggle was just pressed: the toggle that shows next takes the keyboard. */
 let toggled: string | null = null;
 
-function SidebarToggle({ label, collapsed }: { readonly label: string; readonly collapsed: boolean }) {
+function SidebarToggle({
+  label,
+  keptBy,
+  collapsed,
+}: {
+  readonly label: string;
+  readonly keptBy?: TwoPaneNode;
+  readonly collapsed: boolean;
+}) {
   // One fixed name and a state, not a name that changes with the state.
   return (
     <IconButton
@@ -48,7 +73,7 @@ function SidebarToggle({ label, collapsed }: { readonly label: string; readonly 
       aria-expanded={!collapsed}
       onClick={() => {
         toggled = label;
-        setSidebarCollapsed(label, !collapsed);
+        writeCollapsed(label, keptBy, !collapsed);
       }}
     >
       {collapsed ? <PanelLeftOpen size={14} aria-hidden /> : <PanelLeftClose size={14} aria-hidden />}
@@ -77,8 +102,8 @@ function SidebarToggle({ label, collapsed }: { readonly label: string; readonly 
  * The sidebar collapses to a thin strip. The `PaneHeader` inside it carries
  * the toggle (and the modal's maximize), and the strip carries them while it
  * is collapsed. The sidebar stays mounted, only hidden, so a search or a
- * half-typed form in it survives. Collapsing is remembered for the session by
- * `sidebarLabel`.
+ * half-typed form in it survives. Collapsing is remembered per node in view
+ * state when `keptBy` names the node, else for the session by `sidebarLabel`.
  *
  * Every pane needs a name for assistive tech, so each label is required.
  * Fill the sidebar with `PaneHeader` and rows (`ListRow`, with `pending` for
@@ -92,6 +117,7 @@ export function TwoPane({
   railLabel,
   railCollapsed = false,
   mainLabel,
+  keptBy,
   children,
 }: {
   readonly sidebar: ReactNode;
@@ -104,9 +130,11 @@ export function TwoPane({
   /** The rail is a thin edge; `rail` is what the edge shows. */
   readonly railCollapsed?: boolean;
   readonly mainLabel: string;
+  /** The node whose view state keeps the sidebar's collapse. */
+  readonly keptBy?: TwoPaneNode;
   readonly children: ReactNode;
 }) {
-  const collapsed = useSidebarCollapsed(sidebarLabel);
+  const collapsed = useSidebarCollapsed(sidebarLabel, keptBy);
   const bodyRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   // The press hid the toggle it was made on; the keyboard follows to the one
@@ -125,7 +153,7 @@ export function TwoPane({
       data-sidebar-width={sidebarWidth}
     >
       <aside className="two-pane__sidebar" aria-label={sidebarLabel}>
-        <SidebarContext.Provider value={{ label: sidebarLabel }}>
+        <SidebarContext.Provider value={{ label: sidebarLabel, keptBy }}>
           <div ref={bodyRef} className="two-pane__sidebar-body" hidden={collapsed}>
             {sidebar}
           </div>
@@ -133,7 +161,7 @@ export function TwoPane({
         {collapsed ? (
           <div ref={stripRef} className="two-pane__strip">
             <FocusMaximizeButton />
-            <SidebarToggle label={sidebarLabel} collapsed />
+            <SidebarToggle label={sidebarLabel} keptBy={keptBy} collapsed />
           </div>
         ) : null}
       </aside>
@@ -165,7 +193,7 @@ export function PaneHeader({ eyebrow, actions }: { readonly eyebrow: ReactNode; 
           {sidebar ? (
             <>
               <FocusMaximizeButton />
-              <SidebarToggle label={sidebar.label} collapsed={false} />
+              <SidebarToggle label={sidebar.label} keptBy={sidebar.keptBy} collapsed={false} />
             </>
           ) : null}
         </div>

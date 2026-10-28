@@ -252,14 +252,14 @@ export function TasksNode({
     <FocusSurface measure="workspace" height="immersive" label="Tasks" onClose={onClose}>
       {quickOpen.palette}
       {settings ? (
-        <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Board settings">
+        <TwoPane keptBy={{ canvas: canvasName, node: node }} sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Board settings">
           <section className="tasks-settings" data-testid="tasks-settings">
             <header className="tasks-settings__head">Board settings</header>
             <BoardSettings nodeId={node} />
           </section>
         </TwoPane>
       ) : selected === null ? (
-        <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Task">
+        <TwoPane keptBy={{ canvas: canvasName, node: node }} sidebar={sidebar} sidebarLabel="Tasks" mainLabel="Task">
           <PaneEmpty
             glyph={<ResourceGlyphMark kind="task" size={20} />}
             title={tasks.length === 0 ? "No tasks yet" : "Pick a task"}
@@ -274,7 +274,7 @@ export function TasksNode({
           />
         </TwoPane>
       ) : (
-        <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel={selected.title}>
+        <TwoPane keptBy={{ canvas: canvasName, node: node }} sidebar={sidebar} sidebarLabel="Tasks" mainLabel={selected.title}>
           <SelectedTask
             key={selected.taskId}
             canvasName={canvasName}

@@ -407,7 +407,7 @@ export function AutomationsPane({
     >
       {quickOpen.palette}
       <div className="automations-node" data-testid="automations-node">
-        <TwoPane
+        <TwoPane keptBy={{ canvas: canvasName, node: nodeId }}
           sidebarLabel="Automations"
           mainLabel={
             editing
