@@ -404,7 +404,7 @@ takes the next free name (`name 2`). All channels sit behind
 An automation's `code` step runs authored TypeScript, or later a shell
 script, on the automation's machine as that machine's OS account. It is not a
 sandbox. The code may be written on one machine and run on another, so a
-machine runs it only when all five checks hold, at every firing:
+machine runs it only when all four checks hold, at every firing:
 
 1. The automation's definition reached this machine as an applied automation
    ruling from the machine ruling the canvas. A row never carries code.
@@ -418,46 +418,25 @@ machine runs it only when all five checks hold, at every firing:
    the code ref: changing a trigger or another step does not change who wrote
    the program. The automation domain refuses code from any other seat and
    from an automation actor. Code never writes code.
-4. This machine's allowance covers the canvas, the machine that ruled the
-   code and the author. The allowance binds the canvas and a local list of
-   trusted ruling machines, filled at allow time from the canvas's authority
-   list (today the editing machine alone). The ruling that last set the code
-   ref must come from a term whose authority is on that local list. When the
-   canvas's authority list gains a machine, rulings from that machine's terms
-   are not trusted for code here until this machine's owner allows again;
-   until then those code steps are refused `not_permitted`, naming the
-   machine. The allowance is machine-local, in this machine's `junto.db`,
-   set through the core only by `junto machine code allow <canvas>` on that
-   machine or by install over the operator's own SSH route, both owner
-   commands refused from a seat environment. It is never an exchanged row,
-   never set from a link and never carried in a copy, the same as secrets;
-   the author and the ruling machine it is checked against are stamped from
-   the ruling that last set the code ref (check 3). `status` may report its
-   state (allowed, scope) so the window can warn at save. Its scope is
-   operator only, or operator and overseers, which is the default when
-   allowed (the operator's decision). A machine that rules needs its own
-   allowance to run code steps placed on it, like any other.
-5. The automation names this machine.
+4. The automation names this machine.
 
 A failed check is refused `not_permitted`, and the firing log names the
-check and the machine. A move changes the machine, its files, its secrets and
-its allowance, never the program. A move to a machine without an allowance
-fails closed there, shown at save and in the firing log. The machine the
-code left keeps the bytes it received.
+check and the machine. A code step needs no step on the machine that runs
+it: there is no per-machine allowance (the operator's ruling, 28 October). A
+move changes the machine, its files and its secrets, never the program. The
+machine the code left keeps the bytes it received.
 
-What an allowance admits. With operator and overseers, it lets every
-trusted ruling machine and every machine hosting an overseer seat on that
-canvas run code here as the OS account, and any process on those machines,
-since seat credentials are readable off the process table (Trust and its
-limits). Operator only narrows that to the trusted ruling machines. A
-compromised ruling machine on the list controls the code on every machine
-that allows its canvas. The
-allowance guards against other machines, not against code already running
-here, which as the OS account can rewrite it. Revoking an overseer grant
-leaves code that overseer wrote in place; editing the automation or
-withdrawing the allowance stops it. Withdrawing stops future runs, not one in
-flight, which ends at its timeout. An automation that mails or prompts an
-overseer gives that overseer input, never authority to write code.
+What this admits. The machine that rules the canvas, and any machine hosting
+an overseer seat on it, can run code as the OS account on every machine that
+hosts an automation on that canvas, and so can any process on those
+machines, since seat credentials are readable off the process table (Trust
+and its limits). Listing a machine for authority, or granting overseer to a
+seat on it, is the operator's grant of that. A compromised ruling machine
+controls the code on every machine that hosts an automation on its canvas.
+Revoking an overseer grant leaves code that overseer wrote in place; editing
+or archiving the automation stops it, for future runs, not one in flight,
+which ends at its timeout. An automation that mails or prompts an overseer
+gives that overseer input, never authority to write code.
 
 Each run:
 
