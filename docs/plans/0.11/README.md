@@ -189,7 +189,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | F8 extract | product-pad, product-documents | done, walk passed c5f7568ae |
 | msg reply file subject, onboard files row | cli | after F7 contract |
 | artifact links L1 to L5 | see 02-artifact-links.md | started |
-| artifact labels T1 contract (step 53) | product-feed | T1 landed 70cc43ab1; T4 CLI landed 7b2f0d976 (cli-protocol, product-feed reviewing); approved with 0da13852c; T2 window landed eed18eb5e (review: shell, typography, accessibility); T3 code approved, frame pending; product-verify walking all four |
+| artifact labels T1 contract (step 53) | product-feed | T1 landed 70cc43ab1; T4 CLI landed 7b2f0d976 (cli-protocol, product-feed reviewing); approved with 0da13852c; T2 window landed eed18eb5e (review: shell, typography, accessibility); T3 done, code a3fd7ff12 (approved) and the real-app frames 427062ac4; product-verify walking all four |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
 
 ## Carried to 0.12
