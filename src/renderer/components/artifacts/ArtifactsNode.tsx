@@ -45,6 +45,7 @@ import { openWorkDetail, useFollowOpen } from "../../lib/work-detail-open";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import { useArtifactsInReach } from "../../lib/artifacts-in-reach";
 import { makePostOps } from "../../lib/post-op";
+import { useKeptArtifactsFilter } from "../../lib/artifacts-filter-kept";
 import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
@@ -59,7 +60,6 @@ import {
   pendingWriteLine,
   postAfterSave,
   TYPE_NOUN,
-  type TypeFilter,
   visibleArtifacts,
 } from "./artifacts-pane-model";
 import { DocumentEditor, type DocumentMentions } from "./DocumentEditor";
@@ -108,10 +108,10 @@ export function ArtifactsNode({
   // An open asked for while the modal is up, a link followed from inside it, picks that artifact,
   // the same one included after the operator picked another.
   useFollowOpen(initialArtifactId, openKey, setSelectedId);
-  const [type, setType] = useState<TypeFilter>("all");
+  // The type and the picked labels outlive the modal, per node, for the window's life.
+  const { type, setType, labels, setLabels } = useKeptArtifactsFilter(canvasName, nodeId, entries);
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
-  const [labels, setLabels] = useState<ReadonlyArray<ArtifactLabel>>([]);
   const [creating, setCreating] = useState<"menu" | "link" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** A write is queued until the editing machine rules it; the next listing says it has. */
@@ -251,7 +251,7 @@ export function ArtifactsNode({
           onToggle={(label) =>
             setLabels((picked) => (picked.includes(label) ? picked.filter((one) => one !== label) : [...picked, label].sort()))
           }
-          onClear={() => setLabels([])}
+          onClear={() => setLabels(() => [])}
         />
       </div>
       {/* A list holds list items only: each row sits in one, and the empty line sits outside it, where the rows would be. */}
