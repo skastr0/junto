@@ -189,6 +189,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | F8 extract | product-pad, product-documents | done, walk passed c5f7568ae |
 | msg reply file subject, onboard files row | cli | after F7 contract |
 | artifact links L1 to L5 | see 02-artifact-links.md | started |
+| artifact labels T1 contract (step 53) | product-feed | landed 70cc43ab1; T2 product-sheet, T3 product-modals, T4 cli-lead building |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
 
 ## Carried to 0.12
