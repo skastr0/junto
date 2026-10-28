@@ -91,6 +91,12 @@ export const AUTOMATION_TEXT_MAX_CHARS = 8_000;
 export const AUTOMATION_STEPS_MAX = 16;
 /** The artifacts a raised signal shows the operator, opened from it (0.11/07 N2). */
 export const AUTOMATION_SIGNAL_SHOWS_MAX = 8;
+/** The most words a signal's artifact reply may be asked for. */
+export const AUTOMATION_SIGNAL_MIN_WORDS_MAX = 100_000;
+/** How far after its firing a work signal may fall due: a year. */
+export const AUTOMATION_SIGNAL_DUE_MAX_MS = 366 * 24 * 60 * 60_000;
+/** A region secret by the variable name it declares, as a process environment takes it. */
+const SecretName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)));
 
 /** A code step's bounds (Code steps): its run time, its source as staged, and what it answers. */
 export const AUTOMATION_CODE_TIMEOUT_MIN_MS = 1_000;
@@ -285,6 +291,32 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
       title: Text(AGENT_SIGNAL_MAX_TEXT_LENGTH),
       detail: Schema.optionalKey(Text(AGENT_SIGNAL_MAX_DETAIL_LENGTH)),
       show: Schema.optionalKey(Schema.Array(ref).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(AUTOMATION_SIGNAL_SHOWS_MAX)))),
+      /**
+       * What the operator answers in, N1's forms: text; an artifact in an
+       * Artifacts node, titled from the signal unless named, with at least
+       * `minWords`; a region secret by name; proof.
+       */
+      form: Schema.optionalKey(
+        Schema.Union([
+          Schema.Struct({ kind: Schema.Literal("text") }),
+          Schema.Struct({
+            kind: Schema.Literal("artifact"),
+            node,
+            title: Schema.optionalKey(Text(AGENT_SIGNAL_MAX_TEXT_LENGTH)),
+            labels: Schema.optionalKey(ArtifactLabels),
+            minWords: Schema.optionalKey(Bounded(1, AUTOMATION_SIGNAL_MIN_WORDS_MAX)),
+          }),
+          Schema.Struct({ kind: Schema.Literal("secret"), name: SecretName }),
+          Schema.Struct({ kind: Schema.Literal("proof") }),
+        ]),
+      ),
+      /** Work only: due this long after the firing, and whether it is urgent. */
+      work: Schema.optionalKey(
+        Schema.Struct({
+          dueInMs: Schema.optionalKey(Bounded(1, AUTOMATION_SIGNAL_DUE_MAX_MS)),
+          urgent: Schema.optionalKey(Schema.Boolean),
+        }),
+      ),
     }),
   ]);
 
@@ -452,7 +484,7 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
     case "seat-control":
       return [action.seat.nodeId];
     case "signal":
-      return (action.show ?? []).map((shown) => shown.nodeId);
+      return [...(action.show ?? []).map((shown) => shown.nodeId), ...(action.form?.kind === "artifact" ? [action.form.node] : [])];
     case "comment":
       return [action.on.nodeId];
     case "create-artifact":
@@ -497,9 +529,12 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
         ? undefined
         : { reason: "invalid_input", message: "a seat-control names a seat", next_step: "Name an agent seat as the seat" };
     case "signal":
-      return (action.show ?? []).every((shown) => shown.kind === "artifact")
-        ? undefined
-        : { reason: "invalid_input", message: "a signal shows artifacts", next_step: "Name only artifacts for the signal to show" };
+      if (!(action.show ?? []).every((shown) => shown.kind === "artifact")) {
+        return { reason: "invalid_input", message: "a signal shows artifacts", next_step: "Name only artifacts for the signal to show" };
+      }
+      return action.work !== undefined && action.signal !== "work"
+        ? { reason: "invalid_input", message: "only a work signal falls due", next_step: "Make it a work signal, or drop its due time" }
+        : undefined;
     case "append-artifact":
     case "label-artifact": {
       if (!("fired" in action.to) && action.to.kind !== "artifact") {
@@ -613,8 +648,10 @@ export const actionText = (action: Action): string | undefined => {
       return action.text;
     case "create-artifact":
       return action.body === undefined ? action.title : `${action.title}\n${action.body}`;
-    case "signal":
-      return action.detail === undefined ? action.title : `${action.title}\n${action.detail}`;
+    case "signal": {
+      const formTitle = action.form?.kind === "artifact" ? action.form.title : undefined;
+      return [action.title, action.detail, formTitle].filter((text) => text !== undefined).join("\n");
+    }
     case "assign-task":
     case "label-artifact":
     case "code":

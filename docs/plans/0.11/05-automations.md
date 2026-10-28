@@ -89,8 +89,12 @@ artifact; a run's result is logged where people read it. Labels landed in
 `signal {signal: "notice"|"work", title, detail?, show?}` raises a signal in
 the needs-you feed as the automation. Title (up to 280) and detail (up to
 8000) may name values; `show` names one to eight artifacts it opens, refused
-at save if any is not an artifact. The reply form follows N1's names. Until
-N1's raise lands the action is refused `not_available`.
+at save if any is not an artifact. `form?` is one of N1's forms: `text`,
+`artifact {node, title?, labels?, minWords?}` (the node is in reach),
+`secret {name}` (the region's variable name), `proof`. `work? {dueInMs?,
+urgent?}` is for a work signal only; the runtime turns `dueInMs` into N1's
+`dueAt` from the firing time, since a stored definition holds no date.
+Until N1's raise lands the action is refused `not_available`.
 
 **B1 contract (automation-lead, agreed with product-automations and cli-lead).**
 The artifact watch takes `event: "labelled"` and `label?`: with `labelled`,

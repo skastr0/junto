@@ -400,8 +400,12 @@ export const resolveTargets = (
         return { ...a, seat: ref(a.seat, "seat", `${at}.seat`) };
       // A signal names only the artifacts it shows (0.11/07 N2).
       case "signal": {
-        const { show, ...rest } = a;
-        return show === undefined ? rest : { ...rest, show: show.map((shown, k) => ref(shown, "artifact", `${at}.show[${k}]`)) };
+        const { show, form, ...rest } = a;
+        return {
+          ...rest,
+          ...(show === undefined ? {} : { show: show.map((shown, k) => ref(shown, "artifact", `${at}.show[${k}]`)) }),
+          ...(form === undefined ? {} : { form: form.kind === "artifact" ? { ...form, node: node(form.node, `${at}.form.node`) } : form }),
+        };
       }
       // A code step names no target: its source is a staged content ref.
       case "code":

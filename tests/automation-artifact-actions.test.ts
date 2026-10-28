@@ -189,4 +189,17 @@ describe("a signal action (0.11/07 N2)", () => {
     expect(targetNodeIds({ ...automation, then: [signal as never] })).toContain(SHELF);
     expect(actionText(signal as never)).toBe("Write 500 words\nToday, {{fired.at}}");
   });
+
+  it("asks for one of N1's forms, its artifact node in reach, and falls due only as work", () => {
+    const write = { ...signal, form: { kind: "artifact", node: SHELF, title: "Words {{fired.at}}", labels: ["writing"], minWords: 500 }, work: { dueInMs: 86_400_000, urgent: false } };
+    expect(Schema.is(Action)(write)).toBe(true);
+    expect(Schema.is(Action)({ ...signal, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } })).toBe(true);
+    expect(Schema.is(Action)({ ...signal, form: { kind: "secret", name: "not a name" } })).toBe(false);
+    expect(Schema.is(Action)({ ...signal, form: { kind: "artifact", node: SHELF, minWords: 0 } })).toBe(false);
+    expect(Schema.is(Action)({ ...signal, form: { kind: "proof" } })).toBe(true);
+    expect(targetNodeIds({ ...automation, then: [{ ...write, show: undefined } as never] })).toEqual([SHELF]);
+    expect(actionText(write as never)).toBe("Write 500 words\nToday, {{fired.at}}\nWords {{fired.at}}");
+    expect(actionRefusal(write as never)).toBeUndefined();
+    expect(actionRefusal({ ...write, signal: "notice" } as never)).toMatchObject({ message: "only a work signal falls due" });
+  });
 });
