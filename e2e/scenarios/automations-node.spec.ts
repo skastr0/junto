@@ -62,6 +62,13 @@ test("the Automations node: create, edit, stale edit, toggle, run now, history, 
     await mailTo.pressSequentially("@lead");
     await page.getByRole("option", { name: /lead/ }).first().click();
     await editor.getByLabel("Mail text").fill("Post your plan for today.");
+    // Insert value writes at the end of a text never focused, and the caret stays there (A3).
+    const mailText = editor.getByLabel("Mail text");
+    await editor.getByRole("button", { name: "Insert a value into the mail" }).click();
+    await page.getByRole("option", { name: /fired\.at/ }).click();
+    await expect(mailText).toHaveValue("Post your plan for today.{{fired.at}}");
+    await shot(page, "02b-insert-value-dark");
+    await mailText.fill("Post your plan for today.");
     await bothThemes(page, "02-new-draft");
     await editor.getByRole("button", { name: "Save", exact: true }).click();
     await expect(pane.getByRole("button", { name: /Morning standup/ })).toBeVisible({ timeout: 10_000 });
@@ -220,7 +227,7 @@ test("the Automations node by keyboard: create, pick, save, toggle, run now, arc
 
     // No press leaves the keyboard on the body (07a93b9a6).
     expect(landed).toMatchObject({
-      tabFromMailTo: 'input "Mail text"',
+      tabFromMailTo: 'textarea "Mail text"',
       toggled: 'switch "Automation on"',
     });
     for (const step of ["saved", "ran", "confirmEscaped", "archived"] as const) {
