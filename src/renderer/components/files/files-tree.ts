@@ -125,6 +125,10 @@ export const useFolderTree = (ref: FilesNodeRef, model: FileTree, ready: boolean
  * paths in the order first expanded. A row the tree shows says for itself; a
  * folder it does not show (under a collapsed parent, or not listed yet) keeps
  * what it was, so opening the parent again opens it as the operator left it.
+ * A folder missing from a parent the tree shows expanded and listed (it holds
+ * rows) is gone from disk, and is dropped, so a folder of that name made
+ * later opens closed. A parent shown with no rows under it may be unlisted,
+ * so it proves nothing.
  */
 export const expandedAfter = (
   kept: ReadonlyArray<string>,
@@ -136,7 +140,15 @@ export const expandedAfter = (
     const dir = filePathOfTree(row.path);
     if (dir !== undefined && dir !== ROOT_PATH) shown.set(dir, row.isExpanded === true);
   }
-  const next = kept.filter((dir) => shown.get(dir) ?? true);
+  const parentOfDir = (dir: string): string => (dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : ROOT_PATH);
+  const listedParents = new Set<string>();
+  for (const row of rows) {
+    const path = row.path.endsWith("/") ? row.path.slice(0, -1) : row.path;
+    const parent = parentOfDir(path);
+    if (parent === ROOT_PATH || shown.get(parent) === true) listedParents.add(parent);
+  }
+  const gone = (dir: string): boolean => listedParents.has(parentOfDir(dir));
+  const next = kept.filter((dir) => shown.get(dir) ?? !gone(dir));
   for (const [dir, open] of shown) if (open && !next.includes(dir)) next.push(dir);
   return next;
 };

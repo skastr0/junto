@@ -122,4 +122,15 @@ describe("expandedAfter (0.11, 04, V3)", () => {
     expect(expandedAfter(["src/lib"], [dir("src", true), dir("src/lib", true), { kind: "file", path: "src/a.ts" }])).toEqual(["src/lib", "src"]);
     expect(expandedAfter(["src"], [dir("src", true)])).toEqual(["src"]);
   });
+
+  it("a folder missing from a parent shown expanded and listed is gone, and dropped", () => {
+    // src is shown open and holds rows, and src/old is not among them: deleted on disk.
+    expect(expandedAfter(["src", "src/old"], [dir("src", true), { kind: "file", path: "src/a.ts" }])).toEqual(["src"]);
+    // A root-level folder missing from a listed root.
+    expect(expandedAfter(["gone"], [dir("src", false)])).toEqual([]);
+    // src is shown open with nothing under it yet: it may be unlisted, so src/old stays.
+    expect(expandedAfter(["src", "src/old"], [dir("src", true)])).toEqual(["src", "src/old"]);
+    // Nothing shown at all: the root is not listed yet, nothing is dropped.
+    expect(expandedAfter(["src"], [])).toEqual(["src"]);
+  });
 });

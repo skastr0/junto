@@ -22,11 +22,10 @@ export const setNodeViewStore = (next: NodeViewStore): void => {
  * return the store's own object (or a primitive), so an unchanged row is the
  * same snapshot.
  */
-export const useNodeView = <T>(read: (store: NodeViewStore) => T): T =>
-  useSyncExternalStore(
-    (listener) => store.onChange(listener),
-    () => read(store),
-  );
+export const useNodeView = <T>(read: (store: NodeViewStore) => T): T => useSyncExternalStore(subscribe, () => read(store));
+
+/** One subscribe for every reader, so a render never unsubscribes and subscribes again. */
+const subscribe = (listener: () => void): (() => void) => store.onChange(listener);
 
 const TASKS_OPEN: TasksNodeView = { state: "all", open: null };
 
