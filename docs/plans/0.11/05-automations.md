@@ -88,16 +88,45 @@ machine, beside seats on that machine that work around the clock.
 - **An action aimed at a machine that is offline waits**, is shown waiting
   in the firing log, and goes when the machine is back. Mail and prompts do
   this already (Rule 6); seat start and stop join them.
-- **Code steps run on the automation's machine**, under remote's conditions:
-  only the operator authors a code step, from the window or an owner
-  command; the program is a path on that machine, never bytes that crossed;
-  values reach it as structured input (stdin JSON), never in a shell string
-  or argv; secrets resolve on that machine only and stay out of logs; a
-  timeout, a size bound and the loop rule.
 - **Remote designs the mechanics** and owns the doctrine change: how a
   definition reaches its machine, which rows an automation may write and
   from where, and how a machine whose automations need task changes keeps
   working while the editing machine is asleep.
+
+## Code steps (operator, 2026-10-28)
+
+- **One step kind, `code`.** TypeScript first, with a small Junto SDK; a
+  very basic shell second. No Prism integration yet: its workflow steps are
+  agent runs, which is not what this is.
+- **The code lives in Junto's store**, as content the automation refers to,
+  not as a file on disk. It reaches the automation's machine as content does.
+- **It runs on the automation's machine**, wherever that is.
+- **Edited in the Automations node**: the operator browses and edits an
+  automation's code in its modal with the code editor Files already uses
+  (CodeMirror, F3).
+- **Authors: the operator, and seats with overseer.** Overseer seats create
+  automations and write their code from the CLI. Ordinary seats do not.
+- **Input and result.** The code gets the trigger and its values as
+  structured input (JSON on stdin and through the SDK), never pasted into a
+  command line. It answers continue with an output (whose fields become
+  values for the next steps), stop, or fail; with no SDK call, the exit
+  code decides. A timeout and an output size bound; the loop rule holds.
+- **Secrets** come from the region's environment on that machine, and never
+  reach a log.
+
+Remote's earlier conditions (i) "only the operator authors" and (ii) "a path
+on the machine, never bytes that crossed" are replaced by the two decisions
+above; remote designs how code authored elsewhere is trusted on the machine
+that runs it.
+
+| Track | Owner | Reviewer |
+|---|---|---|
+| K1 contract and runner: the `code` step, its content, input, result, values out, limits | automation-lead | tech-lead, product-feed |
+| K2 running code on a machine: TypeScript and shell processes, the SDK package, timeouts and bounds, secrets, logs scrubbed | tech-lead | automation-lead, remote-lead |
+| K3 the code editor in the Automations node | product-cron | product-automations, product-accessibility, product-typography |
+| K4 CLI: overseer seats create automations and write their code | cli-lead | cli-protocol |
+| K5 doctrine: code authored on one machine, run on another; overseer authorship | remote-lead | tech-lead |
+| Verify: a code step on the mini, triggered from the MacBook's canvas | product-verify | |
 
 Prism (`../prism`, read 2026-10-28): every workflow task is an agent run
 (`src/workflows.ts:592`); `prism workflow run` prints JSON and exits non-zero
