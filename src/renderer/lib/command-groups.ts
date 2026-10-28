@@ -28,8 +28,9 @@
  *
  * Lifetime
  * - Deleted nodes leave every slot; a group empties when its last member goes.
- * - Operator slots (fixed, group) are remembered per canvas for the session;
- *   leases are recomputed from activity after a switch.
+ * - Operator slots (fixed, group) are kept per canvas in view state, so a
+ *   quit or a crash brings them back; leases are recomputed from activity
+ *   after a canvas switch and are never written.
  *
  * Beyond nine
  * - A new group (no digit named) takes the first free slot, the way assign
@@ -38,7 +39,7 @@
  *   slot to take its digit (the slot's own operator group moves out to take
  *   the place it left).
  * - Groups beyond nine lose deleted members and go when none is left, and
- *   are kept per canvas for the session like the slots.
+ *   are kept per canvas in view state in the order they were made.
  */
 import {
   HOTBAR_SLOT_COUNT,
@@ -53,6 +54,15 @@ import {
   membersInDocumentOrder,
   regionDigitVerdict,
 } from "./region-retap";
+import {
+  liveSlotsOf,
+  sameExtras,
+  sameStoredSlots,
+  storedSlotsOf,
+  type ViewCommandSlot,
+  type ViewStateStore,
+} from "./view-state";
+import { makeMemoryViewStateStore } from "./view-state-stand-in";
 
 // --- selection ---------------------------------------------------------------
 
@@ -364,27 +374,84 @@ export const operatorHeldSlots = (slots: ReadonlyArray<HotbarSlot>): HotbarSlot[
   boardOf(slots).map((slot) => (isOperatorSlot(slot) ? slot : { kind: "empty" }));
 
 export type CanvasCommandGroups = {
+  /** Keep the canvas's operator slots, writing only the rows that changed. */
   readonly remember: (canvasName: string, slots: ReadonlyArray<HotbarSlot>) => void;
-  /** The canvas's remembered operator slots, or an empty board. */
+  /** The canvas's operator slots, or an empty board. */
   readonly recall: (canvasName: string) => HotbarSlot[];
+  /** Keep the groups past nine, as one ordered list; written when it changes. */
+  readonly rememberExtras: (canvasName: string, extras: ReadonlyArray<ExtraGroup>) => void;
+  /** The groups past nine the canvas holds, in the operator's order. */
+  readonly recallExtras: (canvasName: string) => ReadonlyArray<ExtraGroup>;
+  /**
+   * Hear a canvas's saved arrangement change, this window's write or another
+   * window's. The read after it is fresh; returns the unsubscribe.
+   */
+  readonly onChange: (listener: (canvasName: string) => void) => () => void;
 };
 
-/** Session memory of operator slots per canvas name. Never written to disk. */
-export const makeCanvasCommandGroups = (): CanvasCommandGroups => {
-  const byCanvas = new Map<string, HotbarSlot[]>();
+/**
+ * The operator's arrangement per canvas, kept in view state (`view-state.ts`)
+ * so a quit does not lose it. A canvas switch recalls it; a change writes only
+ * the rows that changed, so a recomputed lease costs no write.
+ *
+ * The store is a parameter so a test can hold two windows over one store, and
+ * so the day main's tables land only the default changes.
+ */
+export const makeCanvasCommandGroups = (
+  store: ViewStateStore = makeMemoryViewStateStore(),
+): CanvasCommandGroups => {
+  /** What this window last saw, so an echo of its own write is not written back. */
+  const seen = new Map<string, { slots: ReadonlyArray<ViewCommandSlot>; extras: ReadonlyArray<ExtraGroup> }>();
+
+  const heldOf = (canvasName: string) => {
+    const known = seen.get(canvasName);
+    if (known) return known;
+    const saved = store.read(canvasName);
+    const next = {
+      slots: saved ? [...saved.slots] : storedSlotsOf([]),
+      extras: saved ? [...saved.extras] : ([] as ReadonlyArray<ExtraGroup>),
+    };
+    seen.set(canvasName, next);
+    return next;
+  };
+
   return {
     remember: (canvasName, slots) => {
       if (!canvasName) return;
-      byCanvas.set(canvasName, operatorHeldSlots(slots));
+      const next = storedSlotsOf(operatorHeldSlots(slots));
+      const known = heldOf(canvasName);
+      next.forEach((slot, index) => {
+        const held = known.slots[index];
+        if (held && !sameStoredSlots([slot], [held])) store.writeSlot(canvasName, index, slot);
+      });
+      seen.set(canvasName, { slots: next, extras: known.extras });
     },
     recall: (canvasName) => {
-      const remembered = canvasName ? byCanvas.get(canvasName) : undefined;
-      return remembered ? boardOf(remembered) : emptyHotbarSlots();
+      if (!canvasName) return emptyHotbarSlots();
+      return liveSlotsOf(heldOf(canvasName).slots);
     },
+    rememberExtras: (canvasName, extras) => {
+      if (!canvasName) return;
+      const known = heldOf(canvasName);
+      if (sameExtras(known.extras, extras)) return;
+      const next = extras.map((group) => [...group]);
+      store.writeExtras(canvasName, next);
+      seen.set(canvasName, { slots: known.slots, extras: next });
+    },
+    recallExtras: (canvasName) => {
+      if (!canvasName) return [];
+      return heldOf(canvasName).extras.map((group) => [...group]);
+    },
+    onChange: (listener) =>
+      store.onChange((canvasName) => {
+        // A push is the truth from here on, so the next read goes to the store.
+        seen.delete(canvasName);
+        listener(canvasName);
+      }),
   };
 };
 
-/** The app's one session memory (App restores it on canvas switch). */
+/** The app's one view-state memory (App restores it on canvas switch). */
 export const canvasCommandGroups = makeCanvasCommandGroups();
 
 // --- internals ---------------------------------------------------------------

@@ -106,6 +106,7 @@ const setExtraGroups = (groups: ReadonlyArray<ExtraGroup>): void => {
   const canvasName = state$.canvasName.peek();
   if (!canvasName) return;
   state$.extraCommandGroups.set({ ...state$.extraCommandGroups.peek(), [canvasName]: [...groups] });
+  canvasCommandGroups.rememberExtras(canvasName, groups);
 };
 
 /** The open canvas's groups past slot 9, live. */
@@ -205,6 +206,25 @@ export const useCommandGroupUpkeep = (): void => {
     () =>
       state$.hotbarSlots.onChange(({ value }) => {
         canvasCommandGroups.remember(state$.canvasName.peek(), value);
+      }),
+    [],
+  );
+  // A saved arrangement that changed under this window: another window's
+  // write, or this one's echoed back. Applied only when it says something
+  // different, so an echo costs no write of its own and the loop ends.
+  useEffect(
+    () =>
+      canvasCommandGroups.onChange((canvasName) => {
+        if (canvasName !== state$.canvasName.peek()) return;
+        const slots = canvasCommandGroups.recall(canvasName);
+        const extras = canvasCommandGroups.recallExtras(canvasName);
+        const held = state$.extraCommandGroups.peek()[canvasName] ?? [];
+        if (saysTheSame(state$.hotbarSlots.peek(), slots) && saysTheSame(held, extras)) return;
+        batch(() => {
+          state$.hotbarSlots.set(slots);
+          state$.extraCommandGroups.set({ ...state$.extraCommandGroups.peek(), [canvasName]: [...extras] });
+        });
+        recomputeHotbar();
       }),
     [],
   );

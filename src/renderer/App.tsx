@@ -98,6 +98,7 @@ const refreshList = async () => {
 };
 
 const resetCanvasView = (): void => {
+  const canvasName = state$.canvasName.peek();
   batch(() => {
     closeOperatorModal();
     state$.digestOpen.set(false);
@@ -106,9 +107,14 @@ const resetCanvasView = (): void => {
     clearSelection();
     state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");
-    // Operator slots (fixed nodes, command groups) come back for the canvas
-    // being opened; leases recompute from activity once its doc loads.
-    state$.hotbarSlots.set(canvasCommandGroups.recall(state$.canvasName.peek()));
+    // Operator slots (fixed nodes, command groups) and the groups past nine
+    // come back for the canvas being opened, from view state; leases recompute
+    // from activity once its doc loads.
+    state$.hotbarSlots.set(canvasCommandGroups.recall(canvasName));
+    state$.extraCommandGroups.set({
+      ...state$.extraCommandGroups.peek(),
+      [canvasName]: [...canvasCommandGroups.recallExtras(canvasName)],
+    });
     state$.hotbarActiveMru.set([]);
     state$.seatVisitOrder.set([]);
     state$.regionSlotOrder.set([]);

@@ -34,6 +34,8 @@ import {
   type RecallContext,
 } from "../src/renderer/lib/command-groups";
 import { REGION_RETAP_GAP_MS } from "../src/renderer/lib/region-retap";
+import { makeMemoryViewStateStore } from "../src/renderer/lib/view-state-stand-in";
+import type { ViewCommandSlot, ViewStateStore } from "../src/renderer/lib/view-state";
 
 const board = (entries: ReadonlyArray<readonly [number, HotbarSlot]>): HotbarSlot[] => {
   const slots = emptyHotbarSlots();
@@ -391,6 +393,94 @@ describe("per-canvas memory", () => {
     memory.remember("alpha", board([[0, fixed("a")]]));
     memory.recall("alpha")[0] = fixed("mutated");
     expect(memory.recall("alpha")[0]).toEqual(fixed("a"));
+  });
+});
+
+describe("kept in view state", () => {
+  /** A store that counts what a window writes, over the same memory main will answer with. */
+  const countingStore = (inner: ViewStateStore = makeMemoryViewStateStore()) => {
+    const slotWrites: Array<{ canvas: string; index: number; slot: ViewCommandSlot }> = [];
+    const extraWrites: Array<ReadonlyArray<ReadonlyArray<string>>> = [];
+    const store: ViewStateStore = {
+      ...inner,
+      writeSlot: (canvas, index, slot) => {
+        slotWrites.push({ canvas, index, slot });
+        inner.writeSlot(canvas, index, slot);
+      },
+      writeExtras: (canvas, extras) => {
+        extraWrites.push(extras);
+        inner.writeExtras(canvas, extras);
+      },
+    };
+    return { store, slotWrites, extraWrites };
+  };
+
+  it("brings a canvas's groups back to a window that never saw them", () => {
+    // The proof the operator asked for, short of the quit: one window writes,
+    // a window opened after it reads the same store.
+    const store = makeMemoryViewStateStore();
+    const first = makeCanvasCommandGroups(store);
+    first.remember("alpha", board([[0, fixed("a")], [1, group("a", "b")], [2, leased("c")]]));
+    first.rememberExtras("alpha", [["d", "e"], ["f"]]);
+
+    const opened = makeCanvasCommandGroups(store);
+    expect(opened.recall("alpha")).toEqual(board([[0, fixed("a")], [1, group("a", "b")]]));
+    expect(opened.recallExtras("alpha")).toEqual([["d", "e"], ["f"]]);
+    expect(opened.recall("beta")).toEqual(emptyHotbarSlots());
+    expect(opened.recallExtras("beta")).toEqual([]);
+  });
+
+  it("writes only the rows that changed, so a recomputed lease costs nothing", () => {
+    const counted = countingStore();
+    const memory = makeCanvasCommandGroups(counted.store);
+    memory.remember("alpha", board([[0, fixed("a")]]));
+    expect(counted.slotWrites.map((write) => write.index)).toEqual([0]);
+    counted.slotWrites.length = 0;
+    // A lease appears beside it: nothing the operator holds moved.
+    memory.remember("alpha", board([[0, fixed("a")], [3, leased("z")]]));
+    expect(counted.slotWrites).toEqual([]);
+    // The group takes digit 1 too: the row that changed is the one written.
+    memory.remember("alpha", board([[0, group("a", "b")], [1, fixed("c")]]));
+    expect(counted.slotWrites.map((write) => write.index)).toEqual([0, 1]);
+    expect(counted.slotWrites[0]!.slot).toEqual({ kind: "group", nodeIds: ["a", "b"] });
+    expect(counted.slotWrites[1]!.slot).toEqual({ kind: "fixed", nodeId: "c" });
+  });
+
+  it("never writes a lease, a soft-hold, or a blank canvas", () => {
+    const counted = countingStore();
+    const memory = makeCanvasCommandGroups(counted.store);
+    memory.remember("alpha", board([[0, leased("a")], [1, evicted("b")]]));
+    memory.remember("", board([[0, fixed("a")]]));
+    memory.rememberExtras("", [["a"]]);
+    expect(counted.slotWrites).toEqual([]);
+    expect(counted.extraWrites).toEqual([]);
+  });
+
+  it("writes the groups past nine as one ordered list, and only when it changes", () => {
+    const counted = countingStore();
+    const memory = makeCanvasCommandGroups(counted.store);
+    memory.rememberExtras("alpha", [["a", "b"], ["c"]]);
+    memory.rememberExtras("alpha", [["a", "b"], ["c"]]);
+    expect(counted.extraWrites).toHaveLength(1);
+    memory.rememberExtras("alpha", [["c"], ["a", "b"]]);
+    expect(counted.extraWrites).toHaveLength(2);
+    expect(counted.extraWrites[1]).toEqual([["c"], ["a", "b"]]);
+    expect(memory.recallExtras("alpha")).toEqual([["c"], ["a", "b"]]);
+  });
+
+  it("hands a push from the store to this window, and drops its own echo", () => {
+    const store = makeMemoryViewStateStore();
+    const memory = makeCanvasCommandGroups(store);
+    const heard: string[] = [];
+    const stop = memory.onChange((canvas) => heard.push(canvas));
+    // Another window saves a group on this same canvas.
+    const other = makeCanvasCommandGroups(store);
+    other.remember("alpha", board([[4, group("a", "b")]]));
+    expect(heard).toEqual(["alpha"]);
+    expect(memory.recall("alpha")).toEqual(board([[4, group("a", "b")]]));
+    stop();
+    other.remember("alpha", board([[5, fixed("c")]]));
+    expect(heard).toEqual(["alpha"]);
   });
 });
 
