@@ -11,7 +11,9 @@ import { detectMachineKeychain } from "./junto/hosts/machine-keychain";
 import { machineHarnessSignIn } from "@shared/machine-harness-status";
 import { makeMachineCopy, type MachineCopyOptions } from "./junto/hosts/machine-copy";
 import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/machine-owner";
-import { makeCodeAllowanceOwner } from "./junto/automation/code-allowance-owner";
+import { join } from "node:path";
+import { makeMachineLinkSetup } from "./junto/hosts/machine-link";
+import { machinePackageCliDir } from "./junto/term/templates/seat-env";
 import { makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
 import { machineLinkLayer } from "./junto/link/live";
@@ -390,7 +392,7 @@ const machineBoatKeeperLayer = (ready: () => boolean) => Layer.effect(MachineBoa
 
 /** Both entries add these services to their one owning runtime. */
 export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
-  const links = machineLinkLayer(options.build);
+  const links = machineLinkLayer(options.build, options.home);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
   const pulls = Layer.provideMerge(
@@ -421,9 +423,12 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy>();
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
-    const code = yield* makeCodeAllowanceOwner;
+    const linkSetup = yield* makeMachineLinkSetup({ home: options.home, juntoPath: () => {
+      const bin = machinePackageCliDir();
+      return bin === undefined ? undefined : join(bin, "junto");
+    } });
     const actions = yield* makeMachineOwnerActions({
-      code,
+      linkSetup,
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
       ownLogs: (query) => Effect.flatMap(machines.machineName, (name) => readMachineLog(options.home, name, query)),

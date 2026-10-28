@@ -54,7 +54,7 @@ it("checks the binding before reporting a build mismatch and never opens a chann
   const peer = hello("mini", "b".repeat(64));
   f.send({ type: "hello", ...peer });
   await expect(f.session.ready).rejects.toBeInstanceOf(LinkBuildMismatch);
-  expect(admit).toHaveBeenCalledWith(peer);
+  expect(admit).toHaveBeenCalledWith(peer, undefined);
   expect(opened).not.toHaveBeenCalled();
   const refused = raw({ admit: async () => { throw new LinkPeerNotPinned({ machine: "mini", message: "installation pin changed" }); } });
   refused.send({ type: "hello", ...peer });

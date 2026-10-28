@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
 import { Effect, Schema } from "effect";
 import { failureSentence, OperationId, type EncodedCause, type EncodedFailure } from "@shared/failure";
+import type { InstallationId } from "@shared/installation-id";
 import { decodeEncodedFailure, describeCause, encodeError } from "../failure-encode";
 import { decodeLinkFrame, LINK_EVENT_WINDOW, LinkHelloSchema, type LinkFrame } from "./protocol";
 import { linkLog, type LinkLogLevel } from "./log";
@@ -36,7 +37,13 @@ export interface LinkSessionOptions {
   readonly readable: Readable;
   readonly writable: Writable;
   readonly self: LinkHello;
-  readonly admit: (hello: LinkHello) => Promise<void>;
+  /** `opener` is the installation this connection's SSH key is bound to, when the relay said one. */
+  readonly admit: (hello: LinkHello, opener?: InstallationId) => Promise<void>;
+  /**
+   * An accepted connection: its first frame may be the relay's opener line.
+   * A connection this end dialed never takes one.
+   */
+  readonly acceptsOpener?: true;
   /**
    * Told once, synchronously, as the hello is admitted and before any channel
    * opens. A throw closes this link with that cause and opens no channel.
@@ -132,6 +139,9 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const releaseReader = (): void => { const resume = eventsDrained; eventsDrained = undefined; resume?.(); };
   let peer: LinkHello | undefined;
   let helloSeen: LinkHello | undefined;
+  /** The opener the relay bound this connection to, from its first frame. */
+  let opener: InstallationId | undefined;
+  let framesRead = 0;
   let stopped: LinkClosed | undefined;
   let queuedBytes = 0;
   let writeTail = Promise.resolve();
@@ -275,7 +285,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (stopped !== undefined) throw stopped;
     const admitted = await ready.catch(() => { throw stopped ?? thisEnd("failed"); });
     if (stopped !== undefined) throw stopped;
-    await options.admit(admitted);
+    await options.admit(admitted, opener);
     if (stopped !== undefined) throw stopped;
     return admitted;
   };
@@ -399,6 +409,12 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   /** `bytes` is the frame's size as read; held events are bounded by it too. */
   const receive = async (frame: LinkFrame, bytes = 0): Promise<void> => {
     if (stopped !== undefined) return;
+    const first = framesRead++ === 0;
+    if (frame.type === "opener") {
+      if (!first || options.acceptsOpener !== true) throw new LinkHelloRefused({ check: "opener", message: "An opener line comes only first, from this machine's own relay" });
+      opener = frame.installationId;
+      return;
+    }
     if (frame.type === "close") {
       const failure = decodeEncodedFailure(frame.failure);
       finish(linkClosed({ ...(peerName() === undefined ? {} : { machine: peerName()! }), by: "peer", reason: "peer-closed", causes: [{ tag: failure.tag, message: failure.message }, ...failure.causes] }), false);
@@ -409,7 +425,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       const { type: _type, ...hello } = frame;
       helloSeen = Object.freeze(hello);
       if (hello.installationId === self.installationId) throw new LinkHelloRefused({ machine: hello.machineName, check: "self-link", message: "A Junto installation cannot link to itself" });
-      await options.admit(helloSeen);
+      if (opener !== undefined && hello.installationId !== opener) throw new LinkHelloRefused({ machine: hello.machineName, check: "opener-key", message: `${hello.machineName} dialed with a link key bound to another machine` });
+      await options.admit(helloSeen, opener);
       if (hello.build !== self.build) throw LinkBuildMismatch.of(hello, self.build);
       if (stopped !== undefined) return;
       options.admitted?.(helloSeen);
