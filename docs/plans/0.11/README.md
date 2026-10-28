@@ -193,7 +193,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | label colours C1 to C4 | product-shell, product-sheet, product-typography, cli-lead | started; see 03-artifact-labels.md Colours |
 | view state survives a restart V1 to V3 | product-feed, product-modals, product-shell | started; see 04-view-state.md; V2 renderer half a814caf86 + af56e79f0 + 2cbe76098 on a stand-in, approved by product-shell, product-keyboard reading, the quit proof waits on V1 |
 | automations that know what fired them A1 to A4 | product-automations, automation-lead, product-cron, cli-lead | started; see 05-automations.md; code steps open with the operator |
-| fleet state: every machine changes state on its own | remote-lead, tech-lead, canvas-lead | design commissioned; see 06-fleet-state.md |
+| fleet state: one authority, with fallbacks | remote-lead, tech-lead, canvas-lead | direction approved by the operator; design in progress, see 06-fleet-state.md |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
 
 ## Carried to 0.12

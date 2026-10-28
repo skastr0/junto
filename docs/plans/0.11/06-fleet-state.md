@@ -1,55 +1,72 @@
-# Fleet state: every machine changes state on its own
+# Fleet state: one authority, with fallbacks
 
-Owner: product-lead. Decided by the operator 2026-10-28. Design: remote-lead
-with tech-lead and canvas-lead.
+Owner: product-lead. Approved by the operator 2026-10-28, end to end.
+Design: remote-lead with tech-lead and canvas-lead.
 
 ## Target
 
 A machine with seats, automations, task boards and Artifacts nodes does a
-full night's work while every other machine, the operator's MacBook
-included, is off. Each machine makes every state change it needs on its
-own; when machines meet again their changes reconcile, and every machine
-ends with the same state. Seamless, fleet-wide operation.
+full night's work while the operator's MacBook is off. There is always one
+authority for a canvas, and when the preferred one is away another machine
+takes its place, so work never waits on a closed lid.
 
 ## Decisions (operator, 2026-10-28)
 
-- **No state change waits for another machine.** Task state, assignment,
-  artifacts and their labels, automations and their firings, mail: a seat
-  or automation on any machine changes them while the editing machine
-  sleeps.
-- **Changes reconcile later, deterministically.** Event sourcing or CRDTs,
-  whichever fits: the operator does not mind which. The result is the same
-  on every machine regardless of the order changes arrive, and no change is
-  silently lost.
-- **This replaces "one canvas, one editing machine" as the authority for
-  state** (`docs/machines.md` Rule 2 and Rule 4, `0.10/07` Runner) and
-  supersedes S6 in `05-automations.md` (a board ruled by one named
-  machine).
+These replace the first direction of this plan (every machine changes state
+on its own and reconciles later), which the operator withdrew.
+
+- **One authority at a time.** Exactly one machine rules a canvas: two seats
+  on two machines working one task always see one answer.
+- **An ordered list of authorities.** The operator names them per canvas,
+  for example MacBook, then Mac mini, then a VPS. The first one that can be
+  reached is the authority. Junto never adds a machine to the list.
+- **Fallbacks keep the canvas whole.** Every machine on the list holds the
+  full canvas and stays current over its links (the tailnet), so any of them
+  can take over at once.
+- **Never two authorities.** If no machine on the list can be reached, work
+  that needs ruling stops and says why. It does not split and reconcile
+  later: stopping is preferred to divergence, simpler and less bug prone.
+- **Machines only where there is a runtime.** A machine is chosen for
+  seats, automations, terminals, Files and other things that run somewhere.
+  A task board or an Artifacts node is data and is never bound to a machine.
+  S6 in `05-automations.md` (a board ruled by its own machine) is dropped.
+
+## How it behaves
+
+1. **The authority leaves cleanly** (lid closed, quit, update): it hands
+   authority to the next machine on the list before it goes, its queue
+   drained, and the new authority rules what was queued for it
+   (`ruler.sweep`).
+2. **It comes back**: it catches up on what was ruled while it was away,
+   then takes authority back. One ruler at a time, so nothing reconciles.
+3. **It disappears without a word** (crash, battery, network): the next
+   machine takes over only when it can show the old one is not still
+   ruling. If it cannot, work waits rather than risk two authorities.
 
 ## What the design must answer
 
-1. **The model.** Facts with a deterministic merge per kind of state, CRDTs,
-   or a mix; how a fact is identified, ordered (clocks) and replayed; what
-   the existing `work_facts` journal and rulings become.
-2. **Authority without a single ruler.** Reach and overseer checks today are
-   ruled by the editor against its copy (`src/shared/region-reach.ts`). Who
-   checks a write when its machine is alone, and what happens to a change
-   that another machine, once it hears it, would have refused.
-3. **Each kind's conflicts.** Two machines move one task to different
-   states; one assigns while another finishes; two edit one artifact body
-   (versioned today by `baseVersion`); labels and colours (sets); an
-   automation edited on two machines; deletes against edits.
-4. **Canvas structure.** Nodes, wires, regions, placements: in or out of the
-   first version, and why.
-5. **What the operator sees** when a reconcile changed something they saw
-   before: never a silent rewrite.
-6. **Migration and slices.** How today's single-editor data becomes the new
-   model, the order of slices, size and risk, and which of S1 to S5 stand,
-   change or stop.
-7. **The doctrine edits** in `machines.md`, `state-architecture.md`,
-   `security-doctrine.md` and `0.10/07`.
+1. How authority is held and passed (terms or leases), and how a machine
+   shows the one before it is not ruling, with two machines and with three
+   or more, when one only goes quiet.
+2. What a machine that reaches no authority does: which writes wait, which
+   are refused, what seats and the operator see.
+3. What a fallback must hold to rule (the whole canvas, the journal, reach,
+   automation definitions; secrets stay per machine), and how it stays
+   current.
+4. Canvas structure: whether it moves with authority or waits for the
+   preferred machine. canvas-lead's section below was written for the
+   withdrawn direction; its journal and stated-count ideas are input, the
+   design reconciles it with one authority at a time.
+5. The operator's window on a machine that is not the authority: edits go
+   to the authority over the link, synchronously, and the window is
+   read-only when none can be reached.
+6. How this fits S1 to S5 in `05-automations.md`: automations still run on
+   their own machine; their writes go to whichever machine is the authority.
+7. Slices, size and risk, and the doctrine edits in `machines.md` (Rules 2,
+   4, 5, 7), `state-architecture.md`, `security-doctrine.md` and `0.10/07`.
 
-The design comes to product-lead and the operator before any slice lands.
+The design comes to product-lead before slices land; the direction is
+already approved.
 
 ## 4. Canvas structure (canvas-lead, draft for remote-lead)
 

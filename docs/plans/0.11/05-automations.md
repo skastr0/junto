@@ -102,7 +102,7 @@ remote-lead's design (mail 01M6286J00YZGMR9N766ACN5DQ), in this order:
 | S2 writes from its machine | mail, prompts and `command.queued` with actor automation, valid from the automation's machine | remote | remote-security |
 | S3 firing log | `automation.firing` rows to the editor: cause, skips, each action applied, refused or held | remote | automation-lead |
 | S4 held seat control | `seat.control` start and stop, held as mail is | remote | remote-security |
-| S6 | superseded: every machine changes state on its own, `06-fleet-state.md` | | |
+| S6 | dropped: a board is data, never bound to a machine; one authority with fallbacks instead, `06-fleet-state.md` | | |
 
 First-version limits: seat-state and signal triggers watch only seats on the
 automation's own machine; a comment action off the editor is `not_available`
