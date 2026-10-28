@@ -39,10 +39,11 @@ export class MachineRepository extends Context.Service<MachineRepository, {
 const InstallationRow = Schema.Struct({ installation_id: InstallationId, created_at: Timestamp });
 const PeerRow = Schema.Struct({
   machine_name: MachineName, installation_id: InstallationId,
-  bound_at: Timestamp, retired_at: Schema.NullOr(Timestamp),
+  bound_at: Timestamp, retired_at: Schema.NullOr(Timestamp), binding: Schema.NullOr(Schema.Literal("key")),
 });
 const peerFromRow = (row: typeof PeerRow.Type): MachinePeer => ({
   machineName: row.machine_name, installationId: row.installation_id, boundAt: row.bound_at,
+  ...(row.binding === null ? {} : { binding: row.binding }),
 });
 const failure = (operation: string) => (cause: unknown): MachinePersistenceError =>
   cause instanceof MachinePersistenceError ? cause : MachinePersistenceError.make({
@@ -82,15 +83,16 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
     return stored;
   })).pipe(Effect.mapError(failure("configuration")));
   const findPeer = SqlSchema.findOneOption({ Request: Schema.String, Result: PeerRow,
-    execute: (name) => sql`SELECT machine_name, installation_id, bound_at, retired_at FROM machine_peers WHERE machine_name = ${name}` });
+    execute: (name) => sql`SELECT machine_name, installation_id, bound_at, retired_at, binding FROM machine_peers WHERE machine_name = ${name}` });
   const peer = Effect.fn("MachineRepository.peer")((name: string) =>
     withSqlRead(sql, findPeer(name)).pipe(Effect.map((row) =>
       Option.isSome(row) && row.value.retired_at === null ? peerFromRow(row.value) : undefined), Effect.mapError(failure("peer"))));
   const peers = withSqlRead(sql, SqlSchema.findAll({ Request: Schema.Void, Result: PeerRow,
-    execute: () => sql`SELECT machine_name, installation_id, bound_at, retired_at FROM machine_peers WHERE retired_at IS NULL ORDER BY machine_name`,
+    execute: () => sql`SELECT machine_name, installation_id, bound_at, retired_at, binding FROM machine_peers WHERE retired_at IS NULL ORDER BY machine_name`,
   })(undefined)).pipe(Effect.map((rows) => rows.map(peerFromRow)), Effect.mapError(failure("peers")));
-  const pinPeer = Effect.fn("MachineRepository.pinPeer")(function* (input: MachinePeerIdentity) {
+  const pinPeer = Effect.fn("MachineRepository.pinPeer")(function* (input: MachinePeerIdentity, pinOptions?: { readonly binding?: "key" }) {
     const identity = yield* Schema.decodeUnknownEffect(PeerIdentity)(input, { onExcessProperty: "error" });
+    const binding = pinOptions?.binding === "key" ? "key" as const : undefined;
     return yield* sql.withTransaction(Effect.gen(function* () {
       const own = yield* configurations.read;
       if (identity.installationId === installationId || identity.machineName === own?.configuration.name)
@@ -100,20 +102,23 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
         if (existing.value.installation_id !== identity.installationId)
           return yield* new MachineRefused({ check: "name-pinned-elsewhere", machine: identity.machineName,
             message: `machine ${JSON.stringify(identity.machineName)} is pinned to another installation; choose another name` });
-        if (existing.value.retired_at !== null)
-          yield* sql`UPDATE machine_peers SET retired_at = NULL WHERE machine_name = ${identity.machineName}`;
-        return peerFromRow(existing.value);
+        // A retired peer came back with no binding; a key binding, once set, is never dropped by a pin.
+        const kept = existing.value.retired_at === null ? existing.value.binding : null;
+        const next = binding ?? kept;
+        if (existing.value.retired_at !== null || next !== existing.value.binding)
+          yield* sql`UPDATE machine_peers SET retired_at = NULL, binding = ${next} WHERE machine_name = ${identity.machineName}`;
+        return peerFromRow({ ...existing.value, retired_at: null, binding: next });
       }
       const sameInstallation = yield* sql`SELECT machine_name FROM machine_peers WHERE installation_id = ${identity.installationId}`;
       if (sameInstallation.length) return yield* new MachineRefused({ check: "installation-pinned-elsewhere", machine: identity.machineName, message: "the peer installation is pinned to another machine name" });
       const at = yield* Schema.decodeUnknownEffect(Timestamp)(now());
       yield* installations.register(identity.installationId, at);
-      yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at) VALUES (${identity.machineName}, ${identity.installationId}, ${at})`;
-      return { ...identity, boundAt: at };
+      yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at, binding) VALUES (${identity.machineName}, ${identity.installationId}, ${at}, ${binding ?? null})`;
+      return { ...identity, boundAt: at, ...(binding === undefined ? {} : { binding }) };
     })).pipe(Effect.provideService(StateTransactionOperation, "machine.pin-peer"));
   }, Effect.mapError(failure("pin-peer")));
   const retirePeer = Effect.fn("MachineRepository.retirePeer")((name: string) =>
-    sql.withTransaction(sql`UPDATE machine_peers SET retired_at = ${now()} WHERE machine_name = ${name} AND retired_at IS NULL`).pipe(
+    sql.withTransaction(sql`UPDATE machine_peers SET retired_at = ${now()}, binding = NULL WHERE machine_name = ${name} AND retired_at IS NULL`).pipe(
       Effect.asVoid, Effect.provideService(StateTransactionOperation, "machine.retire-peer"), Effect.mapError(failure("retire-peer")),
     ));
   const configureName = Effect.fn("MachineRepository.configureName")(function* (input: string) {

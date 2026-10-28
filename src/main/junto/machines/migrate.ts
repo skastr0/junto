@@ -5,7 +5,7 @@ import { MachineRefused } from "./configuration";
 import {
   MACHINE_CONFIGURATION_STATE_SCHEMA_SQL,
   MACHINE_IDENTITY_STATE_SCHEMA_SQL,
-  MACHINE_PEERS_STATE_SCHEMA_SQL,
+  MACHINE_PEERS_V21_STATE_SCHEMA_SQL,
 } from "./state-schema";
 
 const admitName = (name: string): void => {
@@ -48,6 +48,6 @@ export const migrateMachineConfiguration = (
 export const migrateMachinePeers = (
   database: StateSchemaMigrationDatabase,
 ): void => {
-  database.exec(MACHINE_PEERS_STATE_SCHEMA_SQL);
+  database.exec(MACHINE_PEERS_V21_STATE_SCHEMA_SQL);
   database.exec("DROP TABLE station_fleet_targets");
 };

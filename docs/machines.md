@@ -156,8 +156,10 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    canvas or opened the link never enters that check.
 7. **Links are symmetric.** A link is one SSH session to the other machine's
    Junto. Either end may open one and it behaves the same once open. No code
-   knows a "this side" and a "that side". In the first version only the
-   editing machine opens links.
+   knows a "this side" and a "that side". Any machine opens links to the
+   machines it has an SSH route to, and keeps them up, whether or not the
+   editing machine is running. Two links opened at once between the same two
+   machines settle to one: the one the lower installation id dialed.
 8. **Same build everywhere.** Checked when a link opens. On a mismatch the link
    refuses and names the machine to update. No negotiation, no versioned wire
    formats.
@@ -295,9 +297,27 @@ The one interface three seats build against.
   channel until a hello matches that pin exactly. A hello never enrolls itself
   or picks an existing peer, and a changed id or name is refused. That id is
   an assertion by an account allowed to log in, not proof of an installation.
-  The first version adds no keys of its own, and the link runs with SSH agent,
-  X11 and port forwarding off. Before a second machine may open links, this is
-  revisited: a link-only key bound to its opener is the candidate.
+  The link runs with SSH agent, X11 and port forwarding off.
+- A link key. A machine other than the editing machine opens links by its own
+  key, never by the operator's access. `junto machine link <from> <to>`, run
+  on the editing machine, sets one up. It resolves each route once with
+  `ssh -G` and refuses a ProxyJump, a ProxyCommand or a HostKeyAlias. It
+  copies the host key this account already verified into the link's own
+  known hosts, and every setup session runs strict against that key alone.
+  `from` makes an ed25519 key for `to` under `~/.junto/core/link-keys/<to>/`.
+  `to` pins `from` with `binding = key` and writes one line,
+  `command="... junto link --opener <id>",restrict`, built from typed fields
+  only. The editing machine is keyed the same way to both ends. A bound link
+  dials with `-F none`, no agent, that key alone and that known hosts file,
+  with strict host key checking, so a changed host key refuses the dial and
+  names the machine. The relay names the key's opener in a first frame, and
+  the core admits only a hello from that installation. A peer pinned with
+  `binding = key` is refused over any other route. The binding is set only by
+  that setup and cleared only by retiring the peer. Removing a machine takes
+  its line off every machine the editing machine reaches; one it cannot reach
+  is listed as still holding the key. A key-bound peer whose line is gone
+  shows `line-missing` in the machine list. Nothing logs in to the editing
+  machine: it dials out.
 - Owners: `remote-send` the SSH side, the relay command and the link session
   (hello, frames, the channel registry with a closed decoder per channel);
   `remote-core` the windowless root (`src/main/headless.ts`), the owner

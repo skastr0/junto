@@ -14,6 +14,7 @@ import {
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
+import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -732,7 +733,17 @@ export const STATE_SCHEMA_V57_IDENTITY = {
     "909b6306076435d2b559725d165a4364739fdf1e84119c00b75e6c1b57134713",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 57;
+/**
+ * Version 58 records which peers link only through their link key (0.11, 05
+ * S5): `machine_peers.binding`, `key` or NULL. Every peer from before the
+ * step keeps NULL, the account's own SSH access, as before. Expand only.
+ */
+export const STATE_SCHEMA_V58_IDENTITY = {
+  actualSchemaSha256:
+    "2112a82b9345488b3832559461c62b04139e4dabc936a3b0c81c3a7c0c397985",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 58;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -740,7 +751,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 57;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V57_IDENTITY;
+  STATE_SCHEMA_V58_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1187,6 +1198,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V56_IDENTITY,
     migrate: (database) => database.exec(MACHINE_CODE_ALLOWANCES_SQL),
+  },
+  {
+    fromVersion: 57,
+    toVersion: 58,
+    name: "bind a peer to its link key",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V57_IDENTITY,
+    migrate: (database) => database.exec(`ALTER TABLE machine_peers ADD COLUMN ${MACHINE_PEER_BINDING_COLUMN_SQL}`),
   },
 ];
 

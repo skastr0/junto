@@ -336,3 +336,9 @@ export const STATE_SCHEMA_V57_SQL = stepped(
   STATE_SCHEMA_V56_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 57)!.migrate,
 );
+
+/** Step 58 adds `machine_peers.binding`. */
+export const STATE_SCHEMA_V58_SQL = stepped(
+  STATE_SCHEMA_V57_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 58)!.migrate,
+);

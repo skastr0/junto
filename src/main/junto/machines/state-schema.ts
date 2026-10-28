@@ -45,7 +45,15 @@ export const MACHINE_CONFIGURATION_STATE_SCHEMA_SQL = `
   ) STRICT;
 `;
 
-export const MACHINE_PEERS_STATE_SCHEMA_SQL = `
+/**
+ * `key`: the peer links to this machine only through the link key bound to it
+ * (docs/machines.md, The link). Set by `junto machine link`, cleared only by
+ * retiring the peer; NULL is the account's own SSH access, as before. Added
+ * by step 58.
+ */
+export const MACHINE_PEER_BINDING_COLUMN_SQL = "binding TEXT CHECK (binding IS NULL OR binding = 'key')";
+
+const machinePeersTable = (binding: string) => `
   CREATE TABLE IF NOT EXISTS machine_peers (
     machine_name TEXT PRIMARY KEY CHECK (
       machine_name <> 'local'
@@ -55,11 +63,13 @@ export const MACHINE_PEERS_STATE_SCHEMA_SQL = `
     ),
     installation_id TEXT NOT NULL UNIQUE,
     bound_at TEXT NOT NULL CHECK (length(bound_at) BETWEEN 1 AND 64),
-    retired_at TEXT CHECK (retired_at IS NULL OR length(retired_at) BETWEEN 1 AND 64),
+    retired_at TEXT CHECK (retired_at IS NULL OR length(retired_at) BETWEEN 1 AND 64),${binding}
     FOREIGN KEY (installation_id) REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT ON UPDATE RESTRICT
   ) STRICT, WITHOUT ROWID;
+`;
 
+const MACHINE_PEER_IDENTITY_TRIGGER_SQL = `
   CREATE TRIGGER IF NOT EXISTS machine_peer_identity_immutable
   BEFORE UPDATE OF machine_name, installation_id ON machine_peers
   WHEN OLD.machine_name <> NEW.machine_name OR OLD.installation_id <> NEW.installation_id
@@ -67,6 +77,11 @@ export const MACHINE_PEERS_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'machine peer identity is immutable');
   END;
 `;
+
+/** The table as step 21 made it; frozen, so that step never moves. */
+export const MACHINE_PEERS_V21_STATE_SCHEMA_SQL = machinePeersTable("") + MACHINE_PEER_IDENTITY_TRIGGER_SQL;
+
+export const MACHINE_PEERS_STATE_SCHEMA_SQL = machinePeersTable(`\n    ${MACHINE_PEER_BINDING_COLUMN_SQL},`) + MACHINE_PEER_IDENTITY_TRIGGER_SQL;
 
 export const MACHINE_STATE_SCHEMA_SQL =
   MACHINE_IDENTITY_STATE_SCHEMA_SQL +
