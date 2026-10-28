@@ -371,7 +371,7 @@ function WatchFields({
   const stateLabel = mode === "becomes" ? "State it becomes" : "State it is in";
   const baseId = useId();
   const note = watch.kind === "artifact" ? artifactLabelNote(watch, pickers) : undefined;
-  const noteId = note === undefined ? undefined : `${baseId}-label-note`;
+  const noteId = `${baseId}-label-note`;
   /** A new task or artifact watch starts on the first node in reach, the common case, else on one item. */
   const blank = (kind: WatchDraft["kind"]): WatchDraft => {
     const watch = blankWatch(kind);
@@ -382,137 +382,143 @@ function WatchFields({
     return watch;
   };
   return (
-    <div className="automation-editor__row automation-editor__sentence">
-      {conditionOnly ? null : <Word>When</Word>}
-      <Select
-        dense
-        aria-label="What it watches"
-        value={watch.kind}
-        options={kinds.map((kind) => ({ value: kind, label: WATCH_LABEL[kind] }))}
-        onChange={(kind) => {
-          if (kind !== watch.kind) onChange(blank(kind as WatchDraft["kind"]));
-        }}
-      />
-      {watch.kind === "seat" ? (
-        <>
-          <TargetPicker
-            {...pickers}
-            kinds={["seat"]}
-            label="Seat to watch"
-            placeholder="@seat"
-            value={watch.seat?.kind === "seat" ? watch.seat : undefined}
-            onChange={(seat) => onChange({ ...watch, seat })}
-          />
-          <Select
-            dense
-            aria-label={stateLabel}
-            value={watch.becomes}
-            options={SEAT_BECOMES.map((state) => ({ value: state, label: seatStateWord(state, mode) }))}
-            onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
-          />
-        </>
-      ) : null}
-      {watch.kind === "task" ? (
-        <>
-          <ScopeSelect
-            lostLabel="a task board out of reach"
-            nodes={pickers.boards}
-            covered={watchedNode(watch.task)}
-            onChange={(node) => onChange({ ...watch, task: node === undefined ? undefined : { node } })}
-          />
-          {watchedNode(watch.task) === undefined ? (
+    <>
+      <div className="automation-editor__row automation-editor__sentence">
+        {conditionOnly ? null : <Word>When</Word>}
+        <Select
+          dense
+          aria-label="What it watches"
+          value={watch.kind}
+          options={kinds.map((kind) => ({ value: kind, label: WATCH_LABEL[kind] }))}
+          onChange={(kind) => {
+            if (kind !== watch.kind) onChange(blank(kind as WatchDraft["kind"]));
+          }}
+        />
+        {watch.kind === "seat" ? (
+          <>
             <TargetPicker
               {...pickers}
-              kinds={["task"]}
-              label="Task to watch"
-              placeholder="#task"
-              value={watch.task !== undefined && "kind" in watch.task && watch.task.kind === "task" ? watch.task : undefined}
-              onChange={(task) => onChange({ ...watch, task })}
+              kinds={["seat"]}
+              label="Seat to watch"
+              placeholder="@seat"
+              value={watch.seat?.kind === "seat" ? watch.seat : undefined}
+              onChange={(seat) => onChange({ ...watch, seat })}
             />
-          ) : null}
-          <Word>{mode}</Word>
-          <Select
-            dense
-            aria-label={stateLabel}
-            value={watch.becomes}
-            options={TASK_BECOMES.map((state) => ({ value: state, label: taskStateWord(state) }))}
-            onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
-          />
-        </>
-      ) : null}
-      {watch.kind === "artifact" ? (
-        <>
-          {watch.event === "labelled" ? null : (
-            <>
-              <Word>labelled</Word>
+            <Select
+              dense
+              aria-label={stateLabel}
+              value={watch.becomes}
+              options={SEAT_BECOMES.map((state) => ({ value: state, label: seatStateWord(state, mode) }))}
+              onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
+            />
+          </>
+        ) : null}
+        {watch.kind === "task" ? (
+          <>
+            <ScopeSelect
+              lostLabel="a task board out of reach"
+              nodes={pickers.boards}
+              covered={watchedNode(watch.task)}
+              onChange={(node) => onChange({ ...watch, task: node === undefined ? undefined : { node } })}
+            />
+            {watchedNode(watch.task) === undefined ? (
+              <TargetPicker
+                {...pickers}
+                kinds={["task"]}
+                label="Task to watch"
+                placeholder="#task"
+                value={watch.task !== undefined && "kind" in watch.task && watch.task.kind === "task" ? watch.task : undefined}
+                onChange={(task) => onChange({ ...watch, task })}
+              />
+            ) : null}
+            <Word>{mode}</Word>
+            <Select
+              dense
+              aria-label={stateLabel}
+              value={watch.becomes}
+              options={TASK_BECOMES.map((state) => ({ value: state, label: taskStateWord(state) }))}
+              onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
+            />
+          </>
+        ) : null}
+        {watch.kind === "artifact" ? (
+          <>
+            {watch.event === "labelled" ? null : (
+              <>
+                <Word>labelled</Word>
+                <LabelField
+                  label="Only with this label, optional"
+                  value={watch.label}
+                  describedBy={note === undefined ? undefined : noteId}
+                  onChange={(label) => onChange(withLabel(watch, label))}
+                />
+              </>
+            )}
+            <ScopeSelect
+              lostLabel="an Artifacts node out of reach"
+              nodes={pickers.artifactNodes}
+              covered={watchedNode(watch.artifact)}
+              onChange={(node) => onChange({ ...watch, artifact: node === undefined ? undefined : { node } })}
+            />
+            {watchedNode(watch.artifact) === undefined ? (
+              <TargetPicker
+                {...pickers}
+                kinds={["artifact"]}
+                label="Artifact to watch"
+                placeholder="#artifact"
+                value={watch.artifact !== undefined && "kind" in watch.artifact && watch.artifact.kind === "artifact" ? watch.artifact : undefined}
+                onChange={(artifact) => onChange({ ...watch, artifact })}
+              />
+            ) : null}
+            <Word>is</Word>
+            <Select
+              dense
+              aria-label="Is"
+              value={watch.event}
+              options={ARTIFACT_EVENTS.map((event) => ({ value: event, label: ARTIFACT_EVENT_WORD[event] }))}
+              onChange={(event) => onChange({ ...watch, event: event as typeof watch.event })}
+            />
+            {watch.event === "labelled" ? (
               <LabelField
-                label="Only with this label, optional"
+                label="The label it gains, or any"
                 value={watch.label}
-                describedBy={noteId}
+                describedBy={note === undefined ? undefined : noteId}
                 onChange={(label) => onChange(withLabel(watch, label))}
               />
-            </>
-          )}
-          <ScopeSelect
-            lostLabel="an Artifacts node out of reach"
-            nodes={pickers.artifactNodes}
-            covered={watchedNode(watch.artifact)}
-            onChange={(node) => onChange({ ...watch, artifact: node === undefined ? undefined : { node } })}
-          />
-          {watchedNode(watch.artifact) === undefined ? (
+            ) : null}
+          </>
+        ) : null}
+        {watch.kind === "signal" ? (
+          <>
+            <Word>from</Word>
             <TargetPicker
               {...pickers}
-              kinds={["artifact"]}
-              label="Artifact to watch"
-              placeholder="#artifact"
-              value={watch.artifact !== undefined && "kind" in watch.artifact && watch.artifact.kind === "artifact" ? watch.artifact : undefined}
-              onChange={(artifact) => onChange({ ...watch, artifact })}
+              kinds={["seat"]}
+              label="From seat, or any"
+              placeholder="any seat, or @seat"
+              value={watch.from?.kind === "seat" ? watch.from : undefined}
+              onChange={(from) => onChange(from === undefined ? { kind: "signal", signal: watch.signal } : { ...watch, from })}
             />
-          ) : null}
-          <Word>is</Word>
-          <Select
-            dense
-            aria-label="Is"
-            value={watch.event}
-            options={ARTIFACT_EVENTS.map((event) => ({ value: event, label: ARTIFACT_EVENT_WORD[event] }))}
-            onChange={(event) => onChange({ ...watch, event: event as typeof watch.event })}
-          />
-          {watch.event === "labelled" ? (
-            <LabelField
-              label="The label it gains, or any"
-              value={watch.label}
-              describedBy={noteId}
-              onChange={(label) => onChange(withLabel(watch, label))}
+            <Select
+              dense
+              aria-label="Signal"
+              value={watch.signal}
+              options={SIGNALS.map((signal) => ({ value: signal, label: SIGNAL_WORD[signal] }))}
+              onChange={(signal) => onChange({ ...watch, signal: signal as typeof watch.signal })}
             />
-          ) : null}
-          {note === undefined ? null : (
-            <p id={noteId} className="automation-editor__note automation-editor__sentence-note">
-              {note}
-            </p>
-          )}
-        </>
+          </>
+        ) : null}
+      </div>
+      {/*
+        A live region, mounted while the watch is on artifacts so a reader hears a
+        mistyped label as it appears; the field also names it as its description.
+      */}
+      {watch.kind === "artifact" ? (
+        <p id={noteId} role="status" className="automation-editor__note automation-editor__label-note">
+          {note ?? ""}
+        </p>
       ) : null}
-      {watch.kind === "signal" ? (
-        <>
-          <Word>from</Word>
-          <TargetPicker
-            {...pickers}
-            kinds={["seat"]}
-            label="From seat, or any"
-            placeholder="any seat, or @seat"
-            value={watch.from?.kind === "seat" ? watch.from : undefined}
-            onChange={(from) => onChange(from === undefined ? { kind: "signal", signal: watch.signal } : { ...watch, from })}
-          />
-          <Select
-            dense
-            aria-label="Signal"
-            value={watch.signal}
-            options={SIGNALS.map((signal) => ({ value: signal, label: SIGNAL_WORD[signal] }))}
-            onChange={(signal) => onChange({ ...watch, signal: signal as typeof watch.signal })}
-          />
-        </>
-      ) : null}
-    </div>
+    </>
   );
 }
 

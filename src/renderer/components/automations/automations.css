@@ -128,9 +128,9 @@
   flex: 1 1 160px;
 }
 
-/* A note about the sentence sits on its own line under it. */
-.automation-editor__sentence > .automation-editor__sentence-note {
-  flex-basis: 100%;
+/* The label note stays mounted for screen readers; empty, it takes no room in the section. */
+.automation-editor__label-note:empty {
+  margin-block-start: -8px;
 }
 
 .automation-editor__word {

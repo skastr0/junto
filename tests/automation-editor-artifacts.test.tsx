@@ -192,6 +192,13 @@ describe("artifact automations, the form", () => {
     const field = host.querySelector<HTMLInputElement>('input[aria-label="Only with this label, optional"]')!;
     const note = document.getElementById(field.getAttribute("aria-describedby")!);
     expect(note?.textContent).toBe("No artifact in Specs carries publsh yet.");
+    // A live region, so the miss is heard as it appears, not only when the field is next focused.
+    expect(note?.getAttribute("role")).toBe("status");
+
+    await render(draftWith(onArtifact("edited", ""), [{ kind: "mail", to: seat, text: "x" }]));
+    // Mounted and empty while nothing is to say, so its first words are announced.
+    expect(host.querySelector('[role="status"].automation-editor__label-note')?.textContent).toBe("");
+    expect(host.querySelector('input[aria-label="Only with this label, optional"]')?.getAttribute("aria-describedby")).toBeNull();
   });
 
   it("create-artifact lists the Artifacts nodes in reach by name", async () => {
