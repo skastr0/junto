@@ -68,7 +68,48 @@ on its own and reconciles later), which the operator withdrew.
 The design comes to product-lead before slices land; the direction is
 already approved.
 
-## 4. Canvas structure (canvas-lead, draft for remote-lead)
+## 4. Canvas structure under one authority (canvas-lead's answer)
+
+**Structure moves with authority.** Whichever machine rules a canvas also
+changes its nodes, wires, regions and placements. A fallback that rules
+lets the operator and overseer seats edit the canvas exactly as the
+preferred machine would.
+
+- **Why it moves.** The first answer (below) kept structure on one machine
+  because merging structure can grant reach nobody drew. One authority at a
+  time never merges, so that reason is gone. Splitting the two roles would
+  create a second authority. The ruler checks reach against structure
+  (`src/shared/region-reach.ts`), so it would be judging against a copy that
+  lags another machine, and that brings back the stated-count machinery. The
+  fallback already holds the whole canvas (Decisions), so it has everything a
+  structure edit touches. Waiting for the preferred machine would stall every
+  overseer seat and the operator's window all night, for no safety gained.
+- **One count across handovers.** The canvas `seq` (`canvases.seq`,
+  `src/main/junto/model/records.ts`) belongs to the canvas, not to a
+  machine. The new authority continues from the head it was handed, so
+  "a copy replaces an older one" (Rule 2) still works by `seq` alone, and a
+  returning machine catches up by applying `structure.changed` in `seq`
+  order. Each entry records the authority's term beside its `seq`.
+- **The one hazard: a tail that never shipped.** Rows go to links after they
+  commit locally (`followLocalCommits`, `src/main/junto/work/exchange/live.ts`).
+  An authority that crashes can therefore hold committed structure changes
+  past the count its successor took over at. On its return those entries
+  must not be installed: the canvas already has other changes at those
+  counts. Each one becomes an ordinary command queued to the current
+  authority, ruled against the canvas as it is now, and shown to the
+  operator as "written on <machine> after it lost authority". Rulings on
+  resource state have the same tail, so question 1's answer should cover
+  both the same way.
+- **Unchanged:** a seat's `host` still has one writer, the authority, and a
+  machine acts on a move once it holds that count (Rule 3). Secret values
+  never travel. Region folders and environment are data the fallback holds,
+  but a seat starts only on its own machine, from that machine's folder.
+- **What becomes of the first answer:** the structure journal stays, now for
+  catch-up and the tail rule. Stated counts with re-judgment on arrival are
+  dropped: the one authority rules each queued command against its current
+  canvas, as the ruler does today.
+
+### First answer, for the withdrawn direction (input only)
 
 **Recommendation: in the first version, canvas structure still has one
 writer. Every fact states which version of the structure it was checked
