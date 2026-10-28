@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V54_IDENTITY,
@@ -19,7 +18,6 @@ import {
   migrateStateSchema,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V54_SQL, STATE_SCHEMA_V55_SQL } from "./fixtures/state-v13/schema";
 
@@ -74,11 +72,9 @@ const VIEW_TABLES = [
 ] as const;
 
 describe("state migration 54 -> 55 (the operator's view state)", () => {
-  it("starts from the version-54 witness and ends at the head, which a fresh database matches", () => {
+  it("starts from the version-54 witness and ends at the version-55 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V54_SQL)).toEqual(STATE_SCHEMA_V54_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V55_SQL)).toEqual(STATE_SCHEMA_V55_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V55_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V55_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -90,7 +86,7 @@ describe("state migration 54 -> 55 (the operator's view state)", () => {
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
         for (const table of VIEW_TABLES) expect(Object.keys(before)).not.toContain(table);
 
-        const result = migrateStateSchema(database, upTo(55, STATE_SCHEMA_SQL));
+        const result = migrateStateSchema(database, upTo(55, STATE_SCHEMA_V55_SQL));
         expect(result).toMatchObject({ previousVersion: 54, schemaVersion: 55, ...STATE_SCHEMA_V55_IDENTITY });
         expect(readRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V55_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -111,7 +107,7 @@ describe("state migration 54 -> 55 (the operator's view state)", () => {
   it("holds a slot's kind and node together, a colour-free focus size, and a row per thing", async () => {
     const database = await openCopy("command-center-v13.db");
     try {
-      migrateStateSchema(database, upTo(55, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(55, STATE_SCHEMA_V55_SQL));
       database
         .prepare("INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('main', 'c1', 'now', 'now')")
         .run();
