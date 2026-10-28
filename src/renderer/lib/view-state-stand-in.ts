@@ -11,7 +11,16 @@
  * `makeCanvasCommandGroups` takes is main's store instead.
  */
 import { storedSlotsOf } from "./view-state";
-import type { ViewCommandSlot, ViewStateStore } from "./view-state";
+import type {
+  ArtifactsNodeView,
+  AutomationsNodeView,
+  FilesNodeView,
+  NodeViewStore,
+  SurfaceSize,
+  TasksNodeView,
+  ViewCommandSlot,
+  ViewStateStore,
+} from "./view-state";
 
 export const makeMemoryViewStateStore = (): ViewStateStore => {
   const byCanvas = new Map<string, { slots: ViewCommandSlot[]; extras: ReadonlyArray<ReadonlyArray<string>> }>();
@@ -55,6 +64,68 @@ export const makeMemoryViewStateStore = (): ViewStateStore => {
       if (!canvas) return;
       const current = held(canvas);
       keep(canvas, { slots: current.slots, extras: extras.map((group) => [...group]) });
+    },
+    onChange: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+};
+
+/**
+ * The node surfaces' stand-in (V3), until V1's tables and IPC land: the same
+ * rows in memory, a push on every change, nothing across a quit.
+ */
+export const makeMemoryNodeViewStore = (): NodeViewStore => {
+  const rows = <V>() => new Map<string, V>();
+  const artifacts = rows<ArtifactsNodeView>();
+  const tasks = rows<TasksNodeView>();
+  const automations = rows<AutomationsNodeView>();
+  const files = rows<FilesNodeView>();
+  const collapsed = new Set<string>();
+  const sizes = rows<SurfaceSize>();
+  let railOpen = false;
+  const listeners = new Set<() => void>();
+  const announce = (): void => {
+    for (const listener of listeners) listener();
+  };
+  const keyOf = (canvas: string, node: string): string => `${canvas}\n${node}`;
+  const reader = <V>(held: Map<string, V>) => (canvas: string, node: string): V | undefined =>
+    canvas === "" ? undefined : held.get(keyOf(canvas, node));
+  const writer = <V>(held: Map<string, V>) => (canvas: string, node: string, view: V): void => {
+    if (canvas === "") return;
+    held.set(keyOf(canvas, node), view);
+    announce();
+  };
+  return {
+    artifacts: reader(artifacts),
+    writeArtifacts: writer(artifacts),
+    tasks: reader(tasks),
+    writeTasks: writer(tasks),
+    automations: reader(automations),
+    writeAutomations: writer(automations),
+    files: reader(files),
+    writeFiles: writer(files),
+    sidebarCollapsed: (canvas, node) => canvas !== "" && collapsed.has(keyOf(canvas, node)),
+    writeSidebarCollapsed: (canvas, node, next) => {
+      if (canvas === "" || next === collapsed.has(keyOf(canvas, node))) return;
+      if (next) collapsed.add(keyOf(canvas, node));
+      else collapsed.delete(keyOf(canvas, node));
+      announce();
+    },
+    surfaceSize: (surface) => sizes.get(surface),
+    writeSurfaceSize: (surface, size) => {
+      if (size === null) sizes.delete(surface);
+      else sizes.set(surface, size);
+      announce();
+    },
+    commentsRailOpen: () => railOpen,
+    writeCommentsRailOpen: (open) => {
+      if (open === railOpen) return;
+      railOpen = open;
+      announce();
     },
     onChange: (listener) => {
       listeners.add(listener);

@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtifactLabel } from "../src/shared/artifact-labels";
 import type { ArtifactHead } from "../src/shared/resource-ipc";
-import { keptArtifactsFilter, labelsStillHeld, useKeptArtifactsFilter } from "../src/renderer/lib/artifacts-filter-kept";
+import { labelsStillHeld, useArtifactsNodeView } from "../src/renderer/lib/artifacts-node-view";
+import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,10 +17,15 @@ const entries = [head("Release", ["project/junto/release", "draft"]), head("Web"
 
 let host: HTMLDivElement;
 let root: Root;
-let seen: ReturnType<typeof useKeptArtifactsFilter>;
+let seen: ReturnType<typeof useArtifactsNodeView>;
+/** What the store holds for a node, as the old kept read gave it. */
+const keptArtifactsFilter = (canvas: string, node: string) => {
+  const view = nodeViewStore().artifacts(canvas, node);
+  return { type: view?.type ?? "all", labels: view?.labels ?? [] };
+};
 
 function Probe({ canvas, node, list }: { readonly canvas: string; readonly node: string; readonly list: ReadonlyArray<ArtifactHead> }) {
-  seen = useKeptArtifactsFilter(canvas, node, list);
+  seen = useArtifactsNodeView(canvas, node, list);
   return null;
 }
 const open = (node: string, list: ReadonlyArray<ArtifactHead> = entries, canvas = "c") =>
@@ -26,6 +33,7 @@ const open = (node: string, list: ReadonlyArray<ArtifactHead> = entries, canvas 
 const close = () => act(() => root.render(null));
 
 beforeEach(() => {
+  setNodeViewStore(makeMemoryNodeViewStore());
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -36,7 +44,28 @@ afterEach(() => {
   host.remove();
 });
 
-describe("the Artifacts node's kept filter", () => {
+describe("the Artifacts node's kept view", () => {
+  it("keeps the archived toggle and the open artifact beside the filter, per node, in the store", () => {
+    open("kept-open");
+    expect([seen.archived, seen.open]).toEqual([false, null]);
+    act(() => {
+      seen.setArchived(true);
+      seen.setOpen("Release");
+    });
+    close();
+    open("kept-open");
+    expect([seen.archived, seen.open]).toEqual([true, "Release"]);
+    expect(nodeViewStore().artifacts("c", "kept-open")).toEqual({ type: "all", archived: true, labels: [], open: "Release" });
+    open("kept-other");
+    expect([seen.archived, seen.open]).toEqual([false, null]);
+  });
+
+  it("hears a change another window writes", () => {
+    open("kept-push");
+    act(() => nodeViewStore().writeArtifacts("c", "kept-push", { type: "pad", archived: false, labels: [], open: null }));
+    expect(seen.type).toBe("pad");
+  });
+
   it("keeps the type and the picked labels across a close and a reopen, per node", () => {
     open("kept-a");
     expect(seen.type).toBe("all");

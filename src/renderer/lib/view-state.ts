@@ -22,6 +22,9 @@
  * that one row; and a load that fills the mirror announces every canvas it
  * filled, so a read taken before the load is dropped rather than kept.
  */
+import type { ArtifactType } from "@shared/artifact";
+import type { ArtifactLabel } from "@shared/artifact-labels";
+import type { StateFilter } from "../components/tasks/tasks-pane-model";
 import type { HotbarSlot } from "./hotbar-slots";
 import { HOTBAR_SLOT_COUNT, emptyHotbarSlots } from "./hotbar-slots";
 
@@ -119,3 +122,64 @@ export const sameExtras = (
   a.every(
     (group, index) => group.length === b[index]!.length && group.every((id, at) => b[index]![at] === id),
   );
+
+// ---------------------------------------------------------------------------
+// Node surfaces (V3)
+
+/** The Artifacts node as the operator left it: its filter and the artifact it had open. */
+export type ArtifactsNodeView = {
+  readonly type: ArtifactType | "all";
+  readonly archived: boolean;
+  /** Picked labels, sorted: a row each. */
+  readonly labels: ReadonlyArray<ArtifactLabel>;
+  readonly open: string | null;
+};
+
+/** The Tasks node: its state filter and the task it had open. */
+export type TasksNodeView = {
+  readonly state: StateFilter;
+  readonly open: string | null;
+};
+
+/** The Automations node: the automation it had open. */
+export type AutomationsNodeView = {
+  readonly open: string | null;
+};
+
+/** The Files node: the file it had open, relative, and the folders expanded in its tree, a row each. */
+export type FilesNodeView = {
+  readonly open: string | null;
+  readonly expanded: ReadonlyArray<string>;
+};
+
+/** A resized modal's size, by surface: machine-wide, not per node or canvas. */
+export type SurfaceSize = { readonly width: number; readonly height: number };
+
+/**
+ * The node surfaces' half of the store (V3), beside `ViewStateStore`. Read
+ * synchronously from the load snapshot, a value stays the same object until
+ * it changes, so a reader can hold it as a React snapshot. A blank canvas
+ * name reads nothing and writes nothing. Every row goes with its node and its
+ * canvas (V1).
+ */
+export type NodeViewStore = {
+  readonly artifacts: (canvas: string, node: string) => ArtifactsNodeView | undefined;
+  readonly writeArtifacts: (canvas: string, node: string, view: ArtifactsNodeView) => void;
+  readonly tasks: (canvas: string, node: string) => TasksNodeView | undefined;
+  readonly writeTasks: (canvas: string, node: string, view: TasksNodeView) => void;
+  readonly automations: (canvas: string, node: string) => AutomationsNodeView | undefined;
+  readonly writeAutomations: (canvas: string, node: string, view: AutomationsNodeView) => void;
+  readonly files: (canvas: string, node: string) => FilesNodeView | undefined;
+  readonly writeFiles: (canvas: string, node: string, view: FilesNodeView) => void;
+  /** Whether the node's two-pane sidebar is collapsed; a row while it is. */
+  readonly sidebarCollapsed: (canvas: string, node: string) => boolean;
+  readonly writeSidebarCollapsed: (canvas: string, node: string, collapsed: boolean) => void;
+  readonly surfaceSize: (surface: string) => SurfaceSize | undefined;
+  /** null forgets the size: the surface opens at its default again. */
+  readonly writeSurfaceSize: (surface: string, size: SurfaceSize | null) => void;
+  /** The Artifacts comments rail, open or an edge, one choice for every artifact. */
+  readonly commentsRailOpen: () => boolean;
+  readonly writeCommentsRailOpen: (open: boolean) => void;
+  /** Hear any change as it lands, this window's or another's; returns the unsubscribe. */
+  readonly onChange: (listener: () => void) => () => void;
+};

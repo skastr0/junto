@@ -45,7 +45,7 @@ import { openWorkDetail, useFollowOpen } from "../../lib/work-detail-open";
 import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 import { useArtifactsInReach } from "../../lib/artifacts-in-reach";
 import { makePostOps } from "../../lib/post-op";
-import { useKeptArtifactsFilter } from "../../lib/artifacts-filter-kept";
+import { useArtifactsNodeView } from "../../lib/artifacts-node-view";
 import { type LabelColours, useLabelColours } from "../../lib/artifact-label-colours";
 import { subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
 import { openMention } from "../tasks/TaskThread";
@@ -105,14 +105,17 @@ export function ArtifactsNode({
   const pendingCreates = pending.filter(
     (write) => write.op.op === "create" && !entries.some((entry) => entry.artifact.artifactId === write.artifactId),
   );
-  const [selectedId, setSelectedId] = useState<string | null>(initialArtifactId ?? null);
+  // The type, the picked labels, the archived toggle and the open artifact outlive the modal and a quit, per node.
+  const { type, setType, labels, setLabels, archived, setArchived, open, setOpen } = useArtifactsNodeView(canvasName, nodeId, entries);
+  const [selectedId, setSelected] = useState<string | null>(initialArtifactId ?? open);
+  const setSelectedId = (id: string | null): void => {
+    setSelected(id);
+    setOpen(id);
+  };
   // An open asked for while the modal is up, a link followed from inside it, picks that artifact,
   // the same one included after the operator picked another.
   useFollowOpen(initialArtifactId, openKey, setSelectedId);
-  // The type and the picked labels outlive the modal, per node, for the window's life.
-  const { type, setType, labels, setLabels } = useKeptArtifactsFilter(canvasName, nodeId, entries);
   const [query, setQuery] = useState("");
-  const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"menu" | "link" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** A write is queued until the editing machine rules it; the next listing says it has. */
