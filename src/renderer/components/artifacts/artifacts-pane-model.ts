@@ -135,12 +135,10 @@ export const TYPE_NOUN: { readonly [T in ArtifactType]: string } = {
 };
 
 /**
- * The labels an artifact carries. The contract lands in 0.11 T1
- * (`Artifact.labels`, `{ op: "labels" }`); until the head carries them this
- * reads none, and it is the one place that changes when it does.
+ * The labels an artifact carries, canonical as the ruler folded them. A head
+ * written before labels existed decodes to none, so this never reads absent.
  */
-export const labelsOf = (artifact: Artifact): ReadonlyArray<string> =>
-  (artifact as { readonly labels?: ReadonlyArray<string> }).labels ?? [];
+export const labelsOf = (artifact: Artifact): ReadonlyArray<string> => artifact.labels;
 
 /**
  * The Artifacts modal's quick open (0.11 F4): the title names a row, and the

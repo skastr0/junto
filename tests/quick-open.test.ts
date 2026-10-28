@@ -150,9 +150,13 @@ describe("artifact labels in the palette", () => {
     expect(rowsOf(artifactQuickOpen(entries), "plan").map((row) => row.title)).toEqual(["Sprint notes", "pl an"]);
   });
 
-  it("reads no labels off a head that carries none yet, as every head does until T1 lands", () => {
-    const bare = { artifact: { artifactId: "a1", title: "Launch brief", type: "document" } } as unknown as ArtifactHead;
+  it("reads no labels off a head that carries none", () => {
+    // The record decodes every head to an array, old rows as [], so this is
+    // the shape the palette sees and not an absence to guard against.
+    const bare = head("Launch brief", "document");
     expect(labelsOf(bare.artifact)).toEqual([]);
+    expect(rowsOf(artifactQuickOpen([bare]), "launch").map((row) => row.title)).toEqual(["Launch brief"]);
+    expect(rowsOf(artifactQuickOpen([bare]), "release")).toEqual([]);
   });
 });
 
