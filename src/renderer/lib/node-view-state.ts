@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { NodeViewStore } from "./view-state";
+import type { AutomationsNodeView, NodeViewStore, TasksNodeView } from "./view-state";
 import { makeMemoryNodeViewStore } from "./view-state-stand-in";
 
 /**
@@ -27,3 +27,33 @@ export const useNodeView = <T>(read: (store: NodeViewStore) => T): T =>
     (listener) => store.onChange(listener),
     () => read(store),
   );
+
+const TASKS_OPEN: TasksNodeView = { state: "all", open: null };
+
+/** The Tasks node as the operator left it: its state filter and the task it had open. */
+export const useTasksNodeView = (
+  canvasName: string,
+  nodeId: string,
+): TasksNodeView & { readonly setState: (state: TasksNodeView["state"]) => void; readonly setOpen: (open: string | null) => void } => {
+  const kept = useNodeView((store) => store.tasks(canvasName, nodeId)) ?? TASKS_OPEN;
+  const update = (change: Partial<TasksNodeView>): void => {
+    const last = store.tasks(canvasName, nodeId) ?? TASKS_OPEN;
+    const next = { ...last, ...change };
+    if (next.state !== last.state || next.open !== last.open) store.writeTasks(canvasName, nodeId, next);
+  };
+  return { ...kept, setState: (state) => update({ state }), setOpen: (open) => update({ open }) };
+};
+
+/** The automation the Automations node had open. */
+export const useAutomationsNodeView = (
+  canvasName: string,
+  nodeId: string,
+): AutomationsNodeView & { readonly setOpen: (open: string | null) => void } => {
+  const kept = useNodeView((store) => store.automations(canvasName, nodeId));
+  return {
+    open: kept?.open ?? null,
+    setOpen: (open) => {
+      if ((store.automations(canvasName, nodeId)?.open ?? null) !== open) store.writeAutomations(canvasName, nodeId, { open });
+    },
+  };
+};

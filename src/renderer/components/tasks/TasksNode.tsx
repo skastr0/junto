@@ -7,6 +7,7 @@ import { MentionedIn } from "../threads/MentionedIn";
 import { tasksSource, useCanvasTasks, useNodePending, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
 import { useFollowOpen } from "../../lib/work-detail-open";
+import { useTasksNodeView } from "../../lib/node-view-state";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { topModal } from "../../lib/modal-stack";
@@ -95,10 +96,17 @@ export function TasksNode({
   const writes = useNodePending(canvasName, node);
   const queued = useMemo(() => pendingByTask(writes), [writes]);
   const queuedNew = useMemo(() => queuedCreates(tasks, writes), [tasks, writes]);
-  const [selectedId, setSelectedId] = useState<string | null>(initialTaskId ?? null);
+  // The state filter and the open task outlive the modal and a quit, per node.
+  const kept = useTasksNodeView(canvasName, node);
+  const [selectedId, setSelected] = useState<string | null>(initialTaskId || kept.open);
+  const setSelectedId = (id: string | null): void => {
+    setSelected(id);
+    kept.setOpen(id);
+  };
   // Opened again while this pane is up (a mention chip), on another task or the same one: follow it.
   useFollowOpen(initialTaskId === "" ? undefined : initialTaskId, openKey, setSelectedId);
-  const [filter, setFilter] = useState<StateFilter>("all");
+  const filter: StateFilter = kept.state;
+  const setFilter = kept.setState;
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [settings, setSettings] = useState(false);

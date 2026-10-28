@@ -7,6 +7,8 @@ import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
 import { makeLocalAutomationsSource, setAutomationsSource } from "../src/renderer/lib/automations-source";
+import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,6 +29,7 @@ const button = (name: string): HTMLButtonElement => {
 };
 
 beforeEach(() => {
+  setNodeViewStore(makeMemoryNodeViewStore());
   source = makeLocalAutomationsSource();
   setAutomationsSource(source);
   host = document.createElement("div");
@@ -100,6 +103,17 @@ describe("automations pane", () => {
     expect(document.body.textContent).toContain("Run by hand, skipped: a condition did not hold");
     // aria-disabled, not disabled, so a Save that lands keeps keyboard focus.
     expect(button("Save").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("opens again on the automation it had open, from view state, and a new unsaved one is not kept", async () => {
+    await opened();
+    expect(nodeViewStore().automations(canvas, node)).toEqual({ open: automationId });
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render();
+    expect(nameShown()).toBe("Morning standup");
+    await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="New automation"]')!.click());
+    expect(nodeViewStore().automations(canvas, node)).toEqual({ open: automationId });
   });
 
   it("saves an edit over the version it was loaded from", async () => {

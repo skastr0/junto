@@ -46,6 +46,7 @@ import {
   type ApplyResult,
 } from "../../lib/automations-source";
 import { useAutomationTargets } from "../../lib/mention-sources";
+import { useAutomationsNodeView } from "../../lib/node-view-state";
 import {
   Button,
   ConfirmDialog,
@@ -205,10 +206,21 @@ export function AutomationsPane({
     if (dirty) setAsking(() => then);
     else then();
   };
+  // The automation open outlives the pane and a quit, per node; a new one not yet saved is not kept.
+  const kept = useAutomationsNodeView(canvasName, nodeId);
   const open = (next: Editing | undefined): void => {
     setRefusal(undefined);
     setEditing(next);
+    if (next === undefined || next.base !== undefined) kept.setOpen(next?.draft.automationId ?? null);
   };
+  /** Once the list arrives, the automation the node had open opens again. */
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || automations.length === 0) return;
+    restored.current = true;
+    const head = automations.find((automation) => automation.automationId === kept.open);
+    if (editing === undefined && head !== undefined) open(editingOf(head));
+  }, [automations]);
 
   /** One op; a refusal is kept for the pane to say. */
   const send = async (
