@@ -16,6 +16,11 @@
  * Only the operator's own arrangement crosses. A lease is derived from
  * activity, so fixed slots and groups are kept and leases never are; a group's
  * members keep the order the operator saved them in.
+ *
+ * What main owes this seam (V1): a read answers with exactly nine slot rows,
+ * never fewer, and the groups past nine in their saved order; a write replaces
+ * that one row; and a load that fills the mirror announces every canvas it
+ * filled, so a read taken before the load is dropped rather than kept.
  */
 import type { HotbarSlot } from "./hotbar-slots";
 import { HOTBAR_SLOT_COUNT, emptyHotbarSlots } from "./hotbar-slots";
