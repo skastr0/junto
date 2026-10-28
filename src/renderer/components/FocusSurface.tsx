@@ -140,15 +140,17 @@ export function FocusSurface({
     },
   });
 
-  // Resizable document surfaces: restore the size the operator last dragged
-  // this surface to, never more than the frame has now.
+  // Resizable surfaces: restore the size the operator last dragged this
+  // surface to, never more than the room the frame may take now. A resizable
+  // frame is as tall as its content, which on open is not yet loaded (an
+  // image), so the height is held to the surface's own room, not the frame's.
   useEffect(() => {
     if (height !== "resizable" || !panelRef.current) return;
     const stored = nodeViewStore().surfaceSize(label);
     if (!stored) return;
     const frame = panelRef.current.parentElement;
     panelRef.current.style.width = `${clampToFrame(stored.width, frame?.clientWidth ?? 0)}px`;
-    panelRef.current.style.height = `${clampToFrame(stored.height, frame?.clientHeight ?? 0)}px`;
+    panelRef.current.style.height = `${clampToFrame(stored.height, roomHeightOf(frame))}px`;
   }, [height, label]);
 
   // Opening the modal is the operator opt-in: put keyboard on the subject
@@ -279,6 +281,14 @@ export function FocusSurface({
 }
 
 // --- size memory (resizable only) --------------------------------------------
+
+/** The height the frame may grow to: its surface's content box (the frame's max-height is 100% of it). */
+const roomHeightOf = (frame: HTMLElement | null): number => {
+  const surface = frame?.parentElement;
+  if (!surface) return frame?.clientHeight ?? 0;
+  const style = getComputedStyle(surface);
+  return Math.max(0, surface.clientHeight - (Number.parseFloat(style.paddingTop) || 0) - (Number.parseFloat(style.paddingBottom) || 0));
+};
 // Kept in view state by surface, not by measure (0.11, 04, V3): eight
 // surfaces share the document measure, and one's size is not another's. A
 // quit brings it back.
