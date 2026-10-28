@@ -41,6 +41,17 @@ import { ProductModelDependentsLive } from "./junto/view-state/model-dependents"
 import { ViewStateRepositoryLive } from "./junto/view-state/repository";
 import { ModelLive } from "./junto/model/layer";
 
+/**
+ * The automation runner and its loop, on every canvas this machine edits or
+ * runs an automation of, with the seat-state firings its seat triggers read.
+ * It sits over the machine services, not in the product layer: off the
+ * editing machine its task writes are queued through their submit path.
+ */
+export const automationRunnerLayer = Layer.provideMerge(
+  AutomationRunnerLoopLive,
+  Layer.provideMerge(AutomationRunnerLive, Layer.mergeAll(WorkLive, SeatStateSourceLive, AutomationCodeRunnerLive)),
+);
+
 /** The same product services in both shells, over one state connection. */
 export const makeCoreProductLayer = (home: string) => {
   const state = makeStateEngineLive(join(home, ".junto", "state", "junto.db"));
@@ -89,12 +100,6 @@ export const makeCoreProductLayer = (home: string) => {
   return Layer.provideMerge(
     Layer.mergeAll(
       Layer.provideMerge(KernelLive, WorkLive),
-      // The automation runner and its loop, on every canvas this machine edits,
-      // with the seat-state firings its seat triggers read.
-      Layer.provideMerge(
-        AutomationRunnerLoopLive,
-        Layer.provideMerge(AutomationRunnerLive, Layer.mergeAll(WorkLive, SeatStateSourceLive, AutomationCodeRunnerLive)),
-      ),
       CanvasControlQueries.layer,
       Layer.provideMerge(NativeConfigLive, HarnessInventoryLive),
     ),

@@ -14,7 +14,7 @@ import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/mach
 import { join } from "node:path";
 import { makeMachineLinkSetup } from "./junto/hosts/machine-link";
 import { machinePackageCliDir } from "./junto/term/templates/seat-env";
-import { makeCoreProductLayer } from "./core-product";
+import { automationRunnerLayer, makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
 import { machineLinkLayer } from "./junto/link/live";
 import { LinkBuildMismatch, LinkPeerNotPinned, type LinkChannelHandler, type MachineLinkError } from "./junto/link/types";
@@ -522,7 +522,8 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */
 export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
-  return Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home));
+  // The automation runner over both: it queues a write off the editing machine through the machine's submit path.
+  return Layer.provideMerge(automationRunnerLayer, Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home)));
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) =>
