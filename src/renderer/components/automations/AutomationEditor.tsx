@@ -521,7 +521,7 @@ function ActionFields({
           <TargetPicker
             {...pickers}
             kinds={["task"]}
-            label="Task"
+            label="Task to assign"
             placeholder="#task"
             value={action.task?.kind === "task" ? action.task : undefined}
             onChange={(task) => onChange({ ...action, task })}
