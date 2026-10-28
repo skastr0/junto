@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-model";
-import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../artifacts/LiveMarkdownField";
+import { LiveMarkdownField } from "../artifacts/lazy-editors";
+import type { LiveMarkdownFieldHandle } from "../artifacts/LiveMarkdownField";
 import { useTaskBodyMentions } from "./task-body-mentions";
 
 /**

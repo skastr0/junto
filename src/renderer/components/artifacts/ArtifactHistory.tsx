@@ -3,7 +3,7 @@ import { History, RotateCcw } from "lucide-react";
 import { artifactText, type ArtifactVersionRecord } from "@shared/artifact";
 import { Button, ListRow } from "../ui";
 import { actorLabel, ageLabel } from "./artifacts-pane-model";
-import { DocumentEditor } from "./DocumentEditor";
+import { DocumentEditor } from "./lazy-editors";
 
 /** A past version takes no writes. */
 const refuseWrite = async (): Promise<string | null> => "An old version cannot be edited. Restore it first.";

@@ -22,7 +22,8 @@ export { FocusMaximizeButton, FocusWindowContext, useFocusWindow, type FocusWind
 export { ToolbarPill } from "./ToolbarPill";
 export { Kbd, KeyChord } from "./Kbd";
 export { Popover } from "./Popover";
-export { CodeBlock, DiffView, type DiffLineAnnotation, type DiffSide, type DiffSource } from "./CodeView";
+export { CodeBlock, DiffView } from "./lazy-code-view";
+export type { DiffLineAnnotation, DiffSide, DiffSource } from "./CodeView";
 export { Dialog, ConfirmDialog } from "./Dialog";
 export { Slider } from "./Slider";
 export {

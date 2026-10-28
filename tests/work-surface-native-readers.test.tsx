@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
+import { settleLazy } from "./support/settle-lazy";
 import { Schema } from "effect";
 import { asCanvasName, Node, Wire } from "../src/shared/model";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -53,9 +54,9 @@ const wire = (id: string, from: string, to: string) => {
   modelStore.wire$(canvas, id).set(decodeWire({ id, from, to, verb: "flows" }));
   modelStore.canvas$(canvas).wireIds.set(Object.keys(modelStore.canvas$(canvas).wires.peek()));
 };
-const mount = async (content: ReactNode) => act(async () => {
+const mount = async (content: ReactNode) => { await act(async () => {
   root.render(content); await flush();
-});
+}); await settleLazy(); };
 const click = async (selector: string) => {
   const element = document.querySelector(selector);
   expect(element, selector).toBeTruthy();

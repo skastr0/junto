@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { ArtifactVersionRecord } from "../src/shared/artifact";
 import { ArtifactHistory } from "../src/renderer/components/artifacts/ArtifactHistory";
+import { settleLazy } from "./support/settle-lazy";
 
 it("reads a past document version rendered, with nothing to type into", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -19,6 +20,7 @@ it("reads a past document version rendered, with nothing to type into", async ()
   } as unknown as ArtifactVersionRecord;
   await act(async () => root.render(<ArtifactHistory versions={[record]} head={2} now={0} onRestore={() => undefined} />));
   await act(async () => [...host.querySelectorAll<HTMLElement>('[role="list"] *')].find((row) => row.textContent?.startsWith("Version 1") && (row.tagName === "BUTTON" || row.getAttribute("role") === "button"))!.click());
+  await settleLazy();
   const content = host.querySelector<HTMLElement>(".cm-content")!;
   expect(content.getAttribute("contenteditable")).toBe("false");
   expect(content.textContent).not.toContain("**");

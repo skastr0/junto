@@ -7,6 +7,7 @@ import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
 import { TaskBody } from "../src/renderer/components/tasks/TaskBody";
+import { settleLazy } from "./support/settle-lazy";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.
@@ -35,8 +36,8 @@ describe("a task body", () => {
     host.remove();
   });
 
-  const draw = async (body: string, readOnly = false) =>
-    act(async () =>
+  const draw = async (body: string, readOnly = false) => {
+    await act(async () =>
       root.render(
         <TaskBody
           canvasName="factory"
@@ -53,6 +54,8 @@ describe("a task body", () => {
         />,
       ),
     );
+    await settleLazy();
+  };
   const editor = () => EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor")!)!;
   const typeAtEnd = async (text: string) =>
     act(async () => {

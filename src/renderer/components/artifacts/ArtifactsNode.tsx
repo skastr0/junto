@@ -62,7 +62,8 @@ import {
   TYPE_NOUN,
   visibleArtifacts,
 } from "./artifacts-pane-model";
-import { DocumentEditor, type DocumentMentions } from "./DocumentEditor";
+import type { DocumentMentions } from "./DocumentEditor";
+import { DocumentEditor } from "./lazy-editors";
 import "./artifacts.css";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { commentsRailRef, setCommentsRailOpen, useCommentsRailOpen } from "../../lib/artifact-comments-rail";

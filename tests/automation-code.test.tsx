@@ -8,6 +8,7 @@ import { DEFAULT_AUTOMATION_LIMITS, type Automation, type AutomationDefinition }
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import { ContentRef } from "@shared/wire/content-ref";
+import { settleLazy } from "./support/settle-lazy";
 import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
 import { CODE_TEMPLATE } from "../src/renderer/components/automations/AutomationCodeEditor";
 import { makeLocalAutomationsSource, setAutomationsSource, type AutomationsSource } from "../src/renderer/lib/automations-source";
@@ -55,6 +56,7 @@ const flush = async (): Promise<void> => {
   await act(async () => {
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
   });
+  await settleLazy();
 };
 
 const render = async (): Promise<void> => {

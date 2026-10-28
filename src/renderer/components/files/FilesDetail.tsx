@@ -1,8 +1,20 @@
 import { use$ } from "@legendapp/state/react";
 import { parseFilePath } from "@shared/files";
 import { asNodeId } from "@shared/physics/schema";
+import { lazySurface } from "../../lib/lazy-surface";
 import { state$ } from "../../lib/state";
-import { FilesNode } from "./FilesNode";
+// The modal's styles stay with the window's, in the order FilesNode takes them.
+import "./file-comments.css";
+import "./files-drop.css";
+import "../file-view/file-view.css";
+import "../ui/file-tree.css";
+import "./files.css";
+
+// The tree and the editors stay out of the window's first load.
+const FilesNode = lazySurface(
+  () => import("./FilesNode").then((m) => m.FilesNode),
+  () => null,
+);
 
 /** The Files node's modal for the canvas, as `ArtifactsDetail` is the Artifacts node's. */
 export function FilesDetail({

@@ -428,8 +428,20 @@ export function AutomationsPane({
   const codeSurface = useRef<HTMLElement>(null);
   useEffect(() => {
     if (codeStep === undefined || codeHeld === undefined || codeHeld.loading) return;
-    const editor = codeSurface.current?.querySelector<HTMLElement>(".cm-content");
-    if (editor !== undefined && editor !== null) claimFocus(editor, "gesture");
+    const surface = codeSurface.current;
+    if (surface === null) return;
+    const claim = (): boolean => {
+      const editor = surface.querySelector<HTMLElement>(".cm-content");
+      if (editor !== null) claimFocus(editor, "gesture");
+      return editor !== null;
+    };
+    if (claim()) return;
+    // The editor's engine may still be loading: the code takes the keyboard once it draws.
+    const drawn = new MutationObserver(() => {
+      if (claim()) drawn.disconnect();
+    });
+    drawn.observe(surface, { childList: true, subtree: true });
+    return () => drawn.disconnect();
   }, [codeStep, codeHeld?.loading]);
 
   /** Leaving the code view drops what was typed unless it is saved, as leaving a draft does. */

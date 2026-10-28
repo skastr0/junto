@@ -11,7 +11,7 @@
 import { ChevronLeft } from "lucide-react";
 import type { ActionRuling, CodeLanguage } from "@shared/automation";
 import { Button, Eyebrow } from "../ui";
-import { CodeEditor } from "../ui/CodeEditor";
+import { CodeEditor } from "../ui/lazy-code-editor";
 import { codeRulingWords } from "../../lib/automation-editor";
 
 /** The step's source as the editor opens it: what to write, and the shape the SDK gives it. */

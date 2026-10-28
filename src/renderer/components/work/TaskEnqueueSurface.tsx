@@ -11,7 +11,7 @@ import { state$ } from "../../lib/state";
 import { useNodeOf } from "../../lib/use-model";
 import { tasksSource, useCanvasTasks } from "../../lib/tasks-source";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
-import { LiveMarkdownField } from "../artifacts/LiveMarkdownField";
+import { LiveMarkdownField } from "../artifacts/lazy-editors";
 import { useTaskBodyMentions } from "../tasks/task-body-mentions";
 import { Button, IconButton, Input } from "../ui";
 import "./task-enqueue.css";
