@@ -69,6 +69,28 @@ can name the thing that fired it.
 A1 and A3 build on a stand-in of A2's names and switch when it lands. The
 empty picker is a bug: A1 fixes it first, on its own commit.
 
+## Next: artifacts in automations (B1)
+
+From the uses worked through with the operator: an artifact labelled
+`publish` is edited, run the deploy; a weekly digest is written into an
+artifact; a run's result is logged where people read it. Labels landed in
+`03-artifact-labels.md`, so automations can use them.
+
+- **Triggers:** an artifact in a node gains a label, or one carrying a
+  label is edited ("When an artifact labelled publish in Specs is edited").
+- **Actions:** create an artifact in a node (title and body may name
+  values), append to an artifact (a document gets a dated section, the
+  write names its base version as every edit does), set or remove labels on
+  the artifact that fired.
+- **Values:** `artifact.labels`, and `artifact.body` for code steps only
+  (as structured input, never pasted into text).
+
+| Track | Owner | Reviewer |
+|---|---|---|
+| B1 contract and runtime | automation-lead | product-feed |
+| B1 editor | product-automations | product-modals, product-accessibility |
+| B1 CLI | cli-lead | cli-protocol |
+
 ## Automations run on their own machine (operator, 2026-10-28)
 
 **Decided by the operator; this overrides the editing-machine runner of
