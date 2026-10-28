@@ -166,8 +166,7 @@ test("automations B1: the label watch reads as a sentence, and an edit appends, 
     await editor.getByRole("button", { name: "Save", exact: true }).click();
     await expect(pane.getByRole("button", { name: /^Any edit/u }).first()).toBeVisible({ timeout: 10_000 });
 
-    // End to end: edit Wire spec, after the app has idled with the automations saved.
-    await page.waitForTimeout(8_000);
+    // End to end: edit Wire spec right after the save (32fee1ad5: a save runs the canvas pass before it returns).
     const before = (await head("Wire spec"))!;
     const edited = await apply(wire, { op: "edit", edit: { kind: "replace", baseVersion: before.artifact.version, body: { type: "document", markdown: "# Wire spec\n\nFirst draft." } } });
     expect(edited.kind, JSON.stringify(edited)).toBe("applied");
