@@ -398,6 +398,11 @@ export const resolveTargets = (
       // A seat control names the seat it starts or stops (0.11, 05 S4).
       case "seat-control":
         return { ...a, seat: ref(a.seat, "seat", `${at}.seat`) };
+      // A signal names only the artifacts it shows (0.11/07 N2).
+      case "signal": {
+        const { show, ...rest } = a;
+        return show === undefined ? rest : { ...rest, show: show.map((shown, k) => ref(shown, "artifact", `${at}.show[${k}]`)) };
+      }
       // A code step names no target: its source is a staged content ref.
       case "code":
         return a;

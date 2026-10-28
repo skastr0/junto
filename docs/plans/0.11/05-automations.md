@@ -85,6 +85,13 @@ artifact; a run's result is logged where people read it. Labels landed in
 - **Values:** `artifact.labels`, and `artifact.body` for code steps only
   (as structured input, never pasted into text).
 
+**N2 contract (automation-lead, plan 0.11/07).** The action
+`signal {signal: "notice"|"work", title, detail?, show?}` raises a signal in
+the needs-you feed as the automation. Title (up to 280) and detail (up to
+8000) may name values; `show` names one to eight artifacts it opens, refused
+at save if any is not an artifact. The reply form follows N1's names. Until
+N1's raise lands the action is refused `not_available`.
+
 **B1 contract (automation-lead, agreed with product-automations and cli-lead).**
 The artifact watch takes `event: "labelled"` and `label?`: with `labelled`,
 the label gained (one under it counts, and an artifact created carrying it

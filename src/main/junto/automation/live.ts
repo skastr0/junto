@@ -450,6 +450,9 @@ export const performAction = (
       case "label-artifact":
       case "seat-control":
         return notAvailable(index);
+      // Not available until the feed takes a signal an automation raised (0.11/07 N1).
+      case "signal":
+        return notAvailable(index);
     }
   });
 

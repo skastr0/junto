@@ -43,6 +43,7 @@ import { HostId } from "./remote-hosts";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
 import { RefusalReason, type Refusal } from "./resource-command";
 import { TASK_STATES } from "./task-model";
+import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "./wire/agent-signals";
 import { ContentRef } from "./wire/content-ref";
 import { ItemId } from "./work-ids";
 
@@ -88,6 +89,8 @@ export const MAX_PER_HOUR_CEILING = 60;
 export const AUTOMATION_NAME_MAX_CHARS = 120;
 export const AUTOMATION_TEXT_MAX_CHARS = 8_000;
 export const AUTOMATION_STEPS_MAX = 16;
+/** The artifacts a raised signal shows the operator, opened from it (0.11/07 N2). */
+export const AUTOMATION_SIGNAL_SHOWS_MAX = 8;
 
 /** A code step's bounds (Code steps): its run time, its source as staged, and what it answers. */
 export const AUTOMATION_CODE_TIMEOUT_MIN_MS = 1_000;
@@ -145,6 +148,10 @@ export type SeatBecomes = typeof SeatBecomes.Type;
 /** `labelled`: an artifact gains a label, created with it included; a label removed fires nothing. */
 export const ArtifactEvent = Schema.Literals(["edited", "commented", "labelled"]);
 export type ArtifactEvent = typeof ArtifactEvent.Type;
+
+/** What an automation's signal asks of the operator (0.11/07): read it, or produce something. */
+export const SignalKind = Schema.Literals(["notice", "work"]);
+export type SignalKind = typeof SignalKind.Type;
 
 export const WatchedSignal = Schema.Literals(["escalate", "blocked", "feedback"]);
 export type WatchedSignal = typeof WatchedSignal.Type;
@@ -267,6 +274,18 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
      * seat the operator drew — never general execution.
      */
     Schema.Struct({ kind: Schema.Literal("seat-control"), seat: ref, op: Schema.Literals(["start", "stop"]) }),
+    /**
+     * A signal in the needs-you feed, raised by the automation (0.11/07 N2):
+     * `notice` to read and clear, `work` for the operator to produce. Its
+     * title and detail may name values; `show` names artifacts it opens.
+     */
+    Schema.Struct({
+      kind: Schema.Literal("signal"),
+      signal: SignalKind,
+      title: Text(AGENT_SIGNAL_MAX_TEXT_LENGTH),
+      detail: Schema.optionalKey(Text(AGENT_SIGNAL_MAX_DETAIL_LENGTH)),
+      show: Schema.optionalKey(Schema.Array(ref).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(AUTOMATION_SIGNAL_SHOWS_MAX)))),
+    }),
   ]);
 
   /**
@@ -432,6 +451,8 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
       return [action.task.nodeId, action.to.nodeId];
     case "seat-control":
       return [action.seat.nodeId];
+    case "signal":
+      return (action.show ?? []).map((shown) => shown.nodeId);
     case "comment":
       return [action.on.nodeId];
     case "create-artifact":
@@ -475,6 +496,10 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
       return action.seat.kind === "seat"
         ? undefined
         : { reason: "invalid_input", message: "a seat-control names a seat", next_step: "Name an agent seat as the seat" };
+    case "signal":
+      return (action.show ?? []).every((shown) => shown.kind === "artifact")
+        ? undefined
+        : { reason: "invalid_input", message: "a signal shows artifacts", next_step: "Name only artifacts for the signal to show" };
     case "append-artifact":
     case "label-artifact": {
       if (!("fired" in action.to) && action.to.kind !== "artifact") {
@@ -588,6 +613,8 @@ export const actionText = (action: Action): string | undefined => {
       return action.text;
     case "create-artifact":
       return action.body === undefined ? action.title : `${action.title}\n${action.body}`;
+    case "signal":
+      return action.detail === undefined ? action.title : `${action.title}\n${action.detail}`;
     case "assign-task":
     case "label-artifact":
     case "code":

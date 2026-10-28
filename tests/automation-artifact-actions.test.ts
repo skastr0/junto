@@ -6,12 +6,16 @@ import { firedValue } from "../src/main/junto/automation/values";
 import type { ArtifactOp } from "../src/shared/artifact";
 import {
   actionRefusal,
+  actionText,
+  Action,
   type Automation,
   AutomationId,
   AutomationVersion,
   automationValuesOf,
   firedTargetRefusal,
+  targetNodeIds,
 } from "../src/shared/automation";
+import { Schema } from "effect";
 import type { InstallationId } from "../src/shared/installation-id";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -165,5 +169,24 @@ describe("artifact actions at save", () => {
     expect(automationValuesOf(automation.trigger)).toContain("artifact.labels");
     const reads = { artifact: { artifact: { title: "Spec", labels: ["draft", "publish"] } } } as never;
     expect(firedValue("artifact.labels", { event: firedBy, at: 0 }, reads, canvas, "factory")).toBe("draft, publish");
+  });
+});
+
+describe("a signal action (0.11/07 N2)", () => {
+  const read = { kind: "artifact", nodeId: SHELF, artifactId: DOC } as const;
+  const signal = { kind: "signal", signal: "work", title: "Write 500 words", detail: "Today, {{fired.at}}", show: [read] } as const;
+
+  it("decodes notice or work, with a title the feed's length, and shows at most eight artifacts", () => {
+    expect(Schema.is(Action)(signal)).toBe(true);
+    expect(Schema.is(Action)({ ...signal, signal: "escalate" })).toBe(false);
+    expect(Schema.is(Action)({ ...signal, title: "x".repeat(281) })).toBe(false);
+    expect(Schema.is(Action)({ ...signal, show: Array.from({ length: 9 }, () => read) })).toBe(false);
+  });
+
+  it("shows artifacts only, reaches their nodes, and says its title and detail as values", () => {
+    expect(actionRefusal(signal as never)).toBeUndefined();
+    expect(actionRefusal({ ...signal, show: [{ kind: "seat", nodeId: NODE }] } as never)).toMatchObject({ message: "a signal shows artifacts" });
+    expect(targetNodeIds({ ...automation, then: [signal as never] })).toContain(SHELF);
+    expect(actionText(signal as never)).toBe("Write 500 words\nToday, {{fired.at}}");
   });
 });
