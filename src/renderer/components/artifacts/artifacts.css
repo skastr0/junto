@@ -152,7 +152,7 @@
 
 .artifacts-filter__swatch {
   display: grid;
-  width: 20px;
+  width: 24px;
   min-height: 24px;
   flex: none;
   place-items: center;
@@ -319,8 +319,9 @@
   border-radius: 50%;
 }
 
+/* The dim ring stays on a coloured dot too: a light mark (bright yellow) on a
+   raised surface would leave the swatch with nothing visible. */
 .label-colour-dot[data-label-colour] {
-  border-color: transparent;
   background: var(--label-mark);
 }
 
@@ -411,6 +412,7 @@
 }
 
 .artifact-labels__colour {
+  position: relative;
   display: inline-flex;
   min-height: 22px;
   align-items: center;
@@ -421,6 +423,13 @@
   background: transparent;
   color: inherit;
   font: inherit;
+}
+
+/* The chip's border leaves the word 22px: its hit area reaches the chip's 24. */
+.artifact-labels__colour::after {
+  position: absolute;
+  inset: -1px 0;
+  content: "";
 }
 
 .artifact-labels__colour:hover {

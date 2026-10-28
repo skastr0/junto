@@ -5,7 +5,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { Combobox, IconButton } from "../ui";
 import type { LabelChoice } from "./artifacts-pane-model";
 import { labelColourWords, type LabelColours } from "../../lib/artifact-label-colours";
-import { LabelColourDot, LabelColourMenu } from "./LabelColourMenu";
+import { LabelColourDot, LabelColourMenu, useColourMenu } from "./LabelColourMenu";
 
 /** Chips the header shows before the rest wait behind a count that opens the picker. */
 const HEADER_CHIPS = 3;
@@ -132,7 +132,7 @@ export function ArtifactLabelChips({
   const [active, setActive] = useState<string | undefined>(undefined);
   const [refused, setRefused] = useState<string | null>(null);
   /** The label whose swatch menu is open, and the word that opened it. */
-  const [colouring, setColouring] = useState<{ readonly label: ArtifactLabel; readonly anchor: HTMLElement } | null>(null);
+  const { colouring, toggle: toggleColour, close: closeColour } = useColourMenu();
   /** A sent set that came back refused, said in the live region the group always carries. */
   const [reverted, setReverted] = useState(false);
   const options = useMemo(() => labelOptions(used, held, query), [used, held, query]);
@@ -224,10 +224,7 @@ export function ArtifactLabelChips({
             aria-haspopup="menu"
             aria-expanded={colouring?.label === label}
             title="Colour"
-            onClick={(event) => {
-              const anchor = event.currentTarget;
-              setColouring((open) => (open?.label === label && open.anchor === anchor ? null : { label, anchor }));
-            }}
+            onClick={(event) => toggleColour(label, event.currentTarget)}
           >
             <LabelColourDot colour={colour} />
             {label}
@@ -325,7 +322,7 @@ export function ArtifactLabelChips({
           label={colouring.label}
           colour={colours.colourOf(colouring.label)}
           onPick={(colour) => colours.setColour(colouring.label, colour)}
-          onClose={() => setColouring(null)}
+          onClose={closeColour}
         />
       )}
       <span className="sr-only" role="status">
@@ -351,7 +348,7 @@ export function ArtifactLabelFilter({
   /** The node's label colours: each toggle draws in its own, and the swatch beside it sets it. */
   readonly colours?: LabelColours;
 }) {
-  const [colouring, setColouring] = useState<{ readonly label: ArtifactLabel; readonly anchor: HTMLElement } | null>(null);
+  const { colouring, toggle: toggleColour, close: closeColour } = useColourMenu();
   if (choices.length === 0) return null;
   return (
     <div className="artifacts-filter__labels" role="group" aria-label="Labels">
@@ -367,10 +364,7 @@ export function ArtifactLabelFilter({
                 aria-haspopup="menu"
                 aria-expanded={colouring?.label === label}
                 title="Colour"
-                onClick={(event) => {
-                  const anchor = event.currentTarget;
-                  setColouring((open) => (open?.label === label ? null : { label, anchor }));
-                }}
+                onClick={(event) => toggleColour(label, event.currentTarget)}
               >
                 <LabelColourDot colour={colour} />
               </button>
@@ -400,7 +394,7 @@ export function ArtifactLabelFilter({
           label={colouring.label}
           colour={colours.colourOf(colouring.label)}
           onPick={(colour) => colours.setColour(colouring.label, colour)}
-          onClose={() => setColouring(null)}
+          onClose={closeColour}
         />
       )}
     </div>

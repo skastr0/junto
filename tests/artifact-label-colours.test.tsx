@@ -117,7 +117,8 @@ describe("label colours in the header", () => {
       />,
     );
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="draft, no colour"]')?.click());
-    act(() => items()[0]?.focus());
+    // Opened from the keyboard, focus lands on the checked one.
+    expect(document.activeElement?.textContent).toBe("No colour");
     const key = (name: string) =>
       act(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true })));
     key("ArrowDown");
@@ -129,6 +130,41 @@ describe("label colours in the header", () => {
     expect(document.activeElement?.textContent).toBe("No colour");
     key("End");
     expect(document.activeElement?.textContent).toBe("Pink");
+  });
+
+  it("closes on Tab, Escape or a pick with focus back on the opener, and on a press outside without it", () => {
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    render(
+      <ArtifactLabelChips
+        readRuled={unread}
+        waiting={false}
+        labels={L("draft")}
+        used={L()}
+        readOnly={false}
+        onChange={async () => "applied" as const}
+        colours={coloursOf({ draft: "blue" })}
+      />,
+    );
+    const word = host.querySelector<HTMLButtonElement>('[aria-label="draft, blue"]')!;
+    const key = (name: string) =>
+      act(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })));
+    for (const close of ["Tab", "Escape"]) {
+      act(() => word.click());
+      expect(document.activeElement?.textContent).toBe("Blue");
+      key(close);
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(word);
+    }
+    act(() => word.click());
+    act(() => items()[2]?.click());
+    expect(document.activeElement).toBe(word);
+    act(() => word.click());
+    act(() => outside.focus());
+    act(() => outside.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
   });
 
   it("draws an archived artifact's chips in colour without a menu", () => {
