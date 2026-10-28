@@ -7,6 +7,8 @@
 // `liveAutomationPorts` is the app's, over automation/apply.ts.
 
 import { type Context, Effect, Option, Result, Schema } from "effect";
+import { MachineRepository } from "../machines/repository";
+import { nearestOf } from "./authz";
 import {
   FIRINGS_PAGE_MAX,
   FiringId,
@@ -59,6 +61,12 @@ export type AutomationPorts = {
   /** Newest first. */
   readonly firings: (canvasName: string, nodeId: NodeId, query: HistoryQuery) => Effect.Effect<ReadonlyArray<Firing>, WorkErrorBody>;
   readonly submit: (command: ResourceCommand<AutomationOp>) => Effect.Effect<AutomationWriteResult, WorkErrorBody>;
+  /**
+   * The machines an automation may name (0.11, 05, S1): this one and the
+   * peers it knows, by short name. Absent, or undefined in a build without
+   * the machine store, any well-formed name is taken.
+   */
+  readonly machines?: () => Effect.Effect<ReadonlyArray<string> | undefined, WorkErrorBody>;
 };
 
 /** A seat reading the Automations nodes in its reach. */
@@ -110,6 +118,29 @@ const onEditor = (canvasName: string): Effect.Effect<void, WorkErrorBody> =>
     onSome: (refusal) => Effect.fail(refusal),
   }));
 
+/**
+ * A machine a create or a move names must be one this machine knows: a typo
+ * would be applied, and the automation would fire nowhere.
+ */
+const knownMachine = (ports: AutomationPorts, machine: string): Effect.Effect<void, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const known = ports.machines === undefined ? undefined : yield* ports.machines();
+    if (known === undefined || known.includes(machine)) return;
+    const nearest = nearestOf(machine, known);
+    return yield* Effect.fail<WorkErrorBody>({
+      type: "UnknownTarget",
+      message: `no machine ${machine} is known here`,
+      details: {
+        path: "machine",
+        received: machine,
+        retryable: false,
+        ...(nearest.length === 0 ? {} : { nearest }),
+        hint: `machines: ${known.join(", ")}`,
+        next_step: "junto machine list names the machines this one knows",
+      },
+    });
+  });
+
 const newestFirst = (a: Firing, b: Firing) => (a.firingId < b.firingId ? 1 : a.firingId > b.firingId ? -1 : 0);
 
 /**
@@ -146,6 +177,13 @@ export const liveAutomationPorts: AutomationPorts = {
         return firings.sort(newestFirst).slice(0, page.limit);
       }));
     }),
+  machines: () =>
+    Effect.flatMap(Effect.serviceOption(MachineRepository), Option.match({
+      // A build without the machine store checks nothing here; the ruler still takes only a well-formed name.
+      onNone: () => Effect.succeed(undefined),
+      onSome: (machines) =>
+        Effect.map(Effect.all([machines.machineName, machines.peers]), ([self, peers]) => [self, ...peers.map((peer) => peer.machineName)]),
+    })).pipe(Effect.mapError(persistence)),
   submit: (command) =>
     Effect.flatMap(inApp("the automation ruler", applyAutomationCommand(command)), (outcome) =>
       outcome.kind === "refused"
@@ -322,6 +360,7 @@ export const handleAutomationWrite = (
       case "automation.create": {
         const input = yield* decode(AutomationCreateArgs, args);
         yield* refuseReserved(input.trigger);
+        if (input.machine !== undefined) yield* knownMachine(ports, input.machine);
         const node = yield* findNode(writer, ports, input.target);
         const parts = yield* resolved(resolveTargets(input, resolveIn(writer, node)));
         const { trigger, then } = parts;
@@ -369,6 +408,7 @@ export const handleAutomationWrite = (
       }
       case "automation.move": {
         const input = yield* decode(AutomationMoveArgs, args);
+        yield* knownMachine(ports, input.machine);
         const node = yield* findNode(writer, ports, input.target);
         const automation = yield* findAutomation(yield* ports.automations(writer.canvasName, node.id), input.automation);
         return yield* ports.submit(command(writer, input.opId, node.id, automation.automationId, { kind: "set-machine", machine: input.machine }));
