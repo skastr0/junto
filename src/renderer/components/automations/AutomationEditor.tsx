@@ -32,7 +32,7 @@ import {
   valuesForTrigger,
   watchedNode,
   type ActionDraft,
-  type ActionDraftKind,
+  type ActionKind,
   type AutomationDraft,
   type ConditionDraft,
   type DraftEdit,
@@ -561,7 +561,7 @@ function ActionFields({
   }
 }
 
-const ACTION_KINDS = Object.keys(ACTION_LABEL) as ReadonlyArray<ActionDraftKind>;
+const ACTION_KINDS = Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>;
 const TRIGGER_KINDS = Object.keys(TRIGGER_LABEL) as ReadonlyArray<EditableTriggerKind>;
 
 export function AutomationEditor({
@@ -722,7 +722,7 @@ export function AutomationEditor({
                   aria-label={`Action ${index + 1}`}
                   value={action.kind}
                   options={ACTION_KINDS.map((kind) => ({ value: kind, label: ACTION_LABEL[kind] }))}
-                  onChange={(kind) => edit({ type: "action-kind", index, kind: kind as ActionDraftKind })}
+                  onChange={(kind) => edit({ type: "action-kind", index, kind: kind as ActionKind })}
                 />
                 <ActionFields
                   action={action}

@@ -8,11 +8,11 @@ import { ItemId } from "../src/shared/work-ids";
 import { ActionText, type ValueChoice } from "../src/renderer/components/automations/ActionText";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
 import {
-  blankAction,
   blankTrigger,
   cadenceWords,
   draftProblems,
   editDraft,
+  finishDraft,
   newDraft,
   valuesForTrigger,
   type AutomationDraft,
@@ -158,12 +158,12 @@ describe("a schedule and a poll read plainly", () => {
 });
 
 describe("the prompt action in the editor", () => {
-  /** A draft whose one action prompts a seat; the contract does not carry it yet. */
+  /** A draft whose one action prompts a seat. */
   const promptDraft = (): AutomationDraft =>
     editDraft(newDraft(id, node, { kind: "operator" }), {
       type: "action",
       index: 0,
-      action: { ...blankAction("prompt"), to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Check the release." },
+      action: { kind: "prompt", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Check the release." },
     });
 
   it("offers a multi-line prompt text and the values its trigger carries", async () => {
@@ -182,23 +182,21 @@ describe("the prompt action in the editor", () => {
         onRevert={() => undefined}
       />,
     );
-    expect(host.querySelector("textarea[aria-label='Prompt text']")?.value).toBe("Check the release.");
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Prompt text']")?.value).toBe("Check the release.");
     expect(host.querySelector("button[aria-label='Insert a value into prompt text']")).not.toBeNull();
+    expect(draftProblems(promptDraft())).toEqual([]);
   });
 
-  it("refuses a prompt until the contract carries one, in words", () => {
-    const problem = draftProblems(promptDraft()).find((entry) => entry.at === "action");
-    expect(problem?.message).toBe("Prompts are not available yet. Send mail for now.");
-  });
-
-  it("refuses a value the contract cannot resolve yet, in words", () => {
-    const draft = editDraft(promptDraft(), { type: "action-kind", index: 0, kind: "mail" });
-    const withValue = editDraft(draft, {
+  it("finishes as a prompt the contract reads, carrying the value its trigger names", () => {
+    const draft = editDraft(newDraft(id, node, { kind: "operator" }), {
       type: "action",
       index: 0,
-      action: { kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "{{task.title}} is done" },
+      action: { kind: "prompt", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "{{fired.at}}: check the release." },
     });
-    const problem = draftProblems(withValue).find((entry) => entry.at === "action");
-    expect(problem?.message).toBe("Values are not available yet. Write the text plainly for now.");
+    const finished = finishDraft(draft);
+    if (!finished.ok) throw new Error(finished.problems.map((problem) => problem.message).join("; "));
+    expect(finished.definition.then).toEqual([
+      { kind: "prompt", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "{{fired.at}}: check the release." },
+    ]);
   });
 });

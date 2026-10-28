@@ -15,6 +15,7 @@ import {
   AUTOMATION_NAME_MAX_CHARS,
   AUTOMATION_STEPS_MAX,
   AUTOMATION_TEXT_MAX_CHARS,
+  AUTOMATION_VALUES,
   DEFAULT_AUTOMATION_LIMITS,
   MAX_PER_HOUR_CEILING,
   POLL_MIN_EVERY_MS,
@@ -24,6 +25,7 @@ import {
   type Automation,
   type AutomationAuthor,
   type AutomationId,
+  type AutomationValue,
   type Condition,
   type Firing,
   type SeatBecomes,
@@ -34,7 +36,6 @@ import {
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
 import { TASK_STATES } from "@shared/task-model";
-import { CONTRACT_CARRIES_VALUES, namesAValue, valuesOf, type AutomationValue } from "./automation-values";
 
 // ── Shapes the contract names ──────────────────────────────────────────────
 
@@ -59,12 +60,6 @@ export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
 export type ActionKind = Action["kind"];
-/**
- * The action kinds the editor drafts: the contract's, plus `prompt`, which
- * lands in the contract with A2 (automation-lead). Until then a prompt is
- * refused in words, so it never reaches main as a definition main cannot read.
- */
-export type ActionDraftKind = ActionKind | "prompt";
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -167,7 +162,7 @@ export const blankTrigger = (kind: EditableTriggerKind, timezone: string = local
   }
 };
 
-export const blankAction = (kind: ActionDraftKind): ActionDraft => {
+export const blankAction = (kind: ActionKind): ActionDraft => {
   switch (kind) {
     case "mail":
       return { kind, text: "" };
@@ -253,9 +248,9 @@ export type DraftEdit =
   | { readonly type: "add-condition"; readonly kind: ConditionKind }
   | { readonly type: "condition"; readonly index: number; readonly condition: ConditionDraft }
   | { readonly type: "remove-condition"; readonly index: number }
-  | { readonly type: "add-action"; readonly kind: ActionDraftKind }
+  | { readonly type: "add-action"; readonly kind: ActionKind }
   | { readonly type: "action"; readonly index: number; readonly action: ActionDraft }
-  | { readonly type: "action-kind"; readonly index: number; readonly kind: ActionDraftKind }
+  | { readonly type: "action-kind"; readonly index: number; readonly kind: ActionKind }
   | { readonly type: "move-action"; readonly index: number; readonly step: -1 | 1 }
   | { readonly type: "remove-action"; readonly index: number }
   | { readonly type: "min-interval"; readonly minutes: string }
@@ -328,7 +323,7 @@ export const editDraft = (draft: AutomationDraft, edit: DraftEdit): AutomationDr
 };
 
 /** A changed action kind keeps the text typed so far, where the new kind has text. */
-const carriedAction = (old: ActionDraft, kind: ActionDraftKind): ActionDraft => {
+const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
   const text = old.kind === "mail" || old.kind === "prompt" || old.kind === "comment" ? old.text : old.kind === "create-task" ? old.title : "";
   switch (kind) {
     case "mail":
@@ -427,33 +422,24 @@ const triggerProblem = (trigger: TriggerDraft): string | undefined => {
   }
 };
 
-/**
- * A value in the text, until the contract carries them: main would store the
- * braces as typed and a firing would mail them. The refusal goes with the
- * stand-in in `automation-values.ts`.
- */
-const valueProblem = (text: string): string | undefined =>
-  !CONTRACT_CARRIES_VALUES && namesAValue(text) ? "Values are not available yet. Write the text plainly for now." : undefined;
-
 const actionProblem = (action: ActionDraft): string | undefined => {
   switch (action.kind) {
     case "mail":
       if (action.to === undefined) return "Pick who the mail goes to.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail");
     case "prompt":
-      if (!CONTRACT_CARRIES_VALUES) return "Prompts are not available yet. Send mail for now.";
       if (action.to === undefined) return "Pick the seat to prompt.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt");
     case "create-task":
       if (action.node === undefined) return "Pick the task board.";
-      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title);
+      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title");
     case "assign-task":
       if (action.task === undefined) return "Pick the task to assign.";
       if (action.to === undefined) return "Pick the seat to assign it to.";
       return undefined;
     case "comment":
       if (action.on === undefined) return "Pick what the comment is on.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment");
     default:
       return action satisfies never;
   }
@@ -634,7 +620,9 @@ export const cadenceWords = (trigger: TriggerDraft): string | undefined => {
  * change trigger carries what it watched, and every trigger `fired.at`.
  */
 export const valuesForTrigger = (trigger: TriggerDraft): ReadonlyArray<AutomationValue> =>
-  valuesOf(trigger.kind === "change" ? trigger.on.kind : undefined);
+  trigger.kind === "change"
+    ? [...AUTOMATION_VALUES[trigger.on.kind], ...AUTOMATION_VALUES.every]
+    : AUTOMATION_VALUES.every;
 
 /** What each value is, in a few words, beside its name in the Insert value list. */
 export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
@@ -671,7 +659,7 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
   }
 };
 
-export const ACTION_LABEL: Readonly<Record<ActionDraftKind, string>> = {
+export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
   mail: "Send mail",
   prompt: "Prompt a seat",
   "create-task": "Create a task",
