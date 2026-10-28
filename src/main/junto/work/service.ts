@@ -971,7 +971,8 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const read = yield* readTopology(canvas);
             const targetNode = yield* requireNode(read.topology, nodeId);
-            const isActor = Match.value(resolveSpec({ isGroup: false, kind: targetNode.kind })).pipe(
+            // A peer is a seat of another machine, held in a copy: the same mailbox, written here and sent there.
+            const isActor = Match.value(resolveSpec({ isGroup: false, kind: targetNode.kind === "peer" ? "agent" : targetNode.kind })).pipe(
               Match.when({ _tag: "Actor" }, () => true),
               Match.orElse(() => false),
             );

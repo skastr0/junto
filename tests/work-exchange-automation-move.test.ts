@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, expect, it } from "vitest";
+import { AutomationRunnerLive, AutomationRunnerService } from "../src/main/junto/automation/live";
 import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -29,7 +30,11 @@ import { makeRowsChannel, type RowsChannelContext } from "../src/main/junto/work
 import { makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
 import type { RowExchange } from "../src/main/junto/work/exchange/session";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { makeResourceSubmitLayer } from "../src/main/junto/work/resource-submit";
 import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
+import { ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
+import { ResourceRuler, ResourceRulerLive } from "../src/main/junto/work/resource-ruler";
 import { ModelService } from "../src/main/junto/model/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { AutomationId, type AutomationDefinition, type AutomationOp } from "../src/shared/automation";
@@ -40,7 +45,7 @@ import { Command } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ResourceCommand } from "../src/shared/resource-command";
 import { OpId } from "../src/shared/work-ids";
-import { automations, seat } from "./support/model-nodes";
+import { automations, seat, taskBoard } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 
 const id = Schema.decodeUnknownSync(InstallationId);
@@ -51,29 +56,32 @@ const NIGHTLY = Schema.decodeUnknownSync(AutomationId)("01M62AAAAAAAAAAAAAAAAAAA
 const command = Schema.decodeUnknownSync(Command);
 const ROUTINES = Schema.decodeUnknownSync(AutomationNodeId)("routines");
 
-const makeRuntime = (root: string, name: string, installation: InstallationId) =>
-  ManagedRuntime.make(
+const makeRuntime = (root: string, name: string, installation: InstallationId) => {
+  const stores = Layer.provideMerge(
+    Layer.mergeAll(WorkLive, makeAutomationRepositoryLive(), RulingRecorderLive),
     Layer.provideMerge(
-      Layer.mergeAll(WorkLive, makeAutomationRepositoryLive(), RulingRecorderLive),
+      ModelStoresLive,
       Layer.provideMerge(
-        ModelStoresLive,
-        Layer.provideMerge(
-          Layer.mergeAll(
-            WorkRepositoryLive,
-            CrewRepositoryLive,
-            makeSettingsLive(),
-            makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
-            SeatGuidanceRepositoryLive,
-            AgentSignalRepositoryLive,
-            ReferencesRepositoryLive,
-            Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
-            makeMachineRepositoryLive({ defaultName: () => name, makeInstallationId: () => installation }),
-          ),
-          Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
+        Layer.mergeAll(
+          WorkRepositoryLive,
+          CrewRepositoryLive,
+          makeSettingsLive(),
+          makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+          SeatGuidanceRepositoryLive,
+          AgentSignalRepositoryLive,
+          ReferencesRepositoryLive,
+          Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
+          makeMachineRepositoryLive({ defaultName: () => name, makeInstallationId: () => installation }),
         ),
+        Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
       ),
     ),
   );
+  // The runner over the task ruler and the submit path that queues a write off the editing machine,
+  // and the ruler of queued commands, as the editing machine runs it.
+  const rulers = Layer.provideMerge(Layer.mergeAll(TaskRepositoryLive, ArtifactRepositoryLive, makeResourceSubmitLayer(() => true)), stores);
+  return ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(AutomationRunnerLive, ResourceRulerLive), rulers));
+};
 
 type Machine = {
   readonly name: string;
@@ -165,7 +173,7 @@ const definition: AutomationDefinition = {
 const env: AutomationEnv = { targetsOf: () => new Set([asNodeId("lead")]), isOverseer: () => false };
 
 /** The operator's automation command, ruled on the macbook with the real model. */
-const rule = (macbook: Machine, op: AutomationOp, opId: string) =>
+const rule = (macbook: Machine, op: AutomationOp, opId: string, ruledEnv: AutomationEnv = env) =>
   macbook.runtime.runPromise(
     submitAutomationCommand(
       MACBOOK,
@@ -179,7 +187,7 @@ const rule = (macbook: Machine, op: AutomationOp, opId: string) =>
         op,
       } as unknown as ResourceCommand<AutomationOp>,
       { inReach: () => true },
-      env,
+      ruledEnv,
     ),
   );
 
@@ -320,4 +328,42 @@ it("keeps a machine whose only automation moved away holding the canvas until it
   // Let go, it holds the canvas no longer: a row it still writes is refused, and nothing is written.
   expect(String(await mailFromMini(mini, "nightly-after-it-was-let-go", placed))).toContain("may not pass on this writer's rows");
   expect(await inbox(macbook)).not.toContain("nightly-after-it-was-let-go");
+});
+
+it("fires on the machine that holds only a copy: its mail reaches a seat on the editing machine and its task is queued there", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, peer, automations("routines", { x: 400, y: 0 }), taskBoard("board", { x: 800, y: 0 })]));
+  const every: AutomationDefinition = {
+    ...definition,
+    then: [
+      { kind: "mail", to: { kind: "seat", nodeId: asNodeId("lead") }, text: "To the macbook's seat" },
+      { kind: "mail", to: { kind: "seat", nodeId: asNodeId("peer") }, text: "To the mini's seat" },
+      { kind: "create-task", node: asNodeId("board"), title: "Filed from the mini" },
+    ],
+  };
+  const reach: AutomationEnv = { targetsOf: () => new Set(["lead", "peer", "board"].map(asNodeId)), isOverseer: () => false };
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition: every }, "01M62ADDDDDDDDDDDDDDDDDDD1", reach)).kind).toBe("applied");
+  expect(await link(macbook, mini)).toBeUndefined();
+
+  const firing = await mini.runtime.runPromise(Effect.flatMap(AutomationRunnerService, (runner) => runner.onRun("factory", NIGHTLY)));
+  expect(firing?.outcome).toEqual({
+    kind: "fired",
+    actions: [
+      { index: 0, ruling: "applied" },
+      { index: 1, ruling: "applied" },
+      { index: 2, ruling: "queued" },
+    ],
+  });
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect((await inbox(macbook)).length).toBe(1);
+  // The macbook rules the queued create as it rules any queued command.
+  await macbook.runtime.runPromise(Effect.flatMap(ResourceRuler, (ruler) => ruler.sweep("factory")));
+  const filed = await macbook.runtime.runPromise(
+    Effect.flatMap(TaskRepository, (tasks) => tasks.list("factory", { nodeIds: [asNodeId("board")], limit: 10 })),
+  );
+  expect(filed.tasks.map((task) => task.title)).toEqual(["Filed from the mini"]);
 });
