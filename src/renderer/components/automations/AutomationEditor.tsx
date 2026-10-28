@@ -42,6 +42,7 @@ import {
   type TriggerDraft,
   type WatchDraft,
   type WatchMode,
+  type ArtifactTarget,
 } from "../../lib/automation-editor";
 import type { MentionCandidate, MentionTrigger } from "../../lib/mention-draft";
 import { useMentionItems } from "../../lib/mention-items";
@@ -210,6 +211,115 @@ function ScopeSelect({
   );
 }
 
+/** An artifact watch with its label as typed; an empty one is no label. */
+const withLabel = (watch: Extract<WatchDraft, { readonly kind: "artifact" }>, label: string): WatchDraft => {
+  const { label: _old, ...rest } = watch;
+  return label === "" ? rest : { ...rest, label };
+};
+
+/** One label, typed. Folded and checked when the automation is saved, as the artifact header folds it. */
+function LabelField({ label, value, onChange }: { readonly label: string; readonly value: string | undefined; readonly onChange: (label: string) => void }) {
+  return (
+    <Input
+      dense
+      className="automation-editor__label-field"
+      value={value ?? ""}
+      spellCheck={false}
+      aria-label={label}
+      placeholder="any label"
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+const typedLabels = (text: string): ReadonlyArray<string> =>
+  text
+    .split(",")
+    .map((label) => label.trim())
+    .filter((label) => label !== "");
+
+/**
+ * Labels typed as a list, comma between them. The text stays as typed while
+ * it says the same labels, so a trailing comma is not taken away mid-word.
+ */
+function LabelsField({
+  label,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly value: ReadonlyArray<string> | undefined;
+  readonly onChange: (labels: ReadonlyArray<string> | undefined) => void;
+}) {
+  const [text, setText] = useState(() => (value ?? []).join(", "));
+  const same = typedLabels(text).join("\u0000") === (value ?? []).join("\u0000");
+  return (
+    <FieldLabel>
+      {label}
+      <Input
+        dense
+        value={same ? text : (value ?? []).join(", ")}
+        spellCheck={false}
+        aria-label={label}
+        placeholder="publish, weekly"
+        onChange={(event) => {
+          setText(event.target.value);
+          const labels = typedLabels(event.target.value);
+          onChange(labels.length === 0 ? undefined : labels);
+        }}
+      />
+    </FieldLabel>
+  );
+}
+
+const FIRED = "fired";
+
+/**
+ * Which artifact an artifact action writes: the one that fired, offered under
+ * an artifact trigger, or one picked. A loaded "fired" stays offered under any
+ * trigger, so the field never reads as something else; the save says why.
+ */
+function ArtifactTargetFields({
+  label,
+  pickerLabel,
+  to,
+  onChange,
+  pickers,
+  artifactFired,
+}: {
+  readonly label: string;
+  readonly pickerLabel: string;
+  readonly to: ArtifactTarget | undefined;
+  readonly onChange: (to: ArtifactTarget | undefined) => void;
+  readonly pickers: Pickers;
+  readonly artifactFired: boolean;
+}) {
+  const fired = to !== undefined && "fired" in to;
+  return (
+    <>
+      <Select
+        aria-label={label}
+        value={fired ? FIRED : ONE}
+        options={[
+          ...(artifactFired || fired ? [{ value: FIRED, label: "the artifact that fired" }] : []),
+          { value: ONE, label: "one artifact" },
+        ]}
+        onChange={(value) => onChange(value === FIRED ? { fired: true } : undefined)}
+      />
+      {fired ? null : (
+        <TargetPicker
+          {...pickers}
+          kinds={["artifact"]}
+          label={pickerLabel}
+          placeholder="#artifact"
+          value={to?.kind === "artifact" ? to : undefined}
+          onChange={(artifact) => onChange(artifact)}
+        />
+      )}
+    </>
+  );
+}
+
 /**
  * A watch as a sentence: "a task in Release becomes done", "a task named #42
  * becomes done". A trigger reads "becomes", a condition "is"; the trigger's
@@ -300,6 +410,16 @@ function WatchFields({
       ) : null}
       {watch.kind === "artifact" ? (
         <>
+          {watch.event === "labelled" ? null : (
+            <>
+              <Word>labelled</Word>
+              <LabelField
+                label="Only with this label, optional"
+                value={watch.label}
+                onChange={(label) => onChange(withLabel(watch, label))}
+              />
+            </>
+          )}
           <ScopeSelect
             lostLabel="an Artifacts node out of reach"
             nodes={pickers.artifactNodes}
@@ -324,6 +444,9 @@ function WatchFields({
             options={ARTIFACT_EVENTS.map((event) => ({ value: event, label: ARTIFACT_EVENT_WORD[event] }))}
             onChange={(event) => onChange({ ...watch, event: event as typeof watch.event })}
           />
+          {watch.event === "labelled" ? (
+            <LabelField label="The label it gains, or any" value={watch.label} onChange={(label) => onChange(withLabel(watch, label))} />
+          ) : null}
         </>
       ) : null}
       {watch.kind === "signal" ? (
@@ -441,12 +564,15 @@ function ActionFields({
   pickers,
   values,
   onEditCode,
+  artifactFired,
 }: {
   readonly action: ActionDraft;
   readonly onChange: (action: ActionDraft) => void;
   readonly pickers: Pickers;
   /** The values this automation's trigger carries, for the Insert value list. */
   readonly values: ReadonlyArray<ValueChoice>;
+  /** Whether the trigger is an artifact change, so an artifact action may write the one that fired. */
+  readonly artifactFired: boolean;
   /** Opens this step's code; absent where the editor is read alone. */
   readonly onEditCode?: (() => void) | undefined;
 }) {
@@ -598,6 +724,102 @@ function ActionFields({
             placeholder="What the comment says"
             values={values}
             onValue={(text) => onChange({ ...action, text })}
+          />
+        </>
+      );
+    case "create-artifact":
+      return (
+        <>
+          <Select
+            aria-label="Artifacts node"
+            placeholder="Pick an Artifacts node"
+            value={action.node ?? ""}
+            options={pickers.artifactNodes.map((node) => ({ value: node.id, label: node.title }))}
+            onChange={(node) => onChange({ ...action, node: node as NodeId })}
+          />
+          <ActionText
+            label="Artifact title"
+            noun="artifact's title"
+            multiline={false}
+            value={action.title}
+            placeholder="Artifact title"
+            values={values}
+            onValue={(title) => onChange({ ...action, title })}
+          />
+          <ActionText
+            label="Artifact body, optional"
+            noun="artifact's body"
+            value={action.body ?? ""}
+            placeholder="What the document says, optional"
+            values={values}
+            onValue={(body) => {
+              const { body: _old, ...rest } = action;
+              onChange(body === "" ? rest : { ...rest, body });
+            }}
+          />
+          <LabelsField
+            label="Labels, optional"
+            value={action.labels}
+            onChange={(labels) => {
+              const { labels: _old, ...rest } = action;
+              onChange(labels === undefined ? rest : { ...rest, labels });
+            }}
+          />
+        </>
+      );
+    case "append-artifact":
+      return (
+        <>
+          <ArtifactTargetFields
+            label="Append to"
+            pickerLabel="Artifact to append to"
+            to={action.to}
+            pickers={pickers}
+            artifactFired={artifactFired}
+            onChange={(to) => {
+              const { to: _old, ...rest } = action;
+              onChange(to === undefined ? rest : { ...rest, to });
+            }}
+          />
+          <ActionText
+            label="Text to append"
+            noun="appended text"
+            value={action.text}
+            placeholder="What to add at the end"
+            values={values}
+            onValue={(text) => onChange({ ...action, text })}
+          />
+        </>
+      );
+    case "label-artifact":
+      return (
+        <>
+          <ArtifactTargetFields
+            label="Label"
+            pickerLabel="Artifact to label"
+            to={action.to}
+            pickers={pickers}
+            artifactFired={artifactFired}
+            onChange={(to) => {
+              const { to: _old, ...rest } = action;
+              onChange(to === undefined ? rest : { ...rest, to });
+            }}
+          />
+          <LabelsField
+            label="Labels to add"
+            value={action.add}
+            onChange={(add) => {
+              const { add: _old, ...rest } = action;
+              onChange(add === undefined ? rest : { ...rest, add });
+            }}
+          />
+          <LabelsField
+            label="Labels to remove"
+            value={action.remove}
+            onChange={(remove) => {
+              const { remove: _old, ...rest } = action;
+              onChange(remove === undefined ? rest : { ...rest, remove });
+            }}
           />
         </>
       );
@@ -779,6 +1001,7 @@ export function AutomationEditor({
                   action={action}
                   pickers={pickers}
                   values={values}
+                  artifactFired={draft.trigger.kind === "change" && draft.trigger.on.kind === "artifact"}
                   onEditCode={onEditCode === undefined ? undefined : () => onEditCode(index)}
                   onChange={(next) => edit({ type: "action", index, action: next })}
                 />

@@ -40,6 +40,7 @@ import {
   type Watch,
   type WatchedSignal,
 } from "@shared/automation";
+import { artifactLabelsOf } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { TASK_STATES } from "@shared/task-model";
@@ -57,8 +58,14 @@ export type TargetRef = SeatWatch["seat"];
 export type TaskTarget = TaskWatch["task"];
 export type TaskBecomes = TaskWatch["becomes"];
 /** An artifact, or any artifact in one Artifacts node, as a task watch's `{node}` is any task on a board. */
-export type ArtifactTarget = ArtifactWatch["artifact"];
-export type ArtifactEvent = ArtifactWatch["event"];
+export type ArtifactScope = ArtifactWatch["artifact"];
+/**
+ * What an artifact watch waits for. `labelled` (B1, plan 0.11/05 Next) is a
+ * stand-in for automation-lead's names until they land in `@shared/automation`.
+ */
+export type ArtifactEvent = ArtifactWatch["event"] | "labelled";
+/** The artifact an artifact action writes: one picked, or the one that fired (B1 stand-in). */
+export type ArtifactTarget = TargetRef | { readonly fired: true };
 type CommentAction = Extract<Action, { readonly kind: "comment" }>;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
 export type CommentTarget = CommentAction["on"];
@@ -66,11 +73,12 @@ export type CommentTarget = CommentAction["on"];
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
-export type ActionKind = Action["kind"];
+/** The contract's action kinds, and B1's artifact actions until they land in it (stand-in). */
+export type ActionKind = Action["kind"] | "create-artifact" | "append-artifact" | "label-artifact";
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
-export const ARTIFACT_EVENTS: ReadonlyArray<ArtifactEvent> = ["edited", "commented"];
+export const ARTIFACT_EVENTS: ReadonlyArray<ArtifactEvent> = ["edited", "commented", "labelled"];
 export const SIGNALS: ReadonlyArray<WatchedSignal> = ["escalate", "blocked", "feedback"];
 
 // ── The draft ──────────────────────────────────────────────────────────────
@@ -78,11 +86,21 @@ export const SIGNALS: ReadonlyArray<WatchedSignal> = ["escalate", "blocked", "fe
 export type WatchDraft =
   | { readonly kind: "seat"; readonly seat?: TargetRef; readonly becomes: SeatBecomes }
   | { readonly kind: "task"; readonly task?: TaskTarget; readonly becomes: TaskBecomes }
-  | { readonly kind: "artifact"; readonly artifact?: ArtifactTarget; readonly event: ArtifactEvent }
+  | {
+      readonly kind: "artifact";
+      readonly artifact?: ArtifactScope;
+      readonly event: ArtifactEvent;
+      /**
+       * As typed, folded when it is finished. With `edited` or `commented`,
+       * only an artifact carrying it; with `labelled`, the label it gains,
+       * any label when there is none.
+       */
+      readonly label?: string;
+    }
   | { readonly kind: "signal"; readonly from?: TargetRef; readonly signal: WatchedSignal };
 
 /** The node a task or artifact watch covers, or undefined for one item, picked or not. */
-export const watchedNode = (target: TaskTarget | ArtifactTarget | undefined): NodeId | undefined =>
+export const watchedNode = (target: TaskTarget | ArtifactScope | undefined): NodeId | undefined =>
   target === undefined || "kind" in target ? undefined : target.node;
 
 export type ConditionDraft = Extract<WatchDraft, { readonly kind: ConditionKind }>;
@@ -118,6 +136,23 @@ export type ActionDraft =
       /** Kept as loaded; the editor does not pick anchors. */
       readonly anchor?: CommentAction["anchor"];
       readonly text: string;
+    }
+  /** A document in an Artifacts node. No body stores an empty document; labels as typed, folded when finished. */
+  | {
+      readonly kind: "create-artifact";
+      readonly node?: NodeId;
+      readonly title: string;
+      readonly body?: string;
+      readonly labels?: ReadonlyArray<string>;
+    }
+  /** Text written at a document's end, exactly as written: the editor starts it with a dated heading. */
+  | { readonly kind: "append-artifact"; readonly to?: ArtifactTarget; readonly text: string }
+  /** Labels added to and removed from one artifact, as typed. */
+  | {
+      readonly kind: "label-artifact";
+      readonly to?: ArtifactTarget;
+      readonly add?: ReadonlyArray<string>;
+      readonly remove?: ReadonlyArray<string>;
     };
 
 export type AutomationDraft = {
@@ -201,10 +236,19 @@ export const blankAction = (kind: ActionKind): ActionDraft => {
       return { kind };
     case "comment":
       return { kind, text: "" };
+    case "create-artifact":
+      return { kind, title: "" };
+    case "append-artifact":
+      return { kind, text: APPEND_HEADING };
+    case "label-artifact":
+      return { kind };
     default:
       return kind satisfies never;
   }
 };
+
+/** A new append starts as a dated section: the heading names when it fired. */
+export const APPEND_HEADING = "## {{fired.at}}\n\n";
 
 /** A new automation: a weekday morning schedule that mails nobody yet. */
 export const newDraft = (
@@ -369,7 +413,12 @@ export const editDraft = (draft: AutomationDraft, edit: DraftEdit): AutomationDr
  * and the seat a mail or a prompt was addressed to.
  */
 const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
-  const text = old.kind === "mail" || old.kind === "prompt" || old.kind === "comment" ? old.text : old.kind === "create-task" ? old.title : "";
+  const text =
+    old.kind === "mail" || old.kind === "prompt" || old.kind === "comment" || old.kind === "append-artifact"
+      ? old.text
+      : old.kind === "create-task" || old.kind === "create-artifact"
+        ? old.title
+        : "";
   const seat = old.kind === "mail" || old.kind === "prompt" ? old.to : undefined;
   switch (kind) {
     case "mail":
@@ -384,6 +433,12 @@ const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
       return { kind };
     case "code":
       return blankAction("code");
+    case "create-artifact":
+      return { kind, title: old.kind === "create-task" ? old.title : "", ...(text === "" || old.kind === "create-task" ? {} : { body: text }) };
+    case "append-artifact":
+      return { kind, text: text === "" ? APPEND_HEADING : text };
+    case "label-artifact":
+      return { kind };
     default:
       return kind satisfies never;
   }
@@ -440,7 +495,8 @@ const watchProblem = (watch: WatchDraft): string | undefined => {
     case "task":
       return watch.task === undefined ? "Pick the task to watch." : undefined;
     case "artifact":
-      return watch.artifact === undefined ? "Pick the artifact to watch." : undefined;
+      if (watch.artifact === undefined) return "Pick the artifact to watch.";
+      return watch.label === undefined || watch.label.trim() === "" ? undefined : labelsProblem([watch.label]);
     case "signal":
       return undefined;
     default:
@@ -481,7 +537,25 @@ const valueProblem = (text: string, carried: ReadonlyArray<string>, afterCode: b
   return `This trigger carries no {{${missing}}}. It carries ${carried.map((name) => `{{${name}}}`).join(", ")}.`;
 };
 
-const actionProblem = (action: ActionDraft, carried: ReadonlyArray<string>, afterCode: boolean): string | undefined => {
+const LABEL_RULE = "A label is lowercase letters, numbers, spaces, - _ and /, 40 at most.";
+
+/** Labels as typed: undefined when every one folds to a label, else why not. */
+const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
+  artifactLabelsOf(labels) === undefined ? (labels.length > 20 ? "An artifact carries at most 20 labels." : LABEL_RULE) : undefined;
+
+/** Labels as typed, folded, unique and sorted, or none. */
+const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
+  artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
+
+const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
+
+const actionProblem = (
+  action: ActionDraft,
+  carried: ReadonlyArray<string>,
+  afterCode: boolean,
+  /** Whether the trigger is an artifact change, so "the artifact that fired" means something. */
+  artifactFired: boolean,
+): string | undefined => {
   switch (action.kind) {
     case "mail":
       if (action.to === undefined) return "Pick who the mail goes to.";
@@ -506,6 +580,33 @@ const actionProblem = (action: ActionDraft, carried: ReadonlyArray<string>, afte
         return `A code step waits ${AUTOMATION_CODE_TIMEOUT_MIN_MS / 1000} seconds to ${AUTOMATION_CODE_TIMEOUT_MAX_MS / 1000 / 60} minutes.`;
       return action.source === undefined ? "Write the code for this step." : undefined;
     }
+    case "create-artifact":
+      if (action.node === undefined) return "Pick the Artifacts node.";
+      return (
+        textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "artifact title") ??
+        valueProblem(action.title, carried, afterCode) ??
+        (action.body !== undefined && action.body.trim().length > AUTOMATION_TEXT_MAX_CHARS
+          ? `The body is longer than ${AUTOMATION_TEXT_MAX_CHARS} characters.`
+          : undefined) ??
+        valueProblem(action.body ?? "", carried, afterCode) ??
+        labelsProblem((action.labels ?? []).filter((label) => label.trim() !== ""))
+      );
+    case "append-artifact":
+      if (action.to === undefined) return "Pick the artifact to append to.";
+      if ("fired" in action.to && !artifactFired) return FIRED_NEEDS_ARTIFACT;
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "text to append") ?? valueProblem(action.text, carried, afterCode);
+    case "label-artifact": {
+      if (action.to === undefined) return "Pick the artifact to label.";
+      if ("fired" in action.to && !artifactFired) return FIRED_NEEDS_ARTIFACT;
+      const typed = (labels: ReadonlyArray<string> | undefined) => (labels ?? []).filter((label) => label.trim() !== "");
+      const problem = labelsProblem(typed(action.add)) ?? labelsProblem(typed(action.remove));
+      if (problem) return problem;
+      const add = foldedLabels(action.add);
+      const remove = foldedLabels(action.remove);
+      if (add.length === 0 && remove.length === 0) return "Name a label to add or remove.";
+      const both = add.find((label) => remove.includes(label));
+      return both === undefined ? undefined : `${both} is both added and removed. Keep it in one.`;
+    }
     default:
       return action satisfies never;
   }
@@ -526,8 +627,9 @@ export const draftProblems = (draft: AutomationDraft): ReadonlyArray<DraftProble
   const carried = automationValuesOf(draft.trigger);
   /** Whether a code step ran before this action, so it may name `{{code.<field>}}`. */
   let afterCode = false;
+  const artifactFired = draft.trigger.kind === "change" && draft.trigger.on.kind === "artifact";
   draft.then.forEach((action, index) => {
-    const message = actionProblem(action, carried, afterCode);
+    const message = actionProblem(action, carried, afterCode, artifactFired);
     if (message) problems.push({ at: "action", index, message });
     if (action.kind === "code") afterCode = true;
   });
@@ -549,12 +651,20 @@ const triggerOf = (trigger: TriggerDraft): unknown => {
     case "poll":
       return { kind: "poll", everyMs: minutesMs(trigger.everyMinutes) };
     case "change":
-      return { kind: "change", on: trigger.on };
+      return { kind: "change", on: watchOf(trigger.on) };
     case "webhook":
       return trigger;
     default:
       return trigger satisfies never;
   }
+};
+
+/** A watch as the contract takes it: an artifact watch's label folded, and gone when none was typed. */
+const watchOf = (watch: WatchDraft): unknown => {
+  if (watch.kind !== "artifact") return watch;
+  const { label, ...rest } = watch;
+  const folded = label === undefined ? undefined : label.trim().toLowerCase();
+  return folded === undefined || folded === "" ? rest : { ...rest, label: folded };
 };
 
 const actionOf = (action: ActionDraft): unknown => {
@@ -574,6 +684,30 @@ const actionOf = (action: ActionDraft): unknown => {
         source: action.source,
         timeoutMs: codeTimeoutMs(action.timeoutSeconds),
       };
+    case "create-artifact": {
+      const body = action.body?.trim() ?? "";
+      const labels = foldedLabels(action.labels);
+      return {
+        kind: action.kind,
+        node: action.node,
+        title: action.title.trim(),
+        ...(body === "" ? {} : { body }),
+        ...(labels.length === 0 ? {} : { labels }),
+      };
+    }
+    case "append-artifact":
+      // Exactly as written: the heading's blank line and the text's own spacing are the operator's.
+      return action;
+    case "label-artifact": {
+      const add = foldedLabels(action.add);
+      const remove = foldedLabels(action.remove);
+      return {
+        kind: action.kind,
+        to: action.to,
+        ...(add.length === 0 ? {} : { add }),
+        ...(remove.length === 0 ? {} : { remove }),
+      };
+    }
     default:
       return action satisfies never;
   }
@@ -597,7 +731,7 @@ export const finishDraft = (draft: AutomationDraft): FinishedDraft => {
   const decoded = decodeDefinition({
     name: draft.name.trim(),
     trigger: triggerOf(draft.trigger),
-    ...(draft.when.length > 0 ? { when: draft.when.map((condition) => ({ ...condition, holds: true })) } : {}),
+    ...(draft.when.length > 0 ? { when: draft.when.map((condition) => ({ ...(watchOf(condition) as object), holds: true })) } : {}),
     then: draft.then.map(actionOf),
     limits: {
       minIntervalMs: minutesMs(draft.minIntervalMinutes),
@@ -611,7 +745,6 @@ export const finishDraft = (draft: AutomationDraft): FinishedDraft => {
 
 // ── Words ──────────────────────────────────────────────────────────────────
 
-/** How a target is named in a sentence: `@product-feed`, `#42 fix tabs`. */
 /** A task board or Artifacts node a watch covers whole: any task, or any artifact, in it. */
 export type NodeScope = { readonly node: NodeId };
 /** How a target, or a node a watch covers whole, is named in a sentence: `@product-feed`, `#42 fix tabs`, `Release`. */
@@ -627,7 +760,7 @@ const becomesWords: Readonly<Record<SeatBecomes, string>> = {
 const taskWords = (task: TaskTarget | undefined, nameOf: NameOf): string =>
   task === undefined ? "a task" : "kind" in task ? nameOf(task) : `any task on ${nameOf(task)}`;
 
-const artifactWords = (artifact: ArtifactTarget | undefined, nameOf: NameOf): string =>
+const artifactWords = (artifact: ArtifactScope | undefined, nameOf: NameOf): string =>
   artifact === undefined ? "an artifact" : "kind" in artifact ? nameOf(artifact) : `any artifact in ${nameOf(artifact)}`;
 
 const signalWords: Readonly<Record<WatchedSignal, string>> = {
@@ -642,8 +775,12 @@ export const watchWords = (watch: WatchDraft, nameOf: NameOf): string => {
       return `${watch.seat ? nameOf(watch.seat) : "a seat"} ${becomesWords[watch.becomes]}`;
     case "task":
       return `${taskWords(watch.task, nameOf)} is ${watch.becomes.replace("-", " ")}`;
-    case "artifact":
-      return `${artifactWords(watch.artifact, nameOf)} is ${watch.event}`;
+    case "artifact": {
+      const label = watch.label?.trim().toLowerCase() || undefined;
+      const what = artifactWords(watch.artifact, nameOf);
+      if (watch.event === "labelled") return `${what} is labelled ${label ?? "anything"}`;
+      return `${what}${label === undefined ? "" : ` labelled ${label}`} is ${ARTIFACT_EVENT_WORD[watch.event]}`;
+    }
     case "signal":
       return `${watch.from ? nameOf(watch.from) : "any seat"} ${signalWords[watch.signal]}`;
     default:
@@ -693,7 +830,8 @@ export const cadenceWords = (trigger: TriggerDraft): string | undefined => {
 };
 
 /** What each value is, in a few words, beside its name in the Insert value list. */
-export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
+// `artifact.labels` joins with B1 (stand-in): the key stays when the contract names it.
+export const VALUE_WORDS: Readonly<Record<AutomationValue | "artifact.labels", string>> = {
   "task.title": "the task's title",
   "task.state": "the state it became",
   "task.link": "a link to it",
@@ -702,6 +840,7 @@ export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
   "artifact.title": "the artifact's title",
   "artifact.link": "a link to it",
   "artifacts.title": "the Artifacts node's name",
+  "artifact.labels": "its labels, comma separated",
   "seat.name": "the seat's name",
   "seat.state": "the state it became",
   "signal.kind": "escalate, blocked or feedback",
@@ -709,6 +848,9 @@ export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
   "signal.text": "what it says",
   "fired.at": "when it fired",
 };
+
+const artifactTargetWords = (to: ArtifactTarget | undefined, nameOf: NameOf): string =>
+  to === undefined ? "an artifact" : "fired" in to ? "the artifact that fired" : nameOf(to);
 
 export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
   switch (action.kind) {
@@ -724,6 +866,12 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
       return `comment on ${action.on ? nameOf(action.on) : "a task, artifact or page"}`;
     case "code":
       return `run ${action.language === "typescript" ? "TypeScript" : "shell"} code`;
+    case "create-artifact":
+      return `create an artifact${action.node ? ` in ${nameOf({ node: action.node })}` : ""}`;
+    case "append-artifact":
+      return `append to ${artifactTargetWords(action.to, nameOf)}`;
+    case "label-artifact":
+      return `label ${artifactTargetWords(action.to, nameOf)}`;
     default:
       return action satisfies never;
   }
@@ -736,6 +884,9 @@ export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
   "assign-task": "Assign a task",
   comment: "Comment",
   code: "Run code",
+  "create-artifact": "Create an artifact",
+  "append-artifact": "Append to an artifact",
+  "label-artifact": "Label an artifact",
 };
 
 export const TRIGGER_LABEL: Readonly<Record<EditableTriggerKind, string>> = {
@@ -772,6 +923,7 @@ export const taskStateWord = (state: TaskBecomes): string => state.replace("-", 
 export const ARTIFACT_EVENT_WORD: Readonly<Record<ArtifactEvent, string>> = {
   edited: "edited",
   commented: "commented on",
+  labelled: "labelled",
 };
 
 /** A signal as the sentence's verb: "When a signal from any seat says blocked". */
