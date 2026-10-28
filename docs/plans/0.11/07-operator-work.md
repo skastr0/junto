@@ -100,6 +100,32 @@ crossing Rule 9 did not allow, and this is its one exception. Shape
 6. **Doctrine.** Rule 9 gains this one crossing, and the security doctrine
    gains the frame and its admission, reviewed by remote-security.
 
+remote-security's conditions, part of the shape:
+
+- **The asker's own record names the target.** The frame carries the
+  request id and the value only. The asking machine stores the value under
+  the secret name and region it recorded when it raised the request, never
+  a name taken from the frame.
+- **Only a declared region secret.** The name must be one the region's
+  environment declares for that machine, in the region-secret namespace. A
+  request for any other store entry (the Boat account key, a link key, a
+  harness credential) is refused when it is raised.
+- **Admission on both ends.** The asking machine takes `secret.deliver` only
+  over the key-bound link of a listed machine. The sender sends it only from
+  the trusted window or an owner command, never from a seat's environment.
+- **The window keeps nothing.** The field is never in a draft, view state,
+  undo, an IPC log or a crash report. It is cleared after the attempt and
+  never retried on its own. A timeout may have landed, so the asking machine
+  reports set or not set in a row that carries names only.
+- **Scrubbed in flight.** Both ends search the value out of every log and
+  error on this path, since it is in no child's environment yet.
+- **The form names who asks:** the machine, the seat or automation, the
+  region and the secret name. Once set, anything on that machine's account
+  can read it, so a hostile asker gets what the operator types. The form is
+  the operator's judgment, not a check.
+- **No platform store means no encryption.** On a machine without one, the
+  owner-only file is not encrypted, and the form says so.
+
 | Track | Owner | Reviewer |
 |---|---|---|
 | N1 the secret form's contract: the request, the reply record, the form | product-feed | remote-lead |
