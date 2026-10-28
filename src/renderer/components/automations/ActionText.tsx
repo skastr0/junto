@@ -14,6 +14,7 @@ export type ValueChoice = { readonly name: string; readonly words: string };
 
 export function ActionText({
   label,
+  noun,
   value,
   onValue,
   values,
@@ -23,6 +24,12 @@ export function ActionText({
 }: {
   /** The field's own name, for a reader: "Mail text". */
   readonly label: string;
+  /**
+   * What the Insert value control writes into, named apart from the field: a
+   * reader's control list shows both, and two names that overlap read as one
+   * control twice.
+   */
+  readonly noun: string;
   readonly value: string;
   readonly onValue: (text: string) => void;
   readonly values: ReadonlyArray<ValueChoice>;
@@ -77,7 +84,7 @@ export function ActionText({
         className="automation-editor__insert"
         triggerClassName="automation-editor__insert-trigger"
         menuClassName="automation-editor__insert-menu"
-        aria-label={`Insert a value into ${label.toLowerCase()}`}
+        aria-label={`Insert a value into the ${noun}`}
         placeholder="Insert value"
         value=""
         options={values.map((choice) => ({

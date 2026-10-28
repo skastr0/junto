@@ -44,7 +44,7 @@ const flush = async (): Promise<void> => {
 /** A text that keeps what it is given, as the editor's draft does. */
 function Harness({ initial = "" }: { readonly initial?: string }) {
   const [text, setText] = useState(initial);
-  return <ActionText label="Mail text" value={text} onValue={setText} values={VALUES} placeholder="What the mail says" />;
+  return <ActionText label="Mail text" noun="mail" value={text} onValue={setText} values={VALUES} placeholder="What the mail says" />;
 }
 
 const render = async (element: React.ReactElement): Promise<void> => {
@@ -85,7 +85,7 @@ describe("an action's text", () => {
   it("reads back over several lines, with Insert value beside it", async () => {
     await render(<Harness initial="Post your plan." />);
     expect(host.querySelector("textarea")?.value).toBe("Post your plan.");
-    expect(host.querySelector("button[aria-label='Insert a value into mail text']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='Insert a value into the mail']")).not.toBeNull();
   });
 
   it("lists the values it is given and writes one where the caret is", async () => {
@@ -93,7 +93,7 @@ describe("an action's text", () => {
     const field = host.querySelector("textarea")!;
     act(() => field.setSelectionRange(3, 3));
 
-    await click(host.querySelector("button[aria-label='Insert a value into mail text']")!);
+    await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
     const options = [...document.querySelectorAll("[role='option']")].map((option) => option.textContent ?? "");
     expect(options).toEqual(["{{seat.name}}the seat's name", "{{fired.at}}when it fired"]);
 
@@ -107,13 +107,13 @@ describe("an action's text", () => {
     const field = host.querySelector("textarea")!;
     act(() => field.setSelectionRange(4, 8));
 
-    await click(host.querySelector("button[aria-label='Insert a value into mail text']")!);
+    await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
     await click([...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("fired.at"))!);
     expect(field.value).toBe("Say {{fired.at}}.");
   });
 
   it("keeps a task's title on one line", async () => {
-    await render(<ActionText label="Task title" multiline={false} value="" onValue={() => undefined} values={VALUES} placeholder="Task title" />);
+    await render(<ActionText label="Task title" noun="task's title" multiline={false} value="" onValue={() => undefined} values={VALUES} placeholder="Task title" />);
     expect(host.querySelector("input")).not.toBeNull();
     expect(host.querySelector("textarea")).toBeNull();
   });
@@ -183,7 +183,7 @@ describe("the prompt action in the editor", () => {
       />,
     );
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Prompt text']")?.value).toBe("Check the release.");
-    expect(host.querySelector("button[aria-label='Insert a value into prompt text']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='Insert a value into the prompt']")).not.toBeNull();
     expect(draftProblems(promptDraft())).toEqual([]);
   });
 
