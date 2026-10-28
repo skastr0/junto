@@ -442,12 +442,16 @@ Each run:
 
 - Copies the bytes into a fresh 0700 directory made for that run, verifies
   that copy against the digest, and runs that copy, with the directory as
-  its working directory. The directory is removed after the run.
+  its working directory. The directory holds nothing but that copy, so no
+  project `.env`, `bunfig.toml`, `package.json` or `tsconfig.json` is there
+  to read, whatever the runtime's flags do. It is removed after the run.
 - Runs TypeScript with the core's own runtime by absolute path, never one
   found on `PATH`. Imports resolve only to the SDK and the runtime's
   built-ins: no package install, no package resolution from a folder, and no
   `.env`, `bunfig.toml`, `package.json` or `tsconfig.json` read from any
-  folder, the same as git config (Files node).
+  folder, the same as git config (Files node). The flags that do this are
+  unverified until a test plants each of those files in the run directory's
+  parent and in `HOME` and proves none loads and nothing installs.
 - Runs shell as `/bin/sh <path>`. The path is in argv; the source bytes, the
   trigger and its values never are.
 - Gives the child an environment of the region's values on that machine
