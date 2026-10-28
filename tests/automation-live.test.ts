@@ -162,8 +162,8 @@ describe("changesBetween, artifacts", () => {
 
 describe("signalChange", () => {
   it("hears a signal when it is raised, keyed by its id, and never when it closes", () => {
-    const raised = { signalId: "sig-1", nodeId: "agent-a", kind: "blocked", state: "open" } as const;
-    expect(signalChange(raised)).toEqual({ kind: "signal", key: "signal:sig-1", seat: "agent-a", signal: "blocked" });
+    const raised = { signalId: "sig-1", nodeId: "agent-a", kind: "blocked", state: "open", text: "stuck on the build" } as const;
+    expect(signalChange(raised)).toEqual({ kind: "signal", key: "signal:sig-1", seat: "agent-a", signal: "blocked", text: "stuck on the build" });
     expect(signalChange({ ...raised, state: "answered" })).toBeUndefined();
     expect(signalChange({ ...raised, state: "withdrawn" })).toBeUndefined();
   });

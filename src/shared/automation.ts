@@ -147,7 +147,8 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
   const Watch = Schema.Union([
     Schema.Struct(seatWatch),
     Schema.Struct(taskWatch),
-    Schema.Struct({ kind: Schema.Literal("artifact"), artifact: ref, event: ArtifactEvent }),
+    /** `{node}`: any artifact in that Artifacts node, as a task watch's `{node}` is any task on a board. */
+    Schema.Struct({ kind: Schema.Literal("artifact"), artifact: Schema.Union([ref, Schema.Struct({ node })]), event: ArtifactEvent }),
     /**
      * Without `from`, any seat's signal: the runner matches it only from seats
      * among `automationTargets(canvas, node, author)` at fire time, never a
@@ -181,6 +182,8 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
 
   const Action = Schema.Union([
     Schema.Struct({ kind: Schema.Literal("mail"), to: ref, text: Body }),
+    /** Mail delivered as a prompt (`junto msg send --prompt`): the seat is asked to act. `to` must be a seat (`actionRefusal`). */
+    Schema.Struct({ kind: Schema.Literal("prompt"), to: ref, text: Body }),
     Schema.Struct({ kind: Schema.Literal("create-task"), node, title: Name, assign: Schema.optionalKey(ref) }),
     Schema.Struct({ kind: Schema.Literal("assign-task"), task: ref, to: ref }),
     Schema.Struct({ kind: Schema.Literal("comment"), on: commentable, anchor: Schema.optionalKey(Anchor), text: Body }),
@@ -295,7 +298,7 @@ const watchNodes = (watch: Watch | Condition): ReadonlyArray<NodeId> => {
     case "task":
       return ["kind" in watch.task ? watch.task.nodeId : watch.task.node];
     case "artifact":
-      return [watch.artifact.nodeId];
+      return ["kind" in watch.artifact ? watch.artifact.nodeId : watch.artifact.node];
     case "signal":
       return watch.from === undefined ? [] : [watch.from.nodeId];
     default:
@@ -306,6 +309,7 @@ const watchNodes = (watch: Watch | Condition): ReadonlyArray<NodeId> => {
 const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
   switch (action.kind) {
     case "mail":
+    case "prompt":
       return [action.to.nodeId];
     case "create-task":
       return action.assign === undefined ? [action.node] : [action.node, action.assign.nodeId];
@@ -330,6 +334,84 @@ export const targetNodeIds = (automation: Automation): ReadonlyArray<NodeId> => 
   for (const condition of automation.when ?? []) for (const id of watchNodes(condition)) ids.add(id);
   for (const action of automation.then) for (const id of actionNodes(action)) ids.add(id);
   return [...ids];
+};
+
+/** A prompt goes to a seat only: anything else is refused when the automation is saved. */
+export const actionRefusal = (action: Action): Refusal | undefined =>
+  action.kind === "prompt" && action.to.kind !== "seat"
+    ? { reason: "invalid_input", message: "a prompt goes to a seat", next_step: "Name a seat as the prompt's to, or send mail instead" }
+    : undefined;
+
+// ── Values ─────────────────────────────────────────────────────────────────
+
+/**
+ * What an action's text may name of the thing that fired it, written
+ * `{{task.title}}` (0.11/05). Closed, and each trigger carries its own:
+ * `fired.at` every trigger, the rest a change trigger of that kind. Main
+ * resolves them at firing time; a value is inserted as text and never read
+ * again, so a title holding `{{x}}` stays `{{x}}`.
+ */
+export const AUTOMATION_VALUES = {
+  task: ["task.title", "task.state", "task.link", "task.assignee", "board.title"],
+  artifact: ["artifact.title", "artifact.link", "artifacts.title"],
+  seat: ["seat.name", "seat.state"],
+  signal: ["signal.kind", "signal.from", "signal.text"],
+  every: ["fired.at"],
+} as const;
+
+export const AutomationValue = Schema.Literals([
+  ...AUTOMATION_VALUES.task,
+  ...AUTOMATION_VALUES.artifact,
+  ...AUTOMATION_VALUES.seat,
+  ...AUTOMATION_VALUES.signal,
+  ...AUTOMATION_VALUES.every,
+]);
+export type AutomationValue = typeof AutomationValue.Type;
+
+/** The values a trigger carries, in the order an Insert value list shows them. */
+export const automationValuesOf = (trigger: Trigger): ReadonlyArray<AutomationValue> =>
+  trigger.kind === "change" ? [...AUTOMATION_VALUES[trigger.on.kind], ...AUTOMATION_VALUES.every] : AUTOMATION_VALUES.every;
+
+/** `{{word.word}}`, no spaces: anything else in braces is plain text. */
+const VALUE_TOKEN = /\{\{([a-z]+\.[a-z]+)\}\}/g;
+
+/** Each value name a text writes, in order, repeats kept. */
+export const valueNamesIn = (text: string): ReadonlyArray<string> => [...text.matchAll(VALUE_TOKEN)].map((match) => match[1]!);
+
+/** Each value token replaced by what `valueOf` says, in one pass, so a resolved value is never read again. */
+export const resolveValues = (text: string, valueOf: (name: AutomationValue) => string): string =>
+  text.replace(VALUE_TOKEN, (token, name: string) => (Schema.is(AutomationValue)(name) ? valueOf(name) : token));
+
+/** The text of an action that may name values, if it has one: a new task's title, or what it writes. */
+export const actionText = (action: Action): string | undefined => {
+  switch (action.kind) {
+    case "mail":
+    case "prompt":
+    case "comment":
+      return action.text;
+    case "create-task":
+      return action.title;
+    case "assign-task":
+      return undefined;
+    default:
+      return action satisfies never;
+  }
+};
+
+/** A value an action names that its trigger does not carry, refused when the automation is saved. */
+export const valueRefusal = (definition: Pick<AutomationDefinition, "trigger" | "then">): Refusal | undefined => {
+  const carried: ReadonlyArray<string> = automationValuesOf(definition.trigger);
+  for (const action of definition.then) {
+    const missing = valueNamesIn(actionText(action) ?? "").find((name) => !carried.includes(name));
+    if (missing !== undefined) {
+      return {
+        reason: "invalid_input",
+        message: `this trigger carries no {{${missing}}}`,
+        next_step: `Name only the values it carries: ${carried.map((name) => `{{${name}}}`).join(", ")}`,
+      };
+    }
+  }
+  return undefined;
 };
 
 // ── Firings ────────────────────────────────────────────────────────────────

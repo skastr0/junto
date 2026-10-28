@@ -200,9 +200,9 @@ describe("onChange", () => {
     const blocked = automation({ trigger: { kind: "change", on: { kind: "signal", signal: "blocked" } } });
     const h = await harness(blocked);
     try {
-      await h.go(h.runner.onChange(CANVAS, { kind: "signal", key: "s-1", seat: asNodeId("seat-b"), signal: "blocked" }));
+      await h.go(h.runner.onChange(CANVAS, { kind: "signal", key: "s-1", seat: asNodeId("seat-b"), signal: "blocked", text: "stuck" }));
       expect(await h.history()).toEqual([]);
-      await h.go(h.runner.onChange(CANVAS, { kind: "signal", key: "s-2", seat: asNodeId("seat-a2"), signal: "blocked" }));
+      await h.go(h.runner.onChange(CANVAS, { kind: "signal", key: "s-2", seat: asNodeId("seat-a2"), signal: "blocked", text: "stuck" }));
       expect(await h.history()).toHaveLength(1);
     } finally {
       await h.close();

@@ -492,7 +492,7 @@ describe("signal and seat-state triggers", () => {
     run(async (handlers, _changed, _sql, inApp) => {
       const onBlocked = { ...definition, trigger: { kind: "change", on: { kind: "signal", signal: "blocked" } } };
       await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onBlocked as never } });
-      const raised = { kind: "signal", key: "signal:sig-1", seat: asNodeId(SEAT), signal: "blocked" } as const;
+      const raised = { kind: "signal", key: "signal:sig-1", seat: asNodeId(SEAT), signal: "blocked", text: "stuck" } as const;
       const heard = Effect.gen(function* () {
         yield* (yield* AutomationRunnerService).heard("factory", raised);
       });

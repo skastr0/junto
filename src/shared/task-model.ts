@@ -410,7 +410,7 @@ export type TaskRuling =
 
 // ── the wire form of a command ─────────────────────────────────────────────
 
-const TASK_TITLE_MAX = 200;
+export const TASK_TITLE_MAX = 200;
 const TASK_BODY_MAX = 20_000;
 /** At most this many characters a finish's handoff note holds. */
 export const TASK_HANDOFF_MAX = 4096;

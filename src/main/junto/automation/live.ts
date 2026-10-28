@@ -24,9 +24,9 @@ import { createHash } from "node:crypto";
 import { Context, Duration, Effect, Layer, Option, Queue, Schedule, Schema, Semaphore, Stream } from "effect";
 import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
-import type { TaskState } from "@shared/task-model";
+import { TASK_TITLE_MAX, type TaskId, type TaskState } from "@shared/task-model";
 import type { SeatTask } from "@shared/seat-task-index";
-import { FiringId } from "@shared/automation";
+import { FiringId, resolveValues, valueNamesIn } from "@shared/automation";
 import { mailExtensionMetadata } from "@shared/crew";
 import { automationActorRef, AutomationNodeId } from "@shared/mail-author";
 import { automationSenderStamp } from "@shared/mail-sender";
@@ -59,6 +59,7 @@ import { type ChangeEvent } from "./plan";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
 import { SeatStateSource } from "./seat-state-source";
 import type { SeatStateFiring } from "@shared/seat-state-trigger";
+import { type Fired, type FiredReads, firedValue } from "./values";
 
 /** How often the loop looks for due slots: cron and poll slots are minutes apart. */
 export const AUTOMATION_TICK = Duration.seconds(15);
@@ -284,10 +285,15 @@ export const performAction = (
   action: Action,
   index: number,
   firingId: FiringId,
+  /** The action's text with its `{{name}}` values said as this firing says them. */
+  resolve: (text: string) => Effect.Effect<string> = Effect.succeed,
 ) =>
   Effect.gen(function* () {
     switch (action.kind) {
-      case "mail": {
+      case "mail":
+      case "prompt": {
+        // A prompt is mail the seat is asked to act on (`junto msg send --prompt`); mail only tells it.
+        if (action.kind === "prompt" && action.to.kind !== "seat") return { index, ruling: "refused", reason: "invalid_input" } as const;
         const from = decodeAutomationNode(automation.nodeId);
         if (Option.isNone(work) || Option.isNone(from)) return notAvailable(index);
         const written = yield* work.value.workSubjectNotice(
@@ -295,11 +301,14 @@ export const performAction = (
           action.to.nodeId,
           makeUserMessage({
             messageId: automationMailId(firingId, index),
-            text: action.text,
+            text: yield* resolve(action.text),
             contextId: canvasName,
             metadata: {
               factoryMail: true,
-              ...mailExtensionMetadata({ ...automationSenderStamp(from.value, automation.name), mailKind: "notice" }),
+              ...mailExtensionMetadata({
+                ...automationSenderStamp(from.value, automation.name),
+                mailKind: action.kind === "prompt" ? "prompt" : "notice",
+              }),
             },
           }),
           automationActorRef(canvasName, from.value),
@@ -310,7 +319,7 @@ export const performAction = (
         // A comment on the whole resource; a place on it waits for the plan 03 anchors.
         if (canvas === undefined || (action.anchor !== undefined && action.anchor.kind !== "whole")) return notAvailable(index);
         const input = commentOn(action.on, {
-          text: action.text,
+          text: yield* resolve(action.text),
           actor: { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId },
           // Derived from the firing, so a retried firing posts the comment once.
           opId: OpId.make(automationMailId(firingId, index)),
@@ -331,7 +340,8 @@ export const performAction = (
           opId: OpId.make(automationMailId(firingId, index, "create")),
           nodeId: action.node,
           taskId,
-          wire: { kind: "create", taskId, title: action.title },
+          // A title its values made longer than a task title may be is cut to fit.
+          wire: { kind: "create", taskId, title: [...(yield* resolve(action.title))].slice(0, TASK_TITLE_MAX).join("") },
         });
         if (created !== undefined || action.assign === undefined) return ruledAs(index, created);
         // The task stands; an assign it could not make is this action's refusal.
@@ -439,11 +449,32 @@ export const AutomationRunnerLive = Layer.effect(
     const views = new Map<string, ConditionView>();
     // The Artifacts nodes of each canvas whose comments have had a good read.
     const commentsRead = new Map<string, Set<string>>();
+    // The task or artifact a firing's change names, read once per text that names a value; a failed read says none.
+    const firedReads = (canvasName: string, fired: Fired): Effect.Effect<FiredReads> => {
+      const event = fired.event;
+      if (event?.kind === "task" && Option.isSome(taskStore)) {
+        return taskStore.value.get(canvasName, event.taskId as TaskId).pipe(
+          Effect.map((task) => (Option.isSome(task) ? { task: task.value } : {})),
+          Effect.orElseSucceed(() => ({})),
+        );
+      }
+      if (event?.kind === "artifact" && Option.isSome(artifactStore)) {
+        return artifactStore.value.head(canvasName, event.artifactId).pipe(
+          Effect.map((head) => (Option.isSome(head) ? { artifactTitle: head.value.artifact.title } : {})),
+          Effect.orElseSucceed(() => ({})),
+        );
+      }
+      return Effect.succeed({});
+    };
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       holds: (canvasName, condition) => conditionHolds(condition, views.get(canvasName) ?? EMPTY_VIEW),
-      perform: (canvasName, automation, action, index, firingId) =>
-        performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId).pipe(
+      perform: (canvasName, automation, action, index, firingId, fired) =>
+        performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId, (text) =>
+          valueNamesIn(text).length === 0
+            ? Effect.succeed(text)
+            : Effect.map(firedReads(canvasName, fired), (reads) =>
+                resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName) ?? `{{${name}}}`))).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
         ),
       mintFiringId: () => FiringId.make(ulid()),
@@ -603,10 +634,10 @@ export const AutomationRunnerLive = Layer.effect(
 
 /** A signal as a change trigger hears it: only when raised, keyed by its id so a claim dedupes it. */
 export const signalChange = (
-  signal: Pick<AgentSignal, "signalId" | "nodeId" | "kind" | "state">,
+  signal: Pick<AgentSignal, "signalId" | "nodeId" | "kind" | "state" | "text">,
 ): Extract<ChangeEvent, { readonly kind: "signal" }> | undefined =>
   signal.state === "open"
-    ? { kind: "signal", key: `signal:${signal.signalId}`, seat: signal.nodeId as NodeId, signal: signal.kind }
+    ? { kind: "signal", key: `signal:${signal.signalId}`, seat: signal.nodeId as NodeId, signal: signal.kind, text: signal.text }
     : undefined;
 
 /** What wakes a pass between ticks: a task or artifact write, or a raised signal. */

@@ -316,7 +316,12 @@ export const resolveTargets = (
       case "task":
         return { ...w, task: taskOf(w.task, at) };
       case "artifact":
-        return { ...w, artifact: ref(w.artifact, "artifact", `${at}.artifact`) };
+        return {
+          ...w,
+          artifact: typeof w.artifact === "string"
+            ? ref(w.artifact, "artifact", `${at}.artifact`)
+            : { node: node(w.artifact.node, `${at}.artifact.node`) },
+        };
       case "signal": {
         const { from, ...rest } = w;
         return from === undefined ? rest : { ...rest, from: ref(from, "seat", `${at}.from`) };
@@ -330,6 +335,7 @@ export const resolveTargets = (
   const action = (a: ActionInput, at: string): Action => {
     switch (a.kind) {
       case "mail":
+      case "prompt":
         return { ...a, to: ref(a.to, "seat", `${at}.to`) };
       case "create-task": {
         const { assign, ...rest } = a;

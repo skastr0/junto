@@ -26,6 +26,8 @@ import {
   AutomationVersion,
   targetNodeIds,
   triggerRefusal,
+  actionRefusal,
+  valueRefusal,
 } from "./automation";
 import { NodeId } from "./physics/schema";
 import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
@@ -106,6 +108,12 @@ const definitionRefusal = (
   if (triggerRefusal(automation.trigger) !== undefined) {
     return { reason: "not_available", message: "webhook triggers are not available in this version" };
   }
+  for (const action of automation.then) {
+    const refused = actionRefusal(action);
+    if (refused !== undefined) return refused;
+  }
+  const values = valueRefusal(automation);
+  if (values !== undefined) return values;
   const allowed = targetsOf(automation.nodeId, automation.author);
   const own = editor.kind === "seat" ? targetsOf(automation.nodeId, editor) : allowed;
   const outside = targetNodeIds(automation).filter((id) => !allowed.has(id) || !own.has(id));

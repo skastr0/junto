@@ -35,6 +35,7 @@ import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, type ReachCanvas } from "@shared/region-reach";
 import { type ChangeEvent, changeMatches, decide, dueSlot, nextSlot } from "./plan";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
+import type { Fired } from "./values";
 
 const HOUR_MS = 60 * 60_000;
 
@@ -47,7 +48,7 @@ export type RunnerPorts = {
   /**
    * Perform one action as the automation (`{ kind: "automation" }` actor):
    * mail from the automation's node, or a resource command. Never fails: a
-   * refusal is a ruling.
+   * refusal is a ruling. `fired` is what its `{{name}}` values read.
    */
   readonly perform: (
     canvasName: string,
@@ -55,6 +56,7 @@ export type RunnerPorts = {
     action: Action,
     index: number,
     firingId: FiringId,
+    fired: Fired,
   ) => Effect.Effect<ActionRuling>;
   readonly mintFiringId: () => FiringId;
   readonly now: () => number;
@@ -96,6 +98,7 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     automation: Automation,
     cause: FiringCause,
     targets: ReadonlySet<NodeId>,
+    event?: ChangeEvent,
   ) {
     const repository = yield* AutomationRepository;
     const now = ports.now();
@@ -119,7 +122,7 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     if (decision.kind !== "fire") return firing;
     const actions: Array<ActionRuling> = [];
     for (const [index, action] of automation.then.entries()) {
-      actions.push(yield* ports.perform(canvasName, automation, action, index, firing.firingId));
+      actions.push(yield* ports.perform(canvasName, automation, action, index, firing.firingId, { event, at: now }));
     }
     const outcome = { kind: "fired", actions } as const;
     yield* repository.settleFiring(canvasName, firing, outcome);
@@ -160,7 +163,7 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
       if (!automation.enabled || automation.trigger.kind !== "change") continue;
       const targets = targetsOf(canvasName, automation);
       if (!changeMatches(automation.trigger.on, event, targets)) continue;
-      yield* consider(canvasName, automation, { kind: "change", key: event.key }, targets);
+      yield* consider(canvasName, automation, { kind: "change", key: event.key }, targets, event);
     }
   });
 

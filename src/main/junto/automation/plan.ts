@@ -161,7 +161,7 @@ export type ChangeEvent =
       readonly event: ArtifactEvent;
       readonly byAutomation: boolean;
     }
-  | { readonly kind: "signal"; readonly key: string; readonly seat: NodeId; readonly signal: WatchedSignal };
+  | { readonly kind: "signal"; readonly key: string; readonly seat: NodeId; readonly signal: WatchedSignal; readonly text: string };
 
 /** Whether a change fires a watch. `targets` are the automation's targets now. */
 export const changeMatches = (watch: Watch, event: ChangeEvent, targets: ReadonlySet<NodeId>): boolean => {
@@ -178,9 +178,9 @@ export const changeMatches = (watch: Watch, event: ChangeEvent, targets: Readonl
         event.kind === "artifact" &&
         !event.byAutomation &&
         watch.event === event.event &&
-        watch.artifact.kind === "artifact" &&
-        watch.artifact.nodeId === event.nodeId &&
-        watch.artifact.artifactId === event.artifactId
+        ("kind" in watch.artifact
+          ? watch.artifact.kind === "artifact" && watch.artifact.nodeId === event.nodeId && watch.artifact.artifactId === event.artifactId
+          : watch.artifact.node === event.nodeId)
       );
     case "signal":
       return event.kind === "signal" && signalWatchMatches(watch, event, targets);
