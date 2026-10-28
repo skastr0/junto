@@ -45,8 +45,9 @@ its header or from the CLI, and the sidebar filters by them.
   chip, keyboard and screen reader as the mention list.
 - Sidebar filter: pick one or more labels; an artifact shows when it has all
   of them (AND). Picking `project/junto` also matches `project/junto/...`.
-  The filter row shows each label with its count. Kept per node in the
-  window, like the type filter.
+  The filter row shows each label with its count. The picked labels and
+  the type filter are kept per node for the life of the window, so a close
+  and reopen keeps them; a restart clears them.
 - Cmd+P ranks labels after the title, as metadata.
 
 ## CLI
