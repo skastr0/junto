@@ -37,6 +37,11 @@ export interface LinkSessionOptions {
   readonly writable: Writable;
   readonly self: LinkHello;
   readonly admit: (hello: LinkHello) => Promise<void>;
+  /**
+   * Told once, synchronously, as the hello is admitted and before any channel
+   * opens. A throw closes this link with that cause and opens no channel.
+   */
+  readonly admitted?: (hello: LinkHello) => void;
   readonly channels: LinkChannels;
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   /** The machine a dialer expects, named in failures before its hello arrives. */
@@ -407,6 +412,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       await options.admit(helloSeen);
       if (hello.build !== self.build) throw LinkBuildMismatch.of(hello, self.build);
       if (stopped !== undefined) return;
+      options.admitted?.(helloSeen);
       peer = helloSeen;
       clearTimeout(helloTimer);
       resolveReady(peer);

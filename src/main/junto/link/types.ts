@@ -66,7 +66,7 @@ export const LinkClosedBy = Schema.Literals(["this-end", "peer", "process"]);
 export type LinkClosedBy = typeof LinkClosedBy.Type;
 export const LinkClosedReason = Schema.Literals([
   "closed", "shutting-down", "hello-timeout", "request-timeout", "credit-timeout", "refused", "frame-invalid",
-  "bound-exceeded", "write-failed", "input-ended", "output-closed", "peer-closed", "process-exited", "failed",
+  "bound-exceeded", "write-failed", "input-ended", "output-closed", "peer-closed", "process-exited", "failed", "superseded",
 ]);
 export type LinkClosedReason = typeof LinkClosedReason.Type;
 
@@ -104,6 +104,7 @@ const REASON_TEXT: Record<LinkClosedReason, string> = {
   "request-timeout": "a request timed out; its outcome is uncertain", "credit-timeout": "the other machine stopped taking events", refused: "the hello was refused", "frame-invalid": "a frame was invalid",
   "bound-exceeded": "a bound was exceeded", "write-failed": "a write failed", "input-ended": "its input ended",
   "output-closed": "its output closed", "peer-closed": "the other machine gave no reason", "process-exited": "the process ended", failed: "it failed",
+  superseded: "the other link between these machines is kept",
 };
 
 /** A LinkClosed whose message says who closed and the first cause. */

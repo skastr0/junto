@@ -119,6 +119,7 @@ const boot = async (
 
 const contextOf = (from: Machine, to: Machine): RowsChannelContext => ({
   peer: { installationId: to.self },
+  sessionId: `${from.name}-${to.name}`,
   sendEvent: (_channel, payload) =>
     Effect.sync(() => {
       queue.push({ from, to, payload: JSON.parse(JSON.stringify(payload)) });

@@ -15,6 +15,8 @@ import type { RowExchange } from "./session";
 /** What this channel needs of a link: who is there and how to send it a frame. */
 export type RowsChannelContext = {
   readonly peer: { readonly installationId: InstallationId };
+  /** Which link this is: a link that closes stops only itself, never the one kept in its place. */
+  readonly sessionId: string;
   readonly sendEvent: (channel: "rows", payload: unknown) => Effect.Effect<void, unknown>;
 };
 
@@ -49,8 +51,9 @@ export const makeRowsChannel = (exchange: RowExchange) => ({
   opened: (context: RowsChannelContext): Effect.Effect<void, unknown> =>
     exchange.opened({
       peer: context.peer.installationId,
+      id: context.sessionId,
       send: (frame) => context.sendEvent("rows", encodeExchangeFrame(frame)),
     }),
   closed: (context: RowsChannelContext): Effect.Effect<void, unknown> =>
-    Effect.sync(() => exchange.closed(context.peer.installationId)),
+    Effect.sync(() => exchange.closed(context.peer.installationId, context.sessionId)),
 });

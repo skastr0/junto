@@ -54,6 +54,8 @@ import { noteResourceChanged } from "../resource-changes";
  */
 export type ExchangeLink = {
   readonly peer: InstallationId;
+  /** The link's own id; a close that names one stops only that link. */
+  readonly id?: string;
   readonly send: (frame: ExchangeFrame) => Effect.Effect<void, unknown>;
 };
 
@@ -527,9 +529,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
   };
 
   /** A link closed or is replaced: its worker stops and nothing more is sent on it. */
-  const stop = (peer: InstallationId): void => {
+  const stop = (peer: InstallationId, id?: string): void => {
     const state = links.get(peer);
-    if (state === undefined) return;
+    if (state === undefined || (id !== undefined && state.link.id !== id)) return;
     links.delete(peer);
     state.quiet.openUnsafe();
     if (state.worker !== undefined) Effect.runFork(Fiber.interrupt(state.worker));

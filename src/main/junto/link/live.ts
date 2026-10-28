@@ -87,16 +87,32 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
       }
     };
   };
+  /** The installation that dialed each admitted link. */
+  const dialers = new WeakMap<LinkSession, InstallationId>();
+  /**
+   * Two links to one machine settle to one, the same one at both ends: the
+   * link dialed by the lower installation id is kept and the other closes as
+   * superseded before its channels open. Two dialed by the same machine keep
+   * the newer, so a machine that restarted is not refused by its old link.
+   */
+  const settle = (session: LinkSession, hello: LinkHello, dialer: InstallationId): void => {
+    const existing = sessions.get(hello.machineName);
+    if (existing !== undefined && existing !== session) {
+      const kept = dialers.get(existing);
+      if (kept !== undefined && kept < dialer) throw linkClosed({ machine: hello.machineName, by: "this-end", reason: "superseded" });
+      void existing.close(linkClosed({ machine: hello.machineName, by: "this-end", reason: "superseded" }));
+    }
+    dialers.set(session, dialer);
+    sessions.set(hello.machineName, session);
+  };
+  /** A session that settles with the others to its peer; `dialed` when this end opened it. */
+  const open = (options: Omit<Parameters<typeof makeLinkSession>[0], "admitted">, dialed: boolean): LinkSession => {
+    let session: LinkSession | undefined;
+    session = makeLinkSession({ ...options, admitted: (hello) => settle(session!, hello, dialed ? options.self.installationId : hello.installationId) });
+    return track(session);
+  };
   const track = (session: LinkSession): LinkSession => {
     allSessions.add(session);
-    void session.ready.then((hello) => {
-      const existing = sessions.get(hello.machineName);
-      if (existing !== undefined && existing !== session) {
-        void session.close(new LinkUnavailable({ machine: hello.machineName, reason: "channels-bound", message: `${hello.machineName} is already linked` }));
-        return;
-      }
-      sessions.set(hello.machineName, session);
-    }, () => undefined);
     void session.closed.then(() => {
       allSessions.delete(session);
       for (const [name, held] of sessions) if (held === session) sessions.delete(name);
@@ -128,7 +144,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
         const output = new Writable({ highWaterMark: 64 * 1024, write: (chunk: Buffer, _encoding, callback) => {
           void run(lease.write(chunk)).then(() => callback(), (cause) => callback(toLinkError(cause, host.id) as Error));
         } });
-        session = track(makeLinkSession({ readable: input, writable: output, self: own, admit: admission(host, setupId), channels, run, expected: host.id }));
+        session = open({ readable: input, writable: output, self: own, admit: admission(host, setupId), channels, run, expected: host.id }, true);
         const held = session;
         // The first cause wins: when the process ends, the link closes with its exit and stderr tail.
         const processEnded = Effect.gen(function* () {
@@ -153,9 +169,16 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
       return await activePeer(connected);
     } catch (cause) {
       const failure = toLinkError(cause, host.id);
-      await run(linkLog("Warning", "link dial failed", { machine: host.id, failure: encodeError(failure, { machine: host.id }) }));
       if (session !== undefined) await session.close(failure);
       await run(Scope.close(scope, Exit.void));
+      // The other machine's link to this one was kept: this dial reached it.
+      const kept = sessions.get(host.id);
+      if (failure._tag === "LinkClosed" && failure.reason === "superseded" && kept !== undefined && kept !== session) {
+        const hello = await kept.ready;
+        if (setupId !== undefined) await admission(host, setupId)(hello);
+        return await activePeer(hello);
+      }
+      await run(linkLog("Warning", "link dial failed", { machine: host.id, failure: encodeError(failure, { machine: host.id }) }));
       throw failure;
     }
   };
@@ -205,7 +228,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
         const { machineName: machine } = await self();
         listener = await startLinkListener({ home, accept: async (socket) => {
           if (stopping) throw shuttingDown();
-          return track(makeLinkSession({ readable: socket, writable: socket, self: await self(), admit: admission(), channels, run }));
+          return open({ readable: socket, writable: socket, self: await self(), admit: admission(), channels, run }, false);
         }, failed: (what, cause) => {
           fork(linkLog("Warning", what === "accept" ? "link connection was not accepted" : "link listener failed", { machine, failure: encodeError(cause, { machine }) }));
         } });
