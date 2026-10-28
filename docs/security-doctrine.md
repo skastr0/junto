@@ -395,28 +395,34 @@ sandbox. The code may be written on one machine and run on another, so a
 machine runs it only when all five checks hold, at every firing:
 
 1. The automation's definition reached this machine as an applied automation
-   ruling from the canvas's editing machine. A row never carries code.
+   ruling from the machine ruling the canvas. A row never carries code.
 2. The code is a content ref in that ruling. Its bytes travel as content
-   does: bounded, entitled to the automation's machine and the editing
-   machine only, never in a canvas copy.
+   does: bounded, entitled to the automation's machine and the ruling
+   machines only, never in a canvas copy.
 3. The code's author was the operator, or a seat holding a live overseer
-   grant on the editing machine's copy when the editing machine ruled it.
-   The editing machine stamps that author from the admitted command's actor,
+   grant on the ruling machine's copy when that machine ruled it. The
+   ruling machine stamps that author from the admitted command's actor,
    never from the op, and the author is the actor of the ruling that last set
    the code ref: changing a trigger or another step does not change who wrote
    the program. The automation domain refuses code from any other seat and
    from an automation actor. Code never writes code.
-4. This machine's allowance covers the canvas, the canvas's editing
-   installation and the author. The allowance is a machine-local setting
-   under `~/.junto`, written only by `junto machine code allow <canvas>` on
-   that machine or by install over the operator's own SSH route, both owner
-   commands refused from a seat environment. It is never a row, never set
-   from a link and never carried in a copy, the same as secrets; `status`
-   may report its state (allowed, scope) so the window can warn at save. Its
-   scope is operator only, or operator and overseers, which is the default
-   when allowed (the operator's decision). It binds the editing installation
-   it was given for, so a handover needs a new allowance. The editing machine
-   needs one too.
+4. This machine's allowance covers the canvas, the machine that ruled the
+   code and the author. The allowance binds the canvas and a local list of
+   trusted ruling machines, filled at allow time from the canvas's authority
+   list (today the editing machine alone). The ruling that last set the code
+   ref must come from a term whose authority is on that local list. When the
+   canvas's authority list gains a machine, rulings from that machine's terms
+   are not trusted for code here until this machine's owner allows again;
+   until then those code steps are refused `not_permitted`, naming the
+   machine. The allowance is a machine-local setting under `~/.junto`,
+   written only by `junto machine code allow <canvas>` on that machine or by
+   install over the operator's own SSH route, both owner commands refused
+   from a seat environment. It is never a row, never set from a link and
+   never carried in a copy, the same as secrets; `status` may report its
+   state (allowed, scope) so the window can warn at save. Its scope is
+   operator only, or operator and overseers, which is the default when
+   allowed (the operator's decision). A machine that rules needs its own
+   allowance to run code steps placed on it, like any other.
 5. The automation names this machine.
 
 A failed check is refused `not_permitted`, and the firing log names the
@@ -425,12 +431,13 @@ its allowance, never the program. A move to a machine without an allowance
 fails closed there, shown at save and in the firing log. The machine the
 code left keeps the bytes it received.
 
-What an allowance admits. With operator and overseers, it lets the editing
-machine and every machine hosting an overseer seat on that canvas run code
-here as the OS account, and any process on those machines, since seat
-credentials are readable off the process table (Trust and its limits).
-Operator only narrows that to the editing machine. A compromised editing
-machine controls the code on every machine that allows its canvas. The
+What an allowance admits. With operator and overseers, it lets every
+trusted ruling machine and every machine hosting an overseer seat on that
+canvas run code here as the OS account, and any process on those machines,
+since seat credentials are readable off the process table (Trust and its
+limits). Operator only narrows that to the trusted ruling machines. A
+compromised ruling machine on the list controls the code on every machine
+that allows its canvas. The
 allowance guards against other machines, not against code already running
 here, which as the OS account can rewrite it. Revoking an overseer grant
 leaves code that overseer wrote in place; editing the automation or
