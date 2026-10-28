@@ -158,11 +158,17 @@ describe("header label chips", () => {
     const chips = (waiting: boolean) => (
       <ArtifactLabelChips waiting={waiting} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "queued" as const} />
     );
-    render(chips(false));
-    await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
+    // The pending list shows the write as it is queued.
     render(chips(true));
+    await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
     expect(host.querySelector('[aria-label="Remove draft"]')).toBeNull();
     render(chips(false));
+    expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
+  });
+
+  it("reads the ruled set when a queued write never shows as waiting", async () => {
+    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "queued" as const} />);
+    await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
     expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
   });
 

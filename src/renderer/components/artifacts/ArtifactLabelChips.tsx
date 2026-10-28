@@ -88,9 +88,12 @@ export function ArtifactLabelChips({
   const seq = useRef(0);
   const ruled = labels.join("\n");
   useEffect(() => setSent(null), [ruled]);
+  // A queued set shows only while the pending list says its write waits: one
+  // ruled before the list ever showed it reads the ruled set at once.
+  const queued = sent?.queued === true;
   useEffect(() => {
-    if (!waiting) setSent((last) => (last?.queued === true ? null : last));
-  }, [waiting]);
+    if (!waiting && queued) setSent(null);
+  }, [waiting, queued]);
   const held = sent?.labels ?? labels;
 
   const [picking, setPicking] = useState(false);
