@@ -216,8 +216,10 @@ the listed machines, not 'the editor'. S4: `seat.control` and its settled
 row are entitled to the seat's or automation's machine and the listed
 machines. S5: required. Listed machines link to each other over the
 tailnet, and the per-opener key proves which machine is calling. S6:
-dropped. K5: the allowance binds the canvas and the listed machines whose
-rulings it trusts.
+dropped. K5: code steps have no per-machine allowance (operator,
+5020cea97). A code step is trusted when its definition came from an applied
+ruling of the term's authority, so whichever listed machine rules can set
+the code that runs.
 
 ### 7. Slices, size, risk, doctrine
 
