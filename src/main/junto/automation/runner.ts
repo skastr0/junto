@@ -127,6 +127,17 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     // What the code steps so far answered: `{{code.<field>}}` for the steps after them, the later field winning.
     let code: CodeOutput = {};
     for (const [index, action] of automation.then.entries()) {
+      // A move folded while this firing was in flight: what is left is the new machine's, never performed here.
+      const held = (yield* repository.loadState(canvasName)).get(automation.automationId);
+      if (held === undefined || held.archived || !ports.runsHere(canvasName, held.automation)) {
+        actions.push({
+          index,
+          ruling: "refused",
+          reason: "not_permitted",
+          ...(held?.automation.machine === undefined ? {} : { movedTo: held.automation.machine }),
+        });
+        continue;
+      }
       const ruled = yield* ports.perform(canvasName, automation, action, index, firing.firingId, { event, at: now, cause: cause.kind, code });
       actions.push(ruled);
       if (action.kind !== "code") continue;

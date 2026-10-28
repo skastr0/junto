@@ -64,7 +64,8 @@ const automation = (over: Partial<Automation> = {}): Automation => ({
 /** The editing machine; a harness is one machine, which runs what names it (or, for an old row, the editor). */
 const EDITOR = "macbook";
 
-const harness = async (seed: Automation, machine: string = EDITOR) => {
+/** `during` runs after an action is performed, inside the firing: a ruling folded while it is in flight. */
+const harness = async (seed: Automation, machine: string = EDITOR, during?: (index: number) => Promise<void>) => {
   const database = new DatabaseSync(":memory:");
   database.exec(AUTOMATION_STATE_SCHEMA_SQL);
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
@@ -79,7 +80,7 @@ const harness = async (seed: Automation, machine: string = EDITOR) => {
       Effect.sync(() => {
         performed.push({ to: action.kind === "mail" ? action.to.nodeId : action.kind, index });
         return { index, ruling: "applied" as const };
-      }),
+      }).pipe(Effect.tap(() => (during === undefined ? Effect.void : Effect.promise(() => during(index))))),
     mintFiringId: () => FiringId.make(`01M5ESKJFC1A88R1MH1NEZ${String(minted++).padStart(4, "0")}`),
     now: () => clock.now,
     runsHere: (_canvas, automation) => runsOn(automation, EDITOR) === machine,
@@ -321,6 +322,33 @@ describe("an automation on its own machine", () => {
     } finally {
       await mini.close();
       await macbook.close();
+    }
+  });
+});
+
+describe("a move folded while a firing is in flight", () => {
+  it("performs no later action here, and the firing says where the automation went", async () => {
+    let go: <A, E>(effect: Effect.Effect<A, E, AutomationRepository>) => Promise<A> = () => Promise.reject(new Error("unset"));
+    const h = await harness(automation({ then: [mail("seat-a2"), mail("seat-a")] }), EDITOR, async (index) => {
+      if (index !== 0) return;
+      await go(Effect.flatMap(AutomationRepository, (r) => r.applyFacts(CANVAS, [{ fact: "automation.moved", automationId: AUTO, machine: "mini" as never, at: 1 }])));
+    });
+    go = h.go;
+    try {
+      await h.go(h.runner.tick(CANVAS));
+      h.clock.now = at("2026-10-21T09:00:10Z");
+      await h.go(h.runner.tick(CANVAS));
+      expect(h.performed).toEqual([{ to: "seat-a2", index: 0 }]);
+      const firings = await h.history();
+      expect(firings[0]).toMatchObject({
+        outcome: { kind: "fired", actions: [{ index: 0, ruling: "applied" }, { index: 1, ruling: "refused", reason: "not_permitted", movedTo: "mini" }] },
+      });
+      // Moved away, it fires here no more.
+      h.clock.now = at("2026-10-22T09:00:10Z");
+      await h.go(h.runner.tick(CANVAS));
+      expect(await h.history()).toHaveLength(1);
+    } finally {
+      await h.close();
     }
   });
 });

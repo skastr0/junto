@@ -655,7 +655,13 @@ const StepIndex = Bounded(0, AUTOMATION_STEPS_MAX - 1);
 export const ActionRuling = Schema.Union([
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("applied") }),
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("queued") }),
-  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("refused"), reason: RefusalReason }),
+  Schema.Struct({
+    index: StepIndex,
+    ruling: Schema.Literal("refused"),
+    reason: RefusalReason,
+    /** The machine the automation moved to while this firing was in flight: its later actions are that machine's. */
+    movedTo: Schema.optionalKey(HostId),
+  }),
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("continued"), output: CodeOutput, durationMs: Count }),
   Schema.Struct({
     index: StepIndex,
