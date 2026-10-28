@@ -81,6 +81,66 @@
   outline-offset: 1px;
 }
 
+/* Labels (0.11, 03): one toggle per label with the rows it would show. A long
+   set scrolls inside the filter rather than pushing the list away. */
+.artifacts-filter__labels {
+  display: flex;
+  max-height: 84px;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.artifacts-filter__label {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px dashed var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+}
+
+.artifacts-filter__label:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.artifacts-filter__label[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+}
+
+.artifacts-filter__label:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.artifacts-filter__label-word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-filter__label-count {
+  flex: none;
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.artifacts-filter__label--clear {
+  border-color: transparent;
+}
+
 .artifacts-list {
   display: flex;
   min-height: 0;
@@ -145,6 +205,116 @@
   color: var(--color-dim);
   font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
+}
+
+/* Labels in the header: up to three chips after the title, the rest behind a
+   count; the picker floats under them so adding one never adds a row. */
+.artifact-labels {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 40%;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.artifact-labels__chips,
+.artifact-labels__held {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.artifact-labels__chips {
+  overflow: hidden;
+}
+
+.artifact-labels__held {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.artifact-labels__chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 160px;
+  height: 22px;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-2);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+}
+
+.artifact-labels__word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-labels__more {
+  flex: none;
+  min-height: 22px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.artifact-labels__more:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.artifact-labels__more:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.artifact-labels__picker {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 5;
+  width: 280px;
+  padding: 8px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: var(--radius-md);
+  background: var(--color-raise);
+  box-shadow: 0 10px 24px var(--color-shadow-2);
+}
+
+.artifact-labels__option {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-label);
+}
+
+.artifact-labels__none,
+.artifact-labels__refused {
+  display: block;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: var(--text-label);
+}
+
+.artifact-labels__none {
+  color: var(--color-dim);
+}
+
+.artifact-labels__refused {
+  color: var(--color-crimson-fg);
 }
 
 .artifact-tasks {

@@ -69,8 +69,8 @@ describe("local artifacts source", () => {
     expect(edited.kind).toBe("applied");
     const entries = await source.list("c", node);
     expect(entries.map((entry) => entry.artifact.title).sort()).toEqual(["Budget", "Plan"]);
-    expect(visibleArtifacts(entries, { type: "sheet", query: "", archived: false }).map((e) => e.artifact.title)).toEqual(["Budget"]);
-    expect(visibleArtifacts(entries, { type: "all", query: "PLA", archived: false }).map((e) => e.artifact.title)).toEqual(["Plan"]);
+    expect(visibleArtifacts(entries, { type: "sheet", query: "", archived: false, labels: [] }).map((e) => e.artifact.title)).toEqual(["Budget"]);
+    expect(visibleArtifacts(entries, { type: "all", query: "PLA", archived: false, labels: [] }).map((e) => e.artifact.title)).toEqual(["Plan"]);
     expect((await source.history("c", doc)).map((record) => record.version)).toEqual([2, 1]);
   });
 

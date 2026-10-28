@@ -3,6 +3,7 @@
  * patch a document edit becomes, and how an anchor and an author read.
  */
 import type { Artifact, ArtifactOp, ArtifactType, TextPatch } from "@shared/artifact";
+import { type ArtifactLabel, artifactLabelsMatch, decodeArtifactLabel } from "@shared/artifact-labels";
 import type { ArtifactPendingWrite } from "../../lib/artifacts-source";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { ResourceActor } from "@shared/resource-command";
@@ -16,9 +17,11 @@ export interface SidebarFilter {
   readonly type: TypeFilter;
   readonly query: string;
   readonly archived: boolean;
+  /** Every one must be held, a level matching the labels under it (`artifactLabelsMatch`). */
+  readonly labels: ReadonlyArray<ArtifactLabel>;
 }
 
-/** The rows the sidebar lists: by type, by a case-blind title match, live or archived. */
+/** The rows the sidebar lists: by type, by a case-blind title match, by labels, live or archived. */
 export const visibleArtifacts = (
   entries: ReadonlyArray<ArtifactHead>,
   filter: SidebarFilter,
@@ -28,9 +31,63 @@ export const visibleArtifacts = (
     ({ artifact }) =>
       artifact.archived === filter.archived &&
       (filter.type === "all" || artifact.type === filter.type) &&
-      (query.length === 0 || artifact.title.toLowerCase().includes(query)),
+      (query.length === 0 || artifact.title.toLowerCase().includes(query)) &&
+      artifactLabelsMatch(artifact.labels, filter.labels),
   );
 };
+
+/** One choice in the sidebar's Labels row: the label, and how many rows the list shows with it picked. */
+export interface LabelChoice {
+  readonly label: ArtifactLabel;
+  readonly count: number;
+  readonly picked: boolean;
+}
+
+/**
+ * The sidebar's Labels row (0.11, 03). It offers every label held in the
+ * list being shown (live or archived), every level that branches
+ * (`project/junto` over `project/junto/release` and `project/junto/web`; a
+ * level with one branch, `project` here, shows the same rows as the level
+ * under it), and every picked one, so a pick that matches nothing here can
+ * still be unpicked. A count is what the list would show with that label
+ * picked beside the rest of the filter.
+ */
+export const labelChoices = (
+  entries: ReadonlyArray<ArtifactHead>,
+  filter: SidebarFilter,
+): ReadonlyArray<LabelChoice> => {
+  const held = new Set<ArtifactLabel>();
+  for (const { artifact } of entries) {
+    if (artifact.archived === filter.archived) for (const label of artifact.labels) held.add(label);
+  }
+  /** Each level, and the next segments under it in held labels. */
+  const branches = new Map<ArtifactLabel, Set<string>>();
+  for (const label of held) {
+    for (let cut = label.indexOf("/"); cut > 0; cut = label.indexOf("/", cut + 1)) {
+      const level = decodeArtifactLabel(label.slice(0, cut));
+      if (level._tag !== "Success") continue;
+      const next = label.slice(cut + 1).split("/")[0] ?? "";
+      branches.set(level.success, (branches.get(level.success) ?? new Set()).add(next));
+    }
+  }
+  const offered = new Set<ArtifactLabel>([
+    ...held,
+    ...[...branches].flatMap(([level, next]) => (next.size >= 2 ? [level] : [])),
+    ...filter.labels,
+  ]);
+  return [...offered].sort().map((label) => {
+    const picked = filter.labels.includes(label);
+    return {
+      label,
+      picked,
+      count: visibleArtifacts(entries, { ...filter, labels: picked ? filter.labels : [...filter.labels, label] }).length,
+    };
+  });
+};
+
+/** Every label an artifact in this node carries, live or archived: what the header's add completes from. */
+export const labelsInNode = (entries: ReadonlyArray<ArtifactHead>): ReadonlyArray<ArtifactLabel> =>
+  [...new Set(entries.flatMap(({ artifact }) => artifact.labels))].sort();
 
 /**
  * The one splice that turns `before` into `after`: the common head and tail

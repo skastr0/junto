@@ -12,6 +12,7 @@ import {
   type FileSource,
   padOf,
 } from "@shared/artifact";
+import type { ArtifactLabel } from "@shared/artifact-labels";
 import type { MentionOf, MentionRef } from "@shared/mention";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
@@ -36,6 +37,7 @@ import { ArtifactComments, ArtifactCommentsEdge } from "./ArtifactComments";
 import { LinkedFromList, linkedFromCount, useLinkedFrom } from "./LinkedFrom";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactKeys } from "./ArtifactKeys";
+import { ArtifactLabelChips, ArtifactLabelFilter } from "./ArtifactLabelChips";
 import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
@@ -52,6 +54,8 @@ import {
   ageLabel,
   artifactQuickOpen,
   isLinkUrl,
+  labelChoices,
+  labelsInNode,
   pendingWriteLine,
   postAfterSave,
   TYPE_NOUN,
@@ -107,6 +111,7 @@ export function ArtifactsNode({
   const [type, setType] = useState<TypeFilter>("all");
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
+  const [labels, setLabels] = useState<ReadonlyArray<ArtifactLabel>>([]);
   const [creating, setCreating] = useState<"menu" | "link" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** A write is queued until the editing machine rules it; the next listing says it has. */
@@ -114,10 +119,10 @@ export function ArtifactsNode({
   useEffect(() => setQueued(false), [entries]);
   const now = useClock();
 
-  const visible = useMemo(
-    () => visibleArtifacts(entries, { type, query, archived }),
-    [entries, type, query, archived],
-  );
+  const filter = useMemo(() => ({ type, query, archived, labels }), [type, query, archived, labels]);
+  const visible = useMemo(() => visibleArtifacts(entries, filter), [entries, filter]);
+  const choices = useMemo(() => labelChoices(entries, filter), [entries, filter]);
+  const used = useMemo(() => labelsInNode(entries), [entries]);
   const selected = entries.find((entry) => entry.artifact.artifactId === selectedId) ?? visible[0] ?? null;
   const archivedCount = entries.filter((entry) => entry.artifact.archived).length;
 
@@ -241,6 +246,11 @@ export function ArtifactsNode({
             </button>
           ))}
         </div>
+        <ArtifactLabelFilter
+          choices={choices}
+          onToggle={(label) => setLabels(labels.includes(label) ? labels.filter((one) => one !== label) : [...labels, label].sort())}
+          onClear={() => setLabels([])}
+        />
       </div>
       {/* A list holds list items only: each row sits in one, and the empty line sits outside it, where the rows would be. */}
       {visible.length === 0 && entries.length > 0 ? <p className="artifacts-list__none">No artifact matches.</p> : null}
@@ -310,6 +320,7 @@ export function ArtifactsNode({
           error={error}
           queued={queued}
           pending={pending.filter((write) => write.artifactId === selected.artifact.artifactId)}
+          usedLabels={used}
           apply={(op) => apply(selected.artifact.artifactId, op)}
           createLinked={createLinked}
           onClose={onClose}
@@ -327,6 +338,7 @@ function SelectedArtifact({
   error,
   queued,
   pending,
+  usedLabels,
   apply,
   createLinked,
   onClose,
@@ -338,6 +350,8 @@ function SelectedArtifact({
   readonly entry: ArtifactHead;
   readonly queued: boolean;
   readonly pending: ReadonlyArray<ArtifactPendingWrite>;
+  /** Every label this node uses, for the header's add to complete from. */
+  readonly usedLabels: ReadonlyArray<ArtifactLabel>;
   readonly sidebar: React.ReactNode;
   readonly now: number;
   readonly error: string | null;
@@ -631,6 +645,12 @@ function SelectedArtifact({
             if (event.key === "Enter") releaseFocus(event.currentTarget, "gesture");
             if (event.key === "Escape") setTitle(artifact.title);
           }}
+        />
+        <ArtifactLabelChips
+          labels={artifact.labels}
+          used={usedLabels}
+          readOnly={readOnly}
+          onChange={(next) => apply({ op: "labels", labels: [...next] }).then((ruling) => ruling.kind === "applied" || ruling.kind === "queued")}
         />
         <span className="artifact-head__meta">
           {TYPE_NOUN[artifact.type]}, version {artifact.version}
