@@ -243,6 +243,62 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
     expect((xs.json.data!.artifacts as ReadonlyArray<Listed>).map((a) => a.title)).toEqual(["Web brief"]);
     expect(await count("x")).toBe("1");
 
+    // (5) Colours (03, Colours): a colour is the label's in its node, set by keyboard from the header chip,
+    // by pointer from the sidebar swatch and by a seat's `junto artifact colour`; nothing inherits; it outlives the label.
+    const headChip = (label: string) => page.locator(".artifact-labels__chips .artifact-labels__chip").filter({ has: page.locator(".artifact-labels__word", { hasText: new RegExp(`^${label.replace(/[/]/gu, "\\/")}$`, "u") }) });
+    const pair = (label: string) => filter.locator(".artifacts-filter__label-pair").filter({ has: page.locator(".artifacts-filter__label-word", { hasText: new RegExp(`^${label.replace(/[/]/gu, "\\/")}$`, "u") }) });
+    await pick(page, "Roadmap");
+    await page.getByRole("button", { name: "planning, no colour", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Colour for planning" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitemradio")).toHaveText(["No colour", "Red", "Orange", "Yellow", "Green", "Teal", "Blue", "Purple", "Pink"]);
+    await shoot(page, "5a-colour-menu");
+    // As the label picker puts focus in its field, the menu should put it on its checked item; on 74592b630 it rests
+    // on the popover, where arrows do nothing, and a Tab reaches the items.
+    const focusedRole = () => page.evaluate(() => document.activeElement?.getAttribute("role"));
+    expect.soft(await focusedRole(), "the keyboard-opened menu focuses an item").toBe("menuitemradio");
+    if ((await focusedRole()) !== "menuitemradio") await page.keyboard.press("Tab");
+    for (let step = 0; step < 12; step++) {
+      if ((await page.evaluate(() => document.activeElement?.textContent?.trim())) === "Teal") break;
+      await page.keyboard.press("ArrowDown");
+    }
+    await page.keyboard.press("Enter");
+    await expect(headChip("planning")).toHaveAttribute("data-label-colour", "teal", { timeout: 10_000 });
+    await expect(pair("planning")).toHaveAttribute("data-label-colour", "teal");
+    await expect(headChip("project/junto")).not.toHaveAttribute("data-label-colour", /./u);
+    // The same label on another artifact repaints.
+    await pick(page, "Plain page");
+    await expect(headChip("planning")).toHaveAttribute("data-label-colour", "teal", { timeout: 10_000 });
+    // The sidebar swatch, by pointer.
+    await filter.getByRole("button", { name: "Colour for draft, no colour", exact: true }).click();
+    await page.getByRole("menu", { name: "Colour for draft" }).getByRole("menuitemradio", { name: "Red" }).click();
+    await expect(pair("draft")).toHaveAttribute("data-label-colour", "red", { timeout: 10_000 });
+    // A seat colours a level: its children keep their own (none).
+    const purple = await cli(["artifact", "colour", "project/junto", "purple", "--node", "shelf"]);
+    expect(purple.json.ok, `${purple.stdout.slice(0, 400)} ${purple.stderr.slice(0, 400)}`).toBe(true);
+    await expect(pair("project/junto")).toHaveAttribute("data-label-colour", "purple", { timeout: 20_000 });
+    await expect(pair("project/junto/release")).not.toHaveAttribute("data-label-colour", /./u);
+    await pick(page, "Roadmap");
+    await expect(headChip("project/junto")).toHaveAttribute("data-label-colour", "purple");
+    await expect(headChip("planning")).toHaveAttribute("data-label-colour", "teal");
+    await toggle("planning").click();
+    await shoot(page, "5b-colours-header-and-sidebar");
+    await filter.getByRole("button", { name: "Clear" }).click();
+    const coloured = await cli(["artifact", "list", "--label", "planning"]);
+    expect(JSON.stringify(coloured.json.data), "list names the colours").toContain("teal");
+    // A colour outlives its last carrier: x goes green, is removed, comes back green.
+    expect((await cli(["artifact", "colour", "x", "green", "--node", "shelf"])).json.ok).toBe(true);
+    expect((await cli(["artifact", "label", webId, "--remove", "x"])).json.ok).toBe(true);
+    await expect(toggle("x")).toHaveCount(0, { timeout: 20_000 });
+    expect((await cli(["artifact", "label", webId, "--add", "x"])).json.ok).toBe(true);
+    await pick(page, "Web brief");
+    await expect(headChip("x")).toHaveAttribute("data-label-colour", "green", { timeout: 20_000 });
+    // Another node's labels take none of these.
+    await open(cardB);
+    await expect(pair("beta")).not.toHaveAttribute("data-label-colour", /./u);
+    await open(card);
+
     // (4) Cmd+P: a title hit above a label hit.
     const palette = page.getByTestId("quick-open");
     await page.keyboard.press("Meta+p");
