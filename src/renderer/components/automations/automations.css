@@ -20,6 +20,12 @@
   padding: 16px;
 }
 
+/* The code surface fills the pane: the editor is the work, the rest hangs off it. */
+.automations-node__main--code {
+  flex: 1;
+  min-height: 0;
+}
+
 .automations-node__actions {
   display: flex;
   justify-content: flex-end;

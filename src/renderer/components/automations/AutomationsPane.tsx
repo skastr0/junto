@@ -601,7 +601,7 @@ export function AutomationsPane({
           }
         >
           {editing && codeStep !== undefined && editing.draft.then[codeStep]?.kind === "code" ? (
-            <div className="automations-node__main">
+            <div className="automations-node__main automations-node__main--code">
               <CodeStepEditor
                 canvasName={canvasName}
                 name={editing.draft.name}

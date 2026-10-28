@@ -238,3 +238,54 @@ test("the Automations node by keyboard: create, pick, save, toggle, run now, arc
     await junto.close();
   }
 });
+
+/**
+ * K3 (plan 0.11/05, Code steps): a code step is written in the node's own
+ * surface, saved as content, and the edit reads back. Frames in both themes.
+ */
+test("the Automations node writes a code step and saves it", async () => {
+  await mkdir(SHOTS, { recursive: true });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
+  try {
+    const { page } = junto;
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect(page.locator(`.react-flow__node[data-id="${NODE}"]`)).toBeVisible({ timeout: 30_000 });
+    await page.locator(`.react-flow__node[data-id="${NODE}"]`).dblclick();
+    const pane = page.getByTestId("automations-node");
+    await expect(pane).toBeVisible({ timeout: 20_000 });
+
+    await pane.getByRole("button", { name: "New automation" }).first().click();
+    const editor = pane.getByTestId("automation-editor");
+    await expect(editor).toBeVisible();
+    await editor.getByLabel("Automation name").fill("Nightly check");
+
+    // The one action becomes a code step.
+    await editor.getByRole("button", { name: "Action 1", exact: true }).click();
+    await page.getByRole("option", { name: "Run code" }).click();
+    await expect(editor.getByText("TypeScript")).toBeVisible();
+    await editor.getByRole("button", { name: "Write code" }).click();
+
+    const code = pane.getByTestId("automation-code");
+    await expect(code).toBeVisible();
+    await expect(code.getByRole("textbox")).toContainText("import { input, cont }");
+    await shot(page, "14-code-template-dark");
+
+    // Type a program of its own, then save: content first, then the automation.
+    const surface = code.getByRole("textbox");
+    await surface.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type('import { cont } from "junto/automation";\ncont({ checked: "yes" });\n');
+    await shot(page, "15-code-typed-dark");
+    await code.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(pane.getByRole("button", { name: /Nightly check/ })).toBeVisible({ timeout: 10_000 });
+
+    // The saved program reads back from the store.
+    await code.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(editor.getByRole("button", { name: "Edit code" })).toBeVisible();
+    await editor.getByRole("button", { name: "Edit code" }).click();
+    await expect(code.getByRole("textbox")).toContainText("checked");
+    await bothThemes(page, "16-code-saved");
+  } finally {
+    await junto.close();
+  }
+});
