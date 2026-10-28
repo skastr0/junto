@@ -654,6 +654,19 @@ function SelectedArtifact({
           readOnly={readOnly}
           waiting={pending.some((write) => write.op.op === "labels")}
           onChange={(next) => apply({ op: "labels", labels: [...next] }).then((ruling) => ruling.kind)}
+          readRuled={async () => {
+            const [heads, writes] = await Promise.all([
+              artifactsSource().list(canvasName, artifact.nodeId),
+              artifactsSource().pending(canvasName, artifact.nodeId),
+            ]);
+            const head = heads.find((one) => one.artifact.artifactId === artifact.artifactId);
+            return head === undefined
+              ? undefined
+              : {
+                  waiting: writes.some((write) => write.artifactId === artifact.artifactId && write.op.op === "labels"),
+                  labels: head.artifact.labels,
+                };
+          }}
         />
         <span className="artifact-head__meta">
           {TYPE_NOUN[artifact.type]}, version {artifact.version}

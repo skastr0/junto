@@ -67,21 +67,32 @@ export function ArtifactLabelChips({
   readOnly,
   waiting,
   onChange,
+  readRuled,
 }: {
   readonly labels: ReadonlyArray<ArtifactLabel>;
   /** Every label this Artifacts node uses, to complete from. */
   readonly used: ReadonlyArray<ArtifactLabel>;
   readonly readOnly: boolean;
-  /** A labels write of this artifact's is queued, not yet ruled by the editing machine. */
+  /** A labels write of this artifact's is queued, as the node's pending list last read. */
   readonly waiting: boolean;
   /** Send the whole next set; how it was ruled, a failure to send reading as refused. */
   readonly onChange: (labels: ReadonlyArray<ArtifactLabel>) => Promise<"applied" | "queued" | "refused">;
+  /**
+   * Read afresh whether a labels write of this artifact still waits, and its
+   * ruled set; undefined when the read fails or the artifact is gone.
+   */
+  readonly readRuled: () => Promise<{ readonly waiting: boolean; readonly labels: ReadonlyArray<ArtifactLabel> } | undefined>;
 }) {
   /**
-   * The set last sent, shown until the ruled set changes, its write comes back
-   * refused, or, queued, nothing waits any more: a queued write the editing
-   * machine refused leaves the ruled set as it was. `seq` names the latest
-   * send, so an earlier one ruled late never takes back a later one.
+   * The set last sent, shown until the ruled set changes or its write comes
+   * back refused. `seq` names the latest send, so an earlier one ruled late
+   * never takes back a later one.
+   *
+   * A queued set settles only on a fresh read, never on the order in which
+   * the node's pending list and its artifacts refresh. Once the read says no
+   * labels write waits, a ruled set that is the one sent applied (it stays
+   * shown until the list carries it), and any other means the queued change
+   * was refused: the ruled set shows and the refusal is said.
    */
   const [sent, setSent] = useState<{ readonly labels: ReadonlyArray<ArtifactLabel>; readonly seq: number; readonly queued: boolean } | null>(
     null,
@@ -89,16 +100,26 @@ export function ArtifactLabelChips({
   const seq = useRef(0);
   const ruled = labels.join("\n");
   useEffect(() => setSent(null), [ruled]);
-  // A queued set shows only while the pending list says its write waits: one
-  // ruled before the list ever showed it reads the ruled set at once.
-  const queued = sent?.queued === true;
-  useEffect(() => {
-    if (!waiting && queued) {
-      setSent(null);
-      // Ruled with the set unmoved: the queued change never landed.
+  const settleQueued = (mine: number, labelsSent: ReadonlyArray<ArtifactLabel>): void => {
+    void readRuled().then((read) => {
+      if (read === undefined || read.waiting || seq.current !== mine) return;
+      if (read.labels.join("\n") === labelsSent.join("\n")) {
+        // Applied: the sent set stays shown until the node's list carries it.
+        setSent((last) => (last?.seq === mine ? { ...last, queued: false } : last));
+        return;
+      }
+      setSent((last) => (last?.seq === mine ? null : last));
       setReverted(true);
-    }
-  }, [waiting, queued]);
+    }, () => undefined);
+  };
+  // Every refresh of the pending list or of the artifact (a new `labels`
+  // array) may be the ruling of a queued set: read again.
+  const queued = sent?.queued === true ? sent : null;
+  useEffect(() => {
+    if (queued !== null) settleQueued(queued.seq, queued.labels);
+    // settleQueued reads the latest props through readRuled; the triggers are these.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, labels, queued?.seq]);
   const held = sent?.labels ?? labels;
 
   const [picking, setPicking] = useState(false);

@@ -91,6 +91,9 @@ describe("adding a label", () => {
   });
 });
 
+/** A fresh read that never answers: a queued set stays as sent. */
+const unread = async () => undefined;
+
 let host: HTMLDivElement;
 let root: Root;
 const render = (node: React.ReactNode) => act(() => root.render(node));
@@ -119,7 +122,7 @@ afterEach(() => {
 describe("header label chips", () => {
   it("removes one chip by sending the rest of the set", () => {
     const onChange = vi.fn(async () => "applied" as const);
-    render(<ArtifactLabelChips waiting={false} labels={L("draft", "review")} used={L()} readOnly={false} onChange={onChange} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("draft", "review")} used={L()} readOnly={false} onChange={onChange} />);
     expect(host.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("Labels");
     press('[aria-label="Remove draft"]');
     expect(onChange).toHaveBeenCalledWith(["review"]);
@@ -128,7 +131,7 @@ describe("header label chips", () => {
 
   it("adds a typed label on Enter, focused in the picker, and keeps it open for the next", () => {
     const onChange = vi.fn(async () => "applied" as const);
-    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L("draft", "review")} readOnly={false} onChange={onChange} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("draft")} used={L("draft", "review")} readOnly={false} onChange={onChange} />);
     press('[aria-label="Add labels"]');
     expect(document.activeElement).toBe(field());
     type("Project/Junto");
@@ -140,7 +143,7 @@ describe("header label chips", () => {
 
   it("says the rule in place of sending a word that breaks it", () => {
     const onChange = vi.fn(async () => "applied" as const);
-    render(<ArtifactLabelChips waiting={false} labels={L()} used={L()} readOnly={false} onChange={onChange} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L()} used={L()} readOnly={false} onChange={onChange} />);
     press('[aria-label="Add labels"]');
     type("a//b");
     key("Enter");
@@ -149,38 +152,50 @@ describe("header label chips", () => {
   });
 
   it("goes back to the ruled set when the write is refused", async () => {
-    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "refused" as const} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "refused" as const} />);
     await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
     expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toBe("Labels not saved: the change was refused, and they are back as they were.");
   });
 
-  it("goes back to the ruled set when a queued write is refused once it stops waiting", async () => {
+  it("goes back to the ruled set and says so when a fresh read finds a queued write refused", async () => {
     let rule: (ruling: "queued") => void = () => {};
     const onChange = () => new Promise<"queued">((resolve) => (rule = resolve));
+    let read = { waiting: true, labels: L("draft") };
     const chips = (waiting: boolean) => (
-      <ArtifactLabelChips waiting={waiting} labels={L("draft")} used={L()} readOnly={false} onChange={onChange} />
+      <ArtifactLabelChips readRuled={async () => read} waiting={waiting} labels={L("draft")} used={L()} readOnly={false} onChange={onChange} />
     );
-    // The pending list shows the write as it is queued, before and after the ruling says so.
-    render(chips(true));
+    render(chips(false));
     press('[aria-label="Remove draft"]');
     await act(async () => rule("queued"));
+    // Still waiting on a fresh read, whatever the node's pending list says.
     expect(host.querySelector('[aria-label="Remove draft"]')).toBeNull();
-    render(chips(false));
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("");
+    read = { waiting: false, labels: L("draft") };
+    await act(async () => render(chips(false)));
     expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toContain("Labels not saved");
   });
 
-  it("reads the ruled set when a queued write never shows as waiting", async () => {
-    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "queued" as const} />);
+  it("keeps a queued set that applied shown, and says nothing, before the node's list carries it", async () => {
+    let read = { waiting: true, labels: L("draft", "review") };
+    const chips = (labels: ReadonlyArray<ArtifactLabel>) => (
+      <ArtifactLabelChips readRuled={async () => read} waiting={false} labels={labels} used={L()} readOnly={false} onChange={async () => "queued" as const} />
+    );
+    render(chips(L("draft", "review")));
     await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
-    expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
+    read = { waiting: false, labels: L("review") };
+    await act(async () => render(chips(L("draft", "review"))));
+    expect(host.querySelector('[aria-label="Remove draft"]')).toBeNull();
+    await act(async () => render(chips(L("review"))));
+    expect(host.querySelector('[aria-label="Remove draft"]')).toBeNull();
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("");
   });
 
   it("keeps a later change shown when an earlier one is refused after it", async () => {
     const rulings: Array<(ruling: "applied" | "refused") => void> = [];
     const onChange = () => new Promise<"applied" | "refused">((resolve) => rulings.push(resolve));
-    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c")} used={L()} readOnly={false} onChange={onChange} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("a", "b", "c")} used={L()} readOnly={false} onChange={onChange} />);
     press('[aria-label="Remove a"]');
     press('[aria-label="Remove b"]');
     await act(async () => rulings[0]?.("refused"));
@@ -190,7 +205,7 @@ describe("header label chips", () => {
   });
 
   it("shows three chips and the rest behind a count, and closes on Escape back to the count", () => {
-    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d", "e")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("a", "b", "c", "d", "e")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
     expect(host.querySelectorAll(".artifact-labels__chips .artifact-labels__chip")).toHaveLength(3);
     press('[aria-label="+2 more labels"]');
     expect(host.querySelectorAll(".artifact-labels__held .artifact-labels__chip")).toHaveLength(5);
@@ -200,7 +215,7 @@ describe("header label chips", () => {
   });
 
   it("opens and closes the picker from either opener, giving focus back to the one pressed", () => {
-    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("a", "b", "c", "d")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
     const more = host.querySelector<HTMLButtonElement>('[aria-label="+1 more labels"]')!;
     act(() => more.click());
     const picker = host.querySelector(".artifact-labels__picker");
@@ -217,7 +232,7 @@ describe("header label chips", () => {
   });
 
   it("lets an archived artifact's count close what it opened", () => {
-    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d")} used={L()} readOnly onChange={async () => "applied" as const} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("a", "b", "c", "d")} used={L()} readOnly onChange={async () => "applied" as const} />);
     press('[aria-label="+1 more labels"]');
     expect(host.querySelectorAll(".artifact-labels__held .artifact-labels__chip")).toHaveLength(4);
     press('[aria-label="+1 more labels"]');
@@ -225,11 +240,11 @@ describe("header label chips", () => {
   });
 
   it("shows an archived artifact's labels without add or remove, and nothing when it has none", () => {
-    render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly onChange={async () => "applied" as const} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L("draft")} used={L()} readOnly onChange={async () => "applied" as const} />);
     expect(host.textContent).toContain("draft");
     expect(host.querySelector('[aria-label="Add labels"]')).toBeNull();
     expect(host.querySelector('[aria-label^="Remove"]')).toBeNull();
-    render(<ArtifactLabelChips waiting={false} labels={L()} used={L()} readOnly onChange={async () => "applied" as const} />);
+    render(<ArtifactLabelChips readRuled={unread} waiting={false} labels={L()} used={L()} readOnly onChange={async () => "applied" as const} />);
     expect(host.querySelector('[aria-label="Labels"]')).toBeNull();
   });
 });
