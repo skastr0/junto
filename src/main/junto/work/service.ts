@@ -1017,6 +1017,16 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const read = yield* readTopology(canvas);
             const targetNode = yield* requireNode(read.topology, nodeId);
+            // A system notice is the operator's mail, written on the machine that edits the canvas
+            // (rule 4): a seat of another machine is never told from a machine holding a copy.
+            if (targetNode.kind === "peer") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "wrong_home",
+                  message: "the operator's notice to a seat of another machine is written on the machine that edits the canvas",
+                }),
+              );
+            }
             const targetSpec = resolveSpec({
               isGroup: false,
               kind: targetNode.kind,

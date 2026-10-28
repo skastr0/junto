@@ -36,7 +36,7 @@ import { TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-
 import { ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
 import { ResourceRuler, ResourceRulerLive } from "../src/main/junto/work/resource-ruler";
 import { ModelService } from "../src/main/junto/model/service";
-import { WorkLive } from "../src/main/junto/work/service";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { AutomationId, type AutomationDefinition, type AutomationOp } from "../src/shared/automation";
 import type { AutomationEnv } from "../src/shared/automation-domain";
 import { InstallationId } from "../src/shared/installation-id";
@@ -366,4 +366,27 @@ it("fires on the machine that holds only a copy: its mail reaches a seat on the 
     Effect.flatMap(TaskRepository, (tasks) => tasks.list("factory", { nodeIds: [asNodeId("board")], limit: 10 })),
   );
   expect(filed.tasks.map((task) => task.title)).toEqual(["Filed from the mini"]);
+});
+
+it("refuses a system notice to a seat of another machine on a machine that holds only a copy: nothing is written, and the link stays open", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, peer]));
+  expect(await link(macbook, mini)).toBeUndefined();
+
+  // A system notice is the operator's mail, which only the machine that edits the canvas writes (rule 4).
+  const told = await mini.runtime.runPromise(
+    Effect.flatMap(WorkService, (work) =>
+      work.workSystemMailboxNotify("factory", "lead", { messageId: "system-to-lead", role: "agent", parts: [{ kind: "text", text: "Queued" }] } as never)),
+  );
+  expect(told).toMatchObject({ ok: false, code: "wrong_home" });
+  const held = await mini.runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.mailbox("factory", "lead")));
+  expect(held.map((message) => message.messageId)).not.toContain("system-to-lead");
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(macbook.exchange.linked(MINI)).toBe(true);
+  expect(mini.exchange.linked(MACBOOK)).toBe(true);
+  expect(await inbox(macbook)).not.toContain("system-to-lead");
 });
