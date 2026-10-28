@@ -57,9 +57,15 @@ step is not approved, add that the Files stub on other machines comes later.)
   or --remove, and `junto artifact list --label`; `show` lists the labels.
   Artifacts stay one flat list: there are no folders, and a document that links
   its children is the way to build a hub.
-- Comments on a file stay at the file's path. If a file is renamed or moved
-  outside Junto, in Finder or by git, its threads stay at the old path; a
-  rename made in Junto carries them.
+- Comments on a file follow it when you rename or move it in Junto, in the
+  same step as the change on disk: the thread's path and a line comment's file
+  move with it, and a box comment keeps its page. A move that would leave the
+  node's folder is refused, so a thread never has to leave it. Two limits.
+  A rename or move made outside Junto (Finder, git, a script) is unseen, so its
+  threads keep the old path and read as moved; a line comment finds its lines
+  again once a path matches. And two Files nodes that open the same folder each
+  keep their own threads, so a rename through one node carries only its own;
+  the other's stay at the old path, as in the outside case.
 - Security: Junto's git commands no longer run anything a folder's own git
   config names. A repository you open in the git node or a Files node, a
   downloaded one included, cannot run a file system monitor, a filter driver,
