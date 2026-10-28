@@ -11,6 +11,7 @@ import { MachineLogsInput } from "@shared/machine-log";
 import { MachineSeatInput, MachineSeatReadInput, MachineSeatStartInput } from "@shared/machine-seat";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
 import { BoatAddInput, BoatMachineKeyDelivery } from "@shared/boat";
+import { MachineLinkAcceptInput, MachineLinkInput, MachineLinkKeyInput, MachineLinkOpenInput, MachineLinkRevokeInput } from "@shared/machine-link";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { writeBoatMachineSelf } from "../../main/junto/boat/files";
 import { CodeAllowanceScope, DEFAULT_CODE_ALLOWANCE_SCOPE, MachineCodeAllowInput, MachineCodeCanvasInput, MachineCodeShowInput } from "@shared/machine-code";
@@ -72,7 +73,8 @@ const boatKeyLocal = Command.make("boat-key-local", {}, () => executeJsonCommand
 
 /** A send and a Boat machine made from nothing take minutes; a wake or a key, a few. */
 const LONG_OPS: ReadonlySet<string> = new Set(["machine.send", "machine.update", "machine.boat-add"]);
-const SLOW_OPS: ReadonlySet<string> = new Set(["machine.boat-connect", "machine.boat-disconnect", "machine.boat-delete", "machine.wake", "machine.sleep", "machine.remove"]);
+const SLOW_OPS: ReadonlySet<string> = new Set(["machine.boat-connect", "machine.boat-disconnect", "machine.boat-delete", "machine.wake", "machine.sleep", "machine.remove",
+  "machine.link", "machine.link-open"]);
 
 const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Schema.Codec<OperatorArgsByOp[Op], unknown>) =>
   Command.make(name, {
@@ -206,6 +208,11 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("boat-delete", "machine.boat-delete", MachineTargetInput),
     ownerCommand("wake", "machine.wake", MachineTargetInput),
     ownerCommand("sleep", "machine.sleep", MachineTargetInput),
+    ownerCommand("link", "machine.link", MachineLinkInput),
+    ownerCommand("link-key", "machine.link-key", MachineLinkKeyInput),
+    ownerCommand("link-accept", "machine.link-accept", MachineLinkAcceptInput),
+    ownerCommand("link-open", "machine.link-open", MachineLinkOpenInput),
+    ownerCommand("link-revoke", "machine.link-revoke", MachineLinkRevokeInput),
     logs, seatStart, seatStop, seatRead, boatKeyLocal, code,
   ]),
 );

@@ -276,6 +276,17 @@ export const decodeViewStateWrite = Schema.decodeUnknownResult(ViewStateWrite, {
   onExcessProperty: "error",
 });
 
+/**
+ * Main tells every window to read the snapshot again after view rows went
+ * with a node or canvas. Not a write: a window never sends this.
+ */
+export const ViewStateReload = Schema.Struct({ area: Schema.Literal("reload") });
+export type ViewStateReload = typeof ViewStateReload.Type;
+
+/** What the push channel carries: a committed row, or a reload after a delete. */
+export const ViewStateEvent = Schema.Union([ViewStateWrite, ViewStateReload]);
+export type ViewStateEvent = typeof ViewStateEvent.Type;
+
 /** The canvas a write names; absent for the machine-wide rows. */
 export const canvasOfWrite = (write: ViewStateWrite): string | undefined =>
   "canvasName" in write ? write.canvasName : undefined;

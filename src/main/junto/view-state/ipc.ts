@@ -11,7 +11,8 @@
 import type { IpcMain } from "electron";
 import { Effect } from "effect";
 import { IPC_CHANNELS, type ViewStateApplyResult } from "@shared/ipc";
-import { decodeViewStateWrite } from "@shared/view-state";
+import { decodeViewStateWrite, type ViewStateReload } from "@shared/view-state";
+import { subscribeViewStateChanges } from "./changes";
 import { ViewStateRepository, type ViewStatePersistenceError } from "./repository";
 
 export type ViewStateRun = <A, E>(effect: Effect.Effect<A, E, ViewStateRepository>) => Promise<A>;
@@ -24,6 +25,11 @@ export const registerViewStateIpc = (
   ipc.handle(IPC_CHANNELS.viewStateSnapshot, () =>
     run(Effect.flatMap(ViewStateRepository, (store) => store.snapshot())),
   );
+
+  // A node or canvas delete took rows in its transaction; every window reads again.
+  subscribeViewStateChanges(() => {
+    broadcast(IPC_CHANNELS.viewStateChanged, { area: "reload" } satisfies ViewStateReload);
+  });
 
   ipc.handle(IPC_CHANNELS.viewStateApply, (_event, raw: unknown) => {
     const decoded = decodeViewStateWrite(raw);

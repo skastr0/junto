@@ -15,7 +15,7 @@
  * editing machine rules it, and any other machine refuses it `not_available`,
  * naming where to make it.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Archive, Play, Plus, Zap } from "lucide-react";
 import { ulid } from "ulid";
 import type {
@@ -421,10 +421,24 @@ export function AutomationsPane({
     };
   }, [canvasName, codeStep, codeLanguage, codeSource]);
 
+  /**
+   * The keyboard follows the view: the code takes it as the code view opens,
+   * and leaving hands it back to the pane's Save, never the body.
+   */
+  const codeSurface = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (codeStep === undefined || codeHeld === undefined || codeHeld.loading) return;
+    const editor = codeSurface.current?.querySelector<HTMLElement>(".cm-content");
+    if (editor !== undefined && editor !== null) claimFocus(editor, "gesture");
+  }, [codeStep, codeHeld?.loading]);
+
   /** Leaving the code view drops what was typed unless it is saved, as leaving a draft does. */
   const leaveCode = (): void => {
     if (codeHeld !== undefined && codeHeld.text !== codeHeld.loaded) setCodeAsking(true);
-    else setCodeStep(undefined);
+    else {
+      setCodeStep(undefined);
+      settleFocus();
+    }
   };
 
   /**
@@ -645,7 +659,7 @@ export function AutomationsPane({
           }
         >
           {editing && codeStep !== undefined && editing.draft.then[codeStep]?.kind === "code" ? (
-            <div className="automations-node__main automations-node__main--code">
+            <div ref={codeSurface as RefObject<HTMLDivElement>} className="automations-node__main automations-node__main--code">
               <CodeStepEditor
                 name={editing.draft.name}
                 language={(editing.draft.then[codeStep] as Extract<ActionDraft, { readonly kind: "code" }>).language}
@@ -779,6 +793,7 @@ export function AutomationsPane({
               setCodeAsking(false);
               setCodeHeld(undefined);
               setCodeStep(undefined);
+              settleFocus();
             }}
           >
             <p>The code you wrote is not saved.</p>

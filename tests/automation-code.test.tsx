@@ -134,6 +134,9 @@ describe("a code step in the Automations node", () => {
   it("opens the stored program and saves an edit as new content", async () => {
     await opened();
     await click("Edit code");
+    // The keyboard follows the view into the code, never to the body.
+    expect(document.body.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.closest(".cm-content")).not.toBeNull();
     expect(editor().state.doc.toString()).toBe("const answer = 1;\n");
 
     await replaceCode("const answer = 2;\n");

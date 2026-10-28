@@ -5,11 +5,12 @@ import { MachineBuild } from "@shared/machine-control";
 import { RemoteHost } from "@shared/remote-hosts";
 import { encodeError } from "../failure-encode";
 import { MachineRepository, type MachinePeer } from "../machines/repository";
-import { parseHostSshRoute, SshExitError, SshProcessError, SshTransport } from "../ssh";
+import { parseHostSshRoute, parseSshRoute, SshExitError, SshProcessError, SshTransport } from "../ssh";
 import { openMachineLink } from "../ssh/machine-commands";
 import { noteMachinesChanged } from "../hosts/machine-changes";
 import { boatRoute } from "../boat/machines";
 import { linkLog } from "./log";
+import { readBoundRoute } from "./link-keys";
 import { makeLinkSession } from "./session";
 import { LinkHelloSchema } from "./protocol";
 import { MachineLink, type MachineLinkListener } from "./service";
@@ -37,7 +38,11 @@ const toLinkError = (cause: unknown, machine?: string): MachineLinkError => {
   return linkClosed({ ...where, by: "this-end", reason: "failed", cause });
 };
 
-export const makeMachineLink = (options: { readonly build: string }) => Effect.gen(function* () {
+/**
+ * `home` holds this machine's link keys: a peer with a bound route recorded
+ * there is dialed with that route and key only (link-keys.ts).
+ */
+export const makeMachineLink = (options: { readonly build: string; readonly home?: string }) => Effect.gen(function* () {
   const machines = yield* MachineRepository;
   const ssh = yield* SshTransport;
   const context = yield* Effect.context<never>();
@@ -63,7 +68,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
   };
   const admission = (host?: RemoteHost, setupId?: InstallationId) => {
     let setupCommitted = false;
-    return async (raw: LinkHello): Promise<void> => {
+    return async (raw: LinkHello, opener?: InstallationId): Promise<void> => {
       if (stopping) throw shuttingDown();
       let hello: LinkHello;
       try { hello = Schema.decodeUnknownSync(LinkHelloSchema, { onExcessProperty: "error" })(raw); }
@@ -72,7 +77,13 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
       if (hello.machineName === own.machineName || hello.installationId === own.installationId) throw new LinkHelloRefused({ machine: hello.machineName, check: "self-link", message: "A link must reach another machine" });
       if (host !== undefined && hello.machineName !== host.id) throw new LinkHelloRefused({ machine: host.id, check: "route-name", message: `The SSH route for ${host.id} reaches a machine named ${hello.machineName}` });
       if (setupId !== undefined && hello.installationId !== setupId) throw new LinkHelloRefused({ machine: hello.machineName, check: "setup-identity", message: "The SSH route does not match the installed machine identity" });
-      if (setupId === undefined || setupCommitted) await activePeer(hello);
+      if (setupId === undefined || setupCommitted) {
+        const peer = await activePeer(hello);
+        // A peer pinned with a key links only through that key's forced command, which names it.
+        if (host === undefined && peer.binding === "key" && opener === undefined) {
+          throw new LinkHelloRefused({ machine: hello.machineName, check: "opener-key-required", message: `${hello.machineName} links to this machine only with its link key` });
+        }
+      }
       // Only a checked existing binding can contribute a build warning.
       if (setupId === undefined || setupCommitted) {
         builds.set(hello.machineName, hello.build);
@@ -135,8 +146,11 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
     const scope = await run(Scope.make("sequential"));
     let session: LinkSession | undefined;
     try {
-      // A Boat machine's address and host key change as it sleeps and wakes: found now, never stored as truth.
-      const target = await run(parseHostSshRoute(await boatRoute(host)));
+      // A bound route is dialed with its own key and known hosts only; a Boat
+      // machine's address and host key change as it sleeps and wakes: found now, never stored as truth.
+      const bound = options.home === undefined ? undefined : readBoundRoute(options.home, host.id);
+      const target = bound === undefined ? await run(parseHostSshRoute(await boatRoute(host)))
+        : await run(parseSshRoute({ endpoint: `${bound.user}@${bound.host}`, port: bound.port, identityFile: bound.identityFile, knownHostsFile: bound.knownHostsFile, bound: true }));
       const program = await run(openMachineLink(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }));
       const own = await self();
       const connected = await run(ssh.connect(program, (lease, confirm) => Effect.gen(function* () {
@@ -228,7 +242,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
         const { machineName: machine } = await self();
         listener = await startLinkListener({ home, accept: async (socket) => {
           if (stopping) throw shuttingDown();
-          return open({ readable: socket, writable: socket, self: await self(), admit: admission(), channels, run }, false);
+          return open({ readable: socket, writable: socket, self: await self(), admit: admission(), channels, run, acceptsOpener: true }, false);
         }, failed: (what, cause) => {
           fork(linkLog("Warning", what === "accept" ? "link connection was not accepted" : "link listener failed", { machine, failure: encodeError(cause, { machine }) }));
         } });
@@ -248,4 +262,4 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
   });
 });
 
-export const machineLinkLayer = (build: string) => Layer.effect(MachineLink, makeMachineLink({ build }));
+export const machineLinkLayer = (build: string, home?: string) => Layer.effect(MachineLink, makeMachineLink({ build, ...(home === undefined ? {} : { home }) }));
