@@ -18,7 +18,9 @@ import {
   AUTOMATION_NAME_MAX_CHARS,
   AUTOMATION_STEPS_MAX,
   AUTOMATION_TEXT_MAX_CHARS,
+  AUTOMATION_SIGNAL_SHOWS_MAX,
   DEFAULT_AUTOMATION_LIMITS,
+  SignalKind,
   MAX_PER_HOUR_CEILING,
   POLL_MIN_EVERY_MS,
   AutomationDefinition,
@@ -72,17 +74,12 @@ export type CommentTarget = CommentAction["on"];
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
-/**
- * The contract's action kinds, and `signal` (0.11/07 N2, automation-lead)
- * until it lands in `@shared/automation`: a stand-in, refused in words until then.
- */
-export type ActionKind = Action["kind"] | "signal";
+export type ActionKind = Action["kind"];
 export type SeatControlOp = Extract<Action, { readonly kind: "seat-control" }>["op"];
-/** What a raised signal asks of the operator: read it (`notice`) or produce something (`work`). N2 stand-in. */
-export type SignalRaise = "notice" | "work";
-export const SIGNAL_RAISES: ReadonlyArray<SignalRaise> = ["notice", "work"];
-/** The artifacts a raised signal may show (N2's `AUTOMATION_SIGNAL_SHOWS_MAX`). */
-export const SIGNAL_SHOWS_MAX = 8;
+/** What a raised signal asks of the operator: read it (`notice`) or produce something (`work`). */
+export type SignalRaise = SignalKind;
+export const SIGNAL_RAISES: ReadonlyArray<SignalRaise> = SignalKind.literals;
+export const SIGNAL_SHOWS_MAX = AUTOMATION_SIGNAL_SHOWS_MAX;
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -599,14 +596,6 @@ const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
   artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
 
-/** Whether the contract takes a signal step yet (N2): until it does, the editor says so rather than sending one. */
-const CONTRACT_HAS_SIGNAL = Schema.is(AutomationDefinition)({
-  name: "probe",
-  trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS },
-  then: [{ kind: "signal", signal: "notice", title: "probe" }],
-  limits: DEFAULT_AUTOMATION_LIMITS,
-});
-
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
 
 const actionProblem = (
@@ -670,7 +659,6 @@ const actionProblem = (
     case "seat-control":
       return action.seat === undefined ? "Pick the seat to start or stop." : undefined;
     case "signal": {
-      if (!CONTRACT_HAS_SIGNAL) return "Raising signals is not available yet.";
       const detail = action.detail ?? "";
       return (
         textProblem(action.title, AGENT_SIGNAL_MAX_TEXT_LENGTH, "signal title") ??

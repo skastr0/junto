@@ -135,9 +135,8 @@ describe("artifact automations, the draft", () => {
     expect(editDraft(draft, { type: "action-kind", index: 0, kind: "signal" }).then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words" });
     expect(actionWords({ kind: "signal", signal: "notice", title: "x" }, nameOf)).toBe("raise a notice");
     expect(actionWords({ kind: "signal", signal: "work", title: "x" }, nameOf)).toBe("raise work for you");
-    // Until N2's contract lands the editor says it is not available; after, it asks for the title.
-    const blank = actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: " " }]));
-    expect(["Raising signals is not available yet.", "Write the signal title."]).toContain(blank);
+    expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: " " }]))).toBe("Write the signal title.");
+    expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: "Write 500 words" }]))).toBeUndefined();
   });
 
   it("each artifact action says what it writes", () => {
