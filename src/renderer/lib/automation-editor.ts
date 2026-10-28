@@ -48,12 +48,8 @@ export type TargetRef = SeatWatch["seat"];
 /** A task, or any task on one board. */
 export type TaskTarget = TaskWatch["task"];
 export type TaskBecomes = TaskWatch["becomes"];
-/**
- * An artifact, or any artifact in one Artifacts node, as a task watch's
- * `{node}` is any task on a board. Stand-in for automation-lead's A2 names
- * (plan 0.11/05): becomes `ArtifactWatch["artifact"]` once that lands.
- */
-export type ArtifactTarget = TargetRef | { readonly node: NodeId };
+/** An artifact, or any artifact in one Artifacts node, as a task watch's `{node}` is any task on a board. */
+export type ArtifactTarget = ArtifactWatch["artifact"];
 export type ArtifactEvent = ArtifactWatch["event"];
 type CommentAction = Extract<Action, { readonly kind: "comment" }>;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
