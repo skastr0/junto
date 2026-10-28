@@ -182,7 +182,10 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
     const level = await cli(["artifact", "list", "--label", "project/junto"]);
     expect((level.json.data!.artifacts as ReadonlyArray<Listed>).map((a) => a.title).sort()).toEqual(["Release notes", "Roadmap", "Web brief"]);
 
-    // Kept per node across a close and reopen.
+    // Kept per node across a close and reopen, the type filter with the labels (plan corrected, 9b15d9add).
+    const typeRadio = (name: string) => page.locator(".artifacts-filter__type").filter({ hasText: new RegExp(`^${name}$`, "u") });
+    await typeRadio("Document").click();
+    await expect(typeRadio("Document")).toHaveAttribute("aria-checked", "true");
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("list", { name: "Artifacts" })).toHaveCount(0, { timeout: 10_000 });
@@ -191,8 +194,11 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
     const keptPressed = await page.locator(".artifacts-filter__labels [aria-pressed=\"true\"]").allTextContents();
     const keptTitles = await listedTitles(page);
     await shoot(page, "2c-sidebar-after-reopen");
-    expect.soft(keptPressed.length, `kept picks after reopen: ${JSON.stringify(keptPressed)}, rows ${JSON.stringify(keptTitles)}`).toBe(2);
-    if (keptPressed.length > 0) await filter.getByRole("button", { name: "Clear" }).click();
+    expect(keptTitles, "the kept pick still filters the rows").toEqual(["Release notes"]);
+    expect(keptPressed.length, `kept picks after reopen: ${JSON.stringify(keptPressed)}`).toBe(2);
+    await expect(typeRadio("Document"), "the type filter is kept").toHaveAttribute("aria-checked", "true");
+    await filter.getByRole("button", { name: "Clear" }).click();
+    await typeRadio("All").click();
 
     // A seat adds a label: the chip appears in the window.
     const webId = idOf("Web brief");
