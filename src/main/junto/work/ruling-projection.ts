@@ -22,6 +22,7 @@ import { AutomationFact } from "@shared/automation-domain";
 import { projectAutomationFacts } from "../automation/repository";
 import { canonicalJson } from "@shared/work-canonical-json";
 import { ContentService } from "../content/service";
+import { ModelService } from "../model/service";
 import { artifactBodyRef, keptEdits, projectArtifactFacts } from "./artifact-repository";
 import { projectTaskFact } from "./task-repository";
 
@@ -33,11 +34,11 @@ export class RulingFoldRefused extends Schema.TaggedError<RulingFoldRefused>()("
 /**
  * What the folding machine holds beyond its tables from its own judgment:
  * the bodies the ruler kept, by sha256, and the command it ruled. A replica
- * holds neither.
+ * holds neither; `command` is present only on the machine that ruled it.
  */
 export type Kept = {
   readonly bodies?: ReadonlyMap<string, ArtifactBody>;
-  readonly command?: Pick<ResourceCommand<ArtifactOp>, "op" | "target">;
+  readonly command?: Pick<ResourceCommand<unknown>, "op" | "target">;
 };
 
 type Fold = (
@@ -172,6 +173,10 @@ const keepBodies = (
     }
   });
 
+/** A fact that places an automation: its machine is where the copy at the new count says it runs. */
+const placesAutomation = (fact: AutomationFact): boolean =>
+  fact.fact === "automation.created" || fact.fact === "automation.moved" || fact.fact === "automation.archived";
+
 /**
  * One projection per resource kind. Total, so a domain whose ruler starts
  * recording rulings fails tsc until its replica fold is named here.
@@ -193,7 +198,9 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
     return Effect.gen(function* () {
       const made = yield* bodiesKnownHere(sql, canvasName, ruling, facts.success);
       const bodyOf = (ref: ContentRef) => made.get(ref.sha256) ?? kept.bodies?.get(ref.sha256);
-      const folded = kept.command === undefined ? facts.success : keptEdits(facts.success, kept.command);
+      const folded = kept.command === undefined
+        ? facts.success
+        : keptEdits(facts.success, kept.command as Pick<ResourceCommand<ArtifactOp>, "op" | "target">);
       yield* projectArtifactFacts(sql, canvasName, ruling.opId, folded, bodyOf);
       yield* keepBodies(sql, canvasName, folded, bodyOf);
     });
@@ -201,13 +208,23 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
   thread: notYetRuled("thread"),
   // Each automation runs on the machine it names (machines.md Rule 2), so every
   // machine folds its rulings with the ruler's own projection.
-  automation: (sql, canvasName, ruling) => {
+  automation: (sql, canvasName, ruling, _at, kept) => {
     const facts = decodeAutomationFacts(ruling.facts);
-    return Result.isFailure(facts)
-      ? Effect.fail(new RulingFoldRefused({ message: "an automation ruling carries facts this build does not know" }))
-      : projectAutomationFacts(sql, canvasName, facts.success).pipe(
-          Effect.catchTag("AutomationPersistenceError", (error) => Effect.fail(new RulingFoldRefused({ message: error.message }))),
-        );
+    if (Result.isFailure(facts)) {
+      return Effect.fail(new RulingFoldRefused({ message: "an automation ruling carries facts this build does not know" }));
+    }
+    return Effect.gen(function* () {
+      yield* projectAutomationFacts(sql, canvasName, facts.success).pipe(
+        Effect.catchTag("AutomationPersistenceError", (error) => Effect.fail(new RulingFoldRefused({ message: error.message }))),
+      );
+      // Placing, moving or archiving an automation moves the canvas count on the machine that ruled it,
+      // as its ruler does (S2); a replica takes the count from the copy.
+      if (kept.command === undefined || !facts.success.some(placesAutomation)) return;
+      const model = yield* Effect.serviceOption(ModelService);
+      if (Option.isSome(model)) {
+        yield* model.value.advanceCount(canvasName).pipe(Effect.mapError((error) => new RulingFoldRefused({ message: error.message })));
+      }
+    });
   },
 };
 
