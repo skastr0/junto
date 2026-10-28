@@ -27,7 +27,9 @@ const CANVAS = "labels-verify";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/artifact-labels-verify";
 const shelf = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({ kind: "artifacts", id: "shelf", label: "Shelf", x: 400, y: 60, width: 280, height: 160, z: 0 });
 
-const seed = (page: Page, title: string, labels: ReadonlyArray<string>): Promise<{ kind: string }> =>
+const shelfB = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({ kind: "artifacts", id: "shelf-b", label: "Shelf B", x: 400, y: 240, width: 280, height: 140, z: 0 });
+
+const seed = (page: Page, title: string, labels: ReadonlyArray<string>, node = "shelf"): Promise<{ kind: string }> =>
   page.evaluate(
     ({ canvas, node, artifactId, opId, title, labels }) =>
       window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, {
@@ -36,7 +38,7 @@ const seed = (page: Page, title: string, labels: ReadonlyArray<string>): Promise
         body: { type: "document", markdown: `# ${title}` },
         labels,
       }) as Promise<{ kind: string }>,
-    { canvas: CANVAS, node: asNodeId("shelf"), artifactId: mintItemId(), opId: mintOpId(), title, labels },
+    { canvas: CANVAS, node: asNodeId(node), artifactId: mintItemId(), opId: mintOpId(), title, labels },
   );
 
 const setTheme = async (page: Page, theme: "bright" | "dark"): Promise<void> => {
@@ -76,7 +78,7 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
   const ops = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 800, height: 400 });
   const junto = await launchJunto({
     windowContentSize: { width: 1500, height: 900 },
-    seedModels: { [CANVAS]: modelFixture([ops, scout, shelf], []) },
+    seedModels: { [CANVAS]: modelFixture([ops, scout, shelf, shelfB], []) },
     afterSeed: installCrewSeatHarness,
   });
   try {
@@ -98,6 +100,8 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
     expect((await seed(page, "Roadmap", ["project/junto", "planning"])).kind).toBe("applied");
     expect((await seed(page, "Launch plan", [])).kind).toBe("applied");
     expect((await seed(page, "Plain page", [])).kind).toBe("applied");
+    expect((await seed(page, "Beta note", ["beta"], "shelf-b")).kind).toBe("applied");
+    expect((await seed(page, "Gamma note", ["gamma"], "shelf-b")).kind).toBe("applied");
 
     const card = page.locator('.react-flow__node[data-id="shelf"]');
     await card.dblclick();
@@ -197,6 +201,34 @@ test("artifact labels: header chips, the sidebar filter, a seat's label, Cmd+P r
     expect(keptTitles, "the kept pick still filters the rows").toEqual(["Release notes"]);
     expect(keptPressed.length, `kept picks after reopen: ${JSON.stringify(keptPressed)}`).toBe(2);
     await expect(typeRadio("Document"), "the type filter is kept").toHaveAttribute("aria-checked", "true");
+
+    // Two Artifacts nodes keep their own picks.
+    const cardB = page.locator('.react-flow__node[data-id="shelf-b"]');
+    const open = async (which: typeof card): Promise<void> => {
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("list", { name: "Artifacts" })).toHaveCount(0, { timeout: 10_000 });
+      await which.dblclick();
+      await expect(page.getByRole("list", { name: "Artifacts" })).toBeVisible({ timeout: 20_000 });
+    };
+    const pressed = () => page.locator('.artifacts-filter__labels [aria-pressed="true"] .artifacts-filter__label-word').allTextContents();
+    await open(cardB);
+    await expect.poll(() => listedTitles(page)).toEqual(expect.arrayContaining(["Beta note", "Gamma note"]));
+    expect(await pressed(), "Shelf B starts with none picked").toEqual([]);
+    await expect(typeRadio("All"), "Shelf B starts on All").toHaveAttribute("aria-checked", "true");
+    await toggle("beta").click();
+    await expect.poll(() => listedTitles(page)).toEqual(["Beta note"]);
+    await open(card);
+    await expect.poll(pressed, "Shelf keeps its own picks").toEqual(["draft", "project/junto"]);
+    await expect(typeRadio("Document")).toHaveAttribute("aria-checked", "true");
+    expect(await listedTitles(page)).toEqual(["Release notes"]);
+    await open(cardB);
+    await expect.poll(pressed, "Shelf B keeps beta").toEqual(["beta"]);
+    expect(await listedTitles(page)).toEqual(["Beta note"]);
+    await shoot(page, "2d-second-node-own-picks");
+    await filter.getByRole("button", { name: "Clear" }).click();
+    await open(card);
+
     await filter.getByRole("button", { name: "Clear" }).click();
     await typeRadio("All").click();
 
