@@ -351,4 +351,22 @@ describe("a move folded while a firing is in flight", () => {
       await h.close();
     }
   });
+
+  it("names no move when it was archived in flight", async () => {
+    let go: <A, E>(effect: Effect.Effect<A, E, AutomationRepository>) => Promise<A> = () => Promise.reject(new Error("unset"));
+    const h = await harness(automation({ then: [mail("seat-a2"), mail("seat-a")], machine: EDITOR as never }), EDITOR, async (index) => {
+      if (index !== 0) return;
+      await go(Effect.flatMap(AutomationRepository, (r) => r.applyFacts(CANVAS, [{ fact: "automation.archived", automationId: AUTO, at: 1 }])));
+    });
+    go = h.go;
+    try {
+      await h.go(h.runner.tick(CANVAS));
+      h.clock.now = at("2026-10-21T09:00:10Z");
+      await h.go(h.runner.tick(CANVAS));
+      const actions = (await h.history())[0]?.outcome;
+      expect(actions).toEqual({ kind: "fired", actions: [{ index: 0, ruling: "applied" }, { index: 1, ruling: "refused", reason: "not_permitted" }] });
+    } finally {
+      await h.close();
+    }
+  });
 });

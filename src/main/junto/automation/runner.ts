@@ -134,7 +134,10 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
           index,
           ruling: "refused",
           reason: "not_permitted",
-          ...(held?.automation.machine === undefined ? {} : { movedTo: held.automation.machine }),
+          // A move only when it went somewhere else: an archived one, or one this machine stopped holding, moved nowhere.
+          ...(held === undefined || held.archived || held.automation.machine === undefined || held.automation.machine === automation.machine
+            ? {}
+            : { movedTo: held.automation.machine }),
         });
         continue;
       }
