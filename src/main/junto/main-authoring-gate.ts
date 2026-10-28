@@ -128,6 +128,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "artifact.history": "read",
   "artifact.create": "authorial",
   "artifact.edit": "authorial",
+  "artifact.label": "authorial",
   "artifact.comment": "authorial",
   "artifact.archive": "authorial",
   "artifact.restore": "authorial",

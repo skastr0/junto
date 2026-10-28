@@ -21,9 +21,9 @@ import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
 
 /**
- * `junto artifact` (plan 05): list, show, history, create, edit, comment,
- * archive and restore the artifacts on the Artifacts nodes in this seat's
- * reach. Reach admits, not edges. Every write mints its opId here, or takes
+ * `junto artifact` (plan 05): list, show, history, create, edit, label,
+ * comment, archive and restore the artifacts on the Artifacts nodes in this
+ * seat's reach. Reach admits, not edges. Every write mints its opId here, or takes
  * --op-id to retry one, and create mints the artifact's id. An edit names the
  * version it was written against with --base; a stale one is refused with
  * the head.
@@ -69,6 +69,16 @@ const json = (flag: string, text: string): Effect.Effect<unknown, InputError> =>
     catch: () => new InputError({ message: `--${flag} must be JSON`, path: `--${flag}`, received: text }),
   });
 
+/**
+ * A repeatable label flag. Each value may also hold several, comma-separated:
+ * no label holds a comma, so `--label a,b` is `--label a --label b`.
+ */
+const labelFlag = (name: string, description: string) =>
+  Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
+
+const labelsOf = (given: ReadonlyArray<string>): ReadonlyArray<string> =>
+  given.flatMap((one) => one.split(",")).map((one) => one.trim()).filter((one) => one.length > 0);
+
 const bodyFlags = {
   markdown: Flag.string("markdown").pipe(Flag.optional, Flag.withDescription("A document's markdown")),
   url: Flag.string("url").pipe(Flag.optional, Flag.withDescription("A link's address")),
@@ -93,11 +103,12 @@ const bodyOf = (given: {
   });
 
 const DESCRIPTIONS = {
-  list: "Artifacts on every Artifacts node in this seat's reach, or on the one --node names, newest change first. Archived ones only with --archived.",
-  show: "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with linkedFrom: the artifacts in reach whose body links it, and the mail and comments you can read that link it.",
+  list: "Artifacts on every Artifacts node in this seat's reach, or on the one --node names, newest change first, each with its labels. Archived ones only with --archived. --label keeps those holding every label named, a label also matching the levels under it (project/junto matches project/junto/release).",
+  show: "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with its labels, and linkedFrom: the artifacts in reach whose body links it, and the mail and comments you can read that link it.",
   history: "An artifact's versions, newest first: who made each and whether it replaced or patched the body.",
   create: "Create an artifact on the Artifacts node in reach, or the one --node names. Documents, pads and sheets start empty; a link needs --url. [[Title]] in the body links the artifact of that title in reach, or [[<artifactId>]] when several share it.",
   edit: "Edit an artifact written against --base: replace its body (--markdown, --url or --body), or patch a pad, sheet or document (--patch). [[Title]] links as in create.",
+  label: "Set an artifact's labels whole with --set (an empty --set clears them), or change them with --add and --remove. A label is 1 to 40 characters of a-z 0-9 - _ / and space, folded to lowercase; an artifact holds at most 20. Labels are not versioned: the version stays.",
   comment: "Post in the artifact's thread, on the whole artifact or at --anchor: box for a pad, cells for a sheet, text for a document.",
   archive: "Archive an artifact. It takes no edits until restored.",
   restore: "Restore an archived artifact.",
@@ -112,11 +123,21 @@ const listCommand = Command.make(
     node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("An Artifacts node: its id, its name or a junto:// ref")),
     type: Flag.choice("type", ARTIFACT_TYPES).pipe(Flag.optional, Flag.withDescription("Only artifacts of this type")),
     archived: Flag.boolean("archived").pipe(Flag.withDefault(false), Flag.withDescription("List the archived artifacts instead")),
+    label: labelFlag("label", "Only artifacts holding this label or a level under it; repeat for several, all must match"),
     limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`At most this many (1 to ${ARTIFACT_LIST_LIMIT_MAX}, default 50)`)),
     timeout: timeoutFlag,
   },
-  ({ node, type, archived, limit, timeout }) =>
-    run("artifact.list", Effect.succeed({ ...present({ node, type, limit }), ...(archived ? { archived } : {}) }), Option.none(), timeout),
+  ({ node, type, archived, label, limit, timeout }) =>
+    run(
+      "artifact.list",
+      Effect.succeed({
+        ...present({ node, type, limit }),
+        ...(archived ? { archived } : {}),
+        ...(labelsOf(label).length === 0 ? {} : { labels: labelsOf(label) }),
+      }),
+      Option.none(),
+      timeout,
+    ),
 ).pipe(Command.withDescription(DESCRIPTIONS.list));
 
 const showCommand = Command.make(
@@ -148,11 +169,12 @@ const createCommand = Command.make(
     type: Flag.choice("type", ARTIFACT_TYPES).pipe(Flag.withDescription("link, document, pad, sheet or file")),
     node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("The Artifacts node, when more than one is in reach")),
     task: Flag.string("task").pipe(Flag.atLeast(0), Flag.withDescription("A task id this artifact belongs to; repeat for several")),
+    label: labelFlag("label", "A label it starts with; repeat for several"),
     ...bodyFlags,
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ title, type, node, task, markdown, url, body, opId, timeout }) =>
+  ({ title, type, node, task, label, markdown, url, body, opId, timeout }) =>
     run(
       "artifact.create",
       Effect.map(bodyOf({ markdown, url, body }), (given) => ({
@@ -162,6 +184,7 @@ const createCommand = Command.make(
         ...present({ node }),
         ...(given === undefined ? {} : { body: given }),
         ...(task.length === 0 ? {} : { taskIds: task }),
+        ...(labelsOf(label).length === 0 ? {} : { labels: labelsOf(label) }),
       })),
       opId,
       timeout,
@@ -195,6 +218,31 @@ const editCommand = Command.make(
       timeout,
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.edit));
+
+const labelCommand = Command.make(
+  "label",
+  {
+    artifact: artifactArg,
+    set: labelFlag("set", "The whole set, comma-separated or repeated; --set '' clears it"),
+    add: labelFlag("add", "A label to add; repeat for several"),
+    remove: labelFlag("remove", "A label to remove; repeat for several"),
+    opId: opIdFlag,
+    timeout: timeoutFlag,
+  },
+  ({ artifact, set, add, remove, opId, timeout }) =>
+    run(
+      "artifact.label",
+      Effect.succeed({
+        artifact,
+        // Named at all, --set is the whole set, so --set '' sends none.
+        ...(set.length === 0 ? {} : { set: labelsOf(set) }),
+        ...(add.length === 0 ? {} : { add: labelsOf(add) }),
+        ...(remove.length === 0 ? {} : { remove: labelsOf(remove) }),
+      }),
+      opId,
+      timeout,
+    ),
+).pipe(Command.withDescription(DESCRIPTIONS.label));
 
 const commentCommand = Command.make(
   "comment",
@@ -232,6 +280,7 @@ export const artifactCommand = Command.make("artifact").pipe(
     historyCommand,
     createCommand,
     editCommand,
+    labelCommand,
     commentCommand,
     oneCommand("archive"),
     oneCommand("restore"),
@@ -271,6 +320,23 @@ const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
 
 export const artifactExamples: ReadonlyArray<CommandExample> = [
   example("list", "the sheets in reach", "Every Artifacts node in reach.", ["--type", "sheet"], { type: "sheet" }),
+  example("list", "one label's artifacts", "project/junto also matches project/junto/release.", ["--label", "project/junto", "--label", "draft"], {
+    labels: ["project/junto", "draft"],
+  }),
+  example("create", "start a labelled document", "Labels fold to lowercase.", ["Plan", "--type", "document", "--label", "project/junto"], {
+    type: "document",
+    title: "Plan",
+    labels: ["project/junto"],
+  }),
+  example("label", "set the whole set", "Replaces every label the artifact held.", [ID, "--set", "draft,project/junto"], {
+    artifact: ID,
+    set: ["draft", "project/junto"],
+  }),
+  example("label", "add one, remove one", "The others stay.", [ID, "--add", "shipped", "--remove", "draft"], {
+    artifact: ID,
+    add: ["shipped"],
+    remove: ["draft"],
+  }),
   example("create", "start a document", "It starts at version 1.", ["Release notes", "--type", "document", "--markdown", "# 0.10"], {
     type: "document",
     title: "Release notes",

@@ -124,6 +124,22 @@ describe("junto artifact", () => {
     expect(list.args).toEqual({ archived: true, type: "sheet" });
   });
 
+  it("sends labels on create and list, repeated or comma-separated, and the label verb's set, add and remove", async () => {
+    const create = await sent(["artifact", "create", "Plan", "--type", "document", "--label", "draft,project/junto", "--label", "Q4"]);
+    expect(create.result.code, create.result.stderr).toBe(0);
+    expect(create.args).toMatchObject({ labels: ["draft", "project/junto", "Q4"] });
+    const list = await sent(["artifact", "list", "--label", "project/junto", "--label", "draft"]);
+    expect(list.args).toEqual({ labels: ["project/junto", "draft"] });
+    const set = await sent(["artifact", "label", ID, "--set", "a, b", "--op-id", OP]);
+    expect(set.op).toBe("artifact.label");
+    expect(set.args).toEqual({ opId: OP, artifact: ID, set: ["a", "b"] });
+    const clear = await sent(["artifact", "label", ID, "--set", "", "--op-id", OP]);
+    expect(clear.args).toEqual({ opId: OP, artifact: ID, set: [] });
+    const change = await sent(["artifact", "label", ID, "--add", "shipped", "--remove", "draft"]);
+    expect(change.args).toMatchObject({ artifact: ID, add: ["shipped"], remove: ["draft"] });
+    expect(change.args?.opId).toMatch(ULID);
+  });
+
   it("refuses two bodies and JSON that does not parse, before anything is sent", async () => {
     const both = await sent(["artifact", "edit", ID, "--base", "1", "--markdown", "a", "--url", "https://x.dev"]);
     expect(both.op).toBeUndefined();

@@ -24,6 +24,7 @@ import {
   ArtifactCreateArgs,
   ArtifactEditArgs,
   ArtifactHistoryArgs,
+  ArtifactLabelArgs,
   ArtifactListArgs,
   ArtifactOneArgs,
   ArtifactShowArgs,
@@ -53,6 +54,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { operatorActorRef } from "@shared/work-reference";
 import { ArtifactFact } from "@shared/artifact-domain";
+import { ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabelsOf } from "@shared/artifact-labels";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
 import { precheckInput, queuedArtifactCommands } from "./queued-commands";
@@ -278,6 +280,49 @@ const inputError = (message: string, path: string, hint?: string): WorkErrorBody
   message,
   details: { path, retryable: false, ...(hint === undefined ? {} : { hint }) },
 });
+
+const LABEL_RULE = "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //";
+
+/**
+ * Labels as a seat typed them, folded (03): trimmed, lowered, unique and
+ * sorted. The first that cannot be a label is refused by name, at the flag
+ * that carried it, so nothing reaches the ruler that it would refuse.
+ */
+const foldLabels = (raw: ReadonlyArray<string>, path: string): Effect.Effect<ReadonlyArray<ArtifactLabel>, WorkErrorBody> => {
+  const index = raw.findIndex((one) => artifactLabelOf(one) === undefined);
+  if (index >= 0) {
+    return Effect.fail({
+      type: "InputError",
+      message: `${JSON.stringify(raw[index])} is not a label: ${LABEL_RULE}`,
+      details: { path: `${path}[${index}]`, received: raw[index], retryable: false },
+    });
+  }
+  const folded = artifactLabelsOf(raw);
+  return folded === undefined
+    ? Effect.fail(inputError(`an artifact holds at most ${ARTIFACT_LABELS_MAX} labels`, path))
+    : Effect.succeed(folded);
+};
+
+/**
+ * The set a label write sends: `set` whole, or the head's set with `add`
+ * joined and `remove` taken out. Removing a label the head does not hold
+ * changes nothing.
+ */
+const nextLabels = (
+  held: ReadonlyArray<ArtifactLabel>,
+  input: ArtifactLabelArgs,
+): Effect.Effect<ReadonlyArray<ArtifactLabel>, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const changes = input.add !== undefined || input.remove !== undefined;
+    if ((input.set !== undefined) === changes) {
+      return yield* Effect.fail(inputError("name the whole set, or labels to add and remove, one of them", "set", "--set a,b, or --add a --remove b"));
+    }
+    if (input.set !== undefined) return yield* foldLabels(input.set, "set");
+    const added = yield* foldLabels(input.add ?? [], "add");
+    const removed = new Set(yield* foldLabels(input.remove ?? [], "remove"));
+    const next = [...held, ...added].filter((label) => !removed.has(label));
+    return yield* foldLabels(next, "add");
+  });
 
 const namesOf = (names: ReadonlyArray<string>): string => names.slice(0, 12).join(", ");
 
@@ -617,16 +662,18 @@ export const handleArtifactOp = (
         const nodeIds = input.node === undefined
           ? ports.nodes(caller.canvas).filter((node) => inReach(caller, node.id)).map((node) => node.id)
           : [(yield* findNode(caller, ports, input.node)).id];
+        const labels = input.labels === undefined ? undefined : yield* foldLabels(input.labels, "labels");
         const found = yield* ports.list(caller.canvasName, {
           nodeIds,
           archived: input.archived ?? false,
           limit: input.limit ?? LIST_DEFAULT_LIMIT,
           ...(input.type === undefined ? {} : { type: input.type }),
+          ...(labels === undefined || labels.length === 0 ? {} : { labels }),
         });
         const marks = yield* pendingOf(caller, ports);
         return {
-          artifacts: found.artifacts.map(({ artifactId, nodeId, type, title, version, updatedAt, archived }) => withPendingMark({
-            artifactId, nodeId, type, title, version, updatedAt, archived,
+          artifacts: found.artifacts.map(({ artifactId, nodeId, type, title, version, updatedAt, archived, labels }) => withPendingMark({
+            artifactId, nodeId, type, title, version, updatedAt, archived, labels,
           }, artifactId, marks)),
           more: found.more,
           ...pendingUnknownOf(marks),
@@ -677,6 +724,7 @@ export const handleArtifactOp = (
         const body = createBody(input.type, input.body);
         if (Result.isFailure(body)) return yield* Effect.fail(body.failure);
         if (input.taskIds !== undefined) yield* checkTasks(caller, ports, input.taskIds);
+        const labels = input.labels === undefined ? undefined : yield* foldLabels(input.labels, "labels");
         const resolve = yield* titleResolver(caller, ports, bodyTexts(body.success));
         const linked = resolve === undefined ? body.success : yield* Effect.fromResult(linkBodyTitles(body.success, resolve)).pipe(Effect.mapError(withOpId(input.opId)));
         return yield* submit(caller, ports, command(caller, input.opId, node.id, input.artifactId, {
@@ -684,7 +732,14 @@ export const handleArtifactOp = (
           title: input.title,
           body: linked,
           ...(input.taskIds === undefined ? {} : { taskIds: input.taskIds }),
+          ...(labels === undefined || labels.length === 0 ? {} : { labels }),
         }));
+      }
+      case "artifact.label": {
+        const input = yield* decode(ArtifactLabelArgs, args);
+        const head = yield* findArtifact(caller, ports, input.artifact);
+        const labels = yield* nextLabels(head.artifact.labels, input).pipe(Effect.mapError(withOpId(input.opId)));
+        return yield* submit(caller, ports, command(caller, input.opId, head.artifact.nodeId, input.artifact, { op: "labels", labels }));
       }
       case "artifact.edit": {
         const input = yield* decode(ArtifactEditArgs, args);

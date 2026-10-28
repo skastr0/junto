@@ -213,6 +213,7 @@ describe("work-control main authoring classification", () => {
       "artifact.history": "read",
       "artifact.create": "authorial",
       "artifact.edit": "authorial",
+      "artifact.label": "authorial",
       "artifact.comment": "authorial",
       "artifact.archive": "authorial",
       "artifact.restore": "authorial",

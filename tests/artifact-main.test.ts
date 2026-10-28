@@ -19,6 +19,7 @@ import type { WorkErrorBody } from "../src/shared/work-control";
 import { ItemId } from "../src/shared/work-ids";
 import { artifactLink } from "../src/shared/artifact-link";
 import { mentionKey } from "../src/shared/mention";
+import { artifactLabelsMatch } from "../src/shared/artifact-labels";
 import {
   bodyFor,
   handleArtifactOp,
@@ -72,7 +73,9 @@ const memoryPorts = () => {
     list: (_canvas, query) => {
       const found = entries()
         .map((entry) => entry.artifact)
-        .filter((a) => query.nodeIds.includes(a.nodeId) && a.archived === query.archived && (query.type === undefined || a.type === query.type));
+        .filter((a) => query.nodeIds.includes(a.nodeId) && a.archived === query.archived && (query.type === undefined || a.type === query.type))
+        // The repository filters in SQL; the memory store keeps the one rule it mirrors.
+        .filter((a) => artifactLabelsMatch(a.labels, query.labels ?? []));
       return Effect.succeed({ artifacts: found.slice(0, query.limit), more: found.length > query.limit });
     },
     head: (_canvas, id) =>
@@ -433,5 +436,68 @@ describe("bodyFor", () => {
     expect(bodyFor("sheet", { markdown: "# x" }, "body")._tag).toBe("Failure");
     expect(bodyFor("document", { body: { type: "sheet", grid: { columns: [], rows: [] } } }, "body")._tag).toBe("Failure");
     expect(bodyFor("link", { url: "ftp://example.com" }, "body")._tag).toBe("Failure");
+  });
+});
+
+describe.runIf(ARTIFACTS_ENABLED)("junto artifact labels in main", () => {
+  const OP3 = "01M5ESM1XHCJ7JYJDBC37MREC1";
+  const labelsOf = (ports: ArtifactPorts) => ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).artifact.labels;
+
+  it("creates with labels folded, and refuses one that cannot be a label before anything is ruled", () => {
+    const { ports, submitted } = memoryPorts();
+    createDoc(ports, { labels: [" Project/Junto ", "draft", "DRAFT"] });
+    expect(submitted[0]?.op).toMatchObject({ op: "create", labels: ["draft", "project/junto"] });
+    expect(labelsOf(ports)).toEqual(["draft", "project/junto"]);
+
+    const bad = memoryPorts();
+    const refused = failure(run(bad.ports, "artifact.create", { opId: OP, artifactId: NEW, type: "document", title: "N", labels: ["ok", "a//b"] }));
+    expect(refused).toMatchObject({ type: "InputError", details: { path: "labels[1]", received: "a//b" } });
+    expect(refused.message).toContain("1 to 40 characters");
+    expect(bad.submitted).toEqual([]);
+  });
+
+  it("sets the whole set, adds and removes against the head, and never moves the version", () => {
+    const { ports, submitted } = memoryPorts();
+    createDoc(ports, { labels: ["draft"] });
+    expect(ok(run(ports, "artifact.label", { opId: OP2, artifact: NEW, add: ["Shipped", "project/junto"], remove: ["draft"] })))
+      .toEqual({ disposition: "applied", opId: OP2, artifactId: NEW, version: 1 });
+    expect(submitted[1]?.op).toEqual({ op: "labels", labels: ["project/junto", "shipped"] });
+    expect(labelsOf(ports)).toEqual(["project/junto", "shipped"]);
+    // Removing one it does not hold changes nothing.
+    ok(run(ports, "artifact.label", { opId: OP3, artifact: NEW, remove: ["absent"] }));
+    expect(labelsOf(ports)).toEqual(["project/junto", "shipped"]);
+    ok(run(ports, "artifact.label", { opId: "01M5ESM1XHCJ7JYJDBC37MREC2", artifact: NEW, set: [] }));
+    expect(labelsOf(ports)).toEqual([]);
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).version).toBe(1);
+  });
+
+  it("wants --set or --add/--remove, refuses a 21st label with the opId, and reads one out of reach as unknown", () => {
+    const { ports } = memoryPorts();
+    createDoc(ports);
+    expect(failure(run(ports, "artifact.label", { opId: OP2, artifact: NEW }))).toMatchObject({ type: "InputError", details: { path: "set", opId: OP2 } });
+    expect(failure(run(ports, "artifact.label", { opId: OP2, artifact: NEW, set: ["a"], add: ["b"] }))).toMatchObject({ type: "InputError" });
+    const twenty = Array.from({ length: 20 }, (_, index) => `l${index}`);
+    ok(run(ports, "artifact.label", { opId: OP2, artifact: NEW, set: twenty }));
+    expect(failure(run(ports, "artifact.label", { opId: OP3, artifact: NEW, add: ["one-more"] }))).toMatchObject({
+      type: "InputError",
+      message: "an artifact holds at most 20 labels",
+      details: { opId: OP3 },
+    });
+    expect(failure(run(ports, "artifact.label", { opId: OP3, artifact: NEW, add: ["x"] }, "SP"))).toMatchObject({ type: "UnknownTarget" });
+  });
+
+  it("lists each artifact's labels and filters by every label named, a level matching those under it", () => {
+    const { ports, submitted } = memoryPorts();
+    createDoc(ports, { labels: ["project/junto/release", "draft"] });
+    ok(run(ports, "artifact.create", { opId: OP2, artifactId: "01M5ESMQ2ZT55QZ073EWPH10SH", type: "sheet", title: "Budget", labels: ["project/junto"] }));
+    const ids = (labels: ReadonlyArray<string>) =>
+      ok<{ artifacts: ReadonlyArray<{ artifactId: string; labels: ReadonlyArray<string> }> }>(run(ports, "artifact.list", { labels })).artifacts.map((a) => a.artifactId).sort();
+    expect(ids(["Project/Junto"])).toEqual([NEW, "01M5ESMQ2ZT55QZ073EWPH10SH"].sort());
+    expect(ids(["project/junto", "draft"])).toEqual([NEW]);
+    expect(ids(["project/jun"])).toEqual([]);
+    const rows = ok<{ artifacts: ReadonlyArray<{ artifactId: string; labels: ReadonlyArray<string> }> }>(run(ports, "artifact.list", {})).artifacts;
+    expect(rows.find((row) => row.artifactId === NEW)?.labels).toEqual(["draft", "project/junto/release"]);
+    expect(failure(run(ports, "artifact.list", { labels: ["/bad"] }))).toMatchObject({ details: { path: "labels[0]" } });
+    expect(submitted).toHaveLength(2);
   });
 });

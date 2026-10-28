@@ -18,6 +18,7 @@ import {
   ArtifactVersion,
   type ArtifactActor,
 } from "./artifact";
+import { ARTIFACT_LABELS_MAX } from "./artifact-labels";
 import { Anchor } from "./thread-subject";
 import type { LinkedFromBody } from "./artifact-links";
 import type { MentionedIn } from "./mention-ipc";
@@ -54,6 +55,12 @@ export type BodyInput = typeof BodyInput.Type;
 export const PatchesInput = Schema.Array(Schema.Unknown).pipe(Schema.check(Schema.isMinLength(1)));
 
 export const ARTIFACT_LIST_LIMIT_MAX = 200;
+
+/**
+ * Labels as a seat typed them (03): main folds each (trim, lowercase) with
+ * `artifactLabelsOf` and refuses one that cannot be a label, naming the rule.
+ */
+const LabelsInput = Schema.Array(Schema.String).pipe(Schema.check(Schema.isMaxLength(ARTIFACT_LABELS_MAX)));
 export const ARTIFACT_HISTORY_LIMIT_MAX = 200;
 
 // ---------------------------------------------------------------------------
@@ -65,6 +72,8 @@ export const ArtifactListArgs = Schema.Struct({
   /** Archived artifacts are left out unless asked for. */
   archived: Schema.optionalKey(Schema.Boolean),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: ARTIFACT_LIST_LIMIT_MAX }))),
+  /** Only artifacts holding every one, each by equality or by a level under it (`artifactLabelsMatch`). */
+  labels: Schema.optionalKey(LabelsInput),
 }).annotate(strict);
 export type ArtifactListArgs = typeof ArtifactListArgs.Type;
 
@@ -92,6 +101,7 @@ export const ArtifactCreateArgs = Schema.Struct({
   /** Documents, pads and sheets start empty when left out; links and files need one. */
   body: Schema.optionalKey(BodyInput),
   taskIds: Schema.optionalKey(Schema.Array(ItemId)),
+  labels: Schema.optionalKey(LabelsInput),
 }).annotate(strict);
 export type ArtifactCreateArgs = typeof ArtifactCreateArgs.Type;
 
@@ -116,6 +126,21 @@ export const ArtifactCommentArgs = Schema.Struct({
 }).annotate(strict);
 export type ArtifactCommentArgs = typeof ArtifactCommentArgs.Type;
 
+/**
+ * An artifact's labels: `set` names the whole set (empty clears it), or
+ * `add` and `remove` change the head's set. Labels are not versioned body,
+ * so no `baseVersion`: main reads the head's set, folds the next one and
+ * sends it whole.
+ */
+export const ArtifactLabelArgs = Schema.Struct({
+  opId: OpId,
+  artifact: ItemId,
+  set: Schema.optionalKey(LabelsInput),
+  add: Schema.optionalKey(LabelsInput),
+  remove: Schema.optionalKey(LabelsInput),
+}).annotate(strict);
+export type ArtifactLabelArgs = typeof ArtifactLabelArgs.Type;
+
 /** archive and restore name one artifact. */
 export const ArtifactOneArgs = Schema.Struct({ opId: OpId, artifact: ItemId }).annotate(strict);
 export type ArtifactOneArgs = typeof ArtifactOneArgs.Type;
@@ -127,6 +152,7 @@ export const ARTIFACT_READ_OPS = ["artifact.list", "artifact.show", "artifact.hi
 export const ARTIFACT_WRITE_OPS = [
   "artifact.create",
   "artifact.edit",
+  "artifact.label",
   "artifact.comment",
   "artifact.archive",
   "artifact.restore",
@@ -143,6 +169,7 @@ export const ARTIFACT_ARGS = {
   "artifact.history": ArtifactHistoryArgs,
   "artifact.create": ArtifactCreateArgs,
   "artifact.edit": ArtifactEditArgs,
+  "artifact.label": ArtifactLabelArgs,
   "artifact.comment": ArtifactCommentArgs,
   "artifact.archive": ArtifactOneArgs,
   "artifact.restore": ArtifactOneArgs,
@@ -160,7 +187,7 @@ export const isArtifactWriteOp = (op: string): op is ArtifactWriteOp =>
 /** A list row: the head without its body. */
 export type ArtifactListItem = Pick<
   Artifact,
-  "artifactId" | "nodeId" | "type" | "title" | "version" | "updatedAt" | "archived"
+  "artifactId" | "nodeId" | "type" | "title" | "version" | "updatedAt" | "archived" | "labels"
 >;
 
 export type ArtifactListResult = PendingUnknown & {

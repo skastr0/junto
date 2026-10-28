@@ -148,6 +148,7 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "artifact.history",
 "artifact.create",
 "artifact.edit",
+"artifact.label",
 "artifact.comment",
 "artifact.archive",
 "artifact.restore",]);
