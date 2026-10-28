@@ -70,63 +70,51 @@ or a Cloudflare secret and the operator supplies them in the signal.
 
 N2 to N4 build on a stand-in of N1's names and switch when it lands.
 
-## The secret form crosses machines (operator, 2026-10-28)
+## Urgency (operator, 2026-10-28)
 
-**Decided by the operator when they asked for this feature, relayed by
-product-lead.** A secret typed into a seat's or an automation's signal is
-stored in that region's secret store on the machine that asked, which is
-mostly the mini or a VPS while the window runs on the MacBook. That is a
-crossing Rule 9 did not allow, and this is its one exception. Shape
-(remote-lead):
+`notice` and `work` follow the urgency framework, the one ladder in
+`src/shared/wire/urgency.ts`. Today it describes seats only: who is blocked
+or waiting. The operator's own work can be urgent to them without blocking
+anyone else, so the ladder gains three levels:
 
-1. **Never a row.** The value is never in a signal row, a reply, mail, the
-   exchange, the canvas log or a copy. The reply records only the secret id,
-   its name, the machine and when it was set.
-2. **One direct delivery.** The window hands the value to its own main
-   process, which sends it once as an owner-only `secret.deliver` frame
-   straight to the asking machine over that machine's key-bound link (S5),
-   never through a keeper or relay. The asking machine puts it into its
-   region secret store and answers stored or refused. Nothing is kept on the
-   way: no queue, no retry, no draft, no undo entry, no renderer state after
-   sending, and the frame is in no trace or log.
-3. **Only what was asked, once.** The asking machine takes a delivery only
-   for an open secret request its own seat or automation raised, for the
-   secret id its region names. The request closes when the value is stored.
-   Anything unasked is refused.
-4. **Unreachable means not now.** If the asking machine is not linked, the
-   form says so and keeps nothing. The signal stays open.
-5. **Same machine, no crossing.** When the window's machine is the asking
-   machine, the form is today's local put.
-6. **Doctrine.** Rule 9 gains this one crossing, and the security doctrine
-   gains the frame and its admission, reviewed by remote-security.
+- **`due`**, between `escalated` and `review`: work the operator marked
+  urgent, or whose due time has passed. Urgent to the operator, blocking
+  only them.
+- **`todo`**, between `review` and `done`: open work, not yet due.
+- **`notice`**, between `done` and `degraded`: something happened, read it.
 
-remote-security's conditions, part of the shape:
+A `work` signal carries an optional due time and an urgent mark, set by
+whoever raises it (an automation, a seat, the operator); it moves from
+`todo` to `due` when either applies. The ladder stays the only order
+(`tests/urgency-law.test.ts`), and the phone carries the new levels.
 
-- **The asker's own record names the target.** The frame carries the
-  request id and the value only. The asking machine stores the value under
-  the secret name and region it recorded when it raised the request, never
-  a name taken from the frame.
-- **Only a declared region secret.** The name must be one the region's
-  environment declares for that machine, in the region-secret namespace. A
-  request for any other store entry (the Boat account key, a link key, a
-  harness credential) is refused when it is raised.
-- **Admission on both ends.** The asking machine takes `secret.deliver` only
-  over the key-bound link of a listed machine. The sender sends it only from
-  the trusted window or an owner command, never from a seat's environment.
-- **The window keeps nothing.** The field is never in a draft, view state,
-  undo, an IPC log or a crash report. It is cleared after the attempt and
-  never retried on its own. A timeout may have landed, so the asking machine
-  reports set or not set in a row that carries names only.
-- **Scrubbed in flight.** Both ends search the value out of every log and
-  error on this path, since it is in no child's environment yet.
-- **The form names who asks:** the machine, the seat or automation, the
-  region and the secret name. Once set, anything on that machine's account
-  can read it, so a hostile asker gets what the operator types. The form is
-  the operator's judgment, not a check.
-- **No platform store means no encryption.** On a machine without one, the
-  owner-only file is not encrypted, and the form says so.
+## Secrets: a vault, 1Password first (operator, 2026-10-28)
+
+This replaces "The secret form crosses machines" (4f18819e3, 818ea1bd8):
+the operator does not want Junto carrying a typed value between machines.
+Rule 9 stands as it is: it protects secrets already on a machine.
+
+- **A vault contract.** Junto names a vault, not a value: a region secret
+  may be a reference into the vault. Each machine resolves it with its own
+  access when it needs it (a code step, a seat's environment). The value
+  travels through the vault, never through Junto.
+- **1Password is the first backend**: a vault and a 1Password service
+  account the operator sets up once per machine; Junto calls the `op` CLI
+  with it. Today's machine-local store stays as the other backend.
+- **The secret form writes to the vault** from the operator's machine: the
+  operator types the value, Junto stores it in the named vault item, and the
+  asking machine reads it through its own service account. The signal
+  records only the item, the region and when it was set.
+- **Without a vault set up**, the form says so and offers today's local
+  store on the machine the window runs on. Nothing crosses.
+- **remote-security's conditions that still apply**: the form names who
+  asks (machine, seat or automation, region, secret name); only a secret
+  the region declares; the window keeps nothing (no draft, view state, undo,
+  log); scrubbed from every log and error.
+- **Lower priority than the rest of N1 to N4.** If it grows complicated, the
+  secret form waits; artifact, proof and text forms ship without it.
+- **Out:** Junto's own encrypted store that syncs across machines.
 
 | Track | Owner | Reviewer |
 |---|---|---|
-| N1 the secret form's contract: the request, the reply record, the form | product-feed | remote-lead |
-| N5 `secret.deliver`: the frame, its admission on the asking machine, the request it closes, Rule 9 and doctrine | remote-core | remote-security, remote-lead |
+| N5 the vault contract and the 1Password backend (`op` with a service account per machine), region secrets as vault references, the secret form writing to it | remote (remote-lead places) | remote-security, tech-lead |
