@@ -1,3 +1,4 @@
+import type { ArtifactBody } from "@shared/artifact";
 import { readWorkGlances } from "./glance";
 import type { WorkAttentionSnapshot } from "@shared/work-attention";
 import { mailThreadOf } from "@shared/crew";
@@ -499,6 +500,12 @@ export type RecordRulingInput = {
   readonly record: RulingRecord;
   readonly ruling: ResourceRuling<typeof Schema.Json.Type>;
   readonly at?: string;
+  /**
+   * The artifact bodies the ruler kept, by sha256: what a fold at commit
+   * needs for a body its fact carries only by ref (0.11/06 F2). Never
+   * written and never sent: the ruling row carries the facts alone.
+   */
+  readonly bodies?: ReadonlyMap<string, ArtifactBody>;
   /** The canvas as this machine holds it: an applied ruling's notices to this machine's own seats are written with it. */
   readonly placement?: CanvasPlacement;
 };

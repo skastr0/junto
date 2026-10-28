@@ -16,11 +16,13 @@ import { ArtifactBody, decodeArtifactOp, type ArtifactOp } from "@shared/artifac
 import { ArtifactFact, bodyAfter } from "@shared/artifact-domain";
 import { CommandQueuedResult, type RulingAppliedResult } from "@shared/command-row";
 import type { ContentRef } from "@shared/wire/content-ref";
-import type { ResourceKind } from "@shared/resource-command";
+import type { ResourceCommand, ResourceKind } from "@shared/resource-command";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { AutomationFact } from "@shared/automation-domain";
 import { projectAutomationFacts } from "../automation/repository";
-import { artifactBodyRef, projectArtifactFacts } from "./artifact-repository";
+import { canonicalJson } from "@shared/work-canonical-json";
+import { ContentService } from "../content/service";
+import { artifactBodyRef, keptEdits, projectArtifactFacts } from "./artifact-repository";
 import { projectTaskFact } from "./task-repository";
 
 /** An applied ruling whose facts this build cannot fold: the link that carried it closes. */
@@ -28,11 +30,22 @@ export class RulingFoldRefused extends Schema.TaggedError<RulingFoldRefused>()("
   message: Schema.String,
 }) {}
 
+/**
+ * What the folding machine holds beyond its tables from its own judgment:
+ * the bodies the ruler kept, by sha256, and the command it ruled. A replica
+ * holds neither.
+ */
+export type Kept = {
+  readonly bodies?: ReadonlyMap<string, ArtifactBody>;
+  readonly command?: Pick<ResourceCommand<ArtifactOp>, "op" | "target">;
+};
+
 type Fold = (
   sql: SqlClient.SqlClient,
   canvasName: string,
   ruling: RulingAppliedResult,
   at: number,
+  kept: Kept,
 ) => Effect.Effect<void, SqlError.SqlError | RulingFoldRefused>;
 
 const decodeArtifactFacts = Schema.decodeUnknownResult(Schema.Array(ArtifactFact), { onExcessProperty: "error" });
@@ -122,6 +135,44 @@ const notYetRuled = (kind: ResourceKind): Fold => () =>
   Effect.fail(new RulingFoldRefused({ message: `no ${kind} ruling is written by this build` }));
 
 /**
+ * The bytes behind each new version whose body this machine holds go to the
+ * content store, owned by that version, as the ruler puts them: so a machine
+ * that folds can serve them by ref like the one that ruled. Without a content
+ * store in this runtime there is nothing to keep them in.
+ */
+const keepBodies = (
+  sql: SqlClient.SqlClient,
+  canvasName: string,
+  facts: ReadonlyArray<ArtifactFact>,
+  bodyOf: (ref: ContentRef) => ArtifactBody | null | undefined,
+) =>
+  Effect.gen(function* () {
+    const content = yield* Effect.serviceOption(ContentService);
+    if (Option.isNone(content)) return;
+    for (const fact of facts) {
+      if (fact.fact !== "artifact.created" && fact.fact !== "artifact.edited") continue;
+      const body = bodyOf(fact.bodyRef);
+      if (body === null || body === undefined) continue;
+      const artifactId = fact.fact === "artifact.created" ? fact.artifact.artifactId : fact.artifactId;
+      const version = fact.fact === "artifact.created" ? fact.artifact.version : fact.version;
+      const held = yield* sql.unsafe<{ node_id: string }>(
+        "SELECT node_id FROM artifact_heads WHERE canvas_name = ? AND artifact_id = ?",
+        [canvasName, artifactId],
+      );
+      const nodeId = held[0]?.node_id;
+      if (nodeId === undefined) continue;
+      yield* content.value
+        .put({
+          source: canonicalJson(body),
+          mediaType: fact.bodyRef.mediaType,
+          expected: { sha256: fact.bodyRef.sha256, byteLength: fact.bodyRef.byteLength },
+          owner: { kind: "artifact", canvasName, nodeId, recordId: `${artifactId}@${version}` },
+        })
+        .pipe(Effect.mapError((cause) => new RulingFoldRefused({ message: cause.message })));
+    }
+  });
+
+/**
  * One projection per resource kind. Total, so a domain whose ruler starts
  * recording rulings fails tsc until its replica fold is named here.
  */
@@ -132,15 +183,20 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
       ? Effect.fail(new RulingFoldRefused({ message: "a task ruling carries facts this build does not know" }))
       : Effect.forEach(facts, (fact) => projectTaskFact(sql, canvasName, fact, at), { discard: true });
   },
-  artifact: (sql, canvasName, ruling) => {
+  artifact: (sql, canvasName, ruling, _at, kept) => {
     const facts = decodeArtifactFacts(ruling.facts);
     if (Result.isFailure(facts)) {
       return Effect.fail(new RulingFoldRefused({ message: "an artifact ruling carries facts this build does not know" }));
     }
-    // A body this machine can make is written with its version, so it reads with no link;
-    // any other rode by ref and is written pending, and a read fetches its bytes by ref (v29).
-    return Effect.flatMap(bodiesKnownHere(sql, canvasName, ruling, facts.success), (bodies) =>
-      projectArtifactFacts(sql, canvasName, ruling.opId, facts.success, (ref) => bodies.get(ref.sha256)));
+    // A body this machine can make, or one its own judgment kept, is written with its version, so it reads with
+    // no link; any other rode by ref and is written pending, and a read fetches its bytes by ref (v29).
+    return Effect.gen(function* () {
+      const made = yield* bodiesKnownHere(sql, canvasName, ruling, facts.success);
+      const bodyOf = (ref: ContentRef) => made.get(ref.sha256) ?? kept.bodies?.get(ref.sha256);
+      const folded = kept.command === undefined ? facts.success : keptEdits(facts.success, kept.command);
+      yield* projectArtifactFacts(sql, canvasName, ruling.opId, folded, bodyOf);
+      yield* keepBodies(sql, canvasName, folded, bodyOf);
+    });
   },
   thread: notYetRuled("thread"),
   // Each automation runs on the machine it names (machines.md Rule 2), so every
@@ -155,10 +211,15 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
   },
 };
 
-/** Fold one applied ruling from the editing machine into this machine's resource tables. */
+/**
+ * Fold one applied ruling into this machine's resource tables: a replica's
+ * fold of the editing machine's ruling, or the authority's own at commit,
+ * with what its judgment kept (`kept`).
+ */
 export const foldRuling = (
   sql: SqlClient.SqlClient,
   canvasName: string,
   ruling: RulingAppliedResult,
   at: number,
-): Effect.Effect<void, SqlError.SqlError | RulingFoldRefused> => FOLDS[ruling.kind](sql, canvasName, ruling, at);
+  kept: Kept = {},
+): Effect.Effect<void, SqlError.SqlError | RulingFoldRefused> => FOLDS[ruling.kind](sql, canvasName, ruling, at, kept);

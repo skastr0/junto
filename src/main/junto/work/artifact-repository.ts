@@ -317,6 +317,22 @@ const decodeLabelColour = Schema.decodeUnknownResult(ArtifactLabelColour);
 /** The artifact a command names: the target item, which the domain requires. */
 const targetOf = (command: ResourceCommand<ArtifactOp>): ItemId | undefined => command.target.itemId;
 
+/**
+ * The machine that ruled an edit keeps it even where the fact left it out,
+ * so a later edit can rebase across it: the ruler as it writes, the
+ * authority as it folds at commit. One edit command makes one edited fact,
+ * for its own target.
+ */
+export const keptEdits = (
+  facts: ReadonlyArray<ArtifactFact>,
+  command: Pick<ResourceCommand<ArtifactOp>, "op" | "target">,
+): ReadonlyArray<ArtifactFact> =>
+  facts.map((fact) =>
+    fact.fact === "artifact.edited" && fact.edit === undefined && command.op.op === "edit" && fact.artifactId === command.target.itemId
+      ? { ...fact, edit: command.op.edit }
+      : fact,
+  );
+
 /** The head a ruling made, read back from the facts it applied. */
 const outcomeOf = (
   ruling: ResourceRuling<ArtifactFact>,
@@ -750,13 +766,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       if (ruling.kind === "applied") {
         // The domain refuses a command with no target item, so an applied one always names it.
         if (artifactId === undefined) return yield* Effect.die("an applied artifact ruling names no artifact");
-        // This machine ruled the edit, so it keeps it even where the fact left
-        // it out. One edit command makes one edited fact, for its own target.
-        const kept = ruling.facts.map((fact) =>
-          fact.fact === "artifact.edited" && fact.edit === undefined && command.op.op === "edit" && fact.artifactId === artifactId
-            ? { ...fact, edit: command.op.edit }
-            : fact,
-        );
+        const kept = keptEdits(ruling.facts, command);
         yield* projectArtifactFacts(sql, canvas, command.opId, kept, (ref) => bodies.get(ref.sha256));
         // The bytes behind each new version's ref go to the content store,
         // owned by that version, in the same write.
@@ -792,6 +802,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
         // Artifact facts are plain JSON data; a replica decodes them with ArtifactFact.
         ruling: ruling as ResourceRuling<typeof Schema.Json.Type>,
         at: new Date(now).toISOString(),
+        bodies,
       });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submit"), Effect.mapError(persistence("submit")));
