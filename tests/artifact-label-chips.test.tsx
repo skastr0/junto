@@ -152,18 +152,23 @@ describe("header label chips", () => {
     render(<ArtifactLabelChips waiting={false} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "refused" as const} />);
     await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
     expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("Labels not saved: the change was refused, and they are back as they were.");
   });
 
   it("goes back to the ruled set when a queued write is refused once it stops waiting", async () => {
+    let rule: (ruling: "queued") => void = () => {};
+    const onChange = () => new Promise<"queued">((resolve) => (rule = resolve));
     const chips = (waiting: boolean) => (
-      <ArtifactLabelChips waiting={waiting} labels={L("draft")} used={L()} readOnly={false} onChange={async () => "queued" as const} />
+      <ArtifactLabelChips waiting={waiting} labels={L("draft")} used={L()} readOnly={false} onChange={onChange} />
     );
-    // The pending list shows the write as it is queued.
+    // The pending list shows the write as it is queued, before and after the ruling says so.
     render(chips(true));
-    await act(async () => host.querySelector<HTMLElement>('[aria-label="Remove draft"]')?.click());
+    press('[aria-label="Remove draft"]');
+    await act(async () => rule("queued"));
     expect(host.querySelector('[aria-label="Remove draft"]')).toBeNull();
     render(chips(false));
     expect(host.querySelector('[aria-label="Remove draft"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Labels not saved");
   });
 
   it("reads the ruled set when a queued write never shows as waiting", async () => {
@@ -184,14 +189,39 @@ describe("header label chips", () => {
     expect([...host.querySelectorAll(".artifact-labels__word")].map((w) => w.textContent)).toEqual(["a", "b", "c"]);
   });
 
-  it("shows three chips and the rest behind a count, and closes on Escape back to the add button", () => {
+  it("shows three chips and the rest behind a count, and closes on Escape back to the count", () => {
     render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d", "e")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
     expect(host.querySelectorAll(".artifact-labels__chips .artifact-labels__chip")).toHaveLength(3);
-    press('[aria-label="2 more labels"]');
+    press('[aria-label="+2 more labels"]');
     expect(host.querySelectorAll(".artifact-labels__held .artifact-labels__chip")).toHaveLength(5);
     key("Escape");
     expect(field()).toBeNull();
-    expect(document.activeElement).toBe(host.querySelector('[aria-label="Add labels"]'));
+    expect(document.activeElement).toBe(host.querySelector('[aria-label="+2 more labels"]'));
+  });
+
+  it("opens and closes the picker from either opener, giving focus back to the one pressed", () => {
+    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d")} used={L()} readOnly={false} onChange={async () => "applied" as const} />);
+    const more = host.querySelector<HTMLButtonElement>('[aria-label="+1 more labels"]')!;
+    act(() => more.click());
+    const picker = host.querySelector(".artifact-labels__picker");
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(more.getAttribute("aria-controls")).toBe(picker?.id);
+    key("Escape");
+    expect(document.activeElement).toBe(more);
+    const add = host.querySelector<HTMLButtonElement>('[aria-label="Add labels"]')!;
+    act(() => add.click());
+    expect(add.getAttribute("aria-controls")).toBe(host.querySelector(".artifact-labels__picker")?.id);
+    act(() => add.click());
+    expect(host.querySelector(".artifact-labels__picker")).toBeNull();
+    expect(add.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("lets an archived artifact's count close what it opened", () => {
+    render(<ArtifactLabelChips waiting={false} labels={L("a", "b", "c", "d")} used={L()} readOnly onChange={async () => "applied" as const} />);
+    press('[aria-label="+1 more labels"]');
+    expect(host.querySelectorAll(".artifact-labels__held .artifact-labels__chip")).toHaveLength(4);
+    press('[aria-label="+1 more labels"]');
+    expect(host.querySelector(".artifact-labels__picker")).toBeNull();
   });
 
   it("shows an archived artifact's labels without add or remove, and nothing when it has none", () => {
@@ -219,6 +249,7 @@ describe("sidebar label filter row", () => {
       />,
     );
     const buttons = [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Labels"] button')];
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["draft, 2 artifacts", "review, 1 artifact", null]);
     expect(buttons.map((b) => [b.textContent, b.getAttribute("aria-pressed")])).toEqual([
       ["draft2", "true"],
       ["review1", "false"],

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Tag, X } from "lucide-react";
 import { ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabelsOf } from "@shared/artifact-labels";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -10,6 +10,7 @@ const HEADER_CHIPS = 3;
 
 const RULE = "Labels take lowercase letters, digits, spaces, - _ and /, up to 40 characters, with no / or space at either end.";
 const FULL = `An artifact holds at most ${String(ARTIFACT_LABELS_MAX)} labels.`;
+const REVERTED = "Labels not saved: the change was refused, and they are back as they were.";
 
 /** What the picker says while it offers nothing. */
 const emptyLine = (query: string): string =>
@@ -92,7 +93,11 @@ export function ArtifactLabelChips({
   // ruled before the list ever showed it reads the ruled set at once.
   const queued = sent?.queued === true;
   useEffect(() => {
-    if (!waiting && queued) setSent(null);
+    if (!waiting && queued) {
+      setSent(null);
+      // Ruled with the set unmoved: the queued change never landed.
+      setReverted(true);
+    }
   }, [waiting, queued]);
   const held = sent?.labels ?? labels;
 
@@ -100,11 +105,19 @@ export function ArtifactLabelChips({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState<string | undefined>(undefined);
   const [refused, setRefused] = useState<string | null>(null);
+  /** A sent set that came back refused, said in the live region the group always carries. */
+  const [reverted, setReverted] = useState(false);
   const options = useMemo(() => labelOptions(used, held, query), [used, held, query]);
 
   const group = useRef<HTMLDivElement>(null);
+  const pickerId = useId();
   const field = (): HTMLElement | null | undefined => group.current?.querySelector<HTMLElement>('[role="combobox"]');
-  /** Closed by its key or its button: focus goes back to the add button once the field is gone. */
+  /**
+   * The control that opened the picker, Add labels or the +N count: a close by
+   * Escape (once nothing in the field is highlighted), Close or the opener
+   * again gives focus back to it once the field is gone.
+   */
+  const opener = useRef<HTMLElement | null>(null);
   const refocus = useRef(false);
   const close = (): void => {
     refocus.current = true;
@@ -112,9 +125,17 @@ export function ArtifactLabelChips({
     setRefused(null);
     setPicking(false);
   };
+  const toggle = (event: React.MouseEvent<HTMLElement>): void => {
+    if (picking) {
+      close();
+      return;
+    }
+    opener.current = event.currentTarget;
+    setPicking(true);
+  };
   useEffect(() => {
     if (!picking) {
-      if (refocus.current) claimFocus(group.current?.querySelector<HTMLElement>("[data-labels-trigger]"), "gesture");
+      if (refocus.current) claimFocus(opener.current?.isConnected === true ? opener.current : group.current?.querySelector<HTMLElement>("[data-labels-trigger]"), "gesture");
       refocus.current = false;
       return;
     }
@@ -132,12 +153,15 @@ export function ArtifactLabelChips({
   const send = (next: ReadonlyArray<ArtifactLabel>): void => {
     const mine = ++seq.current;
     setSent({ labels: next, seq: mine, queued: false });
-    const settle = (ruling: "applied" | "queued" | "refused"): void =>
+    setReverted(false);
+    const settle = (ruling: "applied" | "queued" | "refused"): void => {
+      if (ruling === "refused" && seq.current === mine) setReverted(true);
       setSent((last) => {
         if (last?.seq !== mine) return last;
         if (ruling === "refused") return null;
         return ruling === "queued" ? { ...last, queued: true } : last;
       });
+    };
     void onChange(next).then(settle, () => settle("refused"));
   };
   const add = (raw: string): void => {
@@ -185,20 +209,29 @@ export function ArtifactLabelChips({
         <button
           type="button"
           className="artifact-labels__more"
-          aria-label={`${String(hidden)} more labels`}
+          aria-label={`+${String(hidden)} more labels`}
           aria-expanded={picking}
-          onClick={() => setPicking(true)}
+          aria-controls={picking ? pickerId : undefined}
+          onClick={toggle}
         >
           +{hidden}
         </button>
       ) : null}
       {readOnly ? null : (
-        <IconButton data-labels-trigger="" size="sm" aria-label="Add labels" title="Add labels" aria-expanded={picking} onClick={() => setPicking(true)}>
+        <IconButton
+          data-labels-trigger=""
+          size="sm"
+          aria-label="Add labels"
+          title="Add labels"
+          aria-expanded={picking}
+          aria-controls={picking ? pickerId : undefined}
+          onClick={toggle}
+        >
           <Tag size={13} />
         </IconButton>
       )}
       {!picking ? null : (
-        <div className="artifact-labels__picker">
+        <div className="artifact-labels__picker" id={pickerId}>
           {held.length > HEADER_CHIPS ? <div className="artifact-labels__held">{held.map(chip)}</div> : null}
           {readOnly ? null : (
             <Combobox
@@ -234,6 +267,9 @@ export function ArtifactLabelChips({
           )}
         </div>
       )}
+      <span className="sr-only" role="status">
+        {reverted ? REVERTED : ""}
+      </span>
     </div>
   );
 }
@@ -259,6 +295,7 @@ export function ArtifactLabelFilter({
           key={label}
           type="button"
           aria-pressed={picked}
+          aria-label={`${label}, ${String(count)} ${count === 1 ? "artifact" : "artifacts"}`}
           className="artifacts-filter__label"
           title={label}
           onClick={() => onToggle(label)}
