@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Effect, Option, Result, Schema } from "effect";
 import { AUTOMATION_READ_OPS, AUTOMATION_WRITE_OPS } from "../src/shared/automation-control";
@@ -114,6 +117,8 @@ describe("overseer automation writes", () => {
       for (const name of Object.values(AUTOMATION_VALUES).flat()) expect(AUTOMATION_WRITE_DESCRIPTIONS[verb], name).toContain(`{{${name}}}`);
     }
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: prompt");
+    expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: code");
+    expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("{{code.<field>}}");
   });
 
   it("sends a prompt example naming values as written, for main to check against its trigger", () => {
@@ -146,6 +151,28 @@ describe("overseer automation writes", () => {
       then: [{ kind: "mail", to: "@a", text: "x" }, { kind: "code", language: "typescript", source: ref, timeoutMs: 5000 }],
     });
     expect(withSources("automation.edit", { change: { then: input.then } }, new Map([[1, ref]]))).toMatchObject({ change: { then: [{}, { source: ref }] } });
+  });
+
+  it("stages a code step's file and sends its ref as source, which the wire takes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "junto-code-step-"));
+    const file = join(dir, "check.ts");
+    await writeFile(file, "export default async () => ({ continue: { status: 'ok' } })\n");
+    const ref = { sha256: "b".repeat(64), byteLength: 61, mediaType: "text/typescript" };
+    const staged: Array<unknown> = [];
+    const stager = WorkSocket.of({ call: (op, args) => Effect.sync(() => (staged.push({ op, args }), { ref })) as never });
+    const example = overseerExamples.find((entry) => entry.name.startsWith("check a service"))!;
+    const input = { ...(example.input as Record<string, unknown>), then: [{ kind: "code", language: "typescript", file, timeoutMs: 30_000 }, (example.input as { then: unknown[] }).then[1]] };
+    try {
+      const args = await Effect.runPromise(automationWriteArgs("automation.create", JSON.stringify(input), Option.none()).pipe(Effect.provideService(WorkSocket, stager)));
+      expect(staged).toHaveLength(1);
+      expect(staged[0]).toMatchObject({ op: "content.stage", args: { done: { mediaType: "text/typescript" } } });
+      const wire = decodeOverseerArgs("automation.create", args);
+      if (Result.isFailure(wire)) throw new Error(wire.failure.message);
+      expect(wire.success.then[0]).toEqual({ kind: "code", language: "typescript", source: ref, timeoutMs: 30_000 });
+      expect(JSON.stringify(args)).not.toContain(file);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("checks the write before staging, so one that would be refused sends no bytes", () => {

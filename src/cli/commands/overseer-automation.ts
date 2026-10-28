@@ -41,11 +41,11 @@ export const AUTOMATION_WRITE_CLI_SCHEMAS: { readonly [Op in AutomationWriteOp]:
 const braced = (names: ReadonlyArray<string>) => names.map((name) => `{{${name}}}`).join(", ");
 
 /** The values each trigger carries, as the help says them (0.11, 05, A4). */
-export const VALUES_HELP = `Text in mail, prompt and comment actions, and a new task's title, may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
+export const VALUES_HELP = `Text in mail, prompt and comment actions, and a new task's title, may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal; and after a code step, {{code.<field>}} for each field its output names. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
 
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. ${VALUES_HELP}`,
+    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ${VALUES_HELP}`,
   "automation.edit":
     `Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused. Values in text are checked against the trigger as stored after the change. ${VALUES_HELP}`,
   "automation.enable": "Turn an automation on",
@@ -119,25 +119,19 @@ export const withSources = (
     : { ...record, then };
 };
 
-/** Stands in for a staged ref while the write is checked, so a write that would be refused stages nothing. */
-const placeholder = (mediaType: string): ContentRef => ({ sha256: "0".repeat(64), byteLength: 0, mediaType }) as ContentRef;
-
-const decodeInput = (schema: Schema.Top, value: unknown) =>
-  (Schema.decodeUnknownEffect(schema as Schema.Codec<unknown, unknown>, { onExcessProperty: "error" })(value) as Effect.Effect<unknown, Schema.SchemaError>).pipe(
-    Effect.mapError((error) => new InputError({ message: error.message, path: "input" })),
-  );
-
-/** The input as given, each code file staged and named by its ref; the rest untouched. */
+/**
+ * The input as given, each code file staged and named by its ref; the rest
+ * untouched. The CLI schema takes a code step by file, so the whole write is
+ * checked before anything is staged: one that would be refused sends no bytes.
+ */
 export const stagedInput = (operation: AutomationWriteOp, raw: string) =>
   Effect.gen(function* () {
-    const schema = AUTOMATION_WRITE_CLI_SCHEMAS[operation];
-    const parsed: unknown = yield* loadJsonInput(Schema.Unknown, raw);
-    const files = yield* codeFilesOf(operation, parsed);
-    if (files.length === 0) return yield* decodeInput(schema, parsed);
-    yield* decodeInput(schema, withSources(operation, parsed, new Map(files.map((one) => [one.index, placeholder(one.mediaType)]))));
+    // Each schema here decodes without services; Schema.Top does not say so.
+    const input: unknown = yield* (loadJsonInput(AUTOMATION_WRITE_CLI_SCHEMAS[operation], raw) as Effect.Effect<unknown, InputError>);
+    const files = yield* codeFilesOf(operation, input);
     const sources = new Map<number, ContentRef>();
     for (const one of files) sources.set(one.index, yield* stageFile(one.file, { mediaType: one.mediaType }));
-    return yield* decodeInput(schema, withSources(operation, parsed, sources));
+    return withSources(operation, input, sources);
   });
 
 /** The wire args of one write: the input as given, code files staged, with the ids filled in. */
@@ -185,6 +179,20 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
       name: "verify what is done",
       trigger: { kind: "change", on: { kind: "task", task: { node: "Release" }, becomes: "done" } },
       then: [{ kind: "prompt", to: "@product-verify", text: "{{task.title}} is done ({{task.link}}), check it in the real app." }],
+    },
+  ),
+  example(
+    "create",
+    "check a service every ten minutes in code, and mail what it found",
+    "The file is staged into the content store and sent as source; {{code.status}} is a field of its output.",
+    {
+      target: "Automations",
+      name: "service check",
+      trigger: { kind: "poll", everyMs: 600_000 },
+      then: [
+        { kind: "code", language: "typescript", file: "./check-service.ts", timeoutMs: 30_000 },
+        { kind: "mail", to: "@tech-lead", text: "service check at {{fired.at}}: {{code.status}}" },
+      ],
     },
   ),
   example(

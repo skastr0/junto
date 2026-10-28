@@ -13,10 +13,14 @@
  */
 import { Schema } from "effect";
 import {
+  AUTOMATION_CODE_TIMEOUT_MAX_MS,
+  AUTOMATION_CODE_TIMEOUT_MIN_MS,
+  AUTOMATION_STEPS_MAX,
   AutomationId,
   AutomationLimits,
   AutomationVersion,
   automationShape,
+  CodeLanguage,
   triggerRefusal,
   type Action,
   type Automation,
@@ -100,11 +104,31 @@ const createFields = {
   then: DefinitionInput.fields.then,
 };
 
+/**
+ * A code step as a seat writes it on the command line (0.11, 05, K4): the
+ * program by `file`, which the CLI stages into the content store and sends
+ * as `source`. Never on the wire: main takes only `source`.
+ */
+export const CodeFileStepInput = Schema.Struct({
+  kind: Schema.Literal("code"),
+  language: CodeLanguage,
+  file: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(4_096))).annotate({
+    description: "The program's path on this machine; the CLI stages it and sends its ref as source",
+  }),
+  timeoutMs: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: AUTOMATION_CODE_TIMEOUT_MIN_MS, maximum: AUTOMATION_CODE_TIMEOUT_MAX_MS }))),
+}).annotate(strict);
+
+/** The steps a seat writes: any action, or a code step by file. */
+const CliThen = Schema.Array(Schema.Union([ActionInput, CodeFileStepInput])).pipe(
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(AUTOMATION_STEPS_MAX)),
+);
+
 /** The machine that runs an automation, by its real short name (0.11, 05, S1). */
 const MachineName = HostId.annotate({ description: "The machine that runs it, by its short name, as a seat names its machine" });
 
 export const AutomationCreateCliArgs = Schema.Struct({
   ...createFields,
+  then: CliThen,
   machine: Schema.optionalKey(MachineName.annotate({
     description: "The machine that runs it, by its short name; left out, the machine that rules the create",
   })),
@@ -144,7 +168,10 @@ const editFields = {
   change: AutomationChange,
 };
 
-export const AutomationEditCliArgs = Schema.Struct(editFields).annotate(strict);
+export const AutomationEditCliArgs = Schema.Struct({
+  ...editFields,
+  change: Schema.Struct({ ...AutomationChange.fields, then: Schema.optionalKey(CliThen) }).annotate(strict),
+}).annotate(strict);
 export type AutomationEditCliArgs = typeof AutomationEditCliArgs.Type;
 
 export const AutomationEditArgs = Schema.Struct({ ...editFields, opId: OpId }).annotate(strict);
