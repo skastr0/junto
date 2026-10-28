@@ -42,6 +42,8 @@ export function ActionText({
   const line = useRef<HTMLInputElement>(null);
   /** Where the caret goes once the draft holds the value just inserted. */
   const pending = useRef<number | undefined>(undefined);
+  /** The last selection seen while the text had the keyboard. */
+  const caret = useRef<{ readonly start: number; readonly end: number } | undefined>(undefined);
 
   // The Dropdown puts focus back on its trigger as it closes; this runs after
   // that, so the caret ends up in the text the value was written into.
@@ -55,12 +57,28 @@ export function ActionText({
     field.setSelectionRange(at, at);
   }, [value]);
 
+  const remember = (field: HTMLTextAreaElement | HTMLInputElement): void => {
+    caret.current = { start: field.selectionStart ?? field.value.length, end: field.selectionEnd ?? field.value.length };
+  };
+
+  /**
+   * A text never focused reports its selection at 0: the value goes to the
+   * end then, and otherwise where the caret was left.
+   */
+  const place = (field: HTMLTextAreaElement | HTMLInputElement | null): { readonly start: number; readonly end: number } => {
+    const length = value.length;
+    if (field !== null && document.activeElement === field) {
+      const start = Math.min(Math.max(field.selectionStart ?? length, 0), length);
+      return { start, end: Math.min(Math.max(field.selectionEnd ?? start, start), length) };
+    }
+    const held = caret.current;
+    if (held === undefined) return { start: length, end: length };
+    return { start: Math.min(held.start, length), end: Math.min(Math.max(held.end, held.start), length) };
+  };
+
   const insert = (name: string): void => {
     const token = `{{${name}}}`;
-    const field = area.current ?? line.current;
-    const length = value.length;
-    const start = Math.min(Math.max(field?.selectionStart ?? length, 0), length);
-    const end = Math.min(Math.max(field?.selectionEnd ?? start, start), length);
+    const { start, end } = place(area.current ?? line.current);
     onValue(`${value.slice(0, start)}${token}${value.slice(end)}`);
     pending.current = start + token.length;
   };
@@ -76,9 +94,21 @@ export function ActionText({
   return (
     <div className="automation-editor__text">
       {multiline ? (
-        <Textarea dense ref={area} {...shared} onChange={(event) => onValue(event.target.value)} />
+        <Textarea
+          dense
+          ref={area}
+          {...shared}
+          onChange={(event) => onValue(event.target.value)}
+          onSelect={(event) => remember(event.currentTarget)}
+        />
       ) : (
-        <Input dense ref={line} {...shared} onChange={(event) => onValue(event.target.value)} />
+        <Input
+          dense
+          ref={line}
+          {...shared}
+          onChange={(event) => onValue(event.target.value)}
+          onSelect={(event) => remember(event.currentTarget)}
+        />
       )}
       <Dropdown
         className="automation-editor__insert"

@@ -91,7 +91,10 @@ describe("an action's text", () => {
   it("lists the values it is given and writes one where the caret is", async () => {
     await render(<Harness initial="Hi !" />);
     const field = host.querySelector("textarea")!;
-    act(() => field.setSelectionRange(3, 3));
+    act(() => {
+      field.focus();
+      field.setSelectionRange(3, 3);
+    });
 
     await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
     const options = [...document.querySelectorAll("[role='option']")].map((option) => option.textContent ?? "");
@@ -102,10 +105,21 @@ describe("an action's text", () => {
     expect(field.selectionStart).toBe("Hi {{seat.name}}".length);
   });
 
+  it("writes at the end of a text never focused, not at its start", async () => {
+    await render(<Harness initial="Hi " />);
+    // The field was never focused: a browser reports its selection at 0.
+    await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
+    await click([...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("seat.name"))!);
+    expect(host.querySelector("textarea")!.value).toBe("Hi {{seat.name}}");
+  });
+
   it("replaces what is selected, as typing would", async () => {
     await render(<Harness initial="Say this." />);
     const field = host.querySelector("textarea")!;
-    act(() => field.setSelectionRange(4, 8));
+    act(() => {
+      field.focus();
+      field.setSelectionRange(4, 8);
+    });
 
     await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
     await click([...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("fired.at"))!);
@@ -154,6 +168,34 @@ describe("a schedule and a poll read plainly", () => {
     expect(cadenceWords({ kind: "poll", everyMinutes: "5" })).toBe("every 5 minutes");
     expect(cadenceWords({ kind: "poll", everyMinutes: "0.5" })).toBeUndefined();
     expect(cadenceWords({ kind: "poll", everyMinutes: "soon" })).toBeUndefined();
+  });
+});
+
+describe("what an action keeps", () => {
+  const addressed = (): AutomationDraft =>
+    editDraft(newDraft(id, node, { kind: "operator" }), {
+      type: "action",
+      index: 0,
+      action: { kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Check it." },
+    });
+
+  it("carries the seat and the text from a mail to a prompt, and back", () => {
+    const prompted = editDraft(addressed(), { type: "action-kind", index: 0, kind: "prompt" });
+    expect(prompted.then[0]).toEqual({ kind: "prompt", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Check it." });
+    const mailed = editDraft(prompted, { type: "action-kind", index: 0, kind: "mail" });
+    expect(mailed.then[0]).toEqual({ kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Check it." });
+  });
+
+  it("marks a value the trigger does not carry, at the action that writes it", () => {
+    const stale = editDraft(addressed(), {
+      type: "action",
+      index: 0,
+      action: { kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Done: {{task.title}}" },
+    });
+    // The default trigger is a schedule: it carries fired.at, never a task's title.
+    const problem = draftProblems(stale).find((entry) => entry.at === "action");
+    expect(problem?.message).toBe("This trigger carries no {{task.title}}. It carries {{fired.at}}.");
+    expect(finishDraft(stale).ok).toBe(false);
   });
 });
 

@@ -20,6 +20,7 @@ import {
   MAX_PER_HOUR_CEILING,
   POLL_MIN_EVERY_MS,
   AutomationDefinition,
+  valueNamesIn,
   type Action,
   type ActionRuling,
   type Automation,
@@ -322,14 +323,18 @@ export const editDraft = (draft: AutomationDraft, edit: DraftEdit): AutomationDr
   }
 };
 
-/** A changed action kind keeps the text typed so far, where the new kind has text. */
+/**
+ * A changed action kind keeps what the new kind has: the text typed so far,
+ * and the seat a mail or a prompt was addressed to.
+ */
 const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
   const text = old.kind === "mail" || old.kind === "prompt" || old.kind === "comment" ? old.text : old.kind === "create-task" ? old.title : "";
+  const seat = old.kind === "mail" || old.kind === "prompt" ? old.to : undefined;
   switch (kind) {
     case "mail":
-      return { kind, text };
+      return seat === undefined ? { kind, text } : { kind, text, to: seat };
     case "prompt":
-      return { kind, text };
+      return seat === undefined ? { kind, text } : { kind, text, to: seat };
     case "comment":
       return { kind, text };
     case "create-task":
@@ -422,24 +427,35 @@ const triggerProblem = (trigger: TriggerDraft): string | undefined => {
   }
 };
 
-const actionProblem = (action: ActionDraft): string | undefined => {
+/**
+ * A value the trigger does not carry, at the action that writes it: main
+ * refuses the same name at save (`valueRefusal`), and the editor says it
+ * before the round trip, in the same words.
+ */
+const valueProblem = (text: string, carried: ReadonlyArray<string>): string | undefined => {
+  const missing = valueNamesIn(text).find((name) => !carried.includes(name));
+  if (missing === undefined) return undefined;
+  return `This trigger carries no {{${missing}}}. It carries ${carried.map((name) => `{{${name}}}`).join(", ")}.`;
+};
+
+const actionProblem = (action: ActionDraft, carried: ReadonlyArray<string>): string | undefined => {
   switch (action.kind) {
     case "mail":
       if (action.to === undefined) return "Pick who the mail goes to.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail");
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text, carried);
     case "prompt":
       if (action.to === undefined) return "Pick the seat to prompt.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt");
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text, carried);
     case "create-task":
       if (action.node === undefined) return "Pick the task board.";
-      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title");
+      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title, carried);
     case "assign-task":
       if (action.task === undefined) return "Pick the task to assign.";
       if (action.to === undefined) return "Pick the seat to assign it to.";
       return undefined;
     case "comment":
       if (action.on === undefined) return "Pick what the comment is on.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment");
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text, carried);
     default:
       return action satisfies never;
   }
@@ -457,8 +473,9 @@ export const draftProblems = (draft: AutomationDraft): ReadonlyArray<DraftProble
     if (message) problems.push({ at: "condition", index, message });
   });
   if (draft.then.length === 0) problems.push({ at: "actions", message: "Add at least one action." });
+  const carried = valuesForTrigger(draft.trigger);
   draft.then.forEach((action, index) => {
-    const message = actionProblem(action);
+    const message = actionProblem(action, carried);
     if (message) problems.push({ at: "action", index, message });
   });
   const minInterval = minutesMs(draft.minIntervalMinutes);
