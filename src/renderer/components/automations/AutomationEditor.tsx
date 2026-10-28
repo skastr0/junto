@@ -611,6 +611,7 @@ export function AutomationEditor({
   onSave,
   onRevert,
   refusal,
+  refusalStep,
 }: {
   readonly draft: AutomationDraft;
   readonly onDraft: (draft: AutomationDraft) => void;
@@ -627,6 +628,8 @@ export function AutomationEditor({
   readonly onRevert: () => void;
   /** Why the last save did not land, in words. */
   readonly refusal?: string;
+  /** What to do about it, on its own line under the refusal. */
+  readonly refusalStep?: string;
 }) {
   const canvas = useCanvas(canvasName);
   // Task boards and Artifacts nodes offer only the items handed to them: without these every #picker is empty.
@@ -824,6 +827,12 @@ export function AutomationEditor({
         {refusal ? (
           <p className="automation-editor__problem" role="alert">
             {refusal}
+            {refusalStep ? (
+              <>
+                {" "}
+                <span className="automation-editor__step">{refusalStep}</span>
+              </>
+            ) : null}
           </p>
         ) : null}
         {/* aria-disabled, not disabled: the press that saves or reverts would otherwise drop focus to the body. */}

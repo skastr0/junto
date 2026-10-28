@@ -110,7 +110,9 @@
   gap: 6px;
 }
 
+/* Fields size to their words: Select is full width by default, which stacks the sentence. */
 .automation-editor__sentence > * {
+  width: auto;
   min-width: 0;
   flex: 0 1 auto;
 }
@@ -154,6 +156,11 @@
 
 .automation-editor__foot > .automation-editor__problem {
   flex: 1;
+}
+
+/* A refusal's next step, on its own line under what was refused. */
+.automation-editor__step {
+  display: block;
 }
 
 /* The problems status stays mounted for screen readers; empty, it takes no room. */
