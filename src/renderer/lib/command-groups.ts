@@ -62,7 +62,7 @@ import {
   type ViewCommandSlot,
   type ViewStateStore,
 } from "./view-state";
-import { makeMemoryViewStateStore } from "./view-state-stand-in";
+import { defaultViewStateStore } from "./view-state-main";
 
 // --- selection ---------------------------------------------------------------
 
@@ -405,11 +405,11 @@ export type CanvasCommandGroups = {
  * so a quit does not lose it. A canvas switch recalls it; a change writes only
  * the rows that changed, so a recomputed lease costs no write.
  *
- * The store is a parameter so a test can hold two windows over one store, and
- * so the day main's tables land only the default changes.
+ * The store is a parameter so a test can hold two windows over one store; the
+ * default is main's, and the in-memory stand-in when there is no preload.
  */
 export const makeCanvasCommandGroups = (
-  store: ViewStateStore = makeMemoryViewStateStore(),
+  store: ViewStateStore = defaultViewStateStore(),
 ): CanvasCommandGroups => {
   /** What this window last saw, so an echo of its own write is not written back. */
   const seen = new Map<string, { slots: ReadonlyArray<ViewCommandSlot>; extras: ReadonlyArray<ExtraGroup> }>();
