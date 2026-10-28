@@ -125,9 +125,8 @@ describe("artifact automations, the draft", () => {
     const draft = draftWith({ kind: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" }, [{ kind: "mail", to: seat, text: "x" }]);
     expect(editDraft(draft, { type: "action-kind", index: 0, kind: "seat-control" }).then[0]).toEqual({ kind: "seat-control", op: "start", seat });
     expect(actionWords({ kind: "seat-control", op: "stop", seat }, nameOf)).toBe("stop @agent-a");
-    // Until S4's contract lands the editor says it is not available; after, it asks only for the seat.
-    const blank = actionProblem(draftWith(draft.trigger, [{ kind: "seat-control", op: "start" }]));
-    expect(["Starting and stopping seats is not available yet.", "Pick the seat to start or stop."]).toContain(blank);
+    expect(actionProblem(draftWith(draft.trigger, [{ kind: "seat-control", op: "start" }]))).toBe("Pick the seat to start or stop.");
+    expect(actionProblem(draftWith(draft.trigger, [{ kind: "seat-control", op: "start", seat }]))).toBeUndefined();
   });
 
   it("each artifact action says what it writes", () => {

@@ -71,12 +71,8 @@ export type CommentTarget = CommentAction["on"];
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
-/**
- * The contract's action kinds, and `seat-control` (S4, remote-seats) until it
- * lands in `@shared/automation`: a stand-in, refused in words until then.
- */
-export type ActionKind = Action["kind"] | "seat-control";
-export type SeatControlOp = "start" | "stop";
+export type ActionKind = Action["kind"];
+export type SeatControlOp = Extract<Action, { readonly kind: "seat-control" }>["op"];
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -577,14 +573,6 @@ const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
   artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
 
-/** Whether the contract takes a seat-control step yet (S4): until it does, the editor says so rather than sending one. */
-const CONTRACT_HAS_SEAT_CONTROL = Schema.is(AutomationDefinition)({
-  name: "probe",
-  trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS },
-  then: [{ kind: "seat-control", seat: { kind: "seat", nodeId: "agent-probe" }, op: "start" }],
-  limits: DEFAULT_AUTOMATION_LIMITS,
-});
-
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
 
 const actionProblem = (
@@ -646,7 +634,6 @@ const actionProblem = (
       return both === undefined ? undefined : `${both} is both added and removed. Keep it in one.`;
     }
     case "seat-control":
-      if (!CONTRACT_HAS_SEAT_CONTROL) return "Starting and stopping seats is not available yet.";
       return action.seat === undefined ? "Pick the seat to start or stop." : undefined;
     default:
       return action satisfies never;
