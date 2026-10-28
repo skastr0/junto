@@ -68,6 +68,7 @@ import {
   migrateBoardRequests,
 } from "./migrate-board-requests";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
+import { VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -694,7 +695,19 @@ export const STATE_SCHEMA_V54_IDENTITY = {
     "d1d2f81a0ecd06cc8bdd70dad1e5906671fdb386a2ee2462cb5f0f77c01d260c",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 54;
+/**
+ * Version 55 keeps how the operator arranged Junto (0.11, 04): the hotbar
+ * slots and their groups, each node's filters and open item, a collapsed
+ * sidebar, a resized surface and a section's flag, one typed row per thing.
+ * Machine-local. A canvas or node from before the step has no rows: every
+ * surface opens at its default. Expand only.
+ */
+export const STATE_SCHEMA_V55_IDENTITY = {
+  actualSchemaSha256:
+    "31bc26cf1526c7ee14be85d01222b5ffb55abf7e2e5ebd6893104fb498d19340",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 55;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -702,7 +715,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 54;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V54_IDENTITY;
+  STATE_SCHEMA_V55_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1125,6 +1138,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V53_IDENTITY,
     migrate: (database) => database.exec(ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 54,
+    toVersion: 55,
+    name: "keep the operator's view state",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V54_IDENTITY,
+    migrate: (database) => database.exec(VIEW_STATE_SCHEMA_SQL),
   },
 ];
 

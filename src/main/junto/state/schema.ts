@@ -51,6 +51,7 @@ import {
 } from "../seat-sessions/state-schema";
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
+import { VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -137,6 +138,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   SEAT_CONTINUATIONS_OWED_STATE_SCHEMA_SQL,
   SEAT_OFFBOARD_CLOCK_STATE_SCHEMA_SQL,
   HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL,
+  VIEW_STATE_SCHEMA_SQL,
 ] as const;
 
 

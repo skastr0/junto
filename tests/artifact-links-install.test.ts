@@ -21,14 +21,13 @@ import {
   migrateStateSchema,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { InstallOpsService } from "../src/main/junto/install-ops/service";
 import { linkedFromBodies } from "../src/main/junto/work/body-links";
 import { runArtifactLinksBackfill } from "../src/main/junto/work/artifact-links-backfill";
-import { STATE_SCHEMA_V50_SQL } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V50_SQL, STATE_SCHEMA_V52_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -151,7 +150,7 @@ describe("an install that predates the body links", () => {
       for (const held of [...HELD, heldSheet]) insertHeld(database, canvas, held);
 
       // The upgrade itself.
-      migrateStateSchema(database, upTo(52, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(52, STATE_SCHEMA_V52_SQL));
       const links = database.prepare("SELECT COUNT(*) AS n FROM work_artifact_links").get() as { n: number };
       expect(links.n).toBe(0);
     } finally {

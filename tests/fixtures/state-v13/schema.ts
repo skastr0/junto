@@ -318,3 +318,9 @@ export const STATE_SCHEMA_V54_SQL = stepped(
   STATE_SCHEMA_V53_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 54)!.migrate,
 );
+
+/** Step 55 adds the view-state tables. */
+export const STATE_SCHEMA_V55_SQL = stepped(
+  STATE_SCHEMA_V54_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 55)!.migrate,
+);

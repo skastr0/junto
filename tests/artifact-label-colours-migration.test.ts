@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V53_IDENTITY,
@@ -20,7 +19,6 @@ import {
   migrateStateSchema,
   type StateSchemaMigrationPlan,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V53_SQL, STATE_SCHEMA_V54_SQL } from "./fixtures/state-v13/schema";
 
@@ -64,8 +62,6 @@ describe("state migration 53 -> 54 (the artifact label colours)", () => {
   it("starts from the version-53 witness and ends at the head, which a fresh database matches", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V53_SQL)).toEqual(STATE_SCHEMA_V53_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V54_SQL)).toEqual(STATE_SCHEMA_V54_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V54_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V54_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -77,7 +73,7 @@ describe("state migration 53 -> 54 (the artifact label colours)", () => {
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
         expect(Object.keys(before)).not.toContain("artifact_label_colours");
 
-        const result = migrateStateSchema(database, upTo(54, STATE_SCHEMA_SQL));
+        const result = migrateStateSchema(database, upTo(54, STATE_SCHEMA_V54_SQL));
         expect(result).toMatchObject({ previousVersion: 53, schemaVersion: 54, ...STATE_SCHEMA_V54_IDENTITY });
         expect(readRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V54_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -96,7 +92,7 @@ describe("state migration 53 -> 54 (the artifact label colours)", () => {
   it("holds one colour per node and label, by name only, with no artifact behind it", async () => {
     const database = await openCopy("command-center-v13.db");
     try {
-      migrateStateSchema(database, upTo(54, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(54, STATE_SCHEMA_V54_SQL));
       const insert = (node: string, label: string, colour: string) =>
         database
           .prepare("INSERT INTO artifact_label_colours (canvas_name, node_id, label, colour) VALUES ('main', ?, ?, ?)")

@@ -11,7 +11,7 @@ const currentTables = [
   "work_task_messages", "work_task_transitions", "work_tasks", "work_messages",
 ] as const;
 
-export const WorkModelDependentsLive = Layer.effect(ModelDependents, Effect.gen(function* () {
+export const makeWorkModelDependents = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const changes = workProjectionChanges(sql);
   const remove = Effect.fn("work.model.remove")(function* (canvas: string, ids?: ReadonlyArray<string>) {
@@ -60,4 +60,6 @@ export const WorkModelDependentsLive = Layer.effect(ModelDependents, Effect.gen(
     removeCanvas: (canvas) => unjournaledWorkMutationEffect("work.model.remove", remove(canvas)),
     removeNodes: (canvas, ids) => unjournaledWorkMutationEffect("work.model.remove", remove(canvas, ids)),
   });
-}));
+});
+
+export const WorkModelDependentsLive = Layer.effect(ModelDependents, makeWorkModelDependents);

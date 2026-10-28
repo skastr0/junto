@@ -36,7 +36,8 @@ import { MachineRepositoryLive } from "./junto/machines/repository";
 import { OpRepositoryLive } from "./junto/work/op-repository";
 import { HarnessInventoryLive } from "./junto/term/templates/harness-inventory";
 import { NativeConfigLive } from "./junto/native-config/service";
-import { WorkModelDependentsLive } from "./junto/work/model-dependents";
+import { ProductModelDependentsLive } from "./junto/view-state/model-dependents";
+import { ViewStateRepositoryLive } from "./junto/view-state/repository";
 import { ModelLive } from "./junto/model/layer";
 
 /** The same product services in both shells, over one state connection. */
@@ -62,6 +63,8 @@ export const makeCoreProductLayer = (home: string) => {
       settings,
       MachineRepositoryLive,
       OpRepositoryLive,
+      // The operator's arrangement: machine-local rows, written as it changes.
+      ViewStateRepositoryLive,
       // The automation store, and the recorder its ruler records each ruling through.
       makeAutomationRepositoryLive(),
       Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
@@ -74,7 +77,7 @@ export const makeCoreProductLayer = (home: string) => {
       // The task ruler records its rulings the same way.
       Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive))),
     ),
-    Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(state, installOps)),
+    Layer.provideMerge(Layer.provide(ModelLive, ProductModelDependentsLive), Layer.mergeAll(state, installOps)),
   );
   const hosts = Layer.provideMerge(HostsServiceLive, Layer.mergeAll(
     // The editing machine's ruler, over the stores it rules into.

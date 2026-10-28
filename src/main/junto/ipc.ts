@@ -53,6 +53,7 @@ import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
+import { registerViewStateIpc } from "./view-state/ipc";
 import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
@@ -302,6 +303,7 @@ export const registerJuntoIpc = (): void => {
   registerSettingsIpc(privilegedIpc, broadcast);
   registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
+  registerViewStateIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
   registerResourceIpc(
     privilegedIpc,
