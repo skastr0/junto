@@ -108,7 +108,7 @@ const DESCRIPTIONS = {
   history: "An artifact's versions, newest first: who made each and whether it replaced or patched the body.",
   create: "Create an artifact on the Artifacts node in reach, or the one --node names. Documents, pads and sheets start empty; a link needs --url. [[Title]] in the body links the artifact of that title in reach, or [[<artifactId>]] when several share it.",
   edit: "Edit an artifact written against --base: replace its body (--markdown, --url or --body), or patch a pad, sheet or document (--patch). [[Title]] links as in create.",
-  label: "Set an artifact's labels whole with --set (an empty --set clears them), or change them with --add and --remove. A label is 1 to 40 characters of a-z 0-9 - _ / and space, folded to lowercase; an artifact holds at most 20. Labels are not versioned: the version stays.",
+  label: "Set an artifact's labels whole with --set (an empty --set clears them), or change them with --add and --remove. A label is 1 to 40 characters of a-z 0-9 - _ / and space, folded to lowercase; an artifact holds at most 20. A label both added and removed ends removed. Labels are not versioned: the version stays.",
   comment: "Post in the artifact's thread, on the whole artifact or at --anchor: box for a pad, cells for a sheet, text for a document.",
   archive: "Archive an artifact. It takes no edits until restored.",
   restore: "Restore an archived artifact.",

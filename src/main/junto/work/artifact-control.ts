@@ -57,7 +57,7 @@ import { ArtifactFact } from "@shared/artifact-domain";
 import { ARTIFACT_LABELS_MAX, type ArtifactLabel, artifactLabelOf, artifactLabelsOf } from "@shared/artifact-labels";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
-import { precheckInput, queuedArtifactCommands } from "./queued-commands";
+import { localQueue, precheckInput, queuedArtifactCommands } from "./queued-commands";
 import type {
   ArtifactHeadRead,
   ArtifactListQuery,
@@ -111,6 +111,13 @@ export type ArtifactPorts = {
   readonly taskNode: (canvasName: string, taskId: ItemId) => Effect.Effect<Option.Option<NodeId>, WorkErrorBody>;
   /** Up to `limit` mail rows that mention `key`, newest first (`work_mentions`). Absent, show lists none. */
   readonly mentions?: (canvasName: string, key: string, limit: number) => Effect.Effect<ReadonlyArray<MentionRow>, WorkErrorBody>;
+  /**
+   * The set this machine's last unruled `labels` write for the artifact sends,
+   * when one is queued for the editing machine (03). `--add` and `--remove`
+   * build on it, not on the ruled head, so a seat's second change keeps its
+   * first. Absent, the head is read.
+   */
+  readonly queuedLabels?: (canvasName: string, artifactId: ItemId) => Effect.Effect<Option.Option<ReadonlyArray<string>>>;
   /** The artifacts whose head body links `target`, newest first, archived ones left out (L1). Absent, show lists none. */
   readonly bodyLinks?: (canvas: Canvas, canvasName: string, target: ArtifactLinkRef) => Effect.Effect<ReadonlyArray<LinkedFromBody>, WorkErrorBody>;
 };
@@ -232,6 +239,12 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
           })),
       ),
     comment: postSubjectComment,
+    queuedLabels: (canvasName, artifactId) =>
+      Effect.map(localQueue(canvasName), (queue) => {
+        const queued = queuedArtifactCommands(queue?.commands ?? []).flatMap((command) =>
+          command.target.itemId === artifactId && command.op.op === "labels" ? [command.op.labels] : []);
+        return Option.fromNullishOr(queued.at(-1));
+      }),
     pull: (input) =>
       Effect.serviceOption(BodyPuller).pipe(
         Effect.flatMap((puller) =>
@@ -304,9 +317,9 @@ const foldLabels = (raw: ReadonlyArray<string>, path: string): Effect.Effect<Rea
 };
 
 /**
- * The set a label write sends: `set` whole, or the head's set with `add`
- * joined and `remove` taken out. Removing a label the head does not hold
- * changes nothing.
+ * The set a label write sends: `set` whole, or the held set with `add`
+ * joined and `remove` taken out. Removing a label not held changes nothing,
+ * and a label both added and removed ends removed.
  */
 const nextLabels = (
   held: ReadonlyArray<ArtifactLabel>,
@@ -738,7 +751,10 @@ export const handleArtifactOp = (
       case "artifact.label": {
         const input = yield* decode(ArtifactLabelArgs, args);
         const head = yield* findArtifact(caller, ports, input.artifact);
-        const labels = yield* nextLabels(head.artifact.labels, input).pipe(Effect.mapError(withOpId(input.opId)));
+        // A labels write still queued for the editing machine is what this seat last set: build on it.
+        const queued = ports.queuedLabels === undefined ? Option.none() : yield* ports.queuedLabels(caller.canvasName, input.artifact);
+        const held = Option.isSome(queued) ? (artifactLabelsOf(queued.value) ?? head.artifact.labels) : head.artifact.labels;
+        const labels = yield* nextLabels(held, input).pipe(Effect.mapError(withOpId(input.opId)));
         return yield* submit(caller, ports, command(caller, input.opId, head.artifact.nodeId, input.artifact, { op: "labels", labels }));
       }
       case "artifact.edit": {

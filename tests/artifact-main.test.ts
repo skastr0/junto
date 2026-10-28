@@ -486,6 +486,17 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact labels in main", () => {
     expect(failure(run(ports, "artifact.label", { opId: OP3, artifact: NEW, add: ["x"] }, "SP"))).toMatchObject({ type: "UnknownTarget" });
   });
 
+  it("adds on top of this machine's own labels write still queued for the editing machine, not the ruled head", () => {
+    const { ports, submitted } = memoryPorts();
+    createDoc(ports, { labels: ["draft"] });
+    // `--add a` went out and is queued, unruled: the head here still reads [draft].
+    const queued: ArtifactPorts = { ...ports, queuedLabels: (_canvas, id) => Effect.succeed(id === NEW ? Option.some(["a", "draft"]) : Option.none()) };
+    ok(run(queued, "artifact.label", { opId: OP2, artifact: NEW, add: ["b"] }));
+    expect(submitted[1]?.op).toEqual({ op: "labels", labels: ["a", "b", "draft"] });
+    ok(run(queued, "artifact.label", { opId: OP3, artifact: NEW, add: ["c"], remove: ["c"] }));
+    expect(submitted[2]?.op).toEqual({ op: "labels", labels: ["a", "draft"] });
+  });
+
   it("lists each artifact's labels and filters by every label named, a level matching those under it", () => {
     const { ports, submitted } = memoryPorts();
     createDoc(ports, { labels: ["project/junto/release", "draft"] });
