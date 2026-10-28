@@ -84,6 +84,12 @@ export type RowExchangeDeps = {
    */
   readonly copySent: (copy: CanvasCopy) => Effect.Effect<void, unknown>;
   /**
+   * A departing machine has taken every row of this machine's it is entitled
+   * to: record that it was told where everything stands, so it holds the
+   * canvas no longer. Absent: nothing departs here.
+   */
+  readonly departed?: (canvasName: string, peer: InstallationId) => Effect.Effect<void, unknown>;
+  /**
    * Take a copy from the machine that edits the canvas, with the texts and
    * play state it carries. `refused` when this machine already has a canvas of
    * that name which is not this one. Fails for a copy no honest machine sends.
@@ -286,6 +292,25 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
     });
 
+  /** Does the peer, at the cursors it stated, lack any row of this machine's own it is entitled to? */
+  const lacksOwnRows = (
+    canvasName: string,
+    peer: InstallationId,
+    writers: ReadonlyMap<InstallationId, string>,
+    placement: CanvasPlacement,
+  ): Effect.Effect<boolean, ExchangeClosed> =>
+    Effect.gen(function* () {
+      let after = writers.get(deps.self) ?? "0";
+      for (;;) {
+        const page = yield* deps.repository
+          .exchangeRows({ canvasName, writer: deps.self, after, limit: EXCHANGE_MAX_FACTS_PER_FRAME, bytes: EXCHANGE_ROWS_PAGE_BYTES })
+          .pipe(Effect.mapError(closed));
+        if (page.rows.some((row) => entitledTo(peer, row.fact, placement, row.mailAuthor))) return true;
+        if (!page.more) return false;
+        after = page.through;
+      }
+    });
+
   /**
    * State to a peer the signals of one canvas it has not heard as they stand:
    * this machine's seats' raises and withdrawals to the machine that edits the
@@ -436,15 +461,25 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         // What a peer says of a canvas it does not hold is not kept: it is
         // offered nothing of it and is never reported caught up on it.
         const have = new Map<string, Map<InstallationId, string>>();
+        const departing = new Map<string, CanvasPlacement>();
         for (const canvas of frame.canvases) {
           const placement = yield* deps.placement(canvas.canvasName);
           if (placement === undefined || !placement.holds(peer)) continue;
           // The same name on two machines can be two canvases.
           if (placement.canvasId !== canvas.canvasId) continue;
           have.set(canvas.canvasName, new Map(canvas.writers.map((entry) => [entry.writer, entry.through])));
+          if (placement.departing?.(peer) === true) departing.set(canvas.canvasName, placement);
         }
         state.have.clear();
         for (const [canvasName, writers] of have) state.have.set(canvasName, writers);
+        // A departing peer that lacks none of this machine's rows has the rulings that moved it away.
+        if (deps.departed !== undefined) {
+          for (const [canvasName, placement] of departing) {
+            if (!(yield* lacksOwnRows(canvasName, peer, have.get(canvasName)!, placement))) {
+              yield* deps.departed(canvasName, peer).pipe(Effect.mapError(closed));
+            }
+          }
+        }
         owe(state, (owed) => {
           owed.offerAll = true;
         });

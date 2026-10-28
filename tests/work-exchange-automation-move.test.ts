@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, expect, it } from "vitest";
-import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
+import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
@@ -270,3 +270,54 @@ it("moves the count with the real model, sends the move in the copy, and judges 
   expect(await inbox(macbook)).not.toContain("nightly-after-the-move");
 });
 
+it("keeps a machine whose only automation moved away holding the canvas until it has taken the move, then lets it go", async () => {
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, automations("routines", { x: 400, y: 0 })]));
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition }, "01M62ACCCCCCCCCCCCCCCCCCC1")).kind).toBe("applied");
+  const placed = await countOn(macbook);
+  expect(await link(macbook, mini)).toBeUndefined();
+  expect(await countOn(mini)).toBe(placed);
+
+  // Written on the mini before it hears of the move.
+  await writeOnMini(mini, "nightly-before-it-heard", placed);
+
+  // The automation moves off the mini, which then holds nothing on the canvas.
+  expect((await rule(macbook, { kind: "set-machine", machine: "macbook" as never }, "01M62ACCCCCCCCCCCCCCCCCCC2")).kind).toBe("applied");
+  const moved = await countOn(macbook);
+  await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+
+  // It is departing, so it still holds the canvas and takes the move: its runner reads the automation as the macbook's.
+  const minis = async () => (await mini.runtime.runPromise(Effect.flatMap(AutomationRepository, (repository) => repository.loadState("factory")))).get(NIGHTLY);
+  expect((await minis())?.automation.machine).toBe("macbook");
+  expect((await mini.runtime.runPromise(mini.exchange.placement("factory")))?.automationOf?.(ROUTINES, NIGHTLY)).toBe(MACBOOK);
+  // No copy at the move's count was cut for it.
+  expect(await countOn(mini)).toBe(placed);
+  // What it wrote before it heard still arrives: it is departing, so it still holds the canvas.
+  await mini.runtime.runPromise(mini.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+  expect(await inbox(macbook)).toContain("nightly-before-it-heard");
+  const holds = async () => (await macbook.runtime.runPromise(macbook.exchange.placement("factory")))!.holds(MINI);
+  expect(await holds()).toBe(true);
+
+  // When it next says how far it is caught up, it lacks nothing: the macbook records it told and lets it go.
+  macbook.exchange.closed(MINI);
+  mini.exchange.closed(MACBOOK);
+  expect(await link(macbook, mini)).toBeUndefined();
+  expect(await holds()).toBe(false);
+  const history = await macbook.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      return yield* sql.unsafe("SELECT machine, from_seq, until_seq FROM automation_placements WHERE automation_id = ? ORDER BY from_seq", [NIGHTLY]);
+    }),
+  );
+  expect(history).toEqual([
+    { machine: MINI, from_seq: placed, until_seq: moved },
+    { machine: MACBOOK, from_seq: moved, until_seq: null },
+  ]);
+  // Let go, it holds the canvas no longer: a row it still writes is refused, and nothing is written.
+  expect(String(await mailFromMini(mini, "nightly-after-it-was-let-go", placed))).toContain("may not pass on this writer's rows");
+  expect(await inbox(macbook)).not.toContain("nightly-after-it-was-let-go");
+});

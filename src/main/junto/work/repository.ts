@@ -3469,6 +3469,13 @@ export interface WorkRepositoryShape {
    * entitled to then. Its next word asks for every writer's rows from the start.
    */
   readonly exchangeForget: (canvasName: string) => Effect.Effect<void, WorkRepositoryError>;
+  /**
+   * The machines that lost their last seat or automation on a canvas and have
+   * not yet been recorded as told so: placement history still has a row of
+   * theirs open, or closed after the last count recorded for them. Read on the
+   * editing machine; every other machine keeps no placement history.
+   */
+  readonly departingFrom: (canvasName: string) => Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError>;
   /** Every writer with rows for a canvas that this machine holds. */
   readonly exchangeWriters: (
     canvasName: string,
@@ -4300,6 +4307,31 @@ export const WorkRepositoryLive = Layer.effect(
           Effect.mapError((error) => toRepositoryError("work.exchange.forget", error)),
         );
 
+    const departingFrom = (canvasName: string): Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        sql.unsafe<{ machine: string }>(
+          `
+            WITH placed AS (
+              SELECT machine, until_seq FROM canvas_placements WHERE canvas_name = ?
+              UNION ALL
+              SELECT machine, until_seq FROM automation_placements WHERE canvas_name = ?
+            )
+            SELECT DISTINCT placed.machine
+            FROM placed
+            WHERE placed.until_seq IS NULL
+              OR placed.until_seq > COALESCE(
+                (SELECT MAX(sent.seq) FROM canvas_copies_sent AS sent WHERE sent.canvas_name = ? AND sent.target = placed.machine),
+                0
+              )
+          `,
+          [canvasName, canvasName, canvasName],
+        ),
+      ).pipe(
+        Effect.map((rows) => new Set(rows.map((row) => Schema.decodeUnknownSync(InstallationId)(row.machine)))),
+        Effect.mapError((error) => toRepositoryError("work.exchange.departing", error)),
+      );
+
     const exchangeWriters = (
       canvasName: string,
     ): Effect.Effect<ReadonlyArray<InstallationId>, WorkRepositoryError> =>
@@ -5001,6 +5033,7 @@ export const WorkRepositoryLive = Layer.effect(
       setArtifactArchived,
       deleteArtifact,
       recordCanvasCopySent,
+      departingFrom,
       exchangeHave,
       exchangeForget,
       exchangeWriters,

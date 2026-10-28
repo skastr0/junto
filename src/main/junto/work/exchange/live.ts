@@ -116,12 +116,42 @@ export const makeLiveRowExchange = (
     const installations = machineInstallations.pipe(Effect.provideService(MachineRepository, machines));
 
     const placement = (canvasName: string): Effect.Effect<CanvasPlacement | undefined, unknown> =>
-      canvasPlacement(canvasName).pipe(
-        Effect.provideService(MachineRepository, machines),
-        Effect.provideService(ModelRecords, records),
-        // Where automations run, when this process folds them.
-        (placed) => Option.isSome(automationStore) ? Effect.provideService(placed, AutomationRepository, automationStore.value) : placed,
-      );
+      Effect.gen(function* () {
+        const placed = yield* canvasPlacement(canvasName).pipe(
+          Effect.provideService(MachineRepository, machines),
+          Effect.provideService(ModelRecords, records),
+          // Where automations run, when this process folds them.
+          (placed) => Option.isSome(automationStore) ? Effect.provideService(placed, AutomationRepository, automationStore.value) : placed,
+        );
+        // Only the editing machine keeps placement history, so only it knows who is departing.
+        if (placed === undefined || placed.editor !== self) return placed;
+        const departing = new Set([...(yield* repository.departingFrom(canvasName))].filter((machine) => !placed.holds(machine)));
+        if (departing.size === 0) return placed;
+        return { ...placed, holds: (machine) => placed.holds(machine) || departing.has(machine), departing: (machine) => departing.has(machine) };
+      });
+
+    /**
+     * A departing machine has taken every row of this machine's it is
+     * entitled to, the rulings that moved its seats and automations among
+     * them: record where everything stands now as told to it, which closes
+     * its rows in placement history, so it no longer holds the canvas.
+     */
+    const departed = (canvasName: string, peer: InstallationId): Effect.Effect<void, unknown> =>
+      Effect.gen(function* () {
+        const header = yield* records.getCanvas(canvasName);
+        if (header === undefined) return;
+        const byName = yield* installations;
+        const seats = (yield* records.listNodes(canvasName)).flatMap((node) => {
+          if (node.kind !== "agent") return [];
+          const machine = byName.get(node.host);
+          return machine === undefined ? [] : [{ nodeId: node.id as string, seatId: deriveActorSeatId(machine, node.bindingId), machine }];
+        });
+        const automations = (yield* copiedAutomations(canvasName)).flatMap((automation) => {
+          const machine = byName.get(automation.machine);
+          return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
+        });
+        yield* repository.recordCanvasCopySent({ canvasName, target: peer, seq: header.seq, seats, automations });
+      }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.departed"));
 
     /** Every live automation of a canvas and the machine it runs on, by real short name. */
     const copiedAutomations = (canvasName: string) =>
@@ -292,6 +322,7 @@ export const makeLiveRowExchange = (
       ...(options.linkFailed === undefined ? {} : { linkFailed: options.linkFailed }),
       cutCopy,
       copySent,
+      departed,
       installCopy,
       signals: (canvasName) => signals.listCanvas(canvasName).pipe(Effect.map((held) => held.map(stated))),
       takeSignal: (canvasName, { attachments, ...signal }, raises) =>

@@ -220,7 +220,7 @@ export type CanvasPlacement = {
   readonly canvasId: string;
   /** The machine that may change the canvas; it keeps all of it. */
   readonly editor: InstallationId;
-  /** Does this machine hold the canvas: it edits it, or one of its seats or automations is on it. */
+  /** Does this machine hold the canvas: it edits it, one of its seats or automations is on it, or it is departing. */
   readonly holds: (machine: InstallationId) => boolean;
   /** The seat at a node: its identity and the machine it lives on. Undefined for a node that is no seat. */
   readonly seatOf: (
@@ -233,6 +233,12 @@ export type CanvasPlacement = {
    * Undefined for an automation this machine does not know there.
    */
   readonly automationOf?: (nodeId: string, automationId: string) => InstallationId | undefined;
+  /**
+   * A machine that lost its last seat or automation here and has not yet been
+   * told: it still holds the canvas, so it takes the rulings that moved them
+   * (an automation's runner stops only when its move is folded there).
+   */
+  readonly departing?: (machine: InstallationId) => boolean;
 };
 
 /**
