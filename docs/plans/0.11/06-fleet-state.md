@@ -101,13 +101,22 @@ needs no lease and no clock. It follows from who must agree to a commit.
 - **Nothing is shown before commit.** The writer gets `applied` or `refused`
   only at commit. Until then it reads as `queued`, a success (02, 'Editing
   machine away'). Panes, automations, notices and the exchange read
-  committed entries only. An authority that steps down discards its
-  uncommitted tail. That tail was never shown. Its commands are still
-  unruled rows in their writers' queues, which drain to the new authority
-  (02, 'Moving the editing machine'). So the tail canvas-lead names in
-  section 4 cannot exist. A committed entry is on a quorum, and a new
-  authority is always elected from among the machines that hold the
-  committed log.
+  committed entries only. The one exception is the window echoing the
+  operator's own gesture, which it predicts and then delivers (section 4).
+  An authority that steps down discards its uncommitted tail. That tail was
+  never shown. A seat's or an automation's command is still an unruled row
+  in its writer's queue, which drains to the new authority (02, 'Moving the
+  editing machine'). An operator edit is never queued: one in flight is
+  refused, retryable, because authority moved, and the window sends it
+  once, built afresh, to the new authority (section 4). So the tail
+  canvas-lead names in section 4 cannot exist. A committed entry is on a
+  quorum, and a new authority is always elected from among the machines
+  that hold the committed log.
+- **Changing the list changes the quorum.** Adding or removing a machine
+  changes who must agree. In a pair, reordering does too, because the order
+  picks the casting vote. So each list edit commits under the old quorum
+  and changes one machine at a time (Raft's single-server change), and the
+  simulation covers list edits made during partitions.
 - **Election.** A standby that hears nothing from the authority for the
   timeout (10 s, tunable) asks for votes for term + 1. A voter grants one
   vote per term, and only to a candidate whose log is at least as complete
@@ -215,7 +224,7 @@ rulings it trusts.
 | Slice | What | Size | Risk |
 |---|---|---|---|
 | F0 | S5 links from any end, with per-opener keys | M | medium |
-| F1 | Authority list, terms, votes, transfer, `junto authority status`; the deterministic simulation | L | high |
+| F1 | Authority list (each edit commits under the old quorum, one machine at a time), terms, votes, transfer, `junto authority status`; the deterministic simulation, list edits included | L | high |
 | F2 | The log with quorum commit: rulings carry `(term, index)`, projection at commit, step-down discards the uncommitted tail; every ruler (task, artifact, artifact node, automation) moves to it | L | high |
 | F3 | Keepers: listed machines get the uncut canvas, eager bodies, relay rights | M | medium |
 | F4 | Structure in the log; window commands forwarded to the authority; read-only with none | L | medium |
