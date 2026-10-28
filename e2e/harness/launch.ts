@@ -123,6 +123,11 @@ export interface LaunchOptions {
   /** Write `~/.claude.json` additionalModelOptionsCache before boot. */
   readonly claudeModelCache?: readonly ClaudeModelCacheEntry[];
   /**
+   * Relaunch on a sandbox this test owns, keeping its rows: what a quit and
+   * relaunch proof needs. The caller destroys it; close only quits the app.
+   */
+  readonly sandbox?: Sandbox;
+  /**
    * Direct sandbox surgery after fixture seeding, before the app boots —
    * for durable states that have no producer (e.g. residual `auth-required`
    * work rows only older databases carry).
@@ -199,6 +204,11 @@ export interface HarnessCleanupInput {
   readonly sandbox: Sandbox;
   readonly server?: RendererServer;
   readonly application: HarnessApplicationState;
+  /**
+   * The caller owns this sandbox and relaunches on it (a quit-and-relaunch
+   * proof), so teardown quits the app and frees the port but keeps the rows.
+   */
+  readonly keepSandbox?: boolean;
 }
 
 export interface HarnessCleanupTimeouts {
@@ -406,7 +416,9 @@ export const cleanupJuntoHarness = async (
     if (!serverOutcome.ok) errors.push(serverOutcome.error);
   }
 
-  if (applicationSafe) {
+  if (applicationSafe && input.keepSandbox === true) {
+    // The caller relaunches on these rows; it destroys the sandbox itself.
+  } else if (applicationSafe) {
     try {
       await operations.destroySandbox(input.sandbox);
       if (await operations.sandboxExists(input.sandbox.root)) {
@@ -453,7 +465,8 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       ? options.nestedCanvas.fixture.signals(nestedName)
       : []),
   ];
-  const sandbox = await createSandbox();
+  const sandbox = options.sandbox ?? (await createSandbox());
+  const keepSandbox = options.sandbox !== undefined;
   let server: RendererServer | undefined;
   let application: HarnessApplicationState = { kind: "not-launched" };
 
@@ -626,6 +639,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
         sandbox,
         server,
         application,
+        keepSandbox,
       });
       return closePromise;
     };
@@ -637,6 +651,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
         sandbox,
         server,
         application,
+        keepSandbox,
       });
     } catch (cleanupError) {
       const cleanupErrors =
