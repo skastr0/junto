@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ContentRef } from "@shared/content";
-import { writeCodeAllowance } from "../src/main/junto/automation/code-allowance";
+import type { CodeAllowance } from "../src/main/junto/automation/code-allowance";
 import {
   makeCodeRunner,
   type CodeInput,
@@ -26,7 +26,12 @@ const CANVAS = "factory";
 const RULER = "installation-editor";
 
 let root: string;
-let home: string;
+/** The allowance rows, as CodeAllowanceRepository.read answers them. */
+const allowances = new Map<string, CodeAllowance>();
+const writeAllowance = (canvas: string, allowance: CodeAllowance | undefined): void => {
+  if (allowance === undefined) allowances.delete(canvas);
+  else allowances.set(canvas, allowance);
+};
 let runRoot: string;
 let childHome: string;
 const sources = new Map<string, Uint8Array>();
@@ -48,7 +53,7 @@ const INPUT: CodeInput = {
 
 const runner = (overrides: { readonly runtime?: () => string | undefined } = {}) => makeCodeRunner({
   machine: "mac-mini",
-  home,
+  readAllowance: (canvasName) => Effect.succeed(allowances.get(canvasName)),
   runRoot,
   readSource: (ref) => Effect.succeed(sources.get(ref.sha256) ?? { state: "missing" }),
   runtime: overrides.runtime ?? (() => BUN),
@@ -80,13 +85,13 @@ const runExit = (req: CodeRunRequest) => Effect.runPromiseExit(runner().runCode(
 
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), "code-runner-test-"));
-  home = join(root, "junto-home");
   runRoot = join(root, "parent");
   childHome = join(root, "home");
   mkdirSync(runRoot, { recursive: true });
   mkdirSync(childHome, { recursive: true });
   sources.clear();
-  await writeCodeAllowance(home, CANVAS, { scope: "operator-and-overseers", installations: [RULER] });
+  allowances.clear();
+  writeAllowance(CANVAS, { scope: "operator-and-overseers", installations: [RULER] });
 });
 
 afterEach(() => {
@@ -273,7 +278,7 @@ describe("admission", () => {
   };
 
   it("refuses a canvas this machine does not allow", async () => {
-    await writeCodeAllowance(home, CANVAS, undefined);
+    writeAllowance(CANVAS, undefined);
     expect(JSON.stringify(await refused(request("shell", "exit 0")))).toContain("\"refusal\":\"canvas\"");
   });
 
@@ -282,7 +287,7 @@ describe("admission", () => {
   });
 
   it("refuses an overseer's code under an operator-only allowance", async () => {
-    await writeCodeAllowance(home, CANVAS, { scope: "operator", installations: [RULER] });
+    writeAllowance(CANVAS, { scope: "operator", installations: [RULER] });
     expect(JSON.stringify(await refused(request("shell", "exit 0", { author: "overseer" })))).toContain("\"refusal\":\"author\"");
     expect(await run(request("shell", "exit 0", { author: "operator" }))).toMatchObject({ kind: "continue" });
   }, 30_000);

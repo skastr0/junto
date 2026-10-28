@@ -18,6 +18,7 @@ import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
 import { noteMachinesChanged } from "./machine-changes";
 import { HostRegistryRows } from "./registry";
+import type { CodeAllowanceOwner } from "../automation/code-allowance-owner";
 
 export interface MachineOwnerOptions {
   readonly ownStatus: Effect.Effect<MachineOwnStatus, unknown>;
@@ -36,6 +37,8 @@ export interface MachineOwnerOptions {
   readonly seatStop?: (input: MachineSeatInput) => Effect.Effect<Pick<MachineSeatStopped, "outcome">, unknown>;
   /** Reads a seat's settled terminal grid, here or on the machine that runs it. */
   readonly seatRead?: (input: MachineSeatReadInput) => Effect.Effect<Omit<MachineSeatRead, "canvas" | "seatId">, unknown>;
+  /** This machine's code allowance rows (`junto machine code`). */
+  readonly code?: CodeAllowanceOwner;
 }
 export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
   message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
@@ -148,6 +151,15 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         if (options.seatRead === undefined) return yield* Effect.fail(new SeatControlUnavailable({ message: "This Junto process cannot read seats" }));
         return { canvas, seatId, ...(yield* options.seatRead(request.args)) } satisfies MachineSeatRead;
       }
+      case "machine.code-allow":
+      case "machine.code-deny":
+      case "machine.code-show": {
+        const code = options.code;
+        if (code === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "This Junto process keeps no code allowance"));
+        if (request.op === "machine.code-allow") return yield* code.allow(request.args);
+        if (request.op === "machine.code-deny") return yield* code.deny(request.args);
+        return yield* code.show(request.args);
+      }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
       case "machine.remove": {
@@ -168,7 +180,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
   });
   // Reads and seat control take no machine mutation lock: a seat start must not wait behind a send.
-  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read"]);
+  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
+    // The allowance is rows in this machine's database, not the machine registry.
+    "machine.code-allow", "machine.code-deny", "machine.code-show"]);
   return {
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
       (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition)).pipe(

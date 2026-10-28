@@ -11,6 +11,7 @@ import { detectMachineKeychain } from "./junto/hosts/machine-keychain";
 import { machineHarnessSignIn } from "@shared/machine-harness-status";
 import { makeMachineCopy, type MachineCopyOptions } from "./junto/hosts/machine-copy";
 import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/machine-owner";
+import { makeCodeAllowanceOwner } from "./junto/automation/code-allowance-owner";
 import { makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
 import { machineLinkLayer } from "./junto/link/live";
@@ -420,7 +421,9 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy>();
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
+    const code = yield* makeCodeAllowanceOwner;
     const actions = yield* makeMachineOwnerActions({
+      code,
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
       ownLogs: (query) => Effect.flatMap(machines.machineName, (name) => readMachineLog(options.home, name, query)),

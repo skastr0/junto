@@ -43,7 +43,6 @@ import type { Readable } from "node:stream";
 import { Effect, Schema } from "effect";
 import type { ContentRef } from "@shared/content";
 import { WORK_TOKEN_ENV } from "@shared/work-control";
-import { resolveJuntoHome } from "@shared/junto-home";
 import {
   knownSecretValues,
   launchSecretValues,
@@ -55,7 +54,7 @@ import {
 } from "../credentials/scrub";
 import type { ContentServiceShape } from "../content/service";
 import { juntoCliPathPrefixes } from "../term/templates/seat-env";
-import { allowanceRefusal, readCodeAllowance, type CodeAuthor } from "./code-allowance";
+import { allowanceRefusal, type CodeAllowance, type CodeAuthor } from "./code-allowance";
 import { CODE_LAUNCHER_SOURCE, CODE_SDK_SOURCE } from "./code-sdk";
 
 export type CodeLanguage = "typescript" | "shell";
@@ -163,8 +162,8 @@ const decodeAnswer = Schema.decodeUnknownSync(CodeAnswer, { onExcessProperty: "e
 export type CodeRunnerDeps = {
   /** This machine's name, for refusals. */
   readonly machine: string;
-  /** The Junto home whose allowance file this machine keeps. */
-  readonly home?: string;
+  /** This machine's allowance for a canvas, read before every run (`CodeAllowanceRepository.read`). */
+  readonly readAllowance: (canvasName: string) => Effect.Effect<CodeAllowance | undefined, unknown>;
   /** The source's bytes, or why they are not held here. */
   readonly readSource: (ref: ContentRef) => Effect.Effect<Uint8Array | { readonly state: string }, unknown>;
   /** The `junto` binary TypeScript runs on; undefined when this machine has none. */
@@ -421,14 +420,14 @@ const clamp = (value: number, min: number, max: number): number =>
 
 /** The K1 port: run one code step on this machine. */
 export const makeCodeRunner = (deps: CodeRunnerDeps) => {
-  const home = deps.home ?? resolveJuntoHome();
   const runtime = deps.runtime ?? machineJuntoBinary;
   const baseEnv = deps.baseEnv ?? process.env;
   const shell = deps.shell ?? "/bin/sh";
   const runRoot = deps.runRoot ?? tmpdir();
 
   const runCode = (request: CodeRunRequest): Effect.Effect<CodeResult, CodeRunError> => Effect.gen(function* () {
-    const allowance = yield* Effect.promise(() => readCodeAllowance(home, request.canvasName));
+    // An allowance that cannot be read admits nothing.
+    const allowance = yield* deps.readAllowance(request.canvasName).pipe(Effect.orElseSucceed(() => undefined));
     const refusal = allowanceRefusal(allowance, request.rulingInstallation, request.author);
     if (refusal !== undefined) {
       return yield* new CodeNotPermitted({

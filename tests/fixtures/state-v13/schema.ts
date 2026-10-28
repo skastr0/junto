@@ -324,3 +324,15 @@ export const STATE_SCHEMA_V55_SQL = stepped(
   STATE_SCHEMA_V54_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 55)!.migrate,
 );
+
+/** Step 56 adds `automation_placements`. */
+export const STATE_SCHEMA_V56_SQL = stepped(
+  STATE_SCHEMA_V55_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 56)!.migrate,
+);
+
+/** Step 57 adds the machine code allowance tables. */
+export const STATE_SCHEMA_V57_SQL = stepped(
+  STATE_SCHEMA_V56_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 57)!.migrate,
+);

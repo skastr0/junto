@@ -13,6 +13,7 @@ import {
 } from "../model/state-schema";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
+import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -720,7 +721,18 @@ export const STATE_SCHEMA_V56_IDENTITY = {
     "6e207db7a4cb7cba786ef105c061b9396e3a6f263d676b08f8ae390f9ccd4105",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 56;
+/**
+ * Version 57 keeps which canvases this machine runs code steps for (0.11, 05,
+ * Code steps, check 4): `machine_code_allowances` and the ruling
+ * installations each trusts. Machine-local and the owner's alone; no row
+ * allows nothing, so a machine from before the step runs no code. Expand only.
+ */
+export const STATE_SCHEMA_V57_IDENTITY = {
+  actualSchemaSha256:
+    "909b6306076435d2b559725d165a4364739fdf1e84119c00b75e6c1b57134713",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 57;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -728,7 +740,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 56;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V56_IDENTITY;
+  STATE_SCHEMA_V57_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1167,6 +1179,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V55_IDENTITY,
     migrate: (database) => database.exec(AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 56,
+    toVersion: 57,
+    name: "keep which canvases this machine runs code for",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V56_IDENTITY,
+    migrate: (database) => database.exec(MACHINE_CODE_ALLOWANCES_SQL),
   },
 ];
 

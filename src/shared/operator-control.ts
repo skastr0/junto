@@ -19,6 +19,7 @@ import { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 import { MachineLogRead, MachineLogsInput } from "./machine-log";
 import { EncodedFailure } from "./failure";
 import { BoatAddInput, BoatConnectData, BoatDisconnectData, BoatMachineView, BoatStatusData } from "./boat";
+import { MachineCodeAllowInput, MachineCodeAllowed, MachineCodeCanvasInput, MachineCodeShowInput, MachineCodeShown } from "./machine-code";
 import { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
@@ -150,6 +151,9 @@ export const OperatorMachineBoatAddRequest = request("machine.boat-add", BoatAdd
 export const OperatorMachineBoatDeleteRequest = request("machine.boat-delete", MachineTargetInput);
 export const OperatorMachineWakeRequest = request("machine.wake", MachineTargetInput);
 export const OperatorMachineSleepRequest = request("machine.sleep", MachineTargetInput);
+export const OperatorMachineCodeAllowRequest = request("machine.code-allow", MachineCodeAllowInput);
+export const OperatorMachineCodeDenyRequest = request("machine.code-deny", MachineCodeCanvasInput);
+export const OperatorMachineCodeShowRequest = request("machine.code-show", MachineCodeShowInput);
 
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
@@ -175,6 +179,9 @@ OperatorMachineBoatAddRequest,
 OperatorMachineBoatDeleteRequest,
 OperatorMachineWakeRequest,
 OperatorMachineSleepRequest,
+OperatorMachineCodeAllowRequest,
+OperatorMachineCodeDenyRequest,
+OperatorMachineCodeShowRequest,
 ]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -218,6 +225,9 @@ export const OperatorMachineBoatAddResponse = response("machine.boat-add", BoatA
 export const OperatorMachineBoatDeleteResponse = response("machine.boat-delete", MachineRemoved);
 export const OperatorMachineWakeResponse = response("machine.wake", BoatMachineView);
 export const OperatorMachineSleepResponse = response("machine.sleep", BoatMachineView);
+export const OperatorMachineCodeAllowResponse = response("machine.code-allow", MachineCodeAllowed);
+export const OperatorMachineCodeDenyResponse = response("machine.code-deny", MachineCodeAllowed);
+export const OperatorMachineCodeShowResponse = response("machine.code-show", MachineCodeShown);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -279,6 +289,9 @@ OperatorMachineBoatAddResponse,
 OperatorMachineBoatDeleteResponse,
 OperatorMachineWakeResponse,
 OperatorMachineSleepResponse,
+OperatorMachineCodeAllowResponse,
+OperatorMachineCodeDenyResponse,
+OperatorMachineCodeShowResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 

@@ -24,6 +24,7 @@ import {
 } from "@shared/automation";
 import { ContentService } from "../content/service";
 import { MachineRepository } from "../machines/repository";
+import { CodeAllowanceRepository } from "./code-allowance";
 import { contentSourceReader, makeCodeRunner, type CodeResult, type CodeRunError, type CodeRunRequest } from "./code-runner";
 
 export type CodeStep = Extract<Action, { readonly kind: "code" }>;
@@ -40,7 +41,8 @@ export const AutomationCodeRunnerLive = Layer.effect(
   Effect.gen(function* () {
     const content = yield* ContentService;
     const machine = yield* (yield* MachineRepository).machineName.pipe(Effect.orElseSucceed(() => "this machine"));
-    return makeCodeRunner({ machine, readSource: contentSourceReader(content) });
+    const allowances = yield* CodeAllowanceRepository;
+    return makeCodeRunner({ machine, readSource: contentSourceReader(content), readAllowance: allowances.read });
   }),
 );
 

@@ -13,12 +13,7 @@ import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install"
 import { BoatAddInput, BoatMachineKeyDelivery } from "@shared/boat";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { writeBoatMachineSelf } from "../../main/junto/boat/files";
-import {
-  CodeAllowanceScope,
-  DEFAULT_CODE_ALLOWANCE_SCOPE,
-  readCodeAllowances,
-  writeCodeAllowance,
-} from "../../main/junto/automation/code-allowance";
+import { CodeAllowanceScope, DEFAULT_CODE_ALLOWANCE_SCOPE, MachineCodeAllowInput, MachineCodeCanvasInput, MachineCodeShowInput } from "@shared/machine-code";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
 import { loadJsonInput } from "../core/json";
@@ -142,47 +137,48 @@ const seatRead = Command.make("seat-read", {
   return yield* socket.call("machine.seat-read", args);
 }))).pipe(Command.withDescription("Read what a seat's terminal shows, on this machine or the one that runs it"));
 
-/** The allowance file could not be written in this Junto home. */
-class CodeAllowanceNotWritten extends Schema.TaggedError<CodeAllowanceNotWritten>()("CodeAllowanceNotWritten", { message: Schema.String }) {}
-
-const allowanceWrite = (canvas: string, allowance: Parameters<typeof writeCodeAllowance>[2]) => Effect.tryPromise({
-  try: async () => {
-    const canvases = await writeCodeAllowance(resolveJuntoHome(), canvas, allowance);
-    return { canvas, allowance: Object.hasOwn(canvases, canvas) ? canvases[canvas] : null };
-  },
-  catch: () => new CodeAllowanceNotWritten({ message: "The code allowance could not be written in this Junto home" }),
-});
-
 const canvasArgument = Argument.string("canvas").pipe(Argument.withDescription("Canvas name"));
 
+/** One code allowance call to this machine's core; the core writes the rows, never this process. */
+const codeCall = <Op extends "machine.code-allow" | "machine.code-deny" | "machine.code-show">(
+  name: string,
+  op: Op,
+  schema: Schema.Codec<OperatorArgsByOp[Op], unknown>,
+  args: unknown,
+) => executeJsonCommand(`machine code ${name}`, Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  const decoded = yield* Schema.decodeUnknownEffect(schema)(args, { onExcessProperty: "error" });
+  const socket = yield* OperatorSocket;
+  return yield* socket.call(op, decoded);
+}));
+
 /**
- * This machine's owner allows code steps for one canvas, from the installations
+ * This machine's owner allows code steps for one canvas, from the machines
  * that rule it (docs/security-doctrine.md, Code steps, check 4). Machine-local:
- * never a row, never set over a link, refused from a seat.
+ * never a row that crosses, never set over a link, refused from a seat.
  */
 const codeAllow = Command.make("allow", {
   canvas: canvasArgument,
-  installation: Flag.string("installation").pipe(Flag.atLeast(1), Flag.withDescription("An installation that rules this canvas, whose code this machine runs (repeat for standby rulers)")),
-  scope: Flag.choice("scope", CodeAllowanceScope.literals).pipe(Flag.optional, Flag.withDescription(`Who may author the code: operator, or operator-and-overseers (default ${DEFAULT_CODE_ALLOWANCE_SCOPE})`)),
-}, ({ canvas, installation, scope }) => executeJsonCommand("machine code allow", requireOwnerCommand.pipe(
-  Effect.andThen(allowanceWrite(canvas, {
-    scope: Option.getOrElse(scope, () => DEFAULT_CODE_ALLOWANCE_SCOPE),
-    installations: [...new Set(installation)],
-  })),
-))).pipe(Command.withDescription("Allow this machine to run code steps for a canvas, ruled by the given installations"));
+  installation: Flag.string("installation").pipe(Flag.atLeast(0), Flag.withDescription(
+    "A machine that rules this canvas, by short name or installation id; repeat for standby rulers. Replaces the stored list; absent, the canvas's editing machine",
+  )),
+  scope: Flag.choice("scope", CodeAllowanceScope.literals).pipe(Flag.optional, Flag.withDescription(
+    `Who may author the code: operator, or operator-and-overseers (default ${DEFAULT_CODE_ALLOWANCE_SCOPE})`,
+  )),
+}, ({ canvas, installation, scope }) => codeCall("allow", "machine.code-allow", MachineCodeAllowInput, {
+  canvas,
+  ...(installation.length === 0 ? {} : { rulers: installation }),
+  ...(Option.isSome(scope) ? { scope: scope.value } : {}),
+})).pipe(Command.withDescription("Allow this machine to run code steps for a canvas, ruled by the given machines"));
 
-const codeDeny = Command.make("deny", { canvas: canvasArgument }, ({ canvas }) => executeJsonCommand("machine code deny", requireOwnerCommand.pipe(
-  Effect.andThen(allowanceWrite(canvas, undefined)),
-))).pipe(Command.withDescription("Stop this machine running code steps for a canvas; a run in flight ends at its timeout"));
+const codeDeny = Command.make("deny", { canvas: canvasArgument }, ({ canvas }) =>
+  codeCall("deny", "machine.code-deny", MachineCodeCanvasInput, { canvas }),
+).pipe(Command.withDescription("Stop this machine running code steps for a canvas; a run in flight ends at its timeout"));
 
 const codeShow = Command.make("show", {
   canvas: Argument.string("canvas").pipe(Argument.optional, Argument.withDescription("Canvas name; every allowed canvas when absent")),
-}, ({ canvas }) => executeJsonCommand("machine code show", requireOwnerCommand.pipe(
-  Effect.andThen(Effect.promise(() => readCodeAllowances(resolveJuntoHome()))),
-  Effect.map((canvases) => Option.isSome(canvas)
-    ? { canvas: canvas.value, allowance: Object.hasOwn(canvases, canvas.value) ? canvases[canvas.value] : null }
-    : { canvases }),
-))).pipe(Command.withDescription("Show which canvases this machine runs code steps for"));
+}, ({ canvas }) => codeCall("show", "machine.code-show", MachineCodeShowInput, Option.isSome(canvas) ? { canvas: canvas.value } : {}),
+).pipe(Command.withDescription("Show which canvases this machine runs code steps for, and from which machines"));
 
 const code = Command.make("code").pipe(
   Command.withDescription("Whether this machine runs automation code steps, per canvas"),

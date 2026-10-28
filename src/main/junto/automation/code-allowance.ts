@@ -1,42 +1,29 @@
 /**
  * Whether this machine runs code steps for a canvas (plan 0.11/05, Code
  * steps; docs/security-doctrine.md, Code steps, check 4). The allowance is
- * this machine's owner's choice: a file in this Junto home, never a row,
- * never synced, never set over a link, the same as a secret
- * (docs/machines.md Rule 9). It binds the canvas, the ruling installations
- * it trusts for that canvas (the editing machine, and standby rulers when
- * they come), and who may have authored the code. It is read before every
- * run, so a withdrawal stops the next run; one in flight ends at its timeout.
+ * this machine's owner's choice, kept in `junto.db`
+ * (`code-allowance-schema.ts`): never a fact, never synced, never set over a
+ * link, the same as a secret (docs/machines.md Rule 9). It binds the canvas,
+ * the ruling installations it trusts for that canvas (the editing machine,
+ * and standby rulers when they come), and who may have authored the code.
+ * The runner reads it before every run, so a withdrawal stops the next run;
+ * one in flight ends at its timeout. No row allows nothing.
  */
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { CodeAllowanceScope, DEFAULT_CODE_ALLOWANCE_SCOPE } from "@shared/machine-code";
+import { StateTransactionOperation } from "../state/service";
 
-/** Who may have authored code this machine runs: the operator alone, or overseer seats too. */
-export const CodeAllowanceScope = Schema.Literals(["operator", "operator-and-overseers"]);
-export type CodeAllowanceScope = typeof CodeAllowanceScope.Type;
+export { CodeAllowanceScope, DEFAULT_CODE_ALLOWANCE_SCOPE };
 
-/** The operator's decision (05): allowed means operator and overseers unless narrowed. */
-export const DEFAULT_CODE_ALLOWANCE_SCOPE: CodeAllowanceScope = "operator-and-overseers";
-
-const Name = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
+const InstallationName = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)));
 
 export const CodeAllowance = Schema.Struct({
   scope: CodeAllowanceScope,
   /** The installations whose rulings this machine runs code from, for this canvas. */
-  installations: Schema.Array(Name).pipe(Schema.check(Schema.isMinLength(1))),
+  installations: Schema.Array(InstallationName).pipe(Schema.check(Schema.isMinLength(1))),
 });
 export type CodeAllowance = typeof CodeAllowance.Type;
-
-const CodeAllowanceFile = Schema.Struct({
-  version: Schema.Literal(1),
-  canvases: Schema.Record(Name, CodeAllowance),
-});
-type CodeAllowanceFile = typeof CodeAllowanceFile.Type;
-
-const decodeFile = Schema.decodeUnknownSync(CodeAllowanceFile, { onExcessProperty: "error" });
-
-export const codeAllowancePath = (home: string): string => join(home, "machine-code-allowance.json");
 
 /** Who authored the code a step runs: the actor of the ruling that last set its code ref. */
 export type CodeAuthor = "operator" | "overseer";
@@ -55,45 +42,80 @@ export const allowanceRefusal = (
   return undefined;
 };
 
-/**
- * Every canvas this machine allows. A missing file allows none. A file that
- * does not decode allows none as well: an unreadable allowance never runs code.
- */
-export const readCodeAllowances = async (home: string): Promise<Readonly<Record<string, CodeAllowance>>> => {
-  let text: string;
-  try {
-    text = await readFile(codeAllowancePath(home), "utf8");
-  } catch {
-    return {};
-  }
-  try {
-    return decodeFile(JSON.parse(text)).canvases;
-  } catch {
-    return {};
-  }
-};
+export class CodeAllowancePersistenceError extends Schema.TaggedError<CodeAllowancePersistenceError>()(
+  "CodeAllowancePersistenceError",
+  {
+    operation: Schema.String,
+    message: Schema.String,
+    cause: Schema.Unknown,
+  },
+) {}
 
-export const readCodeAllowance = async (home: string, canvasName: string): Promise<CodeAllowance | undefined> => {
-  const canvases = await readCodeAllowances(home);
-  return Object.hasOwn(canvases, canvasName) ? canvases[canvasName] : undefined;
-};
+const persistence = (operation: string) => (cause: unknown) =>
+  new CodeAllowancePersistenceError({ operation, message: `The code allowance could not be ${operation === "write" ? "written" : "read"}`, cause });
 
-/** Allow (with an allowance) or deny (undefined) one canvas; written owner-only, replaced whole. */
-export const writeCodeAllowance = async (
-  home: string,
-  canvasName: string,
-  allowance: CodeAllowance | undefined,
-): Promise<Readonly<Record<string, CodeAllowance>>> => {
-  // Entries, not assignment: a canvas named __proto__ is a name, never the prototype.
-  const kept = Object.entries(await readCodeAllowances(home)).filter(([name]) => name !== canvasName);
-  const canvases: Readonly<Record<string, CodeAllowance>> =
-    Object.fromEntries(allowance === undefined ? kept : [...kept, [canvasName, allowance]]);
-  const file: CodeAllowanceFile = { version: 1, canvases };
-  await mkdir(home, { recursive: true, mode: 0o700 });
-  const path = codeAllowancePath(home);
-  const next = `${path}.${process.pid}.tmp`;
-  await writeFile(next, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-  await chmod(next, 0o600);
-  await rename(next, path);
-  return canvases;
-};
+type AllowanceRow = { readonly canvas_name: string; readonly scope: string };
+type InstallationRow = { readonly canvas_name: string; readonly installation_id: string };
+
+const decodeScope = Schema.decodeUnknownSync(CodeAllowanceScope);
+
+export class CodeAllowanceRepository extends Context.Service<
+  CodeAllowanceRepository,
+  {
+    /** One canvas's allowance, or undefined when this machine runs no code for it. */
+    readonly read: (canvasName: string) => Effect.Effect<CodeAllowance | undefined, CodeAllowancePersistenceError>;
+    /** Every canvas this machine allows, by name. */
+    readonly list: () => Effect.Effect<ReadonlyMap<string, CodeAllowance>, CodeAllowancePersistenceError>;
+    /** Allow (replacing the installation list whole) or deny one canvas, in one transaction. */
+    readonly write: (canvasName: string, allowance: CodeAllowance | undefined) => Effect.Effect<void, CodeAllowancePersistenceError>;
+  }
+>()("@junto/CodeAllowanceRepository") {}
+
+export const CodeAllowanceRepositoryLive: Layer.Layer<CodeAllowanceRepository, never, SqlClient.SqlClient> = Layer.effect(
+  CodeAllowanceRepository,
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    const fold = (rows: ReadonlyArray<AllowanceRow>, installations: ReadonlyArray<InstallationRow>): Map<string, CodeAllowance> => {
+      const out = new Map<string, CodeAllowance>();
+      for (const row of rows) {
+        const listed = installations.filter(item => item.canvas_name === row.canvas_name).map(item => item.installation_id);
+        // A row with no installation trusts no ruler, so it admits nothing: it is not an allowance.
+        if (listed.length === 0) continue;
+        out.set(row.canvas_name, { scope: decodeScope(row.scope), installations: listed });
+      }
+      return out;
+    };
+
+    const read = Effect.fn("codeAllowance.read")(function* (canvasName: string) {
+      const rows = yield* sql<AllowanceRow>`
+        SELECT canvas_name, scope FROM machine_code_allowances WHERE canvas_name = ${canvasName}`;
+      const installations = yield* sql<InstallationRow>`
+        SELECT canvas_name, installation_id FROM machine_code_allowance_installations
+        WHERE canvas_name = ${canvasName} ORDER BY installation_id`;
+      return fold(rows, installations).get(canvasName);
+    }, Effect.mapError(persistence("read")));
+
+    const list = Effect.fn("codeAllowance.list")(function* () {
+      const rows = yield* sql<AllowanceRow>`
+        SELECT canvas_name, scope FROM machine_code_allowances ORDER BY canvas_name`;
+      const installations = yield* sql<InstallationRow>`
+        SELECT canvas_name, installation_id FROM machine_code_allowance_installations
+        ORDER BY canvas_name, installation_id`;
+      return fold(rows, installations) as ReadonlyMap<string, CodeAllowance>;
+    }, Effect.mapError(persistence("read")));
+
+    const write = Effect.fn("codeAllowance.write")(function* (canvasName: string, allowance: CodeAllowance | undefined) {
+      yield* sql`DELETE FROM machine_code_allowances WHERE canvas_name = ${canvasName}`;
+      if (allowance === undefined) return;
+      yield* sql`INSERT INTO machine_code_allowances (canvas_name, scope) VALUES (${canvasName}, ${allowance.scope})`;
+      for (const installation of new Set(allowance.installations)) {
+        yield* sql`
+          INSERT INTO machine_code_allowance_installations (canvas_name, installation_id)
+          VALUES (${canvasName}, ${installation})`;
+      }
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "codeAllowance.write"), Effect.mapError(persistence("write")));
+
+    return CodeAllowanceRepository.of({ read, list, write });
+  }),
+);

@@ -8,6 +8,7 @@ import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchan
 import type { MachineLogRead, MachineLogsInput } from "./machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 import { EncodedFailure } from "./failure";
+import type { MachineCodeAllowInput, MachineCodeAllowed, MachineCodeCanvasInput, MachineCodeShowInput, MachineCodeShown } from "./machine-code";
 import { BoatAddInput, BoatConnectData, BoatDisconnectData, BoatMachineView, BoatStatusData } from "./boat";
 import { MachineInstallResult as InstallResult } from "./machine-install";
 
@@ -93,6 +94,7 @@ export const MachineOpName = Schema.Literals([
   "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
   "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
   "machine.wake", "machine.sleep",
+  "machine.code-allow", "machine.code-deny", "machine.code-show",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -117,6 +119,9 @@ export interface MachineArgsByOp {
   readonly "machine.boat-delete": MachineTargetInput;
   readonly "machine.wake": MachineTargetInput;
   readonly "machine.sleep": MachineTargetInput;
+  readonly "machine.code-allow": MachineCodeAllowInput;
+  readonly "machine.code-deny": MachineCodeCanvasInput;
+  readonly "machine.code-show": MachineCodeShowInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -140,4 +145,7 @@ export interface MachineDataByOp {
   readonly "machine.boat-delete": MachineRemoved;
   readonly "machine.wake": BoatMachineView;
   readonly "machine.sleep": BoatMachineView;
+  readonly "machine.code-allow": MachineCodeAllowed;
+  readonly "machine.code-deny": MachineCodeAllowed;
+  readonly "machine.code-show": MachineCodeShown;
 }

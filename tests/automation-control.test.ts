@@ -18,6 +18,7 @@ import {
   isAutomationWriteOp,
   reservedTriggerRefusal,
   resolveTargets,
+  type ActionInput,
   type AutomationDisposition,
   type AutomationWriteResult,
   type TargetResolver,
@@ -131,11 +132,18 @@ const resolver = (seen: Array<[string, TargetWant | "node", string]> = []): Targ
   },
 });
 
+/**
+ * What main resolves: the CLI stages each code step by file and sends it by
+ * source (K4), so no file step reaches resolveTargets.
+ */
+const asSent = <V extends { readonly then: ReadonlyArray<unknown> }>(value: V) =>
+  ({ ...value, then: value.then.filter((step): step is ActionInput => !(typeof step === "object" && step !== null && "file" in step)) });
+
 describe("resolveTargets", () => {
   it("resolves every target position by what it must name", () => {
     const value = ok(AutomationCreateCliArgs, draft);
     const seen: Array<[string, TargetWant | "node", string]> = [];
-    const out = resolveTargets(value, resolver(seen));
+    const out = resolveTargets(asSent(value), resolver(seen));
     expect(out.ok).toBe(true);
     expect(seen).toEqual([
       ["@cli-lead", "seat", "when[0].seat"],
@@ -170,7 +178,7 @@ describe("resolveTargets", () => {
       ...draft,
       then: [{ kind: "mail", to: "@nobody", text: "hi" }, { kind: "mail", to: "@nobody", text: "again" }],
     });
-    const out = resolveTargets(value, resolver());
+    const out = resolveTargets(asSent(value), resolver());
     expect(out).toEqual({
       ok: false,
       error: { type: "UnknownTarget", message: "no seat named nobody", details: { path: "then[0].to" } },
