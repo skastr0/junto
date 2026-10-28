@@ -553,7 +553,10 @@ export const finishDraft = (draft: AutomationDraft): FinishedDraft => {
 // ── Words ──────────────────────────────────────────────────────────────────
 
 /** How a target is named in a sentence: `@product-feed`, `#42 fix tabs`. */
-export type NameOf = (ref: TargetRef) => string;
+/** A task board or Artifacts node a watch covers whole: any task, or any artifact, in it. */
+export type NodeScope = { readonly node: NodeId };
+/** How a target, or a node a watch covers whole, is named in a sentence: `@product-feed`, `#42 fix tabs`, `Release`. */
+export type NameOf = (ref: TargetRef | NodeScope) => string;
 
 const becomesWords: Readonly<Record<SeatBecomes, string>> = {
   idle: "goes idle",
@@ -563,10 +566,10 @@ const becomesWords: Readonly<Record<SeatBecomes, string>> = {
 };
 
 const taskWords = (task: TaskTarget | undefined, nameOf: NameOf): string =>
-  task === undefined ? "a task" : "kind" in task ? nameOf(task) : "any task on its board";
+  task === undefined ? "a task" : "kind" in task ? nameOf(task) : `any task on ${nameOf(task)}`;
 
 const artifactWords = (artifact: ArtifactTarget | undefined, nameOf: NameOf): string =>
-  artifact === undefined ? "an artifact" : "kind" in artifact ? nameOf(artifact) : "any artifact in its node";
+  artifact === undefined ? "an artifact" : "kind" in artifact ? nameOf(artifact) : `any artifact in ${nameOf(artifact)}`;
 
 const signalWords: Readonly<Record<WatchedSignal, string>> = {
   escalate: "escalates",

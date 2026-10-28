@@ -173,12 +173,15 @@ const nodeValue = (node: NodeId): string => `node:${node}`;
 function ScopeSelect({
   label,
   one,
+  lostLabel,
   nodes,
   covered,
   onChange,
 }: {
   readonly label: string;
   readonly one: string;
+  /** The covered node once it is out of reach, in the kind's own words. */
+  readonly lostLabel: string;
   readonly nodes: ReadonlyArray<NodeChoice>;
   readonly covered: NodeId | undefined;
   readonly onChange: (node: NodeId | undefined) => void;
@@ -191,7 +194,7 @@ function ScopeSelect({
       value={covered === undefined ? ONE : nodeValue(covered)}
       options={[
         ...nodes.map((node) => ({ value: nodeValue(node.id), label: node.title })),
-        ...(lost ? [{ value: nodeValue(covered), label: "a node out of reach" }] : []),
+        ...(lost ? [{ value: nodeValue(covered), label: lostLabel }] : []),
         { value: ONE, label: one },
       ]}
       onChange={(value) => onChange(value === ONE ? undefined : (value.slice("node:".length) as NodeId))}
@@ -263,6 +266,7 @@ function WatchFields({
           <ScopeSelect
             label="Which tasks"
             one="one task"
+            lostLabel="a task board out of reach"
             nodes={pickers.boards}
             covered={watchedNode(watch.task)}
             onChange={(node) => onChange({ ...watch, task: node === undefined ? undefined : { node } })}
@@ -293,6 +297,7 @@ function WatchFields({
           <ScopeSelect
             label="Which artifacts"
             one="one artifact"
+            lostLabel="an Artifacts node out of reach"
             nodes={pickers.artifactNodes}
             covered={watchedNode(watch.artifact)}
             onChange={(node) => onChange({ ...watch, artifact: node === undefined ? undefined : { node } })}
@@ -310,7 +315,7 @@ function WatchFields({
           <Word>is</Word>
           <Select
             dense
-            aria-label="Event"
+            aria-label="Is"
             value={watch.event}
             options={ARTIFACT_EVENTS.map((event) => ({ value: event, label: ARTIFACT_EVENT_WORD[event] }))}
             onChange={(event) => onChange({ ...watch, event: event as typeof watch.event })}

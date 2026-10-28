@@ -102,6 +102,11 @@ describe("automation editor pickers", () => {
 
     await render({ ...draft, trigger: { kind: "change", on: { kind: "artifact", artifact: { node: asNodeId("shelf-1") }, event: "commented" } } });
     expect(host.querySelector('[aria-label="Which artifacts"]')?.textContent).toContain("Specs");
-    expect(host.querySelector('[aria-label="Event"]')?.textContent).toContain("commented on");
+    // The join is labelled as it reads: "is", never "Event".
+    expect(host.querySelector('[aria-label="Is"]')?.textContent).toContain("commented on");
+
+    // A node no longer in reach still shows, in its kind's words.
+    await render({ ...draft, trigger: { kind: "change", on: { kind: "artifact", artifact: { node: asNodeId("gone-1") }, event: "edited" } } });
+    expect(host.querySelector('[aria-label="Which artifacts"]')?.textContent).toContain("an Artifacts node out of reach");
   });
 });

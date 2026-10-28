@@ -31,7 +31,7 @@ const id = ItemId.make("01JAAAAAAAAAAAAAAAAAAAAAA1");
 const t1 = ItemId.make("01JTTTTTTTTTTTTTTTTTTTTTT1");
 const node = asNodeId("automations-1");
 const seat = (nodeId: string): TargetRef => ({ kind: "seat", nodeId: asNodeId(nodeId) });
-const nameOf: NameOf = (ref) => (ref.kind === "seat" ? `@${ref.nodeId}` : `#${ref.nodeId}`);
+const nameOf: NameOf = (ref) => (!("kind" in ref) ? ref.node : ref.kind === "seat" ? `@${ref.nodeId}` : `#${ref.nodeId}`);
 
 const blank = (): AutomationDraft => newDraft(id, node, { kind: "operator" }, "UTC");
 const apply = (draft: AutomationDraft, ...edits: ReadonlyArray<DraftEdit>): AutomationDraft =>
@@ -172,7 +172,14 @@ describe("automation words", () => {
       "when @agent-a needs you",
     );
     expect(triggerWords({ kind: "change", on: { kind: "task", task: { node: asNodeId("tasks-1") }, becomes: "in-review" } }, nameOf)).toBe(
-      "when any task on its board is in review",
+      "when any task on tasks-1 is in review",
+    );
+    // Two boards read apart: the summary names the node a watch covers.
+    expect(triggerWords({ kind: "change", on: { kind: "task", task: { node: asNodeId("tasks-2") }, becomes: "done" } }, nameOf)).toBe(
+      "when any task on tasks-2 is done",
+    );
+    expect(triggerWords({ kind: "change", on: { kind: "artifact", artifact: { node: asNodeId("shelf-1") }, event: "edited" } }, nameOf)).toBe(
+      "when any artifact in shelf-1 is edited",
     );
     expect(actionWords({ kind: "mail", to: seat("agent-a"), text: "x" }, nameOf)).toBe("mail @agent-a");
     expect(actionWords({ kind: "comment", on: { kind: "task", nodeId: asNodeId("tasks-1"), taskId: t1 }, text: "x" }, nameOf)).toBe(
