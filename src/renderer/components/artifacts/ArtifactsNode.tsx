@@ -655,10 +655,9 @@ function SelectedArtifact({
           waiting={pending.some((write) => write.op.op === "labels")}
           onChange={(next) => apply({ op: "labels", labels: [...next] }).then((ruling) => ruling.kind)}
           readRuled={async () => {
-            const [heads, writes] = await Promise.all([
-              artifactsSource().list(canvasName, artifact.nodeId),
-              artifactsSource().pending(canvasName, artifact.nodeId),
-            ]);
+            // Pending first: once it shows nothing waiting, the ruling landed before the list is read.
+            const writes = await artifactsSource().pending(canvasName, artifact.nodeId);
+            const heads = await artifactsSource().list(canvasName, artifact.nodeId);
             const head = heads.find((one) => one.artifact.artifactId === artifact.artifactId);
             return head === undefined
               ? undefined
