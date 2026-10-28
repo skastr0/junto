@@ -4,6 +4,7 @@ import { formatNodeRef } from "../src/shared/node-ref";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
+  referencedItem,
   type NodeRefNavigationError,
   type NavigationRead,
 } from "../src/renderer/lib/node-ref-navigation";
@@ -161,5 +162,14 @@ describe("renderer Junto node-reference navigation", () => {
 
     await expect(pending).resolves.toBeUndefined();
     expect(apply).not.toHaveBeenCalled();
+  });
+});
+
+describe("the item a node reference names", () => {
+  it("reads the task or artifact named with &item=, and nothing for a bare node", () => {
+    const itemId = "01M5ZG0D0928FFEDFJWH282A6F";
+    const ref = formatNodeRef({ canvasName: "factory", nodeId: "task-1", itemId: itemId as never });
+    expect(referencedItem({ ref, canvasName: "factory", nodeId: "task-1" })).toBe(itemId);
+    expect(referencedItem(event("factory", "task-1"))).toBeUndefined();
   });
 });

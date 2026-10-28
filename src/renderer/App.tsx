@@ -86,7 +86,11 @@ import { bootStep, nextCanvasBootAction } from "./lib/canvas-boot";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
+  referencedItem,
 } from "./lib/node-ref-navigation";
+import { openWorkDetail } from "./lib/work-detail-open";
+import { isResourceKind } from "@shared/region-reach";
+import type { NodeId } from "@shared/model";
 import { isOperatorTyping } from "./lib/focus-ownership";
 
 const setError = (error: unknown) =>
@@ -240,6 +244,12 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     heldForNavigation.delete(result.name);
     selectNode(event.nodeId);
     state$.focusNodeId.set(event.nodeId);
+    // A task or an artifact named with `&item=` opens inside its node.
+    const itemId = referencedItem(event);
+    const node = modelStore.canvasOf(result.name).nodes.get(event.nodeId as NodeId);
+    if (itemId !== undefined && node !== undefined && isResourceKind(node.kind)) {
+      openWorkDetail(event.nodeId, { itemId });
+    }
     state$.canvasLoading.set(false);
     state$.error.set("");
   },

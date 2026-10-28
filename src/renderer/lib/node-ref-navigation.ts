@@ -1,6 +1,7 @@
 import type { NodeRefOpenedEvent } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
+import type { ItemId } from "@shared/work-ids";
 
 export interface NavigationClock {
   readonly begin: () => number;
@@ -77,6 +78,12 @@ const decodeEvent = (event: NodeRefOpenedEvent): NodeRefOpenedEvent | undefined 
     canvasName: value.canvasName,
     nodeId: value.nodeId,
   };
+};
+
+/** The item a reference names inside its node (`&item=`), when it names one. */
+export const referencedItem = (event: NodeRefOpenedEvent): ItemId | undefined => {
+  const parsed = parseNodeRef(event.ref);
+  return parsed.ok ? parsed.value.itemId : undefined;
 };
 
 export const makeNodeRefNavigationCoordinator = (
