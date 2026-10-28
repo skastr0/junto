@@ -54,7 +54,7 @@ export const mentionItemsOf = (tasks: ReadonlyArray<TaskView>, artifacts: Readon
 };
 
 /** The artifacts of every Artifacts node on the canvas, re-read on any artifact change there. */
-const useCanvasArtifacts = (canvasName: string): ReadonlyArray<ArtifactHead> => {
+export const useCanvasArtifacts = (canvasName: string): ReadonlyArray<ArtifactHead> => {
   const canvas = useCanvas(canvasName);
   const nodeIds = useMemo(
     () => [...canvas.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id),

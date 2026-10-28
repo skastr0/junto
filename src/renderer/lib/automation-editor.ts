@@ -40,7 +40,7 @@ import {
   type Watch,
   type WatchedSignal,
 } from "@shared/automation";
-import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelsOf } from "@shared/artifact-labels";
+import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelOf, artifactLabelsMatch, artifactLabelsOf, type ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { TASK_STATES } from "@shared/task-model";
@@ -245,6 +245,26 @@ export const blankAction = (kind: ActionKind): ActionDraft => {
     default:
       return kind satisfies never;
   }
+};
+
+/**
+ * A watch's label that no artifact where it looks carries yet, said under
+ * the field: a typo there is a watch that never fires and looks fine. The
+ * labels it does find come after, to pick the meant one from. Nothing while
+ * the label matches, is empty, or breaks the rule (the save says that).
+ */
+export const labelNote = (
+  typed: string | undefined,
+  event: ArtifactEvent,
+  /** Where the watch looks: "Specs", or "the Artifacts nodes in reach". */
+  where: string,
+  used: ReadonlyArray<ArtifactLabel>,
+): string | undefined => {
+  const label = typed === undefined ? undefined : artifactLabelOf(typed);
+  if (label === undefined || artifactLabelsMatch(used, [label])) return undefined;
+  const after = event === "labelled" ? " It fires when one gains it." : "";
+  const known = used.length === 0 ? "" : ` Labels there: ${used.slice(0, 8).join(", ")}${used.length > 8 ? ", and more" : ""}.`;
+  return `No artifact in ${where} carries ${label} yet.${after}${known}`;
 };
 
 /** A new append starts as a dated section: the heading names when it fired. */

@@ -11,6 +11,7 @@ import { ArrowDown, ArrowUp, Code, Plus, X } from "lucide-react";
 import { automationValuesOf, type CodeLanguage } from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
+import type { ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import { automationTargets } from "@shared/region-reach";
 import {
@@ -29,6 +30,7 @@ import {
   draftProblems,
   editDraft,
   seatStateWord,
+  labelNote,
   taskStateWord,
   watchedNode,
   type ActionDraft,
@@ -45,7 +47,9 @@ import {
   type ArtifactTarget,
 } from "../../lib/automation-editor";
 import type { MentionCandidate, MentionTrigger } from "../../lib/mention-draft";
-import { useMentionItems } from "../../lib/mention-items";
+import { mentionItemsOf, useCanvasArtifacts } from "../../lib/mention-items";
+import { useCanvasTasks } from "../../lib/tasks-source";
+import { labelsInNode } from "../artifacts/artifacts-pane-model";
 import { useAutomationTargets } from "../../lib/mention-sources";
 import { useCanvas } from "../../lib/use-model";
 import { useTargetNames } from "../../lib/automation-names";
@@ -169,6 +173,7 @@ type Pickers = {
   readonly nameOf: NameOf;
   readonly boards: ReadonlyArray<NodeChoice>;
   readonly artifactNodes: ReadonlyArray<NodeChoice>;
+  readonly labelsOf: (node: NodeId) => ReadonlyArray<ArtifactLabel>;
 };
 
 /** A word of the sentence between its fields. Read in order with them, so it is not hidden from a screen reader. */
@@ -211,6 +216,18 @@ function ScopeSelect({
   );
 }
 
+/** Where an artifact watch looks for its label, in words, and the labels found there. */
+const artifactLabelNote = (watch: Extract<WatchDraft, { readonly kind: "artifact" }>, pickers: Pickers): string | undefined => {
+  const scope = watch.artifact;
+  const node = scope === undefined ? undefined : "kind" in scope ? scope.nodeId : scope.node;
+  if (node === undefined) {
+    const used = [...new Set(pickers.artifactNodes.flatMap((choice) => pickers.labelsOf(choice.id)))].sort();
+    return labelNote(watch.label, watch.event, "the Artifacts nodes in reach", used);
+  }
+  const title = pickers.artifactNodes.find((choice) => choice.id === node)?.title ?? "that node";
+  return labelNote(watch.label, watch.event, title, pickers.labelsOf(node));
+};
+
 /** An artifact watch with its label as typed; an empty one is no label. */
 const withLabel = (watch: Extract<WatchDraft, { readonly kind: "artifact" }>, label: string): WatchDraft => {
   const { label: _old, ...rest } = watch;
@@ -218,7 +235,18 @@ const withLabel = (watch: Extract<WatchDraft, { readonly kind: "artifact" }>, la
 };
 
 /** One label, typed. Folded and checked when the automation is saved, as the artifact header folds it. */
-function LabelField({ label, value, onChange }: { readonly label: string; readonly value: string | undefined; readonly onChange: (label: string) => void }) {
+function LabelField({
+  label,
+  value,
+  onChange,
+  describedBy,
+}: {
+  readonly label: string;
+  readonly value: string | undefined;
+  readonly onChange: (label: string) => void;
+  /** The note under the sentence, while it has one. */
+  readonly describedBy: string | undefined;
+}) {
   return (
     <Input
       dense
@@ -226,6 +254,7 @@ function LabelField({ label, value, onChange }: { readonly label: string; readon
       value={value ?? ""}
       spellCheck={false}
       aria-label={label}
+      aria-describedby={describedBy}
       placeholder="any label"
       onChange={(event) => onChange(event.target.value)}
     />
@@ -340,6 +369,9 @@ function WatchFields({
   const mode: WatchMode = conditionOnly ? "is" : "becomes";
   // Named apart from the action pickers' fields in a screen reader's list of controls.
   const stateLabel = mode === "becomes" ? "State it becomes" : "State it is in";
+  const baseId = useId();
+  const note = watch.kind === "artifact" ? artifactLabelNote(watch, pickers) : undefined;
+  const noteId = note === undefined ? undefined : `${baseId}-label-note`;
   /** A new task or artifact watch starts on the first node in reach, the common case, else on one item. */
   const blank = (kind: WatchDraft["kind"]): WatchDraft => {
     const watch = blankWatch(kind);
@@ -416,6 +448,7 @@ function WatchFields({
               <LabelField
                 label="Only with this label, optional"
                 value={watch.label}
+                describedBy={noteId}
                 onChange={(label) => onChange(withLabel(watch, label))}
               />
             </>
@@ -445,8 +478,18 @@ function WatchFields({
             onChange={(event) => onChange({ ...watch, event: event as typeof watch.event })}
           />
           {watch.event === "labelled" ? (
-            <LabelField label="The label it gains, or any" value={watch.label} onChange={(label) => onChange(withLabel(watch, label))} />
+            <LabelField
+              label="The label it gains, or any"
+              value={watch.label}
+              describedBy={noteId}
+              onChange={(label) => onChange(withLabel(watch, label))}
+            />
           ) : null}
+          {note === undefined ? null : (
+            <p id={noteId} className="automation-editor__note automation-editor__sentence-note">
+              {note}
+            </p>
+          )}
         </>
       ) : null}
       {watch.kind === "signal" ? (
@@ -868,7 +911,21 @@ export function AutomationEditor({
 }) {
   const canvas = useCanvas(canvasName);
   // Task boards and Artifacts nodes offer only the items handed to them: without these every #picker is empty.
-  const candidates = useAutomationTargets(canvasName, draft.nodeId, draft.author, useMentionItems(canvasName));
+  const tasks = useCanvasTasks(canvasName);
+  const heads = useCanvasArtifacts(canvasName);
+  const items = useMemo(() => mentionItemsOf(tasks, heads), [tasks, heads]);
+  const candidates = useAutomationTargets(canvasName, draft.nodeId, draft.author, items);
+  /** The labels the artifacts of one Artifacts node carry, for a watch's label note. */
+  const labelsOf = useMemo(() => {
+    const byNode = new Map<NodeId, ReadonlyArray<ArtifactLabel>>();
+    return (node: NodeId): ReadonlyArray<ArtifactLabel> => {
+      const known = byNode.get(node);
+      if (known !== undefined) return known;
+      const labels = labelsInNode(heads.filter((head) => head.artifact.nodeId === node && !head.artifact.archived));
+      byNode.set(node, labels);
+      return labels;
+    };
+  }, [heads]);
   const nameOf = useTargetNames(candidates, canvasName);
   const { boards, artifactNodes } = useMemo(() => {
     const inReach = automationTargets(canvas, draft.nodeId, draft.author);
@@ -876,7 +933,7 @@ export function AutomationEditor({
       inReach.filter((node) => node.kind === kind).map((node) => ({ id: node.id, title: titleOf(canvas.nodes.get(node.id)!) }));
     return { boards: choices("task"), artifactNodes: choices("artifacts") };
   }, [canvas, draft.nodeId, draft.author]);
-  const pickers: Pickers = { candidates, canvasName, nameOf, boards, artifactNodes };
+  const pickers: Pickers = { candidates, canvasName, nameOf, boards, artifactNodes, labelsOf };
   // Each text an action writes may name what fired it; the trigger decides the set.
   const values = useMemo(
     (): ReadonlyArray<ValueChoice> => automationValuesOf(draft.trigger).map((name) => ({ name, words: VALUE_WORDS[name] })),

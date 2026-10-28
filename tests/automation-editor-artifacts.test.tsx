@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ARTIFACT_LABEL_RULE } from "../src/shared/artifact-labels";
+import { ARTIFACT_LABEL_RULE, type ArtifactLabel } from "../src/shared/artifact-labels";
 import { asCanvasName } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
@@ -11,6 +11,7 @@ import {
   actionWords,
   draftProblems,
   editDraft,
+  labelNote,
   newDraft,
   triggerWords,
   type ActionDraft,
@@ -109,6 +110,17 @@ describe("artifact automations, the draft", () => {
     });
   });
 
+  it("a label no artifact carries is said under the field, with the labels that are there", () => {
+    const used = ["project/junto", "publish", "weekly"] as ReadonlyArray<ArtifactLabel>;
+    expect(labelNote("publsh", "edited", "Specs", used)).toBe("No artifact in Specs carries publsh yet. Labels there: project/junto, publish, weekly.");
+    expect(labelNote("draft", "labelled", "Specs", [])).toBe("No artifact in Specs carries draft yet. It fires when one gains it.");
+    // A match, a level above one, an empty field or a broken label says nothing here.
+    expect(labelNote("Publish", "edited", "Specs", used)).toBeUndefined();
+    expect(labelNote("project", "edited", "Specs", used)).toBeUndefined();
+    expect(labelNote("", "edited", "Specs", used)).toBeUndefined();
+    expect(labelNote("a//b", "edited", "Specs", used)).toBeUndefined();
+  });
+
   it("each artifact action says what it writes", () => {
     expect(actionWords({ kind: "create-artifact", node: shelf, title: "x" }, nameOf)).toBe("create an artifact in shelf-1");
     expect(actionWords({ kind: "append-artifact", to: { fired: true }, text: "x" }, nameOf)).toBe("append to the artifact that fired");
@@ -173,6 +185,13 @@ describe("artifact automations, the form", () => {
     expect(host.querySelector('[aria-label="Which artifact"]')?.textContent).toContain("one artifact");
     expect(host.querySelector('textarea[aria-label="Artifact to label"]')).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Labels to add"]')?.value).toBe("done");
+  });
+
+  it("a typed label nothing in the node carries is noted under the sentence and describes the field", async () => {
+    await render(draftWith(onArtifact("edited", "publsh"), [{ kind: "mail", to: seat, text: "x" }]));
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Only with this label, optional"]')!;
+    const note = document.getElementById(field.getAttribute("aria-describedby")!);
+    expect(note?.textContent).toBe("No artifact in Specs carries publsh yet.");
   });
 
   it("create-artifact lists the Artifacts nodes in reach by name", async () => {
