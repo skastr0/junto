@@ -198,8 +198,18 @@ export const TYPE_NOUN: { readonly [T in ArtifactType]: string } = {
 export const labelsOf = (artifact: Artifact): ReadonlyArray<string> => artifact.labels;
 
 /**
+ * The quieter line under a title: the type, then the labels the artifact
+ * carries, so a row the palette found by its label says why it is there. An
+ * artifact with no labels reads as it always did, the type alone. Commas
+ * only, and the row clips when a label or two run long.
+ */
+const artifactDetail = (artifact: Artifact): string =>
+  [TYPE_NOUN[artifact.type], ...labelsOf(artifact)].join(", ");
+
+/**
  * The Artifacts modal's quick open (0.11 F4): the title names a row, and the
- * type and the labels only help it be found, in the matcher's metadata tier.
+ * type and the labels help it be found, in the matcher's metadata tier; the
+ * labels also ride the row's quieter line, so a label hit is legible.
  *
  * The honest rule, as product-keyboard checked against `lib/fuzzy-match`: a
  * label never outranks a title that names the typed word, prefixes it or
@@ -213,7 +223,7 @@ export const artifactQuickOpen = (entries: ReadonlyArray<ArtifactHead>): QuickOp
     kind: "artifact",
     items: entries,
     itemOf: ({ artifact }) => ({
-      row: { id: artifact.artifactId, title: artifact.title, detail: TYPE_NOUN[artifact.type] },
+      row: { id: artifact.artifactId, title: artifact.title, detail: artifactDetail(artifact) },
       match: { identity: [artifact.title], metadata: [TYPE_NOUN[artifact.type], ...labelsOf(artifact)] },
     }),
   });

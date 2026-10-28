@@ -158,6 +158,13 @@ describe("artifact labels in the palette", () => {
     expect(rowsOf(artifactQuickOpen([bare]), "launch").map((row) => row.title)).toEqual(["Launch brief"]);
     expect(rowsOf(artifactQuickOpen([bare]), "release")).toEqual([]);
   });
+
+  it("names the labels on the row's quieter line, so a label hit says why it is there", () => {
+    const labelled = [head("Explanations", "document", ["planning", "project/junto"])];
+    expect(rowsOf(artifactQuickOpen(labelled), "plan")[0]?.detail).toBe("Document, planning, project/junto");
+    // With no labels the line is the type alone, as it has always read.
+    expect(rowsOf(artifactQuickOpen([head("Launch brief", "sheet")]), "launch")[0]?.detail).toBe("Sheet");
+  });
 });
 
 describe("the chord reaches the node in front", () => {

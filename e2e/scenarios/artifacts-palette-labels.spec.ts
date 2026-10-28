@@ -1,8 +1,10 @@
 /**
  * 0.11 artifact labels, T3, in the real app: Cmd+P in the Artifacts modal
- * ranks a label after the title, as metadata. Two labelled artifacts, one
- * found by its title and one by its label, the title hit first; a query that
- * only a label carries still finds it. Shots in both themes.
+ * ranks a label after the title, as metadata, and each row's quieter line
+ * names the labels it carries so a label hit is legible. Two labelled
+ * artifacts, one found by its title and one by its label, the title hit
+ * first; a query that only a label carries still finds it; an artifact with
+ * no labels keeps the type alone. Shots in both themes.
  *   scripts/with-app-run-lock.sh scripts/run-e2e.sh e2e/scenarios/artifacts-palette-labels.spec.ts
  */
 import { mkdirSync } from "node:fs";
@@ -49,6 +51,8 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
       );
     expect((await create("Launch plan", ["release"])).kind).toBe("applied");
     expect((await create("Explanations", ["planning"])).kind).toBe("applied");
+    // No labels: its row keeps the type alone on the quieter line.
+    expect((await create("Shelf notes", [])).kind).toBe("applied");
 
     await page.locator('.react-flow__node[data-id="shelf"]').dblclick();
     await expect(page.getByRole("list", { name: "Artifacts" })).toBeVisible({ timeout: 20_000 });
@@ -56,15 +60,18 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
     const palette = page.getByTestId("quick-open");
     const field = page.getByTestId("quick-open-input");
     const titles = palette.locator(".quick-open__row-title");
+    const details = palette.locator(".quick-open__row-detail");
 
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await page.keyboard.press("Meta+p");
     await expect(palette).toBeVisible();
     await expect(field).toBeFocused();
 
-    // "plan" is a word in one title and a label on the other: the title leads.
+    // "plan" is a word in one title and a label on the other: the title leads,
+    // and each row's quieter line says the labels it carries.
     await field.fill("plan");
     await expect(titles).toHaveText(["Launch plan", "Explanations"]);
+    await expect(details).toHaveText(["Document, release", "Document, planning"]);
     await expect(palette.locator('[data-active="true"]')).toContainText("Launch plan");
 
     mkdirSync(SHOTS, { recursive: true });
@@ -86,6 +93,12 @@ test("Cmd+P finds an artifact by its label and ranks it under the artifact whose
     await expect(palette).toBeVisible();
     await field.fill("release");
     await expect(titles).toHaveText(["Launch plan"]);
+    await expect(details).toHaveText(["Document, release"]);
+
+    // An artifact with no labels reads as it always did: the type alone.
+    await field.fill("shelf");
+    await expect(titles).toHaveText(["Shelf notes"]);
+    await expect(details).toHaveText(["Document"]);
   } finally {
     await junto.close();
   }
