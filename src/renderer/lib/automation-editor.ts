@@ -34,6 +34,7 @@ import {
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
 import { TASK_STATES } from "@shared/task-model";
+import { CONTRACT_CARRIES_VALUES, namesAValue, valuesOf, type AutomationValue } from "./automation-values";
 
 // ── Shapes the contract names ──────────────────────────────────────────────
 
@@ -62,6 +63,12 @@ export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
 export type ActionKind = Action["kind"];
+/**
+ * The action kinds the editor drafts: the contract's, plus `prompt`, which
+ * lands in the contract with A2 (automation-lead). Until then a prompt is
+ * refused in words, so it never reaches main as a definition main cannot read.
+ */
+export type ActionDraftKind = ActionKind | "prompt";
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -91,6 +98,8 @@ export type TriggerDraft =
 
 export type ActionDraft =
   | { readonly kind: "mail"; readonly to?: TargetRef; readonly text: string }
+  /** Mail sent as a prompt: the seat is asked to act, not only told. Seat only. */
+  | { readonly kind: "prompt"; readonly to?: TargetRef; readonly text: string }
   | { readonly kind: "create-task"; readonly node?: NodeId; readonly title: string; readonly assign?: TargetRef }
   | { readonly kind: "assign-task"; readonly task?: TargetRef; readonly to?: TargetRef }
   | {
@@ -162,9 +171,11 @@ export const blankTrigger = (kind: EditableTriggerKind, timezone: string = local
   }
 };
 
-export const blankAction = (kind: ActionKind): ActionDraft => {
+export const blankAction = (kind: ActionDraftKind): ActionDraft => {
   switch (kind) {
     case "mail":
+      return { kind, text: "" };
+    case "prompt":
       return { kind, text: "" };
     case "create-task":
       return { kind, title: "" };
@@ -246,9 +257,9 @@ export type DraftEdit =
   | { readonly type: "add-condition"; readonly kind: ConditionKind }
   | { readonly type: "condition"; readonly index: number; readonly condition: ConditionDraft }
   | { readonly type: "remove-condition"; readonly index: number }
-  | { readonly type: "add-action"; readonly kind: ActionKind }
+  | { readonly type: "add-action"; readonly kind: ActionDraftKind }
   | { readonly type: "action"; readonly index: number; readonly action: ActionDraft }
-  | { readonly type: "action-kind"; readonly index: number; readonly kind: ActionKind }
+  | { readonly type: "action-kind"; readonly index: number; readonly kind: ActionDraftKind }
   | { readonly type: "move-action"; readonly index: number; readonly step: -1 | 1 }
   | { readonly type: "remove-action"; readonly index: number }
   | { readonly type: "min-interval"; readonly minutes: string }
@@ -321,10 +332,12 @@ export const editDraft = (draft: AutomationDraft, edit: DraftEdit): AutomationDr
 };
 
 /** A changed action kind keeps the text typed so far, where the new kind has text. */
-const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
-  const text = old.kind === "mail" || old.kind === "comment" ? old.text : old.kind === "create-task" ? old.title : "";
+const carriedAction = (old: ActionDraft, kind: ActionDraftKind): ActionDraft => {
+  const text = old.kind === "mail" || old.kind === "prompt" || old.kind === "comment" ? old.text : old.kind === "create-task" ? old.title : "";
   switch (kind) {
     case "mail":
+      return { kind, text };
+    case "prompt":
       return { kind, text };
     case "comment":
       return { kind, text };
@@ -418,21 +431,33 @@ const triggerProblem = (trigger: TriggerDraft): string | undefined => {
   }
 };
 
+/**
+ * A value in the text, until the contract carries them: main would store the
+ * braces as typed and a firing would mail them. The refusal goes with the
+ * stand-in in `automation-values.ts`.
+ */
+const valueProblem = (text: string): string | undefined =>
+  !CONTRACT_CARRIES_VALUES && namesAValue(text) ? "Values are not available yet. Write the text plainly for now." : undefined;
+
 const actionProblem = (action: ActionDraft): string | undefined => {
   switch (action.kind) {
     case "mail":
       if (action.to === undefined) return "Pick who the mail goes to.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail");
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text);
+    case "prompt":
+      if (!CONTRACT_CARRIES_VALUES) return "Prompts are not available yet. Send mail for now.";
+      if (action.to === undefined) return "Pick the seat to prompt.";
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text);
     case "create-task":
       if (action.node === undefined) return "Pick the task board.";
-      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title");
+      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title);
     case "assign-task":
       if (action.task === undefined) return "Pick the task to assign.";
       if (action.to === undefined) return "Pick the seat to assign it to.";
       return undefined;
     case "comment":
       if (action.on === undefined) return "Pick what the comment is on.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment");
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text);
     default:
       return action satisfies never;
   }
@@ -483,6 +508,7 @@ const triggerOf = (trigger: TriggerDraft): unknown => {
 const actionOf = (action: ActionDraft): unknown => {
   switch (action.kind) {
     case "mail":
+    case "prompt":
     case "comment":
       return { ...action, text: action.text.trim() };
     case "create-task":
@@ -581,10 +607,60 @@ export const triggerWords = (trigger: TriggerDraft, nameOf: NameOf): string => {
   }
 };
 
+/**
+ * What a schedule or a poll means, in a sentence under its fields: "Runs
+ * weekdays 09:00, America/Sao_Paulo." Undefined while the fields do not make a
+ * schedule the contract would take, so the sentence never describes one thing
+ * while the save refuses another.
+ */
+export const cadenceWords = (trigger: TriggerDraft): string | undefined => {
+  switch (trigger.kind) {
+    case "schedule": {
+      const timezone = trigger.timezone.trim();
+      if (!isValidCronExpression(trigger.cron) || !isKnownTimezone(timezone)) return undefined;
+      return `${describeCronExpression(trigger.cron)}, ${timezone}`;
+    }
+    case "poll": {
+      const ms = minutesMs(trigger.everyMinutes);
+      if (ms === undefined || ms < POLL_MIN_EVERY_MS || ms > 7 * 24 * 60 * MINUTE_MS) return undefined;
+      return ms === MINUTE_MS ? "every minute" : `every ${ms / MINUTE_MS} minutes`;
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * The values an action's text may name, from the trigger it fires under: a
+ * change trigger carries what it watched, and every trigger `fired.at`.
+ */
+export const valuesForTrigger = (trigger: TriggerDraft): ReadonlyArray<AutomationValue> =>
+  valuesOf(trigger.kind === "change" ? trigger.on.kind : undefined);
+
+/** What each value is, in a few words, beside its name in the Insert value list. */
+export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
+  "task.title": "the task's title",
+  "task.state": "the state it became",
+  "task.link": "a link to it",
+  "task.assignee": "who it is assigned to",
+  "board.title": "the board's name",
+  "artifact.title": "the artifact's title",
+  "artifact.link": "a link to it",
+  "artifacts.title": "the Artifacts node's name",
+  "seat.name": "the seat's name",
+  "seat.state": "the state it became",
+  "signal.kind": "escalate, blocked or feedback",
+  "signal.from": "the seat that raised it",
+  "signal.text": "what it says",
+  "fired.at": "when it fired",
+};
+
 export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
   switch (action.kind) {
     case "mail":
       return `mail ${action.to ? nameOf(action.to) : "someone"}`;
+    case "prompt":
+      return `prompt ${action.to ? nameOf(action.to) : "a seat"}`;
     case "create-task":
       return `create a task${action.assign ? ` for ${nameOf(action.assign)}` : ""}`;
     case "assign-task":
@@ -596,8 +672,9 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
   }
 };
 
-export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
+export const ACTION_LABEL: Readonly<Record<ActionDraftKind, string>> = {
   mail: "Send mail",
+  prompt: "Prompt a seat",
   "create-task": "Create a task",
   "assign-task": "Assign a task",
   comment: "Comment",

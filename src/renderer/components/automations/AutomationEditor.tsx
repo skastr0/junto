@@ -21,15 +21,18 @@ import {
   SIGNALS,
   TASK_BECOMES,
   TRIGGER_LABEL,
+  VALUE_WORDS,
   WATCH_LABEL,
   blankWatch,
+  cadenceWords,
   draftProblems,
   editDraft,
   seatStateWord,
   taskStateWord,
+  valuesForTrigger,
   watchedNode,
   type ActionDraft,
-  type ActionKind,
+  type ActionDraftKind,
   type AutomationDraft,
   type ConditionDraft,
   type DraftEdit,
@@ -47,6 +50,7 @@ import { useCanvas } from "../../lib/use-model";
 import { useTargetNames } from "../../lib/automation-names";
 import { Button, FieldLabel, IconButton, Input, Select, Switch } from "../ui";
 import { MentionCombobox } from "../ui/MentionCombobox";
+import { ActionText, type ValueChoice } from "./ActionText";
 
 type TargetKind = MentionRef["kind"];
 
@@ -337,49 +341,82 @@ function WatchFields({
   );
 }
 
+/**
+ * A schedule in two fields, and under them the one sentence they mean: the
+ * cron is precise, the sentence is what the operator reads back to check it.
+ */
+function ScheduleFields({
+  trigger,
+  onChange,
+}: {
+  readonly trigger: Extract<TriggerDraft, { readonly kind: "schedule" }>;
+  readonly onChange: (trigger: TriggerDraft) => void;
+}) {
+  const cadence = cadenceWords(trigger);
+  return (
+    <>
+      <div className="automation-editor__row">
+        <FieldLabel>
+          Five-field schedule
+          <Input
+            dense
+            value={trigger.cron}
+            spellCheck={false}
+            aria-label="Five-field schedule"
+            placeholder="0 9 * * 1-5"
+            onChange={(event) => onChange({ ...trigger, cron: event.target.value })}
+          />
+        </FieldLabel>
+        <FieldLabel>
+          Timezone
+          <Input
+            dense
+            value={trigger.timezone}
+            spellCheck={false}
+            aria-label="Timezone"
+            onChange={(event) => onChange({ ...trigger, timezone: event.target.value })}
+          />
+        </FieldLabel>
+      </div>
+      {cadence === undefined ? null : <p className="automation-editor__note">Runs {cadence}.</p>}
+    </>
+  );
+}
+
+/** A poll as one plain number, and the sentence it means under it. */
+function PollFields({
+  trigger,
+  onChange,
+}: {
+  readonly trigger: Extract<TriggerDraft, { readonly kind: "poll" }>;
+  readonly onChange: (trigger: TriggerDraft) => void;
+}) {
+  const cadence = cadenceWords(trigger);
+  return (
+    <>
+      <div className="automation-editor__row">
+        <FieldLabel>
+          Minutes between runs
+          <Input
+            dense
+            inputMode="numeric"
+            value={trigger.everyMinutes}
+            aria-label="Minutes between runs"
+            onChange={(event) => onChange({ ...trigger, everyMinutes: event.target.value })}
+          />
+        </FieldLabel>
+      </div>
+      {cadence === undefined ? null : <p className="automation-editor__note">Runs {cadence}.</p>}
+    </>
+  );
+}
+
 function TriggerFields({ trigger, onChange, pickers }: { readonly trigger: TriggerDraft; readonly onChange: (trigger: TriggerDraft) => void; readonly pickers: Pickers }) {
   switch (trigger.kind) {
     case "schedule":
-      return (
-        <div className="automation-editor__row">
-          <FieldLabel>
-            Cron
-            <Input
-              dense
-              value={trigger.cron}
-              spellCheck={false}
-              aria-label="Cron schedule"
-              placeholder="0 9 * * 1-5"
-              onChange={(event) => onChange({ ...trigger, cron: event.target.value })}
-            />
-          </FieldLabel>
-          <FieldLabel>
-            Timezone
-            <Input
-              dense
-              value={trigger.timezone}
-              spellCheck={false}
-              aria-label="Timezone"
-              onChange={(event) => onChange({ ...trigger, timezone: event.target.value })}
-            />
-          </FieldLabel>
-        </div>
-      );
+      return <ScheduleFields trigger={trigger} onChange={onChange} />;
     case "poll":
-      return (
-        <div className="automation-editor__row">
-          <FieldLabel>
-            Every, in minutes
-            <Input
-              dense
-              inputMode="numeric"
-              value={trigger.everyMinutes}
-              aria-label="Poll every, in minutes"
-              onChange={(event) => onChange({ ...trigger, everyMinutes: event.target.value })}
-            />
-          </FieldLabel>
-        </div>
-      );
+      return <PollFields trigger={trigger} onChange={onChange} />;
     case "change":
       return <WatchFields watch={trigger.on} pickers={pickers} onChange={(on) => onChange({ ...trigger, on })} />;
     case "webhook":
@@ -389,7 +426,18 @@ function TriggerFields({ trigger, onChange, pickers }: { readonly trigger: Trigg
   }
 }
 
-function ActionFields({ action, onChange, pickers }: { readonly action: ActionDraft; readonly onChange: (action: ActionDraft) => void; readonly pickers: Pickers }) {
+function ActionFields({
+  action,
+  onChange,
+  pickers,
+  values,
+}: {
+  readonly action: ActionDraft;
+  readonly onChange: (action: ActionDraft) => void;
+  readonly pickers: Pickers;
+  /** The values this automation's trigger carries, for the Insert value list. */
+  readonly values: ReadonlyArray<ValueChoice>;
+}) {
   switch (action.kind) {
     case "mail":
       return (
@@ -402,7 +450,33 @@ function ActionFields({ action, onChange, pickers }: { readonly action: ActionDr
             value={action.to?.kind === "seat" ? action.to : undefined}
             onChange={(to) => onChange({ ...action, to })}
           />
-          <Input dense value={action.text} aria-label="Mail text" placeholder="What the mail says" onChange={(event) => onChange({ ...action, text: event.target.value })} />
+          <ActionText
+            label="Mail text"
+            value={action.text}
+            placeholder="What the mail says"
+            values={values}
+            onValue={(text) => onChange({ ...action, text })}
+          />
+        </>
+      );
+    case "prompt":
+      return (
+        <>
+          <TargetPicker
+            {...pickers}
+            kinds={["seat"]}
+            label="Prompt to"
+            placeholder="@seat"
+            value={action.to?.kind === "seat" ? action.to : undefined}
+            onChange={(to) => onChange({ ...action, to })}
+          />
+          <ActionText
+            label="Prompt text"
+            value={action.text}
+            placeholder="What to ask the seat to do"
+            values={values}
+            onValue={(text) => onChange({ ...action, text })}
+          />
         </>
       );
     case "create-task":
@@ -415,7 +489,14 @@ function ActionFields({ action, onChange, pickers }: { readonly action: ActionDr
             options={pickers.boards.map((board) => ({ value: board.id, label: board.title }))}
             onChange={(node) => onChange({ ...action, node: node as NodeId })}
           />
-          <Input dense value={action.title} aria-label="Task title" placeholder="Task title" onChange={(event) => onChange({ ...action, title: event.target.value })} />
+          <ActionText
+            label="Task title"
+            multiline={false}
+            value={action.title}
+            placeholder="Task title"
+            values={values}
+            onValue={(title) => onChange({ ...action, title })}
+          />
           <TargetPicker
             {...pickers}
             kinds={["seat"]}
@@ -461,7 +542,13 @@ function ActionFields({ action, onChange, pickers }: { readonly action: ActionDr
             value={action.on}
             onChange={(on) => onChange({ ...action, on })}
           />
-          <Input dense value={action.text} aria-label="Comment text" placeholder="What the comment says" onChange={(event) => onChange({ ...action, text: event.target.value })} />
+          <ActionText
+            label="Comment text"
+            value={action.text}
+            placeholder="What the comment says"
+            values={values}
+            onValue={(text) => onChange({ ...action, text })}
+          />
         </>
       );
     default:
@@ -469,7 +556,7 @@ function ActionFields({ action, onChange, pickers }: { readonly action: ActionDr
   }
 }
 
-const ACTION_KINDS = Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>;
+const ACTION_KINDS = Object.keys(ACTION_LABEL) as ReadonlyArray<ActionDraftKind>;
 const TRIGGER_KINDS = Object.keys(TRIGGER_LABEL) as ReadonlyArray<EditableTriggerKind>;
 
 export function AutomationEditor({
@@ -512,6 +599,11 @@ export function AutomationEditor({
     return { boards: choices("task"), artifactNodes: choices("artifacts") };
   }, [canvas, draft.nodeId, draft.author]);
   const pickers: Pickers = { candidates, canvasName, nameOf, boards, artifactNodes };
+  // Each text an action writes may name what fired it; the trigger decides the set.
+  const values = useMemo(
+    (): ReadonlyArray<ValueChoice> => valuesForTrigger(draft.trigger).map((name) => ({ name, words: VALUE_WORDS[name] })),
+    [draft.trigger],
+  );
   // Problems show once a save was tried on this automation, not while it is being written.
   const [triedOn, setTriedOn] = useState<string>();
   const tried = triedOn === draft.automationId;
@@ -625,9 +717,14 @@ export function AutomationEditor({
                   aria-label={`Action ${index + 1}`}
                   value={action.kind}
                   options={ACTION_KINDS.map((kind) => ({ value: kind, label: ACTION_LABEL[kind] }))}
-                  onChange={(kind) => edit({ type: "action-kind", index, kind: kind as ActionKind })}
+                  onChange={(kind) => edit({ type: "action-kind", index, kind: kind as ActionDraftKind })}
                 />
-                <ActionFields action={action} pickers={pickers} onChange={(next) => edit({ type: "action", index, action: next })} />
+                <ActionFields
+                  action={action}
+                  pickers={pickers}
+                  values={values}
+                  onChange={(next) => edit({ type: "action", index, action: next })}
+                />
               </div>
               <span className="automation-editor__tools">
                 <IconButton size="sm" aria-label={`Move action ${index + 1} up`} disabled={index === 0} onClick={() => edit({ type: "move-action", index, step: -1 })}>
