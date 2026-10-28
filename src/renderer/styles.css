@@ -205,7 +205,8 @@ html[data-junto-platform="darwin"] .focus-surface__aside {
   min-height: 0;
   max-height: min(86vh, 720px);
 }
-.focus-surface__panel--document[data-height="resizable"] {
+/* Any measure the operator may resize (a document, the Image modal's workspace). */
+.focus-surface__panel[data-height="resizable"] {
   resize: both;
   overflow: auto;
 }
@@ -1952,7 +1953,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
 .signal-emit-button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Resize handle affordance: subtle diagonal-lines glyph in the bottom-right corner */
-.focus-surface__panel--document[data-height="resizable"]::after {
+.focus-surface__panel[data-height="resizable"]::after {
   content: "";
   position: absolute;
   bottom: 4px;
@@ -1978,7 +1979,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   transition: opacity 0.18s ease;
 }
 
-.focus-surface__panel--document[data-height="resizable"]:hover::after {
+.focus-surface__panel[data-height="resizable"]:hover::after {
   opacity: 0.55;
 }
 
