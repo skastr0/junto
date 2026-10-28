@@ -146,6 +146,11 @@ play or pause. Private content follows the seats that need it:
   to, including mail for their seats and the receipts or answers relevant to
   their seats' work. Notes stay on the editing machine. A browser page goes
   elsewhere only as a stub, with nothing to drive and no wire to it.
+- Each live automation's place (its Automations node, its id and the machine
+  that runs it) goes to every machine holding the canvas, so the ruling
+  machine can judge an automation's rows by the copy it sent. A machine with
+  an automation and no seat holds the canvas, and receives nothing that
+  follows seats.
 
 Copy selection must enumerate fields and tables. Adding a field does not
 silently make it public. A field crosses only because a rule above names
