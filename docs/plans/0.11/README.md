@@ -193,7 +193,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | label colours C1 to C4 | product-shell, product-sheet, product-typography, cli-lead | started; see 03-artifact-labels.md Colours |
 | view state survives a restart V1 to V3 | product-feed, product-modals, product-shell | started; see 04-view-state.md; V2 renderer half a814caf86 + af56e79f0 + 2cbe76098 + 453dba647 on a stand-in, approved by product-shell and product-keyboard; V1 landed (b4759287e, 9d37e490a, 3266787ed, step 55), review product-shell and tech-lead; V2 restart proof passes (be5533c0b, clean HEAD and real tree); V3 Artifacts and Tasks restart proof passes (2b64d7ae0); product-verify walking the whole inventory |
 | automations that know what fired them A1 to A4 | product-automations, automation-lead, product-cron, cli-lead | A1 to A3 verified dark and bright at 91b01dd8d (automations-a1-verify.spec.ts); A4 CLI in review; code steps K1 landed 91b01dd8d, K2 to K5 building; S1 landed e03c13b9f; see 05-automations.md |
-| fleet state: one authority, with fallbacks | remote-lead, tech-lead, canvas-lead | direction approved by the operator; design in progress, see 06-fleet-state.md |
+| fleet state: one authority, with fallbacks | remote-lead, tech-lead, canvas-lead | design complete (83aaa3e07, 192c67774, 885ccb6cd, 70ce280cd); building in order F0 remote-core, F6 and F2 remote-work, F1 tech-lead, F3 remote-cut, F5 remote-window with cli-lead, F4 canvas-lead; remote-verify on real machines; see 06-fleet-state.md |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
 
 ## Carried to 0.12
