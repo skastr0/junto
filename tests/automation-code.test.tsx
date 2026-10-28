@@ -161,6 +161,50 @@ describe("a code step in the Automations node", () => {
     expect(editor().state.doc.toString()).toBe(CODE_TEMPLATE);
   });
 
+  it("asks before Back drops code that was typed, and keeps the view on cancel", async () => {
+    await opened();
+    await click("Edit code");
+    await replaceCode("const answer = 3;\n");
+    await click("Back");
+    const dialog = document.body.querySelector("[role='alertdialog']")!;
+    expect(dialog.textContent).toContain("Discard this code?");
+    await act(async () => [...dialog.querySelectorAll("button")].find((element) => element.textContent?.trim() === "Cancel")!.click());
+    await flush();
+    expect(editor().state.doc.toString()).toBe("const answer = 3;\n");
+  });
+
+  it("stops a code save in words when another step is unfinished", async () => {
+    await opened();
+    // A second action, a mail with nobody to send to, is unfinished in the definition view.
+    await act(async () => button("Action").click());
+    await flush();
+    await click("Edit code");
+    await replaceCode("const answer = 4;\n");
+    await click("Save");
+    expect(document.body.textContent).toContain("The automation has one thing to fix before it saves. Back shows it.");
+    // Nothing was put: the stored program is still the one it opened on.
+    const step = (await saved()).then[0]!;
+    if (step.kind !== "code") throw new Error("not a code step");
+    expect(stored.get(step.source.sha256)).toBe("const answer = 1;\n");
+  });
+
+  it("opens a shell step on a shell template", async () => {
+    await opened([{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Plan." }]);
+    await act(async () => button("Send mail").click());
+    await flush();
+    const runCode = [...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("Run code"));
+    await act(async () => (runCode as HTMLElement).click());
+    await flush();
+    // The language reads through the same select the definition shows.
+    await act(async () => button("TypeScript").click());
+    await flush();
+    const shell = [...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("Shell"));
+    await act(async () => (shell as HTMLElement).click());
+    await flush();
+    await click("Write code");
+    expect(editor().state.doc.toString()).toContain("cat > /dev/null");
+  });
+
   it("shows the step's last result, with its values and its error tail", async () => {
     await opened();
     const at = 1_700_000_000_000;

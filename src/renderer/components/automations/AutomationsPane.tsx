@@ -35,6 +35,7 @@ import {
   codeRulingWords,
   codeTimeoutMs,
   draftOf,
+  draftProblems,
   editDraft,
   finishDraft,
   firingWords,
@@ -66,7 +67,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { itemsQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 import { AutomationEditor } from "./AutomationEditor";
-import { AutomationCodeEditor, CODE_TEMPLATE } from "./AutomationCodeEditor";
+import { AutomationCodeEditor, codeTemplate } from "./AutomationCodeEditor";
 import { useTargetNames } from "../../lib/automation-names";
 import "./automations.css";
 
@@ -169,80 +170,71 @@ function FiringHistory({
   );
 }
 
-/** The newest ruling of the step at `index`, from the firings newest first. */
+/** The newest code ruling of the step at `index`, from the firings newest first. */
 const lastRulingOf = (index: number, firings: ReadonlyArray<Firing>): ActionRuling | undefined => {
   for (const firing of historyOrder(firings)) {
     if (firing.outcome.kind !== "fired") continue;
     const ruling = firing.outcome.actions.find((action) => action.index === index);
-    if (ruling !== undefined) return ruling;
+    // Only a code step's own ruling says anything about its code; another kind's at that index does not.
+    if (ruling !== undefined && codeRulingWords(ruling) !== undefined) return ruling;
   }
   return undefined;
 };
 
+/** The code view's buffer lives in the pane, so leaving the view does not drop what was typed. */
+type CodeHeld = {
+  readonly index: number;
+  readonly text: string;
+  readonly loaded: string;
+  readonly loading: boolean;
+  readonly error?: string;
+};
+
 /**
- * One code step, opened from the Then section. It reads the stored program
- * (a step never written opens on the template), and Save hands the text back
- * to the pane, which puts it and saves the automation naming the new ref.
+ * One code step, opened from the Then section. The pane reads the stored
+ * program (a step never written opens on its language's template) and keeps
+ * the buffer; Save hands the text back to the pane, which puts it and saves
+ * the automation naming the new ref.
  */
 function CodeStepEditor({
-  canvasName,
   name,
-  action,
-  index,
+  language,
+  timeoutSeconds,
+  held,
   result,
   saving,
   error,
+  onCode,
   onSave,
+  onRevert,
   onBack,
 }: {
-  readonly canvasName: string;
   readonly name: string;
-  readonly action: Extract<ActionDraft, { readonly kind: "code" }>;
-  readonly index: number;
+  readonly language: Extract<ActionDraft, { readonly kind: "code" }>["language"];
+  readonly timeoutSeconds: string;
+  readonly held: CodeHeld;
   readonly result: ActionRuling | undefined;
   readonly saving: boolean;
   readonly error: string | undefined;
-  readonly onSave: (text: string, index: number) => void;
+  readonly onCode: (text: string) => void;
+  readonly onSave: () => void;
+  readonly onRevert: () => void;
   readonly onBack: () => void;
 }) {
-  const [held, setHeld] = useState<{ readonly text: string; readonly loaded: string; readonly loading: boolean; readonly error?: string }>({
-    text: "",
-    loaded: "",
-    loading: true,
-  });
-  useEffect(() => {
-    let live = true;
-    const source = action.source;
-    const read =
-      source === undefined
-        ? Promise.resolve({ kind: "read" as const, text: CODE_TEMPLATE })
-        : automationsSource().codeRead(canvasName, source);
-    void read.then((result) => {
-      if (!live) return;
-      setHeld(
-        result.kind === "refused"
-          ? { text: "", loaded: "", loading: false, error: result.refusal.message }
-          : { text: result.text, loaded: result.text, loading: false },
-      );
-    });
-    return () => {
-      live = false;
-    };
-  }, [canvasName, action.source]);
   return (
     <AutomationCodeEditor
       name={name}
-      language={action.language}
-      timeoutMs={codeTimeoutMs(action.timeoutSeconds)}
+      language={language}
+      timeoutMs={codeTimeoutMs(timeoutSeconds)}
       code={held.text}
       loading={held.loading}
       saving={saving}
       dirty={held.text !== held.loaded}
       error={error ?? held.error}
       result={result}
-      onCode={(text) => setHeld((prior) => ({ ...prior, text }))}
-      onSave={() => onSave(held.text, index)}
-      onRevert={() => setHeld((prior) => ({ ...prior, text: prior.loaded }))}
+      onCode={onCode}
+      onSave={onSave}
+      onRevert={onRevert}
       onBack={onBack}
     />
   );
@@ -314,8 +306,13 @@ export function AutomationsPane({
   // The automation open outlives the pane and a quit, per node; a new one not yet saved is not kept.
   const kept = useAutomationsNodeView(canvasName, nodeId);
   const [codeStep, setCodeStep] = useState<number | undefined>(undefined);
+  const [codeHeld, setCodeHeld] = useState<CodeHeld | undefined>(undefined);
+  /** What kept the code from saving, in words: it shows in the code view, where the definition's problems cannot. */
+  const [codeError, setCodeError] = useState<string | undefined>(undefined);
+  const [codeAsking, setCodeAsking] = useState(false);
   const open = (next: Editing | undefined): void => {
     setRefusal(undefined);
+    setCodeError(undefined);
     // A save of the same automation keeps the code view; another one closes it.
     setCodeStep((prior) => (prior !== undefined && editing?.draft.automationId === next?.draft.automationId ? prior : undefined));
     setEditing(next);
@@ -396,14 +393,61 @@ export function AutomationsPane({
       open(editingOf(result.automation));
   };
 
+  const codeAction = codeStep === undefined ? undefined : editing?.draft.then[codeStep];
+  const codeLanguage = codeAction !== undefined && codeAction.kind === "code" ? codeAction.language : undefined;
+  const codeSource = codeAction !== undefined && codeAction.kind === "code" ? codeAction.source : undefined;
+  useEffect(() => {
+    if (codeStep === undefined || codeLanguage === undefined) {
+      setCodeHeld(undefined);
+      return;
+    }
+    let live = true;
+    const index = codeStep;
+    const source = codeSource;
+    const read =
+      source === undefined
+        ? Promise.resolve({ kind: "read" as const, text: codeTemplate(codeLanguage) })
+        : automationsSource().codeRead(canvasName, source);
+    void read.then((result) => {
+      if (!live) return;
+      setCodeHeld(
+        result.kind === "refused"
+          ? { index, text: "", loaded: "", loading: false, error: result.refusal.message }
+          : { index, text: result.text, loaded: result.text, loading: false },
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [canvasName, codeStep, codeLanguage, codeSource]);
+
+  /** Leaving the code view drops what was typed unless it is saved, as leaving a draft does. */
+  const leaveCode = (): void => {
+    if (codeHeld !== undefined && codeHeld.text !== codeHeld.loaded) setCodeAsking(true);
+    else setCodeStep(undefined);
+  };
+
   /**
    * A code step's Save: the text is put first, so the definition always names
-   * a program that exists, and the automation is saved with the new ref.
+   * a program that exists, and the automation is saved with the new ref. A
+   * problem anywhere else in the automation stops it here, in words, because
+   * the code view hides the fields that carry it.
    */
   const saveCode = async (text: string, index: number): Promise<void> => {
     if (!editing) return;
     const action = editing.draft.then[index];
     if (action === undefined || action.kind !== "code") return;
+    setCodeError(undefined);
+    // This step's own problem is the code it has not got yet; everything else belongs to the fields behind Back.
+    const elsewhere = draftProblems(editing.draft).filter((problem) => !(problem.at === "action" && problem.index === index));
+    if (elsewhere.length > 0) {
+      setCodeError(
+        elsewhere.length === 1
+          ? "The automation has one thing to fix before it saves. Back shows it."
+          : `The automation has ${elsewhere.length} things to fix before it saves. Back shows them.`,
+      );
+      return;
+    }
     setBusy(true);
     setRefusal(undefined);
     const put = await automationsSource()
@@ -603,15 +647,20 @@ export function AutomationsPane({
           {editing && codeStep !== undefined && editing.draft.then[codeStep]?.kind === "code" ? (
             <div className="automations-node__main automations-node__main--code">
               <CodeStepEditor
-                canvasName={canvasName}
                 name={editing.draft.name}
-                index={codeStep}
-                action={editing.draft.then[codeStep] as Extract<ActionDraft, { readonly kind: "code" }>}
+                language={(editing.draft.then[codeStep] as Extract<ActionDraft, { readonly kind: "code" }>).language}
+                timeoutSeconds={(editing.draft.then[codeStep] as Extract<ActionDraft, { readonly kind: "code" }>).timeoutSeconds}
+                held={codeHeld ?? { index: codeStep, text: "", loaded: "", loading: true }}
                 result={lastRulingOf(codeStep, firings)}
                 saving={busy}
-                error={refusal ? refusalWords(refusal) : undefined}
-                onSave={(text, index) => void saveCode(text, index)}
-                onBack={() => setCodeStep(undefined)}
+                error={codeError ?? (refusal ? refusalWords(refusal) : undefined)}
+                onCode={(text) => {
+                  setCodeError(undefined);
+                  setCodeHeld((prior) => (prior === undefined ? prior : { ...prior, text }));
+                }}
+                onSave={() => void saveCode(codeHeld?.text ?? "", codeStep)}
+                onRevert={() => setCodeHeld((prior) => (prior === undefined ? prior : { ...prior, text: prior.loaded }))}
+                onBack={leaveCode}
               />
             </div>
           ) : editing ? (
@@ -718,6 +767,21 @@ export function AutomationsPane({
             onConfirm={() => void archive()}
           >
             <p>It stops firing and leaves this list.</p>
+          </ConfirmDialog>
+        ) : null}
+        {codeAsking ? (
+          <ConfirmDialog
+            title="Discard this code?"
+            confirmLabel="Discard"
+            tone="danger"
+            onCancel={() => setCodeAsking(false)}
+            onConfirm={() => {
+              setCodeAsking(false);
+              setCodeHeld(undefined);
+              setCodeStep(undefined);
+            }}
+          >
+            <p>The code you wrote is not saved.</p>
           </ConfirmDialog>
         ) : null}
         {asking ? (

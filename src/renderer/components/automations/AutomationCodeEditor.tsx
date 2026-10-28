@@ -22,9 +22,22 @@ const { values } = input();
 cont({ at: values["fired.at"] ?? "" });
 `;
 
+/** A shell step's source: values on stdin, the exit code decides. */
+export const SHELL_TEMPLATE = `# The firing's values arrive as JSON on stdin.
+# Exit 0 continues the automation; anything else fails this step.
+cat > /dev/null
+exit 0
+`;
+
+/** A step never written opens on its language's shape. */
+export const codeTemplate = (language: CodeLanguage): string => (language === "typescript" ? CODE_TEMPLATE : SHELL_TEMPLATE);
+
 const languageWords = (language: CodeLanguage): string => (language === "typescript" ? "TypeScript" : "Shell");
 
 const secondsWords = (ms: number): string => (ms % 1000 === 0 ? `${ms / 1000} seconds` : `${(ms / 1000).toFixed(1)} seconds`);
+
+/** A value as it reads: a string as typed, anything else as JSON rather than [object Object]. */
+const valueWords = (value: unknown): string => (typeof value === "string" ? value : (JSON.stringify(value) ?? String(value)));
 
 function CodeResult({ ruling }: { readonly ruling: ActionRuling | undefined }) {
   const words = ruling === undefined ? undefined : codeRulingWords(ruling);
@@ -41,7 +54,7 @@ function CodeResult({ ruling }: { readonly ruling: ActionRuling | undefined }) {
           {output.map(([name, value]) => (
             <div key={name} className="automation-code__value">
               <dt>{`{{code.${name}}}`}</dt>
-              <dd>{String(value)}</dd>
+              <dd>{valueWords(value)}</dd>
             </div>
           ))}
         </dl>
