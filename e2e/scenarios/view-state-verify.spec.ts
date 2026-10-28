@@ -333,7 +333,10 @@ test("view state: every row of the inventory comes back after a full quit, and a
     await check("deleted node: a new node starts fresh", async () => {
       await expect(page.locator(".two-pane").first()).not.toHaveAttribute("data-sidebar", "collapsed");
       await expect(typeRadio(page, "All")).toHaveAttribute("aria-checked", "true");
-      await expect(page.locator(".two-pane").first()).not.toHaveAttribute("data-rail", "true");
+      // The comments rail is machine-wide (view-state.ts:202), so it is not checked here.
+      await expect(labelToggle(page, "planning")).not.toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator(".artifacts-archived-toggle")).not.toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator(".artifact-head__title")).not.toHaveValue("Old plan");
     });
     await shoot(page, "13-new-node-fresh");
     await closeModal(page, "Artifacts");
