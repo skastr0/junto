@@ -68,6 +68,7 @@ export type ArtifactEvent = ArtifactWatch["event"];
 /** The artifact an artifact action writes: one picked, or the one that fired. */
 export type ArtifactTarget = SharedArtifactTarget;
 type CommentAction = Extract<Action, { readonly kind: "comment" }>;
+type SignalAction = Extract<Action, { readonly kind: "signal" }>;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
 export type CommentTarget = CommentAction["on"];
 
@@ -159,6 +160,10 @@ export type ActionDraft =
       readonly title: string;
       readonly detail?: string;
       readonly show?: ReadonlyArray<TargetRef>;
+      /** What the operator answers in, kept as loaded. */
+      readonly form?: SignalAction["form"];
+      /** When work falls due and whether it is urgent; work only, kept as loaded. */
+      readonly work?: SignalAction["work"];
     }
   /** A seat started or stopped where it runs. Seat only; it writes no text. */
   | { readonly kind: "seat-control"; readonly seat?: TargetRef; readonly op: SeatControlOp }
@@ -770,6 +775,9 @@ const actionOf = (action: ActionDraft): unknown => {
         title: action.title.trim(),
         ...(detail === "" ? {} : { detail }),
         ...(show.length === 0 ? {} : { show }),
+        ...(action.form === undefined ? {} : { form: action.form }),
+        // Timing belongs to work: a notice drops it.
+        ...(action.work === undefined || action.signal !== "work" ? {} : { work: action.work }),
       };
     }
     case "label-artifact": {

@@ -12,6 +12,7 @@ import {
   actionWords,
   draftProblems,
   editDraft,
+  finishDraft,
   labelNote,
   newDraft,
   triggerWords,
@@ -137,6 +138,17 @@ describe("artifact automations, the draft", () => {
     expect(actionWords({ kind: "signal", signal: "work", title: "x" }, nameOf)).toBe("raise work for you");
     expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: " " }]))).toBe("Write the signal title.");
     expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: "Write 500 words" }]))).toBeUndefined();
+  });
+
+  it("a signal's form and work timing, made elsewhere, survive a save from the editor", () => {
+    const form = { kind: "artifact", node: shelf, title: "Morning pages", minWords: 500 } as const;
+    const work = { dueInMs: 3_600_000, urgent: true } as const;
+    const signal = { kind: "signal", signal: "work", title: "Write 500 words", form, work } as const;
+    const finished = finishDraft(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [signal]));
+    expect(finished.ok && finished.definition.then[0]).toEqual(signal);
+    // A notice carries no timing: turned into one, the work's timing goes and the form stays.
+    const notice = finishDraft(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ ...signal, signal: "notice" }]));
+    expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words", form });
   });
 
   it("each artifact action says what it writes", () => {
