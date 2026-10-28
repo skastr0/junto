@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { use$ } from "@legendapp/state/react";
 import { Archive, ArchiveRestore, History, Plus, Search } from "lucide-react";
 import {
   ARTIFACT_TYPES,
@@ -66,8 +65,7 @@ import {
 import { DocumentEditor, type DocumentMentions } from "./DocumentEditor";
 import "./artifacts.css";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
-import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
-import { sidebarSections$ } from "../../lib/sidebar-sections";
+import { commentsRailRef, setCommentsRailOpen, useCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { paneEntryOf } from "../../lib/pane-focus";
 import { useListNav } from "../../lib/list-nav";
 import { topModal } from "../../lib/modal-stack";
@@ -434,7 +432,7 @@ function SelectedArtifact({
   useEffect(() => setTitle(artifact.title), [artifact.title]);
 
   /** The rail: an edge by default, open or closed as one choice for every artifact. */
-  const railOpen = commentsRailOpen(use$(sidebarSections$.open));
+  const railOpen = useCommentsRailOpen();
   const [reveal, setReveal] = useState<{ readonly threadId: string; readonly nonce: number } | undefined>(undefined);
   const railElement = useRef<HTMLDivElement | null>(null);
   const railRef = useCallback((element: HTMLDivElement | null) => {

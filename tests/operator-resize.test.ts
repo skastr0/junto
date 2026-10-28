@@ -141,7 +141,9 @@ describe("operator resize: no surface remembers a size by watching the box", () 
 
   it("resizable document sizes are kept per surface, not per shared measure", () => {
     const source = read("src/renderer/components/FocusSurface.tsx");
-    expect(source).toContain("sessionSizes.set(label, size)");
-    expect(source).not.toMatch(/sessionSizes\.(get|set)\(measure/);
+    // Kept in view state by the surface's label (0.11, 04, V3), never by measure.
+    expect(source).toContain("writeSurfaceSize(label, ");
+    expect(source).toContain("surfaceSize(label)");
+    expect(source).not.toMatch(/[sS]urfaceSize\(measure/);
   });
 });

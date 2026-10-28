@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { use$ } from "@legendapp/state/react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent, FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { CircleAlert, ExternalLink, Search, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
@@ -31,8 +30,7 @@ import { ArtifactCommentsEdge } from "../artifacts/ArtifactComments";
 import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../artifacts/LiveMarkdownField";
 import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
-import { commentsRailOpen, commentsRailRef, setCommentsRailOpen } from "../../lib/artifact-comments-rail";
-import { sidebarSections$ } from "../../lib/sidebar-sections";
+import { commentsRailRef, setCommentsRailOpen, useCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { fileOfSelection, filePathOfTree, movedPath, treePathOf, useFolderTree } from "./files-tree";
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop, type FilesMoved } from "./useFilesDrop";
@@ -334,7 +332,7 @@ function SelectedFile({
   const [stale, setStale] = useState<false | "changed" | "deleted">(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const railOpen = commentsRailOpen(use$(sidebarSections$.open));
+  const railOpen = useCommentsRailOpen();
   useDraftsVersion();
   const draft = fileDraft(nodeId, path);
   /** The place a press in the gutter or a drawn box picked, waiting for its comment. */

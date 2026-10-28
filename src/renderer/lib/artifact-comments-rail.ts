@@ -1,18 +1,19 @@
 import { topModal } from "./modal-stack";
-import { sectionOpen, setSectionOpen, type SectionOpenMap } from "./sidebar-sections";
+import { nodeViewStore, useNodeView } from "./node-view-state";
 
 /**
  * The Artifacts node's comments rail: collapsed to an edge by default, open
- * or closed as one choice for every artifact, kept with the other sidebar
- * state for the session. Cmd+Shift+M (`comments.toggle`) flips it while a rail shows
+ * or closed as one choice for every artifact, kept in view state so a quit
+ * brings it back (0.11, 04, V3). Cmd+Shift+M (`comments.toggle`) flips it while a rail shows
  * in the modal in front.
  */
 
-const RAIL_OPEN_KEY = "artifact-comments";
+export const commentsRailOpen = (): boolean => nodeViewStore().commentsRailOpen();
 
-export const commentsRailOpen = (map?: SectionOpenMap): boolean => sectionOpen(RAIL_OPEN_KEY, false, map);
+/** The rail's choice, read again as it changes in any window. */
+export const useCommentsRailOpen = (): boolean => useNodeView((store) => store.commentsRailOpen());
 
-export const setCommentsRailOpen = (open: boolean): void => setSectionOpen(RAIL_OPEN_KEY, open);
+export const setCommentsRailOpen = (open: boolean): void => nodeViewStore().writeCommentsRailOpen(open);
 
 /** Rails on screen, open or as an edge. */
 const shown = new Set<HTMLElement>();

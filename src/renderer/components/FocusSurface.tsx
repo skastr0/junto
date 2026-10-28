@@ -8,6 +8,7 @@ import {
 import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 import { noteSubjectInUse, subjectOf, useModalLayer } from "../lib/modal-stack";
 import { clampToFrame, watchOperatorResize } from "../lib/operator-resize";
+import { nodeViewStore } from "../lib/node-view-state";
 import { FocusWindowContext, type FocusWindow } from "./ui/FocusWindow";
 
 // What a press may land on and keep: controls, fields, and the terminal.
@@ -143,7 +144,7 @@ export function FocusSurface({
   // this surface to, never more than the frame has now.
   useEffect(() => {
     if (height !== "resizable" || !panelRef.current) return;
-    const stored = sessionSizes.get(label);
+    const stored = nodeViewStore().surfaceSize(label);
     if (!stored) return;
     const frame = panelRef.current.parentElement;
     panelRef.current.style.width = `${clampToFrame(stored.width, frame?.clientWidth ?? 0)}px`;
@@ -170,9 +171,9 @@ export function FocusSurface({
     const panel = panelRef.current;
     if (height !== "resizable" || !panel) return;
     return watchOperatorResize(panel, {
-      onResize: (size) => void sessionSizes.set(label, size),
+      onResize: (size) => nodeViewStore().writeSurfaceSize(label, { width: Math.round(size.width), height: Math.round(size.height) }),
       onReset: () => {
-        sessionSizes.delete(label);
+        nodeViewStore().writeSurfaceSize(label, null);
         panel.style.removeProperty("width");
         panel.style.removeProperty("height");
       },
@@ -277,8 +278,7 @@ export function FocusSurface({
   return createPortal(root, document.body);
 }
 
-// --- session size memory (resizable only) ------------------------------------
-// By surface, not by measure: eight surfaces share the document measure, and
-// one's size is not another's.
-
-const sessionSizes = new Map<string, { width: number; height: number }>();
+// --- size memory (resizable only) --------------------------------------------
+// Kept in view state by surface, not by measure (0.11, 04, V3): eight
+// surfaces share the document measure, and one's size is not another's. A
+// quit brings it back.
