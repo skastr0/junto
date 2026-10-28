@@ -68,6 +68,8 @@
 .operator-feed__detail-pane[data-kind="escalate"] { --feed-kind: var(--color-orange); }
 .operator-feed__detail-pane[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
 .operator-feed__detail-pane[data-kind="health"] { --feed-kind: var(--color-steel); }
+.operator-feed__detail-pane[data-kind="work"] { --feed-kind: var(--color-violet); }
+.operator-feed__detail-pane[data-kind="notice"] { --feed-kind: var(--color-steel); }
 
 .operator-feed__detail-scroll {
   display: flex;
@@ -293,6 +295,10 @@
 .operator-feed__card[data-kind="escalate"] { --feed-kind: var(--color-orange); }
 .operator-feed__card[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
 .operator-feed__card[data-kind="health"] { --feed-kind: var(--color-steel); }
+.operator-feed__card[data-kind="work"] { --feed-kind: var(--color-violet); }
+/* A notice is passive: something happened, to read and clear. Its sentence reads quieter. */
+.operator-feed__card[data-kind="notice"] { --feed-kind: var(--color-steel); }
+.operator-feed__card[data-kind="notice"] .operator-feed__text { color: var(--color-dim); }
 
 .operator-feed__card:hover {
   background: var(--color-overlay-1);
@@ -379,6 +385,18 @@
   font-size: var(--text-body-lg);
   font-weight: 500;
   color: color-mix(in oklab, var(--feed-kind) 80%, var(--color-ink));
+}
+
+/* When work is due; past due or urgent, in the warning ink. */
+.operator-feed__due {
+  flex: none;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.operator-feed__due[data-urgent] {
+  color: var(--color-amber-fg);
 }
 
 .operator-feed__age {

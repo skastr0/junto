@@ -38,11 +38,13 @@ import { use$ } from "@legendapp/state/react";
 import {
   ArrowBigUpDash,
   ArrowUpRight,
+  Bell,
   CirclePause,
   Inbox,
   MessageCircleQuestion,
   MessageSquareText,
   MonitorSmartphone,
+  NotebookPen,
   OctagonAlert,
   ScanEye,
   type LucideIcon,
@@ -87,6 +89,7 @@ import {
   type SignalAnswer,
 } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
+import { dueWords, handInSignalWork, itemWorkOf, workLevel } from "../../lib/signal-work";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
@@ -97,6 +100,7 @@ import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
 import { SignalResourceChips } from "../signals/SignalResourceChips";
+import { SignalWorkForm } from "../signals/SignalWorkForm";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd, StatusDot } from "../ui";
@@ -109,14 +113,19 @@ const NO_NOTES: ReadonlyArray<string> = [];
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
-/** How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL. */
-const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
+/**
+ * How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL.
+ * The operator's own work and notices (plan 0.11/07) are named ahead of N1.
+ */
+const KIND_ICON: Readonly<Record<FeedItemKind | "notice" | "work", LucideIcon>> = {
   blocked: OctagonAlert,
   attention: MessageCircleQuestion,
   stopped: CirclePause,
   escalate: ArrowBigUpDash,
   feedback: MessageSquareText,
   health: ScanEye,
+  work: NotebookPen,
+  notice: Bell,
 };
 
 /** The region's own colour, or a quiet steel for the open field. */
@@ -174,11 +183,19 @@ function FeedWords({
 }) {
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
+  const { kind: workKind, work } = itemWorkOf(item);
+  const due = workKind === "work" ? dueWords(work?.dueAt, nowMs) : undefined;
+  const urgent = workKind === "work" && work !== undefined && workLevel(work, nowMs) === "due";
   return (
     <>
       <header className="operator-feed__card-head">
         <span id={labelId && `${labelId}-name`} className="operator-feed__name">{item.seat.name}</span>
         <span id={labelId && `${labelId}-kind`} className="operator-feed__kind">{FEED_KIND_LABEL[item.kind]}</span>
+        {due ? (
+          <span className="operator-feed__due" data-urgent={urgent || undefined}>
+            {due}
+          </span>
+        ) : null}
         {age ? (
           <time className="operator-feed__age" title={new Date(item.since!).toLocaleString()}>
             {age}
@@ -384,6 +401,9 @@ function FeedDetail({
 }) {
   const isSeat = node === undefined || node.kind === "agent";
   const thisMac = isThisMacItem(item);
+  const { kind: workKind, form } = itemWorkOf(item);
+  // Work answered in a form: the form is the whole answer, with its own Dismiss.
+  const workForm = item.signalId !== undefined && (form?.kind === "artifact" || form?.kind === "proof") ? form : undefined;
   const hasDetails = item.signalId !== undefined && (Boolean(item.detail) || (item.attachments?.length ?? 0) > 0);
   return (
     <section
@@ -415,7 +435,25 @@ function FeedDetail({
         <SignalResourceChips canvasName={item.canvasName} attachments={item.attachments} beforeOpen={closeOperatorFeed} />
       </div>
       <div className="operator-feed__answer">
-        {replying && item.signalId ? (
+        {workForm && item.signalId ? (
+          <SignalWorkForm
+            key={item.signalId}
+            signalId={item.signalId}
+            canvasName={item.canvasName}
+            text={item.text}
+            form={workForm}
+            handIn={handInSignalWork}
+            dismiss={dismissAgentSignal}
+            onDone={() => onReply(false)}
+          />
+        ) : workKind === "notice" && item.signalId ? (
+          // A notice is read and cleared: no reply to write.
+          <div className="operator-feed__actions">
+            <Button size="xs" variant="primary" disabled={sending !== null} onClick={() => onAnswer({ kind: "acknowledge" })}>
+              Clear
+            </Button>
+          </div>
+        ) : replying && item.signalId ? (
           <SignalReply
             signalId={item.signalId}
             canvasName={item.canvasName}

@@ -10,6 +10,10 @@
 import { admitLinkUrl } from "@shared/wire/agent-signals";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { signalWordCount } from "@shared/word-count";
+import type { AgentSignalOperatorResult } from "@shared/ipc";
+import { upsertAgentSignal } from "./agent-signals-state";
+import type { SignalActionResult } from "./agent-signals-view";
+import { getJuntoApi } from "./junto-api";
 
 /**
  * The reply a signal asks for, one per signal. `artifact` is a document the
@@ -113,4 +117,46 @@ export const workDraftOf = (signalId: string): string => drafts.get(signalId) ??
 export const keepWorkDraft = (signalId: string, text: string): void => {
   if (text === "") drafts.delete(signalId);
   else drafts.set(signalId, text);
+};
+
+/**
+ * What a feed item says of the operator's work: its kind when it is a
+ * notice or work, its form, and work's timing. N1 stand-in: read off the
+ * item by the names N1 gives them until FeedItem carries them.
+ */
+export type ItemWork = {
+  readonly kind: "notice" | "work" | undefined;
+  readonly form: SignalForm | undefined;
+  readonly work: WorkTiming | undefined;
+};
+
+export const itemWorkOf = (item: { readonly kind: string }): ItemWork => {
+  const carried = item as { readonly kind: string; readonly form?: SignalForm; readonly work?: WorkTiming };
+  return {
+    kind: carried.kind === "notice" || carried.kind === "work" ? carried.kind : undefined,
+    form: carried.form,
+    work: carried.work,
+  };
+};
+
+/**
+ * Hand in work through N1's one reply call. Until main has it the answer
+ * is that it is not available, and nothing is lost: the writing stays.
+ */
+export const handInSignalWork = async (signalId: string, reply: WorkReply): Promise<SignalActionResult> => {
+  const api = getJuntoApi() as
+    | (ReturnType<typeof getJuntoApi> & {
+        readonly agentSignalReply?: (signalId: string, reply: WorkReply) => Promise<AgentSignalOperatorResult>;
+      })
+    | undefined;
+  if (!api) return { ok: false, message: "Junto is not connected." };
+  if (api.agentSignalReply === undefined) return { ok: false, message: "Handing in work is not available yet." };
+  return api.agentSignalReply(signalId, reply).then(
+    (result) => {
+      if (!result.ok) return result;
+      upsertAgentSignal(result.signal);
+      return { ok: true };
+    },
+    (error: unknown) => ({ ok: false, message: error instanceof Error ? error.message : "hand in failed" }),
+  );
 };
