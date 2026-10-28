@@ -18,6 +18,8 @@ import { CommandQueuedResult, type RulingAppliedResult } from "@shared/command-r
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { ResourceKind } from "@shared/resource-command";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
+import { AutomationFact } from "@shared/automation-domain";
+import { projectAutomationFacts } from "../automation/repository";
 import { artifactBodyRef, projectArtifactFacts } from "./artifact-repository";
 import { projectTaskFact } from "./task-repository";
 
@@ -113,6 +115,8 @@ const bodiesKnownHere = (
     return bodies;
   });
 
+const decodeAutomationFacts = Schema.decodeUnknownResult(Schema.Array(AutomationFact));
+
 /** A domain whose rulings no editing machine of this build writes yet. */
 const notYetRuled = (kind: ResourceKind): Fold => () =>
   Effect.fail(new RulingFoldRefused({ message: `no ${kind} ruling is written by this build` }));
@@ -139,9 +143,16 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
       projectArtifactFacts(sql, canvasName, ruling.opId, facts.success, (ref) => bodies.get(ref.sha256)));
   },
   thread: notYetRuled("thread"),
-  // Automations stay on the editing machine (machines.md Rule 2): a copy keeps the
-  // ruling itself, which op show reads, and has no automation tables to fold into.
-  automation: () => Effect.void,
+  // Each automation runs on the machine it names (machines.md Rule 2), so every
+  // machine folds its rulings with the ruler's own projection.
+  automation: (sql, canvasName, ruling) => {
+    const facts = decodeAutomationFacts(ruling.facts);
+    return Result.isFailure(facts)
+      ? Effect.fail(new RulingFoldRefused({ message: "an automation ruling carries facts this build does not know" }))
+      : projectAutomationFacts(sql, canvasName, facts.success).pipe(
+          Effect.catchTag("AutomationPersistenceError", (error) => Effect.fail(new RulingFoldRefused({ message: error.message }))),
+        );
+  },
 };
 
 /** Fold one applied ruling from the editing machine into this machine's resource tables. */

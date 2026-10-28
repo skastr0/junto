@@ -121,6 +121,8 @@ export const makeLocalAutomationsSource = (
           });
         case "set-enabled":
           return put(canvasName, { ...current!, enabled: op.enabled });
+        case "set-machine":
+          return put(canvasName, { ...current!, machine: op.machine });
         case "archive":
           automations.delete(key);
           changed();

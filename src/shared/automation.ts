@@ -38,6 +38,7 @@ import { isValidCronExpression } from "./cron-expression";
 import { InstallationId } from "./installation-id";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
+import { HostId } from "./remote-hosts";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
 import { RefusalReason, type Refusal } from "./resource-command";
 import { TASK_STATES } from "./task-model";
@@ -240,6 +241,14 @@ export const Automation = Schema.Struct({
   author: AutomationAuthor,
   version: AutomationVersion,
   enabled: Schema.Boolean,
+  /**
+   * The machine that runs it, by its real short name, as a seat names its
+   * machine (machines.md Rule 3): it fires the schedules, hears the changes and
+   * performs the actions. Beside the definition, like `enabled`: a move is its
+   * own op. Absent on an automation from before 0.11, which runs on the
+   * canvas's editing machine (`runsOn`).
+   */
+  machine: Schema.optionalKey(HostId),
   ...stored.Definition.fields,
 });
 export type Automation = typeof Automation.Type;
@@ -260,6 +269,7 @@ export const decodeAutomation = Schema.decodeUnknownResult(Automation, { onExces
  *   head refuses it `stale` with `expected` the head.
  * - `set-enabled` carries no base: a toggle never goes stale, and never makes
  *   an edit stale.
+ * - `set-machine` moves it to another machine, baseless like `set-enabled`.
  * - `run` is `junto automation run`: one firing now, recorded with cause run.
  */
 export const AutomationOp = Schema.Union([
@@ -267,14 +277,24 @@ export const AutomationOp = Schema.Union([
     kind: Schema.Literal("create"),
     automationId: AutomationId,
     enabled: Schema.Boolean,
+    /** Absent: the machine that rules the create, the canvas's editing machine. */
+    machine: Schema.optionalKey(HostId),
     definition: AutomationDefinition,
   }),
   Schema.Struct({ kind: Schema.Literal("edit"), baseVersion: AutomationVersion, definition: AutomationDefinition }),
   Schema.Struct({ kind: Schema.Literal("set-enabled"), enabled: Schema.Boolean }),
+  Schema.Struct({ kind: Schema.Literal("set-machine"), machine: HostId }),
   Schema.Struct({ kind: Schema.Literal("archive") }),
   Schema.Struct({ kind: Schema.Literal("run") }),
 ]);
 export type AutomationOp = typeof AutomationOp.Type;
+
+/**
+ * The machine an automation runs on: the one it names, or for one from
+ * before 0.11 that names none, the canvas's editing machine.
+ */
+export const runsOn = (automation: Pick<Automation, "machine">, editingMachine: HostId): HostId =>
+  automation.machine ?? editingMachine;
 export type AutomationOpKind = AutomationOp["kind"];
 
 /** 0.10 refuses webhook triggers; everything else is available. */

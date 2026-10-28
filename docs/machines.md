@@ -59,7 +59,10 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    only when the operator wrote one, never one taken from its path or
    address. A browser page goes elsewhere as a stub shaped like a peer: id,
    geometry and the editing machine, with nothing to drive it. No wire to a
-   stub crosses. Notes, what fires on its own host,
+   stub crosses. Automations do not stay with the editing machine: their
+   definitions ride their rulings, which every machine folds into its own
+   automation tables, and each runs on the machine it names (Rule 3). Notes,
+   what fires on its own host,
    the kinds 0.10 deletes and every kind that is off stay on the editing
    machine. The editing machine keeps everything. Whatever a machine
    once received it may still hold; removal does not take it back. There is
@@ -76,6 +79,16 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    machine's real short name. No row says `local`: that word would mean a
    different machine on every copy, and tying it to the editing machine would
    move seats when editing moves. One function answers "is this seat mine".
+   An automation lives on one machine the same way: it names that machine by
+   its real short name, beside its definition, and only that machine fires its
+   schedules, hears its changes and performs its actions; its claims, cursors
+   and history stay there. One from before 0.11 names none and runs on the
+   editing machine. Definitions are still written and ruled on the editing
+   machine. A move takes effect on each machine when that machine holds the
+   ruling: the old machine stops, and the new one starts counting from the
+   move, with no missed slot fired. Until mail and commands are valid from an
+   automation's own machine (Rule 4 still says the editing machine), its
+   actions anywhere else are ruled refused `not_available`.
 4. **Synced rows are immutable and have one writer.** Sync between two machines
    is: send the other side what it lacks and is entitled to. No claims, no
    transfer of authority, no conflict handling. Applying a row twice changes

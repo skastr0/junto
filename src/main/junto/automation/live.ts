@@ -54,6 +54,7 @@ import { TaskRepository } from "../work/task-repository";
 import { ArtifactRepository } from "../work/artifact-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
 import { MachineRepository } from "../machines/repository";
+import { isThisMachine } from "@shared/machine-name";
 import { type AutomationPersistenceError, AutomationRepository, RULINGS_START, type TaskRuling } from "./repository";
 import { type ChangeEvent } from "./plan";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
@@ -466,11 +467,34 @@ export const AutomationRunnerLive = Layer.effect(
       }
       return Effect.succeed({});
     };
+    // Where this machine stands on each canvas, read as a gate opens: whether it
+    // edits it, and its own short name, for the automations that name a machine.
+    const here = new Map<string, { readonly edits: boolean; readonly machine: string | undefined }>();
+    const runsHere = (canvasName: string, automation: Automation): boolean => {
+      const stand = here.get(canvasName);
+      if (stand === undefined) return false;
+      return automation.machine === undefined
+        ? stand.edits
+        : stand.machine !== undefined && isThisMachine(automation.machine, stand.machine);
+    };
+    // Read where this machine stands, and whether any automation of the canvas runs here.
+    const runsAny = (canvasName: string) =>
+      Effect.gen(function* () {
+        const edits = yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false));
+        const machine = Option.isSome(machines)
+          ? yield* machines.value.machineName.pipe(Effect.orElseSucceed(() => undefined))
+          : undefined;
+        here.set(canvasName, { edits, machine });
+        const state = yield* repository.loadState(canvasName).pipe(Effect.orElseSucceed(() => new Map()));
+        return [...state.values()].some((entry) => !entry.archived && runsHere(canvasName, entry.automation));
+      });
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
+      runsHere,
       holds: (canvasName, condition) => conditionHolds(condition, views.get(canvasName) ?? EMPTY_VIEW),
+      // Until mail and commands are valid from an automation's own machine (S2), only the editing machine acts.
       perform: (canvasName, automation, action, index, firingId, fired) =>
-        performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId, (text) =>
+        here.get(canvasName)?.edits !== true ? Effect.succeed(notAvailable(index)) : performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId, (text) =>
           valueNamesIn(text).length === 0
             ? Effect.succeed(text)
             : Effect.map(firedReads(canvasName, fired), (reads) =>
@@ -587,8 +611,7 @@ export const AutomationRunnerLive = Layer.effect(
     const tickAll = turn.withPermits(1)(Effect.gen(function* () {
       const names = yield* model.listCanvases().pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
       for (const name of names) {
-        // Only the editing machine runs a canvas's automations, so none fires twice.
-        if (!(yield* records.editsCanvas(name).pipe(Effect.orElseSucceed(() => false)))) continue;
+        if (!(yield* runsAny(name))) continue;
         yield* pass(name);
         yield* withRepository(runner.tick(name));
       }
@@ -596,13 +619,13 @@ export const AutomationRunnerLive = Layer.effect(
 
     const wake = (canvasName: string) =>
       turn.withPermits(1)(Effect.gen(function* () {
-        if (!(yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false)))) return;
+        if (!(yield* runsAny(canvasName))) return;
         yield* pass(canvasName);
       }));
 
     const heard = (canvasName: string, event: ChangeEvent) =>
       turn.withPermits(1)(Effect.gen(function* () {
-        if (!(yield* records.editsCanvas(canvasName).pipe(Effect.orElseSucceed(() => false)))) return;
+        if (!(yield* runsAny(canvasName))) return;
         // The canvas as it is now, for the reach the firing is checked against; what moved meanwhile goes first.
         yield* pass(canvasName);
         yield* withRepository(runner.onChange(canvasName, event));
@@ -613,7 +636,6 @@ export const AutomationRunnerLive = Layer.effect(
       Effect.gen(function* () {
         const names = yield* model.listCanvases().pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
         for (const name of names) {
-          if (!(yield* records.editsCanvas(name).pipe(Effect.orElseSucceed(() => false)))) continue;
           const canvas = yield* model.canvas(name).pipe(Effect.option);
           if (Option.isNone(canvas)) continue;
           const seat = [...canvas.value.nodes.values()].find((node) => node.kind === "agent" && (node.bindingId as string) === firing.seat);
@@ -624,6 +646,7 @@ export const AutomationRunnerLive = Layer.effect(
 
     const onRun = (canvasName: string, automationId: AutomationId) =>
       turn.withPermits(1)(Effect.gen(function* () {
+        if (!(yield* runsAny(canvasName))) return undefined;
         yield* pass(canvasName);
         return yield* withRepository(runner.onRun(canvasName, automationId));
       }));

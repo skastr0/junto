@@ -15,6 +15,7 @@ import { rulingContextOf } from "@shared/ruling-context";
 import type { WorkErrorBody } from "@shared/work-control";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
+import { MachineRepository } from "../machines/repository";
 import type { RulingRecorder } from "../work/ruling-recorder";
 import { AutomationRunnerService } from "./live";
 import type { AutomationRepository } from "./repository";
@@ -103,9 +104,12 @@ export const applyAutomationCommand = (command: ResourceCommand<AutomationOp>) =
     const writer = yield* localWriter;
     if (Option.isNone(writer)) return notAvailable(command, "this machine has no installation id yet");
     const canvas = yield* (yield* ModelService).canvas(name);
-    const outcome = yield* submitAutomationCommand(writer.value, command, rulingContextOf(canvas, () => undefined), automationEnvOf(canvas));
+    const machines = yield* Effect.serviceOption(MachineRepository);
+    const machine = Option.isSome(machines) ? yield* machines.value.machineName.pipe(Effect.option) : Option.none<string>();
+    const env = automationEnvOf(canvas, Option.getOrUndefined(machine));
+    const outcome = yield* submitAutomationCommand(writer.value, command, rulingContextOf(canvas, () => undefined), env);
     if (outcome.kind === "refused") return outcome;
-    // An applied run fires now, so its firing is in the history read next.
+    // An applied run fires now, so its firing is in the history read next, when it runs on this machine.
     if (command.op.kind === "run" && outcome.facts.length > 0) {
       const runner = yield* Effect.serviceOption(AutomationRunnerService);
       if (Option.isSome(runner)) yield* runner.value.onRun(name, outcome.automation.automationId);

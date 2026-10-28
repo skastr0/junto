@@ -9,6 +9,9 @@ import { AutomationRepository, FIRINGS_KEPT, makeAutomationRepositoryLive } from
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { type Automation, AutomationId, type Firing, FiringId, AutomationVersion } from "../src/shared/automation";
 import { asNodeId } from "../src/shared/physics/schema";
+import { AutomationFact } from "../src/shared/automation-domain";
+import type { RulingAppliedResult } from "../src/shared/command-row";
+import { foldRuling } from "../src/main/junto/work/ruling-projection";
 
 const id = Schema.decodeUnknownSync(AutomationId);
 const firingId = Schema.decodeUnknownSync(FiringId);
@@ -190,5 +193,61 @@ describe("AutomationRepository", () => {
       [D2, "tasks-3", "backlog"],
       [T, "tasks-1", "done"],
     ]);
+  })));
+});
+
+describe("an automation ruling folded on another machine", () => {
+  const encode = Schema.encodeSync(AutomationFact);
+  const ruling = (opId: string, ...facts: ReadonlyArray<AutomationFact>) =>
+    ({
+      operation: "ruling.applied",
+      writer: "editor-installation",
+      opId,
+      actor: { kind: "operator" },
+      kind: "automation",
+      facts: facts.map((fact) => encode(fact)),
+    }) as unknown as RulingAppliedResult;
+  const rows = (sql: SqlClient.SqlClient) =>
+    sql`SELECT canvas_name, automation_id, node_id, version, archived, updated_at_epoch_ms, automation_json FROM automations ORDER BY automation_id`;
+  const created = ruling("01M5ESKJFC1A88R1MH1NEZWJ70", { fact: "automation.created", automation: { ...automation, machine: "mini" }, at: 10 });
+  const edited = ruling("01M5ESKJFC1A88R1MH1NEZWJ71", {
+    fact: "automation.edited",
+    automationId: AUTO,
+    version: AutomationVersion.make(2),
+    definition: { name: "Standup, later", trigger: automation.trigger, then: automation.then, limits: automation.limits },
+    at: 20,
+  });
+
+  it("writes the same rows the ruler does, and the same rows again when folded twice", () => run(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* foldRuling(sql, "factory", created, 10);
+    const once = yield* rows(sql);
+    yield* foldRuling(sql, "factory", created, 10);
+    expect(yield* rows(sql)).toEqual(once);
+    const [held] = [...(yield* (yield* AutomationRepository).loadState("factory")).values()];
+    expect(held?.automation).toMatchObject({ automationId: AUTO, machine: "mini", version: 1 });
+  })));
+
+  it("never goes back: an older create or edit arriving again leaves the newer head", () => run(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* foldRuling(sql, "factory", created, 10);
+    yield* foldRuling(sql, "factory", edited, 20);
+    const newest = yield* rows(sql);
+    yield* foldRuling(sql, "factory", created, 10);
+    yield* foldRuling(sql, "factory", edited, 20);
+    expect(yield* rows(sql)).toEqual(newest);
+    const [held] = [...(yield* (yield* AutomationRepository).loadState("factory")).values()];
+    expect(held?.automation).toMatchObject({ name: "Standup, later", version: 2, machine: "mini" });
+  })));
+
+  it("forgets this machine's schedule cursor on a move, so the new machine starts from it", () => run(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const repository = yield* AutomationRepository;
+    yield* foldRuling(sql, "factory", created, 10);
+    yield* repository.setCursor("factory", AUTO, 60_000);
+    yield* foldRuling(sql, "factory", ruling("01M5ESKJFC1A88R1MH1NEZWJ72", { fact: "automation.moved", automationId: AUTO, machine: "macbook", at: 30 }), 30);
+    expect(yield* repository.cursor("factory", AUTO)).toBeUndefined();
+    const [held] = [...(yield* repository.loadState("factory")).values()];
+    expect(held?.automation.machine).toBe("macbook");
   })));
 });

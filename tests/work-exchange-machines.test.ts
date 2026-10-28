@@ -306,7 +306,7 @@ describe("mail between machines", () => {
             command: { opId, actor: { kind: "operator" }, target: { kind: "automation", nodeId: "board" } } as never,
             kind: "automation",
             record: { kind: "applied", automationId: "01M5F3B000000000000000000A" },
-            ruling: { kind: "applied", opId, facts: [{ fact: "automation.archived", automationId: "01M5F3B000000000000000000A" }] } as never,
+            ruling: { kind: "applied", opId, facts: [{ fact: "automation.archived", automationId: "01M5F3B000000000000000000A", at: 1 }] } as never,
           }),
         )),
     );

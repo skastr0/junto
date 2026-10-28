@@ -60,6 +60,8 @@ export type RunnerPorts = {
   ) => Effect.Effect<ActionRuling>;
   readonly mintFiringId: () => FiringId;
   readonly now: () => number;
+  /** Whether this machine runs the automation: the one it names, or the editing machine when it names none. */
+  readonly runsHere: (canvasName: string, automation: Automation) => boolean;
 };
 
 export type AutomationRunner = {
@@ -132,7 +134,10 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
   const live = Effect.fn("AutomationRunner.live")(function* (canvasName: string) {
     const repository = yield* AutomationRepository;
     const state = yield* repository.loadState(canvasName);
-    return [...state.values()].filter((entry) => !entry.archived).map((entry) => entry.automation);
+    // Only the machine an automation names runs it, so none fires twice.
+    return [...state.values()]
+      .filter((entry) => !entry.archived && ports.runsHere(canvasName, entry.automation))
+      .map((entry) => entry.automation);
   });
 
   const tick = Effect.fn("AutomationRunner.tick")(function* (canvasName: string) {

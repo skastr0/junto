@@ -30,6 +30,7 @@ import {
   valueRefusal,
 } from "./automation";
 import { NodeId } from "./physics/schema";
+import { HostId } from "./remote-hosts";
 import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
 
 /** One automation as the ruler holds it. */
@@ -59,6 +60,7 @@ export const AutomationFact = Schema.Union([
     at: At,
   }),
   Schema.Struct({ fact: Schema.Literal("automation.enabled"), automationId: AutomationId, enabled: Schema.Boolean, at: At }),
+  Schema.Struct({ fact: Schema.Literal("automation.moved"), automationId: AutomationId, machine: HostId, at: At }),
   Schema.Struct({ fact: Schema.Literal("automation.archived"), automationId: AutomationId, at: At }),
   /** `junto automation run`: the runner records one firing with cause `run`. */
   Schema.Struct({ fact: Schema.Literal("automation.run"), automationId: AutomationId, nodeId: NodeId, at: At }),
@@ -78,6 +80,8 @@ export type AutomationEnv = {
   readonly targetsOf: TargetsOf;
   /** A seat with the overseer toggle on: it writes automations with the operator's authority. */
   readonly isOverseer: (seat: NodeId) => boolean;
+  /** The ruling machine's short name: a create that names no machine runs here. Absent, it names none. */
+  readonly rulingMachine?: HostId;
 };
 
 const refuse = (refusal: Refusal): DomainVerdict<AutomationFact> => ({ kind: "refuse", refusal });
@@ -134,6 +138,7 @@ const replaced = (automation: Automation, definition: AutomationDefinition, vers
   author: automation.author,
   version,
   enabled: automation.enabled,
+  ...(automation.machine === undefined ? {} : { machine: automation.machine }),
   ...definition,
 });
 
@@ -183,6 +188,7 @@ export const ruleAutomationCommand = (
       author,
       version: FIRST_AUTOMATION_VERSION,
       enabled: op.enabled,
+      ...((op.machine ?? env.rulingMachine) === undefined ? {} : { machine: op.machine ?? env.rulingMachine }),
       ...op.definition,
     };
     const refusal = definitionRefusal(automation, targetsOf);
@@ -221,6 +227,8 @@ export const ruleAutomationCommand = (
     }
     case "set-enabled":
       return apply({ fact: "automation.enabled", automationId, enabled: op.enabled, at });
+    case "set-machine":
+      return apply({ fact: "automation.moved", automationId, machine: op.machine, at });
     case "archive":
       return apply({ fact: "automation.archived", automationId, at });
     case "run":
@@ -246,16 +254,30 @@ const withEntry = (
 /** Fold one ruled fact into state. A fact for an unknown automation changes nothing. */
 export const applyAutomationFact = (state: AutomationState, fact: AutomationFact): AutomationState => {
   switch (fact.fact) {
+    // Every machine folds the same rulings (machines.md Rule 2), and one may
+    // arrive twice: a create of one that exists, or an edit at or below its
+    // version, changes nothing.
     case "automation.created":
-      return new Map(state).set(fact.automation.automationId, {
-        automation: fact.automation,
-        archived: false,
-        updatedAt: fact.at,
-      });
+      return state.has(fact.automation.automationId)
+        ? state
+        : new Map(state).set(fact.automation.automationId, {
+            automation: fact.automation,
+            archived: false,
+            updatedAt: fact.at,
+          });
     case "automation.edited":
+      return withEntry(state, fact.automationId, (entry) =>
+        fact.version <= entry.automation.version
+          ? entry
+          : {
+              ...entry,
+              automation: replaced(entry.automation, fact.definition, fact.version),
+              updatedAt: fact.at,
+            });
+    case "automation.moved":
       return withEntry(state, fact.automationId, (entry) => ({
         ...entry,
-        automation: replaced(entry.automation, fact.definition, fact.version),
+        automation: { ...entry.automation, machine: fact.machine },
         updatedAt: fact.at,
       }));
     case "automation.enabled":

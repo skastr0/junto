@@ -13,6 +13,7 @@ import {
   AutomationId,
   AutomationVersion,
   FiringId,
+  runsOn,
 } from "../src/shared/automation";
 import type { NodeKind } from "../src/shared/model/kinds";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -60,7 +61,10 @@ const automation = (over: Partial<Automation> = {}): Automation => ({
   ...over,
 });
 
-const harness = async (seed: Automation) => {
+/** The editing machine; a harness is one machine, which runs what names it (or, for an old row, the editor). */
+const EDITOR = "macbook";
+
+const harness = async (seed: Automation, machine: string = EDITOR) => {
   const database = new DatabaseSync(":memory:");
   database.exec(AUTOMATION_STATE_SCHEMA_SQL);
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
@@ -78,6 +82,7 @@ const harness = async (seed: Automation) => {
       }),
     mintFiringId: () => FiringId.make(`01M5ESKJFC1A88R1MH1NEZ${String(minted++).padStart(4, "0")}`),
     now: () => clock.now,
+    runsHere: (_canvas, automation) => runsOn(automation, EDITOR) === machine,
   };
   const runner = makeAutomationRunner(ports);
   const go = <A, E>(effect: Effect.Effect<A, E, AutomationRepository>) => runtime.runPromise(effect);
@@ -220,6 +225,7 @@ describe("an interrupted firing", () => {
         perform: () => Effect.die("crash"),
         mintFiringId: () => FiringId.make("01M5ESKJFC1A88R1MH1NEZ9999"),
         now: () => h.clock.now,
+        runsHere: () => true,
       });
       await expect(h.go(dying.onRun(CANVAS, AUTO))).rejects.toBeDefined();
       expect((await h.history()).map((f) => f.outcome)).toEqual([{ kind: "claimed" }]);
@@ -240,6 +246,81 @@ describe("onRun", () => {
       expect(h.performed).toHaveLength(1);
     } finally {
       await h.close();
+    }
+  });
+});
+
+describe("an automation on its own machine", () => {
+  const onMini = automation({ machine: "mini" });
+
+  it("fires on the machine it names and nowhere else: two stores, one schedule, one firing", async () => {
+    const mini = await harness(onMini, "mini");
+    const macbook = await harness(onMini, EDITOR);
+    try {
+      for (const h of [mini, macbook]) await h.go(h.runner.tick(CANVAS));
+      for (const h of [mini, macbook]) {
+        h.clock.now = at("2026-10-21T09:00:10Z");
+        await h.go(h.runner.tick(CANVAS));
+      }
+      expect(await mini.history()).toHaveLength(1);
+      expect(await macbook.history()).toEqual([]);
+      expect(mini.performed).toEqual([{ to: "seat-a2", index: 0 }]);
+      expect(macbook.performed).toEqual([]);
+    } finally {
+      await mini.close();
+      await macbook.close();
+    }
+  });
+
+  it("reads one from before 0.11, naming no machine, as the editing machine's", async () => {
+    const old = automation();
+    expect(old.machine).toBeUndefined();
+    expect(runsOn(old, EDITOR)).toBe(EDITOR);
+    const mini = await harness(old, "mini");
+    const macbook = await harness(old, EDITOR);
+    try {
+      for (const h of [mini, macbook]) {
+        await h.go(h.runner.tick(CANVAS));
+        h.clock.now = at("2026-10-21T09:00:10Z");
+        await h.go(h.runner.tick(CANVAS));
+      }
+      expect(await macbook.history()).toHaveLength(1);
+      expect(await mini.history()).toEqual([]);
+    } finally {
+      await mini.close();
+      await macbook.close();
+    }
+  });
+
+  it("moves: the old machine stops, the new one starts from the move, with no burst of missed slots", async () => {
+    const mini = await harness(onMini, "mini");
+    const macbook = await harness(onMini, EDITOR);
+    const move = { fact: "automation.moved", automationId: AUTO, machine: EDITOR, at: at("2026-10-23T12:00:00Z") } as const;
+    try {
+      // The mini runs it for a while; the MacBook has seen it, never fired it.
+      for (const h of [mini, macbook]) await h.go(h.runner.tick(CANVAS));
+      for (const h of [mini, macbook]) {
+        h.clock.now = at("2026-10-21T09:00:10Z");
+        await h.go(h.runner.tick(CANVAS));
+      }
+      // Two days later the ruling moves it to the MacBook, and both machines fold it.
+      for (const h of [mini, macbook]) {
+        h.clock.now = move.at;
+        await h.go(Effect.flatMap(AutomationRepository, (r) => r.applyFacts(CANVAS, [move])));
+        await h.go(h.runner.tick(CANVAS));
+      }
+      // The slots of the 22nd and 23rd passed before the move: none fires anywhere.
+      expect(await mini.history()).toHaveLength(1);
+      expect(await macbook.history()).toEqual([]);
+      for (const h of [mini, macbook]) {
+        h.clock.now = at("2026-10-24T09:00:10Z");
+        await h.go(h.runner.tick(CANVAS));
+      }
+      expect(await mini.history()).toHaveLength(1);
+      expect((await macbook.history()).map((f) => f.cause)).toEqual([{ kind: "schedule", slot: at("2026-10-24T09:00:00Z"), missed: 0 }]);
+    } finally {
+      await mini.close();
+      await macbook.close();
     }
   });
 });

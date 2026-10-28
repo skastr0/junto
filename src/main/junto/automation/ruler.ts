@@ -21,6 +21,7 @@ import {
 import type { InstallationId } from "@shared/installation-id";
 import type { Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
+import type { HostId } from "@shared/remote-hosts";
 import { automationTargets } from "@shared/region-reach";
 import {
   commandKey,
@@ -49,8 +50,13 @@ export type AutomationSubmitOutcome =
     }
   | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody; readonly root: OpId };
 
-/** Who may be written to and who is an overseer, read from the canvas the ruler holds now. */
-export const automationEnvOf = (canvas: Canvas): AutomationEnv => ({
+/**
+ * Who may be written to and who is an overseer, read from the canvas the
+ * ruler holds now, and the ruling machine's name, where a create that names
+ * no machine runs.
+ */
+export const automationEnvOf = (canvas: Canvas, rulingMachine?: HostId): AutomationEnv => ({
+  ...(rulingMachine === undefined ? {} : { rulingMachine }),
   targetsOf: (nodeId, author) => new Set(automationTargets(canvas, nodeId, author).map((node) => node.id)),
   isOverseer: (seat: NodeId) => {
     const node = canvas.nodes.get(seat);

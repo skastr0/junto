@@ -92,9 +92,11 @@ edit by one overseer still fits the targets of both.
 
 ## Runner
 
-- **One runner: the editing machine.** It evaluates every automation for the
-  canvas, so nothing fires twice and nothing depends on which machine is
-  awake. Actions are resource commands (02) and mail; mail reaches seats on
+- **Superseded by 0.11/05 (operator, 2026-10-28): each automation runs on
+  the machine it names** (`machines.md` Rule 3). Every machine folds
+  automation rulings into its own tables, and the runner fires only the
+  automations that name it, so nothing fires twice. It was: one runner, the
+  editing machine, evaluating every automation for the canvas. Actions are resource commands (02) and mail; mail reaches seats on
   any machine as today.
 - Schedules reuse the claim slots (`scheduler_interval_state`, renamed
   `automation_firings`) so a restart never fires a slot twice.

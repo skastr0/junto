@@ -197,6 +197,52 @@ const failure = (operation: string) => (error: unknown) =>
 
 type AutomationRow = { readonly automation_json: string; readonly archived: number; readonly updated_at_epoch_ms: number };
 
+/** Every automation of a canvas, archived included, as this machine's tables hold them. */
+const readState = (sql: SqlClient.SqlClient, canvasName: string) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<AutomationRow>`
+      SELECT automation_json, archived, updated_at_epoch_ms FROM automations WHERE canvas_name = ${canvasName}
+    `;
+    return yield* Effect.try({
+      try: (): AutomationState =>
+        new Map(rows.map((row) => {
+          const automation = decodeAutomation(JSON.parse(row.automation_json));
+          return [automation.automationId, { automation, archived: row.archived === 1, updatedAt: row.updated_at_epoch_ms }];
+        })),
+      catch: failure("load-state"),
+    });
+  });
+
+/**
+ * Fold ruled facts into this machine's automation tables: the ruler's own
+ * write on the editing machine and every other machine's fold of the same
+ * ruling (ruling-projection.ts) are this one projection, so a ruling folded
+ * twice writes the same rows. A move forgets this machine's schedule cursor:
+ * the machine it lands on starts counting from the move, never backfilling.
+ */
+export const projectAutomationFacts = (sql: SqlClient.SqlClient, canvasName: string, facts: ReadonlyArray<AutomationFact>) =>
+  Effect.gen(function* () {
+    if (facts.length === 0) return;
+    const before = yield* readState(sql, canvasName);
+    const after = facts.reduce(applyAutomationFact, before);
+    for (const [automationId, entry] of after) {
+      if (before.get(automationId) === entry) continue;
+      const json = JSON.stringify(encodeAutomation(entry.automation));
+      yield* sql`
+        INSERT INTO automations(canvas_name, automation_id, node_id, version, archived, updated_at_epoch_ms, automation_json)
+        VALUES (${canvasName}, ${automationId}, ${entry.automation.nodeId}, ${entry.automation.version},
+          ${entry.archived ? 1 : 0}, ${entry.updatedAt}, ${json})
+        ON CONFLICT (canvas_name, automation_id) DO UPDATE SET
+          node_id = excluded.node_id, version = excluded.version, archived = excluded.archived,
+          updated_at_epoch_ms = excluded.updated_at_epoch_ms, automation_json = excluded.automation_json
+      `;
+    }
+    for (const fact of facts) {
+      if (fact.fact !== "automation.moved") continue;
+      yield* sql`DELETE FROM automation_cursors WHERE canvas_name = ${canvasName} AND automation_id = ${fact.automationId}`;
+    }
+  });
+
 export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository, never, SqlClient.SqlClient> =>
   Layer.effect(
     AutomationRepository,
@@ -210,17 +256,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         );
 
       const loadState = Effect.fn("AutomationRepository.loadState")(function* (canvasName: string) {
-        const rows = yield* sql<AutomationRow>`
-          SELECT automation_json, archived, updated_at_epoch_ms FROM automations WHERE canvas_name = ${canvasName}
-        `.pipe(Effect.mapError(failure("load-state")));
-        return yield* Effect.try({
-          try: (): AutomationState =>
-            new Map(rows.map((row) => {
-              const automation = decodeAutomation(JSON.parse(row.automation_json));
-              return [automation.automationId, { automation, archived: row.archived === 1, updatedAt: row.updated_at_epoch_ms }];
-            })),
-          catch: failure("load-state"),
-        });
+        return yield* readState(sql, canvasName).pipe(Effect.mapError(failure("load-state")));
       });
 
       const applyFacts = Effect.fn("AutomationRepository.applyFacts")(function* (
@@ -228,22 +264,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         facts: ReadonlyArray<AutomationFact>,
       ) {
         if (facts.length === 0) return;
-        yield* transaction("apply-facts", Effect.gen(function* () {
-          const before = yield* loadState(canvasName);
-          const after = facts.reduce(applyAutomationFact, before);
-          for (const [automationId, entry] of after) {
-            if (before.get(automationId) === entry) continue;
-            const json = JSON.stringify(encodeAutomation(entry.automation));
-            yield* sql`
-              INSERT INTO automations(canvas_name, automation_id, node_id, version, archived, updated_at_epoch_ms, automation_json)
-              VALUES (${canvasName}, ${automationId}, ${entry.automation.nodeId}, ${entry.automation.version},
-                ${entry.archived ? 1 : 0}, ${entry.updatedAt}, ${json})
-              ON CONFLICT (canvas_name, automation_id) DO UPDATE SET
-                node_id = excluded.node_id, version = excluded.version, archived = excluded.archived,
-                updated_at_epoch_ms = excluded.updated_at_epoch_ms, automation_json = excluded.automation_json
-            `;
-          }
-        }));
+        yield* transaction("apply-facts", projectAutomationFacts(sql, canvasName, facts));
       });
 
       const list = Effect.fn("AutomationRepository.list")(function* (canvasName: string, nodeId: NodeId) {

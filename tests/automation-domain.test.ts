@@ -184,3 +184,28 @@ describe("toggle, archive, run", () => {
     expect(rule(emptyAutomationState(), { kind: "run" })).toMatchObject({ refusal: { reason: "unknown_target" } });
   });
 });
+
+describe("the machine an automation runs on", () => {
+  const createOp = (machine?: string): AutomationOp => ({
+    kind: "create",
+    automationId: ID,
+    enabled: true,
+    ...(machine === undefined ? {} : { machine: machine as never }),
+    definition: definition(),
+  });
+  const onMacbook = (op: AutomationOp) => ruleAutomationCommand(emptyAutomationState(), command(op), 1_000, { ...env, rulingMachine: "macbook" as never });
+
+  it("is the one a create names, else the machine that rules it", () => {
+    expect(onMacbook(createOp("mini"))).toMatchObject({ kind: "apply", facts: [{ automation: { machine: "mini" } }] });
+    expect(onMacbook(createOp())).toMatchObject({ kind: "apply", facts: [{ automation: { machine: "macbook" } }] });
+  });
+
+  it("moves with its own op, which keeps the definition, its version and enabled", () => {
+    const moved = ruled(created(), { kind: "set-machine", machine: "mini" as never });
+    const [automation] = automationsOnNode(moved, NODE);
+    expect(automation).toMatchObject({ machine: "mini", version: 1, enabled: true, name: "Standup" });
+    // An edit after the move keeps the machine.
+    const edited = ruled(moved, { kind: "edit", baseVersion: automation!.version, definition: definition(A, { name: "Later" }) });
+    expect(automationsOnNode(edited, NODE)[0]).toMatchObject({ machine: "mini", version: 2, name: "Later" });
+  });
+});
