@@ -13,11 +13,12 @@ import { WORK_TOKEN_ENV } from "../src/shared/work-control";
 
 const id = (name: string) => `inst-${name}` as InstallationId;
 const mini: AuthorityMachineFacts = { installationId: id("mini"), name: "mini", label: "Mac mini", reach: "asleep", since: Date.UTC(2026, 9, 28, 1, 12) };
+const studio: AuthorityMachineFacts = { installationId: id("studio"), name: "studio", label: "Studio", reach: "reachable", since: null };
 const book: AuthorityMachineFacts = { installationId: id("book"), name: "book", label: "MacBook", reach: "here", since: null };
 
 const data: AuthorityStatusData = {
   self: book,
-  machines: [mini, book],
+  machines: [mini, studio, book],
   canvases: [{
     canvas: "factory",
     term: 7,
@@ -65,6 +66,9 @@ describe("junto authority", () => {
     expect(canvas.list.map((machine) => machine.state)).toEqual(["Mac mini asleep since 2026-10-28T01:12:00.000Z", "this machine"]);
     expect(canvas.authority?.state).toBe("Mac mini asleep since 2026-10-28T01:12:00.000Z");
     expect(out.success.self.state).toBe("this machine");
+    expect(out.success.machines.map((machine) => machine.state)).toEqual([
+      "Mac mini asleep since 2026-10-28T01:12:00.000Z", "Studio reachable", "this machine",
+    ]);
     expect(canvas.staleSince).toBe(Date.UTC(2026, 9, 28, 1, 10));
   });
 
