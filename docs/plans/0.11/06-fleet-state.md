@@ -68,6 +68,185 @@ on its own and reconciles later), which the operator withdrew.
 The design comes to product-lead before slices land; the direction is
 already approved.
 
+## Design (remote-lead)
+
+**Headline.** One authority at a time is enforced by commit, not by clocks.
+A ruling counts only once the canvas's standbys hold it. A machine that
+lost authority but is still running can therefore rule nothing that anyone
+sees: it cannot commit. Showing that the previous authority is not ruling
+needs no lease and no clock. It follows from who must agree to a commit.
+
+### 1. Terms, commit and takeover
+
+- **The ruling log.** Everything the authority rules for a canvas goes into
+  one log, in order: every `ruling.applied` and `ruling.refused`, and every
+  `structure.changed` (section 4). Each entry carries `(term, index)`. The
+  canvas `seq` keeps counting across terms. Today's ruling transaction
+  writes the entry; the projection into resource and canvas tables happens
+  only at commit.
+- **Terms.** The authority list (Decisions) is canvas structure that only
+  the operator edits. A term is a number with one authority and the list as
+  it stood when the term began. A machine that hears a higher term stops
+  ruling at once, and from then on only follows.
+- **Commit quorum.** The listed machines vote. An entry commits when a
+  quorum of the term's list holds it durably.
+  - With three or more machines, the quorum is a majority of the list. For
+    MacBook, mini and VPS, any two rule and commit.
+  - With two machines, the fallback holds the casting vote. The preferred
+    machine commits only with the fallback's acknowledgement; the fallback
+    commits alone once it is the authority. This is the one asymmetry, and
+    it is what lets the mini rule all night. A quorum for a pair has to
+    include one fixed side, and the operator's order says which.
+  - With one machine, it commits alone, which is today's behaviour.
+- **Nothing is shown before commit.** The writer gets `applied` or `refused`
+  only at commit. Until then it reads as `queued`, a success (02, 'Editing
+  machine away'). Panes, automations, notices and the exchange read
+  committed entries only. An authority that steps down discards its
+  uncommitted tail. That tail was never shown. Its commands are still
+  unruled rows in their writers' queues, which drain to the new authority
+  (02, 'Moving the editing machine'). So the tail canvas-lead names in
+  section 4 cannot exist. A committed entry is on a quorum, and a new
+  authority is always elected from among the machines that hold the
+  committed log.
+- **Election.** A standby that hears nothing from the authority for the
+  timeout (10 s, tunable) asks for votes for term + 1. A voter grants one
+  vote per term, and only to a candidate whose log is at least as complete
+  as its own. Among candidates that are caught up, the one higher on the
+  list wins: a lower machine waits one timeout before it stands, to give a
+  higher one the first chance. The timeout affects only how fast a
+  takeover happens. Safety comes from the quorum, never from a clock, so a
+  MacBook that wakes from sleep thinking it still rules simply fails to
+  commit. It then hears the higher term and steps down.
+- **Two machines, worked.** The MacBook rules term 7 and every commit waits
+  for the mini's acknowledgement (one tailnet round trip: p50 35 ms, p90
+  about 130 ms, as measured for 02). The lid closes without a word. After
+  10 s the mini starts term 8 and commits alone with its casting vote. The
+  MacBook, asleep or partitioned, cannot commit term 7 without the mini, so
+  it rules nothing. On return it hears term 8, steps down, catches up from
+  the mini's log, and asks for authority back. The mini hands it over
+  cleanly in term 9. If the mini dies while the MacBook rules, the MacBook
+  cannot commit, its seats' writes read `queued`, and the window says the
+  mini is unreachable. The operator can bring the mini back, or run
+  `junto authority alone` on the MacBook (section 2).
+- **Three or more, worked.** MacBook, mini, VPS. The MacBook sleeps; the
+  mini and the VPS form a majority, and the mini wins because it is higher
+  on the list. If the mini also dies, the VPS alone is a third, not a
+  majority, so it waits. No pair of machines that cannot see each other can
+  both commit, because any two majorities share a machine.
+- **Clean leave.** On quit, update or sleep notice, the authority hands
+  authority to the next caught-up machine on the list in one round trip. No
+  queue needs draining, because every committed entry is already on the
+  quorum. Queued command rows from other machines move with their writers'
+  catch-up.
+- **No library decision yet.** The core is a small pure state machine (term,
+  vote, log match, commit index), driven by a deterministic simulation that
+  injects partitions, crashes, lost and reordered messages, and sleep. That
+  simulation is the release gate for this slice. tech-lead decides whether
+  an existing TypeScript Raft core fits our SQLite transactions (unverified)
+  or we write the hundred or so lines ourselves.
+
+### 2. A machine that reaches no authority
+
+- **Writes:** a seat's or an automation's write becomes a durable
+  `command.queued` row and returns `queued` with a reason ("no authority:
+  MacBook asleep since 01:12, mini unreachable"). Nothing is refused except
+  `queue_full` (02). Mail is not ruled, so it crosses or is held as today
+  (Rule 6).
+- **Reads:** local and committed, marked stale since the last commit heard.
+- **Automations:** schedules, polls, code steps, own-seat and signal
+  triggers fire as usual, and their writes queue. Task-change triggers wait
+  for commits.
+- **Window:** read-only for structure and operator commands. The banner
+  names the list and what each machine is doing.
+- **Breaking a pair:** `junto authority alone <canvas>`, an owner command
+  run on a listed machine, is the operator's statement that the other
+  machine is dead. It starts a term in which this machine commits alone. If
+  the other machine was in fact ruling, both committed. The later term wins
+  on contact; the losing term's entries after the fork are queued again as
+  commands and shown as 'ruled while another machine held authority'.
+  Nothing is dropped. This is the only path to divergence, and only the
+  operator takes it.
+
+### 3. What a fallback holds, and how it stays current
+
+A listed machine keeps the whole canvas (Rule 5's 'machine that keeps the
+whole canvas'): the committed log, every resource table, the structure
+journal with its private fields (briefings, notes, region folders and
+environment as data), automation definitions (S1), placement history, every
+mail and signal row (so it can relay), and every artifact body pulled
+eagerly, because ruling an edit needs its base. Secret values never travel;
+each machine shows which secrets it lacks (Rule 9). Standbys are current by
+construction for the log, which is synchronous to a quorum; mail, signals
+and session facts stay asynchronous rows. A page or a Files node names its
+host machine, because it has a runtime (Decisions); it does not move with
+authority.
+
+### 4. Structure
+
+Structure moves with authority, as canvas-lead's section has it, and its
+`structure.changed` entries are entries in the one log, so they commit by
+quorum like rulings. That removes the tail rule. A crashed authority holds
+no committed entry its successor lacks, and an uncommitted one was never
+shown. Stated-count re-judgment stays dropped.
+
+### 5. The operator's window off the authority
+
+The window sends each operator and structure command to the authority over
+the link, synchronously, and shows it once committed. With no authority it
+is read-only and says why. An operator command is admitted only from a
+listed machine, over a link authenticated by S5's per-opener key, and from
+the trusted window or an owner command there, never from a seat
+environment.
+
+### 6. S1 to S5
+
+All stand. S1: automations run on their own machine, unchanged. S2: their
+command rows go to whichever machine is the authority; admission ('valid
+only from the automation's machine') is unchanged. S3: firing rows go to
+the listed machines, not 'the editor'. S4: `seat.control` and its settled
+row are entitled to the seat's or automation's machine and the listed
+machines. S5: required. Listed machines link to each other over the
+tailnet, and the per-opener key proves which machine is calling. S6:
+dropped. K5: the allowance binds the canvas and the listed machines whose
+rulings it trusts.
+
+### 7. Slices, size, risk, doctrine
+
+| Slice | What | Size | Risk |
+|---|---|---|---|
+| F0 | S5 links from any end, with per-opener keys | M | medium |
+| F1 | Authority list, terms, votes, transfer, `junto authority status`; the deterministic simulation | L | high |
+| F2 | The log with quorum commit: rulings carry `(term, index)`, projection at commit, step-down discards the uncommitted tail; every ruler (task, artifact, artifact node, automation) moves to it | L | high |
+| F3 | Keepers: listed machines get the uncut canvas, eager bodies, relay rights | M | medium |
+| F4 | Structure in the log; window commands forwarded to the authority; read-only with none | L | medium |
+| F5 | No authority: queued reasons, banner, `junto authority alone` | M | low |
+| F6 | Migration: each canvas's editor becomes the list `[editor]` at term 1, so nothing changes until the operator adds fallbacks; expand only | S | low |
+
+Order: F0, F6, F1, F2, F3, F5, F4. Altogether XL. The risk sits in F1 and
+F2, and the simulation is what keeps it there. remote-verify proves each
+slice on the mini and a Linux machine: tailnet cut, `kill -9`, lid sleep,
+clock jumped both ways.
+
+Doctrine, in the commits that land each slice:
+- `machines.md`: Rule 2 (one authority at a time from the operator's list;
+  listed machines keep the whole canvas; structure moves with authority;
+  pages and Files name a host); Rule 4 (rulings and structure come from the
+  authority of the term they state; operator commands from a listed
+  machine's window); Rule 5 (listed machines keep and relay;
+  `command.queued` goes to the current authority); Rule 7 (S5); a new rule
+  for terms and quorum commit; drop the 'moving the editing machine' and
+  'editing from another window' items from Later.
+- `state-architecture.md`: Canvases (canvas commands are log entries);
+  Independent ticks (automations run on their own machine); a new section
+  for the log, terms and commit.
+- `security-doctrine.md`: Authority (listing a machine grants it the
+  canvas's authority, and a compromised listed machine can win a term; in a
+  pair, the fallback's casting vote means a compromised fallback can take
+  authority at will); Immutable work (rulings from the authority of the
+  stated term); Links (S5's keys); and `junto authority alone` as an
+  operator-only fork.
+- `0.10/07`: Runner, one per machine (S1).
+
 ## 4. Canvas structure under one authority (canvas-lead's answer)
 
 **Structure moves with authority.** Whichever machine rules a canvas also
