@@ -362,6 +362,9 @@ export const resolveTargets = (
         return { ...a, task: ref(a.task, "task", `${at}.task`), to: ref(a.to, "seat", `${at}.to`) };
       case "comment":
         return { ...a, on: ref(a.on, "subject", `${at}.on`) };
+      // A code step names no target: its source is a staged content ref.
+      case "code":
+        return a;
     }
   };
 

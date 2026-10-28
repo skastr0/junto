@@ -42,6 +42,7 @@ import { HostId } from "./remote-hosts";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
 import { RefusalReason, type Refusal } from "./resource-command";
 import { TASK_STATES } from "./task-model";
+import { ContentRef } from "./wire/content-ref";
 import { ItemId } from "./work-ids";
 
 // ── Stand-in (plan 03) ─────────────────────────────────────────────────────
@@ -87,6 +88,19 @@ export const AUTOMATION_NAME_MAX_CHARS = 120;
 export const AUTOMATION_TEXT_MAX_CHARS = 8_000;
 export const AUTOMATION_STEPS_MAX = 16;
 
+/** A code step's bounds (Code steps): its run time, its source as staged, and what it answers. */
+export const AUTOMATION_CODE_TIMEOUT_MIN_MS = 1_000;
+export const AUTOMATION_CODE_TIMEOUT_MAX_MS = 900_000;
+export const AUTOMATION_CODE_TIMEOUT_DEFAULT_MS = 60_000;
+export const AUTOMATION_CODE_SOURCE_MAX_BYTES = 256 * 1024;
+export const AUTOMATION_CODE_OUTPUT_MAX_BYTES = 65_536;
+export const AUTOMATION_CODE_FIELDS_MAX = 64;
+export const AUTOMATION_CODE_VALUE_MAX_CHARS = 8_000;
+export const AUTOMATION_CODE_MESSAGE_MAX_CHARS = 500;
+export const AUTOMATION_CODE_TAIL_MAX_CHARS = 4_096;
+/** An output field, read later as `{{code.<field>}}`. */
+export const AUTOMATION_CODE_FIELD = /^[a-z][a-z0-9_]{0,63}$/;
+
 const Bounded = (minimum: number, maximum: number) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
 const EpochMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -102,6 +116,21 @@ const isKnownTimezone = (timezone: string): boolean => {
     return false;
   }
 };
+
+export const CodeLanguage = Schema.Literals(["typescript", "shell"]);
+export type CodeLanguage = typeof CodeLanguage.Type;
+
+const CodeField = Schema.String.pipe(Schema.check(Schema.isPattern(AUTOMATION_CODE_FIELD)));
+const CodeValue = Schema.Union([
+  Schema.String.pipe(Schema.check(Schema.isMaxLength(AUTOMATION_CODE_VALUE_MAX_CHARS))),
+  Schema.Finite,
+  Schema.Boolean,
+]);
+/** What a code step answered with continue: each field becomes `{{code.<field>}}` for the steps after it. */
+export const CodeOutput = Schema.Record(CodeField, CodeValue).pipe(
+  Schema.check(Schema.makeFilter((output) => Object.keys(output).length <= AUTOMATION_CODE_FIELDS_MAX)),
+);
+export type CodeOutput = typeof CodeOutput.Type;
 
 const Cron = Schema.String.pipe(Schema.check(Schema.makeFilter((cron) => isValidCronExpression(cron))));
 const Timezone = Schema.String.pipe(Schema.check(Schema.makeFilter((timezone) => isKnownTimezone(timezone))));
@@ -188,6 +217,18 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     Schema.Struct({ kind: Schema.Literal("create-task"), node, title: Name, assign: Schema.optionalKey(ref) }),
     Schema.Struct({ kind: Schema.Literal("assign-task"), task: ref, to: ref }),
     Schema.Struct({ kind: Schema.Literal("comment"), on: commentable, anchor: Schema.optionalKey(Anchor), text: Body }),
+    /**
+     * A program run on the automation's machine (Code steps). Its source is
+     * staged content, never text in the row, so a change of code is a new
+     * ref. It continues the firing with an output, stops it, or fails it;
+     * a stop or a failure runs no later step.
+     */
+    Schema.Struct({
+      kind: Schema.Literal("code"),
+      language: CodeLanguage,
+      source: ContentRef,
+      timeoutMs: Schema.optionalKey(Bounded(AUTOMATION_CODE_TIMEOUT_MIN_MS, AUTOMATION_CODE_TIMEOUT_MAX_MS)),
+    }),
   ]);
 
   /**
@@ -230,6 +271,13 @@ export const AutomationAuthor = Schema.Union([
 ]);
 export type AutomationAuthor = typeof AutomationAuthor.Type;
 
+/** Who wrote an automation's code, and which installation ruled it. Absent `installation`: a ruler that named none, whose code no machine runs. */
+export const CodeRuling = Schema.Struct({
+  author: AutomationAuthor,
+  installation: Schema.optionalKey(InstallationId),
+});
+export type CodeRuling = typeof CodeRuling.Type;
+
 // The stored author is exactly what `automationTargets` takes, both ways.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const authorIsReachAuthor: Same<AutomationAuthor, ReachAuthor> = true;
@@ -249,6 +297,13 @@ export const Automation = Schema.Struct({
    * canvas's editing machine (`runsOn`).
    */
   machine: Schema.optionalKey(HostId),
+  /**
+   * The ruling that last set a code step's source (security doctrine, Code
+   * steps, check 3): its actor and the installation that ruled it, stamped by
+   * the ruler, never taken from the op. An edit that leaves the code alone
+   * keeps it; absent with no code step.
+   */
+  codeRuling: Schema.optionalKey(CodeRuling),
   ...stored.Definition.fields,
 });
 export type Automation = typeof Automation.Type;
@@ -337,6 +392,8 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
       return [action.task.nodeId, action.to.nodeId];
     case "comment":
       return [action.on.nodeId];
+    case "code":
+      return [];
     default:
       return action satisfies never;
   }
@@ -388,19 +445,33 @@ export const AutomationValue = Schema.Literals([
 ]);
 export type AutomationValue = typeof AutomationValue.Type;
 
+/** What `automationValuesOf` reads of a trigger, so a stored trigger and an editor draft both pass. */
+export type TriggerForValues =
+  | { readonly kind: "change"; readonly on: { readonly kind: Watch["kind"] } }
+  | { readonly kind: "schedule" | "poll" | "webhook" };
+
 /** The values a trigger carries, in the order an Insert value list shows them. */
-export const automationValuesOf = (trigger: Trigger): ReadonlyArray<AutomationValue> =>
+export const automationValuesOf = <T extends TriggerForValues>(trigger: T): ReadonlyArray<AutomationValue> =>
   trigger.kind === "change" ? [...AUTOMATION_VALUES[trigger.on.kind], ...AUTOMATION_VALUES.every] : AUTOMATION_VALUES.every;
 
-/** `{{word.word}}`, no spaces: anything else in braces is plain text. */
-const VALUE_TOKEN = /\{\{([a-z]+\.[a-z]+)\}\}/g;
+/** `{{word.word}}`, or `{{code.<field>}}`, no spaces: anything else in braces is plain text. */
+const VALUE_TOKEN = /\{\{([a-z]+\.[a-z][a-z0-9_]*)\}\}/g;
+
+/** An earlier code step's output field, as an action's text names it. */
+export type CodeValueName = `code.${string}`;
+export const isCodeValueName = (name: string): name is CodeValueName =>
+  name.startsWith("code.") && AUTOMATION_CODE_FIELD.test(name.slice("code.".length));
+
+/** Every name a value token may say: the trigger's values and the code steps' fields. */
+export type ValueName = AutomationValue | CodeValueName;
+const isValueName = (name: string): name is ValueName => Schema.is(AutomationValue)(name) || isCodeValueName(name);
 
 /** Each value name a text writes, in order, repeats kept. */
 export const valueNamesIn = (text: string): ReadonlyArray<string> => [...text.matchAll(VALUE_TOKEN)].map((match) => match[1]!);
 
 /** Each value token replaced by what `valueOf` says, in one pass, so a resolved value is never read again. */
-export const resolveValues = (text: string, valueOf: (name: AutomationValue) => string): string =>
-  text.replace(VALUE_TOKEN, (token, name: string) => (Schema.is(AutomationValue)(name) ? valueOf(name) : token));
+export const resolveValues = (text: string, valueOf: (name: ValueName) => string): string =>
+  text.replace(VALUE_TOKEN, (token, name: string) => (isValueName(name) ? valueOf(name) : token));
 
 /** The text of an action that may name values, if it has one: a new task's title, or what it writes. */
 export const actionText = (action: Action): string | undefined => {
@@ -412,17 +483,32 @@ export const actionText = (action: Action): string | undefined => {
     case "create-task":
       return action.title;
     case "assign-task":
+    case "code":
       return undefined;
     default:
       return action satisfies never;
   }
 };
 
-/** A value an action names that its trigger does not carry, refused when the automation is saved. */
+/**
+ * A value an action names that its trigger does not carry, refused when the
+ * automation is saved. `{{code.<field>}}` is carried after a code step: what
+ * fields it answers is the program's, so a field it never answered stays as
+ * written at firing time.
+ */
 export const valueRefusal = (definition: Pick<AutomationDefinition, "trigger" | "then">): Refusal | undefined => {
   const carried: ReadonlyArray<string> = automationValuesOf(definition.trigger);
+  let afterCode = false;
   for (const action of definition.then) {
-    const missing = valueNamesIn(actionText(action) ?? "").find((name) => !carried.includes(name));
+    const missing = valueNamesIn(actionText(action) ?? "").find((name) => !carried.includes(name) && !(afterCode && isCodeValueName(name)));
+    if (action.kind === "code") afterCode = true;
+    if (missing !== undefined && isCodeValueName(missing)) {
+      return {
+        reason: "invalid_input",
+        message: `no code step before this one answers {{${missing}}}`,
+        next_step: "Put a code step before it, or name only the values its trigger carries",
+      };
+    }
     if (missing !== undefined) {
       return {
         reason: "invalid_input",
@@ -462,11 +548,35 @@ export const SKIP_REASONS = [
 export const SkipReason = Schema.Literals(SKIP_REASONS);
 export type SkipReason = typeof SkipReason.Type;
 
-/** One action's ruling, by its index in `then`. `queued` waits on the editing machine (02). */
+const StepIndex = Bounded(0, AUTOMATION_STEPS_MAX - 1);
+
+/**
+ * One action's ruling, by its index in `then`. `queued` waits on the editing
+ * machine (02). A code step that ran is `continued` with its output,
+ * `stopped`, or `failed`: `timeout`, `too_large`, `output_carries_secret`
+ * or the program's own words. On a failure `logTail` is the end of what it
+ * wrote, stdout and stderr together, scrubbed of secrets. A code step
+ * not admitted to run is `refused` (`not_permitted`, `not_available`).
+ */
 export const ActionRuling = Schema.Union([
-  Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("applied") }),
-  Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("queued") }),
-  Schema.Struct({ index: Bounded(0, AUTOMATION_STEPS_MAX - 1), ruling: Schema.Literal("refused"), reason: RefusalReason }),
+  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("applied") }),
+  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("queued") }),
+  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("refused"), reason: RefusalReason }),
+  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("continued"), output: CodeOutput, durationMs: Count }),
+  Schema.Struct({
+    index: StepIndex,
+    ruling: Schema.Literal("stopped"),
+    reason: Schema.optionalKey(Text(AUTOMATION_CODE_MESSAGE_MAX_CHARS)),
+    durationMs: Count,
+  }),
+  Schema.Struct({
+    index: StepIndex,
+    ruling: Schema.Literal("failed"),
+    message: Text(AUTOMATION_CODE_MESSAGE_MAX_CHARS),
+    exitCode: Schema.optionalKey(Schema.Int),
+    logTail: Schema.optionalKey(Text(AUTOMATION_CODE_TAIL_MAX_CHARS)),
+    durationMs: Count,
+  }),
 ]);
 export type ActionRuling = typeof ActionRuling.Type;
 
@@ -527,14 +637,17 @@ export const AutomationListRequest = Schema.Struct({ nodeId: NodeId });
 export type AutomationListRequest = typeof AutomationListRequest.Type;
 /**
  * What an automation's newest firing came to, for the card: `failed` is a
- * firing that ran and had an action refused. Skipped (a limit) is not failed.
+ * firing that ran and had an action refused or a code step fail. Skipped (a
+ * limit) is not failed, and neither is a code step that stopped it.
  */
 export const LAST_OUTCOMES = ["claimed", "fired", "failed", "skipped"] as const;
 export const LastOutcome = Schema.Literals(LAST_OUTCOMES);
 export type LastOutcome = typeof LastOutcome.Type;
 
 export const lastOutcomeOf = (outcome: FiringOutcome): LastOutcome =>
-  outcome.kind === "fired" && outcome.actions.some((action) => action.ruling === "refused") ? "failed" : outcome.kind;
+  outcome.kind === "fired" && outcome.actions.some((action) => action.ruling === "refused" || action.ruling === "failed")
+    ? "failed"
+    : outcome.kind;
 
 /** `lastOutcomes` is keyed by automation id; an automation that never fired has no key. */
 export const AutomationListResponse = Schema.Struct({
@@ -567,6 +680,28 @@ export type AutomationApplyRequest = typeof AutomationApplyRequest.Type;
 /** Applied (the head it left, absent once archived) or refused with its reason; never queued (apply.ts). */
 export type AutomationApplyResponse =
   | { readonly kind: "applied"; readonly automation?: Automation }
+  | { readonly kind: "refused"; readonly refusal: Refusal };
+
+/**
+ * A code step's program put in the content store: the editor puts it on save,
+ * then saves the automation naming the ref. Text, never a path.
+ */
+export const AutomationCodePutRequest = Schema.Struct({
+  text: Schema.String.pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.makeFilter((text) => new TextEncoder().encode(text).byteLength <= AUTOMATION_CODE_SOURCE_MAX_BYTES)),
+  ),
+});
+export type AutomationCodePutRequest = typeof AutomationCodePutRequest.Type;
+export type AutomationCodePutResponse =
+  | { readonly kind: "put"; readonly ref: ContentRef }
+  | { readonly kind: "refused"; readonly refusal: Refusal };
+
+/** A code step's program read back as text, from this machine's content store. */
+export const AutomationCodeReadRequest = Schema.Struct({ ref: ContentRef });
+export type AutomationCodeReadRequest = typeof AutomationCodeReadRequest.Type;
+export type AutomationCodeReadResponse =
+  | { readonly kind: "read"; readonly text: string }
   | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /** Sent to every window after a committed change to a node's automations. */

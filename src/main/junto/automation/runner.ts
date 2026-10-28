@@ -23,6 +23,7 @@ import { Effect } from "effect";
 import {
   type Action,
   type ActionRuling,
+  type CodeOutput,
   type Automation,
   type AutomationId,
   type Condition,
@@ -123,8 +124,15 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     if (claim._tag === "Duplicate") return undefined;
     if (decision.kind !== "fire") return firing;
     const actions: Array<ActionRuling> = [];
+    // What the code steps so far answered: `{{code.<field>}}` for the steps after them, the later field winning.
+    let code: CodeOutput = {};
     for (const [index, action] of automation.then.entries()) {
-      actions.push(yield* ports.perform(canvasName, automation, action, index, firing.firingId, { event, at: now }));
+      const ruled = yield* ports.perform(canvasName, automation, action, index, firing.firingId, { event, at: now, cause: cause.kind, code });
+      actions.push(ruled);
+      if (action.kind !== "code") continue;
+      // A code step that stopped, failed or was not admitted runs no later step.
+      if (ruled.ruling !== "continued") break;
+      code = { ...code, ...ruled.output };
     }
     const outcome = { kind: "fired", actions } as const;
     yield* repository.settleFiring(canvasName, firing, outcome);

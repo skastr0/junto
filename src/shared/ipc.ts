@@ -96,6 +96,10 @@ import type { WireTrafficEvent } from "./wire-traffic";
 import type {
   AutomationApplyRequest,
   AutomationApplyResponse,
+  AutomationCodePutRequest,
+  AutomationCodePutResponse,
+  AutomationCodeReadRequest,
+  AutomationCodeReadResponse,
   AutomationFiringsRequest,
   AutomationFiringsResponse,
   AutomationListRequest,
@@ -336,6 +340,8 @@ export const IPC_CHANNELS = {
   automationList: "junto:automation-list",
   automationFirings: "junto:automation-firings",
   automationApply: "junto:automation-apply",
+  automationCodePut: "junto:automation-code-put",
+  automationCodeRead: "junto:automation-code-read",
   automationsChanged: "junto:automations-changed",
   workMailChanged: "junto:work-mail-changed",
   // browser work surface (partitioned WebContentsView sessions)
@@ -902,6 +908,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly automationList: (canvas: string, request: AutomationListRequest) => Promise<AutomationListResponse>;
   readonly automationFirings: (canvas: string, request: AutomationFiringsRequest) => Promise<AutomationFiringsResponse>;
   readonly automationApply: (canvas: string, request: AutomationApplyRequest) => Promise<AutomationApplyResponse>;
+  readonly automationCodePut: (canvas: string, request: AutomationCodePutRequest) => Promise<AutomationCodePutResponse>;
+  readonly automationCodeRead: (canvas: string, request: AutomationCodeReadRequest) => Promise<AutomationCodeReadResponse>;
   readonly onAutomationsChanged: (listener: (event: AutomationsChanged) => void) => () => void;
   readonly workMailPage: (query: WorkMailQuery) => Promise<WorkMailPage>;
   readonly onWorkMailChanged: (listener: (event: WorkMailChanged) => void) => () => void;

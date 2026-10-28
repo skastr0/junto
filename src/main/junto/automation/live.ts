@@ -26,7 +26,7 @@ import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
 import { TASK_TITLE_MAX, type TaskId, type TaskState } from "@shared/task-model";
 import type { SeatTask } from "@shared/seat-task-index";
-import { FiringId, resolveValues, valueNamesIn } from "@shared/automation";
+import { automationValuesOf, FiringId, resolveValues, valueNamesIn } from "@shared/automation";
 import { mailExtensionMetadata } from "@shared/crew";
 import { automationActorRef, AutomationNodeId } from "@shared/mail-author";
 import { automationSenderStamp } from "@shared/mail-sender";
@@ -38,8 +38,10 @@ import { WorkService, type WorkServiceShape } from "../work/service";
 import { postSubjectComment } from "../work/subject-comment";
 import { subjectPeopleAt } from "../work/subject-people";
 import type { SubjectCommentInput } from "@shared/subject-comment";
-import { RefusalReason as RefusalReasonSchema, type RefusalReason } from "@shared/resource-command";
+import { RefusalReason as RefusalReasonSchema, refusalError, type RefusalReason } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
+import type { QueuedCommand } from "@shared/command-row";
+import { ResourceSubmit, type QueuedOutcome } from "../work/resource-submit";
 import { ItemId, OpId } from "@shared/work-ids";
 import type { InstallationId } from "@shared/installation-id";
 import type { NodeId } from "@shared/physics/schema";
@@ -61,6 +63,7 @@ import { makeAutomationRunner, type RunnerPorts } from "./runner";
 import { SeatStateSource } from "./seat-state-source";
 import type { SeatStateFiring } from "@shared/seat-state-trigger";
 import { type Fired, type FiredReads, firedValue } from "./values";
+import { AutomationCodeRunner, runCodeStep } from "./code-step";
 
 /** How often the loop looks for due slots: cron and poll slots are minutes apart. */
 export const AUTOMATION_TICK = Duration.seconds(15);
@@ -234,18 +237,25 @@ const refusalReasonOf = (error: WorkErrorBody): RefusalReason => {
   return error.type === "UnknownTarget" ? "unknown_target" : "invalid_input";
 };
 
-/** What a task action needs: the task store and this machine as the writer. The notices a ruling owes are written with it. */
+/**
+ * What a task action needs: the task store and this machine as the writer.
+ * The notices a ruling owes are written with it. Off the machine that rules
+ * the canvas, `queue` proposes the write as this machine's `command.queued`
+ * row instead (S2), ruled there with the automation's author's reach.
+ */
 export type TaskPort = {
   readonly repository: TaskRepository["Service"];
   readonly writer: Effect.Effect<InstallationId, unknown>;
+  readonly queue?: (command: QueuedCommand) => Effect.Effect<QueuedOutcome, WorkErrorBody>;
 };
 
 type TaskWrite = { readonly opId: OpId; readonly nodeId: NodeId; readonly taskId: ItemId; readonly wire: TaskCommandWire };
 
 /**
  * One task command as the automation, ruled here on the editing machine with
- * the automation's own reach (its author's). Undefined when it applied; the
- * refusal's reason otherwise.
+ * the automation's own reach (its author's), or queued for that machine from
+ * any other. Undefined when it applied, `queued` while it waits for its
+ * ruling, the refusal's reason otherwise.
  */
 const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automation: Automation, write: TaskWrite) =>
   Effect.gen(function* () {
@@ -253,6 +263,26 @@ const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automati
     if (!checked.ok) return checked.refusal.reason;
     const author = (node: NodeId) => (node === automation.nodeId ? automation.author : undefined);
     const actor = { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId } as const;
+    if (port.queue !== undefined) {
+      const queued = yield* port.queue({
+        opId: write.opId,
+        canvasName,
+        actor,
+        target: { kind: "task", nodeId: write.nodeId, itemId: write.taskId },
+        basis: null,
+        after: [],
+        op: write.wire as QueuedCommand["op"],
+      }).pipe(Effect.result);
+      if (queued._tag === "Failure") return refusalReasonOf(queued.failure);
+      switch (queued.success.kind) {
+        case "applied":
+          return undefined as RefusalReason | "queued" | undefined;
+        case "queued":
+          return "queued" as const;
+        case "refused":
+          return refusalReasonOf(queued.success.error);
+      }
+    }
     const outcome = yield* port.repository.submit(
       yield* port.writer,
       {
@@ -269,12 +299,12 @@ const submitTask = (port: TaskPort, canvas: Canvas, canvasName: string, automati
     );
     if (outcome.kind === "refused") return refusalReasonOf(outcome.error);
     if (!outcome.replay) noteResourceChanged("task", canvasName);
-    return undefined as RefusalReason | undefined;
+    return undefined as RefusalReason | "queued" | undefined;
   });
 
-/** An action's ruling from the refusal reason of its last write, if any. */
-const ruledAs = (index: number, reason: RefusalReason | undefined): ActionRuling =>
-  reason === undefined ? { index, ruling: "applied" } : { index, ruling: "refused", reason };
+/** An action's ruling from its last write: applied, queued for the ruling machine, or the refusal's reason. */
+const ruledAs = (index: number, reason: RefusalReason | "queued" | undefined): ActionRuling =>
+  reason === undefined ? { index, ruling: "applied" } : reason === "queued" ? { index, ruling: "queued" } : { index, ruling: "refused", reason };
 
 /** One action, performed as the automation. Never fails: a refusal is a ruling. */
 export const performAction = (
@@ -288,6 +318,8 @@ export const performAction = (
   firingId: FiringId,
   /** The action's text with its `{{name}}` values said as this firing says them. */
   resolve: (text: string) => Effect.Effect<string> = Effect.succeed,
+  /** Whether this machine rules the canvas; a comment is written only there until threads cross. */
+  rules: boolean = true,
 ) =>
   Effect.gen(function* () {
     switch (action.kind) {
@@ -319,6 +351,8 @@ export const performAction = (
       case "comment": {
         // A comment on the whole resource; a place on it waits for the plan 03 anchors.
         if (canvas === undefined || (action.anchor !== undefined && action.anchor.kind !== "whole")) return notAvailable(index);
+        // Threads do not cross machines yet: off the ruling machine a comment is not available.
+        if (!rules) return notAvailable(index);
         const input = commentOn(action.on, {
           text: yield* resolve(action.text),
           actor: { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId },
@@ -344,7 +378,8 @@ export const performAction = (
           // A title its values made longer than a task title may be is cut to fit.
           wire: { kind: "create", taskId, title: [...(yield* resolve(action.title))].slice(0, TASK_TITLE_MAX).join("") },
         });
-        if (created !== undefined || action.assign === undefined) return ruledAs(index, created);
+        // A queued create is followed by its assign, which builds on it (`after`) where both are ruled.
+        if ((created !== undefined && created !== "queued") || action.assign === undefined) return ruledAs(index, created);
         // The task stands; an assign it could not make is this action's refusal.
         if (action.assign.kind !== "seat") return { index, ruling: "refused", reason: "invalid_input" } as const;
         const assigned = yield* submitTask(tasks.value, canvas, canvasName, automation, {
@@ -353,7 +388,7 @@ export const performAction = (
           taskId,
           wire: { kind: "assign", seat: action.assign.nodeId },
         });
-        return ruledAs(index, assigned);
+        return ruledAs(index, assigned === undefined && created === "queued" ? "queued" : assigned);
       }
       case "assign-task": {
         if (canvas === undefined || Option.isNone(tasks)) return notAvailable(index);
@@ -366,6 +401,9 @@ export const performAction = (
         });
         return ruledAs(index, assigned);
       }
+      // A code step is run by the runner's own port (performCode), never here.
+      case "code":
+        return notAvailable(index);
     }
   });
 
@@ -397,6 +435,7 @@ export const AutomationRunnerLive = Layer.effect(
     // With the runtime seat-state source, seat changes are its firings; without it, the task index says them.
     const seatStates = yield* Effect.serviceOption(SeatStateSource);
     const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
+    const codeRunner = yield* Effect.serviceOption(AutomationCodeRunner);
     // The comments each Artifacts node holds: rows whose thread subject is one
     // of its artifacts. A node whose mailbox could not be read is named in
     // `unread`, never taken as holding none.
@@ -439,6 +478,15 @@ export const AutomationRunnerLive = Layer.effect(
         Effect.orElseSucceed(() => [] as ReadonlyArray<ArtifactVersionRow>),
       );
     };
+    // Off the machine that rules the canvas, a task write is this machine's `command.queued` row.
+    // With no queue here, or when this machine rules the canvas after all, it is not available this time.
+    const notQueued = refusalError({ reason: "not_available", message: "This write cannot be proposed from this machine now" });
+    const submit = yield* Effect.serviceOption(ResourceSubmit);
+    const queueFor = (canvasName: string) => (command: QueuedCommand): Effect.Effect<QueuedOutcome, WorkErrorBody> =>
+      Option.isNone(submit)
+        ? Effect.fail(notQueued)
+        : Effect.flatMap(submit.value.route(canvasName), (route) =>
+            route.kind === "here" ? Effect.fail(notQueued) : submit.value.queue(command, route.editor));
     const tasks: Option.Option<TaskPort> = Option.isSome(taskStore) && Option.isSome(machines)
       ? Option.some({
           repository: taskStore.value,
@@ -488,17 +536,49 @@ export const AutomationRunnerLive = Layer.effect(
         const state = yield* repository.loadState(canvasName).pipe(Effect.orElseSucceed(() => new Map()));
         return [...state.values()].some((entry) => !entry.archived && runsHere(canvasName, entry.automation));
       });
+    // A code step's run: its values as text, and the region's environment here.
+    const performCode = (canvasName: string, automation: Automation, step: Extract<Action, { readonly kind: "code" }>, index: number, firingId: FiringId, fired: Fired) =>
+      Effect.gen(function* () {
+        const canvas = canvases.get(canvasName);
+        const reads = yield* firedReads(canvasName, fired);
+        const values: Record<string, string> = {};
+        for (const name of automationValuesOf(automation.trigger)) {
+          const value = firedValue(name, fired, reads, canvas, canvasName);
+          if (value !== undefined) values[name] = value;
+        }
+        for (const [field, value] of Object.entries(fired.code ?? {})) values[`code.${field}`] = String(value);
+        const machine = here.get(canvasName)?.machine;
+        if (canvas === undefined || machine === undefined) return notAvailable(index);
+        const { resolveRegionEnvironment } = yield* Effect.promise(() => import("../region-env/live"));
+        const { env } = yield* Effect.promise(() => resolveRegionEnvironment(canvas, automation.nodeId, machine));
+        return yield* runCodeStep(Option.getOrUndefined(codeRunner), {
+          canvasName,
+          automation,
+          step,
+          index,
+          firingId,
+          at: fired.at,
+          cause: fired.cause ?? "run",
+          event: fired.event ?? null,
+          values,
+          env,
+        });
+      }).pipe(Effect.catchCause(() => Effect.succeed(notAvailable(index))));
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       runsHere,
       holds: (canvasName, condition) => conditionHolds(condition, views.get(canvasName) ?? EMPTY_VIEW),
       // Until mail and commands are valid from an automation's own machine (S2), only the editing machine acts.
+      // A code step runs on the automation's own machine, which is here: it writes nothing another machine judges.
       perform: (canvasName, automation, action, index, firingId, fired) =>
-        here.get(canvasName)?.edits !== true ? Effect.succeed(notAvailable(index)) : performAction(work, tasks, canvases.get(canvasName), canvasName, automation, action, index, firingId, (text) =>
+        action.kind === "code" ? performCode(canvasName, automation, action, index, firingId, fired)
+        // An automation acts from its own machine (S2): mail goes out from here, and a task write is
+        // ruled here when this machine rules the canvas, or proposed to the machine that does.
+        : performAction(work, here.get(canvasName)?.edits === true ? tasks : Option.map(tasks, (task) => ({ ...task, queue: queueFor(canvasName) })), canvases.get(canvasName), canvasName, automation, action, index, firingId, (text) =>
           valueNamesIn(text).length === 0
             ? Effect.succeed(text)
             : Effect.map(firedReads(canvasName, fired), (reads) =>
-                resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName) ?? `{{${name}}}`))).pipe(
+                resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName) ?? `{{${name}}}`)), here.get(canvasName)?.edits === true).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
         ),
       mintFiringId: () => FiringId.make(ulid()),

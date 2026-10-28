@@ -16,6 +16,7 @@ import { RulingRecorderLive } from "./junto/work/ruling-recorder";
 import { ResourceRulerLive } from "./junto/work/resource-ruler";
 import { makeAutomationRepositoryLive } from "./junto/automation/repository";
 import { AutomationRunnerLive, AutomationRunnerLoopLive } from "./junto/automation/live";
+import { AutomationCodeRunnerLive } from "./junto/automation/code-step";
 import { SeatStateSourceLive } from "./junto/automation/seat-state-source";
 import { ReferencesRepositoryLive } from "./junto/references/repository";
 import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
@@ -92,7 +93,7 @@ export const makeCoreProductLayer = (home: string) => {
       // with the seat-state firings its seat triggers read.
       Layer.provideMerge(
         AutomationRunnerLoopLive,
-        Layer.provideMerge(AutomationRunnerLive, Layer.merge(WorkLive, SeatStateSourceLive)),
+        Layer.provideMerge(AutomationRunnerLive, Layer.mergeAll(WorkLive, SeatStateSourceLive, AutomationCodeRunnerLive)),
       ),
       CanvasControlQueries.layer,
       Layer.provideMerge(NativeConfigLive, HarnessInventoryLive),

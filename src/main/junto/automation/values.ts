@@ -6,7 +6,7 @@
  * `{{x}}`. A value the firing does not carry (a `run` of a change
  * automation has no change) stays as written.
  */
-import type { AutomationValue } from "@shared/automation";
+import { isCodeValueName, type CodeOutput, type FiringCause, type ValueName } from "@shared/automation";
 import { mentionLink, type MentionRef } from "@shared/mention";
 import type { Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
@@ -14,8 +14,14 @@ import type { NodeId } from "@shared/physics/schema";
 import type { TaskView } from "@shared/task-model";
 import type { ChangeEvent } from "./plan";
 
-/** The change that fired an automation, if a change did, and when it fired. */
-export type Fired = { readonly event?: ChangeEvent; readonly at: number };
+/** The change that fired an automation, if a change did, when it fired, and what its code steps so far answered. */
+export type Fired = {
+  readonly event?: ChangeEvent;
+  readonly at: number;
+  /** Why it fired; a code step's input says it. */
+  readonly cause?: FiringCause["kind"];
+  readonly code?: CodeOutput;
+};
 
 /** What the firing's task or artifact reads as, fetched once for its actions. */
 export type FiredReads = { readonly task?: TaskView; readonly artifactTitle?: string };
@@ -39,12 +45,16 @@ const seatLink = (canvas: Canvas | undefined, canvasName: string, seat: NodeId):
 
 /** Each value as this firing says it, or undefined when the firing does not carry it. */
 export const firedValue = (
-  name: AutomationValue,
+  name: ValueName,
   fired: Fired,
   reads: FiredReads,
   canvas: Canvas | undefined,
   canvasName: string,
 ): string | undefined => {
+  if (isCodeValueName(name)) {
+    const value = fired.code?.[name.slice("code.".length)];
+    return value === undefined ? undefined : String(value);
+  }
   if (name === "fired.at") return new Date(fired.at).toISOString();
   const event = fired.event;
   switch (event?.kind) {

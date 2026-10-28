@@ -144,6 +144,13 @@ that runs it.
 | K5 doctrine: code authored on one machine, run on another; overseer authorship | remote-lead | tech-lead |
 | Verify: a code step on the mini, triggered from the MacBook's canvas | product-verify | |
 
+### K1 contract (automation-lead)
+
+- **The step.** A member of `then`: `{kind: "code", language: "typescript" | "shell", source: ContentRef, timeoutMs?}`, 1 s to 15 min, 60 s by default (`src/shared/automation.ts`). The window puts the program with `automationCodePut {text}` (at most 256 KiB) and reads it back with `automationCodeRead {ref}`, both as text.
+- **Who wrote it.** `codeRuling {author, installation}` on the automation is the ruling that last set a code step's source, stamped by the ruler (`codeRulingAfter`, `automation-domain.ts`). An edit that keeps the code keeps it, whoever edits the rest; when new code joins an overseer's, the overseer's name stays. The runner's `author` and `rulingInstallation` come only from it.
+- **The run.** The input is `{automation, firing, trigger, event, values}`, as JSON (`code-step.ts`). The answer is a ruling: `continued {output}` makes each field `{{code.<field>}}` for the later steps; `stopped {reason?}` and `failed {message, exitCode?, logTail?}` run no later step, and only a failure fails the firing. A run that is not admitted is `refused` (`not_permitted`, `not_available`). A code step runs on the automation's machine before S2, because it writes nothing another machine judges.
+- **Open.** A code ref's bytes reaching the automation's machine (content entitlement, K5 and S2).
+
 Prism (`../prism`, read 2026-10-28): every workflow task is an agent run
 (`src/workflows.ts:592`); `prism workflow run` prints JSON and exits non-zero
 on a failed task, and has no input flag (`src/cli.ts:829`).

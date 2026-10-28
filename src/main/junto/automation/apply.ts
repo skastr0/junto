@@ -106,7 +106,8 @@ export const applyAutomationCommand = (command: ResourceCommand<AutomationOp>) =
     const canvas = yield* (yield* ModelService).canvas(name);
     const machines = yield* Effect.serviceOption(MachineRepository);
     const machine = Option.isSome(machines) ? yield* machines.value.machineName.pipe(Effect.option) : Option.none<string>();
-    const env = automationEnvOf(canvas, Option.getOrUndefined(machine));
+    // The ruling installation is stamped on any code this ruling sets (Code steps, check 3).
+    const env = { ...automationEnvOf(canvas, Option.getOrUndefined(machine)), rulingInstallation: writer.value };
     const outcome = yield* submitAutomationCommand(writer.value, command, rulingContextOf(canvas, () => undefined), env);
     if (outcome.kind === "refused") return outcome;
     // An applied run fires now, so its firing is in the history read next, when it runs on this machine.

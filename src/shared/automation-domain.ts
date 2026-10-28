@@ -21,6 +21,7 @@ import {
   Automation,
   type AutomationAuthor,
   AutomationDefinition,
+  CodeRuling,
   AutomationId,
   type AutomationOp,
   AutomationVersion,
@@ -31,6 +32,7 @@ import {
 } from "./automation";
 import { NodeId } from "./physics/schema";
 import { HostId } from "./remote-hosts";
+import type { InstallationId } from "./installation-id";
 import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
 
 /** One automation as the ruler holds it. */
@@ -57,6 +59,8 @@ export const AutomationFact = Schema.Union([
     automationId: AutomationId,
     version: AutomationVersion,
     definition: AutomationDefinition,
+    /** The ruling its code stands on after this edit (`codeRulingAfter`); absent when it has no code step. */
+    codeRuling: Schema.optionalKey(CodeRuling),
     at: At,
   }),
   Schema.Struct({ fact: Schema.Literal("automation.enabled"), automationId: AutomationId, enabled: Schema.Boolean, at: At }),
@@ -82,6 +86,8 @@ export type AutomationEnv = {
   readonly isOverseer: (seat: NodeId) => boolean;
   /** The ruling machine's short name: a create that names no machine runs here. Absent, it names none. */
   readonly rulingMachine?: HostId;
+  /** The ruling installation, stamped on the code a ruling sets. */
+  readonly rulingInstallation?: InstallationId;
 };
 
 const refuse = (refusal: Refusal): DomainVerdict<AutomationFact> => ({ kind: "refuse", refusal });
@@ -132,15 +138,50 @@ const definitionRefusal = (
 };
 
 /** A whole-definition replace: a field the new definition leaves out (`when`) is gone; `enabled` stays. */
-const replaced = (automation: Automation, definition: AutomationDefinition, version: AutomationVersion): Automation => ({
+const replaced = (
+  automation: Automation,
+  definition: AutomationDefinition,
+  version: AutomationVersion,
+  codeRuling: CodeRuling | undefined,
+): Automation => ({
   automationId: automation.automationId,
   nodeId: automation.nodeId,
   author: automation.author,
   version,
   enabled: automation.enabled,
   ...(automation.machine === undefined ? {} : { machine: automation.machine }),
+  ...(codeRuling === undefined ? {} : { codeRuling }),
   ...definition,
 });
+
+/** Each code step's program, by language and digest. */
+const programsOf = (then: AutomationDefinition["then"]): ReadonlySet<string> =>
+  new Set(then.flatMap((action) => (action.kind === "code" ? [`${action.language}:${action.source.sha256}`] : [])));
+
+/**
+ * The ruling an automation's code stands on once a ruling by `author` on
+ * `installation` applies (security doctrine, Code steps, check 3). Code left
+ * as it was keeps the ruling that set it, whoever edits the rest; new code
+ * is this ruling's. When new code joins code someone else wrote, a seat's
+ * name stays, so an operator's edit never vouches for an overseer's program.
+ */
+export const codeRulingAfter = (
+  before: Pick<Automation, "then" | "codeRuling"> | undefined,
+  then: AutomationDefinition["then"],
+  author: AutomationAuthor,
+  installation: InstallationId | undefined,
+): CodeRuling | undefined => {
+  const programs = programsOf(then);
+  if (programs.size === 0) return undefined;
+  const held = before === undefined ? new Set<string>() : programsOf(before.then);
+  const kept = [...programs].some((program) => held.has(program));
+  const added = [...programs].some((program) => !held.has(program));
+  const earlier = before?.codeRuling;
+  const now: CodeRuling = { author, ...(installation === undefined ? {} : { installation }) };
+  if (!added) return earlier ?? now;
+  if (!kept || earlier === undefined) return now;
+  return author.kind === "seat" ? now : earlier;
+};
 
 /** The domain. `now` stamps facts; the ruler passes the editing machine's clock, the overlay its own. */
 export const automationDomain = (
@@ -182,6 +223,7 @@ export const ruleAutomationCommand = (
     if (state.has(op.automationId)) {
       return refuse({ reason: "invalid_input", message: `automation ${op.automationId} already exists` });
     }
+    const codeRuling = codeRulingAfter(undefined, op.definition.then, author, env.rulingInstallation);
     const automation: Automation = {
       automationId: op.automationId,
       nodeId: target.nodeId,
@@ -189,6 +231,7 @@ export const ruleAutomationCommand = (
       version: FIRST_AUTOMATION_VERSION,
       enabled: op.enabled,
       ...((op.machine ?? env.rulingMachine) === undefined ? {} : { machine: op.machine ?? env.rulingMachine }),
+      ...(codeRuling === undefined ? {} : { codeRuling }),
       ...op.definition,
     };
     const refusal = definitionRefusal(automation, targetsOf);
@@ -220,10 +263,18 @@ export const ruleAutomationCommand = (
       }
       // The creator stays the author, and a seat's edit must also fit its own
       // targets: the definition sits inside both, so an edit widens no one.
-      const edited = replaced(entry.automation, op.definition, AutomationVersion.make(head + 1));
+      const codeRuling = codeRulingAfter(entry.automation, op.definition.then, author, env.rulingInstallation);
+      const edited = replaced(entry.automation, op.definition, AutomationVersion.make(head + 1), codeRuling);
       const refusal = definitionRefusal(edited, targetsOf, author);
       if (refusal !== undefined) return refuse(refusal);
-      return apply({ fact: "automation.edited", automationId, version: edited.version, definition: op.definition, at });
+      return apply({
+        fact: "automation.edited",
+        automationId,
+        version: edited.version,
+        definition: op.definition,
+        ...(codeRuling === undefined ? {} : { codeRuling }),
+        at,
+      });
     }
     case "set-enabled":
       return apply({ fact: "automation.enabled", automationId, enabled: op.enabled, at });
@@ -271,7 +322,7 @@ export const applyAutomationFact = (state: AutomationState, fact: AutomationFact
           ? entry
           : {
               ...entry,
-              automation: replaced(entry.automation, fact.definition, fact.version),
+              automation: replaced(entry.automation, fact.definition, fact.version, fact.codeRuling),
               updatedAt: fact.at,
             });
     case "automation.moved":
