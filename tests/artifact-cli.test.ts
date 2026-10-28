@@ -145,6 +145,19 @@ describe("junto artifact", () => {
     expect(addEmpty.args).toMatchObject({ add: [""] });
   });
 
+  it("colours a label with one of the eight names, none unsets it, and another word is refused before anything is sent", async () => {
+    const set = await sent(["artifact", "colour", "planning", "teal", "--node", "Shelf", "--op-id", OP]);
+    expect(set.result.code, set.result.stderr).toBe(0);
+    expect(set.op).toBe("artifact.colour");
+    expect(set.args).toEqual({ opId: OP, label: "planning", colour: "teal", node: "Shelf" });
+    const unset = await sent(["artifact", "colour", "planning", "none"]);
+    expect(unset.args).toMatchObject({ label: "planning", colour: null });
+    expect(unset.args?.opId).toMatch(ULID);
+    const bad = await sent(["artifact", "colour", "planning", "mauve"]);
+    expect(bad.op).toBeUndefined();
+    expect(bad.result.code).not.toBe(0);
+  });
+
   it("refuses two bodies and JSON that does not parse, before anything is sent", async () => {
     const both = await sent(["artifact", "edit", ID, "--base", "1", "--markdown", "a", "--url", "https://x.dev"]);
     expect(both.op).toBeUndefined();

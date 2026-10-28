@@ -141,6 +141,28 @@ export const ArtifactLabelArgs = Schema.Struct({
 }).annotate(strict);
 export type ArtifactLabelArgs = typeof ArtifactLabelArgs.Type;
 
+/**
+ * The eight label colours (03, Colours), stored as names, never hex.
+ * Stand-in until C1 exports `ARTIFACT_LABEL_COLOURS` and `ArtifactLabelColour`
+ * from `artifact-labels.ts`; the names are fixed, so the swap is an import.
+ */
+export const ARTIFACT_LABEL_COLOURS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
+export const ArtifactLabelColour = Schema.Literals(ARTIFACT_LABEL_COLOURS);
+export type ArtifactLabelColour = typeof ArtifactLabelColour.Type;
+
+/**
+ * A label's colour in an Artifacts node: every artifact there that carries
+ * the label draws in it. `colour: null` unsets it. The label need not be
+ * carried yet, and nothing inherits across `/` levels.
+ */
+export const ArtifactColourArgs = Schema.Struct({
+  opId: OpId,
+  node: Schema.optionalKey(ArtifactsNodeText),
+  label: Schema.String,
+  colour: Schema.NullOr(ArtifactLabelColour),
+}).annotate(strict);
+export type ArtifactColourArgs = typeof ArtifactColourArgs.Type;
+
 /** archive and restore name one artifact. */
 export const ArtifactOneArgs = Schema.Struct({ opId: OpId, artifact: ItemId }).annotate(strict);
 export type ArtifactOneArgs = typeof ArtifactOneArgs.Type;
@@ -153,6 +175,7 @@ export const ARTIFACT_WRITE_OPS = [
   "artifact.create",
   "artifact.edit",
   "artifact.label",
+  "artifact.colour",
   "artifact.comment",
   "artifact.archive",
   "artifact.restore",
@@ -170,6 +193,7 @@ export const ARTIFACT_ARGS = {
   "artifact.create": ArtifactCreateArgs,
   "artifact.edit": ArtifactEditArgs,
   "artifact.label": ArtifactLabelArgs,
+  "artifact.colour": ArtifactColourArgs,
   "artifact.comment": ArtifactCommentArgs,
   "artifact.archive": ArtifactOneArgs,
   "artifact.restore": ArtifactOneArgs,
@@ -184,11 +208,14 @@ export const isArtifactWriteOp = (op: string): op is ArtifactWriteOp =>
 // ---------------------------------------------------------------------------
 // Results
 
-/** A list row: the head without its body. */
+/** The colour of each label set in a node that has one; a label left out has none. */
+export type ArtifactLabelColours = Readonly<Record<string, ArtifactLabelColour>>;
+
+/** A list row: the head without its body, and the colours of the labels it carries that have one. */
 export type ArtifactListItem = Pick<
   Artifact,
   "artifactId" | "nodeId" | "type" | "title" | "version" | "updatedAt" | "archived" | "labels"
->;
+> & { readonly labelColours?: ArtifactLabelColours };
 
 export type ArtifactListResult = PendingUnknown & {
   /** Each marked `pending` when one of this machine's queued writes touches it (`PendingMark`). */
@@ -208,6 +235,8 @@ export type ArtifactShowResult = PendingUnknown & {
   readonly body: unknown;
   /** What links here that this seat may read, newest first (plan 0.11, 02). */
   readonly linkedFrom: ArtifactLinkedFrom;
+  /** The colours of the labels it carries that have one in its node (03); absent when none. */
+  readonly labelColours?: ArtifactLabelColours;
 };
 
 /**
@@ -259,6 +288,15 @@ export type ArtifactWriteResult =
   | { readonly disposition: "queued"; readonly opId: OpId; readonly artifactId: ItemId };
 
 export type ArtifactDisposition = ArtifactWriteResult["disposition"];
+
+/** A colour write is on the node, so it names the label and the colour, not a version. */
+export type ArtifactColourResult = {
+  readonly disposition: "applied" | "queued";
+  readonly opId: OpId;
+  readonly nodeId: string;
+  readonly label: string;
+  readonly colour: ArtifactLabelColour | null;
+};
 
 /** A posted comment: its thread, its row, and the seats told, each once. */
 export type ArtifactCommentResult = {

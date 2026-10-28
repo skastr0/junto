@@ -20,6 +20,7 @@ import {
   emptyBody,
 } from "@shared/artifact";
 import {
+  ArtifactColourArgs,
   ArtifactCommentArgs,
   ArtifactCreateArgs,
   ArtifactEditArgs,
@@ -34,7 +35,10 @@ import {
   type ArtifactShowResult,
   type ArtifactLinkedFrom,
   ARTIFACT_LINKED_FROM_MAX,
+  type ArtifactColourResult,
   type ArtifactCommentResult,
+  type ArtifactLabelColour,
+  type ArtifactLabelColours,
   type ArtifactWriteResult,
   type BodyInput,
 } from "@shared/artifact-control";
@@ -118,9 +122,31 @@ export type ArtifactPorts = {
    * first. Absent, the head is read.
    */
   readonly queuedLabels?: (canvasName: string, artifactId: ItemId) => Effect.Effect<Option.Option<ReadonlyArray<string>>>;
+  /** The label colours set in each Artifacts node asked for (03, Colours). Absent, list and show name none. */
+  readonly labelColours?: (canvasName: string, nodeIds: ReadonlyArray<NodeId>) => Effect.Effect<ReadonlyMap<NodeId, ArtifactLabelColours>, WorkErrorBody>;
+  /**
+   * Rule `{ op: "labelColour" }` on an Artifacts node, here or queued for the
+   * editing machine, as `submit` does for an artifact. Absent until the store
+   * holds colours (C1): the verb answers not available.
+   */
+  readonly colourLabel?: (write: LabelColourWrite, context: RulingContext) => Effect.Effect<LabelColourOutcome, WorkErrorBody>;
   /** The artifacts whose head body links `target`, newest first, archived ones left out (L1). Absent, show lists none. */
   readonly bodyLinks?: (canvas: Canvas, canvasName: string, target: ArtifactLinkRef) => Effect.Effect<ReadonlyArray<LinkedFromBody>, WorkErrorBody>;
 };
+
+/** A colour write on an Artifacts node: the label folded, `colour: null` unsets it. */
+export type LabelColourWrite = {
+  readonly opId: OpId;
+  readonly canvasName: string;
+  readonly actor: ArtifactCaller["actor"];
+  readonly nodeId: NodeId;
+  readonly label: ArtifactLabel;
+  readonly colour: ArtifactLabelColour | null;
+};
+
+export type LabelColourOutcome =
+  | { readonly kind: "applied" | "queued"; readonly opId: OpId }
+  | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody };
 
 export type ArtifactCaller = {
   readonly canvas: Canvas;
@@ -336,6 +362,22 @@ const nextLabels = (
     const next = [...held, ...added].filter((label) => !removed.has(label));
     return yield* foldLabels(next, "add");
   });
+
+/** The colours of the `labels` an artifact carries that have one in its node; undefined when none do. */
+const coloursOf = (
+  colours: ReadonlyMap<NodeId, ArtifactLabelColours>,
+  nodeId: NodeId,
+  labels: ReadonlyArray<ArtifactLabel>,
+): ArtifactLabelColours | undefined => {
+  const set = colours.get(nodeId);
+  if (set === undefined) return undefined;
+  const held = labels.flatMap((label) => (set[label] === undefined ? [] : [[label, set[label]] as const]));
+  return held.length === 0 ? undefined : Object.fromEntries(held);
+};
+
+const noColours: ReadonlyMap<NodeId, ArtifactLabelColours> = new Map();
+const labelColoursOf = (caller: Pick<ArtifactCaller, "canvasName">, ports: Pick<ArtifactPorts, "labelColours">, nodeIds: ReadonlyArray<NodeId>) =>
+  ports.labelColours === undefined || nodeIds.length === 0 ? Effect.succeed(noColours) : ports.labelColours(caller.canvasName, nodeIds);
 
 const namesOf = (names: ReadonlyArray<string>): string => names.slice(0, 12).join(", ");
 
@@ -684,10 +726,15 @@ export const handleArtifactOp = (
           ...(labels === undefined || labels.length === 0 ? {} : { labels }),
         });
         const marks = yield* pendingOf(caller, ports);
+        const colours = yield* labelColoursOf(caller, ports, [...new Set(found.artifacts.map((artifact) => artifact.nodeId))]);
         return {
-          artifacts: found.artifacts.map(({ artifactId, nodeId, type, title, version, updatedAt, archived, labels }) => withPendingMark({
-            artifactId, nodeId, type, title, version, updatedAt, archived, labels,
-          }, artifactId, marks)),
+          artifacts: found.artifacts.map(({ artifactId, nodeId, type, title, version, updatedAt, archived, labels }) => {
+            const labelColours = coloursOf(colours, nodeId, labels);
+            return withPendingMark({
+              artifactId, nodeId, type, title, version, updatedAt, archived, labels,
+              ...(labelColours === undefined ? {} : { labelColours }),
+            }, artifactId, marks);
+          }),
           more: found.more,
           ...pendingUnknownOf(marks),
         } satisfies ArtifactListResult;
@@ -711,7 +758,12 @@ export const handleArtifactOp = (
         const marks = yield* pendingOf(caller, ports);
         const artifact = withPendingMark(head.artifact, head.artifact.artifactId, marks);
         const linkedFrom = yield* linkedFromOf(caller, ports, head.artifact);
-        return { artifact, version, text: artifactText(body), body, linkedFrom, ...pendingUnknownOf(marks) } satisfies ArtifactShowResult;
+        const labelColours = coloursOf(yield* labelColoursOf(caller, ports, [head.artifact.nodeId]), head.artifact.nodeId, head.artifact.labels);
+        return {
+          artifact, version, text: artifactText(body), body, linkedFrom,
+          ...(labelColours === undefined ? {} : { labelColours }),
+          ...pendingUnknownOf(marks),
+        } satisfies ArtifactShowResult;
       }
       case "artifact.history": {
         const input = yield* decode(ArtifactHistoryArgs, args);
@@ -768,6 +820,23 @@ export const handleArtifactOp = (
           op: "edit",
           edit: linked,
         }));
+      }
+      case "artifact.colour": {
+        const input = yield* decode(ArtifactColourArgs, args);
+        const node = yield* findNode(caller, ports, input.node);
+        const label = artifactLabelOf(input.label);
+        if (label === undefined) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: `${JSON.stringify(input.label)} is not a label: ${LABEL_RULE}`,
+            details: { path: "label", received: input.label, retryable: false, opId: input.opId },
+          });
+        }
+        if (ports.colourLabel === undefined) return yield* Effect.fail({ ...notBuilt, message: "label colours are not held by this build yet" });
+        const write: LabelColourWrite = { opId: input.opId, canvasName: caller.canvasName, actor: caller.actor, nodeId: node.id, label, colour: input.colour };
+        const outcome = yield* ports.colourLabel(write, rulingContext(caller));
+        if (outcome.kind === "refused") return yield* Effect.fail(withOpId(outcome.opId)(outcome.error));
+        return { disposition: outcome.kind, opId: outcome.opId, nodeId: node.id, label, colour: input.colour } satisfies ArtifactColourResult;
       }
       case "artifact.archive":
       case "artifact.restore": {

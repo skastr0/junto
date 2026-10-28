@@ -3,6 +3,7 @@ import { Effect, Option, Schema } from "effect";
 import { ARTIFACT_TYPES } from "../../shared/artifact";
 import {
   ARTIFACT_ARGS,
+  ARTIFACT_LABEL_COLOURS,
   ARTIFACT_HISTORY_LIMIT_MAX,
   ARTIFACT_LIST_LIMIT_MAX,
   type ArtifactControlOp,
@@ -22,7 +23,7 @@ import { WorkSocket } from "../core/socket";
 
 /**
  * `junto artifact` (plan 05): list, show, history, create, edit, label,
- * comment, archive and restore the artifacts on the Artifacts nodes in this
+ * colour, comment, archive and restore the artifacts on the Artifacts nodes in this
  * seat's reach. Reach admits, not edges. Every write mints its opId here, or takes
  * --op-id to retry one, and create mints the artifact's id. An edit names the
  * version it was written against with --base; a stale one is refused with
@@ -115,12 +116,13 @@ const bodyOf = (given: {
   });
 
 const DESCRIPTIONS = {
-  list: "Artifacts on every Artifacts node in this seat's reach, or on the one --node names, newest change first, each with its labels. Archived ones only with --archived. --label keeps those holding every label named, a label also matching the levels under it (project/junto matches project/junto/release).",
-  show: "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with its labels, and linkedFrom: the artifacts in reach whose body links it, and the mail and comments you can read that link it.",
+  list: "Artifacts on every Artifacts node in this seat's reach, or on the one --node names, newest change first, each with its labels and labelColours, the colours its node gives the labels that have one. Archived ones only with --archived. --label keeps those holding every label named, a label also matching the levels under it (project/junto matches project/junto/release).",
+  show: "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with its labels and their labelColours, and linkedFrom: the artifacts in reach whose body links it, and the mail and comments you can read that link it.",
   history: "An artifact's versions, newest first: who made each and whether it replaced or patched the body.",
   create: "Create an artifact on the Artifacts node in reach, or the one --node names. Documents, pads and sheets start empty; a link needs --url. [[Title]] in the body links the artifact of that title in reach, or [[<artifactId>]] when several share it.",
   edit: "Edit an artifact written against --base: replace its body (--markdown, --url or --body), or patch a pad, sheet or document (--patch). [[Title]] links as in create.",
   label: "Set an artifact's labels whole with --set (an empty --set clears them), or change them with --add and --remove. A label is 1 to 40 characters of a-z 0-9 - _ / and space, folded to lowercase; an artifact holds at most 20. A label both added and removed ends removed. Labels are not versioned: the version stays.",
+  colour: `Give a label a colour in an Artifacts node, the one in reach or the one --node names: every artifact there that carries it draws in it. ${ARTIFACT_LABEL_COLOURS.join(", ")}, or none to unset it. The label need not be carried yet, and project/junto and project/junto/release keep separate colours.`,
   comment: "Post in the artifact's thread, on the whole artifact or at --anchor: box for a pad, cells for a sheet, text for a document.",
   archive: "Archive an artifact. It takes no edits until restored.",
   restore: "Restore an archived artifact.",
@@ -257,6 +259,21 @@ const labelCommand = Command.make(
   },
 ).pipe(Command.withDescription(DESCRIPTIONS.label));
 
+const COLOUR_CHOICES = [...ARTIFACT_LABEL_COLOURS, "none"] as const;
+
+const colourCommand = Command.make(
+  "colour",
+  {
+    label: Argument.string("label").pipe(Argument.withDescription("The label, as artifact label sets it")),
+    colour: Argument.choice("colour", COLOUR_CHOICES).pipe(Argument.withDescription(`${ARTIFACT_LABEL_COLOURS.join(", ")}, or none`)),
+    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("The Artifacts node, when more than one is in reach")),
+    opId: opIdFlag,
+    timeout: timeoutFlag,
+  },
+  ({ label, colour, node, opId, timeout }) =>
+    run("artifact.colour", Effect.succeed({ label, colour: colour === "none" ? null : colour, ...present({ node }) }), opId, timeout),
+).pipe(Command.withDescription(DESCRIPTIONS.colour));
+
 const commentCommand = Command.make(
   "comment",
   {
@@ -294,6 +311,7 @@ export const artifactCommand = Command.make("artifact").pipe(
     createCommand,
     editCommand,
     labelCommand,
+    colourCommand,
     commentCommand,
     oneCommand("archive"),
     oneCommand("restore"),
@@ -311,6 +329,9 @@ export const artifactSchemas: ReadonlyArray<CommandSchemaContract> = VERBS.map((
   // A comment is a thread row, no artifact version: its receipt names the row.
   description: verb === "comment"
     ? `${DESCRIPTIONS[verb]} The CLI mints the opId (--op-id retries one). Returns applied with the threadId, the messageId and the seats notified.`
+    // A colour is the node's, not an artifact's: no version moves.
+    : verb === "colour"
+      ? `${DESCRIPTIONS[verb]} The CLI mints the opId (--op-id retries one). Returns applied, or queued while the editing machine is away, with the node, the label and the colour.`
     : isArtifactWriteOp(opOf(verb))
       ? `${DESCRIPTIONS[verb]} The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.`
       : DESCRIPTIONS[verb],
@@ -345,6 +366,8 @@ export const artifactExamples: ReadonlyArray<CommandExample> = [
     artifact: ID,
     set: ["draft", "project/junto"],
   }),
+  example("colour", "colour a label", "Every artifact on the node carrying planning draws teal.", ["planning", "teal"], { label: "planning", colour: "teal" }),
+  example("colour", "unset a colour", "none takes the colour away.", ["planning", "none", "--node", "Shelf"], { label: "planning", colour: null, node: "Shelf" }),
   example("label", "add one, remove one", "The others stay.", [ID, "--add", "shipped", "--remove", "draft"], {
     artifact: ID,
     add: ["shipped"],

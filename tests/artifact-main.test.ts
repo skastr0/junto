@@ -513,3 +513,57 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact labels in main", () => {
     expect(submitted).toHaveLength(2);
   });
 });
+
+describe.runIf(ARTIFACTS_ENABLED)("junto artifact colour in main", () => {
+  /** A stand-in for C1's colour store: the node's (label, colour) pairs, set by each ruled write. */
+  const colourPorts = () => {
+    const base = memoryPorts();
+    const colours = new Map<string, Record<string, string>>();
+    const writes: Array<Parameters<NonNullable<ArtifactPorts["colourLabel"]>>[0]> = [];
+    const ports: ArtifactPorts = {
+      ...base.ports,
+      labelColours: (_canvas, nodeIds) =>
+        Effect.succeed(new Map(nodeIds.flatMap((id) => (colours.has(id) ? [[id, colours.get(id)!] as const] : []))) as never),
+      colourLabel: (write) =>
+        Effect.sync(() => {
+          writes.push(write);
+          const set = { ...colours.get(write.nodeId) };
+          if (write.colour === null) delete set[write.label];
+          else set[write.label] = write.colour;
+          colours.set(write.nodeId, set);
+          return { kind: "applied" as const, opId: write.opId };
+        }),
+    };
+    return { ...base, ports, writes };
+  };
+
+  it("colours a label on the node in reach, folded, before any artifact carries it, and unsets it with null", () => {
+    const { ports, writes } = colourPorts();
+    expect(ok(run(ports, "artifact.colour", { opId: OP, label: " Planning ", colour: "teal" })))
+      .toEqual({ disposition: "applied", opId: OP, nodeId: "AR", label: "planning", colour: "teal" });
+    expect(writes[0]).toMatchObject({ nodeId: "AR", label: "planning", colour: "teal", actor: { kind: "seat", nodeId: "S1" } });
+    createDoc(ports, { labels: ["planning", "draft"] });
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).labelColours).toEqual({ planning: "teal" });
+    const row = ok<{ artifacts: ReadonlyArray<{ labelColours?: unknown }> }>(run(ports, "artifact.list", {})).artifacts[0];
+    expect(row?.labelColours).toEqual({ planning: "teal" });
+    ok(run(ports, "artifact.colour", { opId: OP2, label: "planning", colour: null }));
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).labelColours).toBeUndefined();
+  });
+
+  it("keeps levels apart: a parent's colour is not its child's", () => {
+    const { ports } = colourPorts();
+    ok(run(ports, "artifact.colour", { opId: OP, label: "project/junto", colour: "blue" }));
+    createDoc(ports, { labels: ["project/junto/release"] });
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).labelColours).toBeUndefined();
+  });
+
+  it("refuses a bad label or colour, a node out of reach, and a build that holds no colours", () => {
+    const { ports, writes } = colourPorts();
+    expect(failure(run(ports, "artifact.colour", { opId: OP, label: "a//b", colour: "red" }))).toMatchObject({ type: "InputError", details: { path: "label", opId: OP } });
+    expect(failure(run(ports, "artifact.colour", { opId: OP, label: "a", colour: "mauve" }))).toMatchObject({ type: "InputError" });
+    expect(failure(run(ports, "artifact.colour", { opId: OP, label: "a", colour: "red", node: "AP" }))).toMatchObject({ type: "UnknownTarget" });
+    expect(writes).toEqual([]);
+    const { ports: bare } = memoryPorts();
+    expect(failure(run(bare, "artifact.colour", { opId: OP, label: "a", colour: "red" }))).toMatchObject({ details: { reason: "not_available" } });
+  });
+});

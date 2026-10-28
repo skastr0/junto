@@ -394,6 +394,7 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "artifact.create":
     case "artifact.edit":
     case "artifact.label":
+    case "artifact.colour":
     case "artifact.comment":
     case "artifact.archive":
     case "artifact.restore":

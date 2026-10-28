@@ -84,6 +84,7 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   artifacts: [
     "artifact.create, artifact.edit — versioned, ruled by the machine that edits the canvas",
     "artifact.label — the whole label set, or labels added and removed; the version stays",
+    "artifact.colour — a label's colour in the node, one of eight names or none",
     "artifact.comment — a thread on the artifact, whole or at an anchor",
   ],
   agent: [
