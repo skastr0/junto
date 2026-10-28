@@ -54,8 +54,19 @@ import { ActionText, type ValueChoice } from "./ActionText";
 
 type TargetKind = MentionRef["kind"];
 
-const LIST_LABEL = (trigger: MentionTrigger): string =>
-  trigger === "@" ? "Seats and pages this automation may name" : "Tasks and artifacts this automation may name";
+const KIND_NOUN: Readonly<Record<TargetKind, string>> = { seat: "seats", page: "pages", task: "tasks", artifact: "artifacts" };
+const AT_KINDS: ReadonlyArray<TargetKind> = ["seat", "page"];
+
+/**
+ * The picker's list, named by the kinds it offers under the typed trigger:
+ * "Tasks this automation may name", never a kind it does not list.
+ */
+const listLabelOf = (kinds: ReadonlyArray<TargetKind>, trigger: MentionTrigger): string => {
+  const typed = kinds.filter((kind) => AT_KINDS.includes(kind) === (trigger === "@"));
+  const nouns = (typed.length > 0 ? typed : kinds).map((kind) => KIND_NOUN[kind]);
+  const words = nouns.length <= 1 ? nouns.join("") : `${nouns.slice(0, -1).join(", ")} and ${nouns.at(-1)}`;
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)} this automation may name`;
+};
 
 /** One target, picked by typing @ or #. Shows the picked one back as its chip. */
 function TargetPicker<K extends TargetKind>({
@@ -91,7 +102,7 @@ function TargetPicker<K extends TargetKind>({
       value={typing ?? written}
       canvasName={canvasName}
       candidates={offered}
-      listLabel={LIST_LABEL}
+      listLabel={(trigger) => listLabelOf(kinds, trigger)}
       noun={{ one: "target", other: "targets" }}
       maxMentions={1}
       aria-label={label}
@@ -167,19 +178,16 @@ const nodeValue = (node: NodeId): string => `node:${node}`;
 
 /**
  * Which items a task or artifact watch covers: every one in a node in reach,
- * by its name, or one item, picked. A node no longer in reach still shows,
- * named as such, so a loaded watch never reads as a different one.
+ * "in Release", or one item, "named" and picked. Each option carries its own
+ * preposition, so either reads as a sentence. A node no longer in reach still
+ * shows, named as such, so a loaded watch never reads as a different one.
  */
 function ScopeSelect({
-  label,
-  one,
   lostLabel,
   nodes,
   covered,
   onChange,
 }: {
-  readonly label: string;
-  readonly one: string;
   /** The covered node once it is out of reach, in the kind's own words. */
   readonly lostLabel: string;
   readonly nodes: ReadonlyArray<NodeChoice>;
@@ -190,12 +198,12 @@ function ScopeSelect({
   return (
     <Select
       dense
-      aria-label={label}
+      aria-label="Watch scope"
       value={covered === undefined ? ONE : nodeValue(covered)}
       options={[
-        ...nodes.map((node) => ({ value: nodeValue(node.id), label: node.title })),
-        ...(lost ? [{ value: nodeValue(covered), label: lostLabel }] : []),
-        { value: ONE, label: one },
+        ...nodes.map((node) => ({ value: nodeValue(node.id), label: `in ${node.title}` })),
+        ...(lost ? [{ value: nodeValue(covered), label: `in ${lostLabel}` }] : []),
+        { value: ONE, label: "named" },
       ]}
       onChange={(value) => onChange(value === ONE ? undefined : (value.slice("node:".length) as NodeId))}
     />
@@ -203,9 +211,9 @@ function ScopeSelect({
 }
 
 /**
- * A watch as a sentence: "a task in Release becomes done". A trigger reads
- * "becomes", a condition "is"; the trigger's "When" and the conditions'
- * "Only when" are their section's.
+ * A watch as a sentence: "a task in Release becomes done", "a task named #42
+ * becomes done". A trigger reads "becomes", a condition "is"; the trigger's
+ * "When" and the conditions' "Only when" are their section's.
  */
 function WatchFields({
   watch,
@@ -220,6 +228,8 @@ function WatchFields({
 }) {
   const kinds = conditionOnly ? (["seat", "task"] as const) : (["seat", "task", "artifact", "signal"] as const);
   const mode: WatchMode = conditionOnly ? "is" : "becomes";
+  // Named apart from the action pickers' fields in a screen reader's list of controls.
+  const stateLabel = mode === "becomes" ? "State it becomes" : "State it is in";
   /** A new task or artifact watch starts on the first node in reach, the common case, else on one item. */
   const blank = (kind: WatchDraft["kind"]): WatchDraft => {
     const watch = blankWatch(kind);
@@ -246,14 +256,14 @@ function WatchFields({
           <TargetPicker
             {...pickers}
             kinds={["seat"]}
-            label="Seat"
+            label="Seat to watch"
             placeholder="@seat"
             value={watch.seat?.kind === "seat" ? watch.seat : undefined}
             onChange={(seat) => onChange({ ...watch, seat })}
           />
           <Select
             dense
-            aria-label={mode === "becomes" ? "Becomes" : "Is"}
+            aria-label={stateLabel}
             value={watch.becomes}
             options={SEAT_BECOMES.map((state) => ({ value: state, label: seatStateWord(state, mode) }))}
             onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
@@ -262,10 +272,7 @@ function WatchFields({
       ) : null}
       {watch.kind === "task" ? (
         <>
-          <Word>in</Word>
           <ScopeSelect
-            label="Which tasks"
-            one="one task"
             lostLabel="a task board out of reach"
             nodes={pickers.boards}
             covered={watchedNode(watch.task)}
@@ -275,7 +282,7 @@ function WatchFields({
             <TargetPicker
               {...pickers}
               kinds={["task"]}
-              label="Task"
+              label="Task to watch"
               placeholder="#task"
               value={watch.task !== undefined && "kind" in watch.task && watch.task.kind === "task" ? watch.task : undefined}
               onChange={(task) => onChange({ ...watch, task })}
@@ -284,7 +291,7 @@ function WatchFields({
           <Word>{mode}</Word>
           <Select
             dense
-            aria-label={mode === "becomes" ? "Becomes" : "Is"}
+            aria-label={stateLabel}
             value={watch.becomes}
             options={TASK_BECOMES.map((state) => ({ value: state, label: taskStateWord(state) }))}
             onChange={(becomes) => onChange({ ...watch, becomes: becomes as typeof watch.becomes })}
@@ -293,10 +300,7 @@ function WatchFields({
       ) : null}
       {watch.kind === "artifact" ? (
         <>
-          <Word>in</Word>
           <ScopeSelect
-            label="Which artifacts"
-            one="one artifact"
             lostLabel="an Artifacts node out of reach"
             nodes={pickers.artifactNodes}
             covered={watchedNode(watch.artifact)}
@@ -306,7 +310,7 @@ function WatchFields({
             <TargetPicker
               {...pickers}
               kinds={["artifact"]}
-              label="Artifact"
+              label="Artifact to watch"
               placeholder="#artifact"
               value={watch.artifact !== undefined && "kind" in watch.artifact && watch.artifact.kind === "artifact" ? watch.artifact : undefined}
               onChange={(artifact) => onChange({ ...watch, artifact })}
@@ -457,6 +461,7 @@ function ActionFields({
           />
           <ActionText
             label="Mail text"
+            noun="mail"
             value={action.text}
             placeholder="What the mail says"
             values={values}
@@ -477,6 +482,7 @@ function ActionFields({
           />
           <ActionText
             label="Prompt text"
+            noun="prompt"
             value={action.text}
             placeholder="What to ask the seat to do"
             values={values}
@@ -496,6 +502,7 @@ function ActionFields({
           />
           <ActionText
             label="Task title"
+            noun="task's title"
             multiline={false}
             value={action.title}
             placeholder="Task title"
@@ -549,6 +556,7 @@ function ActionFields({
           />
           <ActionText
             label="Comment text"
+            noun="comment"
             value={action.text}
             placeholder="What the comment says"
             values={values}
