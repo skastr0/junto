@@ -124,7 +124,11 @@ export function ArtifactsNode({
   const visible = useMemo(() => visibleArtifacts(entries, filter), [entries, filter]);
   const choices = useMemo(() => labelChoices(entries, filter), [entries, filter]);
   const used = useMemo(() => labelsInNode(entries), [entries]);
-  const colours = useLabelColours(canvasName, nodeId);
+  // A colour is one op on the node: its refusal or its queue is said as any other op's.
+  const colours = useLabelColours(canvasName, nodeId, (outcome) => {
+    setError(outcome.kind === "refused" ? outcome.error.message : null);
+    if (outcome.kind === "queued") setQueued(true);
+  });
   const selected = entries.find((entry) => entry.artifact.artifactId === selectedId) ?? visible[0] ?? null;
   const archivedCount = entries.filter((entry) => entry.artifact.archived).length;
 

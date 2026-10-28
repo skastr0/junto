@@ -7,9 +7,14 @@ import { ArtifactLabelChips, ArtifactLabelFilter } from "../src/renderer/compone
 import {
   type ArtifactLabelColour,
   type LabelColours,
+  labelColoursMap,
   labelColourWords,
   useLabelColours,
 } from "../src/renderer/lib/artifact-label-colours";
+import { makeLocalArtifactsSource, setArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import type { ArtifactLabelColours } from "../src/shared/artifact-labels";
+import type { NodeId } from "../src/shared/physics/schema";
+import type { ResourceApplyOutcome } from "../src/shared/resource-ipc";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -167,24 +172,38 @@ describe("label colours in the sidebar", () => {
   });
 });
 
-describe("the colours stand-in", () => {
+describe("the node's label colours", () => {
   let seen: LabelColours;
+  const rulings: ResourceApplyOutcome["kind"][] = [];
   function Probe({ node }: { readonly node: string }) {
-    seen = useLabelColours("c", node);
+    seen = useLabelColours("c", node as NodeId, (outcome) => rulings.push(outcome.kind));
     return <span data-colour={seen.colourOf("draft" as ArtifactLabel) ?? "none"} />;
   }
+  const shown = () => [...host.querySelectorAll<HTMLElement>("[data-colour]")].map((span) => span.dataset.colour);
 
-  it("keeps a colour per node and label, redraws every reader, and clears to none", () => {
-    render(
-      <>
-        <Probe node="colour-a" />
-        <Probe node="colour-b" />
-      </>,
+  it("reads them per node from the source, sets one by the node op, and clears it", async () => {
+    setArtifactsSource(makeLocalArtifactsSource());
+    await act(async () =>
+      root.render(
+        <>
+          <Probe node="colour-a" />
+          <Probe node="colour-b" />
+        </>,
+      ),
     );
-    act(() => seen.setColour("draft" as ArtifactLabel, "purple"));
-    expect([...host.querySelectorAll<HTMLElement>("[data-colour]")].map((span) => span.dataset.colour)).toEqual(["none", "purple"]);
-    act(() => seen.setColour("draft" as ArtifactLabel, null));
-    expect(host.querySelectorAll('[data-colour="none"]')).toHaveLength(2);
+    await act(async () => seen.setColour("draft" as ArtifactLabel, "purple"));
+    expect(shown()).toEqual(["none", "purple"]);
+    expect(rulings).toEqual(["applied"]);
+    await act(async () => seen.setColour("draft" as ArtifactLabel, null));
+    expect(shown()).toEqual(["none", "none"]);
+  });
+
+  it("reads own keys only, so a label named __proto__ is never the prototype", () => {
+    const crossed = { draft: "teal", __proto__: null } as unknown as ArtifactLabelColours;
+    const plain = JSON.parse('{"review":"red"}') as ArtifactLabelColours;
+    expect([...labelColoursMap(crossed)]).toEqual([["draft", "teal"]]);
+    expect(labelColoursMap(plain).get("__proto__" as ArtifactLabel)).toBeUndefined();
+    expect([...labelColoursMap(JSON.parse('{"__proto__":"pink","x":"nope"}') as ArtifactLabelColours)]).toEqual([["__proto__", "pink"]]);
   });
 
   it("says a label's colour after its name", () => {
