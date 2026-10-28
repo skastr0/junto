@@ -69,3 +69,38 @@ or a Cloudflare secret and the operator supplies them in the signal.
 | Verify: a daily cron raises "Write 500 words"; the operator writes it in the signal; the artifact exists; the feed empties. A seat asks for a key; the operator sets it; the seat reads it. Dark and bright. | product-verify | |
 
 N2 to N4 build on a stand-in of N1's names and switch when it lands.
+
+## The secret form crosses machines (operator, 2026-10-28)
+
+**Decided by the operator when they asked for this feature, relayed by
+product-lead.** A secret typed into a seat's or an automation's signal is
+stored in that region's secret store on the machine that asked, which is
+mostly the mini or a VPS while the window runs on the MacBook. That is a
+crossing Rule 9 did not allow, and this is its one exception. Shape
+(remote-lead):
+
+1. **Never a row.** The value is never in a signal row, a reply, mail, the
+   exchange, the canvas log or a copy. The reply records only the secret id,
+   its name, the machine and when it was set.
+2. **One direct delivery.** The window hands the value to its own main
+   process, which sends it once as an owner-only `secret.deliver` frame
+   straight to the asking machine over that machine's key-bound link (S5),
+   never through a keeper or relay. The asking machine puts it into its
+   region secret store and answers stored or refused. Nothing is kept on the
+   way: no queue, no retry, no draft, no undo entry, no renderer state after
+   sending, and the frame is in no trace or log.
+3. **Only what was asked, once.** The asking machine takes a delivery only
+   for an open secret request its own seat or automation raised, for the
+   secret id its region names. The request closes when the value is stored.
+   Anything unasked is refused.
+4. **Unreachable means not now.** If the asking machine is not linked, the
+   form says so and keeps nothing. The signal stays open.
+5. **Same machine, no crossing.** When the window's machine is the asking
+   machine, the form is today's local put.
+6. **Doctrine.** Rule 9 gains this one crossing, and the security doctrine
+   gains the frame and its admission, reviewed by remote-security.
+
+| Track | Owner | Reviewer |
+|---|---|---|
+| N1 the secret form's contract: the request, the reply record, the form | product-feed | remote-lead |
+| N5 `secret.deliver`: the frame, its admission on the asking machine, the request it closes, Rule 9 and doctrine | remote-core | remote-security, remote-lead |
