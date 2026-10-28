@@ -5,6 +5,7 @@ import {
   type AutomationId,
   type AutomationFiringsRequest,
   type Firing as FiringType,
+  type FiringId,
   Firing,
   FIRINGS_PAGE_MAX,
   type FiringCause,
@@ -103,6 +104,11 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
       canvasName: string,
       request: AutomationFiringsRequest,
     ) => Effect.Effect<ReadonlyArray<FiringType>, AutomationPersistenceError>;
+    /** One firing by id, for a late-arriving settled row to resolve. */
+    readonly firing: (
+      canvasName: string,
+      firingId: FiringId,
+    ) => Effect.Effect<FiringType | undefined, AutomationPersistenceError>;
   }>()("@junto/AutomationRepository") {}
 
 /** An applied task ruling that brought its task into a state, as a change trigger reads it. */
@@ -465,6 +471,18 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         });
       });
 
+      /** One firing by id: a settled row that arrives after the run needs its firing as it stands. */
+      const firing = Effect.fn("AutomationRepository.firing")(function* (canvasName: string, firingId: FiringId) {
+        const rows = yield* sql<{ readonly firing_json: string }>`
+          SELECT firing_json FROM automation_firings
+          WHERE canvas_name = ${canvasName} AND firing_id = ${firingId}
+        `.pipe(Effect.mapError(failure("firing")));
+        return yield* Effect.try({
+          try: () => (rows[0] === undefined ? undefined : decodeFiring(JSON.parse(rows[0].firing_json))),
+          catch: failure("firing"),
+        });
+      });
+
       return AutomationRepository.of({
         loadState,
         applyFacts,
@@ -479,6 +497,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         settleFiring,
         firedSince,
         firings,
+        firing,
       });
     }),
   );

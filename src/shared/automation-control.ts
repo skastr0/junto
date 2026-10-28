@@ -395,6 +395,9 @@ export const resolveTargets = (
       case "append-artifact":
       case "label-artifact":
         return typeof a.to === "string" ? { ...a, to: ref(a.to, "artifact", `${at}.to`) } : { ...a, to: a.to };
+      // A seat control names the seat it starts or stops (0.11, 05 S4).
+      case "seat-control":
+        return { ...a, seat: ref(a.seat, "seat", `${at}.seat`) };
       // A code step names no target: its source is a staged content ref.
       case "code":
         return a;

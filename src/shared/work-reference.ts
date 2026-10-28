@@ -71,6 +71,7 @@ export const WorkItemKind = Schema.Literals([
   "command",
   "ruling",
   "purge",
+  "seat-control",
 ]);
 export type WorkItemKind = typeof WorkItemKind.Type;
 

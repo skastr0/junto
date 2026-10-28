@@ -3,6 +3,7 @@ import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult } from "./command-row";
+import { SeatControlResult, SeatControlSettledResult, seatControlItemId, seatControlSettledItemId } from "./seat-control-row";
 import { ShotPurgedResult } from "./shot-purge";
 import {
   Artifact,
@@ -129,7 +130,9 @@ export const WorkOperation = Schema.Literals(["task.create",
 "command.queued",
 "ruling.applied",
 "ruling.refused",
-"shot.purged",]);
+"shot.purged",
+"seat.control",
+"seat.control.settled",]);
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const DeliveryReceipt = Schema.Struct({
@@ -230,7 +233,9 @@ DeliveryAcceptedResult,
 CommandQueuedResult,
 RulingAppliedResult,
 RulingRefusedResult,
-ShotPurgedResult,]);
+ShotPurgedResult,
+SeatControlResult,
+SeatControlSettledResult,]);
 export type WorkResult = typeof WorkResult.Type;
 
 /** Why a work write was refused. */
@@ -303,6 +308,18 @@ const itemMatchesResult = (
       return item.kind === "ruling" && item.itemId === result.opId;
     case "shot.purged":
       return item.kind === "purge" && item.itemId === result.messageId;
+    case "seat.control":
+      return (
+        item.kind === "seat-control" &&
+        item.itemId === seatControlItemId(result) &&
+        item.sink.nodeId === result.seat
+      );
+    case "seat.control.settled":
+      return (
+        item.kind === "seat-control" &&
+        item.itemId === seatControlSettledItemId(result) &&
+        item.sink.nodeId === result.automationNode
+      );
   }
 };
 
@@ -315,7 +332,9 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "command.queued" ||
   operation === "ruling.applied" ||
   operation === "ruling.refused" ||
-  operation === "shot.purged";
+  operation === "shot.purged" ||
+  operation === "seat.control" ||
+  operation === "seat.control.settled";
 
 const recordByteLength = (record: unknown): number | undefined => {
   try {

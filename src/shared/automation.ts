@@ -260,6 +260,13 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
       source: ContentRef,
       timeoutMs: Schema.optionalKey(Bounded(AUTOMATION_CODE_TIMEOUT_MIN_MS, AUTOMATION_CODE_TIMEOUT_MAX_MS)),
     }),
+    /**
+     * Start or stop a seat (0.11/05 S4). On the seat's own machine it is
+     * judged and done there; on another machine a `seat.control` row asks
+     * that machine, held as mail is until a path exists. A closed verb on a
+     * seat the operator drew — never general execution.
+     */
+    Schema.Struct({ kind: Schema.Literal("seat-control"), seat: ref, op: Schema.Literals(["start", "stop"]) }),
   ]);
 
   /**
@@ -423,6 +430,8 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
       return action.assign === undefined ? [action.node] : [action.node, action.assign.nodeId];
     case "assign-task":
       return [action.task.nodeId, action.to.nodeId];
+    case "seat-control":
+      return [action.seat.nodeId];
     case "comment":
       return [action.on.nodeId];
     case "create-artifact":
@@ -462,6 +471,10 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
       return action.to.kind === "seat"
         ? undefined
         : { reason: "invalid_input", message: "a prompt goes to a seat", next_step: "Name a seat as the prompt's to, or send mail instead" };
+    case "seat-control":
+      return action.seat.kind === "seat"
+        ? undefined
+        : { reason: "invalid_input", message: "a seat-control names a seat", next_step: "Name an agent seat as the seat" };
     case "append-artifact":
     case "label-artifact": {
       if (!("fired" in action.to) && action.to.kind !== "artifact") {
@@ -578,6 +591,7 @@ export const actionText = (action: Action): string | undefined => {
     case "assign-task":
     case "label-artifact":
     case "code":
+    case "seat-control":
       return undefined;
     default:
       return action satisfies never;

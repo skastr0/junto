@@ -111,15 +111,19 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    at the canvas count the row states. A
    row that breaks this, or that arrives twice with different content, closes
    the link. The exchange has its own closed list and admits nothing else:
-   mail, receipts, signals, session facts, `command.queued` rows and the
-   rulings `ruling.applied` and `ruling.refused`. A seat changes a resource
+   mail, receipts, signals, session facts, `command.queued` rows, the
+   rulings `ruling.applied` and `ruling.refused`, and the pair `seat.control`
+   and `seat.control.settled` (Rule 11). A seat changes a resource
    by proposing: its machine writes a `command.queued` row for the canvas it
    is for, and the machine that edits the canvas rules it
    against region reach on its own canvas (`src/shared/region-reach.ts`),
    keyed by the writing installation and the opId. A seat's command row is
    valid only from the machine placement says that seat was on when it was
    written, and an automation's from the machine it was on, by node and id,
-   at the count the row states. The ruler takes an automation's reach from
+   at the count the row states. A `seat.control` row is valid only from the
+   machine the automation it names was on, by node and id, at the count the
+   row states, and a `seat.control.settled` only from the machine the seat
+   is on. The ruler takes an automation's reach from
    its own copy of the definition (the author's), never from the row; one it
    does not hold reaches nothing. An operator's command, and every ruling,
    is valid only from the machine that edits the canvas, which takes them
@@ -147,11 +151,17 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    the editing machine. Passing
    on another machine's rows, and saying how far a peer is caught up, is
    scoped to one canvas: only the machine that keeps that canvas may do it,
-   and never for another canvas.
+   and never for another canvas. A `seat.control` row is for the seat's
+   machine; its `seat.control.settled` answer is for the machine the
+   automation runs on.
 6. **Mail waits.** Mail to a seat whose machine is unreachable is accepted and
    held, the way mail to a stopped seat is held. It is delivered when a path
    exists. The sender is told which happened: delivered here, handed to a
-   link, or held. Between two machines a wire admits mail and nothing else
+   link, or held. An automation's `seat.control` row waits the same way:
+   written on the machine the automation runs on, it is held until the seat's
+   machine is reachable, and that machine's `seat.control.settled` answer
+   waits in turn for the machine the automation runs on. Between two machines
+   a wire admits mail and nothing else
    (`physics/admit.ts`, reason `other_machine`); which machine edits the
    canvas or opened the link never enters that check.
 7. **Links are symmetric.** A link is one SSH session to the other machine's
@@ -186,7 +196,22 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     builds are pruned while active users keep their inputs. Source and
     Preview builds use local bundles only and never download.
 11. **Seat control addresses the machine.** Start, stop and attach go to the
-    seat's machine directly.
+    seat's machine directly. An automation that names a seat on another
+    machine asks it with a `seat.control` row: the seat's node, `start` or
+    `stop`, and the firing and action it is for, and nothing else — a closed
+    verb on a seat the operator already placed, never a way to run a command
+    on another machine. The seat's machine admits the row only from the
+    machine the automation runs on, at the canvas count the row states, and
+    answers it only while the automation on its own copy of the definition
+    still reaches that seat: a row it cannot yet judge is held and judged
+    again on every pass, refused `not_permitted` as soon as the automation is
+    archived or moved or the seat leaves reach, `not_found` when the seat is
+    gone, `paused` at once while the canvas is paused (a held start never
+    outlives the pause), `stale` after a day, `rate` past the seat's small
+    bound, and `failed` when the act itself does not take. The act is
+    recorded so a control acts at most once per firing and action. A seat on
+    the automation's own machine is controlled there, judged the same way,
+    with no row.
 12. **Harnesses are the operator's.** Junto reports which harness CLIs exist on
     each machine. It installs none and logs in to none. A harness setting the
     operator sets for a machine is written into that machine's own harness

@@ -47,6 +47,7 @@ import {
 import { EXCHANGE_ROWS_PAGE_BYTES } from "@shared/exchange-bounds";
 import type { WorkRepositoryShape } from "../repository";
 import { noteResourceChanged } from "../resource-changes";
+import type { ArrivedSeatControl, ArrivedSeatSettled } from "./seat-controls";
 
 /**
  * One open link, as the exchange sees it: who is there and how to send. A
@@ -73,6 +74,12 @@ export type RowExchangeDeps = {
   readonly mailArrived: (canvasName: string, nodeId: string, message: Message) => void;
   /** Commands arrived for a canvas: a wake-up for the editing machine's ruler, never what it rules from. */
   readonly commandArrived?: (canvasName: string) => void;
+  /** Seat controls that arrived, for the seat's machine to judge and settle (0.11, 05 S4). */
+  readonly seatControlsArrived?: (canvasName: string, controls: ReadonlyArray<ArrivedSeatControl>) => void;
+  /** Control settlements that arrived, for the automation's machine to resolve its held actions. */
+  readonly seatSettlementsArrived?: (canvasName: string, settled: ReadonlyArray<ArrivedSeatSettled>) => void;
+  /** Re-judge every control this machine took and never settled: after a fold installed newer state. */
+  readonly seatControlsSweep?: (canvasName: string) => void;
   /**
    * This machine's canvas, cut for that machine. Absent when this machine does
    * not edit the canvas or that machine has no seat on it.
@@ -510,10 +517,14 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       state.rows.set(frame.canvasName, counts);
       for (const mail of applied.mail) deps.mailArrived(mail.canvasName, mail.nodeId, mail.message);
       if (applied.commands > 0) deps.commandArrived?.(frame.canvasName);
+      if (applied.seatControls.length > 0) deps.seatControlsArrived?.(frame.canvasName, applied.seatControls);
+      if (applied.seatSettlements.length > 0) deps.seatSettlementsArrived?.(frame.canvasName, applied.seatSettlements);
       // A ruling folded here changed what the panes show: committed, so they read it again.
       for (const kind of applied.changed) if (kind === "task" || kind === "artifact") noteResourceChanged(kind, frame.canvasName);
       // Rows taken from one machine go on to the others entitled to them.
       if (applied.taken > 0) committed(frame.canvasName, "rows", peer);
+      // Any applied row may fold what a held control waits on: every pass re-judges.
+      if (applied.taken > 0) deps.seatControlsSweep?.(frame.canvasName);
     });
 
   /**
@@ -546,6 +557,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         owe(state, (owed) => {
           owed.have = true;
         });
+        // A newer fold may resolve a held control's automation, or refuse it.
+        deps.seatControlsSweep?.(copy.canvasName);
       }
     });
 

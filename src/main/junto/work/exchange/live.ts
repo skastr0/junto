@@ -11,7 +11,7 @@
  * briefing, the references, play or pause. The machine that takes a copy
  * keeps them where its own are kept, so a seat reads them the one way.
  */
-import { Effect, Option } from "effect";
+import { Cause, Effect, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { exportCanvasCopy, type CanvasCopy, type CopiedAutomation, type CopiedReference } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
@@ -36,7 +36,9 @@ import { onAgentSignalChanged } from "../../signals/changes";
 import { raisedHands } from "../../signals/raised-hands";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository } from "../repository";
+import { HeldSeatControls } from "./seat-controls";
 import { canvasPlacement, machineInstallations } from "../canvas-placement";
+import type { ArrivedSeatControl, ArrivedSeatSettled } from "./seat-controls";
 import { makeRowExchange, type CopyInstalled, type ExchangeChange, type RowExchange } from "./session";
 import { encodeFailure } from "../../failure-encode";
 import { logMachine } from "../../observability/logger";
@@ -85,6 +87,19 @@ const copied = (reference: StoredReference, regionId?: string): CopiedReference 
 const sameText = (held: StoredReference | undefined, sent: CopiedReference): boolean =>
   held !== undefined && held.body === sent.body && held.description === sent.description;
 
+/** A held-controls effect, forked: each row's own failures are logged inside it. */
+const runHeld = (work: Effect.Effect<void, unknown>): void => {
+  void Effect.runFork(
+    work.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("seat controls could not be judged").pipe(
+          Effect.annotateLogs({ area: "exchange", error: Cause.pretty(cause) }),
+        ),
+      ),
+    ),
+  );
+};
+
 export const makeLiveRowExchange = (
   options: LiveRowExchangeOptions,
 ): Effect.Effect<
@@ -107,6 +122,7 @@ export const makeLiveRowExchange = (
     const model = yield* ModelService;
     const repository = yield* WorkRepository;
     const guidance = yield* SeatGuidanceRepository;
+    const heldControls = yield* Effect.serviceOption(HeldSeatControls);
     const references = yield* ReferencesRepository;
     const pause = yield* PausePlane;
     const signals = yield* AgentSignalRepository;
@@ -319,6 +335,15 @@ export const makeLiveRowExchange = (
       placement: (canvasName) => placement(canvasName).pipe(Effect.orDie),
       mailArrived: options.mailArrived,
       ...(options.commandArrived === undefined ? {} : { commandArrived: options.commandArrived }),
+      ...(Option.isNone(heldControls)
+        ? {}
+        : {
+            seatControlsArrived: (canvasName: string, controls: ReadonlyArray<ArrivedSeatControl>) =>
+              runHeld(heldControls.value.controlsArrived(canvasName, controls)),
+            seatSettlementsArrived: (canvasName: string, settled: ReadonlyArray<ArrivedSeatSettled>) =>
+              runHeld(heldControls.value.settledArrived(canvasName, settled)),
+            seatControlsSweep: (canvasName: string) => runHeld(heldControls.value.sweepPending(canvasName)),
+          }),
       ...(options.linkFailed === undefined ? {} : { linkFailed: options.linkFailed }),
       cutCopy,
       copySent,
@@ -357,8 +382,17 @@ export const followLocalCommits = (
     const records = yield* ModelRecords;
     const repository = yield* WorkRepository;
     const pause = yield* PausePlane;
+    const heldControls = yield* Effect.serviceOption(HeldSeatControls);
     const push = (canvasName: string, change: ExchangeChange): void => {
       Effect.runFork(exchange.committed(canvasName, change));
+    };
+    /**
+     * A held seat control is judged against the fold as it stands at every
+     * pass (0.11, 05 S4): a seat moved, an automation moved or archived, a
+     * region that changed reach, or a pause the operator set re-judges it.
+     */
+    const sweep = (canvasName: string): void => {
+      if (Option.isSome(heldControls)) runHeld(heldControls.value.sweepPending(canvasName));
     };
     /** Guidance and app-wide texts name no canvas: every canvas is looked at again. */
     const pushAll = (): void => {
@@ -375,9 +409,19 @@ export const followLocalCommits = (
     };
     const offs = [
       // The canvas, play and what a copy carries cut a copy; the work log and signals do not.
-      model.subscribeChanges((event) => push(event.canvas, "canvas")),
-      repository.subscribeChanges((canvasName) => push(canvasName, "rows")),
-      pause.subscribe((canvasName) => push(canvasName, "canvas")),
+      model.subscribeChanges((event) => {
+        push(event.canvas, "canvas");
+        sweep(event.canvas);
+      }),
+      repository.subscribeChanges((canvasName) => {
+        push(canvasName, "rows");
+        sweep(canvasName);
+      }),
+      pause.subscribe((canvasName) => {
+        push(canvasName, "canvas");
+        // A pause settles every held control of that canvas refused: paused.
+        sweep(canvasName);
+      }),
       onAgentSignalChanged((signal) => push(signal.canvasName, "rows")),
       onSeatGuidanceChanged(pushAll),
       onReferencesChanged((event) =>

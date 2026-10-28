@@ -78,6 +78,12 @@ export const ExchangeFact = WorkFact.pipe(
           return true;
         case "shot.purged":
           return fact.item.kind === "purge" || "a purge is of a comment";
+        case "seat.control":
+          return fact.item.sink.nodeId === fact.body.seat || "a control is written at the seat it governs";
+        case "seat.control.settled":
+          return (
+            fact.item.sink.nodeId === fact.body.automationNode || "a settled row answers at the automation's node"
+          );
         default:
           return "this kind of row does not cross machines";
       }
@@ -324,6 +330,11 @@ export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
     case "shot.purged":
       // Only the operator purges a shot, and only on the machine that edits the canvas.
       return { kind: "operator" };
+    case "seat.control":
+    case "seat.control.settled":
+      // The row's own schema binds its actor to the automation, or to the seat
+      // it answers for, so the author is the automation or that seat.
+      return mailAuthorOf(body.actor);
     default:
       return { kind: "malformed" };
   }
@@ -461,6 +472,12 @@ export const entitledTo = (
       return commandRowEntitled(machine, authority, fact.body);
     case "shot.purged":
       return purgeReaches(machine);
+    case "seat.control":
+      // For the seat's machine; the listed machines already took it above.
+      return placement.seatOf(fact.body.seat)?.machine === machine;
+    case "seat.control.settled":
+      // For the automation's machine, where its firing waits to resolve.
+      return placement.automationOf?.(fact.body.automationNode, fact.body.automationId) === machine;
   }
   if (fact.body.operation === "message.append") {
     return placement.seatOf(fact.item.sink.nodeId)?.machine === machine;

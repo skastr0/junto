@@ -15,6 +15,7 @@ import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
+import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -743,7 +744,18 @@ export const STATE_SCHEMA_V58_IDENTITY = {
     "2112a82b9345488b3832559461c62b04139e4dabc936a3b0c81c3a7c0c397985",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 58;
+/**
+ * Version 59 records every seat-control act at most once (0.11, 05 S4):
+ * `seat_controls` keys a control by firing and action index, remembers its
+ * outcome — applied, or one closed refusal — and when it settled, the count a
+ * seat's machine enforces its per-seat bound from. Expand only.
+ */
+export const STATE_SCHEMA_V59_IDENTITY = {
+  actualSchemaSha256:
+    "f0f0259198e72c73cea1647593d037769dc9a8ea56e486cb5b27d78075cc8998",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 59;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -751,7 +763,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 58;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V58_IDENTITY;
+  STATE_SCHEMA_V59_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1206,6 +1218,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V57_IDENTITY,
     migrate: (database) => database.exec(`ALTER TABLE machine_peers ADD COLUMN ${MACHINE_PEER_BINDING_COLUMN_SQL}`),
+  },
+  {
+    fromVersion: 58,
+    toVersion: 59,
+    name: "act on a seat control at most once",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V58_IDENTITY,
+    migrate: (database) => database.exec(SEAT_CONTROLS_STATE_SCHEMA_SQL),
   },
 ];
 

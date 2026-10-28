@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
+import { Cause, Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect";
 import {
   MachinePeerStatus,
   type MachineHarnesses,
@@ -23,6 +23,7 @@ import { failureSentence } from "@shared/failure";
 import { probeManagedHarnessInstalls } from "./junto/term/templates/harness-install";
 import { makeRowsChannel } from "./junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/live";
+import { HeldSeatControls, makeHeldSeatControls } from "./junto/work/exchange/seat-controls";
 import { ResourceRuler } from "./junto/work/resource-ruler";
 import { makeResourceSubmitLayer } from "./junto/work/resource-submit";
 import type { RowExchange } from "./junto/work/exchange/session";
@@ -51,6 +52,7 @@ import { MachineLogsNotSetUp, makePeerLogAnswer, receivePeerLogRead } from "./ju
 import { readMachineLog } from "./junto/observability/log-file";
 import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import { ModelService } from "./junto/model/service";
+import { ModelRecords } from "./junto/model/records";
 import { SqlClient } from "effect/unstable/sql";
 import { shotEntitled } from "./junto/content/shot-entitlement";
 import { sweepPurgedShotCopies, unlessShotPurged } from "./junto/work/shot-purge";
@@ -182,6 +184,11 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     ));
   };
   if (Option.isSome(ruler)) sweep(ruler.value.sweepAll);
+  const workRepository = yield* WorkRepository;
+  const records = yield* ModelRecords;
+  // Held controls judge on this machine's own fold: exchanged rows, sweeps
+  // after each copy, and once at boot below.
+  const heldControls = yield* makeHeldSeatControls(workRepository.seatControlRows);
   const exchange = yield* makeLiveRowExchange({
     mailArrived: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
     ...(Option.isNone(ruler) ? {} : { commandArrived: (canvas: string) => sweep(ruler.value.sweep(canvas)) }),
@@ -196,7 +203,21 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
         yield* Effect.logWarning("the row exchange could not close its link").pipe(Effect.annotateLogs({ area: "link", ...(failure === undefined ? {} : { failure }) }));
       }))));
     },
-  });
+  }).pipe(Effect.provideService(HeldSeatControls, heldControls));
+  // A fold that slept resolves held controls as the boot's copy lands.
+  yield* Effect.forkDetach(
+    records.listCanvases().pipe(
+      Effect.provideService(ModelRecords, records),
+      Effect.flatMap((names) =>
+        Effect.forEach(names, (canvasName) => heldControls.sweepPending(canvasName), { discard: true }),
+      ),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("held seat controls could not be swept").pipe(
+          Effect.annotateLogs({ area: "exchange", error: Cause.pretty(cause) }),
+        ),
+      ),
+    ),
+  );
   messageDelivery.followLinks((canvas, nodeId) => Effect.runPromiseWith(context)(exchange.routed(canvas, nodeId)));
   const files = makeMachineFiles((machine, ref) => Effect.runPromiseWith(fileContext)(pushFileToMachine(machine, ref)));
   messageDelivery.followFiles(files.push);

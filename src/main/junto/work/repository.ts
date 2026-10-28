@@ -104,6 +104,18 @@ import {
   type WorkResult,
   type WorkSha256 as WorkSha256Value,
 } from "@shared/work-protocol";
+import {
+  seatControlItemId,
+  seatControlSettledItemId,
+  SeatControlResult,
+  type SeatControlRefusal,
+  type SeatControlSettledResult,
+} from "@shared/seat-control-row";
+import type {
+  ArrivedSeatControl,
+  ArrivedSeatSettled,
+  SeatControlRows,
+} from "./exchange/seat-controls";
 import { StateTransactionOperation } from "../state/service";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
 import {
@@ -3051,6 +3063,10 @@ export type AppliedExchangeRows = {
     readonly nodeId: string;
     readonly message: MessageValue;
   }>;
+  /** Seat controls that arrived, for the seat's machine to judge and settle. */
+  readonly seatControls: ReadonlyArray<ArrivedSeatControl>;
+  /** Control settlements that arrived, for the automation's machine to resolve. */
+  readonly seatSettlements: ReadonlyArray<ArrivedSeatSettled>;
 };
 
 const ExchangeFactRow = Schema.Struct({
@@ -3493,6 +3509,18 @@ export interface WorkRepositoryShape {
   readonly applyExchangeRows: (
     input: ApplyExchangeRowsInput,
   ) => Effect.Effect<AppliedExchangeRows, RepositoryFailure>;
+  /**
+   * The automation's machine writes one `seat.control` row for a seat on
+   * another machine (0.11, 05 S4). The row travels and is held as mail is;
+   * the seat's machine judges and answers it. A seat on this machine is
+   * controlled directly — no row, through `seatControlRows` alone.
+   */
+  readonly seatControlSubmit: (
+    canvasName: string,
+    body: SeatControlResult,
+  ) => Effect.Effect<void, RepositoryFailure>;
+  /** The durable side of the seat-control pair: outcome, rate count, record, settle, pending. */
+  readonly seatControlRows: SeatControlRows;
   readonly subscribeChanges: (
     listener: (canvasName: string, nodeId: string, kind?: "mail" | "work") => void,
   ) => () => void;
@@ -4370,7 +4398,7 @@ export const WorkRepositoryLive = Layer.effect(
               WHERE event.event_home = ?
                 AND event.entity_home = ?
                 AND event.item_canvas_name = ?
-                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused', 'shot.purged')
+                AND event.operation IN ('message.append', 'delivery.accepted', 'command.queued', 'ruling.applied', 'ruling.refused', 'shot.purged', 'seat.control', 'seat.control.settled')
                 AND fact.predecessor_seq IS NULL
                 AND (
                   length(event.seq) > length(?)
@@ -4547,6 +4575,8 @@ export const WorkRepositoryLive = Layer.effect(
               [frame.writer, receivedAt],
             );
             const mail: Array<AppliedExchangeRows["mail"][number]> = [];
+            const seatControls: Array<ArrivedSeatControl> = [];
+            const seatSettlements: Array<ArrivedSeatSettled> = [];
             const changed = new Set<RulingAppliedResult["kind"]>();
             if (fresh.length > 0) {
               const newest = fresh.at(-1)!.id.seq;
@@ -4618,6 +4648,18 @@ export const WorkRepositoryLive = Layer.effect(
                     });
                     mail.push({ canvasName: frame.canvasName, nodeId: notice.sink.nodeId, message: notice.message });
                   }
+                } else if (fact.body.operation === "seat.control") {
+                  // The seat's machine judges it on its own fold and settles;
+                  // every other machine only keeps the row.
+                  seatControls.push({
+                    controlId: fact.item.itemId,
+                    writer: frame.writer,
+                    body: fact.body,
+                    originAtEpochMs: Date.parse(fact.originAt),
+                    firstSeenEpochMs: Date.parse(receivedAt),
+                  });
+                } else if (fact.body.operation === "seat.control.settled") {
+                  seatSettlements.push({ writer: frame.writer, body: fact.body });
                 }
               }
             }
@@ -4632,7 +4674,7 @@ export const WorkRepositoryLive = Layer.effect(
                  updated_at = excluded.updated_at`,
               [frame.canvasName, frame.writer, through, lastBasisSeq, receivedAt],
             );
-            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, changed: [...changed], mail };
+            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, changed: [...changed], mail, seatControls, seatSettlements };
           }),
         "mail",
       ).pipe(
@@ -4642,6 +4684,191 @@ export const WorkRepositoryLive = Layer.effect(
           }),
         ),
       );
+    };
+
+    /**
+     * The automation's machine writes a control for a seat elsewhere
+     * (0.11, 05 S4): one fact on the seat's item, judged there.
+     */
+    const seatControlSubmit = (
+      canvasName: string,
+      body: SeatControlResult,
+    ): Effect.Effect<void, RepositoryFailure> =>
+      transaction(
+        "work.seat-control.submit",
+        { canvasName, nodeId: body.seat },
+        (writer) =>
+          Effect.gen(function* () {
+            const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+            const at = yield* Effect.try(now.bind(undefined));
+            const canvas = yield* writer.unsafe<{ seq: number }>(
+              "SELECT seq FROM canvases WHERE canvas_name = ?",
+              [canvasName],
+            );
+            yield* commitLocalFact(writer, {
+              localInstallationId: self,
+              sink: { canvasName, nodeId: body.seat },
+              basis: { kind: "canvas", canvasName, seq: canvas[0]?.seq ?? 0 },
+              item: item("seat-control", seatControlItemId(body), { canvasName, nodeId: body.seat }),
+              operation: "seat.control",
+              predecessor: null,
+              body,
+              value: undefined,
+              originAt: at,
+              receivedAt: at,
+            });
+          }),
+      ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.submit", error)));
+
+    const seatControlRows: SeatControlRows = {
+      outcome: (canvasName, firingId, actionIndex) =>
+        withSqlRead(
+          sql,
+          sql.unsafe<{ outcome: string; reason: string | null }>(
+            `SELECT outcome, reason FROM seat_controls
+             WHERE canvas_name = ? AND firing_id = ? AND action_index = ?`,
+            [canvasName, firingId, actionIndex],
+          ).pipe(
+            Effect.map((rows) => {
+              const row = rows[0];
+              if (row === undefined) return undefined;
+              return {
+                outcome: row.outcome as "applied" | "refused",
+                ...(row.reason === null ? {} : { reason: row.reason as SeatControlRefusal }),
+              };
+            }),
+          ),
+        ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.outcome", error))),
+      recentForSeat: (canvasName, nodeId, sinceEpochMs) =>
+        withSqlRead(
+          sql,
+          sql
+            .unsafe<{ settles: number }>(
+              `SELECT count(*) AS settles FROM seat_controls
+               WHERE canvas_name = ? AND node_id = ? AND settled_at_epoch_ms >= ?`,
+              [canvasName, nodeId, sinceEpochMs],
+            )
+            .pipe(Effect.map((rows) => rows[0]?.settles ?? 0)),
+        ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.recent", error))),
+      record: (input) =>
+        transaction("work.seat-control.record", { canvasName: input.canvasName, nodeId: input.seat }, (writer) =>
+          writer.unsafe(
+            `INSERT OR IGNORE INTO seat_controls
+               (canvas_name, firing_id, action_index, control_id, node_id, op, outcome, reason, settled_at_epoch_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              input.canvasName,
+              input.firingId,
+              input.actionIndex,
+              input.controlId,
+              input.seat,
+              input.op,
+              input.result,
+              input.reason ?? null,
+              Date.now(),
+            ],
+          ),
+        ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.record", error))),
+      settle: (input) =>
+        transaction("work.seat-control.settle", { canvasName: input.canvasName, nodeId: input.seat }, (writer) =>
+          Effect.gen(function* () {
+            const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+            const at = yield* Effect.try(now.bind(undefined));
+            // The record comes first and speaks at-most-once: a (firing,
+            // action) already there settles nothing again.
+            yield* writer.unsafe(
+              `INSERT OR IGNORE INTO seat_controls
+                 (canvas_name, firing_id, action_index, control_id, node_id, op, outcome, reason, settled_at_epoch_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                input.canvasName,
+                input.firingId,
+                input.actionIndex,
+                input.controlId,
+                input.seat,
+                input.op,
+                input.result,
+                input.reason ?? null,
+                Date.now(),
+              ],
+            );
+            const changed = yield* writer.unsafe<{ n: number }>("SELECT changes() AS n");
+            if ((changed[0]?.n ?? 0) === 0) return;
+            const canvas = yield* writer.unsafe<{ seq: number }>(
+              "SELECT seq FROM canvases WHERE canvas_name = ?",
+              [input.canvasName],
+            );
+            const sink = { canvasName: input.canvasName, nodeId: input.automationNode };
+            const body: SeatControlSettledResult = {
+              operation: "seat.control.settled",
+              seat: input.seat,
+              automationNode: input.automationNode,
+              automationId: input.automationId,
+              firingId: input.firingId,
+              actionIndex: input.actionIndex,
+              op: input.op,
+              actor: { seatId: input.seatId, canvasName: input.canvasName, nodeId: input.seat },
+              result: input.result,
+              ...(input.reason === undefined ? {} : { reason: input.reason }),
+            };
+            yield* commitLocalFact(writer, {
+              localInstallationId: self,
+              sink,
+              basis: { kind: "canvas", canvasName: input.canvasName, seq: canvas[0]?.seq ?? 0 },
+              item: item("seat-control", seatControlSettledItemId(input), sink),
+              operation: "seat.control.settled",
+              predecessor: null,
+              body,
+              value: undefined,
+              originAt: at,
+              receivedAt: at,
+            });
+          }),
+        ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.settle", error))),
+      pending: (canvasName) =>
+        withSqlRead(
+          sql,
+          Effect.gen(function* () {
+            const rows = yield* sql.unsafe<{
+              writer: string;
+              control_id: string;
+              origin_at: string;
+              received_at: string;
+              result_json: string;
+            }>(
+              `SELECT event.event_home AS writer, event.item_id AS control_id,
+                      event.origin_at, event.received_at, fact.result_json
+               FROM work_events AS event
+               JOIN work_facts AS fact USING (event_home, entity_home, seq)
+               WHERE event.item_canvas_name = ?
+                 AND event.operation = 'seat.control'
+                 AND fact.predecessor_seq IS NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM seat_controls AS settled
+                   WHERE settled.canvas_name = event.item_canvas_name
+                     AND settled.firing_id = json_extract(fact.result_json, '$.firingId')
+                     AND settled.action_index = json_extract(fact.result_json, '$.actionIndex')
+                 )
+               ORDER BY event.received_at DESC`,
+              [canvasName],
+            );
+            const pending: ArrivedSeatControl[] = [];
+            for (const row of rows) {
+              const decoded = Schema.decodeUnknownResult(SeatControlResult)(
+                JSON.parse(row.result_json),
+              );
+              if (Result.isFailure(decoded)) continue;
+              pending.push({
+                controlId: row.control_id,
+                writer: row.writer as InstallationId,
+                body: decoded.success,
+                originAtEpochMs: Date.parse(row.origin_at),
+                firstSeenEpochMs: Date.parse(row.received_at),
+              });
+            }
+            return pending;
+          }),
+        ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.pending", error))),
     };
 
     /**
@@ -5039,6 +5266,8 @@ export const WorkRepositoryLive = Layer.effect(
       exchangeWriters,
       exchangeRows,
       applyExchangeRows,
+      seatControlSubmit,
+      seatControlRows,
       subscribeChanges: changes.subscribe,
     });
   }),

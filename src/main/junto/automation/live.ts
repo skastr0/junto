@@ -68,6 +68,20 @@ import { AutomationCodeRunner, runCodeStep } from "./code-step";
 import { artifactsWrittenByAutomation } from "./artifact-writers";
 import { type ArtifactPort, isArtifactAction, performArtifactAction } from "./artifact-actions";
 import type { ArtifactLabel } from "@shared/artifact-labels";
+import { WorkRepository } from "../work/repository";
+import { PausePlane } from "../pause-plane";
+import { ActorSeatOccupy } from "../term/actor-seat-occupy";
+import { asCanvasName } from "@shared/model";
+import { asNodeId } from "@shared/physics/schema";
+import { startSeat, stopSeat } from "../term/seat-control";
+import { canvasPlacement } from "../work/canvas-placement";
+import { runSeatControl } from "../work/exchange/seat-controls";
+import {
+  SEAT_CONTROL_RATE_WINDOW_MS,
+  SEAT_CONTROL_REFUSAL_TO_RULING,
+  seatControlItemId,
+  type SeatControlResult,
+} from "@shared/seat-control-row";
 
 /** How often the loop looks for due slots: cron and poll slots are minutes apart. */
 export const AUTOMATION_TICK = Duration.seconds(15);
@@ -429,11 +443,12 @@ export const performAction = (
         });
         return ruledAs(index, assigned);
       }
-      // A code step and an artifact write have the runner's own ports (performCode, performArtifactAction).
+      // A code step, an artifact write and a seat control have the runner's own ports (performCode, performArtifactAction, performSeatControl).
       case "code":
       case "create-artifact":
       case "append-artifact":
       case "label-artifact":
+      case "seat-control":
         return notAvailable(index);
     }
   });
@@ -468,6 +483,9 @@ export const AutomationRunnerLive = Layer.effect(
     const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
     const codeRunner = yield* Effect.serviceOption(AutomationCodeRunner);
     const sql = yield* Effect.serviceOption(SqlClient.SqlClient);
+    const workRepository = yield* Effect.serviceOption(WorkRepository);
+    const pause = yield* Effect.serviceOption(PausePlane);
+    const occupy = yield* Effect.serviceOption(ActorSeatOccupy);
     // The comments each Artifacts node holds: rows whose thread subject is one
     // of its artifacts. A node whose mailbox could not be read is named in
     // `unread`, never taken as holding none.
@@ -618,6 +636,120 @@ export const AutomationRunnerLive = Layer.effect(
           env,
         });
       }).pipe(Effect.catchCause(() => Effect.succeed(notAvailable(index))));
+    /**
+     * A seat control (0.11, 05 S4): a seat on this machine is judged by the
+     * one judge and done here, recorded with no row; a seat on another
+     * machine is asked of it with a `seat.control` row, held as mail is, and
+     * the action waits `queued` for the settled row to resolve it.
+     */
+    const performSeatControl = (
+      canvasName: string,
+      automation: Automation,
+      action: Extract<Action, { readonly kind: "seat-control" }>,
+      index: number,
+      firingId: FiringId,
+    ): Effect.Effect<ActionRuling> =>
+      Effect.gen(function* () {
+        const canvas = canvases.get(canvasName);
+        const store = Option.getOrUndefined(workRepository);
+        const from = decodeAutomationNode(automation.nodeId);
+        if (canvas === undefined || store === undefined || Option.isNone(machines) || Option.isNone(from) || action.seat.kind !== "seat") {
+          return notAvailable(index);
+        }
+        const placement = yield* canvasPlacement(canvasName).pipe(
+          Effect.provideService(MachineRepository, machines.value),
+          Effect.provideService(ModelRecords, records),
+          Effect.provideService(AutomationRepository, repository),
+          Effect.orElseSucceed(() => undefined),
+        );
+        const self = yield* machines.value.installationId.pipe(Effect.orElseSucceed(() => undefined));
+        const home = placement?.seatOf(action.seat.nodeId);
+        const controlId = seatControlItemId({ firingId, actionIndex: index });
+        const nowEpochMs = Date.now();
+        // A seat this copy puts on this machine: the one judge runs here, the
+        // outcome is recorded, and no row crosses a wire.
+        if (self !== undefined && home !== undefined && home.machine === self && Option.isSome(pause) && Option.isSome(occupy)) {
+          const folded = (yield* repository.loadState(canvasName).pipe(Effect.orElseSucceed(() => new Map()))).get(
+            automation.automationId,
+          );
+          const outcome = yield* runSeatControl({
+            judge: {
+              canvas,
+              automation:
+                folded === undefined
+                  ? undefined
+                  : { nodeId: folded.automation.nodeId, author: folded.automation.author, archived: folded.archived },
+              playing: pause.value.stateFor(canvasName).playing,
+              recentForSeat: yield* store.seatControlRows.recentForSeat(
+                canvasName,
+                action.seat.nodeId,
+                nowEpochMs - SEAT_CONTROL_RATE_WINDOW_MS,
+              ),
+              recordedOutcome: yield* store.seatControlRows.outcome(canvasName, firingId, index),
+              originAtEpochMs: nowEpochMs,
+              firstSeenEpochMs: nowEpochMs,
+              nowEpochMs,
+            },
+            control: { seat: action.seat.nodeId, automationNode: from.value, automationId: automation.automationId },
+            act:
+              action.op === "start"
+                ? startSeat({
+                    canvas: asCanvasName(canvasName),
+                    seatId: asNodeId(action.seat.nodeId),
+                    operationId: controlId,
+                  }).pipe(
+                    Effect.provideService(ModelService, model),
+                    Effect.provideService(ActorSeatOccupy, occupy.value),
+                  )
+                : stopSeat({
+                    canvas: asCanvasName(canvasName),
+                    seatId: asNodeId(action.seat.nodeId),
+                    operationId: controlId,
+                  }).pipe(
+                    Effect.provideService(ModelService, model),
+                    Effect.provideService(ActorSeatOccupy, occupy.value),
+                  ),
+            commit: (settled) =>
+              store.seatControlRows.record({
+                canvasName,
+                controlId,
+                seat: action.seat.nodeId,
+                op: action.op,
+                automationNode: from.value,
+                automationId: automation.automationId,
+                firingId,
+                actionIndex: index,
+                ...settled,
+              }),
+          }).pipe(Effect.orElseSucceed(() => ({ outcome: "refused", reason: "failed" }) as const));
+          // Nothing on this machine waits: a control it cannot judge now is
+          // one whose automation is already gone — refused, not held.
+          if (outcome === "pending") return { index, ruling: "refused", reason: "not_permitted" } as const;
+          return outcome.outcome === "applied"
+            ? ({ index, ruling: "applied" } as const)
+            : ({
+                index,
+                ruling: "refused",
+                reason: outcome.reason === undefined ? "not_available" : SEAT_CONTROL_REFUSAL_TO_RULING[outcome.reason],
+              } as const);
+        }
+        // Another machine's seat, or a seat this copy does not place: the row
+        // goes to the seat's machine and is held until a path exists.
+        const body: SeatControlResult = {
+          operation: "seat.control",
+          seat: action.seat.nodeId,
+          automationNode: from.value,
+          automationId: automation.automationId,
+          firingId,
+          actionIndex: index,
+          op: action.op,
+          actor: automationActorRef(canvasName, from.value, automation.automationId),
+        };
+        const written = yield* store.seatControlSubmit(canvasName, body).pipe(Effect.result);
+        return written._tag === "Success"
+          ? ({ index, ruling: "queued" } as const)
+          : ({ index, ruling: "refused", reason: "not_available" } as const);
+      }).pipe(Effect.catchCause(() => Effect.succeed(notAvailable(index))));
     // An action's text with its `{{name}}` values said as this firing says them; a value it lacks stays as written.
     const resolveFor = (canvasName: string, fired: Fired) => (text: string): Effect.Effect<string> =>
       valueNamesIn(text).length === 0
@@ -632,6 +764,8 @@ export const AutomationRunnerLive = Layer.effect(
       // A code step runs on the automation's own machine, which is here: it writes nothing another machine judges.
       perform: (canvasName, automation, action, index, firingId, fired) =>
         action.kind === "code" ? performCode(canvasName, automation, action, index, firingId, fired)
+        // A seat control acts here or writes its row (S4).
+        : action.kind === "seat-control" ? performSeatControl(canvasName, automation, action, index, firingId)
         // An artifact write is ruled where the canvas is ruled; it does not queue yet (B1).
         : isArtifactAction(action) ? performArtifactAction(artifactPort, {
             canvas: canvases.get(canvasName),
