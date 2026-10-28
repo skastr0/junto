@@ -17,10 +17,15 @@
  */
 import { Cause, Context, Effect, Layer } from "effect";
 import type { SeatControlResult, SeatControlSettledResult, SeatControlRefusal } from "@shared/seat-control-row";
-import { judgeSeatControl, SEAT_CONTROL_RATE_WINDOW_MS, SEAT_CONTROL_REFUSAL_TO_RULING } from "@shared/seat-control-row";
+import {
+  heldControlVerdict,
+  judgeSeatControl,
+  SEAT_CONTROL_RATE_WINDOW_MS,
+  SEAT_CONTROL_REFUSAL_TO_RULING,
+} from "@shared/seat-control-row";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type { InstallationId } from "@shared/installation-id";
-import { asCanvasName } from "@shared/model";
+import { asCanvasName, type NodeId } from "@shared/model";
 import { asNodeId } from "@shared/physics/schema";
 import type { FiringId } from "@shared/automation";
 import type { ReachCanvas } from "@shared/region-reach";
@@ -82,6 +87,16 @@ export interface SeatControlRows {
   readonly settle: (input: SeatControlSettle) => Effect.Effect<void, unknown>;
   /** Controls this machine took whose (firing, action) it never settled, newest first. */
   readonly pending: (canvasName: string) => Effect.Effect<ReadonlyArray<ArrivedSeatControl>, unknown>;
+  /**
+   * A control this machine wrote, by firing and action — the held action's own
+   * copy of its seat and its clock, so a firing it left queued ends itself
+   * when no seat can ever answer.
+   */
+  readonly control: (
+    canvasName: string,
+    firingId: FiringId,
+    actionIndex: number,
+  ) => Effect.Effect<{ readonly seat: string; readonly originAtEpochMs: number } | undefined, unknown>;
 }
 
 /** What one record writes. A settle adds the seat's own identity, which authors its row. */
@@ -304,16 +319,65 @@ export const makeHeldSeatControls = (rows: SeatControlRows) =>
           ),
         );
 
+      /**
+       * A held action on this machine's own firings (remote-security, S4
+       * close-out): a seat this machine's own copy no longer has can never
+       * answer — no machine authors a settled row for a seat that is gone —
+       * so the firing ends the action `not_found` itself; a control a day
+       * old on its own clock ends `stale`. The settled row that does land
+       * later resolves only what is still queued.
+       */
+      const settleHeldActions = (canvasName: string): Effect.Effect<void, unknown> =>
+        Effect.gen(function* () {
+          const queued = yield* automations.queuedFirings(canvasName);
+          if (queued.length === 0) return;
+          const canvas = yield* model.canvas(canvasName);
+          const nowEpochMs = Date.now();
+          for (const firing of queued) {
+            const outcome = firing.outcome;
+            if (outcome.kind !== "fired") continue;
+            const actions = yield* Effect.forEach(
+              outcome.actions,
+              (action) =>
+                Effect.gen(function* () {
+                  if (action.ruling !== "queued") return action;
+                  // The row itself says what was asked: a definition edited
+                  // after the firing cannot misname the action it waited on.
+                  const held = yield* rows.control(canvasName, firing.firingId, action.index);
+                  if (held === undefined) return action;
+                  const refusal = heldControlVerdict({
+                    seatOnCanvas: canvas.nodes.get(held.seat as NodeId) !== undefined,
+                    controlAtEpochMs: held.originAtEpochMs,
+                    nowEpochMs,
+                  });
+                  return refusal === undefined
+                    ? action
+                    : ({
+                        index: action.index,
+                        ruling: "refused",
+                        reason: SEAT_CONTROL_REFUSAL_TO_RULING[refusal],
+                      } as const);
+                }),
+              { concurrency: 1 },
+            );
+            const changed = actions.some((action, index) => action !== outcome.actions[index]);
+            if (changed) yield* automations.settleFiring(canvasName, firing, { kind: "fired", actions });
+          }
+        });
+
       return HeldSeatControls.of({
         controlsArrived: (canvasName, controls) =>
           Effect.forEach(controls, (control) => actOn(canvasName, control), { discard: true }),
         settledArrived: (canvasName, settled) =>
           Effect.forEach(settled, (row) => resolveFiring(canvasName, row), { discard: true }),
         sweepPending: (canvasName) =>
-          Effect.flatMap(rows.pending(canvasName), (pending) =>
-            pending.length === 0
-              ? Effect.void
-              : Effect.forEach(pending, (control) => actOn(canvasName, control), { discard: true }),
+          Effect.flatMap(
+            Effect.flatMap(rows.pending(canvasName), (pending) =>
+              pending.length === 0
+                ? Effect.void
+                : Effect.forEach(pending, (control) => actOn(canvasName, control), { discard: true }),
+            ),
+            () => settleHeldActions(canvasName),
           ),
       });
   });

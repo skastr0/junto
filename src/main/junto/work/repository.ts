@@ -4869,6 +4869,31 @@ export const WorkRepositoryLive = Layer.effect(
             return pending;
           }),
         ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.pending", error))),
+      control: (canvasName, firingId, actionIndex) =>
+        withSqlRead(
+          sql,
+          sql
+            .unsafe<{ result_json: string; origin_at: string }>(
+              `SELECT fact.result_json, event.origin_at
+               FROM work_events AS event
+               JOIN work_facts AS fact USING (event_home, entity_home, seq)
+               WHERE event.item_canvas_name = ?
+                 AND event.item_id = ?
+                 AND event.operation = 'seat.control'
+                 AND fact.predecessor_seq IS NULL
+               LIMIT 1`,
+              [canvasName, seatControlItemId({ firingId, actionIndex })],
+            )
+            .pipe(
+              Effect.map((rows) => {
+                const row = rows[0];
+                if (row === undefined) return undefined;
+                const decoded = Schema.decodeUnknownResult(SeatControlResult)(JSON.parse(row.result_json));
+                if (Result.isFailure(decoded)) return undefined;
+                return { seat: decoded.success.seat, originAtEpochMs: Date.parse(row.origin_at) };
+              }),
+            ),
+        ).pipe(Effect.mapError((error) => toRepositoryError("work.seat-control.control", error))),
     };
 
     /**

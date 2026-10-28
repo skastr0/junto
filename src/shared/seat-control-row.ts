@@ -247,3 +247,23 @@ export const judgeSeatControl = (input: {
   if (input.recentForSeat >= SEAT_CONTROL_RATE_LIMIT) return { kind: "refused", reason: "rate" };
   return { kind: "act" };
 };
+
+/**
+ * The firing side's own verdict on a control that may never be answered:
+ * a seat this machine's own copy no longer has can never have a settled row
+ * (no machine could author it), so the held action ends `not_found` here,
+ * and one past the same day bound ends `stale`. Undefined keeps it waiting —
+ * the settled row is still owed.
+ */
+export const heldControlVerdict = (input: {
+  readonly seatOnCanvas: boolean;
+  /** The control row's own originAt, epoch ms; NaN counts as ancient. */
+  readonly controlAtEpochMs: number;
+  readonly nowEpochMs: number;
+}): SeatControlRefusal | undefined =>
+  !input.seatOnCanvas
+    ? "not_found"
+    : input.nowEpochMs - (Number.isNaN(input.controlAtEpochMs) ? 0 : input.controlAtEpochMs) >
+        SEAT_CONTROL_PENDING_MAX_MS
+      ? "stale"
+      : undefined;

@@ -11,6 +11,7 @@ import {
   SEAT_CONTROL_RATE_LIMIT,
   SeatControlResult,
   SeatControlSettledResult,
+  heldControlVerdict,
   isSeatControlBody,
   judgeSeatControl,
   seatControlEntitled,
@@ -273,5 +274,41 @@ describe("one judge, both paths", () => {
       }),
     );
     expect(result).toEqual(outcome);
+  });
+});
+
+/**
+ * The firing side's own end (remote-security, S4 close-out): a seat gone
+ * from this copy can never have a settled row, so the held action ends
+ * not_found; past the day bound it ends stale; otherwise it keeps waiting.
+ */
+describe("heldControlVerdict", () => {
+  it("ends not_found when the seat is gone from this copy, at any age", () => {
+    expect(heldControlVerdict({ seatOnCanvas: false, controlAtEpochMs: NOW, nowEpochMs: NOW })).toBe("not_found");
+    expect(
+      heldControlVerdict({
+        seatOnCanvas: false,
+        controlAtEpochMs: NOW - SEAT_CONTROL_PENDING_MAX_MS - 1,
+        nowEpochMs: NOW,
+      }),
+    ).toBe("not_found");
+  });
+
+  it("ends stale past the day bound while the seat still stands", () => {
+    expect(
+      heldControlVerdict({
+        seatOnCanvas: true,
+        controlAtEpochMs: NOW - SEAT_CONTROL_PENDING_MAX_MS - 1,
+        nowEpochMs: NOW,
+      }),
+    ).toBe("stale");
+  });
+
+  it("an unparseable control clock counts as ancient", () => {
+    expect(heldControlVerdict({ seatOnCanvas: true, controlAtEpochMs: Number.NaN, nowEpochMs: NOW })).toBe("stale");
+  });
+
+  it("waits while the seat stands and the control is young", () => {
+    expect(heldControlVerdict({ seatOnCanvas: true, controlAtEpochMs: NOW - 1000, nowEpochMs: NOW })).toBeUndefined();
   });
 });

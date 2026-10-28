@@ -109,6 +109,10 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
       canvasName: string,
       firingId: FiringId,
     ) => Effect.Effect<FiringType | undefined, AutomationPersistenceError>;
+    /** Firings still holding a queued action — a held seat control waits on a row that may never come. */
+    readonly queuedFirings: (
+      canvasName: string,
+    ) => Effect.Effect<ReadonlyArray<FiringType>, AutomationPersistenceError>;
   }>()("@junto/AutomationRepository") {}
 
 /** An applied task ruling that brought its task into a state, as a change trigger reads it. */
@@ -483,6 +487,23 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         });
       });
 
+      /** Every firing with an action still queued: what a held-action sweep resolves. */
+      const queuedFirings = Effect.fn("AutomationRepository.queuedFirings")(function* (canvasName: string) {
+        const rows = yield* sql<{ readonly firing_json: string }>`
+          SELECT firing_json FROM automation_firings
+          WHERE canvas_name = ${canvasName}
+            AND json_extract(firing_json, '$.outcome.kind') = 'fired'
+            AND EXISTS (
+              SELECT 1 FROM json_each(firing_json, '$.outcome.actions') AS action
+              WHERE json_extract(action.value, '$.ruling') = 'queued'
+            )
+        `.pipe(Effect.mapError(failure("queued-firings")));
+        return yield* Effect.try({
+          try: () => rows.map((row) => decodeFiring(JSON.parse(row.firing_json))),
+          catch: failure("queued-firings"),
+        });
+      });
+
       return AutomationRepository.of({
         loadState,
         applyFacts,
@@ -498,6 +519,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         firedSince,
         firings,
         firing,
+        queuedFirings,
       });
     }),
   );
