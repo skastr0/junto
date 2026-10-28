@@ -32,8 +32,9 @@ can name the thing that fired it.
 
 - **The form is a sentence.** "When [a task / an artifact / a seat / a
   signal] in [node or one item] [becomes / is] [state]". The scope lists
-  the task and Artifacts nodes in the automation's reach by name, then
-  "one task" or "one artifact" with a picker that does list them. The
+  the task and Artifacts nodes in the automation's reach by name ("in
+  Release"), then "named" with a picker that does list them ("When a task
+  named #42 becomes done"). The
   words "This task" go.
 - **Values, written `{{name}}`.** A text an action writes (mail, prompt,
   comment, a new task's title) may name values of the trigger. The set is
