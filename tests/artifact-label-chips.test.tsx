@@ -229,6 +229,10 @@ describe("header label chips", () => {
     act(() => add.click());
     expect(host.querySelector(".artifact-labels__picker")).toBeNull();
     expect(add.getAttribute("aria-expanded")).toBe("false");
+    act(() => add.click());
+    act(() => more.click());
+    expect(host.querySelector(".artifact-labels__picker")).toBeNull();
+    expect(document.activeElement).toBe(more);
   });
 
   it("lets an archived artifact's count close what it opened", () => {

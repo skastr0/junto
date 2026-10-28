@@ -147,11 +147,12 @@ export function ArtifactLabelChips({
     setPicking(false);
   };
   const toggle = (event: React.MouseEvent<HTMLElement>): void => {
+    // Focus goes back to the control pressed, whichever of the two opened it.
+    opener.current = event.currentTarget;
     if (picking) {
       close();
       return;
     }
-    opener.current = event.currentTarget;
     setPicking(true);
   };
   useEffect(() => {
