@@ -166,7 +166,8 @@ test("automations B1: the label watch reads as a sentence, and an edit appends, 
     await editor.getByRole("button", { name: "Save", exact: true }).click();
     await expect(pane.getByRole("button", { name: /^Any edit/u }).first()).toBeVisible({ timeout: 10_000 });
 
-    // End to end: edit Wire spec.
+    // End to end: edit Wire spec, after the app has idled with the automations saved.
+    await page.waitForTimeout(8_000);
     const before = (await head("Wire spec"))!;
     const edited = await apply(wire, { op: "edit", edit: { kind: "replace", baseVersion: before.artifact.version, body: { type: "document", markdown: "# Wire spec\n\nFirst draft." } } });
     expect(edited.kind, JSON.stringify(edited)).toBe("applied");
@@ -184,6 +185,15 @@ test("automations B1: the label watch reads as a sentence, and an edit appends, 
       expect.poll(async () => (await head("Edit log"))?.artifact.labels ?? null, { timeout: 30_000 }).toEqual(["log"]),
     );
     await page.waitForTimeout(5_000);
+    // A second edit, past the one-minute quiet time: a baseline would have taken only the first.
+    if (!(((await head("Wire spec"))?.body?.markdown ?? "").includes("Published edit seen."))) {
+      await page.waitForTimeout(40_000);
+      const now = (await head("Wire spec"))!;
+      await apply(wire, { op: "edit", edit: { kind: "replace", baseVersion: now.artifact.version, body: { type: "document", markdown: "# Wire spec\n\nSecond draft." } } });
+      await check("a second edit fires", () =>
+        expect.poll(async () => (await head("Wire spec"))?.body?.markdown ?? "", { timeout: 30_000 }).toContain("Published edit seen."),
+      );
+    }
     const md = (await head("Wire spec"))?.body?.markdown ?? "";
     const appends = md.split("Published edit seen.").length - 1;
     const logs = (await heads()).filter((h) => h.artifact.title === "Edit log").length;
