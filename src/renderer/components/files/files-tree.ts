@@ -119,3 +119,24 @@ export const useFolderTree = (ref: FilesNodeRef, model: FileTree, ready: boolean
     };
   }, [canvas, node, model, ready]);
 };
+
+/**
+ * The folders kept expanded after the tree changed (0.11, 04, V3), as file
+ * paths in the order first expanded. A row the tree shows says for itself; a
+ * folder it does not show (under a collapsed parent, or not listed yet) keeps
+ * what it was, so opening the parent again opens it as the operator left it.
+ */
+export const expandedAfter = (
+  kept: ReadonlyArray<string>,
+  rows: ReadonlyArray<{ readonly kind: string; readonly path: string; readonly isExpanded?: boolean }>,
+): ReadonlyArray<string> => {
+  const shown = new Map<string, boolean>();
+  for (const row of rows) {
+    if (row.kind !== "directory") continue;
+    const dir = filePathOfTree(row.path);
+    if (dir !== undefined && dir !== ROOT_PATH) shown.set(dir, row.isExpanded === true);
+  }
+  const next = kept.filter((dir) => shown.get(dir) ?? true);
+  for (const [dir, open] of shown) if (open && !next.includes(dir)) next.push(dir);
+  return next;
+};

@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from "react";
-import type { AutomationsNodeView, NodeViewStore, TasksNodeView } from "./view-state";
-import { makeMemoryNodeViewStore } from "./view-state-stand-in";
+import type { AutomationsNodeView, FilesNodeView, NodeViewStore, TasksNodeView } from "./view-state";
+import { defaultNodeViewStore } from "./view-state-main";
 
 /**
  * Where the node surfaces read and write how the operator left them (0.11,
  * 04, V3): each node's filters and open item, a collapsed sidebar, a resized
- * modal and the comments rail. This window's store is main's once V1 lands;
- * until then the stand-in, which holds the same rows in memory.
+ * modal and the comments rail. This window's store is main's when the
+ * preload answers, and the in-memory stand-in otherwise.
  */
-let store: NodeViewStore = makeMemoryNodeViewStore();
+let store: NodeViewStore = defaultNodeViewStore();
 
 export const nodeViewStore = (): NodeViewStore => store;
 
@@ -56,4 +56,24 @@ export const useAutomationsNodeView = (
       if ((store.automations(canvasName, nodeId)?.open ?? null) !== open) store.writeAutomations(canvasName, nodeId, { open });
     },
   };
+};
+
+const FILES_OPEN: FilesNodeView = { open: null, expanded: [] };
+
+/** The Files node as the operator left it: the file it had open and the folders it had expanded. */
+export const useFilesNodeView = (
+  canvasName: string,
+  nodeId: string,
+): FilesNodeView & {
+  readonly setOpen: (open: string | null) => void;
+  readonly setExpanded: (expanded: ReadonlyArray<string>) => void;
+} => {
+  const kept = useNodeView((store) => store.files(canvasName, nodeId)) ?? FILES_OPEN;
+  const update = (change: Partial<FilesNodeView>): void => {
+    const last = store.files(canvasName, nodeId) ?? FILES_OPEN;
+    const next = { ...last, ...change };
+    const sameExpanded = next.expanded.length === last.expanded.length && next.expanded.every((path, i) => path === last.expanded[i]);
+    if (next.open !== last.open || !sameExpanded) store.writeFiles(canvasName, nodeId, next);
+  };
+  return { ...kept, setOpen: (open) => update({ open }), setExpanded: (expanded) => update({ expanded }) };
 };

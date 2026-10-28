@@ -13,6 +13,8 @@ const { FilesNode } = await import("../src/renderer/components/files/FilesNode")
 const { saveFileInFront } = await import("../src/renderer/lib/file-editor-keys");
 const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await import("../src/renderer/lib/files-source");
 const { modelStore } = await import("../src/renderer/lib/use-model");
+const { nodeViewStore, setNodeViewStore } = await import("../src/renderer/lib/node-view-state");
+const { makeMemoryNodeViewStore } = await import("../src/renderer/lib/view-state-stand-in");
 
 const nodeId = asNodeId("files-render");
 const ref = { canvas: "c", node: nodeId };
@@ -36,6 +38,7 @@ const buttonNamed = (name: string): HTMLButtonElement | undefined =>
   [...document.querySelectorAll("button")].find((button) => button.textContent === name || button.getAttribute("aria-label") === name);
 
 beforeEach(() => {
+  setNodeViewStore(makeMemoryNodeViewStore());
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -49,6 +52,19 @@ afterEach(() => {
 });
 
 describe("the Files modal", () => {
+  it("opens again on the file it had open and the folders it had expanded, from view state", async () => {
+    installFilesSource(makeLocalFiles({ "src/a.ts": "one", "docs/b.md": "two" }));
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    expect(nodeViewStore().files("c", nodeId)).toEqual({ open: "src/a.ts", expanded: ["src"] });
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector(".files-head__name")?.textContent).toBe("a.ts");
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("one");
+  });
+
   it("opens a text file in the editor, marks unsaved text, and Save writes it", async () => {
     const files = makeLocalFiles({ "src/a.ts": "one" });
     installFilesSource(files);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath, ROOT_PATH, type FileEntry, type FilePath } from "../src/shared/files";
-import { fileOfSelection, folderOps, movedPath, treePathOf } from "../src/renderer/components/files/files-tree";
+import { expandedAfter, fileOfSelection, folderOps, movedPath, treePathOf } from "../src/renderer/components/files/files-tree";
 import { changeTouches, dirtyPaths, fileDraft, fileViewOf, filesErrorLine, foldersTouched, makeLocalFiles, setFileDraft } from "../src/renderer/lib/files-source";
 
 const node = asNodeId("files-test");
@@ -110,5 +110,16 @@ describe("saving", () => {
   it("says every refusal in plain words, with no middle dot", () => {
     const errors = ["no-node", "elsewhere", "root-missing", "invalid-path", "outside-root", "not-found", "exists", "not-dir", "is-dir", "stale", "too-large", "denied", "failed"] as const;
     for (const error of errors) expect(filesErrorLine(error)).not.toContain(String.fromCharCode(0xb7));
+  });
+});
+
+describe("expandedAfter (0.11, 04, V3)", () => {
+  const dir = (path: string, isExpanded: boolean) => ({ kind: "directory", path: `${path}/`, isExpanded });
+  it("a shown folder says for itself; one the tree does not show keeps what it was", () => {
+    expect(expandedAfter([], [dir("src", true), dir("docs", false)])).toEqual(["src"]);
+    // src/lib sits under src: collapsing src hides it, and it stays kept for when src opens again.
+    expect(expandedAfter(["src", "src/lib"], [dir("src", false), dir("docs", false)])).toEqual(["src/lib"]);
+    expect(expandedAfter(["src/lib"], [dir("src", true), dir("src/lib", true), { kind: "file", path: "src/a.ts" }])).toEqual(["src/lib", "src"]);
+    expect(expandedAfter(["src"], [dir("src", true)])).toEqual(["src"]);
   });
 });

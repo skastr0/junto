@@ -31,7 +31,8 @@ import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../artifacts/Li
 import { useSeatsInReach } from "../../lib/mention-sources";
 import { openMention } from "../tasks/TaskThread";
 import { commentsRailRef, setCommentsRailOpen, useCommentsRailOpen } from "../../lib/artifact-comments-rail";
-import { fileOfSelection, filePathOfTree, movedPath, treePathOf, useFolderTree } from "./files-tree";
+import { useFilesNodeView } from "../../lib/node-view-state";
+import { expandedAfter, fileOfSelection, filePathOfTree, movedPath, treePathOf, useFolderTree } from "./files-tree";
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop, type FilesMoved } from "./useFilesDrop";
 import { registerFileEditorSave } from "../../lib/file-editor-keys";
@@ -91,7 +92,23 @@ export function FilesNode({
   // Read live: the folder reopens when the node's host or root changes under the open modal.
   const node = useNode(canvasName, nodeId);
   const root = useFilesRoot(ref, node?.kind === "files" ? `${node.host}\u0000${node.root}` : "");
-  const [selected, setSelected] = useState<FilePath | null>(initialPath ?? null);
+  const kept = useFilesNodeView(canvasName, nodeId);
+  const keptRef = useRef(kept);
+  keptRef.current = kept;
+  /** How the node opens: on the file asked for, else the one it had open, with the folders it had expanded (0.11, 04, V3). */
+  const [opening] = useState(() => {
+    const open = initialPath ?? parseFilePath(kept.open) ?? null;
+    const folders = kept.expanded.flatMap((dir) => {
+      const path = parseFilePath(dir);
+      return path === undefined || path === ROOT_PATH ? [] : [treePathOf({ path, dir: true })];
+    });
+    const expanded = [...new Set([...folders, ...(open === null ? [] : ancestorsOf(open))])];
+    return { open, expanded };
+  });
+  const [selected, setSelected] = useState<FilePath | null>(opening.open);
+  useEffect(() => {
+    keptRef.current.setOpen(selected);
+  }, [selected]);
   /** The page an extract's link named, until the operator leaves that file: coming back opens it where they left. */
   const [pageOnce, setPageOnce] = useState(initialPage);
   useEffect(() => {
@@ -174,7 +191,8 @@ export function FilesNode({
     dragAndDrop: drop.treeDragAndDrop,
     unsafeCSS: FILES_DROP_TREE_CSS,
     initialExpansion: "closed",
-    ...(initialPath === undefined ? {} : { initialExpandedPaths: ancestorsOf(initialPath), initialSelectedPaths: [initialPath] }),
+    initialExpandedPaths: opening.expanded,
+    ...(opening.open === null ? {} : { initialSelectedPaths: [opening.open] }),
     // The tree's own search box sits inside role=tree, which admits only rows; the filter above it drives setSearch.
     search: false,
     renaming: { onRename: (event) => void rename(event), onError: setTreeError },
@@ -189,6 +207,27 @@ export function FilesNode({
   });
   modelRef.current = model;
   useFolderTree(ref, model, root.state === "ready");
+  // The tree lists a folder only once it is shown, and drops an expansion it
+  // was handed before that, so each folder the node opens with is expanded as
+  // its row first shows. From then on the folders the operator expands and
+  // collapses are kept with the node.
+  useEffect(() => {
+    const unopened = new Set(opening.expanded);
+    return model.subscribe(() => {
+      let rows = model.getVisibleRows(0, model.getVisibleCount());
+      let opened = false;
+      for (const row of rows) {
+        if (row.kind !== "directory" || !unopened.delete(row.path) || row.isExpanded) continue;
+        const item = model.getItem(row.path);
+        if (item !== null && item !== undefined && "expand" in item) {
+          item.expand();
+          opened = true;
+        }
+      }
+      if (opened) rows = model.getVisibleRows(0, model.getVisibleCount());
+      keptRef.current.setExpanded(expandedAfter(keptRef.current.expanded, rows));
+    });
+  }, [model, opening]);
   useEffect(() => {
     drop.bindModel(model);
     return () => drop.bindModel(null);
