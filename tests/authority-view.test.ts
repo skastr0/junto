@@ -173,6 +173,11 @@ describe("the words", () => {
       "Mac mini asleep since 01:12",
     ]);
     expect(authorityMachineLine({ ...vps, isAuthority: false }, clock)).toBe("VPS unreachable");
+    expect(authorityMachineLine({ ...mini, reach: "reachable", since: null, isAuthority: false }, clock)).toBe(
+      "Mac mini reachable",
+    );
+    const reachable = authorityViewOf(read(), [mac, { ...mini, reach: "reachable", since: null }]);
+    expect(authorityWaitReason(reachable, clock)).toContain("Mac mini reachable but not taking changes");
   });
 });
 

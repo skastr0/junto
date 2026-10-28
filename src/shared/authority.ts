@@ -181,7 +181,7 @@ export const authorityMachineLine = (
     case "here":
       return "this machine";
     case "reachable":
-      return `${machine.label} reachable but not taking changes`;
+      return `${machine.label} reachable`;
     case "asleep":
       return machine.since === null ? `${machine.label} asleep` : `${machine.label} asleep since ${when(machine.since)}`;
     case "unreachable":
@@ -195,7 +195,19 @@ export const authorityMachineLine = (
 const machineStates = (
   view: AuthorityView,
   when: (at: number) => string,
-): string => view.list.map((machine) => authorityMachineLine(machine, when)).join(", ");
+): string => view.list.map((machine) => noAuthorityLine(machine, when)).join(", ");
+
+/**
+ * A reachable machine in a no-authority state is still not taking changes:
+ * `authorityMachineLine` keeps the neutral state words the status prints.
+ */
+const noAuthorityLine = (
+  machine: AuthorityMachineView,
+  when: (at: number) => string,
+): string =>
+  machine.reach === "reachable"
+    ? `${machine.label} reachable but not taking changes`
+    : authorityMachineLine(machine, when);
 
 const asSentence = (text: string): string => (text === "" ? text : `${text[0]!.toUpperCase()}${text.slice(1)}`);
 
@@ -206,7 +218,7 @@ const namedStates = (
   view: AuthorityView,
   when: (at: number) => string,
 ): string => {
-  const lines = view.list.map((machine) => authorityMachineLine(machine, when));
+  const lines = view.list.map((machine) => noAuthorityLine(machine, when));
   if (lines.length <= MAX_NAMED_MACHINES) return lines.join(", ");
   const rest = lines.length - MAX_NAMED_MACHINES;
   return `${lines.slice(0, MAX_NAMED_MACHINES).join(", ")} and ${rest} more`;
