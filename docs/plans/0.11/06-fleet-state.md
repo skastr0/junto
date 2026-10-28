@@ -114,9 +114,15 @@ needs no lease and no clock. It follows from who must agree to a commit.
   that hold the committed log.
 - **Changing the list changes the quorum.** Adding or removing a machine
   changes who must agree. In a pair, reordering does too, because the order
-  picks the casting vote. So each list edit commits under the old quorum
-  and changes one machine at a time (Raft's single-server change), and the
-  simulation covers list edits made during partitions.
+  picks the casting vote. Raft's one-machine-at-a-time change is not safe
+  here (tech-lead): from [MacBook, mini] to [MacBook, mini, VPS], the old
+  quorum {mini} (its casting vote) and the new majority {MacBook, VPS} do
+  not meet, so two authorities could commit at once. So a list edit is a
+  joint entry: it carries the old list and the new one, commits only on a
+  quorum of each, and the new list alone follows once it has committed.
+  The joint state lives only in `canvas_log`. `canvas_authorities` is
+  written when the final list commits. The simulation covers list edits
+  made during partitions.
 - **Election.** A standby that hears nothing from the authority for the
   timeout (10 s, tunable) asks for votes for term + 1. A voter grants one
   vote per term, and only to a candidate whose log is at least as complete
@@ -226,7 +232,7 @@ the code that runs.
 | Slice | What | Size | Risk |
 |---|---|---|---|
 | F0 | S5 links from any end, with per-opener keys | M | medium |
-| F1 | Authority list (each edit commits under the old quorum, one machine at a time), terms, votes, transfer, `junto authority status`; the deterministic simulation, list edits included | L | high |
+| F1 | Authority list (each edit a joint entry, committed on a quorum of the old list and of the new), terms, votes, transfer, `junto authority status`; the deterministic simulation, list edits included | L | high |
 | F2 | The log with quorum commit: rulings carry `(term, index)`, projection at commit, step-down discards the uncommitted tail; every ruler (task, artifact, artifact node, automation) moves to it | L | high |
 | F3 | Keepers: listed machines get the uncut canvas, eager bodies, relay rights | M | medium |
 | F4 | Structure in the log; window commands forwarded to the authority; read-only with none | L | medium |
@@ -382,9 +388,8 @@ preferred machine would.
 - **The authority list is a quorum change, not an ordinary edit.**
   Adding or removing a machine changes who must agree. In a pair, reordering
   does too, because the order decides which machine holds the casting vote.
-  Each such edit commits under the old quorum and changes one machine at a
-  time. Anything larger is a sequence of such edits, as in Raft's
-  single-server change. Reordering three or more machines changes only the
+  Each such edit is a joint entry, committed on a quorum of the old list and
+  of the new (section 2). Reordering three or more machines changes only the
   tie-break and is an ordinary edit.
 - **Unchanged:** a seat's `host` still has one writer, the authority, and a
   machine acts on a move once it holds that count (Rule 3). Secret values
