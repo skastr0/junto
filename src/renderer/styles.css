@@ -205,8 +205,11 @@ html[data-junto-platform="darwin"] .focus-surface__aside {
   min-height: 0;
   max-height: min(86vh, 720px);
 }
-/* Any measure the operator may resize (a document, the Image modal's workspace). */
+/* Any measure the operator may resize (a document, the Image modal's workspace),
+   with the document's floor so a drag never leaves a sliver. */
 .focus-surface__panel[data-height="resizable"] {
+  min-width: 420px;
+  min-height: 320px;
   resize: both;
   overflow: auto;
 }
