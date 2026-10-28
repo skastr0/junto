@@ -111,7 +111,7 @@ describe("artifact automations, the draft", () => {
   });
 
   it("a label no artifact carries is said under the field, with the labels that are there", () => {
-    const used = ["project/junto", "publish", "weekly"] as ReadonlyArray<ArtifactLabel>;
+    const used = ["project/junto", "publish", "weekly"] as unknown as ReadonlyArray<ArtifactLabel>;
     expect(labelNote("publsh", "edited", "Specs", used)).toBe("No artifact in Specs carries publsh yet. Labels there: project/junto, publish, weekly.");
     expect(labelNote("draft", "labelled", "Specs", [])).toBe("No artifact in Specs carries draft yet. It fires when one gains it.");
     // A match, a level above one, an empty field or a broken label says nothing here.

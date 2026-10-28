@@ -27,6 +27,7 @@ import {
   valueNamesIn,
   type Action,
   type ActionRuling,
+  type ArtifactTarget as SharedArtifactTarget,
   type Automation,
   type AutomationAuthor,
   type AutomationId,
@@ -59,13 +60,10 @@ export type TaskTarget = TaskWatch["task"];
 export type TaskBecomes = TaskWatch["becomes"];
 /** An artifact, or any artifact in one Artifacts node, as a task watch's `{node}` is any task on a board. */
 export type ArtifactScope = ArtifactWatch["artifact"];
-/**
- * What an artifact watch waits for. `labelled` (B1, plan 0.11/05 Next) is a
- * stand-in for automation-lead's names until they land in `@shared/automation`.
- */
-export type ArtifactEvent = ArtifactWatch["event"] | "labelled";
-/** The artifact an artifact action writes: one picked, or the one that fired (B1 stand-in). */
-export type ArtifactTarget = TargetRef | { readonly fired: true };
+/** What an artifact watch waits for: edited, commented on, or a label gained. */
+export type ArtifactEvent = ArtifactWatch["event"];
+/** The artifact an artifact action writes: one picked, or the one that fired. */
+export type ArtifactTarget = SharedArtifactTarget;
 type CommentAction = Extract<Action, { readonly kind: "comment" }>;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
 export type CommentTarget = CommentAction["on"];
@@ -73,8 +71,7 @@ export type CommentTarget = CommentAction["on"];
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
-/** The contract's action kinds, and B1's artifact actions until they land in it (stand-in). */
-export type ActionKind = Action["kind"] | "create-artifact" | "append-artifact" | "label-artifact";
+export type ActionKind = Action["kind"];
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -852,8 +849,7 @@ export const cadenceWords = (trigger: TriggerDraft): string | undefined => {
 };
 
 /** What each value is, in a few words, beside its name in the Insert value list. */
-// `artifact.labels` joins with B1 (stand-in): the key stays when the contract names it.
-export const VALUE_WORDS: Readonly<Record<AutomationValue | "artifact.labels", string>> = {
+export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
   "task.title": "the task's title",
   "task.state": "the state it became",
   "task.link": "a link to it",
