@@ -34,8 +34,18 @@ export const registerViewStateIpc = (
     return run(
       Effect.flatMap(ViewStateRepository, (store) =>
         store.write(write).pipe(
-          Effect.tap(() => Effect.sync(() => broadcast(IPC_CHANNELS.viewStateChanged, write))),
-          Effect.as({ ok: true } satisfies ViewStateApplyResult),
+          Effect.flatMap((written): Effect.Effect<ViewStateApplyResult> =>
+            written
+              ? Effect.sync(() => {
+                  // After the row's transaction committed, never before.
+                  broadcast(IPC_CHANNELS.viewStateChanged, write);
+                  return { ok: true } satisfies ViewStateApplyResult;
+                })
+              : Effect.succeed({
+                  ok: false,
+                  error: "the node this row belongs to is gone; the row was not kept",
+                } satisfies ViewStateApplyResult),
+          ),
           Effect.catch((error: ViewStatePersistenceError) =>
             Effect.succeed({ ok: false, error: error.message } satisfies ViewStateApplyResult),
           ),

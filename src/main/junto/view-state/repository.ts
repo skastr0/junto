@@ -20,6 +20,7 @@ import type {
   ViewStateWrite,
 } from "@shared/view-state";
 import type { ArtifactLabel } from "@shared/artifact-labels";
+import { KIND_TABLES } from "../model/state-schema";
 import { StateTransactionOperation } from "../state/service";
 import { removeViewCanvas, removeViewNodes } from "./remove";
 
@@ -96,6 +97,10 @@ type SectionRow = {
   readonly open: number;
 };
 
+/** A write whose row belongs to a node; the canvas is the node's canvas. */
+type NodeWrite = Extract<ViewStateWrite, { readonly nodeId: string }>;
+const isNodeWrite = (write: ViewStateWrite): write is NodeWrite => "nodeId" in write;
+
 /** A node's state while the snapshot is assembled; the contract's fields are readonly. */
 type NodeDraft = {
   artifactsFilter?: ViewArtifactsFilter;
@@ -118,8 +123,12 @@ export class ViewStateRepository extends Context.Service<
   {
     /** Every row this machine saved, sparse. */
     readonly snapshot: () => Effect.Effect<ViewStateSnapshot, ViewStatePersistenceError>;
-    /** Write one changed row (or one row's children) in one transaction. */
-    readonly write: (change: ViewStateWrite) => Effect.Effect<void, ViewStatePersistenceError>;
+    /**
+     * Write one changed row (or one row's children) in one transaction.
+     * False, and nothing written, when the row's node is no longer on the
+     * canvas: a stale window's write cannot resurrect a removed node's rows.
+     */
+    readonly write: (change: ViewStateWrite) => Effect.Effect<boolean, ViewStatePersistenceError>;
     /** A canvas went: its rows go with it (the FK is the backstop). */
     readonly removeCanvas: (canvas: string) => Effect.Effect<void, ViewStatePersistenceError>;
     /** Nodes went: their rows go, and their command-group members leave their groups. */
@@ -131,6 +140,23 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
   ViewStateRepository,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+
+    /**
+     * Is this node still one of its canvas's nodes? Nodes live in one of the
+     * kind tables, so the check is a union over the closed map; the table
+     * names never come from a caller. A stale window's write for a node a
+     * delete already took answers false and writes nothing.
+     */
+    const nodeExists = (canvas: string, nodeId: string) =>
+      Effect.map(
+        sql.unsafe<{ one: number }>(
+          `${Object.values(KIND_TABLES)
+            .map((table) => `SELECT 1 AS one FROM ${table} WHERE canvas_name = ?1 AND id = ?2`)
+            .join(" UNION ALL ")} LIMIT 1`,
+          [canvas, nodeId],
+        ),
+        (rows) => rows.length > 0,
+      );
 
     const snapshot = Effect.fn("viewState.snapshot")(function* () {
       const slotRows = yield* sql<SlotRow>`
@@ -252,6 +278,9 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
     }, Effect.mapError(persistence("snapshot")));
 
     const write = Effect.fn("viewState.write")(function* (change: ViewStateWrite) {
+      // A node-scoped row is kept only while its node is: a delete that
+      // committed before this transaction leaves nothing to write.
+      if (isNodeWrite(change) && !(yield* nodeExists(change.canvasName, change.nodeId))) return false;
       switch (change.area) {
         case "command-slot": {
           const { canvasName, slot, value } = change;
@@ -358,6 +387,7 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
             ON CONFLICT (section) DO UPDATE SET open = excluded.open`;
           break;
       }
+      return true;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "viewState.write"), Effect.mapError(persistence("write")));
 
     const removeCanvas = Effect.fn("viewState.removeCanvas")(function* (canvas: string) {

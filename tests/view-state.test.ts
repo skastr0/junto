@@ -10,6 +10,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ViewStateWrite } from "../src/shared/view-state";
+import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ViewStateRepository, ViewStateRepositoryLive } from "../src/main/junto/view-state/repository";
 
@@ -19,6 +20,12 @@ const canvas = "main";
 
 const machineAt = (root: string) =>
   ManagedRuntime.make(Layer.provideMerge(ViewStateRepositoryLive, makeStateEngineLive(join(root, "junto.db"))));
+
+const label = (raw: string): ArtifactLabel => {
+  const folded = artifactLabelOf(raw);
+  if (folded === undefined) throw new Error(`refused: ${raw}`);
+  return folded;
+};
 
 const run = <A, E>(effect: Effect.Effect<A, E, ViewStateRepository | SqlClient.SqlClient>) =>
   runtime.runPromise(effect as never) as Promise<A>;
@@ -32,8 +39,17 @@ beforeEach(async () => {
   runtime = machineAt(dir);
   await run(
     Effect.flatMap(SqlClient.SqlClient, (sql) =>
-      sql`INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at)
-        VALUES (${canvas}, 'canvas-1', 'now', 'now')`.pipe(Effect.asVoid),
+      Effect.gen(function* () {
+        yield* sql`INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at)
+          VALUES (${canvas}, 'canvas-1', 'now', 'now')`;
+        // Every node a view row may name: the store keeps a node-scoped row
+        // only while its node is one of the canvas's.
+        for (const id of ["artifacts-1", "tasks-1", "a", "b", "c"]) {
+          yield* sql`INSERT INTO artifact_boards
+            (canvas_name, id, x, y, width, height, z_index, color, created_at, updated_at, label)
+            VALUES (${canvas}, ${id}, 0, 0, 10, 10, 0, NULL, 'now', 'now', 'Shelf')`;
+        }
+      }),
     ),
   );
 });
@@ -44,8 +60,10 @@ afterEach(async () => {
 });
 
 describe("the view-state store", () => {
-  it("reads an untouched machine as empty", async () => {
+  it("reads an untouched machine as empty, and writes nothing for a node the canvas does not hold", async () => {
     expect(await snapshot()).toEqual({ commandGroups: {}, nodes: {}, focusSizes: {}, sections: {} });
+    expect(await write({ area: "sidebar", canvasName: canvas, nodeId: "ghost", collapsed: true })).toBe(false);
+    expect((await snapshot()).nodes[canvas]).toBeUndefined();
   });
 
   it("keeps nine slots, a group's members in order, and the groups past nine", async () => {
@@ -74,7 +92,7 @@ describe("the view-state store", () => {
       area: "artifacts-filter",
       canvasName: canvas,
       nodeId: node,
-      value: { type: "document", archived: true, labels: ["b", "a"] },
+      value: { type: "document", archived: true, labels: [label("b"), label("a")] },
     });
     await write({ area: "tasks-filter", canvasName: canvas, nodeId: node, value: "open" });
     await write({ area: "open-item", canvasName: canvas, nodeId: node, value: { kind: "artifact", id: "artifact-1" } });
@@ -82,7 +100,7 @@ describe("the view-state store", () => {
     await write({ area: "sidebar", canvasName: canvas, nodeId: node, collapsed: true });
 
     let held = (await snapshot()).nodes[canvas]![node]!;
-    expect(held.artifactsFilter).toEqual({ type: "document", archived: true, labels: ["b", "a"] });
+    expect(held.artifactsFilter).toEqual({ type: "document", archived: true, labels: [label("b"), label("a")] });
     expect(held.tasksFilter).toBe("open");
     expect(held.openItem).toEqual({ kind: "artifact", id: "artifact-1" });
     expect(held.expandedFolders).toEqual(["src", "docs"]);
@@ -172,7 +190,12 @@ describe("a node or canvas delete takes its view rows", () => {
   it("cascades a canvas delete from the canvases table", async () => {
     await run(
       Effect.flatMap(SqlClient.SqlClient, (sql) =>
-        sql`DELETE FROM canvases WHERE canvas_name = ${canvas}`.pipe(Effect.asVoid),
+        Effect.gen(function* () {
+          // The model removes its kind rows before the canvas; the FK here
+          // has no ON DELETE action, so the test does the same.
+          yield* sql`DELETE FROM artifact_boards WHERE canvas_name = ${canvas}`;
+          yield* sql`DELETE FROM canvases WHERE canvas_name = ${canvas}`;
+        }),
       ),
     );
     const read = await snapshot();

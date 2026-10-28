@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { JuntoViewStateApi } from "../src/shared/ipc";
+import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
 import type { ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
 import { createMainViewState } from "../src/renderer/lib/view-state-main";
 
@@ -40,6 +41,12 @@ const fake = (snapshot: ViewStateSnapshot = EMPTY): Fake => {
 };
 
 const tick = () => new Promise<void>((done) => setTimeout(done, 0));
+
+const label = (raw: string): ArtifactLabel => {
+  const folded = artifactLabelOf(raw);
+  if (folded === undefined) throw new Error(`refused: ${raw}`);
+  return folded;
+};
 
 const hydrated = async (snapshot: ViewStateSnapshot = EMPTY) => {
   const transport = fake(snapshot);
@@ -82,14 +89,14 @@ describe("the main-backed view-state store", () => {
       ...EMPTY,
       nodes: { main: { "artifacts-1": { artifactsFilter: { type: "document", archived: false, labels: [] }, openItem: { kind: "artifact", id: "a" } } } },
     });
-    state.nodeView.writeArtifacts("main", "artifacts-1", { type: "document", archived: false, labels: ["b", "a"], open: "a" });
+    state.nodeView.writeArtifacts("main", "artifacts-1", { type: "document", archived: false, labels: [label("b"), label("a")], open: "a" });
     expect(applied).toEqual([
-      { area: "artifacts-filter", canvasName: "main", nodeId: "artifacts-1", value: { type: "document", archived: false, labels: ["a", "b"] } },
+      { area: "artifacts-filter", canvasName: "main", nodeId: "artifacts-1", value: { type: "document", archived: false, labels: [label("a"), label("b")] } },
     ]);
-    state.nodeView.writeArtifacts("main", "artifacts-1", { type: "document", archived: false, labels: ["a", "b"], open: "b" });
+    state.nodeView.writeArtifacts("main", "artifacts-1", { type: "document", archived: false, labels: [label("a"), label("b")], open: "b" });
     expect(applied[1]).toEqual({ area: "open-item", canvasName: "main", nodeId: "artifacts-1", value: { kind: "artifact", id: "b" } });
     // Nothing changed: nothing sent.
-    state.nodeView.writeArtifacts("main", "artifacts-1", { type: "document", archived: false, labels: ["a", "b"], open: "b" });
+    state.nodeView.writeArtifacts("main", "artifacts-1", { type: "document", archived: false, labels: [label("a"), label("b")], open: "b" });
     expect(applied).toHaveLength(2);
   });
 

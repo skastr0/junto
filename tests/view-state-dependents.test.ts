@@ -32,7 +32,8 @@ const machineAt = (root: string) =>
     ),
   );
 
-const run = <A, E>(effect: Effect.Effect<A, E, never>) => runtime.runPromise(effect as never) as Promise<A>;
+const run = <A, E>(effect: Effect.Effect<A, E, ModelService | SqlClient.SqlClient>) =>
+  runtime.runPromise(effect as never) as Promise<A>;
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "junto-view-state-dependents-"));
