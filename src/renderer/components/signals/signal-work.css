@@ -1,0 +1,77 @@
+/* The operator's work, done in the signal: a document, or proof. */
+
+.signal-work {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: stretch;
+}
+
+.signal-work__where {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.signal-work__title {
+  color: var(--color-ink);
+}
+
+.signal-work__field {
+  min-height: 160px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--color-stroke) 70%, transparent);
+  border-radius: 8px;
+  background: var(--color-raise);
+}
+
+.signal-work__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-work__progress[data-met] {
+  color: var(--color-ink);
+}
+
+/* The fill scales on the compositor; its width never lays out. */
+.signal-work__meter {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--color-stroke) 60%, transparent);
+}
+
+.signal-work__meter-fill {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(var(--signal-work-fill, 0));
+  transform-origin: left center;
+  background: var(--color-accent);
+  transition: transform 160ms ease-out;
+}
+
+.signal-work__progress[data-met] .signal-work__meter-fill {
+  background: var(--color-green);
+}
+
+.signal-work__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.signal-work__error {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  color: var(--color-crimson-fg);
+}
