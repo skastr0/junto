@@ -27,7 +27,7 @@ export class AuthorityOwner extends Context.Service<AuthorityOwner, {
   readonly alone: (args: AuthorityAloneArgs) => Effect.Effect<AuthorityAloneData, unknown>;
 }>()("@junto/cli/AuthorityOwner") {}
 
-/** Times as the JSON reads them: ISO 8601, UTC. */
+/** Times in a state's words: ISO 8601, UTC. The data's since and staleSince stay epoch milliseconds, as the contract has them. */
 const isoTime = (at: number): string => new Date(at).toISOString();
 
 /** Each machine with its state in words: reachable, asleep since a time, unreachable, not linked. */
@@ -69,7 +69,7 @@ const status = Command.make("status", {
   canvas: Argument.string("canvas").pipe(Argument.optional, Argument.withDescription("A canvas this machine holds; every one when left out")),
 }, ({ canvas }) => executeJsonCommand("authority status", authorityStatus(canvas))).pipe(
   Command.withDescription(
-    "Show which machine takes changes for each canvas this machine holds: the term, the authority, whether it can commit, the operator's list with each machine's state (reachable, asleep since a time, unreachable, not linked), and since when reads are stale. Owner only.",
+    "Show which machine takes changes for each canvas this machine holds: the term, the authority, whether it can commit, the operator's list with each machine's state (reachable, asleep since a time, unreachable, not linked), a list change not yet applied (pending), how many changes wait for the operator to apply or discard (waiting), and since when reads are stale (staleSince, epoch ms). Owner only.",
   ),
 );
 
