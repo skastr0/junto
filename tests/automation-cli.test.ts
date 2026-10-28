@@ -118,7 +118,7 @@ describe("overseer automation writes", () => {
     }
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: prompt");
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: code");
-    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}"]) expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain(word);
+    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}", "kind: signal", "notice or work"]) expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain(word);
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("{{code.<field>}}");
   });
 

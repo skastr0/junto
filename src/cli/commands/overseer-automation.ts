@@ -42,11 +42,11 @@ export const AUTOMATION_WRITE_CLI_SCHEMAS: { readonly [Op in AutomationWriteOp]:
 const braced = (names: ReadonlyArray<string>) => names.map((name) => `{{${name}}}`).join(", ");
 
 /** The values each trigger carries, as the help says them (0.11, 05, A4). */
-export const VALUES_HELP = `Text in mail, prompt and comment actions, and a new task's title, may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal; and after a code step, {{code.<field>}} for each field its output names. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
+export const VALUES_HELP = `Text in mail, prompt, comment and append-artifact actions, a new task's title, a new artifact's title and body, and a signal's title and detail may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal; and after a code step, {{code.<field>}} for each field its output names. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
 
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. An artifact watch {kind: artifact, artifact: <ref> or {node}, event: edited, commented or labelled, label?} fires on labelled when an artifact gains label (or a level under it), created with it included. Artifact actions: create-artifact {node, title, body?, labels?} makes a document from markdown; append-artifact {to, text} adds markdown at a document's end; label-artifact {to, add?, remove?} changes its labels, never one label in both. Their to is an artifact, or {fired: true}, the one that fired an artifact trigger. Labels fold to lowercase. A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ${VALUES_HELP}`,
+    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. An artifact watch {kind: artifact, artifact: <ref> or {node}, event: edited, commented or labelled, label?} fires on labelled when an artifact gains label (or a level under it), created with it included. Artifact actions: create-artifact {node, title, body?, labels?} makes a document from markdown; append-artifact {to, text} adds markdown at a document's end; label-artifact {to, add?, remove?} changes its labels, never one label in both. Their to is an artifact, or {fired: true}, the one that fired an artifact trigger. Labels fold to lowercase. A signal action {kind: signal, signal: notice or work, title, detail?, show?} raises a signal in the operator's needs-you feed: notice is read and cleared, work stays open until the operator produces it; show names artifacts it opens. A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ${VALUES_HELP}`,
   "automation.edit":
     `Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused. Values in text are checked against the trigger as stored after the change. ${VALUES_HELP}`,
   "automation.enable": "Turn an automation on",
@@ -270,6 +270,25 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
       then: [
         { kind: "code", language: "typescript", file: "./check-service.ts", timeoutMs: 30_000 },
         { kind: "mail", to: "@tech-lead", text: "service check at {{fired.at}}: {{code.status}}" },
+      ],
+    },
+  ),
+  example(
+    "create",
+    "ask the operator for today's writing every morning",
+    "A work signal stays in the needs-you feed until the operator does it; show takes the brief's junto:// link, from junto artifact show.",
+    {
+      target: "Automations",
+      name: "daily writing",
+      trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "America/Sao_Paulo" },
+      then: [
+        {
+          kind: "signal",
+          signal: "work",
+          title: "Write 500 words",
+          detail: "Today's writing, raised at {{fired.at}}. The brief opens from the signal.",
+          show: ["junto://canvas?node=Shelf&item=01M5ESMQ2ZT55QZ073EWPH10SG"],
+        },
       ],
     },
   ),
