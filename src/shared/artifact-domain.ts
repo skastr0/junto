@@ -150,6 +150,10 @@ export const artifactDomain = (deps: {
   kind: "artifact",
   rule: (state, command) => ruleArtifactCommand(state, command, deps.now(), deps.bodyRef),
   apply: applyArtifactFact,
+  // Only an edit reads the body: a title, a label, an archive or a task list
+  // rules on the head rows this machine holds, even while a version's bytes
+  // are still on their way.
+  needsBase: (op) => op.op === "edit",
   // No later ruling lifts a create's refusal: its body is its own, and no
   // ruling removes an artifact that exists. Nor a target of the wrong shape.
   // An edit's refusal reads the head, which later rulings move; archived is

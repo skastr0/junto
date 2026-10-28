@@ -21,7 +21,7 @@
  * and pad images are content refs.
  */
 import { Effect, Result, Schema } from "effect";
-import { ArtifactLabel } from "./artifact-labels";
+import { ArtifactLabels } from "./artifact-labels";
 import { ContentRef } from "./content";
 import { NodeId } from "./physics/schema";
 import { ResourceActor } from "./resource-command";
@@ -233,7 +233,7 @@ export const Artifact = Schema.Struct({
    * head written before the labels step decodes to none. Labels are not
    * versioned body: they never move `version`.
    */
-  labels: Schema.Array(ArtifactLabel).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  labels: ArtifactLabels.pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
 export type Artifact = typeof Artifact.Type;
 

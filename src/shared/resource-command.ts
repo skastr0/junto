@@ -181,6 +181,12 @@ export type ResourceDomain<State, Op, Fact> = {
   readonly apply: (state: State, fact: Fact) => State;
   readonly reachExempt?: (state: State, command: ResourceCommand<Op>) => boolean;
   readonly definite?: (refusal: Refusal, command: ResourceCommand<Op>) => boolean;
+  /**
+   * Whether the command reads the state a body may still be missing, so the
+   * overlay waits for the base. Absent, every command does; a domain that
+   * names it lets a command that touches no body rule on the rows it has.
+   */
+  readonly needsBase?: (op: Op) => boolean;
 };
 
 export type RulingContext = {
@@ -367,7 +373,13 @@ export const overlay = <State, Op, Fact>(
   for (const command of queued) {
     if (ruled.rulings.has(commandKey(writer, command.opId))) continue;
     const behind = command.after.find((earlier) => waiting.has(earlier));
-    const root = behind !== undefined ? waiting.get(behind)! : context.baseComplete?.(command.target) === false ? command.opId : undefined;
+    const needsBase = domain.needsBase?.(command.op) ?? true;
+    const root =
+      behind !== undefined
+        ? waiting.get(behind)!
+        : needsBase && context.baseComplete?.(command.target) === false
+          ? command.opId
+          : undefined;
     if (root !== undefined) {
       waiting.set(command.opId, root);
       pending.push({ opId: command.opId, status: "at_risk", waiting: "base_not_pulled", root });

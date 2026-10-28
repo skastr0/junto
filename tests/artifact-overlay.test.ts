@@ -121,4 +121,16 @@ describe("the artifact overlay", () => {
       { opId: elsewhere.opId, status: "pending" },
     ]);
   });
+
+  it("previews a label or a rename on that head at once: only an edit reads the body", async () => {
+    const id = await ruledHere(2);
+    const relabel = command({ op: "labels", labels: ["docs"] }, id);
+    const rename = command({ op: "retitle", title: "Renamed" }, id);
+    const editOnIt = edit(id, 2);
+    expect(await overlayOf([relabel, rename, editOnIt])).toEqual([
+      { opId: relabel.opId, status: "pending" },
+      { opId: rename.opId, status: "pending" },
+      { opId: editOnIt.opId, status: "at_risk", waiting: "base_not_pulled", root: editOnIt.opId },
+    ]);
+  });
 });
