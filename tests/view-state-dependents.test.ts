@@ -15,6 +15,7 @@ import type { Node } from "../src/shared/model";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelService } from "../src/main/junto/model/service";
+import { subscribeViewStateChanges } from "../src/main/junto/view-state/changes";
 import { ProductModelDependentsLive } from "../src/main/junto/view-state/model-dependents";
 
 const canvas = asCanvasName("main");
@@ -53,8 +54,13 @@ afterEach(async () => {
 });
 
 describe("the model delete seam", () => {
-  it("takes a removed node's view rows and leaves it out of its groups", async () => {
-    await run(
+  it("takes a removed node's view rows, leaves it out of its groups, and asks windows to reload", async () => {
+    let published = 0;
+    const off = subscribeViewStateChanges(() => {
+      published += 1;
+    });
+    try {
+      await run(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         yield* sql`INSERT INTO view_artifacts_filters (canvas_name, node_id, type, archived) VALUES (${canvas}, ${shelf}, 'document', 0)`;
@@ -69,7 +75,11 @@ describe("the model delete seam", () => {
         const model = yield* ModelService;
         yield* model.command({ _tag: "Remove", canvas, nodes: [shelf], wires: [] }, "operator");
       }),
-    );
+      );
+    } finally {
+      off();
+    }
+    expect(published).toBe(1);
 
     const read = await run(
       Effect.gen(function* () {
@@ -89,8 +99,13 @@ describe("the model delete seam", () => {
     expect(read.members).toEqual([{ slot: 1, position: 1, node_id: "ghost" }]);
   });
 
-  it("takes every canvas-scoped view row when the canvas goes, and leaves the machine-wide ones", async () => {
-    await run(
+  it("takes every canvas-scoped view row when the canvas goes, leaves the machine-wide ones, and asks windows to reload", async () => {
+    let published = 0;
+    const off = subscribeViewStateChanges(() => {
+      published += 1;
+    });
+    try {
+      await run(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         yield* sql`INSERT INTO view_artifacts_filters (canvas_name, node_id, type, archived) VALUES (${canvas}, ${shelf}, 'document', 0)`;
@@ -100,7 +115,11 @@ describe("the model delete seam", () => {
         const model = yield* ModelService;
         yield* model.command({ _tag: "RemoveCanvas", canvas }, "operator");
       }),
-    );
+      );
+    } finally {
+      off();
+    }
+    expect(published).toBe(1);
 
     const read = await run(
       Effect.gen(function* () {

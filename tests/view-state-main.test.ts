@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { JuntoViewStateApi } from "../src/shared/ipc";
 import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labels";
-import type { ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
+import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
 import { createMainViewState } from "../src/renderer/lib/view-state-main";
 
 const EMPTY: ViewStateSnapshot = { commandGroups: {}, nodes: {}, focusSizes: {}, sections: {} };
@@ -15,12 +15,14 @@ const EMPTY: ViewStateSnapshot = { commandGroups: {}, nodes: {}, focusSizes: {},
 type Fake = {
   readonly api: JuntoViewStateApi;
   readonly applied: ViewStateWrite[];
-  readonly push: (write: ViewStateWrite) => void;
+  readonly push: (event: ViewStateEvent) => void;
+  readonly setSnapshot: (next: ViewStateSnapshot) => void;
 };
 
-const fake = (snapshot: ViewStateSnapshot = EMPTY): Fake => {
+const fake = (initial: ViewStateSnapshot = EMPTY): Fake => {
   const applied: ViewStateWrite[] = [];
-  const listeners = new Set<(write: ViewStateWrite) => void>();
+  const listeners = new Set<(event: ViewStateEvent) => void>();
+  let snapshot = initial;
   return {
     applied,
     api: {
@@ -34,8 +36,11 @@ const fake = (snapshot: ViewStateSnapshot = EMPTY): Fake => {
         return () => listeners.delete(listener);
       },
     },
-    push: (write) => {
-      for (const listener of listeners) listener(write);
+    push: (event) => {
+      for (const listener of listeners) listener(event);
+    },
+    setSnapshot: (next) => {
+      snapshot = next;
     },
   };
 };
@@ -115,6 +120,24 @@ describe("the main-backed view-state store", () => {
     const next = state.nodeView.artifacts("main", "artifacts-1");
     expect(next).not.toBe(first);
     expect(next).toEqual({ type: "pad", archived: true, labels: [], open: "a" });
+  });
+
+  it("reads the snapshot again when main says rows went with a delete", async () => {
+    const { state, push, setSnapshot } = await hydrated({
+      ...EMPTY,
+      commandGroups: { main: { slots: [{ kind: "fixed", nodeId: "a" }, ...Array.from({ length: 8 }, () => ({ kind: "empty" as const }))], extras: [] } },
+      nodes: { main: { "artifacts-1": { artifactsFilter: { type: "document", archived: false, labels: [] } } } },
+    });
+    const announced: string[] = [];
+    state.viewState.onChange((canvas) => announced.push(canvas));
+    expect(state.nodeView.artifacts("main", "artifacts-1")?.type).toBe("document");
+    setSnapshot(EMPTY);
+    push({ area: "reload" });
+    await tick();
+    expect(state.nodeView.artifacts("main", "artifacts-1")).toBeUndefined();
+    expect(state.viewState.read("main")).toBeUndefined();
+    // A canvas whose board went is announced too, so V2 drops its cache.
+    expect(announced).toContain("main");
   });
 
   it("reads the actor rail expanded by default, and writes both machine-wide flags as one section row", async () => {

@@ -8,7 +8,7 @@ import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
-import type { ViewStateSnapshot, ViewStateWrite } from "./view-state";
+import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
 import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type { PageShotPurged, PageShotPurgeRequest } from "./page-shot";
@@ -674,7 +674,7 @@ export type ViewStateApplyResult = { readonly ok: boolean; readonly error?: stri
 export interface JuntoViewStateApi {
   readonly snapshot: () => Promise<ViewStateSnapshot>;
   readonly apply: (write: ViewStateWrite) => Promise<ViewStateApplyResult>;
-  readonly onChanged: (listener: (write: ViewStateWrite) => void) => () => void;
+  readonly onChanged: (listener: (event: ViewStateEvent) => void) => () => void;
 }
 
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
