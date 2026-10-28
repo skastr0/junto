@@ -414,6 +414,7 @@
 .artifact-labels__colour {
   position: relative;
   display: inline-flex;
+  min-width: 24px;
   min-height: 22px;
   align-items: center;
   gap: 4px;
