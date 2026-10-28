@@ -274,7 +274,7 @@ test("the operator feed with one waiting, then none", async () => {
       await shot(page, `feed-1-${theme}.png`);
       if (theme === "bright") {
         await page.getByTestId("operator-feed-detail").getByTestId("quick-replies").getByRole("button", { name: /Go on/ }).click();
-        await expect(feed).toContainText("Nobody needs you right now", { timeout: 10_000 });
+        await expect(feed).toContainText("Your work for today is done", { timeout: 10_000 });
         await shot(page, "feed-empty-bright.png");
       }
       await page.keyboard.press("Escape");
@@ -282,7 +282,7 @@ test("the operator feed with one waiting, then none", async () => {
     }
     await setTheme(page, "dark");
     await page.keyboard.press("Meta+I");
-    await expect(page.getByTestId("operator-feed")).toContainText("Nobody needs you right now");
+    await expect(page.getByTestId("operator-feed")).toContainText("Your work for today is done");
     await shot(page, "feed-empty-dark.png");
   } finally {
     await junto.close();

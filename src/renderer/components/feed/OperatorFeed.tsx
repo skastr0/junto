@@ -776,9 +776,9 @@ export function OperatorFeed() {
               <span className="operator-feed__empty-mark" aria-hidden>
                 <Inbox size={22} strokeWidth={1.4} />
               </span>
-              <p className="operator-feed__empty-title">Nobody needs you right now</p>
+              <p className="operator-feed__empty-title">Your work for today is done</p>
               <p className="operator-feed__empty-copy">
-                When an agent is blocked, asks for your input, or has work for you to review, it lands here.
+                Nothing is waiting on you. Work an automation raises, notices, and agents that need you land here.
               </p>
             </div>
           )}
