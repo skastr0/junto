@@ -206,6 +206,19 @@ describe("automation verbs in main", () => {
     });
   });
 
+  it("moves the named automation with a baseless set-machine, and a create names its machine or leaves it to the ruler", () => {
+    const submitted: Array<ResourceCommand<AutomationOp>> = [];
+    const ports = fakePorts(submitted);
+    Effect.runSync(handleAutomationWrite("automation.move", { target: "Automations", automation: EXISTING, machine: "mini", opId: OP }, writer("S2"), ports));
+    expect(submitted[0]).toMatchObject({ target: { itemId: EXISTING }, op: { kind: "set-machine", machine: "mini" } });
+    Effect.runSync(handleAutomationWrite("automation.create", { ...create, machine: "vps" }, writer("S2"), ports));
+    expect(submitted[1]!.op).toMatchObject({ kind: "create", machine: "vps" });
+    Effect.runSync(handleAutomationWrite("automation.create", create, writer("S2"), ports));
+    expect("machine" in submitted[2]!.op).toBe(false);
+    expect(failure(run("automation.move", { target: "Automations", automation: EXISTING, machine: "not a name!", opId: OP }))).toMatchObject({ type: "InputError" });
+    expect(failure(run("automation.move", { target: "Automations", automation: EXISTING, opId: OP }))).toMatchObject({ type: "InputError" });
+  });
+
   it("lists every Automations node in reach when none is named", () => {
     expect(Effect.runSync(handleAutomationRead("automation.list", {}, caller("S2"), fakePorts([])))).toEqual({ automations: [stored] });
     expect(Effect.runSync(handleAutomationRead("automation.list", {}, caller("SP"), fakePorts([])))).toEqual({ automations: [] });

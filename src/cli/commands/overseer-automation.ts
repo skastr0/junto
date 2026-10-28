@@ -3,6 +3,7 @@ import { DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
 import {
   AutomationCreateCliArgs,
   AutomationEditCliArgs,
+  AutomationMoveCliArgs,
   AutomationOneCliArgs,
   type AutomationWriteOp,
 } from "../../shared/automation-control";
@@ -32,17 +33,20 @@ export const AUTOMATION_WRITE_CLI_SCHEMAS: { readonly [Op in AutomationWriteOp]:
   "automation.edit": AutomationEditCliArgs,
   "automation.enable": AutomationOneCliArgs,
   "automation.disable": AutomationOneCliArgs,
+  "automation.move": AutomationMoveCliArgs,
   "automation.archive": AutomationOneCliArgs,
   "automation.run": AutomationOneCliArgs,
 };
 
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    "Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach",
+    "Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach",
   "automation.edit":
     "Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused",
   "automation.enable": "Turn an automation on",
   "automation.disable": "Turn an automation off. Its history stays",
+  "automation.move":
+    "Run an automation on another machine, named by its short name: that machine fires its schedules, hears its changes and performs its actions from now on. No baseVersion: a move is never an edit, and never goes stale",
   "automation.archive": "Archive an automation: it never fires again, and its history stays readable",
   "automation.run": "Fire an automation now, as its trigger would: its conditions are checked and its limits apply",
 };
@@ -186,6 +190,11 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
     automation: "standup reminder",
     baseVersion: 3,
     change: { trigger: { kind: "schedule", cron: "30 9 * * 1-5", timezone: "America/Sao_Paulo" } },
+  }),
+  example("move", "run an automation on the mini", "The new machine starts from the move; no missed slot fires.", {
+    target: "Automations",
+    automation: "standup reminder",
+    machine: "mini",
   }),
   example("enable", "turn an automation on", "Off and on keep the definition and its history.", {
     target: "Automations",

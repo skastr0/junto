@@ -21,6 +21,7 @@ import {
   AutomationEditArgs,
   AutomationHistoryArgs,
   AutomationListArgs,
+  AutomationMoveArgs,
   AutomationOneArgs,
   AutomationShowArgs,
   editedDefinition,
@@ -335,6 +336,7 @@ export const handleAutomationWrite = (
           kind: "create",
           automationId: input.automationId,
           enabled: input.enabled,
+          ...(input.machine === undefined ? {} : { machine: input.machine }),
           definition: {
             name: input.name,
             trigger,
@@ -364,6 +366,12 @@ export const handleAutomationWrite = (
           baseVersion: input.baseVersion,
           definition: editedDefinition(head, input.change, parts),
         }));
+      }
+      case "automation.move": {
+        const input = yield* decode(AutomationMoveArgs, args);
+        const node = yield* findNode(writer, ports, input.target);
+        const automation = yield* findAutomation(yield* ports.automations(writer.canvasName, node.id), input.automation);
+        return yield* ports.submit(command(writer, input.opId, node.id, automation.automationId, { kind: "set-machine", machine: input.machine }));
       }
       case "automation.enable":
       case "automation.disable":

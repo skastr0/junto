@@ -1,5 +1,5 @@
 import { Result, Schema, Struct } from "effect";
-import { AutomationCreateArgs, AutomationEditArgs, AutomationOneArgs } from "./automation-control";
+import { AutomationCreateArgs, AutomationEditArgs, AutomationMoveArgs, AutomationOneArgs } from "./automation-control";
 import { overseerOperationEnabled } from "./features";
 import { EnvSource } from "./model/region";
 import { ContentIdentity, ContentRef } from "./content";
@@ -119,6 +119,7 @@ export const OVERSEER_OPERATION_NAMES = [
   "automation.edit",
   "automation.enable",
   "automation.disable",
+  "automation.move",
   "automation.archive",
   "automation.run",
 ] as const;
@@ -589,6 +590,7 @@ export const OverseerArgsSchemas = {
   "automation.edit": AutomationEditArgs,
   "automation.enable": AutomationOneArgs,
   "automation.disable": AutomationOneArgs,
+  "automation.move": AutomationMoveArgs,
   "automation.archive": AutomationOneArgs,
   "automation.run": AutomationOneArgs,
 } as const satisfies Record<OverseerOperation, Schema.Top>;

@@ -27,6 +27,7 @@ import {
 } from "./automation";
 import type { MentionKind, MentionOf, MentionRef } from "./mention";
 import type { NodeId } from "./physics/schema";
+import { HostId } from "./remote-hosts";
 import type { WorkErrorBody, WorkOpName } from "./work-control";
 import { OpId } from "./work-ids";
 
@@ -99,8 +100,14 @@ const createFields = {
   then: DefinitionInput.fields.then,
 };
 
+/** The machine that runs an automation, by its real short name (0.11, 05, S1). */
+const MachineName = HostId.annotate({ description: "The machine that runs it, by its short name, as a seat names its machine" });
+
 export const AutomationCreateCliArgs = Schema.Struct({
   ...createFields,
+  machine: Schema.optionalKey(MachineName.annotate({
+    description: "The machine that runs it, by its short name; left out, the machine that rules the create",
+  })),
   enabled: Schema.optionalKey(Schema.Boolean).annotate({
     description: "Created off unless true; `junto overseer automation enable` turns it on",
   }),
@@ -110,6 +117,7 @@ export type AutomationCreateCliArgs = typeof AutomationCreateCliArgs.Type;
 
 export const AutomationCreateArgs = Schema.Struct({
   ...createFields,
+  machine: Schema.optionalKey(MachineName),
   opId: OpId,
   automationId: AutomationId,
   enabled: Schema.Boolean,
@@ -151,6 +159,13 @@ export type AutomationOneCliArgs = typeof AutomationOneCliArgs.Type;
 export const AutomationOneArgs = Schema.Struct({ ...oneFields, opId: OpId }).annotate(strict);
 export type AutomationOneArgs = typeof AutomationOneArgs.Type;
 
+/** move names the machine the automation runs on from now on: baseless, never an edit. */
+export const AutomationMoveCliArgs = Schema.Struct({ ...oneFields, machine: MachineName }).annotate(strict);
+export type AutomationMoveCliArgs = typeof AutomationMoveCliArgs.Type;
+
+export const AutomationMoveArgs = Schema.Struct({ ...oneFields, machine: MachineName, opId: OpId }).annotate(strict);
+export type AutomationMoveArgs = typeof AutomationMoveArgs.Type;
+
 export const AUTOMATION_HISTORY_LIMIT_MAX = 200;
 
 export const AutomationHistoryArgs = Schema.Struct({
@@ -181,6 +196,7 @@ export const AUTOMATION_WRITE_OPS = [
   "automation.edit",
   "automation.enable",
   "automation.disable",
+  "automation.move",
   "automation.archive",
   "automation.run",
 ] as const;
