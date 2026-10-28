@@ -138,6 +138,11 @@ describe("junto artifact", () => {
     const change = await sent(["artifact", "label", ID, "--add", "shipped", "--remove", "draft"]);
     expect(change.args).toMatchObject({ artifact: ID, add: ["shipped"], remove: ["draft"] });
     expect(change.args?.opId).toMatch(ULID);
+    // An empty label is named, not dropped: main refuses it with the rule. Only --set reads it as none.
+    const listEmpty = await sent(["artifact", "list", "--label", ""]);
+    expect(listEmpty.args).toEqual({ labels: [""] });
+    const addEmpty = await sent(["artifact", "label", ID, "--add", ""]);
+    expect(addEmpty.args).toMatchObject({ add: [""] });
   });
 
   it("refuses two bodies and JSON that does not parse, before anything is sent", async () => {

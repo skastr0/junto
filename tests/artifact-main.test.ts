@@ -508,6 +508,7 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact labels in main", () => {
     expect(ids(["project/jun"])).toEqual([]);
     const rows = ok<{ artifacts: ReadonlyArray<{ artifactId: string; labels: ReadonlyArray<string> }> }>(run(ports, "artifact.list", {})).artifacts;
     expect(rows.find((row) => row.artifactId === NEW)?.labels).toEqual(["draft", "project/junto/release"]);
+    expect(failure(run(ports, "artifact.list", { labels: [""] }))).toMatchObject({ details: { path: "labels[0]" } });
     expect(failure(run(ports, "artifact.list", { labels: ["/bad"] }))).toMatchObject({ details: { path: "labels[0]" } });
     expect(submitted).toHaveLength(2);
   });

@@ -76,8 +76,20 @@ const json = (flag: string, text: string): Effect.Effect<unknown, InputError> =>
 const labelFlag = (name: string, description: string) =>
   Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
+/**
+ * Each value split on commas and trimmed. An empty entry stays, so main
+ * refuses it by name at its index; a filter that silently stopped filtering
+ * would be worse than a refusal. Only `wholeSet` reads an empty flag as none.
+ */
 const labelsOf = (given: ReadonlyArray<string>): ReadonlyArray<string> =>
-  given.flatMap((one) => one.split(",")).map((one) => one.trim()).filter((one) => one.length > 0);
+  given.flatMap((one) => one.split(",")).map((one) => one.trim());
+
+/** `--set` names the whole set, and `--set ''` (or only empty entries) clears it. Undefined when the flag was left out. */
+const wholeSet = (given: ReadonlyArray<string>): ReadonlyArray<string> | undefined => {
+  if (given.length === 0) return undefined;
+  const labels = labelsOf(given);
+  return labels.every((one) => one.length === 0) ? [] : labels;
+};
 
 const bodyFlags = {
   markdown: Flag.string("markdown").pipe(Flag.optional, Flag.withDescription("A document's markdown")),
@@ -229,19 +241,20 @@ const labelCommand = Command.make(
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ artifact, set, add, remove, opId, timeout }) =>
-    run(
+  ({ artifact, set, add, remove, opId, timeout }) => {
+    const whole = wholeSet(set);
+    return run(
       "artifact.label",
       Effect.succeed({
         artifact,
-        // Named at all, --set is the whole set, so --set '' sends none.
-        ...(set.length === 0 ? {} : { set: labelsOf(set) }),
+        ...(whole === undefined ? {} : { set: whole }),
         ...(add.length === 0 ? {} : { add: labelsOf(add) }),
         ...(remove.length === 0 ? {} : { remove: labelsOf(remove) }),
       }),
       opId,
       timeout,
-    ),
+    );
+  },
 ).pipe(Command.withDescription(DESCRIPTIONS.label));
 
 const commentCommand = Command.make(
