@@ -177,17 +177,15 @@ describe("status", () => {
     const one = new Cluster(14, ["macbook"], ["macbook"]);
     one.run(40);
     expect(one.node("macbook").status()).toMatchObject({ role: "leader", fresh: true, canCommit: true });
-    const three = new Cluster(15, ["macbook", "mini", "vps"], ["macbook", "mini", "vps"]);
-    three.run(200);
-    three.crash("mini");
-    three.crash("vps");
-    three.run(50);
-    expect(three.node("macbook").status().canCommit).toBe(false);
-    three.diverged = true;
-    three.node("macbook").alone();
-    three.drain("macbook");
+    const pair = new Cluster(15, ["macbook", "mini"], ["macbook", "mini"]);
+    pair.run(200);
+    pair.crash("mini");
+    pair.run(50);
+    expect(pair.node("macbook").status().canCommit).toBe(false);
+    pair.node("macbook").alone();
+    pair.drain("macbook");
     // No timeout before it can commit: it is the whole quorum.
-    expect(three.node("macbook").status()).toMatchObject({ fresh: true, canCommit: true });
+    expect(pair.node("macbook").status()).toMatchObject({ fresh: true, canCommit: true });
   });
 
   it("is fresh as soon as a quorum answers a new authority, and not while it hands over", () => {
@@ -248,12 +246,61 @@ describe("transfer", () => {
 });
 
 describe("alone", () => {
-  it("rules on one machine the operator says survived, and revokes what the others committed after the cut", () => {
-    const cluster = new Cluster(13, ["macbook", "mini", "vps"], ["macbook", "mini", "vps"]);
+  it("is only for a committed pair this machine is in, and only while it cannot commit", () => {
+    const three = new Cluster(18, ["a", "b", "c"], ["a", "b", "c"]);
+    three.run(200);
+    expect(() => three.node("a").alone()).toThrow(expect.objectContaining({ reason: "not-pair" }));
+    const pair = new Cluster(19, ["macbook", "mini", "vps"], ["macbook", "mini"]);
+    pair.run(200);
+    expect(() => pair.node("vps").alone()).toThrow(expect.objectContaining({ reason: "not-pair" }));
+    // The fallback rules on its own vote: it never needs alone.
+    pair.crash("macbook");
+    pair.run(200);
+    expect(() => pair.node("mini").alone()).toThrow(expect.objectContaining({ reason: "can-commit" }));
+  });
+
+  // remote-lead's case from F5: the pair starts adding a VPS, the mini dies before the
+  // joint entry commits, the operator breaks the pair on the MacBook, then the mini returns.
+  it("breaks a pair whose fallback died mid-edit: one history, the later term wins, nothing lost", () => {
+    const cluster = new Cluster(20, ["macbook", "mini", "vps"], ["macbook", "mini"]);
     cluster.run(200);
-    cluster.partition(["macbook"], ["mini", "vps"]);
+    expect(cluster.leader()?.id).toBe("macbook");
+    expect(cluster.propose("before")).toBeDefined();
+    cluster.run(20);
+    const macbook = cluster.node("macbook");
+    macbook.proposeList(["macbook", "mini", "vps"]);
+    macbook.propose("waiting");
+    cluster.drain("macbook");
+    cluster.crash("mini");
+    cluster.run(200);
+    expect(cluster.node("macbook").status()).toMatchObject({ canCommit: false, pendingList: { old: ["macbook", "mini"] } });
+    expect(cluster.appliedData("macbook")).toEqual(["before"]);
+
+    cluster.node("macbook").alone();
+    cluster.drain("macbook");
+    const broken = cluster.node("macbook").status();
+    expect(broken).toMatchObject({ role: "leader", canCommit: true, members: { list: ["macbook", "mini"], sole: "macbook" } });
+    expect(broken.pendingList).toBeUndefined();
+    cluster.run(5);
+    // The data that waited behind the edit commits in the new term.
+    expect(cluster.appliedData("macbook")).toEqual(["before", "waiting"]);
+    expect(cluster.propose("after")).toBeDefined();
+
+    cluster.boot("mini");
+    cluster.run(300);
+    expect(cluster.node("mini").status()).toMatchObject({ role: "follower", term: broken.term, leader: "macbook" });
+    for (const id of ["macbook", "mini"]) expect(cluster.appliedData(id)).toEqual(["before", "waiting", "after"]);
+    expect(cluster.applied.get("mini")).toEqual(cluster.applied.get("macbook"));
+    expect(cluster.revoked).toEqual([]);
+    cluster.checkLogs();
+  });
+
+  it("rules on the machine the operator says survived, and revokes what the other committed after the cut", () => {
+    const cluster = new Cluster(13, ["macbook", "mini"], ["macbook", "mini"]);
+    cluster.run(200);
+    cluster.partition(["macbook"], ["mini"]);
     cluster.run(400);
-    // The majority side keeps committing; the operator wrongly says it is dead.
+    // The fallback keeps committing; the operator wrongly says it is dead.
     expect(cluster.propose("majority side")).toBeDefined();
     const before = cluster.node("macbook").status().term;
     cluster.diverged = true;
@@ -270,7 +317,7 @@ describe("alone", () => {
     cluster.run(400);
     // The others follow the operator's machine; what they committed after the cut comes back as revoked.
     expect(cluster.revoked.some(({ entry }) => entry.payload.kind === "data" && entry.payload.data === "majority side")).toBe(true);
-    for (const id of ["mini", "vps"]) expect(cluster.appliedData(id)).toContain("alone side");
+    expect(cluster.appliedData("mini")).toContain("alone side");
     cluster.checkConverged();
   });
 });

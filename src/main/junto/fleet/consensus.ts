@@ -114,7 +114,7 @@ export type Status = {
 export const ALONE_TERM_STRIDE = 2 ** 20;
 
 export class ProposalRefused extends Error {
-  constructor(readonly reason: "not-leader" | "transferring" | "list-pending" | "not-member") {
+  constructor(readonly reason: "not-leader" | "transferring" | "list-pending" | "not-member" | "not-pair" | "can-commit") {
     super(`proposal refused: ${reason}`);
   }
 }
@@ -295,18 +295,29 @@ export class ConsensusNode {
   }
 
   /**
-   * `junto authority alone`: the operator says every other machine is dead.
-   * This machine starts a term in which it is the sole voter. It keeps the
-   * list, so the others follow it on contact and their lost entries revoke.
+   * `junto authority alone`: the operator says the other machine of a pair is
+   * dead. Only for a committed pair this machine is in, and only while it
+   * cannot commit. The fork drops everything above the commit point, a list
+   * edit pending there included, so a pair whose other machine died mid-edit
+   * can still be broken; the dropped data comes back in the new term, so
+   * nothing waiting is lost. This machine is then the sole voter. It keeps
+   * the pair, so the other follows it on contact and loses to the later term.
    */
   alone(): void {
-    if (!voters(this.members()).includes(this.id)) {
-      throw new ProposalRefused("not-member");
+    const committed = this.committedMembers();
+    if (committed.sole !== undefined || committed.old !== undefined || committed.list.length !== 2) throw new ProposalRefused("not-pair");
+    if (!committed.list.includes(this.id)) throw new ProposalRefused("not-member");
+    if (this.status().canCommit) throw new ProposalRefused("can-commit");
+    const dropped = this.log.slice(this.commit);
+    if (dropped.length > 0) {
+      this.log.length = this.commit;
+      this.truncateFrom = Math.min(this.truncateFrom ?? Number.POSITIVE_INFINITY, this.commit + 1);
+      this.appended = this.appended.filter(kept => kept.index <= this.commit);
     }
     this.setTerm(this.term + ALONE_TERM_STRIDE, this.id);
     this.becomeLeader();
-    const current = this.members();
-    this.appendOwn({ kind: "list", members: { list: [...current.list], sole: this.id } });
+    this.appendOwn({ kind: "list", members: { list: [...committed.list], sole: this.id } });
+    for (const entry of dropped) if (entry.payload.kind === "data") this.appendOwn(entry.payload);
   }
 
   step(message: Message): void {
