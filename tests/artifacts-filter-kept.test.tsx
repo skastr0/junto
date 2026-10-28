@@ -73,6 +73,22 @@ describe("the Artifacts node's kept filter", () => {
     expect(seen.labels).toEqual(["draft"]);
   });
 
+  it("reads the new node's filter when the node changes under a mounted modal, and keeps none for an unnamed canvas", () => {
+    const at = (canvas: string, node: string) => act(() => root.render(<Probe canvas={canvas} node={node} list={entries} />));
+    at("c", "moved-a");
+    act(() => seen.setType("pad"));
+    at("c", "moved-b");
+    expect(seen.type).toBe("all");
+    act(() => seen.setLabels(() => L("draft")));
+    expect(keptArtifactsFilter("c", "moved-a").type).toBe("pad");
+    expect(keptArtifactsFilter("c", "moved-b")).toEqual({ type: "all", labels: ["draft"] });
+    at("", "moved-c");
+    act(() => seen.setType("sheet"));
+    expect(keptArtifactsFilter("", "moved-c")).toEqual({ type: "all", labels: [] });
+    at("c", "moved-a");
+    expect(seen.type).toBe("pad");
+  });
+
   it("reads held labels against the node's artifacts", () => {
     expect(labelsStillHeld(L("draft", "project", "nope"), entries)).toEqual(["draft", "project"]);
   });

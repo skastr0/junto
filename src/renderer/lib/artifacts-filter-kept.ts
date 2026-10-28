@@ -30,9 +30,13 @@ export const labelsStillHeld = (
   labels.filter((label) => entries.some(({ artifact }) => artifactLabelsMatch(artifact.labels, [label])));
 
 /**
- * The node's kept filter, and its setters. A picked label no artifact here
- * carries any more drops out once the list has arrived; before it has, the
- * picks stand as kept.
+ * The node's kept filter, and its setters. The modal can stay mounted while
+ * its node or canvas changes, so the filter held here carries the key it was
+ * read under and is read again when the key moves; nothing is kept for a
+ * canvas not yet named. A picked label no artifact here carries any more
+ * drops out while the node lists any artifact; an empty list (not arrived
+ * yet, or a node with none) leaves the picks as kept, still offered so they
+ * can be unpicked.
  */
 export const useKeptArtifactsFilter = (
   canvasName: string,
@@ -43,19 +47,23 @@ export const useKeptArtifactsFilter = (
   readonly setLabels: (next: (labels: ReadonlyArray<ArtifactLabel>) => ReadonlyArray<ArtifactLabel>) => void;
 } => {
   const key = keyOf(canvasName, nodeId);
-  const [filter, setFilter] = useState(() => kept.get(key) ?? OPEN);
+  const [held, setHeld] = useState(() => ({ key, filter: kept.get(key) ?? OPEN }));
+  const filter = held.key === key ? held.filter : (kept.get(key) ?? OPEN);
   const labels = useMemo(
     () => (entries.length === 0 ? filter.labels : labelsStillHeld(filter.labels, entries)),
     [entries, filter.labels],
   );
+  const update = (change: (last: KeptArtifactsFilter) => KeptArtifactsFilter): void =>
+    setHeld((last) => ({ key, filter: change(last.key === key ? last.filter : (kept.get(key) ?? OPEN)) }));
   useEffect(() => {
-    kept.set(key, { type: filter.type, labels });
-    if (labels.length !== filter.labels.length) setFilter((last) => ({ ...last, labels }));
-  }, [key, filter.type, filter.labels.length, labels]);
+    if (held.key !== key) return;
+    if (canvasName !== "") kept.set(key, { type: filter.type, labels });
+    if (labels.length !== filter.labels.length) setHeld((last) => (last.key === key ? { key, filter: { ...last.filter, labels } } : last));
+  }, [key, held.key, canvasName, filter.type, filter.labels.length, labels]);
   return {
     type: filter.type,
     labels,
-    setType: (type) => setFilter((last) => ({ ...last, type })),
-    setLabels: (next) => setFilter((last) => ({ ...last, labels: next(last.labels) })),
+    setType: (type) => update((last) => ({ ...last, type })),
+    setLabels: (next) => update((last) => ({ ...last, labels: next(last.labels) })),
   };
 };
