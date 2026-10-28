@@ -118,6 +118,7 @@ describe("overseer automation writes", () => {
     }
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: prompt");
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: code");
+    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}"]) expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain(word);
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("{{code.<field>}}");
   });
 
@@ -173,6 +174,27 @@ describe("overseer automation writes", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("folds every label a write names, and refuses one in both add and remove at its place in remove", () => {
+    const create = {
+      target: "A", name: "n",
+      trigger: { kind: "change", on: { kind: "artifact", artifact: { node: "Shelf" }, event: "labelled", label: " Review " } },
+      then: [
+        { kind: "create-artifact", node: "Shelf", title: "t", labels: ["Q4", "draft", "q4"] },
+        { kind: "label-artifact", to: { fired: true }, add: ["Shipped"], remove: ["review"] },
+      ],
+    };
+    const args = Effect.runSync(writeArgs("automation.create", JSON.stringify(create), Option.none())) as unknown as typeof create;
+    expect(args.trigger.on.label).toBe("review");
+    expect(args.then[0]).toMatchObject({ labels: ["draft", "q4"] });
+    expect(args.then[1]).toMatchObject({ add: ["shipped"], remove: ["review"] });
+
+    const overlap = { ...create, then: [{ kind: "label-artifact", to: { fired: true }, add: ["a", "b"], remove: ["c", " B "] }] };
+    const refused = Effect.runSyncExit(writeArgs("automation.create", JSON.stringify(overlap), Option.none()));
+    expect(JSON.stringify(refused)).toContain("then[0].remove[1]");
+    const edit = { target: "A", automation: "n", baseVersion: 1, change: { then: [{ kind: "label-artifact", to: "@x", add: ["a//b"] }] } };
+    expect(JSON.stringify(Effect.runSyncExit(writeArgs("automation.edit", JSON.stringify(edit), Option.none())))).toContain("change.then[0].add[0]");
   });
 
   it("checks the write before staging, so one that would be refused sends no bytes", () => {

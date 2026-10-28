@@ -12,7 +12,8 @@ import type { ContentRef } from "../../shared/content";
 import { stageFile } from "../core/content-stage";
 import type { CommandExample } from "../core/discovery";
 import { InputError } from "../core/errors";
-import { loadJsonInput } from "../core/json";
+import { decodeJsonText, loadJsonInput } from "../core/json";
+import { ARTIFACT_LABELS_MAX, artifactLabelOf } from "../../shared/artifact-labels";
 import { opIdOf } from "../core/op-id";
 
 /**
@@ -45,7 +46,7 @@ export const VALUES_HELP = `Text in mail, prompt and comment actions, and a new 
 
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ${VALUES_HELP}`,
+    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. An artifact watch {kind: artifact, artifact: <ref> or {node}, event: edited, commented or labelled, label?} fires on labelled when an artifact gains label (or a level under it), created with it included. Artifact actions: create-artifact {node, title, body?, labels?} makes a document from markdown; append-artifact {to, text} adds markdown at a document's end; label-artifact {to, add?, remove?} changes its labels, never one label in both. Their to is an artifact, or {fired: true}, the one that fired an artifact trigger. Labels fold to lowercase. A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ${VALUES_HELP}`,
   "automation.edit":
     `Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused. Values in text are checked against the trigger as stored after the change. ${VALUES_HELP}`,
   "automation.enable": "Turn an automation on",
@@ -120,15 +121,91 @@ export const withSources = (
     : { ...record, then };
 };
 
+const LABEL_RULE = "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //";
+
+/** One list of labels as typed, folded (trimmed, lowered, unique, sorted), or the first that cannot be one refused at its index. */
+const foldLabelList = (raw: unknown, at: string): Effect.Effect<{ readonly folded: ReadonlyArray<string>; readonly raw: ReadonlyArray<string> } | undefined, InputError> =>
+  Effect.gen(function* () {
+    if (raw === undefined) return undefined;
+    if (!Array.isArray(raw)) return yield* Effect.fail(new InputError({ message: "labels are a list", path: at }));
+    const folded: string[] = [];
+    for (const [index, one] of raw.entries()) {
+      const label = typeof one === "string" ? artifactLabelOf(one) : undefined;
+      if (label === undefined) return yield* Effect.fail(new InputError({ message: `${JSON.stringify(one)} is not a label: ${LABEL_RULE}`, path: `${at}[${index}]` }));
+      folded.push(label);
+    }
+    const unique = [...new Set(folded)].sort();
+    if (unique.length > ARTIFACT_LABELS_MAX) return yield* Effect.fail(new InputError({ message: `at most ${ARTIFACT_LABELS_MAX} labels`, path: at }));
+    return { folded: unique, raw: raw as ReadonlyArray<string> };
+  });
+
 /**
- * The input as given, each code file staged and named by its ref; the rest
- * untouched. The CLI schema takes a code step by file, so the whole write is
- * checked before anything is staged: one that would be refused sends no bytes.
+ * Every label a write names, folded as the store holds it (0.11, 05, B1): a
+ * watch's label, a create-artifact's labels, and a label-artifact's add and
+ * remove. One label in both add and remove is refused at its place in
+ * remove, as the ruler refuses it at save.
+ */
+export const foldedLabels = (operation: AutomationWriteOp, input: unknown): Effect.Effect<unknown, InputError> =>
+  Effect.gen(function* () {
+    if (!isRecord(input)) return input;
+    const edit = operation === "automation.edit";
+    const holder = edit ? input.change : input;
+    if (!isRecord(holder)) return input;
+    const prefix = edit ? "change." : "";
+    let next: Record<string, unknown> = { ...holder };
+    const on = isRecord(holder.trigger) && holder.trigger.kind === "change" && isRecord(holder.trigger.on) ? holder.trigger.on : undefined;
+    if (on !== undefined && on.kind === "artifact" && on.label !== undefined) {
+      const label = typeof on.label === "string" ? artifactLabelOf(on.label) : undefined;
+      if (label === undefined) {
+        return yield* Effect.fail(new InputError({ message: `${JSON.stringify(on.label)} is not a label: ${LABEL_RULE}`, path: `${prefix}trigger.on.label` }));
+      }
+      next = { ...next, trigger: { ...(holder.trigger as Record<string, unknown>), on: { ...on, label } } };
+    }
+    if (Array.isArray(holder.then)) {
+      const then: unknown[] = [];
+      for (const [index, step] of holder.then.entries()) {
+        const at = `${prefix}then[${index}]`;
+        if (isRecord(step) && step.kind === "create-artifact") {
+          const labels = yield* foldLabelList(step.labels, `${at}.labels`);
+          then.push(labels === undefined ? step : { ...step, labels: labels.folded });
+        } else if (isRecord(step) && step.kind === "label-artifact") {
+          const add = yield* foldLabelList(step.add, `${at}.add`);
+          const remove = yield* foldLabelList(step.remove, `${at}.remove`);
+          const both = remove?.raw.findIndex((one) => add?.folded.includes(artifactLabelOf(one)!)) ?? -1;
+          if (both >= 0) {
+            return yield* Effect.fail(new InputError({
+              message: `label ${artifactLabelOf(remove!.raw[both]!)} is both added and removed; name each label once`,
+              path: `${at}.remove[${both}]`,
+            }));
+          }
+          then.push({ ...step, ...(add === undefined ? {} : { add: add.folded }), ...(remove === undefined ? {} : { remove: remove.folded }) });
+        } else {
+          then.push(step);
+        }
+      }
+      next = { ...next, then };
+    }
+    return edit ? { ...input, change: next } : next;
+  });
+
+/** Where an input came from, as an error names it: inline, stdin, or the file. */
+const sourceOf = (raw: string): string => {
+  const trimmed = raw.trim();
+  if (trimmed === "-" || trimmed === "@-") return "stdin";
+  return trimmed.startsWith("@") ? trimmed.slice(1) : "inline";
+};
+
+/**
+ * The input as given, its labels folded, each code file staged and named by
+ * its ref; the rest untouched. The CLI schema takes a code step by file, so
+ * the whole write is checked before anything is staged: one that would be
+ * refused sends no bytes.
  */
 export const stagedInput = (operation: AutomationWriteOp, raw: string) =>
   Effect.gen(function* () {
     // Each schema here decodes without services; Schema.Top does not say so.
-    const input: unknown = yield* (loadJsonInput(AUTOMATION_WRITE_CLI_SCHEMAS[operation], raw) as Effect.Effect<unknown, InputError>);
+    const parsed = yield* foldedLabels(operation, yield* loadJsonInput(Schema.Unknown, raw));
+    const input: unknown = yield* (decodeJsonText(AUTOMATION_WRITE_CLI_SCHEMAS[operation], JSON.stringify(parsed), sourceOf(raw)) as Effect.Effect<unknown, InputError>);
     const files = yield* codeFilesOf(operation, input);
     const sources = new Map<number, ContentRef>();
     for (const one of files) sources.set(one.index, yield* stageFile(one.file, { mediaType: one.mediaType }));
@@ -193,6 +270,21 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
       then: [
         { kind: "code", language: "typescript", file: "./check-service.ts", timeoutMs: 30_000 },
         { kind: "mail", to: "@tech-lead", text: "service check at {{fired.at}}: {{code.status}}" },
+      ],
+    },
+  ),
+  example(
+    "create",
+    "when a document is labelled review, log it and move it on",
+    "{fired: true} is the artifact that gained the label; labels fold to lowercase.",
+    {
+      target: "Automations",
+      name: "review intake",
+      trigger: { kind: "change", on: { kind: "artifact", artifact: { node: "Shelf" }, event: "labelled", label: "review" } },
+      then: [
+        { kind: "append-artifact", to: { fired: true }, text: "\n\nQueued for review at {{fired.at}}." },
+        { kind: "label-artifact", to: { fired: true }, add: ["in-review"], remove: ["review"] },
+        { kind: "prompt", to: "@product-verify", text: "{{artifact.title}} ({{artifact.link}}) is ready for review." },
       ],
     },
   ),
