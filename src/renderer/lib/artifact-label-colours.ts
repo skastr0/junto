@@ -1,19 +1,18 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { ArtifactLabel } from "@shared/artifact-labels";
+import { ARTIFACT_LABEL_COLOURS, type ArtifactLabel, type ArtifactLabelColour } from "@shared/artifact-labels";
+
+export { ARTIFACT_LABEL_COLOURS, type ArtifactLabelColour };
 
 /**
  * Label colours (0.11, 03 Colours, C2): a colour belongs to a label in its
  * Artifacts node, one of eight names or none, and the label's text always
  * stays beside it.
  *
- * Stand-in until C1 lands: the names and their order are C1's
- * (`ARTIFACT_LABEL_COLOURS` in `@shared/artifact-labels`), and the colours are
- * held here in memory per canvas and node. When the node's read and the
- * `{ op: "labelColour" }` write land, `useLabelColours` reads and writes
- * through them and this store goes; its callers do not change.
+ * The names and their order are C1's (`@shared/artifact-labels`). Stand-in
+ * until the renderer's read and the node op cross IPC: the colours are held
+ * here in memory per canvas and node. When they land, `useLabelColours` reads
+ * and writes through them and this store goes; its callers do not change.
  */
-export const ARTIFACT_LABEL_COLOURS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
-export type ArtifactLabelColour = (typeof ARTIFACT_LABEL_COLOURS)[number];
 
 /** Each colour in words, as the swatch menu and a screen reader say it. */
 export const LABEL_COLOUR_NOUN: { readonly [C in ArtifactLabelColour]: string } = {
