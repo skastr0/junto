@@ -116,12 +116,16 @@ const setTheme = async (page: import("@playwright/test").Page, theme: "Dark" | "
   await page.waitForTimeout(300);
 };
 
+// The crew board seeds through the sandbox, which places its seats on the sandbox's machine: installed
+// from the page they keep the fixture host and the model refuses them (unresolved host).
+test.describe("with seats", () => {
+  test.use({ juntoOptions: { seedModels: { groups: crewFixture } } });
+
 for (const theme of ["Dark", "Bright"] as const) {
   test(`command groups (${theme}): in the top bar, with faces, and past nine without a key`, async ({ junto }) => {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await setTheme(page, theme);
-    await installBoard(page, crewFixture);
     const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
     await expect(node("seat-c")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: "Fit all nodes" }).click();
@@ -191,3 +195,4 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(bar.getByTestId("command-group-extra-1")).toContainText("note 8");
   });
 }
+});
