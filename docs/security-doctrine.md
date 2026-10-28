@@ -235,9 +235,11 @@ transports bytes. A link key binds the id to the key instead:
   one source of identity facts, never in `authorized_keys`: a line removed by
   another tool leaves the peer refused, shown as `line-missing`, never
   admitted unbound. Only retiring the peer clears the binding.
-- Retiring a peer removes its line on every machine the editing machine
-  reaches; one it cannot reach is listed as still holding the key until the
-  removal lands. The editing machine is keyed to both ends the same way.
+- Removing a machine (`junto machine remove`) takes its key and line off
+  this machine and every machine the editing machine reaches
+  (`src/main/junto/hosts/machine-owner.ts`); one it cannot reach is listed as
+  still holding the key and retried until the removal lands. Retiring a peer
+  alone clears only the binding. The editing machine is keyed to both ends the same way.
 
 So a machine whose only access to an account is its link key can claim only
 its own installation id there. A peer pinned before step 58 keeps the
