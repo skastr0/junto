@@ -16,7 +16,7 @@
 import { Schema } from "effect";
 import { ArtifactType } from "./artifact";
 import { ArtifactLabel } from "./artifact-labels";
-import { FILE_PATH_MAX } from "./files";
+import { FILE_PATH_MAX, parseFilePath } from "./files";
 
 export const VIEW_COMMAND_SLOT_COUNT = 9;
 
@@ -35,7 +35,14 @@ const SectionKey = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
 );
 const FolderPath = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(FILE_PATH_MAX)),
+  Schema.check(Schema.isMaxLength(FILE_PATH_MAX)),
+  Schema.check(
+    Schema.makeFilter((raw: string) =>
+      raw.length > 0 && parseFilePath(raw) !== undefined
+        ? true
+        : "a path relative to the node's root, with no leading slash, .. or backslash",
+    ),
+  ),
 );
 const OpenItemId = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(FILE_PATH_MAX)),

@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from "react";
 import type { AutomationsNodeView, FilesNodeView, NodeViewStore, TasksNodeView } from "./view-state";
-import { makeMemoryNodeViewStore } from "./view-state-stand-in";
+import { defaultNodeViewStore } from "./view-state-main";
 
 /**
  * Where the node surfaces read and write how the operator left them (0.11,
  * 04, V3): each node's filters and open item, a collapsed sidebar, a resized
- * modal and the comments rail. This window's store is main's once V1 lands;
- * until then the stand-in, which holds the same rows in memory.
+ * modal and the comments rail. This window's store is main's when the
+ * preload answers, and the in-memory stand-in otherwise.
  */
-let store: NodeViewStore = makeMemoryNodeViewStore();
+let store: NodeViewStore = defaultNodeViewStore();
 
 export const nodeViewStore = (): NodeViewStore => store;
 

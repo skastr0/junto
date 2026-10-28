@@ -87,6 +87,7 @@ export const makeMemoryNodeViewStore = (): NodeViewStore => {
   const collapsed = new Set<string>();
   const sizes = rows<SurfaceSize>();
   let railOpen = false;
+  let actorRail = true;
   const listeners = new Set<() => void>();
   const announce = (): void => {
     for (const listener of listeners) listener();
@@ -125,6 +126,12 @@ export const makeMemoryNodeViewStore = (): NodeViewStore => {
     writeCommentsRailOpen: (open) => {
       if (open === railOpen) return;
       railOpen = open;
+      announce();
+    },
+    actorRailExpanded: () => actorRail,
+    writeActorRailExpanded: (expanded) => {
+      if (expanded === actorRail) return;
+      actorRail = expanded;
       announce();
     },
     onChange: (listener) => {

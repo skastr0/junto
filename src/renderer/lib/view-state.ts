@@ -24,23 +24,12 @@
  */
 import type { ArtifactType } from "@shared/artifact";
 import type { ArtifactLabel } from "@shared/artifact-labels";
+import type { ViewCommandGroups, ViewCommandSlot } from "@shared/view-state";
 import type { StateFilter } from "../components/tasks/tasks-pane-model";
 import type { HotbarSlot } from "./hotbar-slots";
 import { HOTBAR_SLOT_COUNT, emptyHotbarSlots } from "./hotbar-slots";
 
-/** One saved slot, as main keeps it: a row per slot. */
-export type ViewCommandSlot =
-  | { readonly kind: "empty" }
-  | { readonly kind: "fixed"; readonly nodeId: string }
-  | { readonly kind: "group"; readonly nodeIds: ReadonlyArray<string> };
-
-/** What one canvas keeps of the hotbar: nine slots, then the groups past nine. */
-export type ViewCommandGroups = {
-  /** Exactly nine, in digit order. */
-  readonly slots: ReadonlyArray<ViewCommandSlot>;
-  /** Groups past slot nine, in the order the operator made them. */
-  readonly extras: ReadonlyArray<ReadonlyArray<string>>;
-};
+export type { ViewCommandGroups, ViewCommandSlot } from "@shared/view-state";
 
 /**
  * The store as the renderer sees it. Main implements it (V1); until those
@@ -180,6 +169,9 @@ export type NodeViewStore = {
   /** The Artifacts comments rail, open or an edge, one choice for every artifact. */
   readonly commentsRailOpen: () => boolean;
   readonly writeCommentsRailOpen: (open: boolean) => void;
+  /** The actor rail, one setting for every agent; expanded unless the operator collapsed it. */
+  readonly actorRailExpanded: () => boolean;
+  readonly writeActorRailExpanded: (expanded: boolean) => void;
   /** Hear any change as it lands, this window's or another's; returns the unsubscribe. */
   readonly onChange: (listener: () => void) => () => void;
 };

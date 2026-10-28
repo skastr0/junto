@@ -37,7 +37,9 @@ import {
   type ObservabilityLogEntry,
   type ObservabilityQuery,
   type ObservabilitySnapshot,
+  type ViewStateApplyResult,
 } from "@shared/ipc";
+import type { ViewStateSnapshot, ViewStateWrite } from "@shared/view-state";
 import type { AutomationsChanged } from "@shared/automation";
 import {
   ARTIFACTS_ENABLED,
@@ -624,6 +626,12 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   loginItemSet: (openAtLogin: boolean) =>
     invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemSet, IPC_TIMEOUT_MS, openAtLogin),
   onSettingsChanged: (listener) => subscribe<Settings>(IPC_CHANNELS.settingsChanged, listener),
+  viewState: {
+    snapshot: () => invoke<ViewStateSnapshot>(IPC_CHANNELS.viewStateSnapshot, IPC_TIMEOUT_MS),
+    apply: (write: ViewStateWrite) =>
+      invoke<ViewStateApplyResult>(IPC_CHANNELS.viewStateApply, IPC_TIMEOUT_MS, write),
+    onChanged: (listener) => subscribe<ViewStateWrite>(IPC_CHANNELS.viewStateChanged, listener),
+  },
   observabilityQuery: (query?: ObservabilityQuery) =>
     invoke<ObservabilitySnapshot>(
       IPC_CHANNELS.observabilityQuery,

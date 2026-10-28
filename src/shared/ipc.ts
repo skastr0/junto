@@ -8,6 +8,7 @@ import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
+import type { ViewStateSnapshot, ViewStateWrite } from "./view-state";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
 import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type { PageShotPurged, PageShotPurgeRequest } from "./page-shot";
@@ -292,6 +293,10 @@ export const IPC_CHANNELS = {
   filesOpenInDefaultApp: "junto:files-open-in-default-app",
   filesReveal: "junto:files-reveal",
   filesChanged: "junto:files-changed",
+  /** View state (0.11, 04): the snapshot at window load, one row's write, and the push to every window. */
+  viewStateSnapshot: "junto:view-state-snapshot",
+  viewStateApply: "junto:view-state-apply",
+  viewStateChanged: "junto:view-state-changed",
   /** The operator's shell environment: what Junto read, a fresh read, and main's push when it changes. */
   shellEnvironmentStatus: "junto:shell-environment-status",
   shellEnvironmentRefresh: "junto:shell-environment-refresh",
@@ -656,7 +661,19 @@ export interface ShellEnvironmentApi {
   readonly onChange: (listener: (change: ShellEnvironmentChange) => void) => () => void;
 }
 
+/** One view-state write's receipt; a refusal leaves the mirror as it was. */
+export type ViewStateApplyResult = { readonly ok: boolean; readonly error?: string };
+
+/** How the operator arranged Junto (0.11, 04): read once, written per row, pushed to every window. */
+export interface JuntoViewStateApi {
+  readonly snapshot: () => Promise<ViewStateSnapshot>;
+  readonly apply: (write: ViewStateWrite) => Promise<ViewStateApplyResult>;
+  readonly onChanged: (listener: (write: ViewStateWrite) => void) => () => void;
+}
+
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
+  /** Machine-local view state: the load snapshot and one row per write (view-state/ipc.ts). */
+  readonly viewState: JuntoViewStateApi;
   /**
    * Tasks and artifacts from main's stores, written through main's ruler as
    * the operator (resource-ipc.ts). Each domain is there only with its feature.
