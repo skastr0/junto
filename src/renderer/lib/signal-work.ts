@@ -7,7 +7,9 @@
  * the feed's own names for the fields a signal will carry; the switch is a
  * rename here and nowhere else.
  */
-import { wordCountOf } from "@shared/word-count";
+import { admitLinkUrl } from "@shared/wire/agent-signals";
+import type { ContentRef } from "@shared/wire/content-ref";
+import { signalWordCount } from "@shared/word-count";
 
 /**
  * The reply a signal asks for, one per signal. `artifact` is a document the
@@ -19,21 +21,22 @@ export type SignalForm =
   | { readonly kind: "text" }
   | {
       readonly kind: "artifact";
+      /** The Artifacts node the document is made in. */
       readonly nodeId: string;
-      /** The document's title; the signal's text when absent. */
-      readonly title?: string;
-      readonly labels?: ReadonlyArray<string>;
-      /** The condition: at least this many words. */
-      readonly minWords?: number;
+      /** The document's title; the raise defaults it to the signal's text. */
+      readonly title: string;
+      readonly labels: ReadonlyArray<string>;
+      /** The condition: at least this many words (1 when the raise named none). */
+      readonly minWords: number;
     }
   | { readonly kind: "proof" };
 
-/** What the operator's own work carries: when it is due, and whether whoever raised it marked it urgent. */
-export type WorkTiming = { readonly due?: number; readonly urgent?: boolean };
+/** What a work signal carries (`signal.work`): when it is due, and whether whoever raised it marked it urgent. */
+export type WorkTiming = { readonly dueAt?: number; readonly urgent?: boolean };
 
-/** Open work on the ladder: `due` once urgent or past its due time, `todo` before. */
-export const workLevel = ({ due, urgent }: WorkTiming, nowMs: number): "due" | "todo" =>
-  urgent === true || (due !== undefined && due <= nowMs) ? "due" : "todo";
+/** Open work on the ladder: `due` once urgent or past its due time, `todo` before (N1's levelOfSignal decides; this mirrors it). */
+export const workLevel = ({ dueAt, urgent }: WorkTiming, nowMs: number): "due" | "todo" =>
+  urgent === true || (dueAt !== undefined && dueAt <= nowMs) ? "due" : "todo";
 
 const DAY_MS = 86_400_000;
 
@@ -62,15 +65,52 @@ export const dueWords = (due: number | undefined, nowMs: number, timeZone?: stri
 };
 
 /** How far a written reply is toward an artifact form's word condition. */
-export type WordProgress = { readonly words: number; readonly min: number | undefined; readonly met: boolean };
+export type WordProgress = { readonly words: number; readonly min: number; readonly met: boolean };
 
-export const wordProgressOf = (markdown: string, minWords: number | undefined): WordProgress => {
-  const words = wordCountOf(markdown);
-  return { words, min: minWords, met: words > 0 && (minWords === undefined || words >= minWords) };
+export const wordProgressOf = (markdown: string, minWords: number): WordProgress => {
+  const words = signalWordCount(markdown);
+  const min = Math.max(1, minWords);
+  return { words, min, met: words >= min };
 };
 
-/** The condition as it fills: "212 words of 500", or "212 words" with no minimum. */
+/** The condition as it fills: "212 words of 500"; with the default of one, only the count. */
 export const wordProgressWords = ({ words, min }: WordProgress): string => {
   const counted = `${words} ${words === 1 ? "word" : "words"}`;
-  return min === undefined ? counted : `${counted} of ${min}`;
+  return min <= 1 ? counted : `${counted} of ${min}`;
+};
+
+/** What the operator hands in for a form: the document's markdown, or proof. */
+export type WorkReply =
+  | { readonly kind: "artifact"; readonly markdown: string; readonly replyId: string }
+  | {
+      readonly kind: "proof";
+      readonly text: string;
+      readonly links: ReadonlyArray<string>;
+      readonly files: ReadonlyArray<ContentRef>;
+      readonly replyId: string;
+    };
+
+/** The links a proof carries, one per line, admitted as the wire admits a link; the first line that is not, and why. */
+export const proofLinksOf = (
+  typed: string,
+): { readonly links: ReadonlyArray<string>; readonly problem?: string } => {
+  const links: Array<string> = [];
+  for (const line of typed.split("\n").map((each) => each.trim()).filter((each) => each !== "")) {
+    const admitted = admitLinkUrl(line);
+    if (!admitted.ok) return { links, problem: `${line}: ${admitted.reason}.` };
+    links.push(admitted.url);
+  }
+  return { links };
+};
+
+/**
+ * What the operator has written for a signal and not handed in, kept for as
+ * long as the window runs: closing the feed, or moving to another signal,
+ * never loses a page of writing.
+ */
+const drafts = new Map<string, string>();
+export const workDraftOf = (signalId: string): string => drafts.get(signalId) ?? "";
+export const keepWorkDraft = (signalId: string, text: string): void => {
+  if (text === "") drafts.delete(signalId);
+  else drafts.set(signalId, text);
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wordCountOf } from "../src/shared/word-count";
+import { signalWordCount as wordCountOf } from "../src/shared/word-count";
 import { dueWords, wordProgressOf, wordProgressWords, workLevel } from "../src/renderer/lib/signal-work";
 
 describe("word count", () => {
@@ -7,6 +7,9 @@ describe("word count", () => {
     expect(wordCountOf("")).toBe(0);
     expect(wordCountOf("# Morning pages\n\n- one\n- two\n\n> a **bold** claim")).toBe(7);
     expect(wordCountOf("Read [the long spec](https://example.com/a/b) today.")).toBe(5);
+    // An address is not a word, nor is a fence line; the code between counts.
+    expect(wordCountOf("see https://example.com and <https://a.b> or www.example.com")).toBe(3);
+    expect(wordCountOf("```ts\nconst a = 1;\n```")).toBe(3);
     expect(wordCountOf("well-known café, 2026")).toBe(3);
     expect(wordCountOf("--- *** ## >")).toBe(0);
     expect(wordCountOf("kept <!-- not this --> kept")).toBe(2);
@@ -19,10 +22,10 @@ describe("the condition as it fills", () => {
     expect(wordProgressWords(some)).toBe("3 words of 500");
     expect(some.met).toBe(false);
     expect(wordProgressOf(Array.from({ length: 500 }, () => "w").join(" "), 500).met).toBe(true);
-    expect(wordProgressWords(wordProgressOf("one", undefined))).toBe("1 word");
-    // With no minimum any written word meets it; an empty reply never does.
-    expect(wordProgressOf("one", undefined).met).toBe(true);
-    expect(wordProgressOf("  ", undefined).met).toBe(false);
+    expect(wordProgressWords(wordProgressOf("one", 1))).toBe("1 word");
+    // The default minimum is one: any written word meets it, an empty reply never does.
+    expect(wordProgressOf("one", 1).met).toBe(true);
+    expect(wordProgressOf("  ", 1).met).toBe(false);
   });
 });
 
@@ -30,9 +33,9 @@ describe("work on the ladder", () => {
   const now = Date.parse("2026-10-28T12:00:00Z");
   it("is todo until urgent or past due", () => {
     expect(workLevel({}, now)).toBe("todo");
-    expect(workLevel({ due: now + 1 }, now)).toBe("todo");
-    expect(workLevel({ due: now }, now)).toBe("due");
-    expect(workLevel({ urgent: true, due: now + 1 }, now)).toBe("due");
+    expect(workLevel({ dueAt: now + 1 }, now)).toBe("todo");
+    expect(workLevel({ dueAt: now }, now)).toBe("due");
+    expect(workLevel({ urgent: true, dueAt: now + 1 }, now)).toBe("due");
   });
 
   it("says when it is due in the operator's day", () => {
