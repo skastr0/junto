@@ -371,7 +371,8 @@ const coloursOf = (
 ): ArtifactLabelColours | undefined => {
   const set = colours.get(nodeId);
   if (set === undefined) return undefined;
-  const held = labels.flatMap((label) => (set[label] === undefined ? [] : [[label, set[label]] as const]));
+  // Own keys only: `constructor` and `__proto__` are labels too.
+  const held = labels.flatMap((label) => (Object.hasOwn(set, label) ? [[label, set[label]!] as const] : []));
   return held.length === 0 ? undefined : Object.fromEntries(held);
 };
 
@@ -832,7 +833,7 @@ export const handleArtifactOp = (
             details: { path: "label", received: input.label, retryable: false, opId: input.opId },
           });
         }
-        if (ports.colourLabel === undefined) return yield* Effect.fail({ ...notBuilt, message: "label colours are not held by this build yet" });
+        if (ports.colourLabel === undefined) return yield* Effect.fail({ ...notBuilt, message: "label colours are not held by this build yet", details: { ...notBuilt.details, opId: input.opId } });
         const write: LabelColourWrite = { opId: input.opId, canvasName: caller.canvasName, actor: caller.actor, nodeId: node.id, label, colour: input.colour };
         const outcome = yield* ports.colourLabel(write, rulingContext(caller));
         if (outcome.kind === "refused") return yield* Effect.fail(withOpId(outcome.opId)(outcome.error));

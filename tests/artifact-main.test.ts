@@ -550,6 +550,15 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact colour in main", () => {
     expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).labelColours).toBeUndefined();
   });
 
+  it("reads a label named like an Object key, constructor or __proto__, as uncoloured unless it is", () => {
+    const { ports } = colourPorts();
+    ok(run(ports, "artifact.colour", { opId: OP, label: "planning", colour: "red" }));
+    createDoc(ports, { labels: ["constructor", "__proto__"] });
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).labelColours).toBeUndefined();
+    ok(run(ports, "artifact.colour", { opId: OP2, label: "constructor", colour: "pink" }));
+    expect(ok<ArtifactShowResult>(run(ports, "artifact.show", { artifact: NEW })).labelColours).toEqual({ constructor: "pink" });
+  });
+
   it("keeps levels apart: a parent's colour is not its child's", () => {
     const { ports } = colourPorts();
     ok(run(ports, "artifact.colour", { opId: OP, label: "project/junto", colour: "blue" }));
@@ -564,6 +573,6 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact colour in main", () => {
     expect(failure(run(ports, "artifact.colour", { opId: OP, label: "a", colour: "red", node: "AP" }))).toMatchObject({ type: "UnknownTarget" });
     expect(writes).toEqual([]);
     const { ports: bare } = memoryPorts();
-    expect(failure(run(bare, "artifact.colour", { opId: OP, label: "a", colour: "red" }))).toMatchObject({ details: { reason: "not_available" } });
+    expect(failure(run(bare, "artifact.colour", { opId: OP, label: "a", colour: "red" }))).toMatchObject({ details: { reason: "not_available", opId: OP } });
   });
 });
