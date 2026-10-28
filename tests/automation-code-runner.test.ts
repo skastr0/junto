@@ -98,6 +98,16 @@ describe("a TypeScript code step", () => {
     });
   }, 30_000);
 
+  it("reads the artifact that fired it, its body as data", async () => {
+    const artifact = { artifactId: "artifact-1", nodeId: "artifacts-1", title: "Release notes", version: 4, labels: ["ready"], body: { sections: [{ heading: "Fixes" }] } };
+    const result = await run(request("typescript", `
+      import { input, cont } from "junto/automation";
+      const { artifact } = input();
+      cont({ title: artifact?.title ?? "none", heading: (artifact?.body as { sections: Array<{ heading: string }> }).sections[0]!.heading, labels: artifact?.labels.join(",") ?? "" });
+    `, { input: { ...INPUT, artifact } }));
+    expect(result).toMatchObject({ kind: "continue", output: { title: "Release notes", heading: "Fixes", labels: "ready" } });
+  }, 30_000);
+
   it("never carries the trigger in argv, and runs in its own removed directory", async () => {
     const result = await run(request("typescript", `
       import { cont } from "junto/automation";

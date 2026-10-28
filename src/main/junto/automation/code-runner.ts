@@ -54,6 +54,7 @@ import {
 import type { ContentServiceShape } from "../content/service";
 import { juntoCliPathPrefixes } from "../term/templates/seat-env";
 import { CODE_LAUNCHER_SOURCE, CODE_SDK_SOURCE } from "./code-sdk";
+import type { CodeArtifact } from "./code-step";
 
 export type CodeLanguage = "typescript" | "shell";
 
@@ -64,6 +65,8 @@ export type CodeInput = {
   readonly trigger: unknown;
   readonly event: unknown;
   readonly values: Readonly<Record<string, string>>;
+  /** Under an artifact trigger, the artifact that fired it (B1). */
+  readonly artifact?: CodeArtifact;
 };
 
 export type CodeRunRequest = {

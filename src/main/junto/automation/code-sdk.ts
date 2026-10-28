@@ -37,6 +37,15 @@ export type Input = {
   readonly event: unknown;
   /** The trigger's values and each earlier code step's output, by name: "task.title", "code.summary". */
   readonly values: Readonly<Record<string, string>>;
+  /** Under an artifact trigger, the artifact that fired it, its body as structured data. */
+  readonly artifact?: {
+    readonly artifactId: string;
+    readonly nodeId: string;
+    readonly title: string;
+    readonly version: number;
+    readonly labels: ReadonlyArray<string>;
+    readonly body: unknown;
+  };
 };
 
 const RESULT_FD = 3;
