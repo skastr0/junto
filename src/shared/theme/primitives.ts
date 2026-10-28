@@ -43,6 +43,7 @@ export interface HueRamp {
   lime: Oklch;
   blue: Oklch;
   pink: Oklch;
+  teal: Oklch;
 }
 
 export const NEUTRALS: Record<"dark" | "bright", NeutralRamp> = {
@@ -97,6 +98,8 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     lime: { l: 0.8, c: 0.17, h: 128 }, // #9ed24d
     blue: { l: 0.68, c: 0.135, h: 250 }, // #509de8
     pink: { l: 0.72, c: 0.15, h: 350 }, // #e97ab2
+    // The one label colour no region palette had: between green and cyan.
+    teal: { l: 0.74, c: 0.1, h: 183 },
   },
   bright: {
     // Display variants stay in the same families; fg variants darken to the
@@ -121,5 +124,39 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     lime: { l: 0.63, c: 0.16, h: 130 },
     blue: { l: 0.52, c: 0.13, h: 252 },
     pink: { l: 0.56, c: 0.16, h: 352 },
+    teal: { l: 0.52, c: 0.09, h: 188 },
   },
 };
+
+/**
+ * The words on a label chip (0.11, 03, C3), one per label colour. The chip's
+ * fill and stroke are the colour's hue at a low and a middle alpha; the word
+ * is this tint, toward ink on both: light on dark, deep on paper, so it clears
+ * 4.5 to 1 on the chip over every surface (scripts/theme-build.ts holds it).
+ */
+export const LABEL_COLOURS = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
+export type LabelColour = (typeof LABEL_COLOURS)[number];
+
+export const LABEL_FG: Record<"dark" | "bright", Record<LabelColour, Oklch>> = {
+  dark: {
+    red: { l: 0.84, c: 0.09, h: 24 },
+    orange: { l: 0.85, c: 0.09, h: 52 },
+    yellow: { l: 0.9, c: 0.09, h: 98 },
+    green: { l: 0.86, c: 0.09, h: 160 },
+    teal: { l: 0.86, c: 0.08, h: 185 },
+    blue: { l: 0.85, c: 0.08, h: 250 },
+    purple: { l: 0.85, c: 0.09, h: 292 },
+    pink: { l: 0.86, c: 0.08, h: 352 },
+  },
+  bright: {
+    red: { l: 0.42, c: 0.15, h: 25 },
+    orange: { l: 0.43, c: 0.12, h: 50 },
+    yellow: { l: 0.42, c: 0.09, h: 90 },
+    green: { l: 0.4, c: 0.09, h: 160 },
+    teal: { l: 0.4, c: 0.07, h: 188 },
+    blue: { l: 0.42, c: 0.12, h: 252 },
+    purple: { l: 0.42, c: 0.13, h: 295 },
+    pink: { l: 0.43, c: 0.13, h: 352 },
+  },
+};
+

@@ -165,7 +165,31 @@ const report = (mode: "dark" | "bright") => {
 };
 report("dark");
 report("bright");
+
+// Label chips (0.11, 03, C3): the word must clear the floor on its own fill
+// over every surface a chip sits on. The fill is the colour's mark at 18%.
+const LABEL_NAMES = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"] as const;
+const LABEL_FILL_PCT = 18;
+const blend = (top: string, under: string, alpha: number): string => {
+  const rgb = (hex: string) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+  const [a, b] = [rgb(top), rgb(under)];
+  return `#${a.map((v, i) => Math.round(v! * alpha + b[i]! * (1 - alpha)).toString(16).padStart(2, "0")).join("")}`;
+};
+console.log("\nlabel colour report (word on its fill, over each surface):");
+for (const mode of ["dark", "bright"] as const) {
+  const t = themeRuntime(mode);
+  for (const name of LABEL_NAMES) {
+    const worst = Math.min(
+      ...["ground", "raise", "raise-2", "inset", "well"].map((surface) =>
+        contrastRatio(t[`label-${name}-fg`]!, blend(t[`label-${name}`]!, t[surface]!, LABEL_FILL_PCT / 100)),
+      ),
+    );
+    const mark = worst >= FLOOR ? "ok " : "FAIL";
+    if (worst < FLOOR) unreadable = true;
+    console.log(`  ${mode} label-${name}-fg on fill: ${worst.toFixed(2)} (min ${FLOOR}) ${mark}`);
+  }
+}
 if (unreadable) {
-  console.error(`\ndim and faint must reach ${FLOOR} to 1 on ground and raise in every theme. Raise the token, do not lower the floor.`);
+  console.error(`\ndim and faint, and the label colour words, must reach ${FLOOR} to 1 in every theme. Raise the token, do not lower the floor.`);
   process.exit(1);
 }

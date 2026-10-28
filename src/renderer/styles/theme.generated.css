@@ -43,6 +43,7 @@
   --color-lime: oklch(0.80000 0.17000 128.00);
   --color-blue: oklch(0.68000 0.13500 250.00);
   --color-pink: oklch(0.72000 0.15000 350.00);
+  --color-teal: oklch(0.74000 0.10000 183.00);
   --color-main: var(--color-amber);
   --color-main-hi: var(--color-amber-hi);
   --color-main-fg: var(--color-amber-fg);
@@ -50,6 +51,38 @@
   --color-second-fg: var(--color-cyan-fg);
   --color-accent: var(--color-crimson);
   --color-accent-fg: var(--color-crimson-fg);
+  --color-label-red: var(--color-crimson);
+  --color-label-red-fill: color-mix(in oklab, var(--color-label-red) 18%, transparent);
+  --color-label-red-stroke: color-mix(in oklab, var(--color-label-red) 60%, transparent);
+  --color-label-red-fg: oklch(0.84000 0.09000 24.00);
+  --color-label-orange: var(--color-orange);
+  --color-label-orange-fill: color-mix(in oklab, var(--color-label-orange) 18%, transparent);
+  --color-label-orange-stroke: color-mix(in oklab, var(--color-label-orange) 60%, transparent);
+  --color-label-orange-fg: oklch(0.85000 0.09000 52.00);
+  --color-label-yellow: var(--color-yellow);
+  --color-label-yellow-fill: color-mix(in oklab, var(--color-label-yellow) 18%, transparent);
+  --color-label-yellow-stroke: color-mix(in oklab, var(--color-label-yellow) 60%, transparent);
+  --color-label-yellow-fg: oklch(0.90000 0.09000 98.00);
+  --color-label-green: var(--color-green);
+  --color-label-green-fill: color-mix(in oklab, var(--color-label-green) 18%, transparent);
+  --color-label-green-stroke: color-mix(in oklab, var(--color-label-green) 60%, transparent);
+  --color-label-green-fg: oklch(0.86000 0.09000 160.00);
+  --color-label-teal: var(--color-teal);
+  --color-label-teal-fill: color-mix(in oklab, var(--color-label-teal) 18%, transparent);
+  --color-label-teal-stroke: color-mix(in oklab, var(--color-label-teal) 60%, transparent);
+  --color-label-teal-fg: oklch(0.86000 0.08000 185.00);
+  --color-label-blue: var(--color-blue);
+  --color-label-blue-fill: color-mix(in oklab, var(--color-label-blue) 18%, transparent);
+  --color-label-blue-stroke: color-mix(in oklab, var(--color-label-blue) 60%, transparent);
+  --color-label-blue-fg: oklch(0.85000 0.08000 250.00);
+  --color-label-purple: var(--color-violet);
+  --color-label-purple-fill: color-mix(in oklab, var(--color-label-purple) 18%, transparent);
+  --color-label-purple-stroke: color-mix(in oklab, var(--color-label-purple) 60%, transparent);
+  --color-label-purple-fg: oklch(0.85000 0.09000 292.00);
+  --color-label-pink: var(--color-pink);
+  --color-label-pink-fill: color-mix(in oklab, var(--color-label-pink) 18%, transparent);
+  --color-label-pink-stroke: color-mix(in oklab, var(--color-label-pink) 60%, transparent);
+  --color-label-pink-fg: oklch(0.86000 0.08000 352.00);
 
   /* house type: mono instrument + condensed display stamp + proportional prose */
   --font-mono: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -123,4 +156,13 @@ html[data-theme="bright"] {
   --color-lime: oklch(0.63000 0.16000 130.00);
   --color-blue: oklch(0.52000 0.13000 252.00);
   --color-pink: oklch(0.56000 0.16000 352.00);
+  --color-teal: oklch(0.52000 0.09000 188.00);
+  --color-label-red-fg: oklch(0.42000 0.15000 25.00);
+  --color-label-orange-fg: oklch(0.43000 0.12000 50.00);
+  --color-label-yellow-fg: oklch(0.42000 0.09000 90.00);
+  --color-label-green-fg: oklch(0.40000 0.09000 160.00);
+  --color-label-teal-fg: oklch(0.40000 0.07000 188.00);
+  --color-label-blue-fg: oklch(0.42000 0.12000 252.00);
+  --color-label-purple-fg: oklch(0.42000 0.13000 295.00);
+  --color-label-pink-fg: oklch(0.43000 0.13000 352.00);
 }

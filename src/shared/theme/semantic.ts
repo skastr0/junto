@@ -1,5 +1,5 @@
 import type { Oklch } from "./oklch";
-import { HUES, NEUTRALS } from "./primitives";
+import { HUES, LABEL_COLOURS, LABEL_FG, NEUTRALS, type LabelColour } from "./primitives";
 
 // Semantic layer — the only tier components may consume. Dark assigns today's
 // exact appearance; bright is a second value assignment over the same names,
@@ -28,6 +28,31 @@ const mix = (token: string, pct: number): TokenValue => ({
   pct,
 });
 const alias = (token: string): TokenValue => ({ kind: "alias", token });
+
+// A label colour's mark is a house hue (purple is violet, red is crimson);
+// teal has its own. Fill and stroke are that mark at a low and a middle alpha,
+// so they resolve against the active mode with no bright override; only the
+// word, label-<name>-fg, is a value per mode.
+const LABEL_MARK: Record<LabelColour, string> = {
+  red: "crimson",
+  orange: "orange",
+  yellow: "yellow",
+  green: "green",
+  teal: "teal",
+  blue: "blue",
+  purple: "violet",
+  pink: "pink",
+};
+const labelTokens = (mode: "dark" | "bright"): Record<string, TokenValue> => {
+  const out: Record<string, TokenValue> = {};
+  for (const name of LABEL_COLOURS) {
+    out[`label-${name}`] = alias(LABEL_MARK[name]);
+    out[`label-${name}-fill`] = mix(`label-${name}`, 18);
+    out[`label-${name}-stroke`] = mix(`label-${name}`, 60);
+    out[`label-${name}-fg`] = solid(LABEL_FG[mode][name]);
+  }
+  return out;
+};
 
 const darkNeutrals = NEUTRALS.dark;
 const darkHues = HUES.dark;
@@ -83,6 +108,7 @@ export const SEMANTIC_DARK: Record<string, TokenValue> = {
   lime: solid(darkHues.lime),
   blue: solid(darkHues.blue),
   pink: solid(darkHues.pink),
+  teal: solid(darkHues.teal),
 
   // color roles — the names primitives compose against
   main: alias("amber"),
@@ -92,6 +118,9 @@ export const SEMANTIC_DARK: Record<string, TokenValue> = {
   "second-fg": alias("cyan-fg"),
   accent: alias("crimson"),
   "accent-fg": alias("crimson-fg"),
+
+  // label colours (0.11, 03, C3): mark, fill, stroke and word per colour
+  ...labelTokens("dark"),
 };
 
 const brightNeutrals = NEUTRALS.bright;
@@ -144,6 +173,9 @@ export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
   lime: solid(brightHues.lime),
   blue: solid(brightHues.blue),
   pink: solid(brightHues.pink),
+  teal: solid(brightHues.teal),
+  // Only the word differs; the mark, fill and stroke follow the mode's hues.
+  ...Object.fromEntries(Object.entries(labelTokens("bright")).filter(([name]) => name.endsWith("-fg"))),
 };
 
 export type ThemeMode = "dark" | "bright";
