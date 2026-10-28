@@ -197,7 +197,7 @@ test("automations B1: the label watch reads as a sentence, and an edit appends, 
     const appends = md.split("Published edit seen.").length - 1;
     const logs = (await heads()).filter((h) => h.artifact.title === "Edit log").length;
     await check("control: an unlabelled edit watch fires", () => expect(head("Any edit seen")).resolves.toBeDefined());
-    await check("one edit fires once (its own append does not refire it)", () => {
+    await check("one edit fires once (its own append does not refire it)", async () => {
       expect(appends, md).toBe(1);
       expect(logs).toBe(1);
     });
