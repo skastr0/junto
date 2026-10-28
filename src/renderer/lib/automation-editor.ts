@@ -71,7 +71,12 @@ export type CommentTarget = CommentAction["on"];
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
-export type ActionKind = Action["kind"];
+/**
+ * The contract's action kinds, and `seat-control` (S4, remote-seats) until it
+ * lands in `@shared/automation`: a stand-in, refused in words until then.
+ */
+export type ActionKind = Action["kind"] | "seat-control";
+export type SeatControlOp = "start" | "stop";
 
 export const SEAT_BECOMES: ReadonlyArray<SeatBecomes> = ["idle", "working", "attention", "gone"];
 export const TASK_BECOMES: ReadonlyArray<TaskBecomes> = TASK_STATES;
@@ -144,6 +149,8 @@ export type ActionDraft =
     }
   /** Text written at a document's end, exactly as written: the editor starts it with a dated heading. */
   | { readonly kind: "append-artifact"; readonly to?: ArtifactTarget; readonly text: string }
+  /** A seat started or stopped where it runs. Seat only; it writes no text. */
+  | { readonly kind: "seat-control"; readonly seat?: TargetRef; readonly op: SeatControlOp }
   /** Labels added to and removed from one artifact, as typed. */
   | {
       readonly kind: "label-artifact";
@@ -239,6 +246,8 @@ export const blankAction = (kind: ActionKind): ActionDraft => {
       return { kind, text: APPEND_HEADING };
     case "label-artifact":
       return { kind };
+    case "seat-control":
+      return { kind, op: "start" };
     default:
       return kind satisfies never;
   }
@@ -436,7 +445,7 @@ const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
       : old.kind === "create-task" || old.kind === "create-artifact"
         ? old.title
         : "";
-  const seat = old.kind === "mail" || old.kind === "prompt" ? old.to : undefined;
+  const seat = old.kind === "mail" || old.kind === "prompt" ? old.to : old.kind === "seat-control" ? old.seat : undefined;
   switch (kind) {
     case "mail":
       return seat === undefined ? { kind, text } : { kind, text, to: seat };
@@ -456,6 +465,8 @@ const carriedAction = (old: ActionDraft, kind: ActionKind): ActionDraft => {
       return { kind, text: text === "" ? APPEND_HEADING : text };
     case "label-artifact":
       return { kind };
+    case "seat-control":
+      return seat === undefined ? { kind, op: "start" } : { kind, op: "start", seat };
     default:
       return kind satisfies never;
   }
@@ -566,6 +577,14 @@ const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
   artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
 
+/** Whether the contract takes a seat-control step yet (S4): until it does, the editor says so rather than sending one. */
+const CONTRACT_HAS_SEAT_CONTROL = Schema.is(AutomationDefinition)({
+  name: "probe",
+  trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS },
+  then: [{ kind: "seat-control", seat: { kind: "seat", nodeId: "agent-probe" }, op: "start" }],
+  limits: DEFAULT_AUTOMATION_LIMITS,
+});
+
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
 
 const actionProblem = (
@@ -626,6 +645,9 @@ const actionProblem = (
       const both = add.find((label) => remove.includes(label));
       return both === undefined ? undefined : `${both} is both added and removed. Keep it in one.`;
     }
+    case "seat-control":
+      if (!CONTRACT_HAS_SEAT_CONTROL) return "Starting and stopping seats is not available yet.";
+      return action.seat === undefined ? "Pick the seat to start or stop." : undefined;
     default:
       return action satisfies never;
   }
@@ -716,6 +738,8 @@ const actionOf = (action: ActionDraft): unknown => {
     }
     case "append-artifact":
       // Exactly as written: the heading's blank line and the text's own spacing are the operator's.
+      return action;
+    case "seat-control":
       return action;
     case "label-artifact": {
       const add = foldedLabels(action.add);
@@ -890,6 +914,8 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
       return `append to ${artifactTargetWords(action.to, nameOf)}`;
     case "label-artifact":
       return `label ${artifactTargetWords(action.to, nameOf)}`;
+    case "seat-control":
+      return `${action.op} ${action.seat ? nameOf(action.seat) : "a seat"}`;
     default:
       return action satisfies never;
   }
@@ -905,6 +931,7 @@ export const ACTION_LABEL: Readonly<Record<ActionKind, string>> = {
   "create-artifact": "Create an artifact",
   "append-artifact": "Append to an artifact",
   "label-artifact": "Label an artifact",
+  "seat-control": "Start or stop a seat",
 };
 
 export const TRIGGER_LABEL: Readonly<Record<EditableTriggerKind, string>> = {

@@ -840,6 +840,31 @@ function ActionFields({
           />
         </>
       );
+    case "seat-control":
+      return (
+        <>
+          <Select
+            aria-label="Start or stop"
+            value={action.op}
+            options={[
+              { value: "start", label: "Start" },
+              { value: "stop", label: "Stop" },
+            ]}
+            onChange={(op) => onChange({ ...action, op: op as typeof action.op })}
+          />
+          <TargetPicker
+            {...pickers}
+            kinds={["seat"]}
+            label="Seat to start or stop"
+            placeholder="@seat"
+            value={action.seat?.kind === "seat" ? action.seat : undefined}
+            onChange={(seat) => {
+              const { seat: _old, ...rest } = action;
+              onChange(seat === undefined ? rest : { ...rest, seat });
+            }}
+          />
+        </>
+      );
     case "label-artifact":
       return (
         <>
