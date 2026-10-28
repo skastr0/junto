@@ -19,8 +19,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Play, Plus, Zap } from "lucide-react";
 import { ulid } from "ulid";
 import type {
+  ActionRuling,
   Automation,
   AutomationAuthor,
+  AutomationCodePutResponse,
   AutomationId,
   AutomationOp,
   AutomationVersion,
@@ -30,14 +32,16 @@ import type { Refusal } from "@shared/resource-command";
 import type { NodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import {
+  codeRulingWords,
+  codeTimeoutMs,
   draftOf,
   editDraft,
   finishDraft,
-  codeRulingWords,
   firingWords,
   historyOrder,
   newDraft,
   triggerWords,
+  type ActionDraft,
   type AutomationDraft,
 } from "../../lib/automation-editor";
 import {
@@ -62,6 +66,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { itemsQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 import { AutomationEditor } from "./AutomationEditor";
+import { AutomationCodeEditor, CODE_TEMPLATE } from "./AutomationCodeEditor";
 import { useTargetNames } from "../../lib/automation-names";
 import "./automations.css";
 
@@ -100,6 +105,14 @@ const refusalWords = (refusal: Refusal): string => {
     default:
       return `Not saved: ${refusal.message}`;
   }
+};
+
+/** What a save refused asks for next, on its own line: the round trips that are the pane's own say it themselves. */
+const refusalStepWords = (refusal: Refusal): string | undefined => {
+  if (refusal.next_step === undefined) return undefined;
+  if (refusal.reason === "stale" || refusal.reason === "rebase_conflict" || refusal.reason === "not_available") return undefined;
+  const step = refusal.next_step.trim();
+  return step.endsWith(".") ? step : `${step}.`;
 };
 
 const timeWords = (at: number): string =>
@@ -153,6 +166,85 @@ function FiringHistory({
         </ol>
       )}
     </section>
+  );
+}
+
+/** The newest ruling of the step at `index`, from the firings newest first. */
+const lastRulingOf = (index: number, firings: ReadonlyArray<Firing>): ActionRuling | undefined => {
+  for (const firing of historyOrder(firings)) {
+    if (firing.outcome.kind !== "fired") continue;
+    const ruling = firing.outcome.actions.find((action) => action.index === index);
+    if (ruling !== undefined) return ruling;
+  }
+  return undefined;
+};
+
+/**
+ * One code step, opened from the Then section. It reads the stored program
+ * (a step never written opens on the template), and Save hands the text back
+ * to the pane, which puts it and saves the automation naming the new ref.
+ */
+function CodeStepEditor({
+  canvasName,
+  name,
+  action,
+  index,
+  result,
+  saving,
+  error,
+  onSave,
+  onBack,
+}: {
+  readonly canvasName: string;
+  readonly name: string;
+  readonly action: Extract<ActionDraft, { readonly kind: "code" }>;
+  readonly index: number;
+  readonly result: ActionRuling | undefined;
+  readonly saving: boolean;
+  readonly error: string | undefined;
+  readonly onSave: (text: string, index: number) => void;
+  readonly onBack: () => void;
+}) {
+  const [held, setHeld] = useState<{ readonly text: string; readonly loaded: string; readonly loading: boolean; readonly error?: string }>({
+    text: "",
+    loaded: "",
+    loading: true,
+  });
+  useEffect(() => {
+    let live = true;
+    const source = action.source;
+    const read =
+      source === undefined
+        ? Promise.resolve({ kind: "read" as const, text: CODE_TEMPLATE })
+        : automationsSource().codeRead(canvasName, source);
+    void read.then((result) => {
+      if (!live) return;
+      setHeld(
+        result.kind === "refused"
+          ? { text: "", loaded: "", loading: false, error: result.refusal.message }
+          : { text: result.text, loaded: result.text, loading: false },
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [canvasName, action.source]);
+  return (
+    <AutomationCodeEditor
+      name={name}
+      language={action.language}
+      timeoutMs={codeTimeoutMs(action.timeoutSeconds)}
+      code={held.text}
+      loading={held.loading}
+      saving={saving}
+      dirty={held.text !== held.loaded}
+      error={error ?? held.error}
+      result={result}
+      onCode={(text) => setHeld((prior) => ({ ...prior, text }))}
+      onSave={() => onSave(held.text, index)}
+      onRevert={() => setHeld((prior) => ({ ...prior, text: prior.loaded }))}
+      onBack={onBack}
+    />
   );
 }
 
@@ -221,8 +313,11 @@ export function AutomationsPane({
   };
   // The automation open outlives the pane and a quit, per node; a new one not yet saved is not kept.
   const kept = useAutomationsNodeView(canvasName, nodeId);
+  const [codeStep, setCodeStep] = useState<number | undefined>(undefined);
   const open = (next: Editing | undefined): void => {
     setRefusal(undefined);
+    // A save of the same automation keeps the code view; another one closes it.
+    setCodeStep((prior) => (prior !== undefined && editing?.draft.automationId === next?.draft.automationId ? prior : undefined));
     setEditing(next);
     if (next === undefined || next.base !== undefined) kept.setOpen(next?.draft.automationId ?? null);
   };
@@ -279,11 +374,12 @@ export function AutomationsPane({
   /** Sends the draft, over `base` when given (a rebase onto the head), else the version it was loaded from. */
   const save = async (
     base: AutomationVersion | undefined = editing?.base,
+    draft: AutomationDraft | undefined = editing?.draft,
   ): Promise<void> => {
-    if (!editing) return;
-    const finished = finishDraft(editing.draft);
+    if (!editing || draft === undefined) return;
+    const finished = finishDraft(draft);
     if (!finished.ok) return;
-    const automationId = editing.draft.automationId;
+    const automationId = draft.automationId;
     const { definition } = finished;
     const result = await send(
       automationId,
@@ -291,13 +387,45 @@ export function AutomationsPane({
         ? {
             kind: "create",
             automationId,
-            enabled: editing.draft.enabled,
+            enabled: draft.enabled,
             definition,
           }
         : { kind: "edit", baseVersion: base, definition },
     );
     if (result.kind === "applied" && result.automation)
       open(editingOf(result.automation));
+  };
+
+  /**
+   * A code step's Save: the text is put first, so the definition always names
+   * a program that exists, and the automation is saved with the new ref.
+   */
+  const saveCode = async (text: string, index: number): Promise<void> => {
+    if (!editing) return;
+    const action = editing.draft.then[index];
+    if (action === undefined || action.kind !== "code") return;
+    setBusy(true);
+    setRefusal(undefined);
+    const put = await automationsSource()
+      .codePut(canvasName, text)
+      .catch(
+        (cause: unknown): AutomationCodePutResponse => ({
+          kind: "refused",
+          refusal: {
+            reason: "not_available",
+            message: cause instanceof Error ? cause.message : String(cause),
+          },
+        }),
+      );
+    if (put.kind === "refused") {
+      setBusy(false);
+      setRefusal(put.refusal);
+      return;
+    }
+    setBusy(false);
+    const draft = editDraft(editing.draft, { type: "action", index, action: { ...action, source: put.ref } });
+    setEditing({ ...editing, draft });
+    await save(editing.base, draft);
   };
 
   // A loaded automation turns on and off at once, keeping any edits in the draft.
@@ -472,7 +600,21 @@ export function AutomationsPane({
             </>
           }
         >
-          {editing ? (
+          {editing && codeStep !== undefined && editing.draft.then[codeStep]?.kind === "code" ? (
+            <div className="automations-node__main">
+              <CodeStepEditor
+                canvasName={canvasName}
+                name={editing.draft.name}
+                index={codeStep}
+                action={editing.draft.then[codeStep] as Extract<ActionDraft, { readonly kind: "code" }>}
+                result={lastRulingOf(codeStep, firings)}
+                saving={busy}
+                error={refusal ? refusalWords(refusal) : undefined}
+                onSave={(text, index) => void saveCode(text, index)}
+                onBack={() => setCodeStep(undefined)}
+              />
+            </div>
+          ) : editing ? (
             <div className="automations-node__main">
               {editing.base !== undefined ? (
                 <div className="automations-node__actions">
@@ -509,7 +651,9 @@ export function AutomationsPane({
                 nameRef={nameField}
                 dirty={dirty}
                 refusal={refusal ? refusalWords(refusal) : undefined}
+                refusalStep={refusal ? refusalStepWords(refusal) : undefined}
                 onSave={() => void save()}
+                onEditCode={(index) => setCodeStep(index)}
                 onRevert={() =>
                   setEditing({ ...editing, draft: editing.loaded })
                 }

@@ -261,3 +261,119 @@
 .automation-editor__insert-menu {
   min-width: 260px;
 }
+
+/* ── A code step (plan 0.11/05, Code steps) ───────────────────────────────── */
+
+.automation-code {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.automation-code__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.automation-code__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.automation-code__title > span {
+  overflow: hidden;
+  font-size: var(--text-body-lg);
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-code__facts {
+  margin-inline-start: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+.automation-code__editor {
+  flex: 1;
+  min-height: 260px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
+  overflow: hidden;
+}
+
+.automation-code__result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--color-stroke);
+  padding-top: 8px;
+}
+
+.automation-code__words {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-ink-2);
+}
+
+.automation-code__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+
+.automation-code__value {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.automation-code__value > dt {
+  color: var(--color-dim);
+}
+
+.automation-code__value > dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-code__tail {
+  margin: 0;
+  max-height: 8rem;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-crimson-fg);
+  white-space: pre-wrap;
+}
+
+.automation-code__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--color-stroke);
+  padding-top: 10px;
+}
+
+.automation-code__foot > .automation-editor__problem {
+  flex: 1;
+}

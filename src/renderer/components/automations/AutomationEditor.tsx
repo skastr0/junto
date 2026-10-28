@@ -7,7 +7,7 @@
  * edited from.
  */
 import { useId, useMemo, useState, type ReactNode, type Ref } from "react";
-import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Code, Plus, X } from "lucide-react";
 import { automationValuesOf, type CodeLanguage } from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
@@ -440,12 +440,15 @@ function ActionFields({
   onChange,
   pickers,
   values,
+  onEditCode,
 }: {
   readonly action: ActionDraft;
   readonly onChange: (action: ActionDraft) => void;
   readonly pickers: Pickers;
   /** The values this automation's trigger carries, for the Insert value list. */
   readonly values: ReadonlyArray<ValueChoice>;
+  /** Opens this step's code; absent where the editor is read alone. */
+  readonly onEditCode?: (() => void) | undefined;
 }) {
   switch (action.kind) {
     case "mail":
@@ -565,9 +568,16 @@ function ActionFields({
               onChange={(event) => onChange({ ...action, timeoutSeconds: event.target.value })}
             />
           </FieldLabel>
-          <p className="automation-editor__note">
-            {action.source === undefined ? "Write the code before this automation can save." : "Code written."}
-          </p>
+          {onEditCode === undefined ? (
+            <p className="automation-editor__note">
+              {action.source === undefined ? "Write the code before this automation can save." : "Code written."}
+            </p>
+          ) : (
+            <Button size="xs" variant="chrome" onClick={onEditCode}>
+              <Code size={12} aria-hidden />
+              {action.source === undefined ? "Write code" : "Edit code"}
+            </Button>
+          )}
         </>
       );
     case "comment":
@@ -609,6 +619,7 @@ export function AutomationEditor({
   nameRef,
   dirty,
   onSave,
+  onEditCode,
   onRevert,
   refusal,
   refusalStep,
@@ -625,6 +636,8 @@ export function AutomationEditor({
   readonly nameRef?: Ref<HTMLInputElement>;
   readonly dirty: boolean;
   readonly onSave: () => void;
+  /** Opens a code step's editor, by its index in then; without it the step says what it needs. */
+  readonly onEditCode?: (index: number) => void;
   readonly onRevert: () => void;
   /** Why the last save did not land, in words. */
   readonly refusal?: string;
@@ -766,6 +779,7 @@ export function AutomationEditor({
                   action={action}
                   pickers={pickers}
                   values={values}
+                  onEditCode={onEditCode === undefined ? undefined : () => onEditCode(index)}
                   onChange={(next) => edit({ type: "action", index, action: next })}
                 />
               </div>

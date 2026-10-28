@@ -1,0 +1,198 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { EditorView } from "@codemirror/view";
+import { Schema } from "effect";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_AUTOMATION_LIMITS, type Automation, type AutomationDefinition } from "@shared/automation";
+import { asNodeId } from "@shared/physics/schema";
+import { ItemId } from "@shared/work-ids";
+import { ContentRef } from "@shared/wire/content-ref";
+import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
+import { CODE_TEMPLATE } from "../src/renderer/components/automations/AutomationCodeEditor";
+import { makeLocalAutomationsSource, setAutomationsSource, type AutomationsSource } from "../src/renderer/lib/automations-source";
+import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
+import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// jsdom has no Range rectangles; CodeMirror's selection layer asks for them.
+Range.prototype.getClientRects = function getClientRects(): DOMRectList {
+  return { length: 0, item: () => null } as unknown as DOMRectList;
+} as typeof Range.prototype.getClientRects;
+
+const canvas = "automations-code";
+const node = asNodeId("automations-1");
+const automationId = ItemId.make("01JAAAAAAAAAAAAAAAAAAAAAA1");
+
+let host: HTMLDivElement;
+let root: Root;
+let source: ReturnType<typeof makeLocalAutomationsSource>;
+let code: AutomationsSource;
+/** The content store this machine would hold, keyed by digest. */
+const stored = new Map<string, string>();
+let minted = 0;
+
+const refOf = (text: string): ContentRef => {
+  minted += 1;
+  const sha256 = minted.toString(16).padStart(64, "0");
+  stored.set(sha256, text);
+  return Schema.decodeUnknownSync(ContentRef)({ sha256, byteLength: new TextEncoder().encode(text).byteLength, mediaType: "text/typescript" });
+};
+
+const withCode = (base: AutomationsSource): AutomationsSource => ({
+  ...base,
+  codePut: async (_canvas, text) => ({ kind: "put", ref: refOf(text) }),
+  codeRead: async (_canvas, ref) => {
+    const text = stored.get(ref.sha256);
+    return text === undefined
+      ? { kind: "refused", refusal: { reason: "not_available", message: "this machine has no copy" } }
+      : { kind: "read", text };
+  },
+});
+
+const flush = async (): Promise<void> => {
+  await act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
+};
+
+const render = async (): Promise<void> => {
+  await act(async () => root.render(<AutomationsPane canvasName={canvas} nodeId={node} author={{ kind: "operator" }} onClose={() => undefined} />));
+  await flush();
+};
+
+const button = (name: string): HTMLButtonElement => {
+  const found = [...document.body.querySelectorAll("button")].find((element) => element.textContent?.trim().replace(/\s+/g, " ") === name);
+  if (!found) throw new Error(`no button ${name}`);
+  return found;
+};
+
+/** The sidebar's row for one automation: its title, then its trigger in a few words. */
+const row = async (): Promise<void> => {
+  const found = [...document.body.querySelectorAll("button")].find((element) => element.textContent?.trim().startsWith("Nightly check"));
+  if (!found) throw new Error("no row for Nightly check");
+  await act(async () => found.click());
+  await flush();
+};
+
+const click = async (name: string): Promise<void> => {
+  await act(async () => button(name).click());
+  await flush();
+};
+
+const definition = (then: AutomationDefinition["then"]): AutomationDefinition => ({
+  name: "Nightly check",
+  trigger: { kind: "schedule", cron: "0 3 * * *", timezone: "UTC" },
+  then,
+  limits: DEFAULT_AUTOMATION_LIMITS,
+});
+
+const saved = async (): Promise<Automation> =>
+  (await source.list(canvas, node)).automations.find((automation) => automation.automationId === automationId)!;
+
+/** The editor's view, for typing into it as a person would. */
+const editor = (): EditorView => EditorView.findFromDOM(document.body.querySelector<HTMLElement>(".cm-editor")!)!;
+
+const replaceCode = async (text: string): Promise<void> => {
+  await act(async () => {
+    const view = editor();
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+  });
+  await flush();
+};
+
+beforeEach(() => {
+  setNodeViewStore(makeMemoryNodeViewStore());
+  source = makeLocalAutomationsSource();
+  code = withCode(source);
+  setAutomationsSource(code);
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  document.body.innerHTML = "";
+  stored.clear();
+});
+
+const opened = async (then?: AutomationDefinition["then"]): Promise<void> => {
+  await source.apply(canvas, node, automationId, {
+    kind: "create",
+    automationId,
+    enabled: true,
+    definition: definition(then ?? [{ kind: "code", language: "typescript", source: refOf("const answer = 1;\n") }]),
+  });
+  await render();
+  await row();
+};
+
+describe("a code step in the Automations node", () => {
+  it("opens the stored program and saves an edit as new content", async () => {
+    await opened();
+    await click("Edit code");
+    expect(editor().state.doc.toString()).toBe("const answer = 1;\n");
+
+    await replaceCode("const answer = 2;\n");
+    await click("Save");
+    await flush();
+
+    const storedNow = await saved();
+    const step = storedNow.then[0]!;
+    expect(step.kind).toBe("code");
+    if (step.kind !== "code") throw new Error("not a code step");
+    expect(stored.get(step.source.sha256)).toBe("const answer = 2;\n");
+    // The panel stays open on the saved text, now read back from the store.
+    expect(editor().state.doc.toString()).toBe("const answer = 2;\n");
+  });
+
+  it("opens a step never written on the template, and refuses to save it empty", async () => {
+    await opened([{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Plan." }]);
+    // The action's kind becomes Run code, which has no program yet.
+    await act(async () => button("Send mail").click());
+    await flush();
+    const runCode = [...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("Run code"));
+    await act(async () => (runCode as HTMLElement).click());
+    await flush();
+    await click("Write code");
+    expect(editor().state.doc.toString()).toBe(CODE_TEMPLATE);
+  });
+
+  it("shows the step's last result, with its values and its error tail", async () => {
+    await opened();
+    const at = 1_700_000_000_000;
+    source.record(canvas, {
+      firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF1"),
+      automationId,
+      at,
+      cause: { kind: "run" },
+      outcome: {
+        kind: "fired",
+        actions: [{ index: 0, ruling: "continued", output: { total: 3 }, durationMs: 120 }],
+      },
+    });
+    await render();
+    await row();
+    expect(document.body.textContent).toContain("answered {{code.total}} in 120 ms");
+    expect(document.body.textContent).toContain("{{code.total}}");
+
+    source.record(canvas, {
+      firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF2"),
+      automationId,
+      at: at + 60_000,
+      cause: { kind: "run" },
+      outcome: {
+        kind: "fired",
+        actions: [{ index: 0, ruling: "failed", message: "timeout", logTail: "slow line\n", durationMs: 60_000 }],
+      },
+    });
+    await render();
+    await row();
+    await click("Edit code");
+    expect(document.body.textContent).toContain("failed: timeout");
+    expect(document.body.textContent).toContain("slow line");
+  });
+});

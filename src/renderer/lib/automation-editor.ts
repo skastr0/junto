@@ -138,6 +138,12 @@ export type AutomationDraft = {
 
 const MINUTE_MS = 60_000;
 
+/** A code step's timeout as stored, in milliseconds: the default for a field that does not say one. */
+export const codeTimeoutMs = (seconds: string): number => {
+  const value = wholeNumber(seconds);
+  return value === undefined ? AUTOMATION_CODE_TIMEOUT_DEFAULT_MS : value * 1000;
+};
+
 const minutesText = (ms: number): string => String(ms / MINUTE_MS);
 
 let keysMinted = 0;
@@ -561,15 +567,13 @@ const actionOf = (action: ActionDraft): unknown => {
       return { ...action, title: action.title.trim() };
     case "assign-task":
       return action;
-    case "code": {
-      const seconds = wholeNumber(action.timeoutSeconds);
+    case "code":
       return {
         kind: "code",
         language: action.language,
         source: action.source,
-        timeoutMs: seconds === undefined ? AUTOMATION_CODE_TIMEOUT_DEFAULT_MS : seconds * 1000,
+        timeoutMs: codeTimeoutMs(action.timeoutSeconds),
       };
-    }
     default:
       return action satisfies never;
   }

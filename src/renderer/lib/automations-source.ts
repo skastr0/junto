@@ -21,6 +21,8 @@ import {
   decodeAutomation,
   lastOutcomeOf,
   type Automation,
+  type AutomationCodePutResponse,
+  type AutomationCodeReadResponse,
   type AutomationAuthor,
   type AutomationFiringsRequest,
   type AutomationFiringsResponse,
@@ -32,6 +34,7 @@ import {
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
 import type { Refusal } from "@shared/resource-command";
+import type { ContentRef } from "@shared/wire/content-ref";
 
 export type ApplyResult =
   | { readonly kind: "applied"; readonly automation?: Automation }
@@ -42,6 +45,10 @@ export interface AutomationsSource {
   readonly firings: (canvasName: string, request: AutomationFiringsRequest) => Promise<AutomationFiringsResponse>;
   /** One op on one automation. `create` names its own id; every other op targets `automationId`. */
   readonly apply: (canvasName: string, nodeId: NodeId, automationId: AutomationId, op: AutomationOp) => Promise<ApplyResult>;
+  /** A code step's text put in the content store; the automation then names the ref. */
+  readonly codePut: (canvasName: string, text: string) => Promise<AutomationCodePutResponse>;
+  /** A code step's text read back from this machine's content store. */
+  readonly codeRead: (canvasName: string, ref: ContentRef) => Promise<AutomationCodeReadResponse>;
   /** Called after any change; returns the unsubscribe. */
   readonly subscribe: (listener: () => void) => () => void;
 }
@@ -88,6 +95,23 @@ export const makeLocalAutomationsSource = (
       }
       return { automations: listed, lastOutcomes };
     },
+    // Code lives in main's content store: without main there is none to read or write.
+    codePut: async () => ({
+      kind: "refused",
+      refusal: {
+        reason: "not_available",
+        message: "a code step's code is stored by the app",
+        next_step: "Open this canvas in Junto to write it",
+      },
+    }),
+    codeRead: async () => ({
+      kind: "refused",
+      refusal: {
+        reason: "not_available",
+        message: "a code step's code is stored by the app",
+        next_step: "Open this canvas in Junto to read it",
+      },
+    }),
     firings: async (canvasName, request) => {
       const newestFirst = [...(firings.get(keyOf(canvasName, request.automationId)) ?? [])].sort((a, b) => b.at - a.at);
       const from = request.before === undefined ? 0 : newestFirst.findIndex((firing) => firing.firingId === request.before) + 1;
