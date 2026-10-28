@@ -68,44 +68,36 @@ can name the thing that fired it.
 A1 and A3 build on a stand-in of A2's names and switch when it lands. The
 empty picker is a bug: A1 fixes it first, on its own commit.
 
-## Open: 24/7 automations and code steps (with the operator)
+## Automations run on their own machine (operator, 2026-10-28)
 
-The operator wants most automations to run around the clock on the Mac mini
-or a VPS, seats there working 24/7, and actions aimed at a seat on an
-offline machine to wait. They also want code steps: a shell or TypeScript
-file, or a Prism workflow, whose result decides whether the chain goes on.
+**Decided by the operator; this overrides the editing-machine runner of
+0.10/07 and wherever `docs/machines.md` says only the editor runs
+automations.** One canvas spans any number of machines, and each machine
+runs its own automations: a hundred machines on one canvas, each with its
+own, must work. The unit is the automation, not the canvas. Most of the
+operator's automations run 24/7 on the Mac mini, a VPS or another always-on
+machine, beside seats on that machine that work around the clock.
 
-What the rules say (`docs/machines.md`): one editing machine per canvas
-(Rule 2) rules every write and runs every automation (0.10/07 Runner), so
-with the editor asleep nothing fires and no task changes anywhere. Seats on
-the mini already run 24/7. So the 24/7 machine must be the editor.
-
-remote-lead's answer (mail 01M628012VMPZT17Y778N6Q2FD, 2026-10-28):
-
-- **Editing from the MacBook is synchronous.** The window sends each write
-  over the link to the mini's core, which applies it as the operator; with
-  no link the window is read-only and says why. Rule 4 is unchanged. Large,
-  medium risk: a new link channel granting operator authority per machine,
-  a closed op set, refused from a seat environment.
-- **The MacBook opens the link** (Rule 7 is symmetric; today only the editor
-  opens links). Small to medium, low risk.
-- **No live handover.** Create the 24/7 canvas on the mini (free), or move a
-  canvas once while quiesced (medium to large). Live handover is extra large.
-- **Forced product choices** with the mini as editor: browser pages need a
-  window's Electron (Rule 10); Files nodes on the MacBook go dark there.
-- **Offline targets.** Mail and prompts already wait (Rule 6). Seat start
-  and stop become a held action on the runner, retried when the link opens,
-  local to the editor. Small.
-- **Code steps run on the editing machine only.** No remote-execution row
-  pair; to work on another machine, a step prompts a seat there and the
-  runner triggers on what it reports.
-- **Security conditions for code steps:** (i) only the operator authors
-  one, from the window or an owner command, never a seat or an overseer;
-  (ii) the program is a path on the editor, never bytes that crossed;
-  (iii) values never go into a shell string or argv, only structured input
-  such as stdin JSON; (iv) secrets resolve on that machine only and argv,
-  environment and output stay out of logs; (v) a timeout, a size bound and
-  the loop rule.
+- **An automation names its machine**, the way a seat does (Rule 3); the
+  Automations node offers a default machine for new ones. That machine fires
+  its schedules, hears its changes, performs its actions and runs its code
+  steps, whether or not the editing machine is awake.
+- **It acts like a seat on its machine.** Mail and prompts go out from its
+  machine; a resource write is proposed from its machine and ruled as a
+  seat's is.
+- **An action aimed at a machine that is offline waits**, is shown waiting
+  in the firing log, and goes when the machine is back. Mail and prompts do
+  this already (Rule 6); seat start and stop join them.
+- **Code steps run on the automation's machine**, under remote's conditions:
+  only the operator authors a code step, from the window or an owner
+  command; the program is a path on that machine, never bytes that crossed;
+  values reach it as structured input (stdin JSON), never in a shell string
+  or argv; secrets resolve on that machine only and stay out of logs; a
+  timeout, a size bound and the loop rule.
+- **Remote designs the mechanics** and owns the doctrine change: how a
+  definition reaches its machine, which rows an automation may write and
+  from where, and how a machine whose automations need task changes keeps
+  working while the editing machine is asleep.
 
 Prism (`../prism`, read 2026-10-28): every workflow task is an agent run
 (`src/workflows.ts:592`); `prism workflow run` prints JSON and exits non-zero
