@@ -46,8 +46,8 @@ its header or from the CLI, and the sidebar filters by them.
 - Sidebar filter: pick one or more labels; an artifact shows when it has all
   of them (AND). Picking `project/junto` also matches `project/junto/...`.
   The filter row shows each label with its count. The picked labels and
-  the type filter are kept per node for the life of the window, so a close
-  and reopen keeps them; a restart clears them.
+  the type filter are kept per node in `junto.db` and survive a restart
+  (`04-view-state.md`).
 - Cmd+P ranks labels after the title, as metadata.
 
 ## CLI
@@ -67,5 +67,39 @@ labels.
 | T4 CLI | cli-lead | cli-protocol |
 | Verify in the real app, dark and bright | product-verify | |
 
-Out of scope: label colours, renaming a label across artifacts, labels on
-tasks or Files.
+## Colours (operator, 2026-10-28)
+
+The operator asked for labels to be colour coded, with a few colours to pick
+from. This replaces "label colours" in Out of scope.
+
+- **A colour belongs to the label in its Artifacts node**, not to one
+  artifact: `planning` is the same colour on every artifact that carries it
+  in that node. A label with no colour set draws as it does today.
+  `project/junto` and `project/junto/release` are separate labels with
+  separate colours; nothing inherits.
+- **Eight named colours**, `ArtifactLabelColour`: `red`, `orange`,
+  `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, plus unset. Names
+  are stored, never hex: product-typography maps each name to house tokens,
+  legible in dark and bright, and the label's text always stays (colour is
+  never the only signal).
+- **Contract.** An op `{ op: "labelColour", label, colour | null }` on the
+  Artifacts node, a fact `artifact.label.coloured` crossing machines like
+  `artifact.labelled`, a typed table for (node, label, colour), expand-only
+  step. A colour may be set for a label no artifact carries yet; it stays
+  when the last artifact drops the label, so the label comes back the same.
+- **UI.** A chip in the header and a label in the sidebar filter row draw in
+  their colour. The colour is set from a small swatch menu on the label (in
+  the header chip's menu and on the sidebar row), keyboard and screen reader
+  as the label picker; the menu names each colour in words.
+- **CLI.** Setting a label's colour in a node, and `list` / `show` naming
+  colours, in the shape cli-lead picks for the verbs that exist.
+
+| Track | Owner | Reviewer |
+|---|---|---|
+| C1 contract: `ArtifactLabelColour`, the op, the fact, the table and step | product-shell | product-feed, remote-lead (crossing) |
+| C2 colour in chips and the sidebar, the swatch menu | product-sheet | product-typography, product-accessibility |
+| C3 the eight colours as tokens, dark and bright | product-typography | product-accessibility (contrast) |
+| C4 CLI | cli-lead | cli-protocol |
+| Verify, a colour step in `artifact-labels-verify.spec.ts` | product-verify | |
+
+Out of scope: renaming a label across artifacts, labels on tasks or Files.
