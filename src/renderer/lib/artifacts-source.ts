@@ -48,6 +48,7 @@ import {
 } from "@shared/resource-command";
 import { InstallationId } from "@shared/installation-id";
 import type { ArtifactLabelColour } from "@shared/artifact-labels";
+import type { ArtifactMoveRecord } from "@shared/artifact-move";
 
 export type ArtifactRuling = ArtifactApplyOutcome;
 
@@ -100,6 +101,8 @@ export const makeLocalArtifactsSource = (
   const domain = artifactDomain({ now, bodyRef: localBodyRef });
   const ruled = new Map<string, Ruled<ArtifactState, ArtifactFact>>();
   const versions = new Map<ItemId, ReadonlyArray<ArtifactVersionRecord>>();
+  /** Every move by artifact, oldest first, as main's `artifact_moves` holds them. */
+  const moves = new Map<ItemId, ReadonlyArray<ArtifactMoveRecord>>();
   /** Label colours by canvas and node, as main's `artifact_label_colours` holds them. */
   const colours = new Map<string, Record<string, ArtifactLabelColour>>();
   const coloursKey = (canvasName: string, nodeId: NodeId): string => `${canvasName}\n${nodeId}`;
@@ -124,6 +127,8 @@ export const makeLocalArtifactsSource = (
         at: fact.artifact.updatedAt,
         body,
       });
+    } else if (fact.fact === "artifact.moved") {
+      moves.set(fact.artifactId, [...(moves.get(fact.artifactId) ?? []), { from: fact.from, to: fact.to, by: fact.by, at: fact.at }]);
     } else if (fact.fact === "artifact.edited") {
       const body = state.get(fact.artifactId)?.body;
       if (body == null) return;
@@ -161,8 +166,7 @@ export const makeLocalArtifactsSource = (
     list: async (canvasName, nodeId) =>
       artifactsOnNode(ruledOf(canvasName).state, nodeId).map(({ artifact, body, bodyRef }) => ({ artifact, body, bodyRef })),
     history: async (_canvasName, artifactId) => (versions.get(artifactId) ?? []).slice(0, ARTIFACT_HISTORY_PAGE),
-    // Nothing in memory has moved yet: a move here is ruled, but its history is main's (artifact_moves).
-    moves: async () => [],
+    moves: async (_canvasName, artifactId) => moves.get(artifactId) ?? [],
     body: async (_canvasName, artifactId, version) =>
       versions.get(artifactId)?.find((record) => record.version === version)?.body ?? null,
     apply: async (canvasName, nodeId, itemId, opId, op) => {
@@ -328,6 +332,15 @@ export const useArtifactHistory = (canvasName: string, artifactId: ItemId | null
     NONE,
     canvasName,
     `${artifactId}`,
+  );
+
+/** Every move of one artifact, oldest first: its history's move lines (0.11.1, 10). */
+export const useArtifactMoves = (canvasName: string, artifactId: ItemId | null): ReadonlyArray<ArtifactMoveRecord> =>
+  useSourced(
+    () => (artifactId === null ? Promise.resolve(NONE) : artifactsSource().moves(canvasName, artifactId)),
+    NONE,
+    canvasName,
+    `moves\u0000${artifactId}`,
   );
 
 export const useNodePendingWrites = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactPendingWrite> =>
