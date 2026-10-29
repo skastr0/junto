@@ -13,6 +13,7 @@ import { WorkSocket } from "../src/cli/core/socket";
 import { overseerExamples, overseerSchemas } from "../src/cli/commands/overseer";
 import { AUTOMATION_WRITE_DESCRIPTIONS, automationWriteArgs, codeFilesOf, withSources } from "../src/cli/commands/overseer-automation";
 import { AUTOMATION_VALUES } from "../src/shared/automation";
+import { parseMentionHref } from "../src/shared/mention";
 
 const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
 
@@ -55,6 +56,14 @@ describe("junto automation discovery", () => {
       expect(() => Schema.decodeUnknownSync(contract.schema as never, { onExcessProperty: "error" })(example.input), example.name).not.toThrow();
       expect(allExamples).toContainEqual(example);
     }
+  });
+
+  it("shows only junto:// links that parse, as mentionLink writes them", () => {
+    const shows = overseerExamples.flatMap((example) =>
+      ((example.input as { then?: ReadonlyArray<{ show?: ReadonlyArray<string> }> }).then ?? []).flatMap((action) => action.show ?? []),
+    );
+    expect(shows.length).toBeGreaterThan(0);
+    for (const show of shows) expect(parseMentionHref(show), show).toBeDefined();
   });
 });
 
@@ -118,7 +127,7 @@ describe("overseer automation writes", () => {
     }
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: prompt");
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: code");
-    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}", "kind: signal", "notice or work"]) expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain(word);
+    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}", "kind: signal", "notice or work", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: secret, name", "kind: proof", "dueInMs?"]) expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain(word);
     expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("{{code.<field>}}");
   });
 
