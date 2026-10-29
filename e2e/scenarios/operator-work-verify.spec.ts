@@ -6,8 +6,9 @@
  * raises a card with the editor and a words meter; four words do not hand in,
  * five do, once, and make the document in Shelf titled from the signal; the
  * card closes and the seat gets mail. `--ask-proof` keeps its text and links.
- * Automation (N2): Run now raises work "Write 500 words, {{fired.at}}" from
- * the Automations node, urgent and due an hour after the firing; 499 words
+ * Automation (N2, as plan 09 H1 has it: an escalate with N1's document form,
+ * the work kind gone): Run now raises "Write 500 words, {{fired.at}}" from
+ * the Automations node, waiting on you; Open run marks its firing; 499 words
  * do not hand in, 500 make the artifact in Shelf; the feed empties. A notice
  * has no form, shows one artifact that opens from the card, and Clear empties
  * it. Each check is reported on its own.
@@ -171,7 +172,7 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
     console.log("N-PROOFMAIL", JSON.stringify((await seat.stdinLog()).slice(-900)));
     await closeFeed();
 
-    // Automation (N2): work, 500 words, due in one hour, urgent.
+    // Automation (N2): an escalate asking for a document of 500 words.
     await page.locator('.react-flow__node[data-id="auto"]').dblclick();
     const pane = page.getByTestId("automations-node");
     await expect(pane).toBeVisible({ timeout: 20_000 });
@@ -185,13 +186,11 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
       await choose(page, action1, "Action 1", "Raise a signal");
     };
     await build("Daily words");
-    await choose(page, action1, "What the signal asks", "Work, for you to do");
+    await choose(page, action1, "What the signal asks", "Escalate, a question for you");
     await action1.getByRole("textbox", { name: "Signal title", exact: true }).fill("Write 500 words, {{fired.at}}");
     await choose(page, action1, "How you answer", "By writing a document");
     await choose(page, action1, "Artifacts node for the writing", /Shelf/u);
     await action1.getByLabel("Words at least").fill("500");
-    await action1.getByLabel("Due after, in hours").fill("1");
-    await action1.getByRole("switch", { name: "Urgent from the start" }).click();
     await shoot(page, "3-automation-work");
     await editor.getByRole("button", { name: "Save", exact: true }).click();
     await expect(pane.getByRole("button", { name: /^Daily words/u }).first()).toBeVisible({ timeout: 10_000 });
@@ -215,13 +214,8 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
       await expect(workCard.locator(".operator-feed__name")).toHaveText(/Automations|Daily words/u);
       console.log("N-CARD", await workCard.innerText());
     });
-    await check("automation work: reads to do, urgent, due one hour after the firing", async () => {
-      await expect(workCard.locator(".operator-feed__kind")).toHaveText("to do");
-      const due = workCard.locator(".operator-feed__due");
-      await expect(due).toHaveAttribute("data-urgent", "true");
-      const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(firedAt + 3_600_000);
-      await expect(due).toContainText(hhmm);
-    });
+    await check("automation work: reads waiting on you, as a seat's escalate does", () => expect(workCard.locator(".operator-feed__kind")).toHaveText("waiting on you"));
+    console.log("N-FIREDAT", firedAt);
     // 0.11.1 (62af46ca6): Open run on the card opens the Automations node with the raising firing marked.
     const firingId = ((await firings())[0] as { firingId?: string } | undefined)?.firingId;
     await check("automation work: Open run opens the Automations node with that firing marked", async () => {
@@ -241,7 +235,7 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
     await write(words(499));
     await check("automation work: the count reads 499 words of 500 and Hand in says what is left", async () => {
       await expect(detail.locator(".signal-work__count")).toContainText("499 words of 500");
-      await expect(handIn).toHaveAttribute("title", /1 more word\b/u);
+      await expect(handIn).toHaveAttribute("data-junto-tooltip", /1 more word to hand in/u);
     });
     await shoot(page, "4a-499-words");
     await check("automation work: close and reopen the feed keeps the writing", async () => {
