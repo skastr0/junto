@@ -10,9 +10,9 @@ import { ruleSignalReply, type SignalReply } from "@shared/signal-reply";
 import type { SignalReplyRecord } from "./repository";
 import {
   AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE,
+  AGENT_SIGNAL_MAX_RESPONSE_LENGTH,
   AGENT_SIGNAL_FILES_RESPONSE,
   AGENT_SIGNAL_TEXT_FILE_RESPONSE,
-  AGENT_SIGNAL_MAX_RESPONSE_LENGTH,
   composeSignalAnswerMail,
   type AgentSignal,
 } from "@shared/agent-signals";
@@ -155,6 +155,18 @@ export const answerAgentSignal = (
  * writes one document; proof keeps its words, its addresses and its files on
  * the answer.
  */
+/**
+ * What the seat reads of a proof: its words, then its addresses, one a line,
+ * so the mail carries what the record keeps. A proof whose addresses would
+ * push the answer past its bound is sent with its words alone; the addresses
+ * stay on the answer for the card to list.
+ */
+const proofSaid = (text: string, links: ReadonlyArray<string>): string => {
+  if (links.length === 0) return text;
+  const said = `${text}\n\n${links.join("\n")}`;
+  return said.length > AGENT_SIGNAL_MAX_RESPONSE_LENGTH ? text : said;
+};
+
 export type SignalReplyPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   readonly artifacts: Pick<ArtifactPorts, "submit">;
@@ -209,7 +221,7 @@ export const replyAgentSignal = (signalId: string, reply: SignalReply, ports: Si
     if (form.kind === "proof") {
       if (reply.kind !== "proof") return refused("this signal asks for proof: its words with links or files");
       const record: SignalReplyRecord = { kind: "links", links: [...reply.links] };
-      return yield* answerAgentSignal(signalId, reply.text, {
+      return yield* answerAgentSignal(signalId, proofSaid(reply.text, reply.links), {
         attachments: (reply.files ?? []) as ReadonlyArray<ContentRef>,
         reply: record,
       });

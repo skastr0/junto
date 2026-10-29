@@ -139,7 +139,11 @@ describe("handing work in through a signal", () => {
       ),
     );
     expect(handed.ok).toBe(true);
-    expect(handed.ok && handed.signal.response).toMatchObject({ text: "The run passed.", links: ["https://example.com/run/1"] });
+    // The seat reads the proof's words and its addresses: the record keeps both, the mail says both.
+    expect(handed.ok && handed.signal.response).toMatchObject({
+      text: "The run passed.\n\nhttps://example.com/run/1",
+      links: ["https://example.com/run/1"],
+    });
   }, 20_000);
 
   it("refuses a hand-in on a signal that asks for nothing", async () => {
