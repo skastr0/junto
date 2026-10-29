@@ -118,8 +118,18 @@ test("artifact move window: M, the reach line, several rows, the row menu, the h
     await expect(page.locator(".artifacts-moved")).toHaveText("Moved 2 artifacts to Drafts.");
     expect(await titlesIn(page, "drafts")).toEqual(["Beta", "Gamma"]);
 
-    // Cancel from a row's menu gives the keyboard back to the row.
+    // The row says it has a menu; Tab closes it in one press and goes on past the row.
     await row(page, "Delta").click();
+    await row(page, "Delta").focus();
+    await expect(row(page, "Delta")).toHaveAttribute("aria-haspopup", "menu");
+    await page.keyboard.press("Shift+F10");
+    await expect(row(page, "Delta")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("menuitem")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("menu")).toBeHidden();
+    expect(await page.evaluate(() => document.activeElement?.closest('[role="menu"]') === null && document.activeElement !== document.body)).toBe(true);
+
+    // Cancel from a row's menu gives the keyboard back to the row.
     await row(page, "Delta").focus();
     await page.keyboard.press("Shift+F10");
     await page.keyboard.press("Enter");
