@@ -8,7 +8,7 @@ import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHar
 import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
 import type { TerminalSessionSummary } from "@shared/terminal";
-import { scrubMessage } from "../credentials/scrub";
+import { scrubMessage, scrubText } from "../credentials/scrub";
 import { encodeFailure } from "../failure-encode";
 import { MachineInstallError, MachineSetupError, type MachineInstallResult } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
@@ -223,7 +223,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       Effect.catch(cause => machines.machineName.pipe(Effect.option, Effect.map(machine => encodeFailure(cause, { machine: Option.getOrElse(machine, () => "this machine") })),
         Effect.map(failure => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
         error: { type: cause instanceof RemoteHostsError ? cause.code : "io",
-          message: cause instanceof Error ? (cause.message.includes("pinned to another installation") ? `${cause.message}; choose another name` : cause.message).slice(0, 4096) : "machine operation failed",
+          // Each message is written by hand, and still passes the scrub: a value a cause carried never leaves.
+          message: cause instanceof Error ? scrubText(cause.message.includes("pinned to another installation") ? `${cause.message}; choose another name` : cause.message).slice(0, 4096) : "machine operation failed",
           details: {
             retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op === "machine.logs",
             ...(cause instanceof MachineInstallError ? {

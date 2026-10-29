@@ -296,3 +296,12 @@ it("answers a peer status failure as itself, not as a contract mismatch", async 
   expect(await f.call("machine.status", { name: "mini" })).toMatchObject({ ok: false, error: {
     message: "The link to mini closed, its SSH process ended: exit code 127", details: { failure: { tag: "LinkClosed" } } } });
 });
+
+it("passes a failure's message through the scrub before it leaves the owner", async () => {
+  const leaked = "ops_test-only-leaked-in-a-cause-AbC+/=0123456789";
+  const f = await fixture({ ownLogs: () => Effect.fail(new RemoteHostsError("io", `the log read failed near ${leaked}`)) });
+  const response = await f.call("machine.logs", { name: "macbook", query: { level: "error" } });
+  expect(response).toMatchObject({ ok: false, error: { type: "io" } });
+  expect(JSON.stringify(response)).not.toContain("ops_test-only");
+  expect(JSON.stringify(response)).toContain("the log read failed near");
+});
