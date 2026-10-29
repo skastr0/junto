@@ -141,7 +141,7 @@ it("a notice that carries a form is still cleared, never handed in", async () =>
 it("a secret form is never answered in text: it says the vault is not set up, and the keys send nothing", async () => {
   const respond = vi.fn(async () => ({ ok: true as const }));
   vi.stubGlobal("junto", { agentSignalRespond: respond, agentSignalDismiss: vi.fn() });
-  live.set(feedWith({ kind: "work", form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } }));
+  live.set(feedWith({ kind: "work", form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN", requestId: "req-1", regionId: "region-1", machine: "studio" } }));
   await act(async () => root.render(<OperatorFeed />));
   expect(pane().querySelector("[role='note']")?.textContent).toContain("This asks for a secret.");
   expect(buttons()).not.toContain("Write reply");

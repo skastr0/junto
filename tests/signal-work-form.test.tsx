@@ -8,6 +8,7 @@ import { SignalWorkForm } from "../src/renderer/components/signals/SignalWorkFor
 import type { SignalActionResult } from "../src/renderer/lib/agent-signals-view";
 import { forgetWorkDrafts, type SignalForm, type WorkReply } from "../src/renderer/lib/signal-work";
 import { modelStore } from "../src/renderer/lib/use-model";
+import { artifactLabelsOf } from "../src/shared/artifact-labels";
 import { settleLazy } from "./support/settle-lazy";
 import { artifacts } from "./support/model-nodes";
 
@@ -17,7 +18,13 @@ Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
 
 const CANVAS = "signal-work";
-const writing: SignalForm = { kind: "artifact", nodeId: "shelf-1", title: "Morning pages", labels: ["daily"], minWords: 5 };
+const writing: Extract<SignalForm, { readonly kind: "artifact" }> = {
+  kind: "artifact",
+  nodeId: "shelf-1",
+  title: "Morning pages",
+  labels: artifactLabelsOf(["daily"])!,
+  minWords: 5,
+};
 
 let host: HTMLDivElement;
 let root: Root;

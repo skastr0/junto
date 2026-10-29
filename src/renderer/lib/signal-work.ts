@@ -2,12 +2,11 @@
  * The operator's work in the needs-you feed (plan 0.11/07, N3): what a
  * signal asks of the operator, how far a reply has come toward its
  * condition, and where open work sits on the urgency ladder.
- *
- * Stand-in: N1 (product-feed) names the contract. Until it lands these are
- * the feed's own names for the fields a signal will carry; the switch is a
- * rename here and nowhere else.
+ * The contract is N1's (`@shared/wire/agent-signals`, the feed item).
  */
-import { admitLinkUrl } from "@shared/wire/agent-signals";
+import type { FeedItem } from "@shared/operator-feed";
+import { admitLinkUrl, type SignalForm, type WorkTiming } from "@shared/wire/agent-signals";
+import { Level, levelOfSignal } from "@shared/wire/urgency";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { signalWordCount } from "@shared/word-count";
 import type { AgentSignalOperatorResult } from "@shared/ipc";
@@ -15,34 +14,10 @@ import { upsertAgentSignal } from "./agent-signals-state";
 import type { SignalActionResult } from "./agent-signals-view";
 import { getJuntoApi } from "./junto-api";
 
-/**
- * The reply a signal asks for, one per signal. `artifact` is a document the
- * operator writes in the signal, made in an Artifacts node; `proof` is text
- * with links or files; `text` is today's reply; `secret` waits for the
- * vault (N5) and is never answered in text.
- */
-export type SignalForm =
-  | { readonly kind: "text" }
-  | {
-      readonly kind: "artifact";
-      /** The Artifacts node the document is made in. */
-      readonly nodeId: string;
-      /** The document's title; the raise defaults it to the signal's text. */
-      readonly title: string;
-      readonly labels: ReadonlyArray<string>;
-      /** The condition: at least this many words (1 when the raise named none). */
-      readonly minWords: number;
-    }
-  /** A region secret by name, set through the vault (N5): never answered in text. */
-  | { readonly kind: "secret"; readonly name: string }
-  | { readonly kind: "proof" };
+export type { SignalForm, WorkTiming };
 
-/** What a work signal carries (`signal.work`): when it is due, and whether whoever raised it marked it urgent. */
-export type WorkTiming = { readonly dueAt?: number; readonly urgent?: boolean };
-
-/** Open work on the ladder: `due` once urgent or past its due time, `todo` before (N1's levelOfSignal decides; this mirrors it). */
-export const workLevel = ({ dueAt, urgent }: WorkTiming, nowMs: number): "due" | "todo" =>
-  urgent === true || (dueAt !== undefined && dueAt <= nowMs) ? "due" : "todo";
+/** Open work is due on the ladder (urgent, or its time passed), as N1's levelOfSignal rules it. */
+export const workIsDue = (timing: WorkTiming, nowMs: number): boolean => levelOfSignal("work", timing, nowMs) === Level.due;
 
 const DAY_MS = 86_400_000;
 
@@ -128,25 +103,18 @@ export const forgetWorkDrafts = (signalId: string): void => {
   for (const part of ["writing", "proof-text", "proof-links"] as const) drafts.delete(draftKey(signalId, part));
 };
 
-/**
- * What a feed item says of the operator's work: its kind when it is a
- * notice or work, its form, and work's timing. N1 stand-in: read off the
- * item by the names N1 gives them until FeedItem carries them.
- */
+/** What a feed item says of the operator's work: its kind when it is a notice or work, its form, and work's timing. */
 export type ItemWork = {
   readonly kind: "notice" | "work" | undefined;
   readonly form: SignalForm | undefined;
   readonly work: WorkTiming | undefined;
 };
 
-export const itemWorkOf = (item: { readonly kind: string }): ItemWork => {
-  const carried = item as { readonly kind: string; readonly form?: SignalForm; readonly work?: WorkTiming };
-  return {
-    kind: carried.kind === "notice" || carried.kind === "work" ? carried.kind : undefined,
-    form: carried.form,
-    work: carried.work,
-  };
-};
+export const itemWorkOf = (item: Pick<FeedItem, "kind" | "form" | "work">): ItemWork => ({
+  kind: item.kind === "notice" || item.kind === "work" ? item.kind : undefined,
+  form: item.form,
+  work: item.work,
+});
 
 /** How the pane answers an item: a notice is cleared; a form is its own answer; else a reply. Every form named, none falls through. */
 export type PaneAnswer = "clear" | "reply" | "artifact" | "proof" | "secret";

@@ -89,7 +89,7 @@ import {
   type SignalAnswer,
 } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
-import { dueWords, handInSignalWork, itemWorkOf, paneAnswerOf, workLevel, type PaneAnswer } from "../../lib/signal-work";
+import { dueWords, handInSignalWork, itemWorkOf, paneAnswerOf, workIsDue, type PaneAnswer } from "../../lib/signal-work";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
@@ -113,11 +113,8 @@ const NO_NOTES: ReadonlyArray<string> = [];
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
-/**
- * How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL.
- * The operator's own work and notices (plan 0.11/07) are named ahead of N1.
- */
-const KIND_ICON: Readonly<Record<FeedItemKind | "notice" | "work", LucideIcon>> = {
+/** How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL. */
+const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
   blocked: OctagonAlert,
   attention: MessageCircleQuestion,
   stopped: CirclePause,
@@ -185,7 +182,7 @@ function FeedWords({
   const health = item.kind === "health" ? undefined : item.health;
   const { kind: workKind, work } = itemWorkOf(item);
   const due = workKind === "work" ? dueWords(work?.dueAt, nowMs) : undefined;
-  const urgent = workKind === "work" && work !== undefined && workLevel(work, nowMs) === "due";
+  const urgent = workKind === "work" && work !== undefined && workIsDue(work, nowMs);
   return (
     <>
       <header className="operator-feed__card-head">

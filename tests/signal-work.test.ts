@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { signalWordCount as wordCountOf } from "../src/shared/word-count";
-import { dueWords, wordProgressOf, wordProgressWords, workLevel } from "../src/renderer/lib/signal-work";
+import { dueWords, wordProgressOf, wordProgressWords, workIsDue } from "../src/renderer/lib/signal-work";
 
 describe("word count", () => {
   it("counts what a reader reads: markdown's own marks are not words", () => {
@@ -32,10 +32,10 @@ describe("the condition as it fills", () => {
 describe("work on the ladder", () => {
   const now = Date.parse("2026-10-28T12:00:00Z");
   it("is todo until urgent or past due", () => {
-    expect(workLevel({}, now)).toBe("todo");
-    expect(workLevel({ dueAt: now + 1 }, now)).toBe("todo");
-    expect(workLevel({ dueAt: now }, now)).toBe("due");
-    expect(workLevel({ urgent: true, dueAt: now + 1 }, now)).toBe("due");
+    expect(workIsDue({}, now)).toBe(false);
+    expect(workIsDue({ dueAt: now + 1 }, now)).toBe(false);
+    expect(workIsDue({ dueAt: now }, now)).toBe(true);
+    expect(workIsDue({ urgent: true, dueAt: now + 1 }, now)).toBe(true);
   });
 
   it("says when it is due in the operator's day", () => {
