@@ -64,7 +64,7 @@ test("the Automations node: create, edit, stale edit, toggle, run now, history, 
     await editor.getByLabel("Mail text").fill("Post your plan for today.");
     // Insert value writes at the end of a text never focused, and the caret stays there (A3).
     const mailText = editor.getByLabel("Mail text");
-    await editor.getByRole("button", { name: "Insert a value into the mail" }).click();
+    await editor.getByRole("button", { name: "Insert value into the mail" }).click();
     await page.getByRole("option", { name: /fired\.at/ }).click();
     await expect(mailText).toHaveValue("Post your plan for today.{{fired.at}}");
     await shot(page, "02b-insert-value-dark");

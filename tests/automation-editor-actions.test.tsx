@@ -25,6 +25,9 @@ import { automations } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// jsdom has no scrolling; the menu keeps its highlighted row in view.
+Element.prototype.scrollIntoView = function scrollIntoView(): void {};
+
 const id = ItemId.make("01JAAAAAAAAAAAAAAAAAAAAAA1");
 const node = asNodeId("automations-1");
 const CANVAS = "automation-actions";
@@ -87,7 +90,7 @@ describe("an action's text", () => {
   it("reads back over several lines, with Insert value beside it", async () => {
     await render(<Harness initial="Post your plan." />);
     expect(host.querySelector("textarea")?.value).toBe("Post your plan.");
-    expect(host.querySelector("button[aria-label='Insert a value into the mail']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='Insert value into the mail']")).not.toBeNull();
   });
 
   it("lists the values it is given and writes one where the caret is", async () => {
@@ -98,7 +101,7 @@ describe("an action's text", () => {
       field.setSelectionRange(3, 3);
     });
 
-    await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
+    await click(host.querySelector("button[aria-label='Insert value into the mail']")!);
     const options = [...document.querySelectorAll("[role='option']")].map((option) => option.textContent ?? "");
     expect(options).toEqual(["{{seat.name}}the seat's name", "{{fired.at}}when it fired"]);
 
@@ -110,7 +113,7 @@ describe("an action's text", () => {
   it("writes at the end of a text never focused, not at its start", async () => {
     await render(<Harness initial="Hi " />);
     // The field was never focused: a browser reports its selection at 0.
-    await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
+    await click(host.querySelector("button[aria-label='Insert value into the mail']")!);
     await click([...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("seat.name"))!);
     expect(host.querySelector("textarea")!.value).toBe("Hi {{seat.name}}");
   });
@@ -123,9 +126,52 @@ describe("an action's text", () => {
       field.setSelectionRange(4, 8);
     });
 
-    await click(host.querySelector("button[aria-label='Insert a value into the mail']")!);
+    await click(host.querySelector("button[aria-label='Insert value into the mail']")!);
     await click([...document.querySelectorAll("[role='option']")].find((option) => option.textContent?.includes("fired.at"))!);
     expect(field.value).toBe("Say {{fired.at}}.");
+  });
+
+  it("opens and chooses from the keyboard, and leaves the keyboard in the text", async () => {
+    await render(<Harness initial="Hi " />);
+    const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    const trigger = host.querySelector<HTMLButtonElement>("button[aria-label='Insert value into the mail']")!;
+    act(() => trigger.focus());
+    await act(async () => {
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await flush();
+    const list = document.querySelector<HTMLElement>("[role='listbox']")!;
+    expect(list).not.toBeNull();
+    // The open list holds the keyboard, so arrows reach it.
+    expect(document.activeElement?.closest("[role='listbox']")).toBe(list);
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await flush();
+    expect(field.value).toBe("Hi {{fired.at}}");
+    // The claim is the field, not just its caret: a broken claim would leave focus on the trigger.
+    expect(document.activeElement).toBe(field);
+    expect(field.selectionStart).toBe(field.value.length);
+  });
+
+  it("closes the list on Escape and hands the keyboard back to its trigger", async () => {
+    await render(<Harness initial="Hi " />);
+    const trigger = host.querySelector<HTMLButtonElement>("button[aria-label='Insert value into the mail']")!;
+    act(() => trigger.focus());
+    await act(async () => {
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await flush();
+    const list = document.querySelector<HTMLElement>("[role='listbox']")!;
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await flush();
+    expect(document.querySelector("[role='listbox']")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("keeps a task's title on one line", async () => {
@@ -266,7 +312,7 @@ describe("the prompt action in the editor", () => {
       />,
     );
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Prompt text']")?.value).toBe("Check the release.");
-    expect(host.querySelector("button[aria-label='Insert a value into the prompt']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='Insert value into the prompt']")).not.toBeNull();
     expect(draftProblems(promptDraft())).toEqual([]);
   });
 

@@ -41,14 +41,23 @@ const refOf = (text: string): ContentRef => {
   return Schema.decodeUnknownSync(ContentRef)({ sha256, byteLength: new TextEncoder().encode(text).byteLength, mediaType: "text/typescript" });
 };
 
+/** A read held open, to test what happens while the code is arriving. */
+let heldRead: { readonly resolve: () => void } | undefined;
+let slow = false;
+
 const withCode = (base: AutomationsSource): AutomationsSource => ({
   ...base,
   codePut: async (_canvas, text) => ({ kind: "put", ref: refOf(text) }),
   codeRead: async (_canvas, ref) => {
     const text = stored.get(ref.sha256);
-    return text === undefined
-      ? { kind: "refused", refusal: { reason: "not_available", message: "this machine has no copy" } }
-      : { kind: "read", text };
+    const answer =
+      text === undefined
+        ? ({ kind: "refused", refusal: { reason: "not_available", message: "this machine has no copy" } } as const)
+        : ({ kind: "read", text } as const);
+    if (!slow) return answer;
+    return new Promise((resolve) => {
+      heldRead = { resolve: () => resolve(answer) };
+    });
   },
 });
 
@@ -133,6 +142,48 @@ const opened = async (then?: AutomationDefinition["then"]): Promise<void> => {
 };
 
 describe("a code step in the Automations node", () => {
+  it("asks before Escape closes the pane with unsaved code, and Cancel keeps it", async () => {
+    await opened();
+    await click("Edit code");
+    await replaceCode("const answer = 6;\n");
+    // Inside the pane: the modal stack only hands Escape to the surface it holds.
+    await act(async () => {
+      document.querySelector(".automations-node")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await flush();
+    expect(document.body.textContent).toContain("Discard this code?");
+    await click("Cancel");
+    expect(editor().state.doc.toString()).toBe("const answer = 6;\n");
+  });
+
+  it("asks before Revert drops typed code, and Discard puts the saved program back", async () => {
+    await opened();
+    await click("Edit code");
+    await replaceCode("const answer = 5;\n");
+    await click("Revert");
+    expect(document.body.textContent).toContain("Discard this code?");
+    await click("Discard");
+    expect(editor().state.doc.toString()).toBe("const answer = 1;\n");
+  });
+
+  it("leaves the keyboard where the operator put it when the code arrives late", async () => {
+    slow = true;
+    try {
+      await opened();
+      await click("Edit code");
+      const field = document.createElement("input");
+      field.setAttribute("aria-label", "Somewhere else");
+      document.body.append(field);
+      act(() => field.focus());
+      heldRead!.resolve();
+      await flush();
+      expect(document.activeElement).toBe(field);
+    } finally {
+      slow = false;
+      heldRead = undefined;
+    }
+  });
+
   it("opens the stored program and saves an edit as new content", async () => {
     await opened();
     await click("Edit code");

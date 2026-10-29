@@ -63,7 +63,7 @@ import {
   TwoPane,
 } from "../ui";
 import { FocusSurface } from "../FocusSurface";
-import { claimFocus } from "../../lib/focus-ownership";
+import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import { itemsQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 import { AutomationEditor } from "./AutomationEditor";
@@ -309,7 +309,8 @@ export function AutomationsPane({
   const [codeHeld, setCodeHeld] = useState<CodeHeld | undefined>(undefined);
   /** What kept the code from saving, in words: it shows in the code view, where the definition's problems cannot. */
   const [codeError, setCodeError] = useState<string | undefined>(undefined);
-  const [codeAsking, setCodeAsking] = useState(false);
+  /** What the Discard dialog confirms: leaving the code view, or reverting to the saved program. */
+  const [codeAsking, setCodeAsking] = useState<(() => void) | undefined>(undefined);
   const open = (next: Editing | undefined): void => {
     setRefusal(undefined);
     setCodeError(undefined);
@@ -432,8 +433,11 @@ export function AutomationsPane({
     if (surface === null) return;
     const claim = (): boolean => {
       const editor = surface.querySelector<HTMLElement>(".cm-content");
-      if (editor !== null) claimFocus(editor, "gesture");
-      return editor !== null;
+      if (editor === null) return false;
+      // focus-law: an open claim, and never over a field the operator is typing in: a slow read must not take that.
+      const active = document.activeElement;
+      if (!isOperatorTyping(active) || surface.contains(active)) claimFocus(editor, "open");
+      return true;
     };
     if (claim()) return;
     // The editor's engine may still be loading: the code takes the keyboard once it draws.
@@ -444,13 +448,20 @@ export function AutomationsPane({
     return () => drawn.disconnect();
   }, [codeStep, codeHeld?.loading]);
 
-  /** Leaving the code view drops what was typed unless it is saved, as leaving a draft does. */
-  const leaveCode = (): void => {
-    if (codeHeld !== undefined && codeHeld.text !== codeHeld.loaded) setCodeAsking(true);
-    else {
-      setCodeStep(undefined);
-      settleFocus();
-    }
+  /**
+   * Leaving the code view drops what was typed unless it is saved, as leaving
+   * a draft does. Back runs the default continuation; closing the whole pane
+   * passes its own, so Escape and the backdrop ask where Back asks.
+   */
+  const leaveCode = (then?: () => void): void => {
+    const after =
+      then ??
+      ((): void => {
+        setCodeStep(undefined);
+        settleFocus();
+      });
+    if (codeHeld !== undefined && codeHeld.text !== codeHeld.loaded) setCodeAsking(() => after);
+    else after();
   };
 
   /**
@@ -614,7 +625,7 @@ export function AutomationsPane({
       measure="workspace"
       height="immersive"
       label="Automations"
-      onClose={() => leave(onClose)}
+      onClose={() => leave(() => leaveCode(onClose))}
     >
       {quickOpen.palette}
       <div className="automations-node" data-testid="automations-node">
@@ -685,7 +696,11 @@ export function AutomationsPane({
                   setCodeHeld((prior) => (prior === undefined ? prior : { ...prior, text }));
                 }}
                 onSave={() => void saveCode(codeHeld?.text ?? "", codeStep)}
-                onRevert={() => setCodeHeld((prior) => (prior === undefined ? prior : { ...prior, text: prior.loaded }))}
+                onRevert={() => {
+                  const revert = (): void => setCodeHeld((prior) => (prior === undefined ? prior : { ...prior, text: prior.loaded }));
+                  if (codeHeld !== undefined && codeHeld.text !== codeHeld.loaded) setCodeAsking(() => revert);
+                  else revert();
+                }}
                 onBack={leaveCode}
               />
             </div>
@@ -800,12 +815,11 @@ export function AutomationsPane({
             title="Discard this code?"
             confirmLabel="Discard"
             tone="danger"
-            onCancel={() => setCodeAsking(false)}
+            onCancel={() => setCodeAsking(undefined)}
             onConfirm={() => {
-              setCodeAsking(false);
-              setCodeHeld(undefined);
-              setCodeStep(undefined);
-              settleFocus();
+              const then = codeAsking;
+              setCodeAsking(undefined);
+              then();
             }}
           >
             <p>The code you wrote is not saved.</p>

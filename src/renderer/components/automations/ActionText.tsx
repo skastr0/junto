@@ -114,7 +114,8 @@ export function ActionText({
         className="automation-editor__insert"
         triggerClassName="automation-editor__insert-trigger"
         menuClassName="automation-editor__insert-menu"
-        aria-label={`Insert a value into the ${noun}`}
+        // Label in Name: the visible words are "Insert value", so the name starts with them.
+        aria-label={`Insert value into the ${noun}`}
         placeholder="Insert value"
         value=""
         options={values.map((choice) => ({

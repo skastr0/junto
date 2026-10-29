@@ -8,10 +8,13 @@
  * answered, why it stopped, or why it failed, with the stderr tail main
  * already scrubbed.
  */
+import { useEffect, useRef } from "react";
 import { ChevronLeft } from "lucide-react";
 import type { ActionRuling, CodeLanguage } from "@shared/automation";
 import { Button, Eyebrow } from "../ui";
 import { CodeEditor } from "../ui/lazy-code-editor";
+// Type only: erased at build, so the engine still loads outside the first chunk.
+import type { CodeEditorHandle } from "../ui/CodeEditor";
 import { codeRulingWords } from "../../lib/automation-editor";
 
 /** The step's source as the editor opens it: what to write, and the shape the SDK gives it. */
@@ -103,6 +106,16 @@ export function AutomationCodeEditor({
   readonly onRevert: () => void;
   readonly onBack: () => void;
 }) {
+  // The editor opens on `code`; a revert (or a read that lands later) is put in through its handle,
+  // so typing keeps its undo history and a revert moves the text without remounting under the caret.
+  const handle = useRef<CodeEditorHandle>(null);
+  const shown = useRef(code);
+  useEffect(() => {
+    if (shown.current === code) return;
+    shown.current = code;
+    handle.current?.replace(code);
+  }, [code]);
+
   return (
     <div className="automation-code" data-testid="automation-code">
       <header className="automation-code__head">
@@ -127,7 +140,11 @@ export function AutomationCodeEditor({
           label="Step code"
           surfaceLabel="Automation code"
           value={code}
-          onChange={onCode}
+          onChange={(text) => {
+            shown.current = text;
+            onCode(text);
+          }}
+          handle={handle}
         />
       )}
       <p className="automation-editor__note">
