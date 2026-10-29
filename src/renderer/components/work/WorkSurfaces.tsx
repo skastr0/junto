@@ -294,16 +294,37 @@ export function ArtifactsDetail({
   );
 }
 
-/** The operator's Automations pane. Main sets the stored author from the actor. */
+/**
+ * The operator's Automations pane. Main sets the stored author from the actor.
+ * It opens on an automation and a firing when a surface asked for one (the
+ * feed's card names the run a signal was raised by).
+ */
 export function AutomationsDetail({
   nodeId,
+  initialAutomationId,
+  initialFiringId,
+  openKey,
   onClose,
 }: {
   readonly nodeId: string;
+  readonly initialAutomationId?: string;
+  readonly initialFiringId?: string;
+  /** Which open this is: a new one lands on the firing again. */
+  readonly openKey?: number;
   readonly onClose: () => void;
 }) {
   const canvasName = use$(state$.canvasName) || "";
-  return <AutomationsPane canvasName={canvasName} nodeId={asNodeId(nodeId)} author={OPERATOR} onClose={onClose} />;
+  return (
+    <AutomationsPane
+      canvasName={canvasName}
+      nodeId={asNodeId(nodeId)}
+      author={OPERATOR}
+      {...(initialAutomationId === undefined ? {} : { initialAutomationId })}
+      {...(initialFiringId === undefined ? {} : { initialFiringId })}
+      {...(openKey === undefined ? {} : { openKey })}
+      onClose={onClose}
+    />
+  );
 }
 
 const OPERATOR = { kind: "operator" } as const;

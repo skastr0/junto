@@ -50,6 +50,7 @@ import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
 import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelOf, artifactLabelsMatch, artifactLabelsOf, type ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
+import type { AgentSignal } from "@shared/wire/agent-signals";
 import { TASK_STATES } from "@shared/task-model";
 
 // ── Shapes the contract names ──────────────────────────────────────────────
@@ -1185,6 +1186,50 @@ export const codeRulingWords = (ruling: ActionRuling): string | undefined => {
   }
 };
 
+/** A signal's own sentence, short enough for a history line. */
+const signalTextWords = (text: string): string => {
+  const flat = text.replace(/\s+/gu, " ").trim();
+  const clipped = [...flat].slice(0, 72).join("").trim();
+  return `"${clipped}${[...flat].length > 72 ? "..." : ""}"`;
+};
+
+/**
+ * A signal step's ruling in words, with what became of the signal it raised:
+ * `raised "Write 500 words", answered 09:12 with "Morning pages"`. The
+ * ruling says which signal; its state and answer are the signal's own row,
+ * so a dismissal or an answer a month later still reads right here. A
+ * signal this window does not hold is named as such, never guessed at.
+ */
+export const signalRulingWords = (
+  ruling: ActionRuling,
+  signal: AgentSignal | undefined,
+  atWords: (at: number) => string,
+): string | undefined => {
+  if (ruling.ruling !== "raised") return undefined;
+  if (signal === undefined) return "raised a signal this window does not hold";
+  const raised = `raised ${signalTextWords(signal.text)}`;
+  switch (signal.state) {
+    case "open":
+      return `${raised}, still open`;
+    case "dismissed":
+      return `${raised}, dismissed${signal.closedAt === undefined ? "" : ` ${atWords(signal.closedAt)}`}`;
+    case "withdrawn":
+      return `${raised}, withdrawn${signal.closedAt === undefined ? "" : ` ${atWords(signal.closedAt)}`}`;
+    case "answered": {
+      const response = signal.response;
+      if (response === undefined) return `${raised}, answered`;
+      const answered = `${raised}, answered ${atWords(response.at)}`;
+      if (response.artifact !== undefined) return `${answered} with "${response.artifact.title}"`;
+      if (response.links !== undefined && response.links.length > 0) return `${answered} with proof`;
+      if (response.attachments !== undefined && response.attachments.length > 0) return `${answered} with proof`;
+      if (response.secret !== undefined) return `${answered} with the secret ${response.secret.name}`;
+      return answered;
+    }
+    default:
+      return signal.state satisfies never;
+  }
+};
+
 export const firingWords = (firing: Firing): string => {
   const cause = causeWords(firing.cause);
   switch (firing.outcome.kind) {
@@ -1197,7 +1242,7 @@ export const firingWords = (firing: Firing): string => {
       const failed = count("failed");
       // A code step that continued did its part: it acted, as an applied action did.
       return [
-        `${cause}, fired, ${count("applied") + count("continued")} of ${actions.length} ${actions.length === 1 ? "action" : "actions"} applied`,
+        `${cause}, fired, ${count("applied") + count("continued") + count("raised")} of ${actions.length} ${actions.length === 1 ? "action" : "actions"} applied`,
         ...(queued > 0 ? [`${queued} queued`] : []),
         ...(refused > 0 ? [`${refused} refused`] : []),
         ...(stopped > 0 ? [`${stopped} stopped`] : []),

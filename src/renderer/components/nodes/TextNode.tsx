@@ -123,6 +123,8 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const [workDetail, setWorkDetail] = useState(false);
   const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
   const [workDetailPage, setWorkDetailPage] = useState<number | undefined>();
+  /** An Automations node's firing to highlight, when the open named one (the feed's card). */
+  const [workDetailFiringId, setWorkDetailFiringId] = useState<string | undefined>();
   /** Which open the surface is on: a new one re-applies the item and page even when they are the last ones. */
   const [workDetailOpenKey, setWorkDetailOpenKey] = useState(0);
   const [draft, setDraft] = useState(text);
@@ -193,6 +195,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
     const opening = filesDetailOpening(consumed);
     setWorkDetailItemId(opening.initialItemId);
     setWorkDetailPage(opening.initialPage);
+    setWorkDetailFiringId(consumed.firingId);
     setWorkDetailOpenKey(opening.openKey);
     setWorkDetail(true);
   }, [isWorkDetailTarget, workDetailAllowed, id]);
@@ -343,7 +346,17 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         />
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "automations" ? (
-        <AutomationsDetail nodeId={id} onClose={() => setWorkDetail(false)} />
+        <AutomationsDetail
+          nodeId={id}
+          {...(workDetailItemId === undefined ? {} : { initialAutomationId: workDetailItemId })}
+          {...(workDetailFiringId === undefined ? {} : { initialFiringId: workDetailFiringId })}
+          openKey={workDetailOpenKey}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+            setWorkDetailFiringId(undefined);
+          }}
+        />
       ) : null}
       {isLabel ? (
         editing ? (

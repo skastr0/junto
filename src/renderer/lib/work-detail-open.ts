@@ -17,6 +17,8 @@ export const workDetailOpen$ = observable({
 // link back). It rides beside the trigger, read only when the trigger is
 // consumed, so nothing subscribes to it; 0 is none.
 let pendingPage = 0;
+/** An Automations open's firing, beside the trigger like `pendingPage`. */
+let pendingFiring = "";
 
 // Every open is its own, numbered: the same item or page asked for twice
 // (a link followed again after the operator moved on inside the modal) is
@@ -29,11 +31,20 @@ export type OpenWorkDetailOptions = {
   readonly itemId?: string;
   /** Open a Files node's file on this page, 1 and up. */
   readonly page?: number;
+  /**
+   * An Automations node opens on this firing (0.11.1): `itemId` names the
+   * automation, `firingId` the run its history highlights. The feed's card
+   * uses this; a signal names both, since the signal id cannot be reversed.
+   */
+  readonly automationId?: string;
+  readonly firingId?: string;
 };
 
 export type ConsumedWorkDetailOpen = {
   readonly itemId: string;
   readonly page?: number;
+  /** An Automations node's firing to highlight, when one was named. */
+  readonly firingId?: string;
   /** This open's number, new on every open. */
   readonly open: number;
 };
@@ -43,8 +54,9 @@ export const openWorkDetail = (
   nodeId: string,
   options?: OpenWorkDetailOptions,
 ): void => {
-  workDetailOpen$.itemId.set(options?.itemId ?? "");
+  workDetailOpen$.itemId.set(options?.automationId ?? options?.itemId ?? "");
   pendingPage = options?.page !== undefined && options.page >= 1 ? options.page : 0;
+  pendingFiring = options?.firingId ?? "";
   pendingOpen = ++opens;
   workDetailOpen$.nodeId.set(nodeId);
 };
@@ -56,12 +68,19 @@ export const consumeWorkDetailOpen = (
   if (workDetailOpen$.nodeId.peek() !== nodeId) return null;
   const itemId = workDetailOpen$.itemId.peek();
   const page = pendingPage;
+  const firingId = pendingFiring;
   const open = pendingOpen;
   pendingPage = 0;
+  pendingFiring = "";
   pendingOpen = 0;
   workDetailOpen$.nodeId.set("");
   workDetailOpen$.itemId.set("");
-  return page >= 1 ? { itemId, page, open } : { itemId, open };
+  return {
+    itemId,
+    open,
+    ...(page >= 1 ? { page } : {}),
+    ...(firingId === "" ? {} : { firingId }),
+  };
 };
 
 /** What a detail surface opens on, from a consumed trigger: the item, its page when one was named, and which open it is. */

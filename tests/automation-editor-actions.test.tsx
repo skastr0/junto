@@ -16,9 +16,11 @@ import {
   finishDraft,
   firingWords,
   newDraft,
+  signalRulingWords,
   type AutomationDraft,
 } from "../src/renderer/lib/automation-editor";
 import { automationValuesOf, type ActionRuling, type Firing } from "../src/shared/automation";
+import type { AgentSignal } from "../src/shared/wire/agent-signals";
 import { setTasksSource, makeLocalTasksSource } from "../src/renderer/lib/tasks-source";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { automations } from "./support/model-nodes";
@@ -244,6 +246,66 @@ describe("what an action keeps", () => {
     const problem = draftProblems(stale).find((entry) => entry.at === "action");
     expect(problem?.message).toBe("This trigger carries no {{task.title}}. It carries {{fired.at}}.");
     expect(finishDraft(stale).ok).toBe(false);
+  });
+});
+
+describe("a signal step in the firing history", () => {
+  const at = (ms: number): string => `at ${ms}`;
+  const signal = (over: Partial<AgentSignal>): AgentSignal => ({
+    signalId: "01MSIGNAL00000000000000001",
+    canvasName: "factory",
+    nodeId: "automations-1",
+    kind: "work",
+    text: "Write 500 words",
+    createdAt: 1_700_000_000_000,
+    state: "open",
+    ...over,
+  });
+  const raised = (signalId: string): ActionRuling => ({ index: 1, ruling: "raised", signalId });
+
+  it("says what was raised and what became of it", () => {
+    expect(signalRulingWords(raised("01MSIGNAL00000000000000001"), signal({}), at)).toBe('raised "Write 500 words", still open');
+    expect(
+      signalRulingWords(
+        raised("01MSIGNAL00000000000000001"),
+        signal({
+          state: "answered",
+          closedAt: 5,
+          response: {
+            text: "Morning pages is written, 512 words.",
+            at: 1_700_000_060_000,
+            artifact: { nodeId: "artifacts-1", artifactId: "01MARTIFACT000000000000001", title: "Morning pages", words: 512 },
+          },
+        }),
+        at,
+      ),
+    ).toBe('raised "Write 500 words", answered at 1700000060000 with "Morning pages"');
+    expect(
+      signalRulingWords(
+        raised("01MSIGNAL00000000000000001"),
+        signal({ state: "answered", response: { text: "Did it", at: 7, links: ["https://example.com"] } }),
+        at,
+      ),
+    ).toBe('raised "Write 500 words", answered at 7 with proof');
+    expect(signalRulingWords(raised("01MSIGNAL00000000000000001"), signal({ state: "dismissed", closedAt: 9 }), at)).toBe(
+      'raised "Write 500 words", dismissed at 9',
+    );
+  });
+
+  it("names a signal this window does not hold, and says nothing for another kind of step", () => {
+    expect(signalRulingWords(raised("01MGONE0000000000000000000"), undefined, at)).toBe("raised a signal this window does not hold");
+    expect(signalRulingWords({ index: 0, ruling: "applied" }, undefined, at)).toBeUndefined();
+  });
+
+  it("counts a signal step as one that acted", () => {
+    const firing: Firing = {
+      firingId: ItemId.make("01JFFFFFFFFFFFFFFFFFFFFFF3"),
+      automationId: id,
+      at: 1_700_000_000_000,
+      cause: { kind: "run" },
+      outcome: { kind: "fired", actions: [raised("01MSIGNAL00000000000000001")] },
+    };
+    expect(firingWords(firing)).toBe("Run by hand, fired, 1 of 1 action applied");
   });
 });
 

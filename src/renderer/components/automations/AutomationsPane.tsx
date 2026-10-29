@@ -40,6 +40,7 @@ import {
   finishDraft,
   firingWords,
   historyOrder,
+  signalRulingWords,
   newDraft,
   triggerWords,
   type ActionDraft,
@@ -66,6 +67,7 @@ import { FocusSurface } from "../FocusSurface";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import { itemsQuickOpen } from "../../lib/quick-open";
 import { useQuickOpen } from "../quick-open/use-quick-open";
+import { useSignalsById } from "../../lib/automation-signals";
 import { AutomationEditor } from "./AutomationEditor";
 import { AutomationCodeEditor, codeTemplate } from "./AutomationCodeEditor";
 import { useTargetNames } from "../../lib/automation-names";
@@ -126,10 +128,28 @@ const timeWords = (at: number): string =>
 
 function FiringHistory({
   firings,
+  focused,
 }: {
   readonly firings: ReadonlyArray<Firing>;
+  /** The firing a surface opened on (the feed's card): it is marked and brought into view. */
+  readonly focused?: string | undefined;
 }) {
   const ordered = useMemo(() => historyOrder(firings), [firings]);
+  // A signal step's ruling names its signal; what became of it is the signal's row, read here.
+  const signalIds = useMemo(
+    () =>
+      ordered.flatMap((firing) =>
+        firing.outcome.kind === "fired"
+          ? firing.outcome.actions.flatMap((ruling) => (ruling.ruling === "raised" ? [ruling.signalId] : []))
+          : [],
+      ),
+    [ordered],
+  );
+  const signals = useSignalsById(signalIds);
+  useEffect(() => {
+    if (focused === undefined) return;
+    document.querySelector(`[data-firing="${focused}"]`)?.scrollIntoView({ block: "center" });
+  }, [focused, ordered]);
   return (
     <section className="automation-history" aria-label="Firing history">
       <PaneHeader eyebrow="History" />
@@ -142,6 +162,8 @@ function FiringHistory({
               key={firing.firingId}
               className="automation-history__row"
               data-outcome={firing.outcome.kind}
+              data-firing={firing.firingId}
+              data-focused={firing.firingId === focused || undefined}
             >
               <div className="automation-history__line">
                 <time
@@ -154,7 +176,9 @@ function FiringHistory({
               </div>
               {firing.outcome.kind === "fired"
                 ? firing.outcome.actions.map((ruling) => {
-                    const words = codeRulingWords(ruling);
+                    const words =
+                      codeRulingWords(ruling) ??
+                      signalRulingWords(ruling, ruling.ruling === "raised" ? signals.get(ruling.signalId) : undefined, timeWords);
                     return words === undefined ? null : (
                       <p key={ruling.index} className="automation-history__step">
                         Step {ruling.index + 1} {words}
@@ -279,10 +303,19 @@ export function AutomationsPane({
   canvasName,
   nodeId,
   author,
+  initialAutomationId,
+  initialFiringId,
+  openKey,
   onClose,
 }: {
   readonly canvasName: string;
   readonly nodeId: NodeId;
+  /** The automation to open on, when a surface named one (the feed's card). */
+  readonly initialAutomationId?: string;
+  /** The firing to mark in that automation's history. */
+  readonly initialFiringId?: string;
+  /** Which open this is: a new one lands on the firing again. */
+  readonly openKey?: number;
   /** Closes the node's surface; with unsaved edits it asks first. */
   readonly onClose: () => void;
   /** Whose reach the pickers offer: the operator here. Main sets the stored author from the actor. */
@@ -331,6 +364,23 @@ export function AutomationsPane({
     const head = automations.find((automation) => automation.automationId === kept.open);
     if (editing === undefined && head !== undefined) open(editingOf(head));
   }, [automations]);
+
+  /**
+   * A surface opened this pane on one firing (the feed's card): open that
+   * automation once, and mark the firing when its history arrives. A new open
+   * key lands on it again even for the same automation.
+   */
+  const [focusedFiring, setFocusedFiring] = useState<string | undefined>(initialFiringId);
+  const landedOn = useRef("");
+  useEffect(() => {
+    if (initialAutomationId === undefined || automations.length === 0) return;
+    const key = `${openKey ?? 0}:${initialAutomationId}:${initialFiringId ?? ""}`;
+    if (landedOn.current === key) return;
+    landedOn.current = key;
+    setFocusedFiring(initialFiringId);
+    const head = automations.find((automation) => automation.automationId === initialAutomationId);
+    if (head !== undefined) leave(() => open(editingOf(head)));
+  }, [initialAutomationId, initialFiringId, openKey, automations]);
 
   /** One op; a refusal is kept for the pane to say. */
   const send = async (
@@ -783,7 +833,7 @@ export function AutomationsPane({
                 </div>
               ) : null}
               {editing.base !== undefined ? (
-                <FiringHistory firings={firings} />
+                <FiringHistory firings={firings} focused={focusedFiring} />
               ) : null}
             </div>
           ) : (
