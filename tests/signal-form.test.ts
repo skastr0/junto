@@ -5,6 +5,7 @@
  */
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+import { notALabel } from "../src/shared/artifact-labels";
 import { planFormFlags } from "../src/cli/core/signal-form";
 import { loadSignalRaiseArgs as withSocket } from "../src/cli/core/signal-input";
 import { WorkSocket } from "../src/cli/core/socket";
@@ -35,6 +36,12 @@ describe("a seat asks for a reply form", () => {
     expect(refusedAt(planFormFlags("blocked", { askSecret: "A", minWords: 3 }))).toBe("--min-words");
     expect(refusedAt(planFormFlags("blocked", { askArtifact: "Shelf", minWords: 0 }))).toBe("--min-words");
     expect(refusedAt(planFormFlags("blocked", { askArtifact: "Shelf", label: ["ok", "a//b"] }))).toBe("--label[1]");
+  });
+
+  it("says the whole label rule, as artifact control and automations do", () => {
+    const refused = planFormFlags("blocked", { askArtifact: "Shelf", label: ["/posts"] });
+    expect(refused).toMatchObject({ ok: false, error: { message: notALabel("/posts") } });
+    expect(notALabel("/posts")).toContain("no leading or trailing / or space, no //");
   });
 
   it("refuses a secret name that is not an environment variable", () => {

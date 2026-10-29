@@ -66,14 +66,37 @@ export const artifactLabelOf = (raw: string): ArtifactLabel | undefined => {
  * any label breaks the rule or the set holds more than 20.
  */
 export const artifactLabelsOf = (raw: ReadonlyArray<string>): ReadonlyArray<ArtifactLabel> | undefined => {
+  const folded = foldArtifactLabels(raw);
+  return folded.ok ? folded.labels : undefined;
+};
+
+/** The rule as a refusal says it, after the label it names. */
+const LABEL_REFUSAL = "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //";
+
+/** Why one typed label is refused, naming it and the whole rule. */
+export const notALabel = (raw: unknown): string => `${JSON.stringify(raw)} is not a label: ${LABEL_REFUSAL}`;
+
+/**
+ * Fold a typed set as `artifactLabelsOf` does, or say why not: the first
+ * label that breaks the rule, by index, or a set of more than 20 (no index).
+ * The one refusal every edge that takes typed labels gives, so the CLI and
+ * artifact control never word it apart.
+ */
+export const foldArtifactLabels = (
+  raw: ReadonlyArray<unknown>,
+):
+  | { readonly ok: true; readonly labels: ReadonlyArray<ArtifactLabel> }
+  | { readonly ok: false; readonly index: number | undefined; readonly message: string } => {
   const folded: ArtifactLabel[] = [];
-  for (const one of raw) {
-    const label = artifactLabelOf(one);
-    if (label === undefined) return undefined;
+  for (const [index, one] of raw.entries()) {
+    const label = typeof one === "string" ? artifactLabelOf(one) : undefined;
+    if (label === undefined) return { ok: false, index, message: notALabel(one) };
     folded.push(label);
   }
   const unique = [...new Set(folded)].sort();
-  return unique.length > ARTIFACT_LABELS_MAX ? undefined : unique;
+  return unique.length > ARTIFACT_LABELS_MAX
+    ? { ok: false, index: undefined, message: `an artifact holds at most ${ARTIFACT_LABELS_MAX} labels` }
+    : { ok: true, labels: unique };
 };
 
 /**

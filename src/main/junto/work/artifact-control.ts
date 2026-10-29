@@ -57,12 +57,13 @@ import type { ItemId, OpId } from "@shared/work-ids";
 import { operatorActorRef } from "@shared/work-reference";
 import { ArtifactFact } from "@shared/artifact-domain";
 import {
-  ARTIFACT_LABELS_MAX,
   type ArtifactLabel,
   type ArtifactLabelColour,
   type ArtifactLabelColours,
   artifactLabelOf,
   artifactLabelsOf,
+  foldArtifactLabels,
+  notALabel,
 } from "@shared/artifact-labels";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
@@ -372,26 +373,20 @@ const inputError = (message: string, path: string, hint?: string): WorkErrorBody
   details: { path, retryable: false, ...(hint === undefined ? {} : { hint }) },
 });
 
-const LABEL_RULE = "a label is 1 to 40 characters of a-z 0-9 - _ / and space, no leading or trailing / or space, no //";
-
 /**
  * Labels as a seat typed them, folded (03): trimmed, lowered, unique and
  * sorted. The first that cannot be a label is refused by name, at the flag
  * that carried it, so nothing reaches the ruler that it would refuse.
  */
 const foldLabels = (raw: ReadonlyArray<string>, path: string): Effect.Effect<ReadonlyArray<ArtifactLabel>, WorkErrorBody> => {
-  const index = raw.findIndex((one) => artifactLabelOf(one) === undefined);
-  if (index >= 0) {
-    return Effect.fail({
-      type: "InputError",
-      message: `${JSON.stringify(raw[index])} is not a label: ${LABEL_RULE}`,
-      details: { path: `${path}[${index}]`, received: raw[index], retryable: false },
-    });
-  }
-  const folded = artifactLabelsOf(raw);
-  return folded === undefined
-    ? Effect.fail(inputError(`an artifact holds at most ${ARTIFACT_LABELS_MAX} labels`, path))
-    : Effect.succeed(folded);
+  const folded = foldArtifactLabels(raw);
+  if (folded.ok) return Effect.succeed(folded.labels);
+  if (folded.index === undefined) return Effect.fail(inputError(folded.message, path));
+  return Effect.fail({
+    type: "InputError",
+    message: folded.message,
+    details: { path: `${path}[${folded.index}]`, received: raw[folded.index], retryable: false },
+  });
 };
 
 /**
@@ -881,7 +876,7 @@ export const handleArtifactOp = (
         if (label === undefined) {
           return yield* Effect.fail<WorkErrorBody>({
             type: "InputError",
-            message: `${JSON.stringify(input.label)} is not a label: ${LABEL_RULE}`,
+            message: notALabel(input.label),
             details: { path: "label", received: input.label, retryable: false, opId: input.opId },
           });
         }

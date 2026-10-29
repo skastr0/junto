@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ARTIFACT_LABELS_MAX, artifactLabelOf, type ArtifactLabel } from "../../shared/artifact-labels";
+import { ARTIFACT_LABELS_MAX, foldArtifactLabels, type ArtifactLabel } from "../../shared/artifact-labels";
 import { AGENT_SIGNAL_MAX_TEXT_LENGTH, type AgentSignalKind } from "../../shared/agent-signals";
 import { AUTOMATION_SIGNAL_MIN_WORDS_MAX } from "../../shared/automation";
 import { InputError } from "./errors";
@@ -64,17 +64,8 @@ const refuse = (message: string, path: string, hint?: string): Refused => ({
 
 /** Labels as the store holds them: folded, unique, sorted; the first that cannot be one is refused where it was typed. */
 const foldLabels = (labels: ReadonlyArray<string>, at: (index: number) => string): { readonly ok: true; readonly labels: ReadonlyArray<ArtifactLabel> } | Refused => {
-  const folded: ArtifactLabel[] = [];
-  for (const [index, raw] of labels.entries()) {
-    const label = artifactLabelOf(raw);
-    if (label === undefined) {
-      return refuse(`${JSON.stringify(raw)} is not a label: 1 to 40 characters of a-z 0-9 - _ / and space`, at(index));
-    }
-    folded.push(label);
-  }
-  const unique = [...new Set(folded)].sort();
-  if (unique.length > ARTIFACT_LABELS_MAX) return refuse(`at most ${ARTIFACT_LABELS_MAX} labels`, at(0));
-  return { ok: true, labels: unique };
+  const folded = foldArtifactLabels(labels);
+  return folded.ok ? folded : refuse(folded.message, at(folded.index ?? 0));
 };
 
 /**
