@@ -418,10 +418,18 @@ const imageRules = (): string => {
 /**
  * The sheet as a shadow root reads it: a selector there cannot reach the
  * page's <html>, so the root's theme and motion gate are read off the host.
+ * The page's surface motion pauses for reduced motion (surface-motion.ts);
+ * a host need not copy that, as each live rule also asks the media query.
  */
 const forShadowRoot = (css: string): string =>
   css
-    .replaceAll('html:not([data-surface-motion="paused"])', ':host(:not([data-surface-motion="paused"]))')
+    .split("\n")
+    .map((rule) =>
+      rule.startsWith('html:not([data-surface-motion="paused"])')
+        ? `@media (prefers-reduced-motion:no-preference){${rule.replace('html:not([data-surface-motion="paused"])', ':host(:not([data-surface-motion="paused"]))')}}`
+        : rule,
+    )
+    .join("\n")
     .replaceAll('html[data-theme="bright"]', ':host([data-theme="bright"])')
     .replaceAll("html [data-mark-theme", ":host [data-mark-theme");
 
