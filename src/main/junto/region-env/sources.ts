@@ -13,9 +13,11 @@
  * - a value never appears in a reason, a log, or an error.
  */
 import { readFile, readdir, stat } from "node:fs/promises";
+import { Effect } from "effect";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { EnvSource } from "@shared/model/region";
+import { isRefInVault } from "@shared/vault";
 import type {
   EnvSourceResolver,
   SourceContext,
@@ -36,6 +38,11 @@ export type SourceDeps = {
   readonly secrets: Pick<RegionSecrets, "read" | "backend" | "description">;
   /** Environment external tools run with (the app's resolved PATH). */
   readonly toolEnv: () => Promise<Readonly<Record<string, string | undefined>>>;
+  /**
+   * This machine's vault token and the vault it is for (docs/machines.md,
+   * The vault), or none. Read for a reference that names no `tokenFrom`.
+   */
+  readonly vaultToken?: () => Promise<{ readonly vault: string; readonly token: string } | undefined>;
   readonly timeouts?: Partial<typeof DEFAULT_TIMEOUTS>;
 };
 
@@ -52,6 +59,13 @@ export const DEFAULT_TIMEOUTS = {
 
 /** The 1Password CLI reads its service account token from this name. */
 export const OP_TOKEN_NAME = "OP_SERVICE_ACCOUNT_TOKEN";
+
+/** The whole environment `op` runs with under a service account token: nothing else. */
+export const opServiceAccountEnv = (token: string, path: string | undefined, home: string): Readonly<Record<string, string>> => ({
+  [OP_TOKEN_NAME]: token,
+  ...(path === undefined ? {} : { PATH: path }),
+  HOME: home,
+});
 
 const SECURITY_TOOL = "/usr/bin/security";
 /** `security` exits 44 when no item matches. */
@@ -205,7 +219,11 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
       return failed(names, "A 1Password reference starts with op://.");
     }
     let token: string | undefined;
-    if (source.tokenFrom !== undefined) {
+    if (source.tokenFrom === undefined) {
+      // A reference into this machine's vault reads with this machine's own token.
+      const own = await deps.vaultToken?.().catch(() => undefined);
+      if (own !== undefined && isRefInVault(source.ref, own.vault)) token = own.token;
+    } else {
       const from = context.resolved(source.tokenFrom);
       // Not in scope here: cut off by a sealed region, later in the order,
       // meant for another machine, or itself unreadable.
@@ -226,14 +244,11 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
       }
     }
     const base = await deps.toolEnv();
-    // Explicit tokenFrom selects a service account. Connect credentials take
-    // precedence in op, so they must not override the operator's selection.
-    const env = { ...base };
-    if (token !== undefined) {
-      delete env.OP_CONNECT_HOST;
-      delete env.OP_CONNECT_TOKEN;
-      env[OP_TOKEN_NAME] = token;
-    }
+    // With a service account token, op's environment is closed: the token,
+    // PATH and HOME. OP_CONNECT_HOST and OP_CONNECT_TOKEN would override the
+    // token and redirect the read, and nothing else is op's to see. Without
+    // one, op talks to the desktop app in the app's own environment.
+    const env = token === undefined ? base : opServiceAccountEnv(token, base.PATH, deps.home);
     const result = await deps.run({
       command: "op",
       args: ["read", "--no-newline", source.ref],
@@ -381,6 +396,22 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
 
 let live: EnvSourceResolver | undefined;
 
+/** This machine's own scope record and token file; the core runtime is imported lazily, as `./live.ts` does. */
+const ownVaultToken = async (): Promise<{ readonly vault: string; readonly token: string } | undefined> => {
+  const [{ coreRunner }, { MachineRepository }, { makeVaultTokens }, { readVaultToken }, { resolveJuntoHome }] = await Promise.all([
+    import("../../core-runner"), import("../machines/repository"), import("../vault/repository"),
+    import("../vault/token-file"), import("@shared/junto-home"),
+  ]);
+  const record = await coreRunner.runPromise(Effect.gen(function* () {
+    const machine = yield* MachineRepository;
+    const tokens = yield* makeVaultTokens;
+    return yield* tokens.get(yield* machine.machineName);
+  }));
+  if (record === undefined) return undefined;
+  const token = await readVaultToken(resolveJuntoHome());
+  return token === undefined ? undefined : { vault: record.vault, token };
+};
+
 /**
  * Resolve one source against this machine's real stores. Never rejects.
  * Tests build their own resolver with `makeEnvSourceResolver` and fakes.
@@ -403,6 +434,7 @@ export const resolveEnvSource = (
       read: (secretId) => regionSecrets().read(secretId),
     },
     toolEnv: () => resolvedSpawnEnv(),
+    vaultToken: ownVaultToken,
   });
   return live.resolve(source, context);
 };

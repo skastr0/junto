@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { Rule, Ruling } from "../work-model";
 import { HostId, placement } from "./base";
 import { REGION_NAME_MAX } from "../region-bounds";
+import { isRefInVault, RegionVault } from "../vault";
 
 // A region is geography: a named rectangle. What is inside it is always worked
 // out from the rectangles, never stored, so membership cannot go stale.
@@ -91,7 +92,13 @@ export const EnvSource = Schema.Union([
 export type EnvSource = typeof EnvSource.Type;
 export type EnvSourceKind = EnvSource["kind"];
 
-/** What seats inside a region are launched with. Read live at every spawn. */
+/**
+ * What seats inside a region are launched with. Read live at every spawn.
+ *
+ * With a `vault`, a 1Password source that names no `tokenFrom` is a vault
+ * reference, read with each machine's own vault token, and must point into
+ * that vault: one outside it is refused here, before any machine reads it.
+ */
 export const RegionEnvironment = Schema.Struct({
   /** Seats inside inherit nothing from regions outside this one. */
   sealed: Schema.optionalKey(Schema.Boolean),
@@ -99,7 +106,14 @@ export const RegionEnvironment = Schema.Struct({
   sources: Schema.optionalKey(Schema.Array(EnvSource)),
   /** Extra directories exposed to seats inside (absolute or `~/` paths). */
   folders: Schema.optionalKey(Schema.Array(NonEmpty)),
-});
+  /** The vault this region's secrets live in (docs/machines.md, The vault). */
+  vault: Schema.optionalKey(RegionVault),
+}).pipe(Schema.check(Schema.makeFilter((environment) => {
+  const vault = environment.vault?.vault;
+  if (vault === undefined) return true;
+  const outside = (environment.sources ?? []).find((source) => source.kind === "onepassword" && source.tokenFrom === undefined && !isRefInVault(source.ref, vault));
+  return outside === undefined || `The 1Password source ${outside.id} must point into the region's vault, op://${vault}/`;
+})));
 export type RegionEnvironment = typeof RegionEnvironment.Type;
 
 /** What a page created inside the region starts with. */

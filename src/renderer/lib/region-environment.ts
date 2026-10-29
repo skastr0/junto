@@ -591,6 +591,7 @@ export const cleanEnvironment = (environment: RegionEnvironment): RegionEnvironm
     ...(environment.sealed === true ? { sealed: true } : {}),
     ...(sources.length > 0 ? { sources } : {}),
     ...(folders.length > 0 ? { folders } : {}),
+    ...(environment.vault === undefined ? {} : { vault: environment.vault }),
   };
   return Object.keys(next).length > 0 ? next : undefined;
 };

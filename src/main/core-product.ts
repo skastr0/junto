@@ -34,6 +34,7 @@ import { HostRegistryRows } from "./junto/hosts/registry";
 import { SshTransportLive } from "./junto/ssh";
 import { makeStateEngineLive } from "./junto/state/engine";
 import { MachineRepositoryLive } from "./junto/machines/repository";
+import { VaultTokensLive } from "./junto/vault/repository";
 import { OpRepositoryLive } from "./junto/work/op-repository";
 import { HarnessInventoryLive } from "./junto/term/templates/harness-inventory";
 import { NativeConfigLive } from "./junto/native-config/service";
@@ -74,6 +75,8 @@ export const makeCoreProductLayer = (home: string) => {
       Layer.provideMerge(UsageLive, settings),
       settings,
       MachineRepositoryLive,
+      // Each vault token's scope record, names only; the token is a file.
+      VaultTokensLive,
       OpRepositoryLive,
       // The operator's arrangement: machine-local rows, written as it changes.
       ViewStateRepositoryLive,
