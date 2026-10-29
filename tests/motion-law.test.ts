@@ -177,6 +177,15 @@ describe("motion law: rings move on the compositor", () => {
     expect(css).toMatch(/\.react-flow__node:not\(\.react-flow__node-group\):not\(\.junto-flow-agent\):not\(:has\(\.kind-seat\)\) \.content-media__spin \{ animation: none !important; \}/);
   });
 
+  it("a wire pulse starts only at near, the one tier that draws it", () => {
+    expect(read("src/renderer/styles/canvas-lod-regions.css")).toMatch(
+      /html:is\(\[data-canvas-tier="mid"\], \[data-canvas-tier="far"\], \[data-canvas-tier="overview"\]\) \.react-flow__viewport :is\(\.junto-edge-label, \.junto-wire-pulse, path\.junto-wire-pulse-hold\) \{\s*visibility: hidden;/,
+    );
+    const feed = read("src/renderer/components/edges/WirePulseFeed.tsx");
+    expect(feed).toMatch(/const drawn = canvasTier\$\.peek\(\) === "near";/);
+    expect(feed).toMatch(/if \(!drawn \|\| wirePulseScheduler\.fire\(target, event\.kind\) !== "dropped"\)/);
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);

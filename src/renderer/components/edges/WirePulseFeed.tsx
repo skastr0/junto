@@ -10,6 +10,7 @@
 import { useEffect, useRef } from "react";
 import { useStoreApi } from "@xyflow/react";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
+import { canvasTier$ } from "../../lib/canvas-tier";
 import type { FlowEdge } from "../../lib/convert";
 import { panForScreenX, playCue } from "../../lib/sound";
 import { state$ } from "../../lib/state";
@@ -64,8 +65,12 @@ export function WirePulseFeed({ edges }: { readonly edges: ReadonlyArray<FlowEdg
         height: height / zoom,
       };
       if (!pulseOnScreen(from, to, viewport)) return;
+      // Below near the pulse is not drawn (canvas-lod-regions.css), so none
+      // starts: it would travel unseen (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8).
+      // The drop is still heard, as it was while the pulse ran hidden.
+      const drawn = canvasTier$.peek() === "near";
       // The drop rides the light: heard only when a pulse is painted.
-      if (wirePulseScheduler.fire(target, event.kind) !== "dropped") {
+      if (!drawn || wirePulseScheduler.fire(target, event.kind) !== "dropped") {
         const middle = (from.x + from.width / 2 + to.x + to.width / 2) / 2;
         playCue("mail", { tone: event.kind, pan: panForScreenX(middle * zoom + tx, width) });
       }
