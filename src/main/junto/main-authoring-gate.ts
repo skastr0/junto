@@ -31,6 +31,7 @@ export const MAIN_AUTHORING_LABELS = [
   "control.browser.box-comment",
   "companion.signal-answer",
   "companion.signal-dismiss",
+  "companion.signal-reply",
   "companion.mail-send",
   "companion.comment",
   "companion.artifact.apply",

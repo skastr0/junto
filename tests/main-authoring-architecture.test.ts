@@ -161,6 +161,7 @@ describe("main authoring architecture", () => {
     const companion = source("src/main/junto/companion/operator-actions.ts");
     expect(companion).toContain('.run("companion.signal-answer"');
     expect(companion).toContain('.run("companion.signal-dismiss"');
+    expect(companion).toContain('.run("companion.signal-reply"');
     // The phone's mail send lives with the thread reads it answers.
     expect(source("src/main/junto/companion/threads.ts")).toContain('.run("companion.mail-send"');
     // The phone's artifact writes run only under their own authoring label.

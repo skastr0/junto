@@ -29,8 +29,9 @@ import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { AgentSignalRepository } from "../signals/repository";
-import { answerAgentSignal, dismissAgentSignal } from "../signals/operator";
+import { answerAgentSignal, dismissAgentSignal, replyAgentSignal } from "../signals/operator";
 import { raisedHands } from "../signals/raised-hands";
+import { liveArtifactPorts } from "../work/artifact-control";
 import { isTrustedMainWebContents } from "../trusted-main-webcontents";
 import { messageDelivery } from "../work/message-delivery";
 import { WorkService } from "../work/service";
@@ -78,6 +79,49 @@ export const answerSignalAsOperator = async (
     )
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "answer failed" }));
   if (!result.ok) return refusal(signalId, result.message);
+  raisedHands.note(result.signal);
+  broadcastSignal(result.signal);
+  if (result.messageId !== undefined) {
+    void messageDelivery.deliver(result.signal.canvasName, result.signal.nodeId, result.messageId).catch(() => undefined);
+  }
+  return { ok: true, value: result.signal };
+};
+
+/**
+ * A document handed in on an artifact-form signal, as the desktop's own
+ * `agentSignalReply`: the same `replyAgentSignal` rules `minWords`, makes the
+ * document in the form's Artifacts node, and the reply's own id is the write's
+ * op id, so a resent hand-in writes one document. Anything the ruler refuses
+ * is `invalid` with its sentence; only a gone or closed signal reads as
+ * not-found or conflict.
+ */
+export const replySignalArtifactAsOperator = async (
+  signalId: string,
+  markdown: string,
+  replyId: string,
+): Promise<OperatorActionResult<AgentSignal>> => {
+  const before = await currentSignal(signalId);
+  if (before === undefined) return { ok: false, reason: "not-found", message: `No signal ${signalId}.` };
+  if (before.state !== "open") return { ok: false, reason: "conflict", message: `That signal is already ${before.state}.`, signal: before };
+  const result = await mainAuthoringGate
+    .run("companion.signal-reply", () =>
+      AppRuntime.runPromise(
+        replyAgentSignal(signalId, { kind: "artifact", markdown, replyId }, {
+          topology: (canvasName: string) =>
+            Effect.tryPromise({
+              try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+              catch: () => ({
+                type: "InternalError" as const,
+                message: `canvas ${canvasName} could not be read`,
+                details: { retryable: true },
+              }),
+            }).pipe(Effect.map((read) => read.canvas)),
+          artifacts: liveArtifactPorts,
+        }),
+      ),
+    )
+    .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "reply failed" }));
+  if (!result.ok) return { ok: false, reason: "invalid", message: result.message.slice(0, 500) };
   raisedHands.note(result.signal);
   broadcastSignal(result.signal);
   if (result.messageId !== undefined) {

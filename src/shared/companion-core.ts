@@ -83,6 +83,16 @@ export type CompanionBackend = {
     quiet: boolean,
     attachments: ReadonlyArray<ContentRef>,
   ) => Promise<CompanionOutcome<AgentSignal>>;
+  /**
+   * A document handed in on an artifact-form signal (`signal.answer`'s
+   * `artifact` member): the form's `minWords` rules it, the write's op id is
+   * `replyId`, and the signal answers as `agentSignalReply` does.
+   */
+  readonly answerSignalArtifact: (
+    signalId: string,
+    markdown: string,
+    replyId: string,
+  ) => Promise<CompanionOutcome<AgentSignal>>;
   readonly dismissSignal: (signalId: string) => Promise<CompanionOutcome<AgentSignal>>;
   readonly mailList: (
     canvasName: string,
@@ -525,8 +535,12 @@ export const handleCompanionRequest = async (
         companionOk(id, "seat.get", { seat }),
       );
     case "signal.answer":
-      // The artifact-form member lands with its write path; until then it is not a text answer.
-      if ("artifact" in frame.args) return companionFail(id, companionError("invalid", "Artifact answers are not on this build yet."));
+      if ("artifact" in frame.args)
+        return respond(
+          id,
+          backend.answerSignalArtifact(frame.args.signalId, frame.args.artifact.markdown, frame.args.artifact.replyId),
+          (signal) => companionOk(id, "signal.answer", { signal }),
+        );
       return respond(
         id,
         backend.answerSignal(frame.args.signalId, frame.args.text, "quiet" in frame.args, frame.args.attachments ?? []),

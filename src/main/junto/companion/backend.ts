@@ -90,7 +90,7 @@ import { mergeSeatStateSnapshot, remoteSeatOccupied } from "../term/remote-seat-
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { WorkService } from "../work/service";
 import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
-import { answerSignalAsOperator, dismissSignalAsOperator, type OperatorActionResult } from "./operator-actions";
+import { answerSignalAsOperator, dismissSignalAsOperator, replySignalArtifactAsOperator, type OperatorActionResult } from "./operator-actions";
 import { livePreambles } from "./preambles";
 import { companionStageBackend } from "./stage";
 import { artifactFirstLines } from "@shared/artifact-lines";
@@ -506,6 +506,8 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   answerSignal: async (signalId, text, quiet, attachments) =>
     fromAction(await answerSignalAsOperator(signalId, text, quiet, attachments), (signal) => signal),
+  answerSignalArtifact: async (signalId, markdown, replyId) =>
+    fromAction(await replySignalArtifactAsOperator(signalId, markdown, replyId), (signal) => signal),
   dismissSignal: async (signalId) => fromAction(await dismissSignalAsOperator(signalId), (signal) => signal),
 
   mailList: async (canvasName, nodeId, limit) => {

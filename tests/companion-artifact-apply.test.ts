@@ -261,3 +261,81 @@ describe("artifact.apply through the demo", () => {
     expect(decoded._tag).toBe("Success");
   });
 });
+
+/** Enough words for `sig_demo_writeup`'s form: minWords 40. */
+const WRITEUP = [
+  "Pricing sits on the seat because the seat is the unit of work,",
+  "not the seat's operator. A team of five pays once, since five",
+  "operators share one seat's memory, mail, and signals. The two-tier",
+  "launch risk is a cheap tier nobody outgrows; the answer is a cap",
+  "on active seats, never on canvases or machines, so upgrading is",
+  "about hiring more agents, not unlocking features.",
+].join("\n");
+
+const answerArtifact = (backend: CompanionBackend, markdown: string, replyId: string, signalId = "sig_demo_writeup") =>
+  callOp(backend, "signal.answer", { signalId, artifact: { markdown, replyId } });
+
+describe("signal.answer's artifact member through the demo", () => {
+  it("writes the document in the form's node, with its title and labels, and answers the signal", async () => {
+    const backend = demo();
+    const response = await answerArtifact(backend, WRITEUP, "01J9DEM0TST000000000000031");
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        signal: {
+          state: "answered",
+          response: {
+            text: "Launch pricing rationale is written, 66 words.",
+            artifact: { nodeId: "art-inbox", title: "Launch pricing rationale", words: 66 },
+          },
+        },
+      },
+    });
+    if (!response.ok) expect.unreachable();
+    const artifactId = (response.result as { signal: { response?: { artifact?: { artifactId: string } } } }).signal.response?.artifact?.artifactId as ItemId;
+    const got = await backend.artifactGet({ canvasName: DEMO_CANVAS, artifactId });
+    expect(got.ok && got.value.artifact.title).toBe("Launch pricing rationale");
+    expect(got.ok && got.value.artifact.labels).toEqual(["launch"]);
+    expect(got.ok && got.value.artifact.version).toBe(1);
+  });
+
+  it("a resent hand-in finds the signal answered and writes no second document", async () => {
+    const backend = demo();
+    const replyId = "01J9DEM0TST000000000000032";
+    const first = await answerArtifact(backend, WRITEUP, replyId);
+    expect(first.ok).toBe(true);
+    const count = async (): Promise<number> => {
+      const listed = await backend.artifactList({ canvasName: DEMO_CANVAS, nodeId: "art-inbox" as NodeId });
+      return listed.ok ? listed.value.artifacts.length : -1;
+    };
+    const before = await count();
+    const again = await answerArtifact(backend, WRITEUP, replyId);
+    expect(again).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(await count()).toBe(before);
+  });
+
+  it("refuses a document under the form's minWords with the ruler's sentence, leaving the signal open", async () => {
+    const backend = demo();
+    const short = await answerArtifact(backend, "too short here", "01J9DEM0TST000000000000033");
+    expect(short).toMatchObject({ ok: false, error: { code: "invalid", message: "the document holds 3 words of 40" } });
+    // The signal still wants its document: a later reply lands.
+    const proper = await answerArtifact(backend, WRITEUP, "01J9DEM0TST000000000000034");
+    expect(proper).toMatchObject({ ok: true, result: { signal: { state: "answered" } } });
+  });
+
+  it("refuses a document for a signal with no form, and a signal that is not there", async () => {
+    const backend = demo();
+    const noForm = await answerArtifact(backend, "a page of words " + "with ".repeat(45), "01J9DEM0TST000000000000035", "sig_demo_blocked");
+    expect(noForm).toMatchObject({ ok: false, error: { code: "invalid", message: "this signal asks for no work: answer it instead of handing work in" } });
+    const missing = await answerArtifact(backend, WRITEUP, "01J9DEM0TST000000000000036", "sig_not_there");
+    expect(missing).toMatchObject({ ok: false, error: { code: "not-found" } });
+  });
+
+  it("decodes on the wire: the answer the demo sends is the schema's", async () => {
+    const backend = demo();
+    const response = await answerArtifact(backend, WRITEUP, "01J9DEM0TST000000000000037");
+    expect(response.ok).toBe(true);
+    const decoded = Schema.decodeUnknownResult(CompanionResults["signal.answer"])((response as { result: unknown }).result);
+    expect(decoded._tag).toBe("Success");
+  });
+});

@@ -65,6 +65,7 @@ import {
   type CompanionThreadMessage,
 } from "./companion-protocol";
 import type { CompanionResultByOp } from "./wire/companion-protocol";
+import { ruleSignalReply } from "./signal-reply";
 import { decodeArtifactBody, ruleArtifactEdit, type Artifact, type ArtifactBody, type ArtifactEdit, type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "./wire/artifact";
 import type { ContentByteLength, ContentRef, ContentSha256 } from "./wire/content-ref";
 import { ARTIFACT_LABEL_RULE, artifactLabelOf, artifactLabelsOf, type ArtifactLabelColour } from "./wire/artifact-labels";
@@ -482,6 +483,13 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     }
     return outcomeOk(result);
   };
+  // A reply's artifact ids mint high of the fixture's, past whatever earlier
+  // backends in this process already created (the demo world is shared).
+  let replyArtifactSeq = 900;
+  const mintReplyArtifactId = (): ItemId => {
+    while (mutableArtifacts.some((held) => held.head.artifactId === demoItemId("ART", replyArtifactSeq))) replyArtifactSeq += 1;
+    return demoItemId("ART", replyArtifactSeq++) as ItemId;
+  };
 
   return {
     now,
@@ -535,6 +543,51 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       // A quiet answer sends no mail, as main's: the seat is not woken.
       if (quiet) noteActivity(signal.nodeId, { at, label: `${signal.kind} answered quietly`, kind: "signal" });
       else appendOperatorMail(signal.nodeId, answer, at);
+      return outcomeOk(answered);
+    },
+    // A document handed in on an artifact form, as the Mac's replyAgentSignal:
+    // the form rules it, the write's op id is the reply's, the signal answers.
+    answerSignalArtifact: async (signalId, markdown, replyId) => {
+      const signal = signals.get(signalId);
+      if (!signal) return outcomeFail("not-found", `No signal ${signalId}.`);
+      if (signal.state !== "open") return outcomeFail("conflict", `That signal is already ${signal.state}.`, signal);
+      const form = signal.form;
+      if (form === undefined) return outcomeFail("invalid", "this signal asks for no work: answer it instead of handing work in");
+      const ruled = ruleSignalReply(form, { kind: "artifact", markdown, replyId });
+      if (!ruled.ok) return outcomeFail("invalid", ruled.message);
+      if (form.kind !== "artifact") return outcomeFail("invalid", "this signal asks for a document; write it in the signal");
+      const shelf = CANVAS.nodes.get(asNodeId(form.nodeId));
+      if (shelf === undefined || shelf.kind !== "artifacts")
+        return outcomeFail("invalid", `the Artifacts node this signal writes into is gone from ${signal.canvasName}`);
+      // The reply's id is the write's op id, as the Mac's submit makes it: a resend writes one document.
+      const replayed = applyOps.get(replyId);
+      let head =
+        replayed !== undefined && replayed.disposition === "applied" && replayed.artifact !== undefined
+          ? replayed.artifact
+          : undefined;
+      if (head === undefined) {
+        const artifactId = mintReplyArtifactId();
+        const create: ArtifactOp = {
+          op: "create",
+          title: form.title,
+          body: { type: "document", markdown },
+          ...(form.labels.length === 0 ? {} : { labels: [...form.labels] }),
+        };
+        const written = createArtifact(form.nodeId, artifactId, create);
+        if (!written.ok) return written;
+        await keep(replyId, create, { disposition: "applied", artifact: written.value, version: written.value.version });
+        head = written.value;
+      }
+      const at = tick();
+      const response = `${form.title} is written, ${ruled.words} ${ruled.words === 1 ? "word" : "words"}.`;
+      const answered: AgentSignal = {
+        ...signal,
+        state: "answered",
+        response: { text: response, at, artifact: { nodeId: form.nodeId, artifactId: head.artifactId, title: form.title, words: ruled.words } },
+        closedAt: at,
+      };
+      noteSignal(answered);
+      appendOperatorMail(signal.nodeId, response, at);
       return outcomeOk(answered);
     },
     dismissSignal: async (signalId) => {
