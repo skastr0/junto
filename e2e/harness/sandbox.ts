@@ -241,7 +241,11 @@ export const writeFixtureOffboardClock = async (sandbox: Sandbox, record: SeatCl
   }
 };
 
-/** Agent signals seeded as durable rows, as if their seats had raised them. */
+/**
+ * Open (or closed) signals, as durable rows, before boot: the words, and the
+ * source, form and work a signal carries, so an automation's own signal and
+ * the reply it asks for are in the feed as main writes them.
+ */
 export const writeFixtureAgentSignals = async (
   sandbox: Sandbox,
   signals: ReadonlyArray<AgentSignal>,
@@ -254,10 +258,13 @@ export const writeFixtureAgentSignals = async (
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
       for (const signal of signals) {
         yield* sql`INSERT INTO agent_signals(
-             signal_id, canvas_name, node_id, kind, text, detail, created_at,
-             state, response_text, response_at, closed_at)
+             signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json,
+             created_at, state, response_text, response_at, closed_at)
            VALUES (${signal.signalId}, ${signal.canvasName}, ${signal.nodeId}, ${signal.kind},
-             ${signal.text}, ${signal.detail ?? null}, ${signal.createdAt}, ${signal.state},
+             ${signal.text}, ${signal.detail ?? null}, ${signal.source === undefined ? null : JSON.stringify(signal.source)},
+             ${signal.work === undefined ? null : JSON.stringify(signal.work)},
+             ${signal.form === undefined ? null : JSON.stringify(signal.form)},
+             ${signal.createdAt}, ${signal.state},
              ${signal.response?.text ?? null}, ${signal.response?.at ?? null}, ${signal.closedAt ?? null})`;
         for (const [position, suggestion] of (signal.suggestions ?? []).entries()) {
           yield* sql`INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
