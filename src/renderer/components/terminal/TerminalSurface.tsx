@@ -770,6 +770,8 @@ export function TerminalSurface({
   nodeRef.current = node;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  /** The live attachment's stream gate: parked while hidden, caught up when shown. */
+  const streamShownRef = useRef<((shown: boolean) => void) | undefined>(undefined);
 
   /**
    * Host-box geometry is authority once getBoundingClientRect is real.
@@ -1432,6 +1434,11 @@ export function TerminalSurface({
     };
   }, [visible, node.id]);
 
+  // Only a visible view takes the stream; see `showStream` in the attachment.
+  useEffect(() => {
+    streamShownRef.current?.(visible);
+  }, [visible]);
+
   useEffect(() => {
     const api = getJuntoApi() as JuntoTerminalApi | undefined;
     const term = termRef.current;
@@ -1596,16 +1603,13 @@ export function TerminalSurface({
       }
     });
 
-    const offEvent = onTerminalEvent((raw) => {
-      const event = raw as LiveEvent;
-      if (event.bindingId !== bindingId) return;
-      if (!attachDone) {
-        // Never drop post-snapshot events: attachScreen only covers bytes
-        // captured at snapshot start; pending is the sole gap-fill path.
-        // A stuck attach is bounded by cleanup/fail, not by discarding PTY data.
-        pending.push(event);
-        return;
-      }
+    // Hidden, this view parks its stream: main sends it no output, so xterm
+    // parses nothing for a seat no one is looking at. Shown again, it catches
+    // up from main's grid before it takes live output, and output that lands
+    // meanwhile waits in `pending` exactly as it does during an attach.
+    let parked = false;
+    let resuming = false;
+    const handleLive = (event: LiveEvent): void => {
       if (event.epoch !== epochRef.current) {
         // Another generation of this binding is talking while this surface
         // sits on one that ended: Junto replaced the process. Follow it, on
@@ -1627,7 +1631,91 @@ export function TerminalSurface({
         setKillPhase("stopped");
         setLoadPhase(null);
       }
+    };
+
+    const offEvent = onTerminalEvent((raw) => {
+      const event = raw as LiveEvent;
+      if (event.bindingId !== bindingId) return;
+      if (!attachDone || resuming) {
+        // Never drop post-snapshot events: attachScreen only covers bytes
+        // captured at snapshot start; pending is the sole gap-fill path.
+        // A stuck attach is bounded by cleanup/fail, not by discarding PTY data.
+        pending.push(event);
+        return;
+      }
+      handleLive(event);
     });
+
+    const finishResume = (): void => {
+      resuming = false;
+      for (const event of pending.splice(0)) handleLive(event);
+    };
+    const showStream = (shown: boolean): void => {
+      const lease = leaseRef.current;
+      const park = api.terminalPark;
+      if (!alive || !attachDone || lease === undefined || park === undefined) return;
+      if (!shown) {
+        if (parked) return;
+        parked = true;
+        void park(lease, true).catch(() => undefined);
+        return;
+      }
+      if (!parked) return;
+      parked = false;
+      resuming = true;
+      void park(lease, false)
+        .catch(() => ({ ok: false as const }))
+        .then((result) => {
+          if (!alive) return;
+          if (!result.ok || !result.missed || leaseRef.current !== lease) {
+            finishResume();
+            return;
+          }
+          // Repaint from main's grid as an attach does, and keep the viewport
+          // where the operator left it.
+          const epoch = epochRef.current;
+          if (epoch !== undefined) {
+            const buffer = term.buffer.active;
+            storeTerminalViewport(bindingId, bookmarkFromBuffer(epoch, buffer.viewportY, buffer.baseY));
+          }
+          const repainted = (): void => {
+            if (!alive) return;
+            if (epoch !== undefined) applyViewportBookmark(term, bindingId, epoch);
+            finishResume();
+            pushResize({ forcePaint: true });
+          };
+          const screen = result.screen;
+          if (screen) {
+            if (term.cols !== screen.cols || term.rows !== screen.rows) {
+              try {
+                term.resize(screen.cols, screen.rows);
+              } catch {
+                // replay into the current grid
+              }
+            }
+            term.reset();
+            lastSeq = screen.seq;
+            term.write(screen.serialized, repainted);
+            return;
+          }
+          // An exited generation has no grid: its final journal is what a
+          // fresh attach would paint.
+          const chunks: string[] = [];
+          let journalSeq: bigint | undefined;
+          for (const item of result.journal ?? []) {
+            if (item.type === "output" && item.data) chunks.push(item.data);
+            if (item.seq !== undefined) journalSeq = item.seq;
+          }
+          if (chunks.length === 0) {
+            finishResume();
+            return;
+          }
+          term.reset();
+          if (journalSeq !== undefined) lastSeq = journalSeq;
+          term.write(chunks.join(""), repainted);
+        });
+    };
+    streamShownRef.current = showStream;
 
     const runAttach = (): void => {
       if (!alive) return;
@@ -1716,6 +1804,8 @@ export function TerminalSurface({
             // and the rAF/settle ladder below still covers that case.
             pushResize({ forcePaint: true });
             clearLoad();
+            // A view that attached while hidden parks at once.
+            if (!sawExit && !visibleRef.current) showStream(false);
             // Repaint through layout settle; only a real cols×rows transition is
             // forwarded to the child PTY.
             requestAnimationFrame(() => {
@@ -1845,6 +1935,7 @@ export function TerminalSurface({
 
     return () => {
       alive = false;
+      if (streamShownRef.current === showStream) streamShownRef.current = undefined;
       resizeGeneration.current += 1;
       notifyInFlight.current = false;
       if (ptyNotifyTimer.current !== undefined) {

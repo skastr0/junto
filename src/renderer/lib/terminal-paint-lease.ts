@@ -1,8 +1,9 @@
 /**
  * GPU presents for a keep-alive terminal are leased, not ambient.
  *
- * Hidden seats still ingest PTY bytes into the xterm buffer. Only the
- * presenting renderer (WebGL addon) is paused. Optional motion flags pause
+ * Hidden seats park their stream: main sends them no output, and shown
+ * again they catch up from main's grid (`showStream` in TerminalSurface).
+ * Here only the presenting renderer (WebGL addon) is gated. Optional motion flags pause
  * presents when the page is hidden or the operator asked to freeze motion;
  * omitted flags do not constrain.
  */
