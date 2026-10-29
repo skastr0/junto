@@ -213,8 +213,9 @@ describe("motion law: rings move on the compositor", () => {
 
   it("a reach preview ring on a card off screen does not breathe", () => {
     const lib = read("src/renderer/lib/reach-preview.ts");
-    expect(lib).toMatch(/el\.setAttribute\(MARK, change\);\s*if \(!unwatchers\.has\(el\)\) unwatchers\.set\(el, watchUnseen\(el\)\);/);
-    expect(lib).not.toMatch(/el\.setAttribute\(MARK, change\);\s*\}/);
+    expect(lib).toMatch(/if \(!els\.has\(el\)\) els\.set\(el, watchUnseen\(el\)\);/);
+    // Unmarking walks the elements it marked, so a card remounted mid-drag is still let go.
+    expect(lib).toMatch(/for \(const \[el, unwatch\] of marked\.get\(id\) \?\? \[\]\) \{\s*el\.removeAttribute\(MARK\);\s*unwatch\(\);/);
     expect(read("src/renderer/styles/reach-preview.css")).toContain(".react-flow__node[data-reach-preview][data-unseen]::before { animation: none; }");
   });
 
