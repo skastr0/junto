@@ -289,3 +289,38 @@ test("the Automations node writes a code step and saves it", async () => {
     await junto.close();
   }
 });
+
+/**
+ * 0.11.1: a signal step in the run history. The firing says what it raised
+ * ("raised <title>"), and the signal's own row fills in its state. Frames in
+ * both themes.
+ */
+test("a signal step says what it raised in the run history", async () => {
+  await mkdir(SHOTS, { recursive: true });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
+  try {
+    const { page } = junto;
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect(page.locator(`.react-flow__node[data-id="${NODE}"]`)).toBeVisible({ timeout: 30_000 });
+    await page.locator(`.react-flow__node[data-id="${NODE}"]`).dblclick();
+    const pane = page.getByTestId("automations-node");
+    await expect(pane).toBeVisible({ timeout: 20_000 });
+
+    await pane.getByRole("button", { name: "New automation" }).first().click();
+    const editor = pane.getByTestId("automation-editor");
+    await editor.getByLabel("Automation name").fill("Daily pages");
+    await editor.getByRole("button", { name: "Action 1", exact: true }).click();
+    await page.getByRole("option", { name: "Raise a signal" }).click();
+    await editor.getByLabel("Signal title").fill("Write 500 words");
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(pane.getByRole("button", { name: /Daily pages/ })).toBeVisible({ timeout: 10_000 });
+
+    // One firing now: the history names the signal it raised.
+    await pane.getByRole("button", { name: "Run now" }).click();
+    const history = pane.getByRole("region", { name: "Firing history" });
+    await expect(history.getByText(/raised "Write 500 words"/)).toBeVisible({ timeout: 15_000 });
+    await bothThemes(page, "17-signal-raised");
+  } finally {
+    await junto.close();
+  }
+});
