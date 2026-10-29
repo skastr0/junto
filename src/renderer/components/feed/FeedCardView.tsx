@@ -16,8 +16,10 @@ import type { SignalAnswer } from "../../lib/quick-reply-rules";
 import { dueWords, itemWorkOf, workIsDue } from "../../lib/signal-work-words";
 import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health-tone";
 import { AgentPortrait } from "../AgentPortrait";
+import { ResourceChip } from "../ui/ResourceChip";
 import { QuickReplies } from "../signals/QuickReplies";
 import { StatusDot } from "../ui/StatusDot";
+import { feedTextPieces, type FeedTaskRef } from "./feed-text";
 import "./operator-feed.css";
 
 // A feed card as drawn, from props alone: no store, no IPC. The feed fills
@@ -71,10 +73,15 @@ export function FeedWords({
   item,
   nowMs,
   labelId,
+  taskByNumber,
+  onOpenTask,
 }: {
   readonly item: FeedItem;
   readonly nowMs: number;
   readonly labelId?: string;
+  /** The canvas's tasks by number: a `#42` the canvas holds is drawn as a chip that opens it. */
+  readonly taskByNumber?: ReadonlyMap<number, FeedTaskRef>;
+  readonly onOpenTask?: (task: FeedTaskRef) => void;
 }) {
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
@@ -97,7 +104,21 @@ export function FeedWords({
           </time>
         ) : null}
       </header>
-      <p id={labelId && `${labelId}-text`} className="operator-feed__text">{item.text}</p>
+      <p id={labelId && `${labelId}-text`} className="operator-feed__text">
+        {feedTextPieces(item.text, taskByNumber).map((piece, index) =>
+          piece.kind === "text" ? (
+            <span key={index}>{piece.text}</span>
+          ) : (
+            <ResourceChip
+              key={index}
+              kind="task"
+              label={piece.task.title}
+              number={piece.number}
+              {...(onOpenTask === undefined ? {} : { onOpen: () => onOpenTask(piece.task) })}
+            />
+          ),
+        )}
+      </p>
       {health ? (
         <p className="operator-feed__health" title="Jev's reading of the screen, not the agent's own claim">
           <StatusDot tone={THREAD_HEALTH_STATUS_TONE[health.tone]} />
@@ -168,6 +189,9 @@ export type FeedCardViewProps = {
   readonly sending: string | null;
   /** Draw the selected row's pill rows in the row itself. */
   readonly pills?: boolean;
+  /** The canvas's tasks by number: a `#42` the canvas holds is drawn as a chip that opens it. */
+  readonly taskByNumber?: ReadonlyMap<number, FeedTaskRef>;
+  readonly onOpenTask?: (task: FeedTaskRef) => void;
   readonly onSelect: () => void;
   readonly onQuickReply: (text: string) => void;
   readonly onQuietNote?: (text: string) => void;
@@ -190,6 +214,8 @@ export function FeedCardView({
   leaving,
   sending,
   pills = true,
+  taskByNumber,
+  onOpenTask,
   onSelect,
   onQuickReply,
   onQuietNote,
@@ -216,7 +242,13 @@ export function FeedCardView({
       >
         <FeedPortraitWell item={item} face={face} />
         <div className="operator-feed__body">
-          <FeedWords item={item} nowMs={nowMs} labelId={labelId} />
+          <FeedWords
+            item={item}
+            nowMs={nowMs}
+            labelId={labelId}
+            {...(taskByNumber === undefined ? {} : { taskByNumber })}
+            {...(onOpenTask === undefined ? {} : { onOpenTask })}
+          />
           {pills && selected && item.signalId ? (
             <FeedPills
               item={item}

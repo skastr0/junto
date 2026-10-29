@@ -90,6 +90,7 @@ import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { handInSignalWork, itemWorkOf, paneAnswerOf, putSignalSecret, type PaneAnswer } from "../../lib/signal-work";
 import { VAULT_ENABLED } from "@shared/features";
 import { state$ } from "../../lib/state";
+import { useCanvasTasks } from "../../lib/tasks-source";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
 import { KindMark } from "../NodeKindMark";
@@ -101,6 +102,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedRegionStrip } from "./FeedRegionStrip";
+import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
 import {
   FeedCardView,
   FeedPills,
@@ -149,6 +151,15 @@ export const openSeat = (item: FeedItem, node: Node | undefined): void => {
   }
   if (item.signalId) requestSectionReveal(node.id, SIGNALS_SECTION);
   activateNodeSurface(node.id);
+};
+
+/**
+ * A task named in a card's words: the feed steps aside and the task opens on
+ * its board, as a press on a signal's attachment chip does.
+ */
+export const openFeedTask = (task: FeedTaskRef): void => {
+  closeOperatorFeed();
+  openWorkDetail(task.nodeId, { itemId: task.taskId });
 };
 
 /** What sits in a card's portrait well, live: this Mac, the seat's own ring, the node's mark. */
@@ -224,6 +235,8 @@ function FeedDetail({
   replying,
   sending,
   error,
+  taskByNumber,
+  onOpenTask,
   onAnswer,
   onReply,
   onReviewCommit,
@@ -236,6 +249,8 @@ function FeedDetail({
   readonly replying: boolean;
   readonly sending: string | null;
   readonly error: string | null;
+  readonly taskByNumber: ReadonlyMap<number, FeedTaskRef>;
+  readonly onOpenTask: (task: FeedTaskRef) => void;
   readonly onAnswer: (answer: SignalAnswer) => void;
   readonly onReply: (open: boolean) => void;
   readonly onReviewCommit: (sha: string) => void;
@@ -262,7 +277,7 @@ function FeedDetail({
         <div className="operator-feed__detail-head">
           <FeedPortrait item={item} node={node} />
           <div className="operator-feed__body">
-            <FeedWords item={item} nowMs={nowMs} />
+            <FeedWords item={item} nowMs={nowMs} taskByNumber={taskByNumber} onOpenTask={onOpenTask} />
           </div>
         </div>
         {/* Only a signal carries details, so the signal is always there to read from. */}
@@ -465,6 +480,9 @@ export function OperatorFeed() {
   const quietNotes = useQuietNotes();
   const canvasName = use$(state$.canvasName);
   const nodesById: ReadonlyMap<string, Node> = useCanvas(canvasName).nodes;
+  // A card's `#42` is the canvas's task 42: the numbers the seats write.
+  const tasks = useCanvasTasks(canvasName);
+  const taskByNumber = useMemo(() => feedTasksByNumber(tasks), [tasks]);
   const regionPick = use$(feedView$.region);
   const feedOrder = use$(feedView$.order);
   const feedQuery = use$(feedView$.query);
@@ -851,6 +869,8 @@ export function OperatorFeed() {
                     leaving={section.leavingIds.has(item.itemId)}
                     sending={sending.get(item.itemId) ?? null}
                     pills={false}
+                    taskByNumber={taskByNumber}
+                    onOpenTask={openFeedTask}
                     onSelect={() => setSelected(item.itemId)}
                     onQuickReply={(text) => void answer(item, { kind: "reply", text })}
                   />
@@ -869,6 +889,8 @@ export function OperatorFeed() {
               replying={replyFor === selectedItem.itemId}
               sending={sending.get(selectedItem.itemId) ?? null}
               error={failure?.itemId === selectedItem.itemId ? failure.message : null}
+              taskByNumber={taskByNumber}
+              onOpenTask={openFeedTask}
               onAnswer={(chosen) => void answer(selectedItem, chosen)}
               onReply={(open) => setReplyFor(open ? selectedItem.itemId : null)}
               onReviewCommit={(sha) =>
