@@ -165,6 +165,8 @@ function SecretWork({
   // The value lives in the field alone: never in state, a draft or the view.
   const field = useRef<HTMLInputElement>(null);
   const [typed, setTyped] = useState(false);
+  // Each try gets a new field: emptying one leaves its own undo able to bring the value back.
+  const [attempt, setAttempt] = useState(0);
   const canvas = useCanvas(canvasName);
   const region = canvas.nodes.get(form.regionId as NodeId);
   const where = region?.kind === "region" ? regionName(region) : "a region out of reach";
@@ -176,6 +178,7 @@ function SecretWork({
     // Emptied as it goes, whatever comes back.
     input.value = "";
     setTyped(false);
+    setAttempt((count) => count + 1);
     onPut(value);
   };
   return (
@@ -187,10 +190,12 @@ function SecretWork({
         It goes into the vault and nowhere else: not this signal, its answer or any log.
       </p>
       <Input
+        key={attempt}
         ref={field}
         dense
         type="password"
-        autoComplete="off"
+        // "new-password", which a browser honours for a password field where "off" may not: nothing offered, nothing saved.
+        autoComplete="new-password"
         spellCheck={false}
         aria-label={`Value of ${form.name}`}
         aria-describedby={noteId}

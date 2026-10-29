@@ -205,7 +205,8 @@ describe("work done in the signal", () => {
     expect(host.querySelector(".signal-work__where")?.textContent).toBe("deploy-bot asks for CLOUDFLARE_API_TOKEN, declared in Release, for studio.");
     const field = host.querySelector<HTMLInputElement>('input[aria-label="Value of CLOUDFLARE_API_TOKEN"]')!;
     expect(field.type).toBe("password");
-    expect(field.autocomplete).toBe("off");
+    expect(field.autocomplete).toBe("new-password");
+    expect(field.name).toBe("");
     expect(button("Set secret").getAttribute("aria-disabled")).toBe("true");
     await act(async () => button("Set secret").click());
     expect(put).toEqual([]);
@@ -216,20 +217,21 @@ describe("work done in the signal", () => {
     });
     await act(async () => button("Set secret").click());
     expect(put).toEqual([{ signalId: "sig-1", value: "cf-secret-value" }]);
-    // Emptied as it went, the refusal said, and the value nowhere in the page.
-    expect(field.value).toBe("");
+    // A new field took its place, empty, so the old one's undo is gone with it; the refusal is said, and the value is nowhere in the page.
+    const fresh = host.querySelector<HTMLInputElement>('input[aria-label="Value of CLOUDFLARE_API_TOKEN"]')!;
+    expect(fresh).not.toBe(field);
+    expect(fresh.value).toBe("");
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("The vault token on studio was refused.");
     expect(document.body.innerHTML).not.toContain("cf-secret-value");
     expect(done).toBe(0);
 
     putAnswer = { ok: true };
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "second-try");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(fresh, "second-try");
+      fresh.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    await act(async () => fresh.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(put.at(-1)).toEqual({ signalId: "sig-1", value: "second-try" });
-    expect(field.value).toBe("");
     expect(done).toBe(1);
   });
 

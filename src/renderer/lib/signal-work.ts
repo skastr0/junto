@@ -166,7 +166,10 @@ export const handInSignalWork = async (signalId: string, reply: WorkReply): Prom
 export const putSignalSecret = async (signalId: string, value: string): Promise<SignalActionResult> => {
   const api = getJuntoApi();
   if (!api) return { ok: false, message: "Junto is not connected." };
-  return api.signalSecretPut({ signalId, value }).then(
+  // Called inside a promise, so a throw on the way in takes the same quiet path as a rejection.
+  return Promise.resolve()
+    .then(() => api.signalSecretPut({ signalId, value }))
+    .then(
     (result): SignalActionResult => {
       if (!result.ok) return { ok: false, message: sentenceOf(result.message) };
       if (result.signal === undefined) {

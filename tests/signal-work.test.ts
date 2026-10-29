@@ -91,5 +91,14 @@ describe("a secret's value, through the vault", () => {
 
     vi.stubGlobal("window", { junto: { signalSecretPut: async () => Promise.reject(new Error("failed with the-value")) } });
     expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set." });
+    // A throw on the way in, not a rejection, takes the same path.
+    vi.stubGlobal("window", {
+      junto: {
+        signalSecretPut: () => {
+          throw new Error("threw with the-value");
+        },
+      },
+    });
+    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set." });
   });
 });
