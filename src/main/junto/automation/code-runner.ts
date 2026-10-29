@@ -33,12 +33,10 @@
  *
  * The child runs as this OS account. It is not a sandbox.
  */
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Readable } from "node:stream";
 import { Effect, Schema } from "effect";
 import type { ContentRef } from "@shared/content";
 import { WORK_TOKEN_ENV } from "@shared/work-control";
@@ -51,6 +49,7 @@ import {
   StderrTail,
   type ScrubbedTail,
 } from "../credentials/scrub";
+import { appProcessPlane, type AppProcessExit, type AppProcessLease } from "../app-process-plane";
 import type { ContentServiceShape } from "../content/service";
 import { juntoCliPathPrefixes } from "../term/templates/seat-env";
 import { CODE_LAUNCHER_SOURCE, CODE_SDK_SOURCE } from "./code-sdk";
@@ -228,105 +227,143 @@ type ProcessEnd = {
 };
 
 type ProcessPlan = {
+  readonly shell: string;
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly cwd: string;
   readonly env: Record<string, string>;
   readonly stdin: string;
+  readonly answerFile: string;
   readonly timeoutMs: number;
   readonly maxOutputBytes: number;
 };
 
-/** Kill the child's whole process group; a group already gone is the goal. */
-const killGroup = (pid: number | undefined, signal: NodeJS.Signals): void => {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    // ESRCH: nothing left in the group.
-  }
-};
+/**
+ * The fixed launcher the plane's group leader runs: fd 3 opens on the run's
+ * answer file, the step runs in the foreground, and when it ends what it
+ * started is sent TERM; the step's own end is kept (a signal re-raised).
+ * Every path and argument arrives as "$@", never in this string.
+ */
+const CODE_GROUP_LAUNCHER = [
+  'answer=$1; shift',
+  'exec 3>"$answer" || exit 125',
+  "trap : TERM",
+  '"$@"',
+  "status=$?",
+  "kill -TERM 0 2>/dev/null",
+  'if [ "$status" -gt 128 ]; then trap - TERM; kill -"$((status - 128))" $$; fi',
+  'exit "$status"',
+].join("\n");
 
+/** How often a running step's answer file is measured against its bound. */
+const ANSWER_POLL_MS = 100;
+
+/**
+ * One step as a process group of the central process plane (docs/security-doctrine.md):
+ * the timeout sends the group TERM then KILL, quit drains it, and what the
+ * step leaves past TERM the plane signals at quit.
+ */
 const runProcess = (plan: ProcessPlan, abort: AbortSignal): Promise<ProcessEnd> =>
   new Promise((resolve, reject) => {
     const started = performance.now();
     const tail = new StderrTail();
-    const answer: Buffer[] = [];
-    let answerBytes = 0;
     let timedOut = false;
     let tooLarge = false;
-    let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    let exited: AppProcessExit | undefined;
     let settled = false;
     const timers: NodeJS.Timeout[] = [];
 
-    const child = spawn(plan.command, [...plan.args], {
-      cwd: plan.cwd,
-      env: plan.env,
-      // A group of its own, so the timeout ends what the code started too.
-      detached: true,
-      stdio: ["pipe", "pipe", "pipe", "pipe"],
-    });
+    let lease: AppProcessLease;
+    try {
+      lease = appProcessPlane.spawnGroup({
+        source: "automation.code",
+        purpose: "automation code step",
+        command: plan.shell,
+        args: ["-c", CODE_GROUP_LAUNCHER, "junto-code", plan.answerFile, plan.command, ...plan.args],
+        cwd: plan.cwd,
+        env: plan.env,
+      });
+    } catch (cause) {
+      reject(cause);
+      return;
+    }
+    const io = lease.io;
+    const kill = (reason: string): void => void appProcessPlane.forceTerminate(lease, reason);
 
+    const settle = (): void => {
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
+      clearInterval(measure);
+      abort.removeEventListener("abort", onAbort);
+      offError();
+    };
     const finish = (): void => {
       if (settled || exited === undefined) return;
-      settled = true;
-      for (const timer of timers) clearTimeout(timer);
-      abort.removeEventListener("abort", onAbort);
-      resolve({
-        exitCode: exited.code,
-        signal: exited.signal,
-        answer: Buffer.concat(answer),
+      const end = exited;
+      settle();
+      void readAnswer(plan.answerFile, plan.maxOutputBytes).then((read) => resolve({
+        exitCode: end.code,
+        signal: end.signal,
+        answer: read.answer,
         timedOut,
-        tooLarge,
+        tooLarge: tooLarge || read.tooLarge,
         durationMs: Math.round(performance.now() - started),
         tail,
-      });
+      }), reject);
     };
-    const onAbort = (): void => killGroup(child.pid, "SIGKILL");
+    const onAbort = (): void => kill("automation code step aborted");
     abort.addEventListener("abort", onAbort, { once: true });
 
-    child.once("error", (cause) => {
+    const offError = io.onError((cause) => {
       if (settled) return;
-      settled = true;
-      for (const timer of timers) clearTimeout(timer);
-      abort.removeEventListener("abort", onAbort);
-      killGroup(child.pid, "SIGKILL");
+      settle();
+      kill("automation code step process error");
       reject(cause);
     });
 
-    child.stdout?.on("data", (chunk: Buffer) => tail.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => tail.push(chunk));
-    const answers = child.stdio[3] as Readable | null;
-    answers?.on("data", (chunk: Buffer) => {
-      if (tooLarge) return;
-      answerBytes += chunk.length;
-      if (answerBytes > plan.maxOutputBytes) {
+    // The answer is bounded while the step runs, not only after: a runaway writer is ended.
+    const measure = setInterval(() => {
+      void stat(plan.answerFile).then((file) => {
+        if (tooLarge || exited !== undefined || file.size <= plan.maxOutputBytes) return;
         tooLarge = true;
-        killGroup(child.pid, "SIGKILL");
-        return;
-      }
-      answer.push(chunk);
-    });
-    answers?.on("error", () => undefined);
+        kill("automation code step answer past its bound");
+      }, () => undefined);
+    }, ANSWER_POLL_MS);
+
+    io.stdout.on("data", (chunk: Buffer) => tail.push(chunk));
+    io.stderr.on("data", (chunk: Buffer) => tail.push(chunk));
 
     // Code that never reads its input closes stdin early: that is not a failure.
-    child.stdin?.on("error", () => undefined);
-    child.stdin?.end(plan.stdin);
+    io.stdin.on("error", () => undefined);
+    io.stdin.end(plan.stdin);
 
     timers.push(setTimeout(() => {
       timedOut = true;
-      killGroup(child.pid, "SIGTERM");
-      timers.push(setTimeout(() => killGroup(child.pid, "SIGKILL"), CODE_KILL_GRACE_MS));
+      appProcessPlane.terminate(lease, "automation code step timeout");
+      timers.push(setTimeout(() => kill("automation code step timeout"), CODE_KILL_GRACE_MS));
     }, plan.timeoutMs));
 
-    child.once("exit", (code, signal) => {
-      exited = { code, signal };
-      // What the code left running ends with it.
-      killGroup(child.pid, "SIGKILL");
+    void io.exited.then((event) => {
+      exited = event;
       timers.push(setTimeout(finish, DRAIN_MS));
     });
-    child.once("close", () => finish());
+    void io.closed.then(() => finish());
   });
+
+/** The answer file as the step left it: at most one byte past the bound is read. */
+const readAnswer = async (file: string, maxOutputBytes: number): Promise<{ readonly answer: Buffer; readonly tooLarge: boolean }> => {
+  const handle = await open(file, "r").catch(() => undefined);
+  if (handle === undefined) return { answer: Buffer.alloc(0), tooLarge: false };
+  try {
+    const buffer = Buffer.alloc(maxOutputBytes + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return bytesRead > maxOutputBytes
+      ? { answer: Buffer.alloc(0), tooLarge: true }
+      : { answer: buffer.subarray(0, bytesRead), tooLarge: false };
+  } finally {
+    await handle.close();
+  }
+};
 
 /**
  * The run's own directory: the source copied in, and for TypeScript the
@@ -465,12 +502,16 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
           const args = request.language === "typescript"
             ? ["run", "--no-install", "--no-env-file", `--config=${join(dir, "bunfig.toml")}`, `--tsconfig-override=${join(dir, "tsconfig.json")}`, file]
             : [file];
+          const answerFile = join(dir, "answer");
+          await writeFile(answerFile, "", { mode: 0o600 });
           return runProcess({
+            shell,
             command,
             args,
             cwd: dir,
             env,
             stdin: JSON.stringify(request.input),
+            answerFile,
             timeoutMs,
             maxOutputBytes,
           }, signal);

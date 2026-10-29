@@ -155,6 +155,20 @@ describe("a TypeScript code step", () => {
     expect(alive).toBe(false);
   }, 30_000);
 
+  it("ends what the code left running when it exits", async () => {
+    const marker = join(root, "leftover-pid");
+    const result = await run(request("typescript", `
+      const child = Bun.spawn(["sleep", "60"]);
+      require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(child.pid));
+      child.unref();
+    `));
+    expect(result.kind).toBe("continue");
+    const pid = Number(require("node:fs").readFileSync(marker, "utf8"));
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    expect(alive).toBe(false);
+  }, 30_000);
+
   it("is too_large past the output bound", async () => {
     const result = await run(request("typescript", `
       import { cont } from "junto/automation";
