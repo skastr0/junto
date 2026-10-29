@@ -34,7 +34,9 @@ export const spawnGit: GitRun = async (cwd, args, onBytes, signal, stdin) => {
   child.io.stdin.on("error", () => undefined);
   child.io.stdin.end(stdin);
   try {
-    return (await child.io.exited).code;
+    // Close, not exit: exit can fire before stdout's last chunks arrive (on
+    // Linux it often does), and a name in them would be lost from the index.
+    return (await child.io.closed).code;
   } finally {
     signal.removeEventListener("abort", abort);
   }
