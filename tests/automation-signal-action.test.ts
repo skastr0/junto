@@ -51,6 +51,7 @@ const perform = (signals: AgentSignalRepository["Service"], action: SignalAction
   Effect.runPromise(performSignalAction(signals, {
     canvas,
     canvasName: "factory",
+    machine: "mini",
     automation,
     action,
     index: 0,
@@ -126,10 +127,14 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     expect(raised).toEqual([]);
   });
 
-  it("refuses the secret form until the vault (N5), raising nothing", async () => {
+  it("refuses a secret form no region declares for the firing's machine, and one with no machine, raising nothing", async () => {
     const { raised, signals } = store();
-    expect(await perform(signals, { ...write, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" as never } }))
-      .toEqual({ index: 0, ruling: "refused", reason: "not_available" });
+    const secret = { ...write, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } } as SignalAction;
+    expect(await perform(signals, secret)).toEqual({ index: 0, ruling: "refused", reason: "invalid_input" });
+    expect(await Effect.runPromise(performSignalAction(signals, {
+      canvas, canvasName: "factory", machine: undefined, automation, action: secret, index: 0,
+      fired: { at: FIRED_AT }, resolve: Effect.succeed, signalId: SIGNAL_ID,
+    }))).toEqual({ index: 0, ruling: "refused", reason: "not_available" });
     expect(raised).toEqual([]);
   });
 
@@ -137,7 +142,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     const { raised, signals } = store();
     const long = (text: string) => Effect.succeed(text.replaceAll("{{fired.at}}", "x".repeat(400)));
     await Effect.runPromise(performSignalAction(signals, {
-      canvas, canvasName: "factory", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, signalId: SIGNAL_ID,
+      canvas, canvasName: "factory", machine: "mini", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, signalId: SIGNAL_ID,
     }));
     expect(raised[0]!.text.length).toBe(280);
     expect((raised[0]!.form as { title: string }).title.length).toBe(200);

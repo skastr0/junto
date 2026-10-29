@@ -29,6 +29,8 @@ export type SignalAction = Extract<Action, { readonly kind: "signal" }>;
 export type SignalActionInput = {
   readonly canvas: Canvas | undefined;
   readonly canvasName: string;
+  /** The machine this firing runs on, by its short name: a secret form's value is for it. */
+  readonly machine: string | undefined;
   readonly automation: Automation;
   readonly action: SignalAction;
   readonly index: number;
@@ -97,6 +99,8 @@ export const performSignalAction = (
         reaches: targetNodeIds({ ...automation, then: [action] }),
         text,
         request: yield* formRequestOf(action.form, input.resolve),
+        raiser: automation.nodeId,
+        ...(input.machine === undefined ? {} : { machine: input.machine }),
       });
       if (Result.isFailure(settled)) {
         // The secret form waits for the vault (N5); a shelf gone or labels unfit are the step's own.

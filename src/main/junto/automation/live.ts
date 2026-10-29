@@ -790,6 +790,7 @@ export const AutomationRunnerLive = Layer.effect(
             onSome: (signals) => performSignalAction(signals, {
               canvas: canvases.get(canvasName),
               canvasName,
+              machine: here.get(canvasName)?.machine,
               automation,
               action,
               index,
