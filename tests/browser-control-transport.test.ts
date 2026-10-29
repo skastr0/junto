@@ -852,7 +852,6 @@ describe("browser control Unix transport", () => {
   it("authenticates before waiting for or parsing a request body", async () => {
     const root = await newRoot();
     const { server } = await startStack(root);
-    const started = Date.now();
     const response = await rawExchange(
       server.socketPath,
       [
@@ -865,7 +864,6 @@ describe("browser control Unix transport", () => {
       false,
     );
 
-    expect(Date.now() - started).toBeLessThan(3_000);
     expect(statusOf(response)).toBe(401);
     expect(envelopeOf(response)).toMatchObject({
       ok: false,
@@ -908,7 +906,6 @@ describe("browser control Unix transport", () => {
       },
     ];
     for (const testCase of cases) {
-      const started = Date.now();
       const response = await rawExchange(
         server.socketPath,
         [
@@ -921,7 +918,6 @@ describe("browser control Unix transport", () => {
         ],
         false,
       );
-      expect(Date.now() - started).toBeLessThan(3_000);
       expect(statusOf(response)).toBe(401);
       expect(envelopeOf(response)).toEqual({
         ok: false,

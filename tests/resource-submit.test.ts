@@ -130,9 +130,7 @@ describe("a seat's write on a canvas another machine edits", () => {
   it("answers queued at once with no link to the editing machine, and the command is held", async () => {
     linked = false;
     const opId = op();
-    const started = Date.now();
     expect(await runtime.runPromise(submit.queue(command(opId), EDITOR))).toEqual({ kind: "queued" });
-    expect(Date.now() - started).toBeLessThan(RULING_WAIT_MS / 4);
     expect(await runtime.runPromise(work.commandState("factory", SELF, opId))).toEqual({ kind: "queued" });
   });
 

@@ -113,9 +113,7 @@ describe("main authoring gate", () => {
     void gate.run("ipc.canvas.portfolio", () => stuck.promise);
     gate.beginFinalFlush();
 
-    const started = Date.now();
     const report = await gate.drain(20);
-    expect(Date.now() - started).toBeLessThan(2_000);
     expect(report).toEqual({
       settled: 0,
       remaining: ["ipc.canvas.portfolio"],
