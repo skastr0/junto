@@ -778,7 +778,7 @@ its id.
 **The machine key** is minted, each time, by the operator's CLI on the editing
 machine, for one sandbox and only `sandbox.read`, `sandbox.update` and
 `sandbox.stop`. Its scope is checked after minting, as the account key's is.
-It is the one credential that crosses machines, and only at setup:
+It is the one Boat credential that crosses machines, and only at setup:
 - it is written over the dialled SSH session, after strict host-key checking;
 - it travels on stdin, never in argv, an environment value or a command string;
 - it is written atomically to that machine's Junto home, at mode 0600, with
@@ -802,6 +802,70 @@ The client calls only the compiled origin `https://boat.dev`. It follows no
 redirect and bounds every answer. A failure carries a fixed sentence, Boat's
 status and a code that matches a pattern, never the key or a response body.
 Sandbox and key ids are typed fields. The scrub carries Boat's key shapes.
+
+## The vault
+
+Behind `VAULT_ENABLED`, carried to 0.12 ([machines.md](machines.md), The
+vault). Off, no vault token is read, minted, written or listed, and a source
+reads as it did before. A region names one 1Password vault, never a value, and
+each machine reads that vault with its own service-account token.
+
+**What each token gives.** Every machine's token has `read_items` on the one
+vault. The window machine's alone has `read_items,write_items`, and it is the
+only token Junto writes with. No token is made with `--can-create-vaults` or
+for more than one vault. A token reads every item in its vault, and a seat on
+its machine runs as the same user and can read the token file, so the vault,
+not the region's declared sources, bounds what that machine can read. A pasted
+token's scope is the operator's word, shown unverified. A minted token's scope
+is proven by its fixed argv, shown verified.
+
+**The one thing that crosses.** The token, once at setup, is the only thing
+the vault sends between machines (rule 9); a secret's value never crosses,
+since each machine reads 1Password itself. On the window machine the token
+arrives on `junto machine vault-token`'s stdin, never from a terminal, and
+rides the owner socket once, in that request. A request that fails to decode
+is answered with a fixed sentence. To another machine it travels on the
+dialled SSH session's stdin, never in argv, an environment value or a command
+string. That machine's core writes it at mode 0600 and its names-only record
+in one act (`machine.vault-receive`), which the window's IPC refuses.
+
+It never enters a canvas copy, a row exchange, status, a log, a failure, an
+audit row, a reply or a seat's child environment. Each machine's core knows it
+as a scrub value from the moment the file is written or read, and the window
+machine also for the length of a placement. The scrub's `ops_` shape covers
+every character a token may hold. An owner failure's message passes the scrub
+before it leaves. `op` runs under a token in a closed environment
+(`OP_SERVICE_ACCOUNT_TOKEN`, `PATH` and `HOME` only), and its stderr only
+classifies a refusal in fixed words.
+
+**Minting** runs one fixed `op service-account create` under the operator's
+own 1Password session, its environment the app's less
+`OP_SERVICE_ACCOUNT_TOKEN` and `OP_CONNECT_*`. The vault name is checked again
+where it enters `--vault <name>:<permissions>`, where a `:` or `,` would widen
+it. The mint runs only after the machine's route, install paths and remote
+command are checked. The token from `--raw` stdout is parsed in memory and
+known to the scrub at once, and then follows every rule above. A failure after
+a mint names the account so the operator can delete it in 1Password. Revoking
+a token is the operator's, in 1Password; Junto shows only its age.
+
+**Writing a secret.** A value the operator types in a secret form goes where
+the form's stored region declares it; the region, the machine and the name come
+from the stored form, never the caller. A vault source is written with the
+window machine's write token, the value on `op`'s stdin only. To set one field
+of an existing item, Junto reads that item's values into memory, sets the one
+field and pipes the whole item back to `op item edit`. The typed value and
+every field value read are known to the scrub while held and released when the
+edit ends. None is returned, logged or kept, and the answer carries names
+only. A `secret` source is saved only in the window machine's own store.
+
+**A receiver's minted label.** A receiving machine records a token's origin
+as its delivery says and cannot verify a mint itself. Only a caller on that
+machine's owner socket could forge one, and that is any process of the
+account, a seat included. Such a process already holds the account's authority
+(Authority inside Junto) and can write the token file and its record directly,
+so the forgery gives it nothing new. Verified is proven only in the window
+machine's list, which only a placement writes. A receiving machine's own label
+repeats what the window told it. Accepted in the N5 review (29 October).
 
 ## Evidence before a security claim
 
