@@ -64,11 +64,12 @@
   width: 100%;
   padding: 7px 8px;
   border-radius: var(--radius-sm);
+  cursor: pointer;
   text-align: left;
   color: var(--color-dim);
 }
 
-.quick-capture__row[aria-current="true"] {
+.quick-capture__row[aria-selected="true"] {
   background: var(--color-overlay-3);
   color: var(--color-ink);
 }
