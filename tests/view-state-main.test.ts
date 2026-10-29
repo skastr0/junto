@@ -10,7 +10,7 @@ import { artifactLabelOf, type ArtifactLabel } from "../src/shared/artifact-labe
 import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "../src/shared/view-state";
 import { createMainViewState } from "../src/renderer/lib/view-state-main";
 
-const EMPTY: ViewStateSnapshot = { commandGroups: {}, nodes: {}, focusSizes: {}, sections: {} };
+const EMPTY: ViewStateSnapshot = { commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {} };
 
 type Fake = {
   readonly api: JuntoViewStateApi;
@@ -61,6 +61,24 @@ const hydrated = async (snapshot: ViewStateSnapshot = EMPTY) => {
 };
 
 describe("the main-backed view-state store", () => {
+  it("fills the capture Inbox on load, writes only a change, and takes another window's", async () => {
+    const { state, applied, push } = await hydrated({ ...EMPTY, captureInboxes: { main: "inbox" } });
+    expect(state.nodeView.captureInbox("main")).toBe("inbox");
+    expect(state.nodeView.captureInbox("other")).toBeUndefined();
+    let heard = 0;
+    state.nodeView.onChange(() => (heard += 1));
+    state.nodeView.writeCaptureInbox("main", "inbox");
+    expect(applied).toEqual([]);
+    state.nodeView.writeCaptureInbox("main", "shelf");
+    expect(applied).toEqual([{ area: "capture-inbox", canvasName: "main", inbox: "shelf" }]);
+    expect(state.nodeView.captureInbox("main")).toBe("shelf");
+    push({ area: "capture-inbox", canvasName: "main", inbox: null });
+    expect(state.nodeView.captureInbox("main")).toBeUndefined();
+    expect(heard).toBeGreaterThanOrEqual(2);
+    state.nodeView.writeCaptureInbox("", "shelf");
+    expect(applied).toHaveLength(1);
+  });
+
   it("fills a canvas on load and announces it, and reads a stranger as undefined", async () => {
     const transport = fake({
       ...EMPTY,

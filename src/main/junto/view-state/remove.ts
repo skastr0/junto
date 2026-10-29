@@ -23,6 +23,7 @@ export const removeViewCanvas = (
     yield* sql`DELETE FROM view_open_items WHERE canvas_name = ${canvas}`;
     yield* sql`DELETE FROM view_expanded_folders WHERE canvas_name = ${canvas}`;
     yield* sql`DELETE FROM view_collapsed_sidebars WHERE canvas_name = ${canvas}`;
+    yield* sql`DELETE FROM view_capture_inboxes WHERE canvas_name = ${canvas}`;
   });
 
 /**
@@ -41,6 +42,7 @@ export const removeViewNodes = (
     yield* sql`DELETE FROM view_open_items WHERE canvas_name = ${canvas} AND ${sql.in("node_id", ids)}`;
     yield* sql`DELETE FROM view_expanded_folders WHERE canvas_name = ${canvas} AND ${sql.in("node_id", ids)}`;
     yield* sql`DELETE FROM view_collapsed_sidebars WHERE canvas_name = ${canvas} AND ${sql.in("node_id", ids)}`;
+    yield* sql`DELETE FROM view_capture_inboxes WHERE canvas_name = ${canvas} AND ${sql.in("node_id", ids)}`;
     yield* sql`DELETE FROM view_command_slot_members WHERE canvas_name = ${canvas} AND ${sql.in("node_id", ids)}`;
     yield* sql`DELETE FROM view_command_slots WHERE canvas_name = ${canvas}
       AND ((kind = 'fixed' AND ${sql.in("node_id", ids)}) OR (kind = 'group' AND NOT EXISTS (

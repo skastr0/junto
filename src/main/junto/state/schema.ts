@@ -53,7 +53,7 @@ import {
 } from "../seat-sessions/state-schema";
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
-import { VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
+import { VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../fleet/state-schema";
@@ -147,6 +147,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   SEAT_OFFBOARD_CLOCK_STATE_SCHEMA_SQL,
   HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL,
   VIEW_STATE_SCHEMA_SQL,
+  VIEW_CAPTURE_INBOX_SCHEMA_SQL,
   MACHINE_CODE_ALLOWANCES_SQL,
   SEAT_CONTROLS_STATE_SCHEMA_SQL,
   FLEET_CONSENSUS_STATE_SCHEMA_SQL,

@@ -201,6 +201,8 @@ export type ViewStateSnapshot = {
   readonly focusSizes: Readonly<Record<string, ViewFocusSize>>;
   /** By section key (`artifact-comments`, `seat-sidebar:mail`), machine-wide. */
   readonly sections: Readonly<Record<string, boolean>>;
+  /** By canvas name: the Artifacts node quick capture lands in (11 Q4). Absent until chosen. */
+  readonly captureInboxes: Readonly<Record<string, string>>;
 };
 
 export const EMPTY_VIEW_STATE: ViewStateSnapshot = {
@@ -208,6 +210,7 @@ export const EMPTY_VIEW_STATE: ViewStateSnapshot = {
   nodes: {},
   focusSizes: {},
   sections: {},
+  captureInboxes: {},
 };
 
 // ---------------------------------------------------------------------------
@@ -263,6 +266,12 @@ export const ViewStateWrite = Schema.Union([
     area: Schema.Literal("focus-size"),
     surface: SurfaceLabel,
     value: Schema.NullOr(ViewFocusSize),
+  }),
+  Schema.Struct({
+    area: Schema.Literal("capture-inbox"),
+    canvasName: CanvasName,
+    /** The Artifacts node captures land in; null forgets the choice. */
+    inbox: Schema.NullOr(NodeText),
   }),
   Schema.Struct({
     area: Schema.Literal("section"),

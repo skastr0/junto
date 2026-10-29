@@ -15,7 +15,7 @@
  * rows are removed by the model delete seam in `model-dependents.ts`, since
  * nodes live in one of many kind tables and no single foreign key names one.
  * A node the operator never touched writes no row. Added by state migration
- * 54 -> 55.
+ * 54 -> 55; the capture Inbox (below the main block) by 64 -> 65.
  */
 export const VIEW_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS view_command_slots (
@@ -123,6 +123,22 @@ export const VIEW_STATE_SCHEMA_SQL = `
   ) STRICT, WITHOUT ROWID;
 `;
 
+/**
+ * Quick capture's Inbox (0.11.2, 11 Q4): the one Artifacts node of a canvas
+ * the operator's captures land in. Machine-local like the rest of view state.
+ * A row per canvas; it goes with the canvas (FK) and with its node (the model
+ * delete seam, `remove.ts`). Added by state migration 64 -> 65.
+ */
+export const VIEW_CAPTURE_INBOX_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS view_capture_inboxes (
+    canvas_name TEXT NOT NULL
+      CHECK (length(canvas_name) BETWEEN 1 AND 256)
+      REFERENCES canvases (canvas_name) ON DELETE CASCADE,
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    PRIMARY KEY (canvas_name)
+  ) STRICT, WITHOUT ROWID;
+`;
+
 /** The node-scoped tables the model delete seam clears, by node and canvas. */
 export const VIEW_STATE_NODE_TABLES = [
   "view_artifacts_filters",
@@ -130,6 +146,7 @@ export const VIEW_STATE_NODE_TABLES = [
   "view_open_items",
   "view_expanded_folders",
   "view_collapsed_sidebars",
+  "view_capture_inboxes",
 ] as const;
 
 /** Every view-state table, for the canvas delete and its tests. */
@@ -145,4 +162,5 @@ export const VIEW_STATE_TABLES = [
   "view_collapsed_sidebars",
   "view_focus_sizes",
   "view_sections",
+  "view_capture_inboxes",
 ] as const;

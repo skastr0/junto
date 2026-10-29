@@ -86,6 +86,7 @@ export const makeMemoryNodeViewStore = (): NodeViewStore => {
   const files = rows<FilesNodeView>();
   const collapsed = new Set<string>();
   const sizes = rows<SurfaceSize>();
+  const inboxes = rows<string>();
   let railOpen = false;
   let actorRail = true;
   const listeners = new Set<() => void>();
@@ -120,6 +121,13 @@ export const makeMemoryNodeViewStore = (): NodeViewStore => {
     writeSurfaceSize: (surface, size) => {
       if (size === null) sizes.delete(surface);
       else sizes.set(surface, size);
+      announce();
+    },
+    captureInbox: (canvas) => (canvas === "" ? undefined : inboxes.get(canvas)),
+    writeCaptureInbox: (canvas, node) => {
+      if (canvas === "" || inboxes.get(canvas) === (node ?? undefined)) return;
+      if (node === null) inboxes.delete(canvas);
+      else inboxes.set(canvas, node);
       announce();
     },
     commentsRailOpen: () => railOpen,

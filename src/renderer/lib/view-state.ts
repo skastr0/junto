@@ -172,6 +172,10 @@ export type NodeViewStore = {
   /** The actor rail, one setting for every agent; expanded unless the operator collapsed it. */
   readonly actorRailExpanded: () => boolean;
   readonly writeActorRailExpanded: (expanded: boolean) => void;
+  /** Quick capture's Inbox: the Artifacts node this canvas's captures land in (11 Q4). */
+  readonly captureInbox: (canvas: string) => string | undefined;
+  /** null forgets it: the next capture asks again. */
+  readonly writeCaptureInbox: (canvas: string, node: string | null) => void;
   /** Hear any change as it lands, this window's or another's; returns the unsubscribe. */
   readonly onChange: (listener: () => void) => () => void;
 };

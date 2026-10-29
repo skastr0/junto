@@ -92,6 +92,7 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
   const nodes = new Map<string, NodeDraft>();
   const sizes = new Map<string, ViewFocusSize>();
   const sections = new Map<string, boolean>();
+  const inboxes = new Map<string, string>();
 
   // A read returns this object until its row changes.
   const artifactsCache = new Map<string, ArtifactsNodeView>();
@@ -140,6 +141,7 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     nodes.clear();
     sizes.clear();
     sections.clear();
+    inboxes.clear();
     for (const [canvas, groups] of Object.entries(snapshot.commandGroups)) {
       boards.set(canvas, {
         slots: groups.slots.slice(0, VIEW_COMMAND_SLOT_COUNT).map((slot) => slot ?? EMPTY_SLOT),
@@ -151,6 +153,7 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     }
     for (const [surface, size] of Object.entries(snapshot.focusSizes)) sizes.set(surface, size);
     for (const [section, open] of Object.entries(snapshot.sections)) sections.set(section, open);
+    for (const [canvas, node] of Object.entries(snapshot.captureInboxes ?? {})) inboxes.set(canvas, node);
     clearCaches();
   };
 
@@ -197,6 +200,10 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
         break;
       case "section":
         sections.set(write.section, write.open);
+        break;
+      case "capture-inbox":
+        if (write.inbox === null) inboxes.delete(write.canvasName);
+        else inboxes.set(write.canvasName, write.inbox);
         break;
     }
   };
@@ -422,6 +429,11 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
     send({ area: "focus-size", surface, value: next });
   };
 
+  const writeCaptureInbox = (canvas: string, node: string | null): void => {
+    if (canvas === "" || inboxes.get(canvas) === (node ?? undefined)) return;
+    send({ area: "capture-inbox", canvasName: canvas, inbox: node });
+  };
+
   const writeCommentsRailOpen = (open: boolean): void => {
     if ((sections.get(RAIL_SECTION) ?? false) === open) return;
     send({ area: "section", section: RAIL_SECTION, open });
@@ -461,6 +473,8 @@ export const createMainViewState = (api: JuntoViewStateApi): MainViewState => {
       return saved;
     },
     writeSurfaceSize,
+    captureInbox: (canvas) => (canvas === "" ? undefined : inboxes.get(canvas)),
+    writeCaptureInbox,
     commentsRailOpen: () => sections.get(RAIL_SECTION) ?? false,
     writeCommentsRailOpen,
     actorRailExpanded: () => sections.get(ACTOR_RAIL_SECTION) ?? true,

@@ -61,7 +61,7 @@ afterEach(async () => {
 
 describe("the view-state store", () => {
   it("reads an untouched machine as empty, and writes nothing for a node the canvas does not hold", async () => {
-    expect(await snapshot()).toEqual({ commandGroups: {}, nodes: {}, focusSizes: {}, sections: {} });
+    expect(await snapshot()).toEqual({ commandGroups: {}, nodes: {}, focusSizes: {}, sections: {}, captureInboxes: {} });
     expect(await write({ area: "sidebar", canvasName: canvas, nodeId: "ghost", collapsed: true })).toBe(false);
     expect((await snapshot()).nodes[canvas]).toBeUndefined();
   });
@@ -142,6 +142,43 @@ describe("the view-state store", () => {
 
     await write({ area: "focus-size", surface: "Tasks", value: null });
     expect((await snapshot()).focusSizes).toEqual({});
+  });
+});
+
+describe("quick capture's Inbox (11 Q4)", () => {
+  it("keeps one Artifacts node per canvas, last write wins, and null forgets it", async () => {
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: "a" })).toBe(true);
+    expect((await snapshot()).captureInboxes).toEqual({ [canvas]: "a" });
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: "b" })).toBe(true);
+    expect((await snapshot()).captureInboxes).toEqual({ [canvas]: "b" });
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: null })).toBe(true);
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+
+  it("keeps no row for a node the canvas does not hold as an Artifacts node", async () => {
+    expect(await write({ area: "capture-inbox", canvasName: canvas, inbox: "ghost" })).toBe(false);
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+
+  it("goes with its node, and leaves another node's Inbox alone", async () => {
+    await write({ area: "capture-inbox", canvasName: canvas, inbox: "a" });
+    await removeNodes(["b"]);
+    expect((await snapshot()).captureInboxes).toEqual({ [canvas]: "a" });
+    await removeNodes(["a"]);
+    expect((await snapshot()).captureInboxes).toEqual({});
+  });
+
+  it("goes with its canvas", async () => {
+    await write({ area: "capture-inbox", canvasName: canvas, inbox: "a" });
+    await run(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        Effect.gen(function* () {
+          yield* sql`DELETE FROM artifact_boards WHERE canvas_name = ${canvas}`;
+          yield* sql`DELETE FROM canvases WHERE canvas_name = ${canvas}`;
+        }),
+      ),
+    );
+    expect((await snapshot()).captureInboxes).toEqual({});
   });
 });
 

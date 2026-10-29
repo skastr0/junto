@@ -77,7 +77,7 @@ import {
   migrateBoardRequests,
 } from "./migrate-board-requests";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
-import { VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
+import { VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -815,7 +815,16 @@ export const STATE_SCHEMA_V64_IDENTITY = {
     "f35438d5f24b1408aca9b2b657758f7bda4de42e1fd5100446d36d3ff95c2eab",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 64;
+/**
+ * Version 65 keeps quick capture's Inbox (0.11.2, 11 Q4):
+ * `view_capture_inboxes`, one row per canvas. Expand only.
+ */
+export const STATE_SCHEMA_V65_IDENTITY = {
+  actualSchemaSha256:
+    "aefea4547b37028b6d112aa8fe56efa1d8024b9ea2347ea405f9b6e9e33e8850",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 65;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -823,7 +832,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 64;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V64_IDENTITY;
+  STATE_SCHEMA_V65_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1331,6 +1340,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V63_IDENTITY,
     migrate: (database) => database.exec(ARTIFACT_MOVES_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 64,
+    toVersion: 65,
+    name: "keep the capture Inbox",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V64_IDENTITY,
+    migrate: (database) => database.exec(VIEW_CAPTURE_INBOX_SCHEMA_SQL),
   },
 ];
 

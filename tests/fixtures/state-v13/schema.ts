@@ -378,3 +378,9 @@ export const STATE_SCHEMA_V64_SQL = stepped(
   STATE_SCHEMA_V63_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 64)!.migrate,
 );
+
+/** Step 65 adds `view_capture_inboxes`, quick capture's Inbox (11 Q4). */
+export const STATE_SCHEMA_V65_SQL = stepped(
+  STATE_SCHEMA_V64_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 65)!.migrate,
+);

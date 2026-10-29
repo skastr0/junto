@@ -92,6 +92,10 @@ type FocusSizeRow = {
   readonly width: number;
   readonly height: number;
 };
+type CaptureInboxRow = {
+  readonly canvas_name: string;
+  readonly node_id: string;
+};
 type SectionRow = {
   readonly section: string;
   readonly open: number;
@@ -191,6 +195,9 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
       const sectionRows = yield* sql<SectionRow>`
         SELECT section, open FROM view_sections ORDER BY section`;
 
+      const inboxRows = yield* sql<CaptureInboxRow>`
+        SELECT canvas_name, node_id FROM view_capture_inboxes ORDER BY canvas_name`;
+
       const boards = new Map<string, BoardDraft>();
       const board = (canvas: string): BoardDraft => {
         const known = boards.get(canvas);
@@ -274,7 +281,9 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
       for (const row of sizeRows) focusSizes[row.surface] = { width: row.width, height: row.height };
       const sections: Record<string, boolean> = {};
       for (const row of sectionRows) sections[row.section] = row.open === 1;
-      return { commandGroups, nodes: nodeState, focusSizes, sections } satisfies ViewStateSnapshot;
+      const captureInboxes: Record<string, string> = {};
+      for (const row of inboxRows) captureInboxes[row.canvas_name] = row.node_id;
+      return { commandGroups, nodes: nodeState, focusSizes, sections, captureInboxes } satisfies ViewStateSnapshot;
     }, Effect.mapError(persistence("snapshot")));
 
     const write = Effect.fn("viewState.write")(function* (change: ViewStateWrite) {
@@ -381,6 +390,21 @@ export const ViewStateRepositoryLive: Layer.Layer<ViewStateRepository, never, Sq
               ON CONFLICT (surface) DO UPDATE SET width = excluded.width, height = excluded.height`;
           }
           break;
+        case "capture-inbox": {
+          if (change.inbox === null) {
+            yield* sql`DELETE FROM view_capture_inboxes WHERE canvas_name = ${change.canvasName}`;
+            break;
+          }
+          // The Inbox is an Artifacts node of this canvas, never any other kind.
+          const held = yield* sql<{ one: number }>`
+            SELECT 1 AS one FROM artifact_boards
+            WHERE canvas_name = ${change.canvasName} AND id = ${change.inbox}`;
+          if (held.length === 0) return false;
+          yield* sql`
+            INSERT INTO view_capture_inboxes (canvas_name, node_id) VALUES (${change.canvasName}, ${change.inbox})
+            ON CONFLICT (canvas_name) DO UPDATE SET node_id = excluded.node_id`;
+          break;
+        }
         case "section":
           yield* sql`
             INSERT INTO view_sections (section, open) VALUES (${change.section}, ${change.open ? 1 : 0})
