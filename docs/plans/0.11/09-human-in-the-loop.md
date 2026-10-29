@@ -59,6 +59,109 @@ name the automation formats.
   title, a run's result written with `{{code.<field>}}`, and `answerTo`
   titles.
 
+## H1 contract
+
+Owner: automation-lead. The source of truth is `src/shared/automation.ts`;
+this section says what it holds so H2, H3 and H4 can build on it.
+
+**Signal kinds.** The signal action's `signal` is one of `notice`,
+`escalate`, `blocked` or `feedback` (`SignalKind`). `escalate` and `blocked`
+may carry a `form`; `notice` and `feedback` may not (the seat rule,
+`signalKindTakesForm`). The action's `work` field (due time and urgency)
+goes with the `work` kind. A stored action that still says `signal: "work"`
+is read as `escalate`, and its `work` field is dropped
+(`upgradeStoredAutomation`, run before every stored automation is decoded).
+The operator's database held no automation at all on 2026-10-29 (checked on
+a read-only copy), so nothing is mapped in practice.
+
+**Step ids.** A signal action may carry `id`, a step id the automation
+names it by: lower-case letters, digits and dashes, 1 to 32 characters,
+starting with a letter or digit (`StepId`). Two signal steps of one
+automation never share an id (refused at save). The editor and the CLI mint
+one when a step has none and something links to it; an id survives a
+reorder, which an index does not.
+
+**One signal per firing.** A firing's signal step raises one signal, whose
+id is derived from the firing and the step. A retried firing raises it once;
+ten firings raise ten signals. Nothing groups or replaces them
+(`tests/automation-signal-action.test.ts`).
+
+**The answered watch.** A new change watch:
+
+```ts
+{ kind: "answered",
+  automation: { node: NodeId, automationId: AutomationId }, // the raising one
+  step?: StepId,                                            // that signal step only
+  signal?: "escalate" | "blocked" | "feedback" }            // that kind only
+```
+
+It fires once per signal (claim key `answered:<signalId>`) when a signal the
+named automation raised becomes `answered`. A dismissed or withdrawn signal
+fires nothing, and so does a notice. The raising automation's node must be in
+reach. An answer is the operator's act, so it always fires; it is never an
+automation's own write.
+
+**Values of the answered watch** (`AUTOMATION_VALUES.answered`):
+
+| Value | Says |
+|---|---|
+| `answer.text` | the answer's words; for a secret form only the name it set, never the value |
+| `answer.link` | a link to the document an artifact form's reply made, or a proof's links, one a line |
+| `answer.by` | who answered: `operator` |
+| `answer.at` | when, as an ISO time |
+| `signal.title` | the signal's title as raised |
+| `signal.kind` | `escalate`, `blocked` or `feedback` |
+| `signal.link` | a link to the raising automation's node, labelled with the title |
+| `raised.<name>` | any value the raising firing carried when its signal step ran: `raised.fired.at`, `raised.task.title`, `raised.code.<field>` |
+
+A `raised.<name>` the raising firing did not carry stays as written, as a
+`{{code.<field>}}` does. The raising firing's values are kept on its `raised`
+ruling (`values`), so they outlive edits to the raising automation.
+
+**answerTo.** The signal action takes `answerTo?`, one of:
+
+```ts
+{ kind: "seat", to: MentionRef }                       // a seat in reach
+{ kind: "document", node: NodeId, title: string }      // a new document in that Artifacts node
+{ kind: "append", to: MentionRef }                     // an artifact: a dated section at its end
+```
+
+`notice` takes none (refused at save). When the signal is answered, the
+automation's machine delivers the answer, as the automation:
+
+- **seat:** prompt mail from the Automations node, worded as a seat's own
+  answer is: the signal's kind and title, then the answer and its link.
+- **document:** a document titled `title`, its body the answer and its link.
+- **append:** `## <answer.at as YYYY-MM-DD HH:mm>`, then the answer and its
+  link, appended against the head it reads.
+
+`title` may name the step's own values (its trigger's, earlier code steps')
+and the answered values `answer.*` and `signal.*`, said at answer time. The
+delivery is recorded as a firing of the raising automation with cause
+`{kind: "change", key: "answer:<signalId>"}` and one ruling, at the signal
+step's index; its ids derive from the signal, so a delivery heard twice
+writes once. It is not held back by the automation being off or by its
+limits, only by reach.
+
+**Value formats.** A value token may carry formats, applied left to right:
+`{{name|format|format}}`. The set is closed (`VALUE_FORMATS`):
+
+| Format | Does |
+|---|---|
+| `date:<pattern>` | a time value written in `pattern`: `YYYY`, `YY`, `MM`, `M`, `DD`, `D`, `HH`, `H`, `mm`, `ss`, and any of ``- _ / . : , T`` and space as written. In the automation's time zone: its schedule's, else its machine's |
+| `slug` | lower case, runs of anything but letters and digits as one `-`, none at the ends |
+| `lower`, `upper` | case |
+| `trim` | spaces off both ends |
+
+A format that is not in the set, or a date pattern with anything else in it,
+is refused at save: "`{{fired.at|dat:YYYY}}` names an unknown format", next
+step listing the formats. `date` on a value that is not a time leaves it as
+said. Formats work everywhere a value does, `answerTo` titles included.
+
+**Answering (H2).** An automation's signal is answered without mail to the
+Automations node. The runner hears the answered row through
+`onAgentSignalChanged` on the automation's machine, as it hears a raise.
+
 ## Steps
 
 | Step | Who | What | Review |
