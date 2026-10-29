@@ -196,6 +196,9 @@ function SecretWork({
         type="password"
         // "new-password", which a browser honours for a password field where "off" may not: nothing offered, nothing saved.
         autoComplete="new-password"
+        // And the password managers' own opt-outs: no saved login filled in, no offer to save the value.
+        data-1p-ignore="true"
+        data-lpignore="true"
         spellCheck={false}
         aria-label={`Value of ${form.name}`}
         aria-describedby={noteId}

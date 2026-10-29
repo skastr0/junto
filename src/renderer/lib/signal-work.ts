@@ -162,6 +162,10 @@ export const handInSignalWork = async (signalId: string, reply: WorkReply): Prom
  * and nowhere else; what comes back names only the vault item. Set but not
  * recorded keeps the signal open, and says so. A failure that is not main's
  * own answer says nothing of what was sent.
+ *
+ * Main's refusal is shown as it comes, so the window relies on N5's
+ * contract: every `signalSecretPut` refusal and message names the item,
+ * region or machine and never the value. The window cannot scrub it.
  */
 export const putSignalSecret = async (signalId: string, value: string): Promise<SignalActionResult> => {
   const api = getJuntoApi();

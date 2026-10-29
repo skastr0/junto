@@ -207,6 +207,8 @@ describe("work done in the signal", () => {
     expect(field.type).toBe("password");
     expect(field.autocomplete).toBe("new-password");
     expect(field.name).toBe("");
+    expect(field.getAttribute("data-1p-ignore")).toBe("true");
+    expect(field.getAttribute("data-lpignore")).toBe("true");
     expect(button("Set secret").getAttribute("aria-disabled")).toBe("true");
     await act(async () => button("Set secret").click());
     expect(put).toEqual([]);
