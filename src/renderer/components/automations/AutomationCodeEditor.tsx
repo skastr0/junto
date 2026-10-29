@@ -83,6 +83,7 @@ export function AutomationCodeEditor({
   loading,
   saving,
   dirty,
+  unsaved,
   error,
   result,
   onSave,
@@ -97,7 +98,10 @@ export function AutomationCodeEditor({
   readonly onCode: (code: string) => void;
   readonly loading: boolean;
   readonly saving: boolean;
+  /** The text differs from the program it opened on: Revert has somewhere to go. */
   readonly dirty: boolean;
+  /** This step has no saved program yet: the template itself is worth saving. */
+  readonly unsaved: boolean;
   /** Why the code could not be read or saved, in words. */
   readonly error: string | undefined;
   /** The step's ruling from the last firing. */
@@ -162,7 +166,15 @@ export function AutomationCodeEditor({
         <Button variant="subtle" size="sm" aria-disabled={!dirty || saving} onClick={onRevert}>
           Revert
         </Button>
-        <Button variant="primary" size="sm" aria-disabled={saving} onClick={onSave}>
+        {/* A clean, saved buffer offers no Save: a lit button that does nothing reads as an action that is not there. */}
+        <Button
+          variant="primary"
+          size="sm"
+          aria-disabled={(!dirty && !unsaved) || saving}
+          onClick={() => {
+            if ((dirty || unsaved) && !saving) onSave();
+          }}
+        >
           {saving ? "Saving" : "Save"}
         </Button>
       </footer>

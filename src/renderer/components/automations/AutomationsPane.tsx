@@ -203,6 +203,7 @@ function CodeStepEditor({
   held,
   result,
   saving,
+  unsaved,
   error,
   onCode,
   onSave,
@@ -215,6 +216,8 @@ function CodeStepEditor({
   readonly held: CodeHeld;
   readonly result: ActionRuling | undefined;
   readonly saving: boolean;
+  /** The code has never been saved: the template itself is worth saving. */
+  readonly unsaved: boolean;
   readonly error: string | undefined;
   readonly onCode: (text: string) => void;
   readonly onSave: () => void;
@@ -230,6 +233,7 @@ function CodeStepEditor({
       loading={held.loading}
       saving={saving}
       dirty={held.text !== held.loaded}
+      unsaved={unsaved}
       error={error ?? held.error}
       result={result}
       onCode={onCode}
@@ -692,6 +696,7 @@ export function AutomationsPane({
                 held={codeHeld ?? { index: codeStep, text: "", loaded: "", loading: true }}
                 result={lastRulingOf(codeStep, firings)}
                 saving={busy}
+                unsaved={(editing.draft.then[codeStep] as Extract<ActionDraft, { readonly kind: "code" }>).source === undefined}
                 error={codeError ?? (refusal ? refusalWords(refusal) : undefined)}
                 onCode={(text) => {
                   setCodeError(undefined);

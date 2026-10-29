@@ -215,6 +215,8 @@ describe("a code step in the Automations node", () => {
     await flush();
     await click("Write code");
     expect(editor().state.doc.toString()).toBe(CODE_TEMPLATE);
+    // The template is worth saving as it stands: this step has no program yet.
+    expect(button("Save").getAttribute("aria-disabled")).not.toBe("true");
   });
 
   it("leaves the code view on Back once the code is saved", async () => {
@@ -223,6 +225,8 @@ describe("a code step in the Automations node", () => {
     await replaceCode("const answer = 7;\n");
     await click("Save");
     await flush();
+    // A clean buffer offers no Save: the button reads as disabled and pressing it does nothing.
+    expect(button("Save").getAttribute("aria-disabled")).toBe("true");
     await click("Back");
     expect(document.body.querySelector("[data-testid='automation-code']")).toBeNull();
     expect(button("Edit code")).not.toBeNull();
