@@ -1,21 +1,24 @@
 /**
- * State migration 21 -> 22 keeps seat session data in the database. Proven on
- * both shipped fixtures brought to version 21 by the real steps: every session
- * survives with its history, `notes_path` is gone, and the continuation ledger
- * and offboard clock tables exist. The step imports the retired files under
- * `~/.junto/seats` once, whole, for the rows it holds: notes, the note for the
- * next session, who ended a session, when it onboarded, the ledger and the
- * clock. A missing file is skipped, a malformed one skipped and counted, and
- * every file is byte for byte what it was.
+ * State migration 21 -> 22 keeps seat session data in the database: every
+ * session survives with its history, `notes_path` is gone, and the
+ * continuation ledger and offboard clock tables exist. The step imports the
+ * retired files under `~/.junto/seats` once, whole, for the rows it holds:
+ * notes, the note for the next session, who ended a session, when it
+ * onboarded, the ledger and the clock. A missing file is skipped, a malformed
+ * one skipped and counted, and every file is byte for byte what it was.
+ *
+ * The version-21 database is made at version 21 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 21 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, except
+ * where the step must find the seats directory beside it, and rows seeded
+ * before the step stand in for what a shipped database holds.
  */
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -33,16 +36,19 @@ afterEach(async () => {
   dir = undefined;
 });
 
-/** A copy of a fixture where Junto keeps it, `<home>/.junto/state/junto.db`, so the step finds `<home>/.junto/seats`. */
-const openCopy = async (fixture: string): Promise<{ readonly database: DatabaseSync; readonly seatsRoot: string }> => {
+/** A version-21 database, fresh, at `path`: held in memory, the step finds no seats directory beside it. */
+const openAt21 = (path = ":memory:"): DatabaseSync => {
+  const database = new DatabaseSync(path, { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, versionTwentyOnePlan)).toMatchObject({ schemaVersion: 21, ...STATE_SCHEMA_V21_IDENTITY });
+  return database;
+};
+
+/** A version-21 database, fresh, where Junto keeps it, `<home>/.junto/state/junto.db`, so the step finds `<home>/.junto/seats`. */
+const openAt21AtHome = async (): Promise<{ readonly database: DatabaseSync; readonly seatsRoot: string }> => {
   dir = await mkdtemp(join(tmpdir(), "junto-seat-session-data-migration-"));
   const state = join(dir, ".junto", "state");
   await mkdir(state, { recursive: true });
-  const path = join(state, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
-  return { database, seatsRoot: join(dir, ".junto", "seats") };
+  return { database: openAt21(join(state, "junto.db")), seatsRoot: join(dir, ".junto", "seats") };
 };
 
 const snapshot = (database: DatabaseSync) =>
@@ -58,22 +64,18 @@ const snapshot = (database: DatabaseSync) =>
     ).map(({ name }) => [String(name), database.prepare(`SELECT * FROM "${String(name)}" ORDER BY 1, 2`).all()]),
   );
 
-/** The real steps, with the name first boot would give fixed so the proof does not depend on where it runs. */
-const named = <T extends { readonly toVersion: number; readonly migrate: (database: DatabaseSync) => void }>(step: T): T =>
-  step.toVersion === 21 ? { ...step, migrate: (database: DatabaseSync) => migrateMachineNames(database, "macbook") } : step;
-
 const versionTwentyOnePlan = {
   ...STATE_SCHEMA_MIGRATION_PLAN,
   currentVersion: 21,
   currentSchemaSql: STATE_SCHEMA_V21_SQL,
-  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 21).map(named),
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 21),
 };
 
 const versionTwentyTwoPlan = {
   ...STATE_SCHEMA_MIGRATION_PLAN,
   currentVersion: 22,
   currentSchemaSql: STATE_SCHEMA_V22_SQL,
-  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 22).map(named),
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 22),
 };
 
 /** An id that is not a plain name: the retired store named its directory or file by a digest. */
@@ -95,6 +97,16 @@ const seed = (database: DatabaseSync): void => {
   database
     .prepare("INSERT INTO seat_session_drains(seat_id, session_id, detached_at, ended_at, ended_how) VALUES ('agent-1', 's1', 19, 25, 'settled')")
     .run();
+};
+
+/** Rows beside the sessions that the step must leave as they were: a canvas and a seat on it. */
+const seedNeighbours = (database: DatabaseSync): void => {
+  database.exec(`
+    INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('factory', 'canvas-1', 'now', 'now');
+    INSERT INTO seats (canvas_name, id, x, y, width, height, z_index, created_at, updated_at,
+      agent_key, label, binding_id, harness, session_id, on_remove, overseer)
+    VALUES ('factory', 'agent-1', 0, 0, 100, 100, 0, 'now', 'now', 'key-1', 'Agent', 'bind-1', 'codex', 's2', 'detach', 0);
+  `);
 };
 
 /** Longer than the 16000 and 8000 a row used to hold, so a cap would show. */
@@ -167,14 +179,16 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V22_SQL)).toEqual(STATE_SCHEMA_V22_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "keeps every session of %s with its history, without notes_path, and adds the ledger and clock",
-    async (fixture) => {
-      const { database } = await openCopy(fixture);
+  it(
+    "keeps every session with its history, without notes_path, and adds the ledger and clock",
+    () => {
+      const database = openAt21();
       try {
-        migrateStateSchema(database, versionTwentyOnePlan);
+        seedNeighbours(database);
         seed(database);
         const before = snapshot(database);
+        expect(before["seat_sessions"]).toHaveLength(4);
+        expect(before["seats"]).toHaveLength(1);
 
         const result = migrateStateSchema(database, versionTwentyTwoPlan);
         expect(result).toMatchObject({ previousVersion: 21, schemaVersion: 22 });
@@ -211,12 +225,11 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
     },
   );
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "imports the retired seat files of %s once, whole, and leaves every file as it was",
-    async (fixture) => {
-      const { database, seatsRoot } = await openCopy(fixture);
+  it(
+    "imports the retired seat files once, whole, and leaves every file as it was",
+    async () => {
+      const { database, seatsRoot } = await openAt21AtHome();
       try {
-        migrateStateSchema(database, versionTwentyOnePlan);
         seed(database);
         await writeSeatFiles(seatsRoot);
         const filesBefore = await tree(seatsRoot);
@@ -264,9 +277,8 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
   );
 
   it("skips and counts a clock it cannot read, and a binding owed to two seats", async () => {
-    const { database, seatsRoot } = await openCopy("command-center-v13.db");
+    const { database, seatsRoot } = await openAt21AtHome();
     try {
-      migrateStateSchema(database, versionTwentyOnePlan);
       seed(database);
       await mkdir(join(seatsRoot, "agent-1"), { recursive: true });
       await mkdir(join(seatsRoot, "agent-2"), { recursive: true });
@@ -287,10 +299,9 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
     }
   });
 
-  it("holds notes and the next session's note whole, never empty", async () => {
-    const { database } = await openCopy("command-center-v13.db");
+  it("holds notes and the next session's note whole, never empty", () => {
+    const database = openAt21();
     try {
-      migrateStateSchema(database, versionTwentyOnePlan);
       migrateStateSchema(database, versionTwentyTwoPlan);
       const insert = database.prepare(
         "INSERT INTO seat_sessions(seat_id, session_id, harness, started_at, notes, continuation, ended_at, end_reason, ended_by) VALUES ('a', ?, 'codex', 1, ?, ?, 2, 'offboard', ?)",
