@@ -17,8 +17,10 @@ import {
   type ThreadResourceSubject,
 } from "../src/shared/resource-ipc";
 import type { Message } from "../src/shared/work-model";
+import { threadSubjectOf } from "../src/shared/thread-subject";
 import { ItemId, OpId } from "../src/shared/work-ids";
 import { MachineRepository } from "../src/main/junto/machines/repository";
+import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
 import { onResourceChanged } from "../src/main/junto/work/resource-changes";
 import { listThreads, postThread, registerResourceIpc, type ResourceIpcPorts } from "../src/main/junto/work/resource-ipc";
 import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
@@ -171,6 +173,25 @@ describe("threads on an artifact", () => {
     // Another artifact's comment on the old node stays its own.
     await post({ ...artifactSubject, artifactId: OTHER }, { opId: SEAT_OP, text: "another artifact's" });
     expect((await run(listThreads(moved, "factory", { kind: "artifact", nodeId: asNodeId("B"), artifactId: ART }))).map((t) => t.posts[0]!.text)).not.toContain("another artifact's");
+  });
+
+  it("takes a seat's reply to a thread begun before the artifact moved, naming where it is now (0.11.1, 10)", async () => {
+    const { post, run, boxes } = harness();
+    const root = applied(await post(artifactSubject, { opId: EARLY, text: "written on A" }));
+    const movedBoard = canvasOf([
+      region("R", { x: 0, y: 0, width: 1000, height: 1000 }),
+      seat("S", { x: 10, y: 10 }),
+      artifacts("A", { x: 600, y: 10 }),
+      artifacts("B", { x: 800, y: 10 }),
+    ]);
+    const moves = { moves: () => Effect.succeed([{ from: asNodeId("A"), to: asNodeId("B"), by: { kind: "operator" }, at: 1 }]) };
+    const reply = await run(postSubjectComment(
+      { subject: { kind: "artifact", nodeId: asNodeId("B"), artifactId: ART }, text: "still here", actor: { kind: "seat", seatId: S_SEAT, nodeId: asNodeId("S") }, opId: SEAT_OP, threadId: root.threadId },
+      { canvas: movedBoard, canvasName: "factory", people: [] },
+    ).pipe(Effect.provideService(ArtifactRepository, moves as unknown as ArtifactRepository["Service"])));
+    expect(reply.threadId).toBe(root.threadId);
+    const written = boxes.get("B")!.find((row) => row.messageId === reply.messageId)!;
+    expect(threadSubjectOf(written)).toEqual({ kind: "artifact", nodeId: "B", artifactId: ART });
   });
 
   it("answers a replayed opId as its first post, and writes no second row", async () => {

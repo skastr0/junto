@@ -60,6 +60,7 @@ import { claimStagedContent, type ContentStageSeat } from "../content/stage";
 import type { WorkErrorBody } from "@shared/work-control";
 import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
 import { MachineRepository } from "../machines/repository";
+import { ArtifactRepository } from "./artifact-repository";
 import { actorMailOf } from "./actor-mail";
 import { noteResourceChanged, noteThreadChanged } from "./resource-changes";
 import { WorkService } from "./service";
@@ -116,6 +117,20 @@ const releaseShot = (owner: ContentOwner): Effect.Effect<void> =>
     Effect.flatMap((content) => (Option.isNone(content) ? Effect.void : content.value.releaseOwner(owner).pipe(Effect.ignore))),
   );
 const isPageBox = Schema.is(PageBoxAnchor);
+
+/**
+ * The mailboxes a subject's comments are held in: its node's, and for an
+ * artifact that has moved, every node it has been on (0.11.1, 10). Without
+ * the artifact store in this process, its node's alone.
+ */
+const commentNodesOf = (canvasName: string, subject: SubjectCommentInput["subject"]): Effect.Effect<ReadonlyArray<NodeId>, WorkErrorBody> =>
+  Effect.gen(function* () {
+    if (subject.kind !== "artifact") return [subject.nodeId];
+    const artifacts = yield* Effect.serviceOption(ArtifactRepository);
+    if (Option.isNone(artifacts)) return [subject.nodeId];
+    const moves = yield* artifacts.value.moves(canvasName, subject.artifactId).pipe(Effect.mapError((error) => runtimeDown(error.message)));
+    return [...new Set([subject.nodeId, ...moves.flatMap((move) => [move.from, move.to])])];
+  });
 
 /**
  * The staged shot held by the comment's own record: claimed from the
@@ -226,9 +241,15 @@ export const postSubjectComment = (
 
     // The thread so far, as the subject's node holds it. A reply takes the
     // thread's own subject, anchor and all; a thread on another resource is refused.
-    const held = yield* work.value.readMailbox(canvasName, nodeId).pipe(Effect.mapError((error) => runtimeDown(error.message)));
+    // A moved artifact's thread may have begun on a node it was on before
+    // (0.11.1, 10): those nodes are read too, and the reply names where it is now.
+    const held = (yield* Effect.forEach(yield* commentNodesOf(canvasName, input.subject), (on) =>
+      work.value.readMailbox(canvasName, on).pipe(Effect.mapError((error) => runtimeDown(error.message))))).flat();
     const thread = held.filter((row) => mailThreadOf(row) === threadId);
-    const rooted = thread.map(threadSubjectOf).find((on) => on !== undefined);
+    const found = thread.map(threadSubjectOf).find((on) => on !== undefined);
+    const rooted = found?.kind === "artifact" && input.subject.kind === "artifact" && found.artifactId === input.subject.artifactId
+      ? { ...found, nodeId }
+      : found;
     if (input.threadId !== undefined && input.subject.kind !== "task" && rooted === undefined) {
       return yield* Effect.fail<WorkErrorBody>({
         type: "UnknownTarget",
