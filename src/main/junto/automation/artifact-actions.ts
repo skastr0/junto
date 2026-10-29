@@ -59,7 +59,11 @@ const reasonOf = (error: WorkErrorBody): RefusalReason => {
   return error.type === "UnknownTarget" ? "unknown_target" : "invalid_input";
 };
 
-/** The artifact a write names: the one it names, or the one whose change fired it. */
+/**
+ * The artifact a write names: the one it names, or the one whose change
+ * fired it. It is found by id, its node only a hint (0.11.1, 10): the write
+ * goes to the node its head is on now, and the ruling judges reach there.
+ */
 const targetOf = (to: ArtifactTarget, fired: Fired): { readonly nodeId: NodeId; readonly artifactId: ItemId } | undefined => {
   if (!("fired" in to)) return to.kind === "artifact" ? { nodeId: to.nodeId, artifactId: to.artifactId } : undefined;
   return fired.event?.kind === "artifact" ? { nodeId: fired.event.nodeId, artifactId: fired.event.artifactId } : undefined;
@@ -119,13 +123,13 @@ export const performArtifactAction = (
         const text = yield* input.resolve(action.text);
         for (let attempt = 0; ; attempt += 1) {
           const head = yield* port.repository.head(canvasName, target.artifactId);
-          if (head._tag === "None" || head.value.artifact.nodeId !== target.nodeId) return refused(index, "unknown_target");
+          if (head._tag === "None") return refused(index, "unknown_target");
           const body = head.value.body;
           if (body === null) return notAvailable(index);
           if (body.type !== "document") return refused(index, "invalid_input");
           const markdown = appended(body.markdown, text);
           if (markdown.length > ARTIFACT_MAX_DOCUMENT_LENGTH) return refused(index, "invalid_input");
-          const reason = yield* submit(`append-${attempt}`, target.nodeId, target.artifactId, {
+          const reason = yield* submit(`append-${attempt}`, head.value.artifact.nodeId, target.artifactId, {
             op: "edit",
             edit: { kind: "replace", baseVersion: head.value.artifact.version, body: { type: "document", markdown } },
           });
@@ -136,14 +140,14 @@ export const performArtifactAction = (
         const target = targetOf(action.to, fired);
         if (target === undefined) return refused(index, "invalid_input");
         const head = yield* port.repository.head(canvasName, target.artifactId);
-        if (head._tag === "None" || head.value.artifact.nodeId !== target.nodeId) return refused(index, "unknown_target");
+        if (head._tag === "None") return refused(index, "unknown_target");
         const held = head.value.artifact.labels;
         const remove = new Set<string>(action.remove ?? []);
         const labels = artifactLabelsOf([...held, ...(action.add ?? [])].filter((label) => !remove.has(label)));
         if (labels === undefined) return refused(index, "invalid_input");
         // Already so: nothing to write.
         if (labels.length === held.length && labels.every((label, i) => label === held[i])) return { index, ruling: "applied" } as const;
-        return ruled(yield* submit("labels", target.nodeId, target.artifactId, { op: "labels", labels: [...labels] }));
+        return ruled(yield* submit("labels", head.value.artifact.nodeId, target.artifactId, { op: "labels", labels: [...labels] }));
       }
       default:
         return action satisfies never;

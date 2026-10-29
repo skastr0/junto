@@ -209,7 +209,8 @@ export const changeMatches = (watch: Watch, event: ChangeEvent, targets: Readonl
         watch.event === event.event &&
         artifactWatchLabelMatches(watch, event.labels, event.gained) &&
         ("kind" in watch.artifact
-          ? watch.artifact.kind === "artifact" && watch.artifact.nodeId === event.nodeId && watch.artifact.artifactId === event.artifactId
+          ? // One artifact is watched by its id wherever it moves; its node is a hint (0.11.1, 10).
+            watch.artifact.kind === "artifact" && watch.artifact.artifactId === event.artifactId
           : watch.artifact.node === event.nodeId)
       );
     case "signal":

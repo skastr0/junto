@@ -162,6 +162,13 @@ describe("changesBetween, artifacts", () => {
     ]);
   });
 
+  it("says nothing for a move, and its next edit comes from the node it moved to (0.11.1, 10)", () => {
+    const home = view([row(1, ["publish"], 10)]);
+    const moved = view([{ ...row(1, ["publish"], 10), node: "artifacts-2" }]);
+    expect(changesBetween(home, moved)).toEqual([]);
+    expect(changesBetween(moved, view([{ ...row(2, ["publish"], 11), node: "artifacts-2" }]))).toMatchObject([{ event: "edited", nodeId: "artifacts-2" }]);
+  });
+
   it("says a label gained, a new artifact's labels too, and never one removed", () => {
     const plain = view([row(1, ["draft"], 10)]);
     const labelled = view([row(1, ["draft", "publish"], 11)]);

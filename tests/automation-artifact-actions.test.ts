@@ -58,7 +58,7 @@ const store = (markdown = "# Spec", labels: ReadonlyArray<string> = ["publish"],
   let version = 3;
   let held = labels;
   let beat = beatenBy;
-  const sent: Array<{ readonly op: ArtifactOp; readonly opId: string; readonly itemId: string | undefined }> = [];
+  const sent: Array<{ readonly op: ArtifactOp; readonly opId: string; readonly itemId: string | undefined; readonly nodeId?: string }> = [];
   const port: ArtifactPort = {
     writer: Effect.succeed("macbook-installation" as InstallationId),
     repository: {
@@ -68,9 +68,9 @@ const store = (markdown = "# Spec", labels: ReadonlyArray<string> = ["publish"],
             ? Option.some({ artifact: { artifactId: DOC, nodeId: SHELF, title: "Spec", version, labels: held }, body: { type: "document", markdown } })
             : Option.none(),
         ),
-      submit: (_writer: string, command: { readonly op: ArtifactOp; readonly opId: string; readonly target: { readonly itemId?: string } }) =>
+      submit: (_writer: string, command: { readonly op: ArtifactOp; readonly opId: string; readonly target: { readonly itemId?: string; readonly nodeId?: string } }) =>
         Effect.sync(() => {
-          sent.push({ op: command.op, opId: command.opId, itemId: command.target.itemId });
+          sent.push({ op: command.op, opId: command.opId, itemId: command.target.itemId, nodeId: command.target.nodeId });
           if (command.op.op === "edit" && beat > 0) {
             beat -= 1;
             version += 1;
@@ -135,6 +135,16 @@ describe("an automation's artifact writes", () => {
     expect(sent[0]?.op).toEqual({ op: "labels", labels: ["published"] });
     expect(await perform(port, relabel)).toEqual({ index: 0, ruling: "applied" });
     expect(sent).toHaveLength(1);
+  });
+
+  it("finds a named artifact by id after it moved, and writes it where it is now (0.11.1, 10)", async () => {
+    const { port, sent } = store("# Spec", ["draft"]);
+    const named = { kind: "artifact", nodeId: asNodeId("specs-before"), artifactId: DOC };
+    expect(await perform(port, { kind: "label-artifact", to: named, add: ["published"] } as unknown as ArtifactAction)).toEqual({ index: 0, ruling: "applied" });
+    expect(await perform(port, { kind: "append-artifact", to: named, text: "Moved." } as unknown as ArtifactAction)).toEqual({ index: 0, ruling: "applied" });
+    expect(sent.map(({ nodeId }) => nodeId)).toEqual([SHELF, SHELF]);
+    const gone = { kind: "artifact", nodeId: SHELF, artifactId: ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ59") };
+    expect(await perform(port, { kind: "label-artifact", to: gone, add: ["x"] } as unknown as ArtifactAction)).toEqual({ index: 0, ruling: "refused", reason: "unknown_target" });
   });
 
   it("is not available off the machine that rules the canvas, or with no artifact store", async () => {

@@ -102,6 +102,18 @@ describe("an artifact watch on a node", () => {
     expect(changeMatches(watch, edited("artifacts-1", true), new Set())).toBe(false);
   });
 
+  it("sees an artifact by the node it is on when it fires: a moved one leaves the old node's watch for the new one's, and a watch on it follows it (0.11.1, 10)", () => {
+    const DOC = ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ51");
+    const editedOn = (nodeId: string): ChangeEvent => ({ kind: "artifact", key: "a", nodeId: asNodeId(nodeId), artifactId: DOC, event: "edited", labels: [], gained: [], byAutomation: false });
+    const onOld = { kind: "artifact", artifact: { node: asNodeId("artifacts-1") }, event: "edited" } as const;
+    const onNew = { kind: "artifact", artifact: { node: asNodeId("artifacts-2") }, event: "edited" } as const;
+    const onIt = { kind: "artifact", artifact: { kind: "artifact", nodeId: asNodeId("artifacts-1"), artifactId: DOC }, event: "edited" } as const;
+    // After the move its edits come from artifacts-2.
+    expect(changeMatches(onOld, editedOn("artifacts-2"), new Set())).toBe(false);
+    expect(changeMatches(onNew, editedOn("artifacts-2"), new Set())).toBe(true);
+    expect(changeMatches(onIt as never, editedOn("artifacts-2"), new Set())).toBe(true);
+  });
+
   it("with a label: an edit to one carrying it, or the label gained, one under it included", () => {
     const node = { node: asNodeId("artifacts-1") };
     const change = (event: "edited" | "labelled", labels: ReadonlyArray<string>, gained: ReadonlyArray<string>): ChangeEvent => ({
