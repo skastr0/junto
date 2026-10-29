@@ -481,6 +481,8 @@ const artifactOp: fc.Arbitrary<{ readonly op: ArtifactOp; readonly item: string 
   fc.record({ item: artifactId, title: fc.constantFrom("Plan 2", "Notes 2") }).map(({ item, title }) => ({ item, op: { op: "retitle", title } as ArtifactOp })),
   fc.record({ item: artifactId, labels: fc.subarray(["draft", "final"]) }).map(({ item, labels }) => ({ item, op: { op: "labels", labels } as ArtifactOp })),
   fc.record({ item: artifactId, kind: fc.constantFrom("archive", "restore") }).map(({ item, kind }) => ({ item, op: { op: kind } as ArtifactOp })),
+  // A move (0.11.1, 10): away from ARTS, or onto it, where it already is, which is refused.
+  fc.record({ item: artifactId, to: fc.constantFrom(asNodeId("arts-2"), ARTS) }).map(({ item, to }) => ({ item, op: { op: "move", to } as ArtifactOp })),
   fc.record({ label: fc.constantFrom("draft", "final"), colour: fc.constantFrom(null, "red", "blue") }).map(({ label, colour }) => ({
     item: undefined,
     op: { op: "labelColour", label, colour } as unknown as ArtifactOp,
@@ -566,7 +568,7 @@ describe("the fold equals the ruler, for artifacts", () => {
       }),
       runs(25, ENGINE_BUDGET_MS),
     );
-    expect([...applied].sort()).toEqual(expect.arrayContaining(["create", "edit", "labelColour", "labels", "retitle"]));
+    expect([...applied].sort()).toEqual(expect.arrayContaining(["create", "edit", "labelColour", "labels", "move", "retitle"]));
   }, timeoutFor(ENGINE_BUDGET_MS));
 });
 
