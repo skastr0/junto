@@ -209,6 +209,13 @@ describe("what the tour says", () => {
     expect(copy).toContain("⌘1");
   });
 
+  it("types chords as the platform does: Ctrl off macOS, ⌘ on it", () => {
+    const keysOf = (mac: boolean): string => text(chapterAt("feed", mac));
+    expect(keysOf(true)).toContain("⌘I");
+    expect(keysOf(false)).toContain("Ctrl+I");
+    expect(keysOf(false)).not.toContain("⌘I");
+  });
+
   it("says a new workspace starts paused, what play does, and where the switch is", () => {
     const copy = text(chapterAt("play"));
     expect(copy).toContain("A new workspace starts paused");

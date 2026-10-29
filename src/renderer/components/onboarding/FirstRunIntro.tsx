@@ -263,7 +263,7 @@ function TalkDemo() {
           onSend={() => false}
           ariaLabel="Message all selected agents"
           placeholder="Message all selected agents…"
-          hint="⌘↵ send to all"
+          hint={`${platformKey("⌘↵")} send to all`}
           sendLabel="send to all"
           eyebrow="multi-prompt — 3 agents"
         />
@@ -355,7 +355,7 @@ function FeedDemo() {
       <div className="tour-feed" inert aria-hidden>
         <div className="tour-feed__head">
           <span>Needs you</span>
-          <Kbd>⌘I</Kbd>
+          <Kbd>{platformKey("⌘I")}</Kbd>
         </div>
         <FeedCardView
           item={feedItem("deploy", "deploy", "claude", "blocked", "Needs the production database password to run the migration.", now - 6 * 60_000)}
@@ -654,6 +654,9 @@ const permissionsChapter = (mac: boolean): TourChapter => ({
 const isMac = (): boolean =>
   typeof document !== "undefined" && document.documentElement.dataset.juntoPlatform === "darwin";
 
+/** A chord as this platform types it: ⌘ is Ctrl off macOS (shared/key-table.ts). */
+const platformKey = (key: string, mac: boolean = isMac()): string => (mac ? key : key.replace(/^⌘/, "Ctrl+"));
+
 /**
  * The tour, in order. `mac` picks the permissions chapter's wording. The
  * shell chapter closes it: what Junto read from your shell, just before the
@@ -774,7 +777,7 @@ export function FirstRunIntroSurface({
                       <li key={row.keys.join("+")}>
                         <span className="first-run-intro__keys">
                           {row.keys.map((key) => (
-                            <Kbd key={key}>{key}</Kbd>
+                            <Kbd key={key}>{platformKey(key, mac)}</Kbd>
                           ))}
                         </span>
                         <span>{row.text}</span>
