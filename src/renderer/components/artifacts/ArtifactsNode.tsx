@@ -152,6 +152,26 @@ export function ArtifactsNode({
   const [rowMenu, setRowMenu] = useState<{ readonly row: string; readonly anchor: HTMLElement } | null>(null);
   /** What the last move did, said once its rows have gone from the list. */
   const [moved, setMoved] = useState<string | null>(null);
+  /**
+   * The keyboard after a move: on the first row left once the moved rows have
+   * gone from the list, or, with every row gone, in the pane that says so. A
+   * queued move's rows stay until it is ruled, so it lands past them at once.
+   */
+  const [landing, setLanding] = useState<{ readonly gone: ReadonlyArray<string>; readonly waits: boolean } | null>(null);
+  useEffect(() => {
+    if (landing === null) return;
+    const listed = (id: string): boolean => entries.some((entry) => entry.artifact.artifactId === id);
+    if (!landing.waits && landing.gone.some(listed)) return;
+    setLanding(null);
+    requestAnimationFrame(() => {
+      const container = topModal()?.container();
+      const first = [...(container?.querySelectorAll<HTMLElement>(`.artifacts-list [${LIST_ROW_ATTRIBUTE}]`) ?? [])].find(
+        (row) => !landing.gone.includes(row.getAttribute(LIST_ROW_ATTRIBUTE) ?? ""),
+      );
+      const main = container?.querySelector<HTMLElement>(".two-pane > .two-pane__main");
+      claimFocus(first ?? (main ? paneEntryOf(main) : null), "gesture");
+    });
+  }, [entries, landing]);
   const openMove = (row: string | null): void => {
     const ids = moveSetOf(order, selection, row);
     const rows = ids.flatMap((id) => entries.filter((entry) => entry.artifact.artifactId === id));
@@ -189,8 +209,9 @@ export function ArtifactsNode({
     } else if (keyIs(event.nativeEvent, "inArtifacts.extend")) {
       const at = order.indexOf(id);
       const next = order[event.key === "ArrowUp" ? at - 1 : at + 1];
-      if (next === undefined) return;
+      // Claimed at the ends too: the list's own moves must not take it as a plain step and drop the picks.
       event.preventDefault();
+      if (next === undefined) return;
       pickRow(next, { add: false, run: true });
       requestAnimationFrame(() => {
         const scope = topModal()?.container() ?? document.body;
@@ -417,11 +438,7 @@ export function ArtifactsNode({
             setMoving(null);
             setPicks(new Set());
             setMoved(movedLine(done.titles, done.queued, done.to.title));
-            // The rows went with the move: the keyboard waits on the list, where the next one is.
-            requestAnimationFrame(() => {
-              const list = topModal()?.container()?.querySelector<HTMLElement>(".artifacts-list");
-              claimFocus(list?.querySelector<HTMLElement>(`[${LIST_ROW_ATTRIBUTE}]`) ?? null, "gesture");
-            });
+            setLanding({ gone: moving.map((one) => one.artifactId), waits: done.queued > 0 });
           }}
         />
       )}
