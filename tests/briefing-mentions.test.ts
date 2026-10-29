@@ -16,6 +16,7 @@ import { asNodeId } from "../src/shared/model/base";
 const TASK = "01M5ESMQ2ZT55QZ073EWPH10SG";
 const ARTIFACT = "01M5ESMQ2ZT55QZ073EWPH10SH";
 const GONE = "01M5ESMQ2ZT55QZ073EWPH10SJ";
+const MOVED = "01M5ESMQ2ZT55QZ073EWPH10SK";
 const link = (label: string, node: string, item?: string, canvas = "factory") =>
   `[${label}](junto://canvas/${canvas}?node=${node}${item === undefined ? "" : `&item=${item}`})`;
 
@@ -78,6 +79,7 @@ describe("briefingMentionsOn", () => {
     taskBoard("board", { x: 200, y: 0, width: 100, height: 40 }),
     artifacts("shelf", { x: 400, y: 0, width: 100, height: 40 }),
     files("far", { x: 5000, y: 5000, width: 100, height: 40 }),
+    artifacts("far-shelf", { x: 5200, y: 5000, width: 100, height: 40 }),
     page("docs", { x: 200, y: 200, width: 100, height: 40, label: "Docs" }),
   ];
   const canvas = {
@@ -87,10 +89,15 @@ describe("briefingMentionsOn", () => {
 
   const stores = Layer.mergeAll(
     Layer.succeed(TaskRepository, {
-      get: (_canvas: string, id: string) => Effect.succeed(id === TASK ? Option.some({ title: "Fix tabs" }) : Option.none()),
+      get: (_canvas: string, id: string) => Effect.succeed(id === TASK ? Option.some({ title: "Fix tabs", current: { node: "board" } }) : Option.none()),
     } as never),
     Layer.succeed(ArtifactRepository, {
-      head: (_canvas: string, id: string) => Effect.succeed(id === ARTIFACT ? Option.some({ artifact: { title: "Plan" } }) : Option.none()),
+      head: (_canvas: string, id: string) =>
+        Effect.succeed(
+          id === ARTIFACT ? Option.some({ artifact: { title: "Plan", nodeId: "shelf" } })
+            : id === MOVED ? Option.some({ artifact: { title: "Far plan", nodeId: "far-shelf" } })
+              : Option.none(),
+        ),
     } as never),
   );
   const read = (text: string, provide = true) =>
@@ -117,6 +124,12 @@ describe("briefingMentionsOn", () => {
       { kind: "page", id: "docs", title: "Docs", reachable: true },
       { kind: "missing", id: "deleted-node", title: undefined, reachable: false },
     ]);
+  });
+
+  it("judges an item's reach on the node it lives on, not the node a hand-written link names", async () => {
+    // MOVED lives on far-shelf, in a sibling region; the link puts it on shelf, which the reader reaches.
+    expect(await read(link("Plan", "shelf", MOVED))).toMatchObject([{ kind: "artifact", id: MOVED, title: "Far plan", reachable: false }]);
+    expect(await read(link("Plan", "far-shelf", ARTIFACT))).toMatchObject([{ kind: "artifact", id: ARTIFACT, reachable: true }]);
   });
 
   it("leaves the field out for a text with no links, and when an item cannot be read here", async () => {

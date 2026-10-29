@@ -60,20 +60,25 @@ export const briefingMentionsOn = (
         continue;
       }
       const id = link.target.item!;
-      const title = itemKind === "task"
+      const item = itemKind === "task"
         ? Option.isNone(tasks)
           ? undefined
           : yield* Effect.option(tasks.value.get(reader.canvasName, id as string as TaskId).pipe(
-              Effect.map((task) => (Option.isSome(task) ? { title: task.value.title } : null)),
+              Effect.map((task) => (Option.isSome(task) ? { title: task.value.title, nodeId: task.value.current.node as NodeId } : null)),
             ))
         : Option.isNone(artifacts)
           ? undefined
           : yield* Effect.option(artifacts.value.head(reader.canvasName, id).pipe(
-              Effect.map((head) => (Option.isSome(head) ? { title: head.value.artifact.title } : null)),
+              Effect.map((head) => (Option.isSome(head) ? { title: head.value.artifact.title, nodeId: head.value.artifact.nodeId as NodeId } : null)),
             ));
       // No store, or a read that failed: nothing here can say the item is gone.
-      if (title === undefined || Option.isNone(title)) return undefined;
-      mentions.push(briefingMentionOf(link, { ...facts, item: title.value ?? undefined }));
+      if (item === undefined || Option.isNone(item)) return undefined;
+      // Reach is judged where the item lives, as task and artifact control judge it, not where the link says.
+      const held = item.value === null ? undefined : canvas.nodes.get(item.value.nodeId);
+      mentions.push(briefingMentionOf(link, {
+        node: held === undefined || node === undefined ? facts.node : { kind: node.kind, title: titleOf(node), reachable: canAct(canvas, self, held.id) },
+        item: item.value === null || held === undefined ? undefined : { title: item.value.title },
+      }));
     }
     return mentions;
   });
