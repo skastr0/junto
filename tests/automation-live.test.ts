@@ -187,6 +187,9 @@ describe("signalChange", () => {
     expect(signalChange(raised)).toEqual({ kind: "signal", key: "signal:sig-1", seat: "agent-a", signal: "blocked", text: "stuck on the build" });
     expect(signalChange({ ...raised, state: "answered" })).toBeUndefined();
     expect(signalChange({ ...raised, state: "withdrawn" })).toBeUndefined();
+    // An automation's escalate is no seat's: a signal watch never hears it raised.
+    expect(signalChange({ ...raised, kind: "escalate", source: { kind: "automation", automationId: "01M5ESKJFC1A88R1MH1NEZWJ2Q", nodeId: "automations-1" } })).toBeUndefined();
+    expect(signalChange({ ...raised, source: { kind: "seat", nodeId: "agent-a" } })).toMatchObject({ kind: "signal" });
   });
 });
 
