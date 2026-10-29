@@ -61,6 +61,7 @@ export const KEY_ACTIONS: KeyActions = {
   // A modal's own chord closes it; the other's swaps to it.
   "search.open": () => toggleOperator("search"),
   "feed.open": () => toggleOperator("feed"),
+  "capture.open": () => toggleOperator("capture"),
   "search.slash": () => {
     cancelFocusSwitcher();
     openOperatorModal("search");
