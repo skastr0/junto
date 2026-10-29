@@ -70,9 +70,10 @@ export default defineConfig(() => {
       cssCodeSplit: false,
       sourcemap: true,
       lib: {
-        entry: resolve("src/renderer/kit/index.ts"),
+        // learn: the lessons' schema alone, for hosts that cannot load React.
+        entry: { index: resolve("src/renderer/kit/index.ts"), learn: resolve("src/renderer/kit/learn.ts") },
         formats: ["es"],
-        fileName: () => "index.js",
+        fileName: (_format, name) => `${name}.js`,
         cssFileName: "kit",
       },
       rollupOptions: {

@@ -9,5 +9,5 @@
     "incremental": false,
     "types": ["node", "vite/client"]
   },
-  "include": ["src/renderer/kit/index.ts", "src/renderer/vite-env.d.ts", "src/**/*.d.ts"]
+  "include": ["src/renderer/kit/index.ts", "src/renderer/kit/learn.ts", "src/renderer/vite-env.d.ts", "src/**/*.d.ts"]
 }

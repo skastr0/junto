@@ -16,10 +16,10 @@ const FORBIDDEN_MODULES = ["src/renderer/lib/state.ts", "src/renderer/lib/junto-
 /** What the kit may ask its host for; everything else is bundled in. */
 const PEERS = ["react", "react-dom", "react/jsx-runtime", "lucide-react", "effect", "ulid"];
 
-const kitGraph = async (): Promise<Metafile> => {
+const kitGraph = async (entry = "src/renderer/kit/index.ts"): Promise<Metafile> => {
   const result = await build({
     absWorkingDir: root,
-    entryPoints: ["src/renderer/kit/index.ts"],
+    entryPoints: [entry],
     tsconfig: "tsconfig.json",
     bundle: true,
     write: false,
@@ -58,5 +58,12 @@ describe("kit purity", () => {
     const sources = new Set([...sheet.matchAll(/@source "\.\.\/([^"]+)";/g)].map((match) => `src/renderer/${match[1]!}`));
     const views = Object.keys(graph.inputs).filter((path) => path.endsWith(".tsx"));
     expect(views.filter((path) => !sources.has(path))).toEqual([]);
+  });
+
+  it("keeps the learn entry free of views: effect is all it asks for", async () => {
+    const graph = await kitGraph("src/renderer/kit/learn.ts");
+    const packages = new Set(Object.values(graph.inputs).flatMap((input) => input.imports.filter((i) => i.external && !i.path.startsWith(".")).map((i) => i.path)));
+    expect([...packages].filter((name) => name !== "effect" && !name.startsWith("effect/"))).toEqual([]);
+    expect(Object.keys(graph.inputs).filter((path) => path.endsWith(".tsx") || path.endsWith(".css"))).toEqual([]);
   });
 });

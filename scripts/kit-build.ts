@@ -4,6 +4,7 @@
 // a shadow root, and declarations. bun run kit:build
 //
 //   dist/kit/index.js       React and react-dom stay the host's
+//   dist/kit/learn.js       the lessons' schema alone, no React
 //   dist/kit/kit.css        tokens, utilities and the seat, ring, bubble rules
 //   dist/kit/types/         declarations, the app's path aliases made relative
 //   dist/kit/package.json   "@junto/kit", pinned to this commit
@@ -73,6 +74,7 @@ writeFileSync(
       sideEffects: ["*.css"],
       exports: {
         ".": { types: "./types/renderer/kit/index.d.ts", import: "./index.js" },
+        "./learn": { types: "./types/renderer/kit/learn.d.ts", import: "./learn.js" },
         "./kit.css": "./kit.css",
       },
       peerDependencies: { react: reactRange, "react-dom": reactRange },
