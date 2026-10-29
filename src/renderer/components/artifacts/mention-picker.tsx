@@ -20,6 +20,8 @@ import {
 import { RESOURCE_KIND_VISUAL, markColor } from "../../lib/resource-visuals";
 import { LinkRowContent } from "../ui/MentionCombobox";
 import { ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
+import { LIVE_SEAT_VIEW_SOURCE } from "../LiveSeatViewSource";
+import { SeatViewSourceProvider } from "../seat-view-source";
 import "../ui/mention-combobox.css";
 import "./mention-picker.css";
 
@@ -356,7 +358,14 @@ function listView(view: EditorView): TooltipView {
     const visible = shown.open && view.hasFocus;
     // Hiding is at once; showing waits for React to commit the rows, so an empty box never paints.
     if (!visible) dom.hidden = true;
-    root.render(<PickerList view={view} shown={shown} onDrawn={() => (dom.hidden = !visible)} />);
+    // Its own root, so the seat rows' portraits are fed the live source here:
+    // context does not cross roots. Not LiveSeatViewSource, whose unmount
+    // would take the app's motion gate off the marks.
+    root.render(
+      <SeatViewSourceProvider source={LIVE_SEAT_VIEW_SOURCE}>
+        <PickerList view={view} shown={shown} onDrawn={() => (dom.hidden = !visible)} />
+      </SeatViewSourceProvider>,
+    );
   };
   draw();
   return {

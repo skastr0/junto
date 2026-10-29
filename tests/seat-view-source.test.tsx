@@ -6,7 +6,7 @@
  * test fails if the root loses it, and checks the live feed really moves a
  * mounted seat.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -83,5 +83,19 @@ describe("seat view source", () => {
   it("the app's root mounts every seat under the live source", () => {
     const main = readFileSync(resolve(__dirname, "../src/renderer/main.tsx"), "utf8");
     expect(main).toMatch(/<LiveSeatViewSource>\s*<AppRoot \/>\s*<\/LiveSeatViewSource>/);
+  });
+
+  it("every React root in the renderer is fed the live source: context does not cross roots", () => {
+    const renderer = resolve(__dirname, "../src/renderer");
+    const roots = readdirSync(renderer, { recursive: true, encoding: "utf8" })
+      .filter((file) => /\.tsx?$/.test(file) && !file.endsWith(".d.ts"))
+      .map((file) => ({ file, text: readFileSync(resolve(renderer, file), "utf8") }))
+      .filter(({ text }) => /\bcreateRoot\(/.test(text));
+    expect(roots.map(({ file }) => file).length).toBeGreaterThanOrEqual(2);
+    for (const { file, text } of roots) {
+      const made = text.match(/\bcreateRoot\(/g)?.length ?? 0;
+      const fed = (text.match(/<LiveSeatViewSource>|<SeatViewSourceProvider source=\{LIVE_SEAT_VIEW_SOURCE\}>/g) ?? []).length;
+      expect({ file, fed: fed >= made }).toEqual({ file, fed: true });
+    }
   });
 });
