@@ -39,6 +39,12 @@ import { AgentSignalRepository } from "./repository";
  * on it by reference, and the mail carries them in `metadata.attachments`,
  * which delivery lists one line each with a path; with files the text may be
  * empty.
+ *
+ * An automation's signal has no seat to mail: its answer is recorded as a
+ * silent one is, and the automation's machine hears the answered row through
+ * the store's own change, to fire its answered watches and deliver the answer
+ * where the step says (0.11/09). Its mentions copy no seat, since there is no
+ * signalling seat for a copy to come from.
  */
 
 export type SignalOperatorResult =
@@ -78,8 +84,11 @@ export const answerAgentSignal = (
     if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
     const signal = current.success;
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
+    // Who hears it: the seat the signal belongs to. A quiet answer mails no
+    // one, and an automation's signal has no seat to mail at all.
+    const mails = !silent && signal.source?.kind !== "automation";
     // Seats the answer copies, judged before anything is written. A quiet answer mails no one.
-    const copies = silent ? { ok: true as const, seats: [], seatName: undefined } : yield* planAnswerCopies(signal, typed);
+    const copies = mails ? yield* planAnswerCopies(signal, typed) : { ok: true as const, seats: [], seatName: undefined };
     if (!copies.ok) return refused(copies.message);
 
     // The mail's id names where its files are held, mailed or not.
@@ -99,7 +108,7 @@ export const answerAgentSignal = (
     const mailed = options?.mailText ?? text;
 
     let messageId: string | undefined;
-    if (!silent) {
+    if (mails) {
       const sender = operatorActorRef(signal.canvasName);
       const work = yield* WorkService;
       const write = (said: string, held: ReadonlyArray<ContentRef>) => work.workSystemMailboxNotify(

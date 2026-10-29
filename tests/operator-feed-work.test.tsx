@@ -47,7 +47,12 @@ const HOUR = 3_600_000;
  * One signal in the feed, made the operator's work or a notice the way N1
  * will carry it (stand-in until FeedItem names kind, form and work).
  */
-const feedWith = (as: { readonly kind: "work" | "notice"; readonly form?: SignalForm; readonly work?: WorkTiming }): Feed => {
+const feedWith = (as: {
+  readonly kind: FeedItem["kind"];
+  readonly form?: SignalForm;
+  readonly work?: WorkTiming;
+  readonly source?: FeedItem["source"];
+}): Feed => {
   const signal: AgentSignal = {
     signalId: "s1",
     canvasName: CANVAS,
@@ -162,6 +167,31 @@ it("a secret form is never answered in text: the vault's field when it is on, th
   }
   expect(respond).not.toHaveBeenCalled();
   expect(document.body.querySelector("[data-testid='operator-feed-keys']")?.textContent).not.toContain("dismiss");
+});
+
+it("an automation's signal answers once and opens the run, never a seat", async () => {
+  live.set(
+    feedWith({
+      kind: "escalate",
+      source: {
+        kind: "automation",
+        automationId: "01M62Q58WDSXMG4YBXNKR2RB91",
+        nodeId: "automations-1",
+        firingId: "01M62Q58WDSXMG4YBXNKR2RB92",
+      },
+    }),
+  );
+  await act(async () => root.render(<OperatorFeed />));
+  // One row of answers: a quiet note would not spare a seat, because there is none.
+  expect(pane().querySelector("[data-testid='quick-replies']")).not.toBeNull();
+  expect(pane().querySelector("[data-testid='quiet-notes']")).toBeNull();
+  expect(pane().querySelector("[data-testid='quick-replies'] button")?.getAttribute("title")).toContain(
+    "the automation gets it as your answer",
+  );
+  const keys = document.body.querySelector("[data-testid='operator-feed-keys']")?.textContent;
+  expect(keys).toContain("open run");
+  expect(keys).not.toContain("open seat");
+  expect(buttons()).toContain("Open run");
 });
 
 it("an empty feed says the day's work is done", async () => {

@@ -1,10 +1,12 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { Canvas, Node } from "@shared/model";
 import type { AgentSignal } from "@shared/agent-signals";
 import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
+import { asNodeId } from "@shared/physics/schema";
+import { automationsSource } from "./automations-source";
 import { canvasTasks$, seatTasks$ } from "./seat-tasks";
 import type { TaskView } from "@shared/task-model";
 import {
@@ -52,6 +54,7 @@ export const operatorFeedFor = (
   nowMs: number,
   needs: ReadonlyArray<FeedCanvasNeed> = [],
   mailWaitByNodeId?: ReadonlyMap<string, FeedMailWait>,
+  automationNamesByNodeId?: ReadonlyMap<string, ReadonlyMap<string, string>>,
 ): OperatorFeed => {
   const attentionByNodeId = new Map<string, { readonly reason: string; readonly at: number }>();
   const snapshotByNodeId = new Map<string, SeatSnapshot>();
@@ -76,7 +79,7 @@ export const operatorFeedFor = (
     }),
     signals,
     canvasNeeds: needs,
-    sources: feedSourcesFromCanvas(canvas),
+    sources: feedSourcesFromCanvas(canvas, automationNamesByNodeId),
   });
 };
 
@@ -98,6 +101,72 @@ const liveWantsInput = (nodes: Iterable<Node>): ReadonlyMap<string, number | und
 };
 
 const NO_TASKS: ReadonlyArray<TaskView> = [];
+
+const NO_NAMES: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map();
+
+const sameNames = (
+  a: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  b: ReadonlyMap<string, ReadonlyMap<string, string>>,
+): boolean => {
+  if (a.size !== b.size) return false;
+  for (const [nodeId, names] of a) {
+    const other = b.get(nodeId);
+    if (other === undefined || other.size !== names.size) return false;
+    for (const [id, name] of names) if (other.get(id) !== name) return false;
+  }
+  return true;
+};
+
+/**
+ * The automations each Automations node holds, by id and name, for the nodes
+ * that raised a signal: the feed names an automation's signal by the
+ * automation, not by the node it lives on (0.11/09). One list read per such
+ * node, kept current with the editor's own source; a read that fails leaves
+ * the node's title standing.
+ */
+const useAutomationNames = (
+  canvasName: string,
+  nodeIds: ReadonlyArray<string>,
+): ReadonlyMap<string, ReadonlyMap<string, string>> => {
+  const [names, setNames] = useState(NO_NAMES);
+  const key = nodeIds.join("|");
+  useEffect(() => {
+    const ids = key === "" ? [] : key.split("|");
+    if (ids.length === 0) {
+      setNames(NO_NAMES);
+      return;
+    }
+    let live = true;
+    const read = (): void => {
+      Promise.all(
+        ids.map((nodeId) =>
+          automationsSource()
+            .list(canvasName, asNodeId(nodeId))
+            .then(
+              (listed) =>
+                [nodeId, new Map(listed.automations.map((automation) => [String(automation.automationId), automation.name]))] as const,
+              () => undefined,
+            ),
+        ),
+      ).then(
+        (entries) => {
+          if (!live) return;
+          const next = new Map<string, ReadonlyMap<string, string>>();
+          for (const entry of entries) if (entry !== undefined) next.set(entry[0], entry[1]);
+          setNames((current) => (sameNames(current, next) ? current : next));
+        },
+        () => undefined,
+      );
+    };
+    read();
+    const stop = automationsSource().subscribe(read);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [canvasName, key]);
+  return names;
+};
 
 /** The open canvas's needs that no seat declared, read from the live stores. */
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
@@ -153,11 +222,21 @@ export const useOperatorFeed = (): OperatorFeed => {
   const waitsKey = use$(() => JSON.stringify(mailWaiting$[canvasName].get() ?? {}));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const waits = useMemo(() => mailWaitsOn(mailWaiting$.peek(), canvasName), [waitsKey, canvasName]);
+  // The Automations nodes that raised an open signal: their automations name
+  // the cards. Only those nodes are read, and only while a signal waits.
+  const signallingNodes = useMemo(() => {
+    const ids = new Set<string>();
+    for (const signal of signals) {
+      if (signal.state === "open" && signal.source?.kind === "automation") ids.add(signal.source.nodeId);
+    }
+    return [...ids].sort();
+  }, [signals]);
+  const automationNames = useAutomationNames(canvasName, signallingNodes);
   return useMemo(
-    () => withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs, waits), { paired, remoteLogin }),
+    () => withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs, waits, automationNames), { paired, remoteLogin }),
     // Seat and awareness stores mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin, waits],
+    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin, waits, automationNames],
   );
 };
 

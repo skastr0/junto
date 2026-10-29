@@ -77,11 +77,18 @@ export type FeedCanvasNeed = {
 
 /**
  * A node that is no seat but can raise a signal: an Automations node. The feed
- * names it by its own title and region, never as a seat that is gone.
+ * names it by its own title and region, never as a seat that is gone, and
+ * names a signal one of its automations raised by that automation's name.
  */
 export type FeedSourceNode = {
   readonly name: string;
   readonly region: FeedRegion;
+  /**
+   * The automations the node holds, by id, when the producer read them: a
+   * signal whose source names one is named by it. Absent, the node's title
+   * stands, which is what an older reader and a removed automation deserve.
+   */
+  readonly automations?: ReadonlyMap<string, string>;
 };
 
 export type OperatorFeedInput = {
@@ -107,12 +114,23 @@ export const feedRegionForCanvas = (canvas: Canvas, nodeId: string): FeedRegion 
   return inner ? { regionId: inner.id, label: regionName(inner), path: stack.map(regionName), ...(inner.color ? { color: inner.color } : {}) } : OPEN_FIELD;
 };
 
-/** The non-seat nodes a signal can come from: the Automations node, by its title and region. */
-export const feedSourcesFromCanvas = (canvas: Canvas): ReadonlyMap<string, FeedSourceNode> => {
+/**
+ * The non-seat nodes a signal can come from: the Automations node, by its
+ * title and region, and the automations it holds when the producer read them.
+ */
+export const feedSourcesFromCanvas = (
+  canvas: Canvas,
+  automationsByNodeId?: ReadonlyMap<string, ReadonlyMap<string, string>>,
+): ReadonlyMap<string, FeedSourceNode> => {
   const sources = new Map<string, FeedSourceNode>();
   for (const node of canvas.nodes.values()) {
     if (node.kind !== "automations") continue;
-    sources.set(node.id, { name: titleOf(node), region: feedRegionForCanvas(canvas, node.id) });
+    const automations = automationsByNodeId?.get(node.id);
+    sources.set(node.id, {
+      name: titleOf(node),
+      region: feedRegionForCanvas(canvas, node.id),
+      ...(automations === undefined ? {} : { automations }),
+    });
   }
   return sources;
 };
@@ -288,10 +306,15 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   for (const signal of input.signals) {
     if (signal.state !== "open" || signal.canvasName !== canvasName) continue;
     const source = input.sources?.get(signal.nodeId);
+    // A signal an automation raised is named by the automation, not by the node
+    // it lives on; a node whose automations were not read, or an automation
+    // since removed, keeps the node's title.
+    const automationName =
+      signal.source?.kind === "automation" ? source?.automations?.get(signal.source.automationId) : undefined;
     const entry = seatsById.get(signal.nodeId) ?? {
       seat: {
         nodeId: signal.nodeId,
-        name: source?.name ?? "removed seat",
+        name: automationName ?? source?.name ?? "removed seat",
         portraitIdentity: signal.nodeId,
       },
       region: source?.region ?? OPEN_FIELD,

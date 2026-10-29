@@ -164,6 +164,14 @@ export const openSeat = (item: FeedItem, node: Node | undefined): void => {
 const automationSourceOf = (item: FeedItem): Extract<FeedItem["source"], { readonly kind: "automation" }> | undefined =>
   item.source?.kind === "automation" ? item.source : undefined;
 
+/**
+ * An automation's signal has no seat to wake, so a quiet note says nothing a
+ * reply does not: the automation hears both as answered. One row of answers,
+ * and no Shift+digit keys behind it.
+ */
+const quietNotesFor = (item: FeedItem, quietNotes: ReadonlyArray<string>): ReadonlyArray<string> =>
+  automationSourceOf(item) === undefined ? quietNotes : NO_NOTES;
+
 function FeedPortrait({ item, node }: { readonly item: FeedItem; readonly node: Node | undefined }) {
   const KindIcon = KIND_ICON[item.kind];
   return (
@@ -256,6 +264,7 @@ function FeedPills({
         pending={sending}
         numbered={numbered}
         to={item.seat.name}
+        wakes={automationSourceOf(item) === undefined}
         onPick={(text) => onAnswer({ kind: "reply", text })}
         className="operator-feed__quick"
       />
@@ -381,7 +390,10 @@ function FeedKeys({
       {keyed ? <span><Kbd>a</Kbd> {answer === "clear" ? "clear" : "acknowledge"}</span> : null}
       {keyed ? <span><Kbd>d</Kbd> dismiss</span> : null}
       {item.signalId && answer === "reply" ? <span><Kbd>↵</Kbd> write reply</span> : null}
-      <span><Kbd>o</Kbd> open seat</span>
+      <span>
+        <Kbd>o</Kbd>{" "}
+        {automationSourceOf(item) !== undefined ? "open run" : "open seat"}
+      </span>
       <span><Kbd>esc</Kbd> close</span>
     </footer>
   );
@@ -418,10 +430,13 @@ function FeedDetail({
   readonly onReply: (open: boolean) => void;
   readonly onReviewCommit: (sha: string) => void;
 }) {
-  const isSeat = node === undefined || node.kind === "agent";
+  // A signal an automation raised opens its run, whatever the node lookup says.
+  const isSeat = automationSourceOf(item) === undefined && (node === undefined || node.kind === "agent");
   const thisMac = isThisMacItem(item);
   const work = itemWorkOf(item);
   const { form } = work;
+  // No seat to wake on an automation's signal: one row of answers.
+  const quiet = quietNotesFor(item, quietNotes);
   // A notice is read and cleared, whatever it carries; otherwise a form is the whole answer.
   const answer = paneAnswerOf(work);
   const hasDetails = item.signalId !== undefined && (Boolean(item.detail) || (item.attachments?.length ?? 0) > 0);
@@ -507,7 +522,7 @@ function FeedDetail({
               <FeedPills
                 item={item}
                 quickReplies={quickReplies}
-                quietNotes={quietNotes}
+                quietNotes={quiet}
                 numbered
                 sending={sending}
                 onAnswer={onAnswer}
@@ -554,7 +569,7 @@ function FeedDetail({
       <FeedKeys
         item={item}
         quickCount={answer === "reply" ? mergedQuickReplies(quickReplies, item.suggestions).length : 0}
-        quietCount={answer === "reply" ? quietNotes.length : 0}
+        quietCount={answer === "reply" ? quiet.length : 0}
         answer={answer}
       />
     </section>
@@ -773,7 +788,7 @@ export function OperatorFeed() {
     // takes the selection, closing a signal the operator never saw.
     if (event.repeat) return;
     const keyed = item.signalId
-      ? feedAnswerForKey(event, mergedQuickReplies(quickReplies, item.suggestions), quietNotes)
+      ? feedAnswerForKey(event, mergedQuickReplies(quickReplies, item.suggestions), quietNotesFor(item, quietNotes))
       : null;
     // Keys answer in text only where a reply is the answer: a notice takes a and d,
     // and work in a form or a secret takes none (its Dismiss asks first).

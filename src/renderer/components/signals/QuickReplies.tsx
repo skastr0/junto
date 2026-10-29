@@ -21,6 +21,7 @@ export function QuickReplies({
   numbered = false,
   quiet = false,
   to,
+  wakes = true,
   className,
 }: {
   readonly replies: ReadonlyArray<string>;
@@ -37,6 +38,11 @@ export function QuickReplies({
    * a surface: each pill's name then says it ("Reply Yes to Atlas").
    */
   readonly to?: string;
+  /**
+   * Whether the answer mails and wakes a seat. An automation's signal has no
+   * seat to wake: its answer is recorded and the automation gets it.
+   */
+  readonly wakes?: boolean;
   readonly className?: string;
 }) {
   const suggestedSet = new Set(quiet ? [] : (suggested ?? []));
@@ -59,7 +65,9 @@ export function QuickReplies({
         const busy = pending === answerLabel(quiet ? { kind: "quiet", text: entry.text } : { kind: "reply", text: entry.text });
         const does = quiet
           ? `Send "${entry.text}" quietly: answered, the seat is not woken`
-          : `Reply "${entry.text}"${entry.suggested ? ", suggested by the seat" : ""}: mails and wakes the seat`;
+          : wakes
+            ? `Reply "${entry.text}"${entry.suggested ? ", suggested by the seat" : ""}: mails and wakes the seat`
+            : `Reply "${entry.text}"${to === undefined ? "" : ` to ${to}`}: the automation gets it as your answer`;
         return (
           <Button
             key={entry.suggested ? `suggested:${entry.text}` : entry.text}

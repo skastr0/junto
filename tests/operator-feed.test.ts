@@ -258,6 +258,51 @@ describe("buildOperatorFeed", () => {
     expect(gone.sections[0]?.items[0]).toMatchObject({ seat: { name: "removed seat" }, region: { regionId: null } });
   });
 
+  it("names an automation's signal by the automation, in the section its kind puts a seat's", () => {
+    const board = canvasOf(
+      [
+        region("routines", { x: 0, y: 0, width: 1200, height: 600 }, { label: "Writing" }),
+        automations("daily", { x: 20, y: 20, width: 200, height: 100, label: "Routines" }),
+        agent("a", 800, 400),
+      ],
+      [],
+    );
+    const automationId = "01M62Q58WDSXMG4YBXNKR2RB91";
+    const asked = signal({
+      signalId: "s-ask",
+      nodeId: "daily",
+      kind: "escalate",
+      text: "Which post goes out first?",
+      source: { kind: "automation", automationId, nodeId: "daily", firingId: "01M62Q58WDSXMG4YBXNKR2RB92" },
+    });
+    const seatAsk = signal({ signalId: "s-seat", nodeId: "a", kind: "escalate", text: "Which store?" });
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: feedSeatsFromCanvas(board),
+      signals: [asked, seatAsk],
+      // What the window read from the node's own automations.
+      sources: feedSourcesFromCanvas(board, new Map([["daily", new Map([[automationId, "Daily wording"]])]])),
+    });
+    const section = feed.sections[0];
+    expect(section?.region).toMatchObject({ regionId: "routines", label: "Writing" });
+    expect(section?.items.map((item) => item.seat.name)).toEqual(["Daily wording", "A"]);
+    // The same kind, the same rung: an automation's ask sits where a seat's would.
+    expect(section?.items[0]).toMatchObject({ kind: "escalate", signalKind: "escalate", signalId: "s-ask" });
+    expect(section?.items[0]?.urgency).toBe(section?.items[1]?.urgency);
+    expect(section?.items[0]?.source).toEqual({ kind: "automation", automationId, nodeId: "daily", firingId: "01M62Q58WDSXMG4YBXNKR2RB92" });
+
+    // An automation the read did not name, or since removed, keeps the node's title.
+    const unnamed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: feedSeatsFromCanvas(board),
+      signals: [asked],
+      sources: feedSourcesFromCanvas(board),
+    });
+    expect(unnamed.sections[0]?.items[0]?.seat.name).toBe("Routines");
+  });
+
   it("is an empty, valid feed when nobody needs the operator", () => {
     const feed = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: seats(), signals: [] });
     expect(feed).toEqual({ version: OPERATOR_FEED_VERSION, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
