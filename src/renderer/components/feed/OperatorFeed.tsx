@@ -25,7 +25,6 @@ import { listIntentOf, stepList } from "../../lib/list-nav";
 import {
   useEffect,
   useMemo,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -37,19 +36,10 @@ import {
 } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
-  ArrowBigUpDash,
   ArrowUpRight,
-  Bell,
   Check,
-  CirclePause,
   Inbox,
-  MessageCircleQuestion,
-  MessageSquareText,
   MonitorSmartphone,
-  NotebookPen,
-  OctagonAlert,
-  ScanEye,
-  type LucideIcon,
 } from "lucide-react";
 import type { Node, Seat } from "@shared/model";
 import {
@@ -59,12 +49,10 @@ import {
   needsOperatorCount,
   orderFeedSections,
   type FeedItem,
-  type FeedItemKind,
   type FeedSortOrder,
 } from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { openWorkDetail } from "../../lib/work-detail-open";
-import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
 import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
@@ -99,42 +87,36 @@ import {
   type SignalAnswer,
 } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
-import { dueWords, handInSignalWork, itemWorkOf, paneAnswerOf, putSignalSecret, workIsDue, type PaneAnswer } from "../../lib/signal-work";
+import { handInSignalWork, itemWorkOf, paneAnswerOf, putSignalSecret, type PaneAnswer } from "../../lib/signal-work";
 import { VAULT_ENABLED } from "@shared/features";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
-import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health";
-import { AgentPortrait } from "../AgentPortrait";
 import { KindMark } from "../NodeKindMark";
 import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
-import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
 import { SignalResourceChips } from "../signals/SignalResourceChips";
 import { SignalWorkForm } from "../signals/SignalWorkForm";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
-import { Button, Dropdown, Kbd, StatusDot } from "../ui";
+import { Button, Dropdown, Kbd } from "../ui";
 import { FeedRegionStrip } from "./FeedRegionStrip";
+import {
+  FeedCardView,
+  FeedPills,
+  FeedPortraitWell,
+  FeedWords,
+  NO_NOTES,
+  automationSourceOf,
+  quietNotesFor,
+  type FeedCardViewProps,
+} from "./FeedCardView";
 import "./operator-feed.css";
 
 const LEAVE_MS = 280;
 const NO_IDS: ReadonlySet<string> = new Set();
-const NO_NOTES: ReadonlyArray<string> = [];
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
-
-/** How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL. */
-const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
-  blocked: OctagonAlert,
-  attention: MessageCircleQuestion,
-  stopped: CirclePause,
-  escalate: ArrowBigUpDash,
-  feedback: MessageSquareText,
-  health: ScanEye,
-  work: NotebookPen,
-  notice: Bell,
-};
 
 /** The region's own colour, or a quiet steel for the open field. */
 const regionStyle = (color: string | undefined): CSSProperties =>
@@ -169,206 +151,25 @@ export const openSeat = (item: FeedItem, node: Node | undefined): void => {
   activateNodeSurface(node.id);
 };
 
-/** What an automation card's action says: the run it opens, never a seat. */
-const automationSourceOf = (item: FeedItem): Extract<FeedItem["source"], { readonly kind: "automation" }> | undefined =>
-  item.source?.kind === "automation" ? item.source : undefined;
-
-/**
- * An automation's signal has no seat to wake, so a quiet note says nothing a
- * reply does not: the automation hears both as answered. One row of answers,
- * and no Shift+digit keys behind it.
- */
-const quietNotesFor = (item: FeedItem, quietNotes: ReadonlyArray<string>): ReadonlyArray<string> =>
-  automationSourceOf(item) === undefined ? quietNotes : NO_NOTES;
+/** What sits in a card's portrait well, live: this Mac, the seat's own ring, the node's mark. */
+const feedFace = (item: FeedItem, node: Node | undefined): ReactNode =>
+  isThisMacItem(item) ? (
+    <span className="operator-feed__node-mark">
+      <MonitorSmartphone size={18} aria-hidden />
+    </span>
+  ) : node?.kind === "agent" ? (
+    <LiveSeatRing seat={node} />
+  ) : node ? (
+    <KindMark node={node} className="operator-feed__node-mark" iconSize={18} />
+  ) : undefined;
 
 function FeedPortrait({ item, node }: { readonly item: FeedItem; readonly node: Node | undefined }) {
-  const KindIcon = KIND_ICON[item.kind];
-  return (
-    <div className="operator-feed__portrait">
-      {isThisMacItem(item) ? (
-        <span className="operator-feed__node-mark">
-          <MonitorSmartphone size={18} aria-hidden />
-        </span>
-      ) : node?.kind === "agent" ? (
-        <LiveSeatRing seat={node} />
-      ) : node ? (
-        <KindMark node={node} className="operator-feed__node-mark" iconSize={18} />
-      ) : (
-        <AgentPortrait identity={item.seat.portraitIdentity} size={36} frame="round" outline={false} />
-      )}
-      <span className="operator-feed__kind-mark" aria-hidden>
-        <KindIcon size={11} strokeWidth={2.25} />
-      </span>
-    </div>
-  );
+  return <FeedPortraitWell item={item} face={feedFace(item, node)} />;
 }
 
-/** Who, what, how long, and the sentence: the same words in the list and the pane. */
-function FeedWords({
-  item,
-  nowMs,
-  labelId,
-}: {
-  readonly item: FeedItem;
-  readonly nowMs: number;
-  readonly labelId?: string;
-}) {
-  const age = mailAgeLabel(nowMs, item.since);
-  const health = item.kind === "health" ? undefined : item.health;
-  const { kind: workKind, work } = itemWorkOf(item);
-  const due = workKind === "work" ? dueWords(work?.dueAt, nowMs) : undefined;
-  const urgent = workKind === "work" && work !== undefined && workIsDue(work, nowMs);
-  return (
-    <>
-      <header className="operator-feed__card-head">
-        <span id={labelId && `${labelId}-name`} className="operator-feed__name">{item.seat.name}</span>
-        <span id={labelId && `${labelId}-kind`} className="operator-feed__kind">{FEED_KIND_LABEL[item.kind]}</span>
-        {due ? (
-          <span className="operator-feed__due" data-urgent={urgent || undefined}>
-            {due}
-          </span>
-        ) : null}
-        {age ? (
-          <time className="operator-feed__age" title={new Date(item.since!).toLocaleString()}>
-            {age}
-          </time>
-        ) : null}
-      </header>
-      <p id={labelId && `${labelId}-text`} className="operator-feed__text">{item.text}</p>
-      {health ? (
-        <p className="operator-feed__health" title="Jev's reading of the screen, not the agent's own claim">
-          <StatusDot tone={THREAD_HEALTH_STATUS_TONE[health.tone]} />
-          AI reads {health.label}
-          {health.stale ? <span className="operator-feed__faint">, last observed</span> : null}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-/**
- * The selected signal's two pill rows: the waking quick replies (1..9) and,
- * apart below them, the quiet notes (Shift+1..9).
- */
-function FeedPills({
-  item,
-  quickReplies,
-  quietNotes,
-  numbered,
-  sending,
-  onAnswer,
-}: {
-  readonly item: FeedItem;
-  readonly quickReplies: ReadonlyArray<string>;
-  readonly quietNotes: ReadonlyArray<string>;
-  readonly numbered: boolean;
-  readonly sending: string | null;
-  readonly onAnswer: (answer: SignalAnswer) => void;
-}) {
-  return (
-    <div className="operator-feed__pills">
-      <QuickReplies
-        replies={quickReplies}
-        suggested={item.suggestions}
-        pending={sending}
-        numbered={numbered}
-        to={item.seat.name}
-        wakes={automationSourceOf(item) === undefined}
-        onPick={(text) => onAnswer({ kind: "reply", text })}
-        className="operator-feed__quick"
-      />
-      <QuickReplies
-        replies={quietNotes}
-        pending={sending}
-        numbered={numbered}
-        quiet
-        to={item.seat.name}
-        onPick={(text) => onAnswer({ kind: "quiet", text })}
-        className="operator-feed__quick"
-      />
-    </div>
-  );
-}
-
-/**
- * One feed row in the list: portrait, who, what and the sentence. Exported
- * so other surfaces (the onboarding tour) can show a real row from fixture
- * items: with `node` undefined it draws the seat's portrait without the live
- * ring. With `pills` (the tour), the selected row carries its pill rows; in
- * the feed they live in the detail pane, so no row repeats them.
- */
-export function FeedCard({
-  item,
-  node,
-  nowMs,
-  quickReplies,
-  quietNotes = NO_NOTES,
-  selected,
-  reveal,
-  leaving,
-  sending,
-  pills = true,
-  onSelect,
-  onQuickReply,
-  onQuietNote,
-}: {
-  readonly item: FeedItem;
-  readonly node: Node | undefined;
-  readonly nowMs: number;
-  readonly quickReplies: ReadonlyArray<string>;
-  readonly quietNotes?: ReadonlyArray<string>;
-  readonly selected: boolean;
-  /** Scroll into view as it is selected: only a j/k step asks for it. */
-  readonly reveal: boolean;
-  readonly leaving: boolean;
-  /** The answer in flight for this card, if any (answerLabel). */
-  readonly sending: string | null;
-  /** Draw the selected row's pill rows in the row itself. */
-  readonly pills?: boolean;
-  readonly onSelect: () => void;
-  readonly onQuickReply: (text: string) => void;
-  readonly onQuietNote?: (text: string) => void;
-}) {
-  const ref = useRef<HTMLElement>(null);
-  const labelId = useId();
-  useEffect(() => {
-    if (selected && reveal) ref.current?.scrollIntoView({ block: "nearest" });
-  }, [selected, reveal]);
-
-  return (
-    <div className={`operator-feed__slot${leaving ? " operator-feed__slot--leaving" : ""}`} role="listitem">
-      <article
-        ref={ref}
-        className={`operator-feed__card${selected ? " is-selected" : ""}`}
-        data-testid="operator-feed-card"
-        data-item-id={item.itemId}
-        data-kind={item.kind}
-        aria-current={selected ? "true" : undefined}
-        // Named by who, what and its own sentence, so two cards from one seat
-        // are told apart on entry.
-        aria-labelledby={`${labelId}-name ${labelId}-kind ${labelId}-text`}
-        onClick={onSelect}
-      >
-        <FeedPortrait item={item} node={node} />
-        <div className="operator-feed__body">
-          <FeedWords item={item} nowMs={nowMs} labelId={labelId} />
-          {pills && selected && item.signalId ? (
-            <FeedPills
-              item={item}
-              quickReplies={quickReplies}
-              quietNotes={quietNotes}
-              numbered
-              sending={sending}
-              onAnswer={(answer) => {
-                if (answer.kind === "reply") onQuickReply(answer.text);
-                else if (answer.kind === "quiet") onQuietNote?.(answer.text);
-              }}
-            />
-          ) : null}
-        </div>
-      </article>
-    </div>
-  );
+/** A feed row drawn live: its portrait well holds the seat's ring or the node's mark. */
+export function FeedCard({ node, ...card }: { readonly node: Node | undefined } & Omit<FeedCardViewProps, "face">) {
+  return <FeedCardView {...card} face={feedFace(card.item, node)} />;
 }
 
 /** The selected item's keys, at the foot of its pane. */
