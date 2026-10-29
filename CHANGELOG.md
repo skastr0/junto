@@ -99,7 +99,8 @@ step is not approved, add that the Files stub on other machines comes later.)
   a signature check or a hooks folder on a read. The git node no longer
   reports dirty work in submodules. A repository whose config names a filter
   driver Junto cannot switch off is refused: Junto does not run git in it and
-  says why.
+  says why. A Git LFS file reads as modified in the git node right after a
+  clone and after any touch, because that same guard empties its clean filter.
 - Security: dropping files into Files copies only the files you actually
   dropped, and never anything from Junto's own folder.
 

@@ -54,14 +54,31 @@ database, and going back means opening the backup taken at the upgrade. Run on
 a copy of `~/.junto/state/junto.db`, never the live file (canvas-verifier, via
 canvas-lead).
 
+Run 1 (canvas-verifier, relayed, on main 3a3cc2649, `git archive` export,
+copy by `sqlite3 -readonly .backup`; they rerun everything at the cut hash).
+Head 62 then; step 63 (the stub) is not in this run. Results per line:
+
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
+      Run 1: head 62, "clean (v62 = 6bd4211a71666d42...)".
 - [ ] The copy migrates from v50 to the head (read from the code, see section 0); `PRAGMA quick_check` ok, foreign keys empty.
+      Run 1: copy was v50 (identity 47696d80), migrated to v62 in 6.6 s,
+      identity 6bd4211a, quick_check ok, foreign_key_check 0 rows.
 - [ ] Counts unchanged: every table, every wire and its verb, tasks.
+      Run 1: all 101 live tables equal; wires 722 and 722 with 0 rows differing
+      and no verb change; task_heads 468 and 468; agent_signals 1356 and 1356;
+      25 new tables, all empty except canvas_consensus 1 and canvas_authorities
+      1 (step 61 seed); factory 329 nodes, 722 wires on both opens.
 - [ ] Backup written before the stamp, opens on 0.10.3 at v50.
+      Run 1: junto-backup-cbb51999 written before the v62 stamp; v50, counts
+      equal; the 0.10.3 engine opens it (329 nodes, 722 wires) and refuses the
+      v62 file ("newer than supported version 50"), leaving it byte-identical.
 - [ ] A second open runs no step and makes no backup.
+      Run 1: still v62, still 1 backup, 126 tables row-identical except
+      `state_schema_identity.verified_at`.
 - [ ] Built app launches a fresh v50 home made by the 0.10.3 engine and
-      migrates it (the 7b run of 0.10.3).
+      migrates it (the 7b run of 0.10.3). Run 1: pending, queued for load under 40
+      and the app-run lock (`~/.junto-preview-gate62` seeded at v50).
 - [ ] Diff the step's files between the receipts' commit and the cut.
 - [ ] Body backlinks backfill (dfedca97d): runs once at boot, marker
       `artifact-links.v1` in `install-ops.db`. Gate, both required:
@@ -73,8 +90,10 @@ canvas-lead).
 
 ## 2. Dependencies and packaging
 
-- [ ] `@pierre/trees` 1.0.0-beta.6 added; `@pierre/diffs` 1.1.21 to 1.6.2
-      (`CodeView.tsx` and the git review still work); `pdfjs-dist` 6.4.299
+- [ ] `@pierre/trees` 1.0.0-beta.6 added; `@pierre/diffs` stays at 1.1.21 (the
+      plan says so, README line 68; this line once read 1.6.2, which is stale);
+      `package.json`, `bun.lock` and `node_modules` agree on all three, checked
+      2026-10-29; `pdfjs-dist` 6.4.299
       with its worker bundled. If the F3 spike fails, the fallback is
       CodeMirror with `@codemirror/language-data`: confirm which shipped.
 - [ ] Packaged app, not the dev tree: the PDF worker loads under the CSP
@@ -86,14 +105,26 @@ canvas-lead).
 ## 3. Security (the cut is blocked on these)
 
 - [ ] `docs/security-doctrine.md` has the "Files node" paragraph, reviewed by
-      remote-lead.
+      remote-lead. Reviewed against the code, every claim holds, one fix
+      (1fe376a62: the stub crosses at step 63). Closes once step 63 lands or is
+      dropped (product-lead via remote-lead).
 - [ ] The renderer never names an absolute path: every call names the node and
       a relative path. A path with `..` and a symlink pointing outside the root
       are refused (`outside-root`). Receipt: test names and run.
-- [ ] Delete goes to the Trash, never `unlink`. Receipt:
-- [ ] A stale write is refused `stale`; a drop never overwrites. Receipt:
+      tech-lead, relayed and not rerun by me, at main 210a7506e in a clean
+      worktree, all-on: 73 of 73 pass; files-contract refuses `/etc/passwd`,
+      `..` and `a/../b`; every IPC call decodes node plus relative path
+      (`files/ipc.ts` withRefPath); files-service root scoping refuses a
+      symlink out. tech-lead reruns at the cut hash on request.
+- [ ] Delete goes to the Trash, never `unlink`. Receipt (tech-lead, relayed):
+      `shell.trashItem` (`files/ipc.ts:104`); a symlink is trashed itself; the
+      only unlink is the atomic-write temp (`fs-ops.ts:223`).
+- [ ] A stale write is refused `stale`; a drop never overwrites. Receipt
+      (tech-lead, relayed): refused against the stamp it read; taken names are
+      numbered.
 - [ ] Other machines get a stub with the label and no root path. Receipt:
-- [ ] Text reads cap at 5 MB.
+- [ ] Text reads cap at 5 MB. Receipt (tech-lead, relayed):
+      `FILE_TEXT_MAX_BYTES`, `shared/files.ts:81`.
 - [ ] Git guard (e9cc0324e, reported by remote-lead): every git main runs
       overrides `core.fsmonitor`, `core.hooksPath`, `log.showSignature` and each
       filter driver the repo names, so a hostile repo opened in the git node or
@@ -102,14 +133,19 @@ canvas-lead).
       submodule work trees (`diff.ignoreSubmodules=dirty`). Unverified, check
       before the notes claim more: a repo whose filter is required (Git LFS)
       may read as modified in the git node now that its filter commands are
-      emptied. Ask remote-lead or the git node's owner.
+      emptied. Answered by tech-lead, verified with a stand-in filter shaped like
+      LFS: a Git LFS file reads as modified in the git node right after a
+      clone and after any touch, because the guard empties its clean filter.
+      The notes say so. Receipts: `tests/git-guard.test.ts` 5 of 5,
+      `git-guard-hooks` 4 of 4 for `core.hooksPath` (bf15eeb4b).
 - [ ] A repo whose config names a filter driver with an `=` in its name is
       refused (`unguardableDrivers`, 3776924fc): Junto runs no git in it and
       the git node shows the error. Receipt: `tests/git-guard.test.ts` at the
       cut. Unverified: what a seat's checkout in such a repo does.
 - [ ] Files import copies only paths a real drop carried and never Junto's
       home (3776924fc). Receipt: `tests/files-service.test.ts` at the cut, and
-      the F5 drop run in the real app.
+      the F5 drop run in the real app. tech-lead, relayed: new
+      `files-import-drop-gate` 4 of 4 (cbdd4cb31, `files/ipc.ts:198`).
 
 ## 4. Before the cut
 
