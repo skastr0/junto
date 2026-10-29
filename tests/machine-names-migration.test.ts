@@ -1,17 +1,20 @@
 /**
- * State migration 20 -> 21 gives every machine a real name. Proven on both
- * shipped fixtures brought to version 20 by the real steps, with rows of every
- * kind that named a machine: where a row said `local` it now names this
- * machine, a row that named another machine still does, the identity tables
- * keep their rows under their plain names with every reference following
- * them, and every other table is untouched.
+ * State migration 20 -> 21 gives every machine a real name. Proven on a
+ * command center and on a remote, with rows of every kind that named a
+ * machine: where a row said `local` it now names this machine, a row that
+ * named another machine still does, the identity tables keep their rows under
+ * their plain names with every reference following them, and every other
+ * table is untouched.
+ *
+ * The version-20 database is made at version 20 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 20 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, so no
+ * path is shared with any other test, and the rows each shipped fixture held
+ * at version 20 (its configuration, identity, machine list, fleet target or
+ * timer) are seeded before the step in their place.
  */
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { machineNameAtMigration } from "../src/main/junto/state/machine-name-at-migration";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
@@ -23,21 +26,6 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V20_SQL, STATE_SCHEMA_V21_SQL } from "./fixtures/state-v13/schema";
-
-let dir: string | undefined;
-afterEach(async () => {
-  if (dir) await rm(dir, { recursive: true, force: true });
-  dir = undefined;
-});
-
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
-  dir = await mkdtemp(join(tmpdir(), "junto-machine-names-migration-"));
-  const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
-  return database;
-};
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
   (
@@ -73,6 +61,53 @@ const namedPlan = (firstBootName: string) => ({
 });
 
 const at = "2026-10-09T00:00:00.000Z";
+
+type Role = "command-center" | "remote";
+
+/**
+ * A version-20 database, fresh and in memory, holding what each shipped
+ * fixture held at version 20: both know the two installations and list this
+ * machine as `local` beside the studio; the command center is configured as
+ * `local` with the studio as its fleet target and a canvas of its own, and the
+ * remote was set up as `studio` by the command center and keeps a timer.
+ */
+const openAt20 = (role: Role): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, versionTwentyPlan)).toMatchObject({ schemaVersion: 20, ...STATE_SCHEMA_V20_IDENTITY });
+  const born = "2026-07-28T12:00:00.000Z";
+  database.exec(`
+    INSERT INTO station_known_installations(installation_id, registered_at)
+      VALUES ('command-center-v1', '${born}'), ('remote-v1', '${born}');
+    INSERT INTO station_installation(singleton, installation_id, created_at)
+      VALUES (1, '${role === "remote" ? "remote-v1" : "command-center-v1"}', '${born}');
+    INSERT INTO host_registry_state(singleton, version, initialized_at) VALUES (1, 1, '${born}');
+    INSERT INTO host_registry(id, label, kind, ssh_endpoint, ssh_identity_file, ssh_host_key_policy, capability_mask,
+        hermes_id, effective_hermes_id, appearance_color, appearance_glyph, sort_order)
+      VALUES ('local', 'Fixture Local', 'local', NULL, NULL, NULL, NULL, NULL, 'local', NULL, NULL, 0),
+             ('studio', 'Studio Mini', 'remote', 'studio', NULL, 'system', 11, NULL, 'studio', '#5ec6d6', 'mini', 1);
+  `);
+  if (role === "command-center") {
+    database.exec(`
+      INSERT INTO station_configuration(singleton, role, host_id, agent_host_id, command_center_installation_id, supervised_preferred, configured_at)
+        VALUES (1, 'command-center', 'local', NULL, NULL, 1, '${born}');
+      INSERT INTO station_fleet_targets(host_id, station_installation_id, bound_at, retired_at) VALUES ('studio', 'remote-v1', '${born}', NULL);
+      INSERT INTO canvases(canvas_name, canvas_id, created_at, updated_at) VALUES ('factory', 'cnv_fixture_factory', '${born}', '${born}');
+      INSERT INTO task_boards(canvas_name, id, x, y, width, height, z_index, created_at, updated_at) VALUES ('factory', 'tasks', 0, 0, 240, 100, 0, '${born}', '${born}');
+    `);
+  } else {
+    database.exec(`
+      INSERT INTO station_configuration(singleton, role, host_id, agent_host_id, command_center_installation_id, supervised_preferred, configured_at)
+        VALUES (1, 'remote', 'studio', 'studio', 'command-center-v1', 1, '${born}');
+      INSERT INTO scheduler_interval_state(home_station, timer_key, schedule_id, interval_milliseconds, catch_up_policy,
+          next_due_at_epoch_ms, next_due_slot, last_fired_slot, updated_at)
+        VALUES ('studio', 'factory::timer-v1', 'schedule-v1', 60000, 'coalesce-latest', 1300000, '4', '3', '${born}');
+      INSERT INTO scheduler_interval_firings(home_station, timer_key, schedule_id, catch_up_policy, claim_slot, due_slot,
+          scheduled_for_epoch_ms, observed_at_epoch_ms, coalesced_missed_slots, claimed_at)
+        VALUES ('studio', 'factory::timer-v1', 'schedule-v1', 'coalesce-latest', '0', '3', 1240000, 1250000, '3', '${born}');
+    `);
+  }
+  return database;
+};
 
 /** The tables this step changes; every other table must come through row for row. */
 const CHANGED = [
@@ -167,12 +202,11 @@ describe("state migration 20 -> 21 (machine names)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V21_SQL)).toEqual(STATE_SCHEMA_V21_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "names this machine in every row of %s that said local, and keeps every other row",
-    async (fixture) => {
-      const database = await openCopy(fixture);
+  it.each<Role>(["command-center", "remote"])(
+    "names this machine in every row of a %s that said local, and keeps every other row",
+    (role) => {
+      const database = openAt20(role);
       try {
-        migrateStateSchema(database, versionTwentyPlan);
         database.exec("PRAGMA foreign_keys = OFF");
         seed(database);
         database.exec("PRAGMA foreign_keys = ON");
@@ -302,10 +336,9 @@ describe("state migration 20 -> 21 (machine names)", () => {
     },
   );
 
-  it("never takes the name of a machine it knows, and keeps a name it was already given", async () => {
-    const database = await openCopy("command-center-v13.db");
+  it("never takes the name of a machine it knows, and keeps a name it was already given", () => {
+    const database = openAt20("command-center");
     try {
-      migrateStateSchema(database, versionTwentyPlan);
       database.exec("PRAGMA foreign_keys = OFF");
       seed(database);
       // The name first boot would give is already the mini's.
@@ -328,10 +361,9 @@ describe("state migration 20 -> 21 (machine names)", () => {
     }
   });
 
-  it("keeps the name the machine that set it up gave it, and is one row in its own list", async () => {
-    const database = await openCopy("remote-v13.db");
+  it("keeps the name the machine that set it up gave it, and is one row in its own list", () => {
+    const database = openAt20("remote");
     try {
-      migrateStateSchema(database, versionTwentyPlan);
       database.exec("PRAGMA foreign_keys = OFF");
       seed(database);
       database.exec("PRAGMA foreign_keys = ON");
