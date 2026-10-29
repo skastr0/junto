@@ -36,7 +36,7 @@ describe("packaged feature build contract", () => {
     expect(result.stdout).toContain('"profile":"ship"');
     // Experimental is its own receipt fact, not an override and not "on".
     expect(result.stdout).toContain('"overrides":[]');
-    expect(result.stdout).toContain('"experimental":["seatAwareness","files"]');
+    expect(result.stdout).toContain('"experimental":["seatAwareness"]');
     expect(result.stdout).toContain("seatAwareness=x");
   });
 

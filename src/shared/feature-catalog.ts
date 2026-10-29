@@ -121,7 +121,8 @@ export const FEATURE_CATALOG = {
   },
   /**
    * The Files node (0.11): one folder on one machine as a file tree with a
-   * light editor. Ship profile EXPERIMENTAL until 0.11 lands whole.
+   * light editor. Ships on in 0.11; the experimental entry stays the way to
+   * ship it behind the Settings toggle again.
    */
   files: {
     env: "JUNTO_FILES",
@@ -203,8 +204,8 @@ export const SHIP_FEATURES: FeatureSet = {
   devTools: false,
   // Built and in the app, off until the operator turns it on in Settings.
   seatAwareness: "experimental",
-  // The Files node (0.11), off until the operator turns it on in Settings.
-  files: "experimental",
+  // The Files node (0.11) ships on.
+  files: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,

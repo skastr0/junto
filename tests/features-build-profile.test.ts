@@ -34,8 +34,8 @@ describe("compile-time feature profiles", () => {
       // Seat awareness (Jev) and seat collaboration ship experimental: built
       // into the app, off until the operator turns them on in Settings.
       seatAwareness: "experimental",
-      // The Files node (0.11) ships experimental until 0.11 lands whole.
-      files: "experimental",
+      // The Files node ships on in 0.11.
+      files: true,
       // Every managed harness ships ON; each gate remains the way back off.
       harnessHermes: true,
       harnessKimi: true,
@@ -102,9 +102,9 @@ describe("compile-time feature profiles", () => {
 
   it("keeps the receipt and fingerprint honest about the three tiers", () => {
     const ship = resolveBuildFeatures({});
-    expect(ship.experimental).toEqual(["seatAwareness", "files"]);
+    expect(ship.experimental).toEqual(["seatAwareness"]);
     expect(ship.fingerprint).toContain("seatAwareness=x");
-    expect(ship.fingerprint).toContain("files=x");
+    expect(ship.fingerprint).toContain("files=1");
     expect(ship.fingerprint).toContain("usage=0");
     expect(ship.fingerprint).toContain("harnessKimi=1");
     // Experimental is not on: an all-on build and a ship build differ here.
@@ -114,7 +114,7 @@ describe("compile-time feature profiles", () => {
     expect(allOn.fingerprint).toContain("files=1");
     // Compiled out is not experimental either.
     const out = resolveBuildFeatures({ JUNTO_SEAT_AWARENESS: "0" });
-    expect(out.experimental).toEqual(["files"]);
+    expect(out.experimental).toEqual([]);
     expect(out.fingerprint).toContain("seatAwareness=0");
     expect(out.overrides).toEqual(["seatAwareness"]);
     // The define carries the tier itself, so the bundle knows the difference.
