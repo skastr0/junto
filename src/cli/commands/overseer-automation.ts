@@ -1,5 +1,6 @@
 import { Effect, Option, Schema } from "effect";
 import { ACTION_KIND_OFF, actionKindInBuild, AUTOMATION_VALUES, type CodeLanguage, DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
+import { DATE_PATTERN_WORDS, VALUE_FORMATS } from "../../shared/automation-formats";
 import {
   AutomationCreateCliArgs,
   AutomationEditCliArgs,
@@ -45,10 +46,10 @@ const braced = (names: ReadonlyArray<string>) => names.map((name) => `{{${name}}
 const SIGNALS = actionKindInBuild("signal");
 const CODE = actionKindInBuild("code");
 
-/** The values each trigger carries, as the help says them (0.11, 05, A4). */
-export const VALUES_HELP = `Text in mail, prompt, comment and append-artifact actions, a new task's title${SIGNALS ? ", a new artifact's title and body, and a signal's title, detail and artifact form title" : " and a new artifact's title and body"} may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal${CODE ? "; and after a code step, {{code.<field>}} for each field its output names" : ""}. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
+/** The values each trigger carries, as the help says them (0.11, 05, A4), and the formats a value takes (0.11/09). */
+export const VALUES_HELP = `Text in mail, prompt, comment and append-artifact actions, a new task's title${SIGNALS ? ", a new artifact's title and body, a signal's title, detail and artifact form title, and an answerTo document's title" : " and a new artifact's title and body"} may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal${SIGNALS ? `; ${braced(AUTOMATION_VALUES.answered)} on an answered signal, and {{raised.<name>}} for any value the firing that raised it carried, such as {{raised.task.title}}` : ""}${CODE ? "; and after a code step, {{code.<field>}} for each field its output names" : ""}. A value may carry formats, applied left to right: {{fired.at|date:YYYY-MM-DD}} writes a time in a pattern of ${DATE_PATTERN_WORDS}, in the automation's time zone (its schedule's, else its machine's); |slug, |lower, |upper and |trim, as in {{task.title|slug}}. A format outside ${VALUE_FORMATS.join(", ")} is refused at save, and so is a value the trigger does not carry, naming the ones it does. A value is inserted as text, never read again`;
 
-const SIGNAL_HELP = `A signal action {kind: signal, signal: notice or work, title, detail?, show?, form?, work?} raises a signal in the operator's needs-you feed: notice is read and cleared, work stays open until the operator produces it; show names artifacts it opens. form is what the operator answers in: {kind: text}, {kind: artifact, node, title?, labels?, minWords?} a document in that Artifacts node, titled from the signal unless named, of at least minWords, {kind: secret, name} a region secret, or {kind: proof}. work {dueInMs?, urgent?} gives work a due time after the firing, and marks it urgent. `;
+const SIGNAL_HELP = `A signal action {kind: signal, signal, title, detail?, show?, form?, id?, answerTo?} raises a signal in the operator's needs-you feed, from the automation, one per firing, never merged: escalate (a question, waiting on the operator), blocked, or feedback (asks for a review), each in the section a seat's would land in, or notice, only to read and clear. show names artifacts it opens. form, on escalate or blocked only, is what the operator answers in: {kind: text}, {kind: artifact, node, title?, labels?, minWords?} a document in that Artifacts node, titled from the signal unless named, of at least minWords, {kind: secret, name} a region secret, or {kind: proof}. answerTo, never on notice, is where the answer goes: {kind: seat, to: @seat} prompts the seat with the signal and the answer; {kind: document, node, title} makes a new document in that Artifacts node; {kind: append, to: <artifact>} appends a dated section. id names the step, 1 to 32 lower-case letters, digits and dashes, unique in the automation; a step with answerTo and no id gets one at save. A change watch {kind: answered, automation: {node, automationId}, step?, signal?} fires when the operator answers a signal that automation raised, on the same Automations node; step narrows to one signal step by its id, as junto automation show prints it (a step without one is given an id with automation edit first), and signal to escalate, blocked or feedback. A secret answer is never a value, only its name. `;
 const CODE_HELP = `A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. `;
 
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
@@ -275,25 +276,66 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
       ],
     },
   )] : []),
-  ...(SIGNALS ? [example(
-    "create",
-    "ask the operator for today's writing every morning",
-    "A work signal stays in the needs-you feed until the operator does it; show takes the brief's junto:// link, from junto artifact show.",
-    {
-      target: "Automations",
-      name: "daily writing",
-      trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "America/Sao_Paulo" },
-      then: [
-        {
-          kind: "signal",
-          signal: "work",
-          title: "Write 500 words",
-          detail: "Today's writing, raised at {{fired.at}}. The brief opens from the signal.",
-          show: ["junto://canvas/factory?node=artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0&item=01M5ESMQ2ZT55QZ073EWPH10SG"],
+  ...(SIGNALS ? [
+    example(
+      "create",
+      "ask the operator for today's writing every morning",
+      "An escalate waits in the needs-you feed until the operator answers it; the artifact form takes the answer as a document of at least minWords. show takes the brief's junto:// link, from junto artifact show; id names the step for an answered watch.",
+      {
+        target: "Automations",
+        name: "daily writing",
+        trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "America/Sao_Paulo" },
+        then: [
+          {
+            kind: "signal",
+            id: "writing",
+            signal: "escalate",
+            title: "Write 500 words",
+            detail: "Today's writing, raised at {{fired.at}}. The brief opens from the signal.",
+            show: ["junto://canvas/factory?node=artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0&item=01M5ESMQ2ZT55QZ073EWPH10SG"],
+            form: { kind: "artifact", node: "Writing", title: "Writing {{fired.at|date:YYYY-MM-DD}}", minWords: 500 },
+          },
+        ],
+      },
+    ),
+    example(
+      "create",
+      "ask the operator to review a task in review, and send the answer to a seat",
+      "Each firing raises its own feedback signal; feedback takes no form. When the operator answers, the seat is prompted with the signal's title and the answer, as it would hear the answer to its own.",
+      {
+        target: "Automations",
+        name: "operator review",
+        trigger: { kind: "change", on: { kind: "task", task: { node: "Release" }, becomes: "in-review" } },
+        then: [
+          {
+            kind: "signal",
+            signal: "feedback",
+            title: "Review {{task.title}}",
+            detail: "{{task.assignee}} asks for a review: {{task.link}}",
+            answerTo: { kind: "seat", to: "@cli-lead" },
+          },
+        ],
+      },
+    ),
+    example(
+      "create",
+      "when the morning writing is answered, file a review and prompt a seat",
+      "An answered watch names the raising automation by its node and id (junto automation list), and step its signal step by id. The title is formatted at firing time; {{raised.fired.at}} is when the raising firing ran.",
+      {
+        target: "Automations",
+        name: "review the writing",
+        enabled: true,
+        trigger: {
+          kind: "change",
+          on: { kind: "answered", automation: { node: "Automations", automationId: "01M5ESM1XHCJ7JYJDBC37MREBZ" }, step: "writing" },
         },
-      ],
-    },
-  )] : []),
+        then: [
+          { kind: "create-artifact", node: "Reviews", title: "Review {{fired.at|date:YYYY-MM-DD}}", body: "{{answer.text}}\n\n{{answer.link}}" },
+          { kind: "prompt", to: "@product-verify", text: "{{signal.title}}, raised {{raised.fired.at}}, was answered: {{answer.link}}" },
+        ],
+      },
+    ),
+  ] : []),
   example(
     "create",
     "when a document is labelled review, log it and move it on",

@@ -13,7 +13,8 @@ import { renderFailureEnvelope } from "../src/cli/core/output";
 import { WorkSocket } from "../src/cli/core/socket";
 import { overseerExamples, overseerSchemas } from "../src/cli/commands/overseer";
 import { AUTOMATION_WRITE_DESCRIPTIONS, automationWriteArgs, codeFilesOf, withSources } from "../src/cli/commands/overseer-automation";
-import { AUTOMATION_VALUES } from "../src/shared/automation";
+import { AUTOMATION_VALUES, valueRefusal } from "../src/shared/automation";
+import { DATE_PATTERN_WORDS, VALUE_FORMATS } from "../src/shared/automation-formats";
 import { parseMentionHref } from "../src/shared/mention";
 
 const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
@@ -122,16 +123,55 @@ describe("overseer automation writes", () => {
     expect(Effect.runSyncExit(writeArgs("automation.run", "{}", Option.some("op-1")))._tag).toBe("Failure");
   });
 
-  it("names every value of every trigger, and the prompt action, in create's and edit's help", () => {
+  it("names every value of every trigger, the formats, and the prompt action, in create's and edit's help", () => {
     for (const verb of ["automation.create", "automation.edit"] as const) {
-      for (const name of Object.values(AUTOMATION_VALUES).flat()) expect(AUTOMATION_WRITE_DESCRIPTIONS[verb], name).toContain(`{{${name}}}`);
+      const help = AUTOMATION_WRITE_DESCRIPTIONS[verb];
+      for (const [trigger, names] of Object.entries(AUTOMATION_VALUES)) {
+        // An answered watch rides the signal gate (answeredWatchRefusal), so its values are said only where signals are.
+        const said = trigger !== "answered" || AUTOMATION_SIGNALS_ENABLED;
+        for (const name of names) {
+          if (trigger === "answered" && (AUTOMATION_VALUES.signal as ReadonlyArray<string>).includes(name)) continue;
+          expect(help.includes(`{{${name}}}`), name).toBe(said);
+        }
+      }
+      expect(help.includes("{{raised.<name>}}"), "raised").toBe(AUTOMATION_SIGNALS_ENABLED);
+      for (const format of VALUE_FORMATS) expect(help, format).toContain(format);
+      expect(help).toContain("{{fired.at|date:YYYY-MM-DD}}");
+      expect(help).toContain(DATE_PATTERN_WORDS);
     }
     const create = AUTOMATION_WRITE_DESCRIPTIONS["automation.create"];
     expect(create).toContain("kind: prompt");
     for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}"]) expect(create).toContain(word);
     // Code steps and the signal action are said only where the build carries them (0.11 gates).
     for (const word of ["kind: code", "{{code.<field>}}"]) expect(create.includes(word), word).toBe(CODE_STEPS_ENABLED);
-    for (const word of ["kind: signal", "notice or work", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: secret, name", "kind: proof", "dueInMs?"]) expect(create.includes(word), word).toBe(AUTOMATION_SIGNALS_ENABLED);
+    const signalWords = [
+      "kind: signal", "escalate (a question, waiting on the operator), blocked, or feedback", "notice, only to read", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: secret, name", "kind: proof",
+      "answerTo?", "{kind: seat, to: @seat}", "{kind: document, node, title}", "{kind: append, to: <artifact>}", "id?",
+      "{kind: answered, automation: {node, automationId}, step?, signal?}", "one per firing, never merged",
+    ];
+    for (const word of signalWords) expect(create.includes(word), word).toBe(AUTOMATION_SIGNALS_ENABLED);
+    // work went with 0.11/09: escalate with a form asks for the same.
+    for (const word of ["notice or work", "dueInMs", "work {"]) expect(create, word).not.toContain(word);
+  });
+
+  it.runIf(AUTOMATION_SIGNALS_ENABLED)("has signal examples the save takes: seat kinds, answerTo, an answered watch, values and formats", () => {
+    const creates = overseerExamples.filter((example) => example.command_id === "overseer.automation.create");
+    const signals = creates.flatMap((example) =>
+      ((example.input as { then: ReadonlyArray<{ kind: string; signal?: string; answerTo?: { kind: string } }> }).then).filter((step) => step.kind === "signal"));
+    expect(signals.map((step) => step.signal)).toEqual(["escalate", "feedback"]);
+    expect(signals.map((step) => step.answerTo?.kind)).toContain("seat");
+    const answered = creates.find((example) => (example.input as { trigger: { on?: { kind: string } } }).trigger.on?.kind === "answered");
+    expect(answered, "an answered example").toBeDefined();
+    // The step it names is the raising example's id, on the same Automations node.
+    expect((answered!.input as { trigger: { on: { step: string } } }).trigger.on.step).toBe("writing");
+    for (const example of creates) {
+      expect(valueRefusal(example.input as never), example.name).toBeUndefined();
+    }
+    const badFormat = {
+      ...(answered!.input as object),
+      then: [{ kind: "create-artifact", node: "Reviews", title: "Review {{fired.at|dat:YYYY}}" }],
+    };
+    expect(valueRefusal(badFormat as never)?.message).toContain("{{fired.at|dat:YYYY}}");
   });
 
   it("sends a prompt example naming values as written, for main to check against its trigger", () => {
