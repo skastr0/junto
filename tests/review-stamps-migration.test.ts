@@ -1,16 +1,16 @@
 /**
  * State migration 32 -> 33 rebuilds `work_review_verdicts` with each
- * verdict's reviewer kind (consolidate). Proven on both shipped fixtures
- * brought to version 32 by the real steps: every verdict comes through as a
+ * verdict's reviewer kind (consolidate): every verdict comes through as a
  * seat's with its columns as they were, and every other table is untouched.
+ *
+ * The version-32 database is made at version 32 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 32 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, so no
+ * path is shared with any other test, and rows seeded before the step stand in
+ * for what a shipped database holds.
  */
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { describe, expect, it } from "vitest";
 import {
   STATE_SCHEMA_CONSOLIDATE_SAFETY,
   STATE_SCHEMA_MIGRATION_PLAN,
@@ -23,18 +23,10 @@ import {
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V32_SQL, STATE_SCHEMA_V33_SQL, stepped } from "./fixtures/state-v13/schema";
 
-let dir: string | undefined;
-afterEach(async () => {
-  if (dir) await rm(dir, { recursive: true, force: true });
-  dir = undefined;
-});
-
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
-  dir = await mkdtemp(join(tmpdir(), "junto-review-stamps-migration-"));
-  const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
+/** A version-32 database, fresh and in memory. */
+const openAt32 = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, planTo(32, STATE_SCHEMA_V32_SQL))).toMatchObject({ schemaVersion: 32, ...STATE_SCHEMA_V32_IDENTITY });
   return database;
 };
 
@@ -51,15 +43,11 @@ const snapshot = (database: DatabaseSync) =>
     ).map(({ name }) => [String(name), database.prepare(`SELECT * FROM "${String(name)}" ORDER BY 1, 2`).all()]),
   );
 
-/** The real steps, with the name first boot would give fixed so the proof does not depend on where it runs. */
-const named = <T extends { readonly toVersion: number; readonly migrate: (database: DatabaseSync) => void }>(step: T): T =>
-  step.toVersion === 21 ? { ...step, migrate: (database: DatabaseSync) => migrateMachineNames(database, "macbook") } : step;
-
 const planTo = (version: number, currentSchemaSql: string) => ({
   ...STATE_SCHEMA_MIGRATION_PLAN,
   currentVersion: version,
   currentSchemaSql,
-  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version).map(named),
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version),
 });
 
 const SEAT = `seat_${"b".repeat(64)}`;
@@ -70,20 +58,23 @@ describe("state migration 32 -> 33 (review stamps)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V33_SQL)).toEqual(STATE_SCHEMA_V33_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "carries every verdict of %s over as a seat's and leaves every other row as it was",
-    async (fixture) => {
-      const database = await openCopy(fixture);
+  it(
+    "carries every verdict over as a seat's and leaves every other row as it was",
+    () => {
+      const database = openAt32();
       try {
-        migrateStateSchema(database, planTo(32, STATE_SCHEMA_V32_SQL));
-        // A crew verdict on a task with seat ids and no node, as the old schema allowed.
-        database.prepare(`
+        database.exec("INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('factory', 'canvas-1', 'now', 'now')");
+        // A crew verdict on a task with seat ids and no node, as the old schema allowed, and one with a node.
+        const verdict = database.prepare(`
           INSERT INTO work_review_verdicts (verdict_id, kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
             subject_kind, subject_task_installation, subject_task_canvas, subject_task_node, subject_task_item,
             subject_epoch, subject_hash, epoch, findings_json, refs_json, posted_at_ms)
-          VALUES ('v-old', 'green', ?, NULL, ?, 'task', 'mini', 'factory', 'tasks-1', 'task-1', 0, 'h', 0, '[]', '[]', 1)
-        `).run(SEAT, SEAT);
+          VALUES (?, ?, ?, ?, ?, 'task', 'mini', 'factory', 'tasks-1', 'task-1', 0, 'h', 0, '[]', '[]', 1)
+        `);
+        verdict.run("v-old", "green", SEAT, null, SEAT);
+        verdict.run("v-node", "blocking", SEAT, "agent-1", SEAT);
         const before = snapshot(database);
+        expect(before["work_review_verdicts"]).toHaveLength(2);
 
         const result = migrateStateSchema(database, planTo(33, STATE_SCHEMA_V33_SQL));
         expect(result).toMatchObject({ previousVersion: 32, schemaVersion: 33 });
@@ -139,9 +130,8 @@ describe("state migration 32 -> 33 (review stamps)", () => {
     };
     const relaxSeat = (sql: string) => sql.replace("reviewer_seat_id TEXT NOT NULL", "reviewer_seat_id TEXT");
     const migrateFixture = async (plan: ReturnType<typeof standIn>) => {
-      const database = await openCopy("command-center-v13.db");
+      const database = openAt32();
       try {
-        migrateStateSchema(database, planTo(32, STATE_SCHEMA_V32_SQL));
         migrateStateSchema(database, plan);
       } finally {
         database.close();
