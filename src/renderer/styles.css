@@ -977,28 +977,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   line-height: var(--leading-body);
   color: var(--color-dim);
 }
-.region-briefing__editor {
-  width: 100%;
-  min-height: 280px;
-  height: 280px;
-  resize: vertical;
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-md);
-  background: var(--color-inset);
-  color: var(--color-ink);
-  padding: 12px 14px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--text-body-lg);
-  line-height: var(--leading-body);
-  outline: none;
-}
-.region-briefing__editor::placeholder {
-  color: var(--color-faint);
-}
-.region-briefing__editor:focus {
-  border-color: color-mix(in oklab, var(--color-second) 55%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent);
-}
 .inspector-editor input::placeholder, .inspector-editor textarea::placeholder { color: var(--color-faint); }
 .inspector-editor input:focus, .inspector-editor textarea:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
 .inspector-section { margin-top: 16px; }

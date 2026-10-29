@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { useRtsNodes } from "../lib/rts-selection";
 import { HashMap, HashSet, Option } from "effect";
@@ -26,6 +26,7 @@ import { titleOf } from "@shared/model/title";
 import { Chip } from "./ui";
 import { RegionRules } from "./rules";
 import { BrowserProfileSelect } from "./HostPickers";
+import { BriefingDocument } from "./briefing/BriefingDocument";
 
 // ---------------------------------------------------------------------------
 // Canvas physics — capability inventory (read-only) + "limit this key" editor
@@ -391,22 +392,39 @@ const commitRegionInstruction = (regionId: string, instruction: string): void =>
 };
 
 /**
- * Region briefing — context agents receive on onboard. Builds with the Tasks
- * feature also author the region's rules and pinned rulings beneath it: rules
- * are statements a closing task must answer, so they live with the briefing.
- * Single copy line; large editor; CLI refs use first-class amber mono.
+ * Region briefing — context agents receive on onboard, written as a document
+ * (plan 0.11, 08): headings, lists, and mentions of what the region reaches.
+ * Builds with the Tasks feature also author the region's rules and pinned
+ * rulings beneath it: rules are statements a closing task must answer, so
+ * they live with the briefing. Single copy line; CLI refs use first-class
+ * amber mono.
+ *
+ * Typing is saved when it rests or the field is left. A briefing changed
+ * elsewhere (an overseer, another machine) is taken in only while nothing
+ * typed is unsaved.
  */
 export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: string }) {
-  const instructionValue = useNodeOf(use$(state$.canvasName), regionId, "region")?.instruction ?? "";
-  const [instructionDraft, setInstructionDraft] = useState(instructionValue);
+  const canvasName = use$(state$.canvasName);
+  const instructionValue = useNodeOf(canvasName, regionId, "region")?.instruction ?? "";
+  // What the field holds; what was last saved or received, as stored (trimmed).
+  const [shown, setShown] = useState(instructionValue);
+  const saved = useRef(instructionValue);
+  const draft = useRef(instructionValue);
 
   useEffect(() => {
-    setInstructionDraft(instructionValue);
-  }, [regionId, instructionValue]);
+    if (instructionValue === saved.current) return;
+    const unsaved = draft.current.trim() !== saved.current;
+    saved.current = instructionValue;
+    if (unsaved) return;
+    draft.current = instructionValue;
+    setShown(instructionValue);
+  }, [instructionValue]);
 
-  const commitInstruction = () => {
-    if (instructionDraft === instructionValue) return;
-    commitRegionInstruction(regionId, instructionDraft);
+  const save = (text: string): void => {
+    // The store keeps the text trimmed: saving trailing space again is no change.
+    if (text.trim() === saved.current) return;
+    saved.current = text.trim();
+    commitRegionInstruction(regionId, text);
   };
 
   return (
@@ -414,22 +432,21 @@ export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: st
       <p className="region-briefing__hint">
         Agents receive this from the{" "}
         <span className="cli-cmd">onboard</span>
-        {" "}command inside the region.
+        {" "}command inside the region. @ names a seat, # a task or an artifact the region reaches.
       </p>
-      <textarea
-        data-focus-owner="canvas-draft"
-        className="region-briefing__editor"
-        aria-label="Region briefing"
+      <BriefingDocument
+        canvasName={canvasName}
+        regionId={asModelNodeId(regionId)}
+        size="panel"
+        value={shown}
+        label="Region briefing"
+        surfaceLabel="Region briefing, document"
         placeholder="What should agents inside this region know?"
-        value={instructionDraft}
-        onChange={(event) => setInstructionDraft(event.target.value)}
-        onBlur={commitInstruction}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setInstructionDraft(instructionValue);
-            releaseFocus(event.currentTarget, "gesture");
-          }
+        onChange={(text) => {
+          draft.current = text;
+          setShown(text);
         }}
+        onRest={save}
       />
       {/* Region rules ride the Tasks gate: a tasks-off build has none. */}
       {TASKS_ENABLED ? <RegionRules regionId={regionId} /> : null}

@@ -63,9 +63,8 @@ const captureRegion = async (page: Page, theme: string) => {
 
   await page.getByRole("button", { name: "Region briefing" }).click();
   const briefing = page.getByRole("dialog", { name: "Briefing" });
-  await expect(briefing.getByRole("textbox", { name: "Region briefing" })).toHaveValue(
-    region.instruction!,
-  );
+  // The briefing is a live markdown document: its text is what it shows, not a field's value.
+  await expect(briefing.getByRole("textbox", { name: "Region briefing" })).toHaveText(region.instruction!);
   if (SHIP_BUILD) {
     await expect(briefing).not.toContainText("Region rules");
     await expect(briefing).not.toContainText(/ruling/iu);
