@@ -114,6 +114,15 @@ canvas-lead).
       under the 8,388,608 bound (size measured; the audit itself not run on
       it). A 30 KiB margin means any renderer growth before the cut can trip
       it; recheck at the cut hash either way.
+      **Fixed by ece0679d5** (lazy CodeMirror, diffs and trees; performance-lead).
+      Full export audit at main 3fbd56dd0 (2026-10-28), a clean `git archive`
+      export per profile built with `build-app.sh --target mac --fast` as
+      `scripts/preview.sh` does (Linux machine payload from the Orb builder),
+      then `bun scripts/audit-packaged-app.ts Junto.app --source` run inside
+      each export: ship `ok:true`, renderer main chunk 5,933,888 bytes; all-on
+      `ok:true`, 6,015,358 bytes; bound 8,388,608. Not yet done: the audit at
+      the cut hash, and the signed form of the audit (no `--source`), which
+      only the real `app:build:ship` runs.
 
 - [ ] Every track in the plan's tracker reports done and verified by a seat
       that did not write it (product-automation and product-verify in the real
