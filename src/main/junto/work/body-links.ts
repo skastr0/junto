@@ -37,7 +37,10 @@ const LINKED_FROM_SQL = `
   FROM work_artifact_links links
   JOIN artifact_heads heads
     ON heads.canvas_name = links.canvas_name AND heads.artifact_id = links.source_artifact_id
-  WHERE links.canvas_name = ? AND links.target_node_id = ? AND links.target_artifact_id = ?
+  WHERE links.canvas_name = ? AND links.target_artifact_id = ?
+    AND links.target_node_id IN (
+      SELECT ? UNION SELECT from_node_id FROM artifact_moves WHERE canvas_name = ? AND artifact_id = ?
+    )
     AND heads.archived = 0
   ORDER BY heads.updated_at DESC, heads.artifact_id DESC
 `;
@@ -58,7 +61,8 @@ export const linkedFromBodies = (
     const targetNode = canvas.nodes.get(target.nodeId);
     // A link to a task board, a seat or a page is not a body backlink.
     if (targetNode === undefined || targetNode.kind !== "artifacts") return [];
-    const rows = yield* sql.unsafe<LinkedFromRow>(LINKED_FROM_SQL, [canvasName, target.nodeId, target.artifactId]);
+    // A link written before a move names a node the artifact was on: it still links it (0.11.1, 10).
+    const rows = yield* sql.unsafe<LinkedFromRow>(LINKED_FROM_SQL, [canvasName, target.artifactId, target.nodeId, canvasName, target.artifactId]);
     // A source is a body link only while its head still points at that line's
     // artifact; a head that moved to another node is no source of this list.
     return rows.flatMap((row): ReadonlyArray<LinkedFromBody> => {

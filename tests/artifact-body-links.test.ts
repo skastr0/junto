@@ -200,6 +200,15 @@ describe("body backlinks", () => {
     expect(typeof found[0]?.at).toBe("number");
   });
 
+  it("keeps a backlink written before the target moved, and one from a source that moved (0.11.1, 10)", async () => {
+    const budget = await createDocument("Budget", "spent");
+    const plan = await createDocument("Plan", `The ${link(SHELF, budget, "Budget")} is fixed.`);
+    expect((await submit(command({ op: "move", to: OTHER_SHELF }, budget))).kind).toBe("applied");
+    expect((await read({ nodeId: OTHER_SHELF, artifactId: budget })).map((found) => found.source)).toEqual([{ nodeId: SHELF, artifactId: plan }]);
+    expect((await submit(command({ op: "move", to: OTHER_SHELF }, plan))).kind).toBe("applied");
+    expect((await read({ nodeId: OTHER_SHELF, artifactId: budget })).map((found) => found.source)).toEqual([{ nodeId: OTHER_SHELF, artifactId: plan }]);
+  });
+
   it("takes a link out when an edit takes it out of the body", async () => {
     const budget = await createDocument("Budget", "spent");
     const plan = await createDocument("Plan", `The ${link(SHELF, budget, "Budget")} is fixed.`);
