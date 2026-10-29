@@ -77,8 +77,9 @@ a read-only copy), so nothing is mapped in practice.
 **Step ids.** A signal action may carry `id`, a step id the automation
 names it by: lower-case letters, digits and dashes, 1 to 32 characters,
 starting with a letter or digit (`StepId`). Two signal steps of one
-automation never share an id (refused at save). The editor and the CLI mint
-one when a step has none and something links to it; an id survives a
+automation never share an id (refused at save). A step with `answerTo` and
+no id is named at save, `step-<n>` by its place (`withStepIds`); the editor
+and the CLI mint one when something else links to a step. An id survives a
 reorder, which an index does not.
 
 **One signal per firing.** A firing's signal step raises one signal, whose
@@ -97,9 +98,10 @@ ten firings raise ten signals. Nothing groups or replaces them
 
 It fires once per signal (claim key `answered:<signalId>`) when a signal the
 named automation raised becomes `answered`. A dismissed or withdrawn signal
-fires nothing, and so does a notice. The raising automation's node must be in
-reach. An answer is the operator's act, so it always fires; it is never an
-automation's own write.
+fires nothing, and so does a notice. The raising automation sits on the
+watch's own Automations node (refused at save otherwise): reach lists seats
+and resources, never an Automations node. An answer is the operator's act,
+so it always fires; it is never an automation's own write.
 
 **Values of the answered watch** (`AUTOMATION_VALUES.answered`):
 
@@ -115,8 +117,12 @@ automation's own write.
 | `raised.<name>` | any value the raising firing carried when its signal step ran: `raised.fired.at`, `raised.task.title`, `raised.code.<field>` |
 
 A `raised.<name>` the raising firing did not carry stays as written, as a
-`{{code.<field>}}` does. The raising firing's values are kept on its `raised`
-ruling (`values`), so they outlive edits to the raising automation.
+`{{code.<field>}}` does. The signal carries the step and the raising
+firing's values on its source (`source.step: {index, id?, raised}`), so the
+answer finds them on any machine, after any edit, and after the raising
+firing is pruned from history. Each value is cut to 2,000 characters and
+all of them to 32,000; one that does not fit is left off and stays as
+written.
 
 **answerTo.** The signal action takes `answerTo?`, one of:
 
@@ -141,7 +147,8 @@ delivery is recorded as a firing of the raising automation with cause
 `{kind: "change", key: "answer:<signalId>"}` and one ruling, at the signal
 step's index; its ids derive from the signal, so a delivery heard twice
 writes once. It is not held back by the automation being off or by its
-limits, only by reach.
+limits, only by reach. Like every change firing it is at most once: a crash
+between its claim and its delivery leaves it claimed and undelivered.
 
 **Value formats.** A value token may carry formats, applied left to right:
 `{{name|format|format}}`. The set is closed (`VALUE_FORMATS`):
@@ -172,10 +179,9 @@ Automations node. The runner hears the answered row through
 | H4 | cli-lead | CLI for H1's shapes | cli-protocol |
 | H5 | product-verify | walk, dark and bright: an escalate from an automation answered in the feed starts a second automation that writes `Review {{fired.at\|date:YYYY-MM-DD}}` into an Artifacts node and prompts a seat; ten firings show ten signals | |
 
-## Known limit, carried to 0.12
+## Known limit, lifted
 
-The raising firing is kept on its own machine. An answered watch on another
-machine gets no `raised.<name>` values, so a step that uses one is refused
-at save with the reason. "When answered…" creates the new automation on the
-raising automation's machine, so the usual case works. Fleet state (0.12)
-lifts the limit.
+Was: the raising firing is kept on its own machine, so an answered watch on
+another machine would get no `raised.<name>` values. Lifted in H1 after
+tech-lead's review: the step and the values ride the signal, which crosses
+machines, so no firing is read and nothing is refused for its machine.
