@@ -257,6 +257,8 @@ export const opLabel = (op: ArtifactOp): string => {
       return "Change its tasks";
     case "labelColour":
       return op.colour === null ? `Clear the colour of ${op.label}` : `Colour ${op.label} ${op.colour}`;
+    case "move":
+      return "Move to another node";
   }
 };
 

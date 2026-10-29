@@ -91,6 +91,19 @@ export const ArtifactFact = Schema.Union([
   Schema.Struct({ fact: Schema.Literal("artifact.archived"), artifactId: ItemId, archived: Schema.Boolean, at: Schema.Number }),
   Schema.Struct({ fact: Schema.Literal("artifact.tasks"), artifactId: ItemId, taskIds: Schema.Array(ItemId), at: Schema.Number }),
   /**
+   * The artifact moved to another Artifacts node (0.11.1, 10). Only the node
+   * changes; `by` and the two nodes are what its history says. Applying it
+   * twice leaves it on `to`.
+   */
+  Schema.Struct({
+    fact: Schema.Literal("artifact.moved"),
+    artifactId: ItemId,
+    from: NodeId,
+    to: NodeId,
+    by: ResourceActor,
+    at: Schema.Number,
+  }),
+  /**
    * A label's colour in an Artifacts node (03, Colours), canonical label,
    * `colour: null` unset. It names the node, not an artifact, and the state
    * the ruler holds does not change: main projects it into
@@ -234,7 +247,8 @@ export const ruleArtifactCommand = (
     return refuse({ reason: "unknown_target", message: `no artifact ${artifactId} on ${target.nodeId}` });
   }
 
-  if (entry.artifact.archived && op.op !== "restore" && op.op !== "archive") {
+  // An archived artifact moves too, and stays archived.
+  if (entry.artifact.archived && op.op !== "restore" && op.op !== "archive" && op.op !== "move") {
     return refuse({
       reason: "invalid_transition",
       message: `artifact ${artifactId} is archived`,
@@ -288,6 +302,10 @@ export const ruleArtifactCommand = (
         : refuse({ reason: "invalid_transition", message: `artifact ${artifactId} is not archived` });
     case "tasks":
       return apply({ fact: "artifact.tasks", artifactId, taskIds: op.taskIds, at });
+    case "move":
+      return op.to === entry.artifact.nodeId
+        ? refuse({ reason: "invalid_transition", message: `artifact ${artifactId} is already on ${op.to}` })
+        : apply({ fact: "artifact.moved", artifactId, from: entry.artifact.nodeId, to: op.to, by: command.actor, at });
   }
 };
 
@@ -369,6 +387,9 @@ export const applyArtifactFact = (state: ArtifactState, fact: ArtifactFact): Art
     case "artifact.label.coloured":
       // A colour is the node's, not an artifact's: no head moves.
       return state;
+    case "artifact.moved":
+      // A move is not an edit: the node changes, nothing else, not even when it last changed.
+      return withEntry(state, fact.artifactId, (entry) => ({ ...entry, artifact: { ...entry.artifact, nodeId: fact.to } }));
   }
 };
 

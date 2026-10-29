@@ -387,6 +387,13 @@ export const ArtifactOp = Schema.Union([
    * by the ruler; `colour: null` unsets it.
    */
   Schema.Struct({ op: Schema.Literal("labelColour"), label: Schema.String, colour: Schema.NullOr(ArtifactLabelColour) }),
+  /**
+   * Move the artifact to another Artifacts node (0.11.1, 10): only its node
+   * changes. The command's `target.nodeId` is where it is now. The ruler
+   * checks that `to` is an Artifacts node on the canvas; the domain, which
+   * holds no canvas, only that it is another node.
+   */
+  Schema.Struct({ op: Schema.Literal("move"), to: NodeId }),
 ]);
 export type ArtifactOp = typeof ArtifactOp.Type;
 
