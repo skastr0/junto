@@ -33,7 +33,8 @@ const BEARER = /(\bbearer\s+)[^\s"',;]+/gi;
 const URL_USERINFO = /(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^/\s@]+@/gi;
 // The name is bounded: an unbounded prefix rescans from every start (quadratic).
 const NAMED_VALUE = /([A-Za-z0-9_.-]{0,48}(?:token|secret|password|passwd|key|credential|auth|cookie|session)[A-Za-z0-9_.-]{0,48}(?:"|')?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s&#"',;]+)/gi;
-const TOKEN_SHAPES = /\b(?:sk-|ghp_|gho_|github_pat_|xox[abpr]-|ops_)[A-Za-z0-9_-]+|\bAKIA[A-Z0-9]{12,}|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
+// A 1Password service-account token runs over every character VaultTokenSecret admits, + / = and . among them.
+const TOKEN_SHAPES = /\b(?:sk-|ghp_|gho_|github_pat_|xox[abpr]-)[A-Za-z0-9_-]+|\bops_[A-Za-z0-9+/=_.-]+|\bAKIA[A-Z0-9]{12,}|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
 // Boat keys: `boat_` (and the older `box_`) then at least 24 base64url characters, "-" included. A `bx_` sandbox id is not one.
 const BOAT_KEY = /\b(?:boat|box)_[A-Za-z0-9_-]{24,}/g;
 // A Boat sign-in or token link keeps its host and path; what follows "?" goes.

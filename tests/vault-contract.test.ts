@@ -118,3 +118,14 @@ describe("the scope record", () => {
     }
   });
 });
+
+it("the scrub's 1Password token shape covers every character VaultTokenSecret admits", async () => {
+  const { scrubText } = await import("../src/main/junto/credentials/scrub");
+  const { VaultTokenSecret } = await import("../src/shared/vault");
+  const body = "eyJzaWduSW5BZGRyZXNzIjoibXkuMXBhc3N3b3JkLmNvbSJ9+/=_.-AbC0123456789xyz";
+  const token = `ops_${body}`;
+  expect(Schema.is(VaultTokenSecret)(token)).toBe(true);
+  const scrubbed = scrubText(`op said ${token} then stopped`, []);
+  for (const part of ["+/=", "_.-AbC", "eyJzaWdu"]) expect(scrubbed).not.toContain(part);
+  expect(scrubbed.startsWith("op said ")).toBe(true);
+});
