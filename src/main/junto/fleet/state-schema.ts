@@ -97,6 +97,10 @@ export const FLEET_CONSENSUS_STATE_SCHEMA_SQL = `
  * applied, and each canvas's editor its one authority, so nothing changes
  * until the operator lists a fallback. A canvas with no editor named is
  * edited here, as `canvasEdits` reads it, so this machine is its authority.
+ * That holds by construction: NULL is written only for a canvas this machine
+ * made (step 18's stamp, or createCanvas before the installation row exists),
+ * and a copy taken in always names its editor (CanvasCopy.editor is an
+ * InstallationId), so a replica's list is never this machine.
  */
 export const FLEET_CONSENSUS_SEED_SQL = `
   INSERT INTO canvas_consensus (canvas_name, current_term, voted_for, commit_index, applied_index)
