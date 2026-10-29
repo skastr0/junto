@@ -63,6 +63,9 @@ const stated = (signal: AgentSignal): ExchangeSignal => ({
   kind: signal.kind,
   text: signal.text,
   ...(signal.detail === undefined ? {} : { detail: signal.detail }),
+  ...(signal.source === undefined ? {} : { source: signal.source }),
+  ...(signal.work === undefined ? {} : { work: signal.work }),
+  ...(signal.form === undefined ? {} : { form: signal.form }),
   ...(signal.suggestions === undefined ? {} : { suggestions: signal.suggestions }),
   ...(signal.attachments === undefined || signal.attachments.length === 0
     ? {}

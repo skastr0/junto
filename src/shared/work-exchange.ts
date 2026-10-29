@@ -20,6 +20,9 @@ import {
   AgentSignalResponseText,
   AgentSignalSuggestions,
   AgentSignalText,
+  SignalForm,
+  SignalSource,
+  WorkTiming,
 } from "./agent-signals";
 import { CanvasCopy } from "./canvas-copy";
 import { commandRowEntitled } from "./command-row";
@@ -180,6 +183,14 @@ export const ExchangeSignal = Schema.Struct({
   kind: AgentSignalKind,
   text: AgentSignalText,
   detail: Schema.optionalKey(AgentSignalDetail),
+  /**
+   * Who raised it, when its work is due and what reply it asks for: the
+   * operator's window may be on another machine, so a form or a due time has
+   * to cross with the signal or the operator sees work with nothing to fill.
+   */
+  source: Schema.optionalKey(SignalSource),
+  work: Schema.optionalKey(WorkTiming),
+  form: Schema.optionalKey(SignalForm),
   /** The seat's pre-baked replies. */
   suggestions: Schema.optionalKey(AgentSignalSuggestions),
   /** What the seat attached, in its order, with the raise. */
