@@ -37,7 +37,7 @@ tasks, and every link to it and from it. Only its node changes.
 - **Archived artifacts** move too and stay archived.
 - **Sync.** A move is ruled where the canvas is ruled and reaches other
   machines as a rename does.
-- **CLI.** `junto overseer artifact move {artifactIds, toNode}` takes one to
+- **CLI.** `junto overseer artifact move {artifactIds, to}` takes one to
   100 ids. It answers one row per artifact, `moved` or refused with a
   reason, like `agent offboard`. Ordinary seats get no move.
 
