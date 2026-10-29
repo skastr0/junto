@@ -108,10 +108,11 @@ const subscribeStack = (listener: () => void): (() => void) => {
 const stackIsOpen = (): boolean => stack.length > 0;
 
 /**
- * Whether any modal is on the stack, live. The canvas uses it to stand its
- * own document-level keys down while a modal owns the keyboard.
+ * Whether any modal, on any layer, is on the stack, live. The canvas uses it
+ * to stand its own document-level keys down while a modal owns the keyboard;
+ * a second modal opening on top changes nothing here and re-renders nobody.
  */
-export const useModalOpen = (): boolean =>
+export const useAnyModalOpen = (): boolean =>
   useSyncExternalStore(subscribeStack, stackIsOpen, stackIsOpen);
 
 /**

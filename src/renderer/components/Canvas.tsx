@@ -42,7 +42,7 @@ import {
 import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { useMenuDismiss } from "../lib/menu-dismiss";
-import { useModalOpen } from "../lib/modal-stack";
+import { useAnyModalOpen } from "../lib/modal-stack";
 import { canvasDeleteKeyCode } from "../lib/canvas-keys";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
@@ -1548,7 +1548,7 @@ function CanvasGraph() {
   // Focus-view presence (any kind) and any modal on product-modals' stack:
   // the canvas delete/Escape keys must not act through either.
   const hasFocusSurfaces = use$(() => dock$.registry.surfaces.get().length > 0);
-  const modalOpen = useModalOpen();
+  const modalOpen = useAnyModalOpen();
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canvasDeleteKeyCode } from "../src/renderer/lib/canvas-keys";
 import { dispatchKey, keySituation } from "../src/renderer/lib/key-dispatcher";
-import { pushModal, resetModalStack, useModalOpen } from "../src/renderer/lib/modal-stack";
+import { pushModal, resetModalStack, useAnyModalOpen } from "../src/renderer/lib/modal-stack";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,7 +31,7 @@ const press = (over: Partial<KeyboardEvent> & { key: string }) =>
     ...over,
   }) as unknown as KeyboardEvent;
 
-const Probe = () => <span data-modal={useModalOpen() ? "open" : "closed"} />;
+const Probe = () => <span data-modal={useAnyModalOpen() ? "open" : "closed"} />;
 
 describe("canvas keys stand down under a modal", () => {
   let host: HTMLDivElement;
