@@ -7,9 +7,14 @@
  *
  * Nothing here runs per frame. Each opaque surface gets an
  * IntersectionObserver whose root box is the surface's own box (the
- * rootMargin cuts the viewport down to it, less the corner radius), so the
- * browser itself reports a mark going wholly inside the surface or coming
- * partly out, through pan, scroll and moves. The box is read again when the
+ * rootMargin cuts the viewport down to it, less the corner radius and
+ * SLACK), so the browser itself reports a mark going wholly inside the
+ * surface or coming partly out, through pan, scroll and moves. A mark on the
+ * zoomed canvas reads 0.9999998, not 1, when wholly inside, so a reading
+ * covers at a ratio of 0.99 with the mark's box inside the root box give or
+ * take SLACK; a mark partly out of the surface itself has crossed SLACK and
+ * the radius, far more than 1%, so it fires a reading and keeps turning.
+ * The centre hit test runs only inside those readings. The box is read again when the
  * surface opens, ends its entrance, resizes, or the window or the surface's
  * frame resizes. Every reading first uncovers every mark in the same task,
  * so a ring the surface no longer hides never waits for the observer.
@@ -18,11 +23,24 @@
 type Box = { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number };
 type Size = { readonly width: number; readonly height: number };
 
-/** The rootMargin that cuts a viewport of `viewport` down to `box`, inset by `inset` on every side. */
+/** Px the root box sits inside the surface past its corner radius; a covered mark may straddle it by this much. */
+export const SLACK = 2;
+/** The ratio a covering reading needs; the observer fires on crossing it. */
+export const COVER_RATIO = 0.99;
+
+/** The rootMargin that cuts a viewport of `viewport` down to `box`, inset by `inset` on every side (rounded inward). */
 export const surfaceRootMargin = (box: Box, viewport: Size, inset: number): string =>
   [box.top + inset, viewport.width - box.right + inset, viewport.height - box.bottom + inset, box.left + inset]
-    .map((cut) => `${String(-Math.round(cut))}px`)
+    .map((cut) => `${String(-Math.ceil(cut))}px`)
     .join(" ");
+
+/** True when `mark` lies inside `root`, give or take `slack` px on each side. */
+export const boxWithin = (mark: Box, root: Box | null, slack: number): boolean =>
+  root !== null &&
+  mark.left >= root.left - slack &&
+  mark.top >= root.top - slack &&
+  mark.right <= root.right + slack &&
+  mark.bottom <= root.bottom + slack;
 
 /** True when a computed CSS colour has no transparency. */
 export const opaqueColor = (css: string): boolean => {
@@ -41,11 +59,13 @@ export const opaqueColor = (css: string): boolean => {
  * pointer would hit at the mark's centre).
  */
 export const coversMark = (reading: {
-  readonly isIntersecting: boolean;
   readonly intersectionRatio: number;
+  /** The mark's box inside the root box, give or take SLACK. */
+  readonly withinBox: boolean;
   readonly ownedBySurface: boolean;
   readonly surfaceOnTop: boolean;
-}): boolean => reading.isIntersecting && reading.intersectionRatio >= 1 && !reading.ownedBySurface && reading.surfaceOnTop;
+}): boolean =>
+  reading.intersectionRatio >= COVER_RATIO && reading.withinBox && !reading.ownedBySurface && reading.surfaceOnTop;
 
 /** An opaque surface only hides what is under it once it is fully drawn. */
 const isOpaqueSurface = (el: HTMLElement): boolean => {
@@ -109,18 +129,19 @@ const read = (s: Surface): void => {
       for (const entry of entries) {
         const mark = entry.target as HTMLElement;
         if (!marks.has(mark)) continue;
-        const inside = entry.isIntersecting && entry.intersectionRatio >= 1;
+        const withinBox = boxWithin(entry.boundingClientRect, entry.rootBounds, SLACK);
+        const inside = entry.intersectionRatio >= COVER_RATIO && withinBox;
         setCovered(s, mark, coversMark({
-          isIntersecting: entry.isIntersecting,
           intersectionRatio: entry.intersectionRatio,
+          withinBox,
           ownedBySurface: s.el.contains(mark),
           surfaceOnTop: inside && surfaceOnTop(s.el, mark),
         }));
       }
     },
     {
-      rootMargin: surfaceRootMargin(s.el.getBoundingClientRect(), { width: root.clientWidth, height: root.clientHeight }, radius),
-      threshold: [1],
+      rootMargin: surfaceRootMargin(s.el.getBoundingClientRect(), { width: root.clientWidth, height: root.clientHeight }, radius + SLACK),
+      threshold: [COVER_RATIO, 1],
     },
   );
   s.io = io;

@@ -7,16 +7,24 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  boxWithin,
+  COVER_RATIO,
   coversMark,
   isCovered,
   onCoverChange,
   opaqueColor,
   registerOpaqueSurface,
+  SLACK,
   surfaceRootMargin,
   watchCoverable,
 } from "../src/renderer/lib/mark-occlusion";
 
-type Reading = { target: Element; isIntersecting: boolean; intersectionRatio: number };
+type Rect = { left: number; top: number; right: number; bottom: number };
+type Reading = { target: Element; isIntersecting: boolean; intersectionRatio: number; boundingClientRect: Rect; rootBounds: Rect | null };
+
+const ROOT: Rect = { left: 100, top: 100, right: 500, bottom: 400 };
+/** A 50px mark wholly inside ROOT, or straddling its left edge by `out` px. */
+const markBox = (out = 0): Rect => ({ left: 200 - (out ? 100 + out : 0), top: 200, right: 250 - (out ? 100 + out : 0), bottom: 250 });
 
 class FakeIntersectionObserver {
   static all: FakeIntersectionObserver[] = [];
@@ -38,8 +46,8 @@ class FakeIntersectionObserver {
     this.disconnected = true;
     this.targets.clear();
   }
-  deliver(target: Element, ratio: number): void {
-    this.callback([{ target, isIntersecting: ratio > 0, intersectionRatio: ratio }]);
+  deliver(target: Element, ratio: number, out = 0): void {
+    this.callback([{ target, isIntersecting: ratio > 0, intersectionRatio: ratio, boundingClientRect: markBox(out), rootBounds: ROOT }]);
   }
 }
 
@@ -108,12 +116,22 @@ describe("covered rings", () => {
   it("a partly covered mark keeps turning", () => {
     const m = mark();
     surface();
-    live().deliver(m, 0.6);
+    live().deliver(m, 0.6, 20);
     expect(isCovered(m)).toBe(false);
     live().deliver(m, 1);
-    live().deliver(m, 0.99);
+    live().deliver(m, 0.95, 3);
     expect(isCovered(m)).toBe(false);
     expect(flips).toEqual([m, m]);
+  });
+
+  it("a mark wholly inside on the zoomed canvas reads 0.9999998 and is covered", () => {
+    const m = mark();
+    surface();
+    live().deliver(m, 0.9999998);
+    expect(isCovered(m)).toBe(true);
+    // Straddling the root box by more than SLACK is partly out: it keeps turning.
+    live().deliver(m, 0.995, SLACK + 1);
+    expect(isCovered(m)).toBe(false);
   });
 
   it("a mark the panel draws, or one over the panel, is never covered", () => {
@@ -161,9 +179,19 @@ describe("covered rings", () => {
     expect(FakeIntersectionObserver.all.filter((o) => !o.disconnected)).toHaveLength(0);
   });
 
-  it("the observer's root box is the panel's box, less the corner radius", () => {
+  it("the observer's root box is the panel's box, less the inset, rounded inward", () => {
     expect(surfaceRootMargin({ left: 100, top: 50, right: 900, bottom: 650 }, { width: 1440, height: 900 }, 12))
       .toBe("-62px -552px -262px -112px");
+    expect(surfaceRootMargin({ left: 48.2, top: 80, right: 1392, bottom: 884.5 }, { width: 1440, height: 900 }, 14))
+      .toBe("-94px -62px -30px -63px");
+    expect(FakeIntersectionObserver.all).toHaveLength(0);
+  });
+
+  it("a box inside the root box, give or take the slack", () => {
+    expect(boxWithin(markBox(), ROOT, SLACK)).toBe(true);
+    expect(boxWithin(markBox(SLACK), ROOT, SLACK)).toBe(true);
+    expect(boxWithin(markBox(SLACK + 0.5), ROOT, SLACK)).toBe(false);
+    expect(boxWithin(markBox(), null, SLACK)).toBe(false);
   });
 
   it("reads opacity from computed colours", () => {
@@ -176,11 +204,12 @@ describe("covered rings", () => {
   });
 
   it("the reading rule: wholly inside, not the surface's own, and under it", () => {
-    const base = { isIntersecting: true, intersectionRatio: 1, ownedBySurface: false, surfaceOnTop: true };
+    const base = { intersectionRatio: 1, withinBox: true, ownedBySurface: false, surfaceOnTop: true };
     expect(coversMark(base)).toBe(true);
+    expect(coversMark({ ...base, intersectionRatio: COVER_RATIO })).toBe(true);
     expect(coversMark({ ...base, intersectionRatio: 0.98 })).toBe(false);
+    expect(coversMark({ ...base, withinBox: false })).toBe(false);
     expect(coversMark({ ...base, ownedBySurface: true })).toBe(false);
     expect(coversMark({ ...base, surfaceOnTop: false })).toBe(false);
-    expect(coversMark({ ...base, isIntersecting: false })).toBe(false);
   });
 });

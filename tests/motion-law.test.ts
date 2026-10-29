@@ -105,9 +105,11 @@ describe("motion law: rings move on the compositor", () => {
   // The operator's third exception (signal 01M630R3Y59C42SSY754K3ADZZ): a ring
   // no one can see because an opaque surface wholly covers it.
   it("a ring stops only when wholly covered: partly covered or over the surface, it keeps running", () => {
-    const covered = { isIntersecting: true, intersectionRatio: 1, ownedBySurface: false, surfaceOnTop: true };
+    const covered = { intersectionRatio: 1, withinBox: true, ownedBySurface: false, surfaceOnTop: true };
     expect(coversMark(covered)).toBe(true);
-    for (const ratio of [0.999, 0.5, 0.01]) expect(coversMark({ ...covered, intersectionRatio: ratio }), String(ratio)).toBe(false);
+    // Partly covered: any part of the mark outside the surface's box, at any ratio.
+    for (const ratio of [1, 0.999, 0.5, 0.01]) expect(coversMark({ ...covered, intersectionRatio: ratio, withinBox: false }), String(ratio)).toBe(false);
+    for (const ratio of [0.98, 0.5, 0.01]) expect(coversMark({ ...covered, intersectionRatio: ratio }), String(ratio)).toBe(false);
     expect(coversMark({ ...covered, surfaceOnTop: false })).toBe(false);
     expect(coversMark({ ...covered, ownedBySurface: true })).toBe(false);
   });
