@@ -11,6 +11,7 @@ import { PreambleBubbleView } from "../nodes/PreambleBubbleView";
 // The wire verbs' colours (DemoWire strokes --wire-verb-messages), so a demo
 // wire draws outside the canvas too.
 import "../../styles/factory-grammar.css";
+import "./tour-demo.css";
 
 // Live demos for the tour. Every piece here is the real component the canvas
 // draws, fed scripted props: nothing reads or writes the operator's
