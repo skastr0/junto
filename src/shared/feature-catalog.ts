@@ -138,7 +138,9 @@ export const FEATURE_CATALOG = {
    * One authority per canvas, by quorum commit (0.11/06, F1 to F6): the
    * consensus driver, the authority owner ops and `junto authority`. Carried
    * to 0.12: off in ship, on in all-on. Off, nothing starts the driver and no
-   * way in reaches the ops; the state step's tables stay empty.
+   * way in reaches the ops; the state step's tables stay empty. No
+   * `experimental` entry: the driver fills missing lists once per store
+   * (c0ef3775e), which holds only while the gate is fixed for the process.
    */
   authority: {
     env: "JUNTO_AUTHORITY",
