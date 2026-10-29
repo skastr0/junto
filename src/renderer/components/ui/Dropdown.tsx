@@ -219,7 +219,11 @@ export function Dropdown({
       return;
     }
     if (event.key === "Tab") {
+      // The menu is portaled to the end of body, so Tab from it would leave
+      // the trigger's place in the page. Focus goes back first and Tab, not
+      // prevented, moves on from the trigger to the next (or previous) control.
       close();
+      claimFocus(triggerRef.current, "gesture", { event: event.nativeEvent });
       return;
     }
     // Type-ahead

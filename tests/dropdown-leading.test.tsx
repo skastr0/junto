@@ -49,3 +49,19 @@ it("shows every mark and state word in the menu, hidden from an option's name", 
   expect(rows.map((row) => row.textContent)).toEqual(["Deskthis machine", "Miniunreachable"]);
   for (const row of rows) expect(row.querySelector("[data-mark]")?.closest("[aria-hidden]")).not.toBeNull();
 });
+
+it("Tab in the open menu returns focus to the trigger, so the page order carries on from it", () => {
+  const trigger = render("desk");
+  act(() => trigger.focus());
+  act(() => {
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  });
+  const menu = document.querySelector<HTMLElement>('[role="listbox"], [role="menu"]');
+  expect(menu).not.toBeNull();
+  act(() => menu!.focus());
+  act(() => {
+    menu!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+  });
+  expect(document.querySelector('[role="listbox"], [role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
