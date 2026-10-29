@@ -45,7 +45,7 @@ vi.mock("../src/renderer/lib/junto-api", () => ({
   getJuntoApi: () => hooks.api,
 }));
 
-import { fallbackCell, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
+import { fallbackCell, PARK_GRACE_MS, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
 
 const COLS = 100, ROWS = 40;
 const EPOCH = "epoch-a";
@@ -187,7 +187,7 @@ const burst = (from: number, count: number): string =>
   Array.from({ length: count }, (_, index) => `\x1b[3${(from + index) % 8}mline ${from + index}\x1b[0m\r\n`).join("");
 
 describe("a hidden terminal surface", () => {
-  it("parses nothing while hidden, and shown again matches a terminal that stayed visible", async () => {
+  it("hidden past the grace, parses nothing, and shown again matches a terminal that stayed visible", async () => {
     const surface = rig();
     surface.emit(burst(0, 10));
     surface.open(true);
@@ -195,8 +195,10 @@ describe("a hidden terminal surface", () => {
     surface.emit(burst(10, 5));
 
     surface.show(false);
+    await settle(PARK_GRACE_MS - 10);
+    expect(surface.api.terminalPark).not.toHaveBeenCalled();
+    await settle(10);
     expect(surface.api.terminalPark).toHaveBeenLastCalledWith("lease-a", true);
-    await settle();
     const writesWhenHidden = surface.writes.mock.calls.length;
     // Hidden long enough to push lines past the screen into scrollback.
     surface.emit(burst(15, 300));
@@ -224,7 +226,7 @@ describe("a hidden terminal surface", () => {
     surface.open(true);
     await until(() => surface.api.terminalResize.mock.calls.length > 0);
     surface.show(false);
-    await settle();
+    await settle(PARK_GRACE_MS);
     const writes = surface.writes.mock.calls.length;
     surface.show(true);
     await settle(10);
@@ -233,6 +235,24 @@ describe("a hidden terminal surface", () => {
     await settle(10);
     await parsed(surface.term);
     await parsed(surface.stayed);
+    expect(lines(surface.term)).toEqual(lines(surface.stayed));
+  });
+
+  it("switched back inside the grace, draws everything with no catch-up", async () => {
+    const surface = rig();
+    surface.emit(burst(0, 10));
+    surface.open(true);
+    await until(() => surface.api.terminalResize.mock.calls.length > 0);
+    surface.show(false);
+    // Another terminal is up for a moment; this one keeps its stream.
+    surface.emit(burst(10, 60));
+    await settle(PARK_GRACE_MS / 2);
+    surface.show(true);
+    surface.emit("back");
+    await settle(PARK_GRACE_MS);
+    await parsed(surface.term);
+    await parsed(surface.stayed);
+    expect(surface.api.terminalPark).not.toHaveBeenCalled();
     expect(lines(surface.term)).toEqual(lines(surface.stayed));
   });
 

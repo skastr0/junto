@@ -121,6 +121,11 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+/**
+ * A view hidden for less than this keeps its stream, so a switch to another
+ * terminal and back costs no catch-up. Hidden longer, it parks.
+ */
+export const PARK_GRACE_MS = 2_000;
 
 /**
  * Which renderer is painting this surface. Diagnosis only — never a
@@ -1603,7 +1608,7 @@ export function TerminalSurface({
       }
     });
 
-    // Hidden, this view parks its stream: main sends it no output, so xterm
+    // Hidden past PARK_GRACE_MS, this view parks its stream: main sends it no output, so xterm
     // parses nothing for a seat no one is looking at. Shown again, it catches
     // up from main's grid before it takes live output, and output that lands
     // meanwhile waits in `pending` exactly as it does during an attach.
@@ -1650,14 +1655,29 @@ export function TerminalSurface({
       resuming = false;
       for (const event of pending.splice(0)) handleLive(event);
     };
-    const showStream = (shown: boolean): void => {
+    let parkTimer: ReturnType<typeof setTimeout> | undefined;
+    const parkNow = (): void => {
+      parkTimer = undefined;
+      const lease = leaseRef.current;
+      const park = api.terminalPark;
+      if (!alive || !attachDone || parked || lease === undefined || park === undefined) return;
+      parked = true;
+      void park(lease, true).catch(() => undefined);
+    };
+    const showStream = (shown: boolean, immediate = false): void => {
       const lease = leaseRef.current;
       const park = api.terminalPark;
       if (!alive || !attachDone || lease === undefined || park === undefined) return;
       if (!shown) {
-        if (parked) return;
-        parked = true;
-        void park(lease, true).catch(() => undefined);
+        if (parked || parkTimer !== undefined) return;
+        if (immediate) parkNow();
+        else parkTimer = setTimeout(parkNow, PARK_GRACE_MS);
+        return;
+      }
+      // Back inside the grace: the stream never stopped, so nothing to catch up.
+      if (parkTimer !== undefined) {
+        clearTimeout(parkTimer);
+        parkTimer = undefined;
         return;
       }
       if (!parked) return;
@@ -1805,7 +1825,7 @@ export function TerminalSurface({
             pushResize({ forcePaint: true });
             clearLoad();
             // A view that attached while hidden parks at once.
-            if (!sawExit && !visibleRef.current) showStream(false);
+            if (!sawExit && !visibleRef.current) showStream(false, true);
             // Repaint through layout settle; only a real cols×rows transition is
             // forwarded to the child PTY.
             requestAnimationFrame(() => {
@@ -1936,6 +1956,7 @@ export function TerminalSurface({
     return () => {
       alive = false;
       if (streamShownRef.current === showStream) streamShownRef.current = undefined;
+      if (parkTimer !== undefined) clearTimeout(parkTimer);
       resizeGeneration.current += 1;
       notifyInFlight.current = false;
       if (ptyNotifyTimer.current !== undefined) {
