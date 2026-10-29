@@ -27,7 +27,7 @@
  * Messages are the caller's to send; a canvas this machine rules alone needs
  * none, and settles its own election when opened.
  */
-import { Effect, Schema, Semaphore } from "effect";
+import { Context, Effect, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ArtifactBody } from "@shared/artifact";
 import { rulingRowOf } from "@shared/command-row";
@@ -269,6 +269,13 @@ const bootstrap = (sql: SqlClient.SqlClient, canvasName: string, self: Installat
   });
 
 /**
+ * The canvas whose batch this fiber is judging. The FULL lock is not
+ * reentrant, so a batch that reached any canvas's judge would wait on itself:
+ * it is refused before it takes a lock.
+ */
+const Judging = Context.Reference<string | undefined>("@junto/FleetJudging", { defaultValue: () => undefined });
+
+/**
  * One consensus transaction at a time in this process. `synchronous` is the
  * connection's, set and reset around a transaction as separate statements:
  * without one holder across all three, a second canvas's reset to NORMAL can
@@ -453,6 +460,12 @@ export const openCanvasAuthority = (
     });
 
     const judge = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
+      Effect.flatMap(Judging, (outer) => outer === undefined ? judgeAlone(batch) : Effect.fail(new FleetDriverError({
+        message: `a batch for ${outer} reached the authority of ${canvasName}: a batch is judged by one canvas, and judges nothing itself`,
+        cause: { outer, canvasName },
+      })));
+
+    const judgeAlone = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
       exclusive(Effect.suspend(() => {
         if (broken !== undefined) return Effect.fail(broken);
         const status = node.status();
@@ -468,8 +481,10 @@ export const openCanvasAuthority = (
           }));
         }
         const captured: Array<RecordRulingInput> = [];
+        const elsewhere = new Set<string>();
         const capture = (input: RecordRulingInput) => {
           if (input.canvasName === canvasName) captured.push(input);
+          else elsewhere.add(input.canvasName);
         };
         let proposed = false;
         return Effect.gen(function* () {
@@ -477,8 +492,18 @@ export const openCanvasAuthority = (
             Effect.gen(function* () {
               // Judge against committed state and the batch's own earlier commands, then roll the judgment back.
               const value = yield* sql.withTransaction(
-                Effect.flatMap(Effect.provideService(batch, RulingCapture, capture), (judged) => Effect.fail(new Judged(judged))),
+                Effect.flatMap(
+                  batch.pipe(Effect.provideService(RulingCapture, capture), Effect.provideService(Judging, canvasName)),
+                  (judged) => Effect.fail(new Judged(judged)),
+                ),
               ).pipe(Effect.catchIf((error): error is Judged<A> => error instanceof Judged, (judged) => Effect.succeed(judged.value)));
+              // Its rows rolled back with the savepoint and no entry carries them: answering would claim a write that never lands.
+              if (elsewhere.size > 0) {
+                return yield* Effect.fail(new FleetDriverError({
+                  message: `a batch for ${canvasName} ruled on ${[...elsewhere].join(", ")}, which this authority does not rule`,
+                  cause: [...elsewhere],
+                }));
+              }
               const ruledAt = Date.now();
               const entries: Array<Entry> = [];
               for (const input of captured) {

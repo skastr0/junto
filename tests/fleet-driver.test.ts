@@ -31,7 +31,7 @@ import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository"
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ArtifactRepository, ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
-import { WorkRepository, WorkRepositoryLive, type RecordRulingInput } from "../src/main/junto/work/repository";
+import { RulingCapture, WorkRepository, WorkRepositoryLive, type RecordRulingInput } from "../src/main/junto/work/repository";
 import { RulingRecorder, RulingRecordFailed } from "../src/main/junto/work/ruling-recorder";
 import type { ArtifactOp } from "../src/shared/artifact";
 import type { AutomationOp } from "../src/shared/automation";
@@ -551,5 +551,51 @@ describe("the fleet driver refuses a proposal it cannot take", () => {
     expect(error).toMatchObject({ _tag: "FleetDriverError", retryable: true, message: expect.stringMatching(/not-leader/) });
     expect(await logOf(macbook.store)).toEqual(before);
     expect((await macbook.store.runtime.runPromiseExit(macbook.authority.tick()))._tag).toBe("Success");
+  });
+});
+
+describe("the fleet driver judges one canvas's batch", () => {
+  it("fails a batch that rules on another canvas, writing and proposing nothing", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const before = authority.status().lastIndex;
+    const reachesElsewhere = Effect.flatMap(createArtifact, (created) =>
+      Effect.flatMap(RulingCapture, (capture) =>
+        Effect.sync(() => {
+          capture?.({ ...store.recorded.at(-1)!, canvasName: "home" });
+          return created;
+        })));
+    const exit = await store.runtime.runPromiseExit(authority.judge(reachesElsewhere) as unknown as Effect.Effect<unknown, unknown, never>);
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/ruled on home/);
+    expect(authority.status().lastIndex).toBe(before);
+    expect(await held(store)).toMatchObject({ rulings: [] });
+    // Nothing broke: the next batch is judged.
+    await store.runtime.runPromise(authority.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
+    expect(await held(store)).toMatchObject({ rulings: [ARTIFACT_OP] });
+  });
+
+  it("refuses a batch that reaches another canvas's judge, rather than wait on itself", async () => {
+    const store = await makeStore();
+    await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('home', 'canvas-home', ${new Date(AT).toISOString()}, ${new Date(AT).toISOString()})`;
+        yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = 'home'`;
+        yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES ('home', 0, ${SELF})`;
+      }),
+    );
+    const factory = await open(store);
+    const home = await store.runtime.runPromise(openCanvasAuthority({ canvasName: "home", self: SELF }));
+    const nested = Effect.andThen(createArtifact, home.judge(Effect.void));
+    const exit = await store.runtime.runPromiseExit(
+      (factory.judge(nested) as unknown as Effect.Effect<unknown, unknown, never>).pipe(Effect.timeout("2 seconds")),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/judges nothing itself/);
+    expect(await held(store)).toMatchObject({ rulings: [] });
+    // Each judges on its own afterwards.
+    await store.runtime.runPromise(home.judge(Effect.void));
+    await store.runtime.runPromise(factory.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
   });
 });
