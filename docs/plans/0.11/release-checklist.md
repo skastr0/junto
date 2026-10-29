@@ -54,32 +54,35 @@ database, and going back means opening the backup taken at the upgrade. Run on
 a copy of `~/.junto/state/junto.db`, never the live file (canvas-verifier, via
 canvas-lead).
 
-Run 1 (canvas-verifier, relayed, on main 3a3cc2649, `git archive` export,
-copy by `sqlite3 -readonly .backup`; they rerun everything at the cut hash).
-Head 62 then; step 63 (the stub) is not in this run. Results per line:
+Run 1 (canvas-verifier, relayed, redone on main f714cc002 at head 63, with the
+Files stub step c403df836; supersedes their 3a3cc2649 run at 62). `git archive`
+export, copy by `sqlite3 -readonly .backup` taken at 23:53:54, the only open of
+the live file. They rerun everything at the cut hash. Results per line:
 
 - [ ] Head version and identity match: `CURRENT_STATE_SCHEMA_VERSION` in
       `src/main/junto/state/migrations.ts`, `bun run schema:identity` clean.
-      Run 1: head 62, "clean (v62 = 6bd4211a71666d42...)".
+      Run 1: head 63 (`migrations.ts:808`), "clean (v63 = 83d7611b0b8a2869...)".
 - [ ] The copy migrates from v50 to the head (read from the code, see section 0); `PRAGMA quick_check` ok, foreign keys empty.
-      Run 1: copy was v50 (identity 47696d80), migrated to v62 in 6.6 s,
-      identity 6bd4211a, quick_check ok, foreign_key_check 0 rows.
+      Run 1: copy was v50 (identity 47696d80), migrated to v63 in 7.2 s,
+      identity 83d7611b, quick_check ok, foreign_key_check 0 rows.
 - [ ] Counts unchanged: every table, every wire and its verb, tasks.
-      Run 1: all 101 live tables equal; wires 722 and 722 with 0 rows differing
-      and no verb change; task_heads 468 and 468; agent_signals 1356 and 1356;
-      25 new tables, all empty except canvas_consensus 1 and canvas_authorities
-      1 (step 61 seed); factory 329 nodes, 722 wires on both opens.
+      Run 1: all 101 live tables equal; wires 723 and 723 with 0 rows differing
+      and no verb change; task_heads 468 and 468; agent_signals 1358 and 1358;
+      stubs 0 and 0 (the live canvas has none; `stub_of` now admits files);
+      25 new tables, all empty except the step 61 seed (canvas_consensus 1,
+      canvas_authorities 1); factory 329 nodes, 723 wires on both opens.
 - [ ] Backup written before the stamp, opens on 0.10.3 at v50.
-      Run 1: junto-backup-cbb51999 written before the v62 stamp; v50, counts
-      equal; the 0.10.3 engine opens it (329 nodes, 722 wires) and refuses the
-      v62 file ("newer than supported version 50"), leaving it byte-identical.
+      Run 1: junto-backup-c9d0c26e written before the v63 stamp; v50, counts
+      equal; the 0.10.3 engine (6051eddef) opens it (329 nodes, 723 wires) and
+      refuses the v63 file ("newer than supported version 50"), leaving it
+      byte-identical.
 - [ ] A second open runs no step and makes no backup.
-      Run 1: still v62, still 1 backup, 126 tables row-identical except
+      Run 1: still v63, still 1 backup, 126 tables row-identical except
       `state_schema_identity.verified_at`.
 - [ ] Built app launches a fresh v50 home made by the 0.10.3 engine and
-      migrates it (the 7b run of 0.10.3). Run 1: pending, queued for load under 40
-      and the app-run lock (`~/.junto-preview-gate62` seeded at v50).
-- [ ] Diff the step's files between the receipts' commit and the cut.
+      migrates it (the 7b run of 0.10.3). Run 1: pending, queued for load under
+      40 and the app-run lock. `~/.junto-preview-gate63` is seeded at v50 with
+      file, git and page stubs so the packaged app runs the step 63 row copy.
 - [ ] Body backlinks backfill (dfedca97d): runs once at boot, marker
       `artifact-links.v1` in `install-ops.db`. Gate, both required:
       product-feed's shipped-install proof (fa93d0ba9, landed; a 0.10.3 install
@@ -125,7 +128,9 @@ Head 62 then; step 63 (the stub) is not in this run. Results per line:
 - [ ] Other machines get a stub with its geometry, a label only when the
       operator wrote one, and no root path. Step 63 landed (c403df836, 62 to
       63, `stubs` rebuilt with every row copied; head is 63). Receipt: still
-      none; canvas-verifier's run 1 was at head 62, so section 1 reruns with 63.
+      none yet: run 1 at head 63 migrated clean but the live copy has no stubs,
+      so the row copy is proved by the 7b run, which seeds file, git and page
+      stubs.
       A no from the operator reverts the step before the cut. Receipt:
 - [ ] Text reads cap at 5 MB. Receipt (tech-lead, relayed):
       `FILE_TEXT_MAX_BYTES`, `shared/files.ts:81`.
