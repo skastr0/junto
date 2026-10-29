@@ -1,9 +1,9 @@
 import { Schema } from "effect";
 import { ulid } from "ulid";
-import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import { NodeId } from "./physics/schema";
 import type { WorkErrorBody, WorkErrorType } from "./work-control";
+import { ResourceActor } from "./wire/resource-actor";
 import { ItemId, OpId } from "./work-ids";
 
 /**
@@ -33,19 +33,8 @@ export type ResourceKind = typeof ResourceKind.Type;
 export const ResourceRef = Schema.Struct({ kind: ResourceKind, nodeId: NodeId, itemId: Schema.optionalKey(ItemId) });
 export type ResourceRef = typeof ResourceRef.Type;
 
-/**
- * Who a command is from. A seat's command is written by the machine the seat
- * is on, an automation's by the machine it runs on, and the operator's only
- * by the editing machine (`writtenOn`). A command from anywhere else is not
- * refused: it closes the link, as a forged mail author does.
- */
-export const ResourceActor = Schema.Union([
-  /** The same author mail carries, so a command row is judged on the placement history mail is (`authorOf`, work-exchange.ts). */
-  Schema.Struct({ kind: Schema.Literal("seat"), seatId: ActorSeatId, nodeId: NodeId }),
-  Schema.Struct({ kind: Schema.Literal("operator") }),
-  Schema.Struct({ kind: Schema.Literal("automation"), nodeId: NodeId, automationId: ItemId }),
-]);
-export type ResourceActor = typeof ResourceActor.Type;
+/** Who a command is from: a wire value (`./wire/resource-actor.ts`), the phone's as much as the desktop's. */
+export { ResourceActor };
 
 export type CommandWriter = "seat-machine" | "automation-machine" | "editing-machine";
 export const writtenOn = (actor: ResourceActor): CommandWriter => {

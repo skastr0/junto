@@ -43,6 +43,7 @@ describe("wire module import closure", () => {
         "ids.ts",
         "mail-threads.ts",
         "operator-feed.ts",
+        "resource-actor.ts",
         "rings.ts",
         "seat-activity.ts",
         "seat-level.ts",
