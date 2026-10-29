@@ -17,7 +17,7 @@ import {
   type FeedItemKind,
   type FeedSection,
 } from "../src/shared/operator-feed";
-import { viewFeedSections } from "../src/renderer/lib/operator-feed";
+import { feedStatusLine, viewFeedSections } from "../src/renderer/lib/operator-feed";
 
 const at = (itemId: string, kind: FeedItemKind, seat: string, text: string, detail?: string): FeedItem => ({
   itemId,
@@ -91,6 +91,19 @@ describe("the feed's filter", () => {
     expect(new Set(ids(kept))).toEqual(new Set(["a", "c"]));
     // No filter is today's feed, untouched.
     expect(new Set(ids(viewFeedSections(two, undefined, "main", "urgency")))).toEqual(new Set(["a", "b", "c"]));
+  });
+});
+
+describe("the feed's header while narrowed", () => {
+  it("counts the rows a filter shows against every row the feed holds, readings included", () => {
+    const feed = { count: 2, sections: sections(items) }; // four rows, two of them needs
+    // A reading is a row the kind chips can narrow to, so a filter's pair counts rows.
+    expect(feedStatusLine(feed, undefined, { count: 1, total: 4 })).toBe("1 of 4 shown");
+    expect(feedStatusLine(feed, undefined, { count: 0, total: 4 })).toBe("0 of 4 shown");
+    // A region plus a filter says both.
+    expect(feedStatusLine(feed, { label: "R", count: 2 }, { count: 1, total: 4 })).toBe("1 of 4 shown in R");
+    // A region alone still counts needs, as its chips do.
+    expect(feedStatusLine(feed, { label: "R", count: 1 })).toBe("1 of 2 waiting in R");
   });
 });
 

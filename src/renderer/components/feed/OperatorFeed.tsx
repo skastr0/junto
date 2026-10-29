@@ -887,11 +887,13 @@ export function OperatorFeed() {
   const seatChips = useMemo(() => feedSeatChips(orderFeedSections(feed.sections, feedOrder)), [feed.sections, feedOrder]);
   const chosenRegion = activeRegion ? regionPickKey(activeRegion.path) : undefined;
   const regionName = activeRegion ? regionPickName(activeRegion.path) : "";
-  const status = activeRegion
-    ? feedStatusLine(feed, { label: regionName, count: needsOperatorCount(items) })
-    : filtering
-      ? feedStatusLine(feed, undefined, needsOperatorCount(items))
-      : feedStatusLine(feed);
+  // The rows the whole feed holds, readings included: what a filter's pair counts against.
+  const feedRows = feed.sections.reduce((total, section) => total + section.items.length, 0);
+  const status = feedStatusLine(
+    feed,
+    activeRegion ? { label: regionName, count: needsOperatorCount(items) } : undefined,
+    filtering ? { count: items.length, total: feedRows } : undefined,
+  );
 
   return (
     <OperatorModalShell
@@ -986,7 +988,7 @@ export function OperatorFeed() {
       ) : null}
       {/* Mounted for the modal's life: a live region added with its text says nothing. */}
       <span className="operator-feed__announce" role="status" aria-live="polite">
-        {filtering ? `${String(needsOperatorCount(items))} ${needsOperatorCount(items) === 1 ? "need matches" : "needs match"} these filters` : ""}
+        {filtering ? `${String(items.length)} of ${String(feedRows)} shown with these filters` : ""}
       </span>
       {sections.length === 0 ? (
         <div className="operator-feed__scroll" data-testid="operator-feed">

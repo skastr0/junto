@@ -9,7 +9,7 @@ import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSignal, AgentSignalKind } from "../src/shared/agent-signals";
-import { buildOperatorFeed, type OperatorFeed as Feed } from "../src/shared/operator-feed";
+import { buildOperatorFeed, feedItemRank, OPERATOR_FEED_VERSION, type FeedItem, type OperatorFeed as Feed } from "../src/shared/operator-feed";
 import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
 import { clearFeedFilters, feedView$ } from "../src/renderer/lib/operator-feed";
 import { state$ } from "../src/renderer/lib/state";
@@ -66,6 +66,41 @@ const feedOf = (
   });
 };
 
+/**
+ * A feed holding an AI reading beside a need: the reading is listed, not
+ * counted, but the kind chips can narrow to it, so the narrowed pair must count
+ * rows or it says nothing matches while the card is on screen.
+ */
+const WITH_READING: Feed = (() => {
+  const need: FeedItem = {
+    itemId: "signal:a",
+    kind: "escalate",
+    urgency: feedItemRank("escalate"),
+    canvasName: CANVAS,
+    seat: { nodeId: "seat-atlas", name: "atlas", portraitIdentity: "seat-atlas" },
+    region: { regionId: "build", label: "Build", path: ["Build"] },
+    text: "Ana asks about the rates",
+    since: NOW - 120_000,
+  };
+  const reading: FeedItem = {
+    itemId: "health:seat-bravo",
+    kind: "health",
+    urgency: feedItemRank("health"),
+    canvasName: CANVAS,
+    seat: { nodeId: "seat-bravo", name: "bravo", portraitIdentity: "seat-bravo" },
+    region: { regionId: "build", label: "Build", path: ["Build"] },
+    text: "Bravo reads waiting on you",
+    since: NOW - 60_000,
+  };
+  return {
+    version: OPERATOR_FEED_VERSION,
+    canvasName: CANVAS,
+    generatedAt: NOW,
+    count: 1,
+    sections: [{ region: reading.region, items: [need, reading], worstUrgency: need.urgency }],
+  };
+})();
+
 const FEED = feedOf([
   { id: "a", kind: "escalate", seat: "atlas", text: "Ana asks about the rates" },
   { id: "b", kind: "blocked", seat: "bravo", text: "Bravo is stuck on a sign-in" },
@@ -77,7 +112,7 @@ let host: HTMLDivElement;
 const oldCanvas = state$.canvasName.peek();
 
 const cards = (): string[] =>
-  [...document.body.querySelectorAll<HTMLElement>("[data-testid='operator-feed-card']")].map((card) => card.dataset.itemId!.slice("signal:".length));
+  [...document.body.querySelectorAll<HTMLElement>("[data-testid='operator-feed-card']")].map((card) => card.dataset.itemId!.replace(/^signal:/u, ""));
 const q = (testId: string) => document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 const chips = (which: "feed-kind-chip" | "feed-seat-chip"): HTMLButtonElement[] =>
   [...document.body.querySelectorAll<HTMLButtonElement>(`[data-testid="${which}"]`)];
@@ -167,12 +202,26 @@ it("says what the narrowing leaves, and announces it, rather than the whole feed
   expect(status()).toContain("3 waiting");
 
   await type("rates");
-  expect(status()).toBe("1 of 3 waiting");
-  expect(announced()).toBe("1 need matches these filters");
+  expect(status()).toBe("1 of 3 shown");
+  expect(announced()).toBe("1 of 3 shown with these filters");
 
   await type("nothing like it");
-  expect(status()).toBe("0 of 3 waiting");
-  expect(announced()).toBe("0 needs match these filters");
+  expect(status()).toBe("0 of 3 shown");
+  expect(announced()).toBe("0 of 3 shown with these filters");
+});
+
+it("counts a reading the kind chips narrow to, so the pair never says nothing while a card shows", async () => {
+  live.set(WITH_READING);
+  await act(async () => root.render(<OperatorFeed />));
+  const status = () => document.body.querySelector(".operator-feed__status")?.textContent ?? "";
+  const announced = () => document.body.querySelector(".operator-feed__announce")?.textContent ?? "";
+  // At rest the feed counts its one need; the reading is listed, not counted.
+  expect(status()).toContain("1 waiting");
+
+  await press(chips("feed-kind-chip").find((chip) => chip.dataset.kind === "health")!);
+  expect(cards()).toEqual(["health:seat-bravo"]);
+  expect(status()).toBe("1 of 2 shown");
+  expect(announced()).toBe("1 of 2 shown with these filters");
 });
 
 it("clears everything the operator narrowed, and only then", async () => {

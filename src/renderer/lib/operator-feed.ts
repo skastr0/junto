@@ -277,13 +277,20 @@ export const reconcileSelection = (
 export const feedStatusLine = (
   feed: Pick<OperatorFeed, "count" | "sections">,
   filtered?: { readonly label: string; readonly count: number },
-  /** What the operator's own narrowing leaves, when it is not a region: the header says the part, not the whole. */
-  narrowed?: number,
+  /**
+   * What the operator's own narrowing shows, in rows, when a filter is on. The
+   * pair counts the list rather than needs, so a reading the kind chips can
+   * narrow to is counted like the card it is: the chips count rows too.
+   */
+  shown?: { readonly count: number; readonly total: number },
 ): string => {
+  // A region alone counts needs, as its chips do; a filter counts rows, as its chips do.
+  if (shown !== undefined) {
+    return filtered === undefined ? `${shown.count} of ${shown.total} shown` : `${shown.count} of ${shown.total} shown in ${filtered.label}`;
+  }
   if (filtered !== undefined) {
     return `${filtered.count} of ${feed.count} waiting in ${filtered.label}`;
   }
-  if (narrowed !== undefined) return `${narrowed} of ${feed.count} waiting`;
   if (feed.count === 0) return "nobody needs you right now";
   const regions = feed.sections.filter((section) => needsOperatorCount(section.items) > 0).length;
   return `${feed.count} waiting${regions > 1 ? ` across ${regions} regions` : ""}`;

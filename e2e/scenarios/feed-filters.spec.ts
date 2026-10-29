@@ -92,8 +92,8 @@ test("the feed narrows by words, kind and seat, and Clear puts it back", async (
     await expect(cards).toHaveCount(0);
     await expect(page.getByTestId("feed-no-matches")).toBeVisible();
     // The header says the part, not the whole, and the live region can say it too.
-    await expect(page.locator(".operator-feed__status")).toHaveText("0 of 3 waiting");
-    await expect(page.locator(".operator-feed__announce")).toHaveText("0 needs match these filters");
+    await expect(page.locator(".operator-feed__status")).toHaveText("0 of 3 shown");
+    await expect(page.locator(".operator-feed__announce")).toHaveText("0 of 3 shown with these filters");
     await shot(page, "2-nothing-matches");
 
     // Clear puts every card back and empties the field.
