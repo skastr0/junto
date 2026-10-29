@@ -66,7 +66,7 @@ export function CaptureInboxPicker({
                 role="radio"
                 aria-checked={checked}
                 tabIndex={radioTabIndex(target.id === tabStop)}
-                className={checked ? "capture-inbox-picker__row is-active" : "capture-inbox-picker__row"}
+                className={checked ? "capture-inbox-picker__row junto-focus-ring is-active" : "capture-inbox-picker__row junto-focus-ring"}
                 data-node-id={target.id}
                 onClick={() => onPick(target.id)}
               >

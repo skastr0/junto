@@ -221,7 +221,7 @@ export function QuickCapture() {
           </p>
           <ul
             {...listboxAria(aria)}
-            className="quick-capture__rows"
+            className="quick-capture__rows junto-focus-ring"
             aria-labelledby={`${baseId}-label`}
             aria-activedescendant={activeRow === undefined ? undefined : optionId(baseId, activeRow.artifactId)}
             // The list is its own stop: the keys that act on a row, M included,

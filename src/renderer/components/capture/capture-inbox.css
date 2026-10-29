@@ -66,11 +66,6 @@
   font-weight: 600;
 }
 
-.capture-inbox-picker__row:focus-visible {
-  outline: 1px solid var(--color-cyan);
-  outline-offset: 2px;
-}
-
 .capture-inbox-picker__name {
   min-width: 0;
   overflow: hidden;

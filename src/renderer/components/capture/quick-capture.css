@@ -54,19 +54,14 @@
   color: var(--color-faint);
 }
 
+/* The list is its own keyboard stop (the keys that act on a row type in the
+   search field), so it says so while the keyboard is on it, in the house ring. */
 .quick-capture__rows {
   margin: 0;
   padding: 0 6px 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
-}
-
-/* The list is its own keyboard stop (the keys that act on a row type in the
-   search field), so it says so while the keyboard is on it. */
-.quick-capture__rows:focus-visible {
-  outline: 1px solid var(--color-cyan);
-  outline-offset: -2px;
 }
 
 .quick-capture__row {
