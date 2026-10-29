@@ -11,6 +11,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
+import { onAgentSignalChanged } from "../src/main/junto/signals/changes";
 import { artifactLabelOf } from "../src/shared/artifact-labels";
 
 let root: string;
@@ -31,6 +32,19 @@ const seat = { canvasName: "factory", nodeId: "agent-a" };
 const automation = { canvasName: "factory", nodeId: "automations-1" };
 
 describe("a signal's source, timing and form", () => {
+  it("announces a write from either plane, which is how the window hears an automation's raise", async () => {
+    const heard: Array<{ readonly signalId: string; readonly kind: string }> = [];
+    const off = onAgentSignalChanged((signal) => heard.push({ signalId: signal.signalId, kind: signal.kind }));
+    try {
+      const raised = await run(
+        Effect.flatMap(AgentSignalRepository, (r) => r.raise({ ...automation, kind: "notice", text: "A run finished." })),
+      );
+      expect(heard).toEqual([{ signalId: raised.signalId, kind: "notice" }]);
+    } finally {
+      off();
+    }
+  });
+
   it("stores an automation's work signal and reads it back as it was raised", async () => {
     const form = { kind: "artifact", nodeId: "shelf", title: "Morning pages", labels: [artifactLabelOf("daily")!], minWords: 500 } as const;
     const work = { dueAt: 1_790_000_000_000, urgent: true };
