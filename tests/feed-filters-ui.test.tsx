@@ -160,6 +160,21 @@ it("filters by kind, by seat, and by both, each chip on its own", async () => {
   expect(cards()).toEqual(["b", "a", "c"]);
 });
 
+it("says what the narrowing leaves, and announces it, rather than the whole feed's count", async () => {
+  await open();
+  const status = () => document.body.querySelector(".operator-feed__status")?.textContent ?? "";
+  const announced = () => document.body.querySelector(".operator-feed__announce")?.textContent ?? "";
+  expect(status()).toContain("3 waiting");
+
+  await type("rates");
+  expect(status()).toBe("1 of 3 waiting");
+  expect(announced()).toBe("1 need matches these filters");
+
+  await type("nothing like it");
+  expect(status()).toBe("0 of 3 waiting");
+  expect(announced()).toBe("0 needs match these filters");
+});
+
 it("clears everything the operator narrowed, and only then", async () => {
   await open();
   await type("rates");
@@ -168,6 +183,8 @@ it("clears everything the operator narrowed, and only then", async () => {
   expect(q("feed-clear-filters")).not.toBeNull();
 
   await press(q("feed-clear-filters")!);
+  // Clear takes the keyboard with it: the field, not the body, then the next Tab stays in the bar.
+  expect(document.activeElement).toBe(search());
   expect(search().value).toBe("");
   expect(chips("feed-kind-chip").every((chip) => chip.getAttribute("aria-pressed") === "false")).toBe(true);
   // Back to the feed's own order: most urgent first.

@@ -32,6 +32,7 @@ import {
   type CSSProperties,
   type HTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -66,7 +67,7 @@ import { openWorkDetail } from "../../lib/work-detail-open";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
 import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
-import { isOperatorTyping } from "../../lib/focus-ownership";
+import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import {
   clearFeedFilters,
   feedFilterOf,
@@ -694,6 +695,12 @@ export function OperatorFeed() {
   sendingRef.current = sending;
   const [failure, setFailure] = useState<{ readonly itemId: string; readonly message: string } | null>(null);
   const [scrolled, setScrolled] = useState(false);
+  /** Clear takes the keyboard with it: it lands in the search field rather than on the body. */
+  const searchRef = useRef<HTMLInputElement>(null);
+  const clearAll = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    clearFeedFilters();
+    claimFocus(searchRef.current, "gesture", { event });
+  };
 
   // The view the operator picked: one region, or all of them, in the picked
   // order. Kept in feedView$ so it survives the modal's open and close.
@@ -882,7 +889,9 @@ export function OperatorFeed() {
   const regionName = activeRegion ? regionPickName(activeRegion.path) : "";
   const status = activeRegion
     ? feedStatusLine(feed, { label: regionName, count: needsOperatorCount(items) })
-    : feedStatusLine(feed);
+    : filtering
+      ? feedStatusLine(feed, undefined, needsOperatorCount(items))
+      : feedStatusLine(feed);
 
   return (
     <OperatorModalShell
@@ -922,6 +931,7 @@ export function OperatorFeed() {
       {feed.count > 0 ? (
         <div className="operator-feed__filter-bar" data-testid="feed-filter-bar">
           <input
+            ref={searchRef}
             className="operator-feed__search"
             type="search"
             placeholder="Search needs"
@@ -968,22 +978,26 @@ export function OperatorFeed() {
             ))}
           </div>
           {filtering || activeRegion !== undefined ? (
-            <Button size="sm" variant="subtle" data-testid="feed-clear-filters" onClick={clearFeedFilters}>
+            <Button size="sm" variant="subtle" data-testid="feed-clear-filters" onClick={clearAll}>
               Clear
             </Button>
           ) : null}
         </div>
       ) : null}
+      {/* Mounted for the modal's life: a live region added with its text says nothing. */}
+      <span className="operator-feed__announce" role="status" aria-live="polite">
+        {filtering ? `${String(needsOperatorCount(items))} ${needsOperatorCount(items) === 1 ? "need matches" : "needs match"} these filters` : ""}
+      </span>
       {sections.length === 0 ? (
         <div className="operator-feed__scroll" data-testid="operator-feed">
           {filtering ? (
-            <div className="operator-feed__empty" role="status" data-testid="feed-no-matches">
+            <div className="operator-feed__empty" data-testid="feed-no-matches">
               <span className="operator-feed__empty-mark" aria-hidden>
                 <Inbox size={22} strokeWidth={1.4} />
               </span>
               <p className="operator-feed__empty-title">Nothing matches these filters</p>
               <p className="operator-feed__empty-copy">Clear the search or the chips to see what is still waiting.</p>
-              <Button size="sm" variant="subtle" onClick={clearFeedFilters}>
+              <Button size="sm" variant="subtle" onClick={clearAll}>
                 Clear
               </Button>
             </div>

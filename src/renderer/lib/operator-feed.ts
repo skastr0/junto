@@ -277,10 +277,13 @@ export const reconcileSelection = (
 export const feedStatusLine = (
   feed: Pick<OperatorFeed, "count" | "sections">,
   filtered?: { readonly label: string; readonly count: number },
+  /** What the operator's own narrowing leaves, when it is not a region: the header says the part, not the whole. */
+  narrowed?: number,
 ): string => {
   if (filtered !== undefined) {
     return `${filtered.count} of ${feed.count} waiting in ${filtered.label}`;
   }
+  if (narrowed !== undefined) return `${narrowed} of ${feed.count} waiting`;
   if (feed.count === 0) return "nobody needs you right now";
   const regions = feed.sections.filter((section) => needsOperatorCount(section.items) > 0).length;
   return `${feed.count} waiting${regions > 1 ? ` across ${regions} regions` : ""}`;
