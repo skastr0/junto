@@ -182,6 +182,19 @@ export const putSignalSecret = async (signalId: string, value: string): Promise<
       upsertAgentSignal(result.signal);
       return { ok: true };
     },
-    () => ({ ok: false, message: "The secret was not set." }),
+    // A wait that ran out is not a refusal: main may still set it. Nothing else says what failed.
+    (error: unknown): SignalActionResult => ({
+      ok: false,
+      message: isBackendTimeout(error)
+        ? "Junto did not answer in time, so the value may be set. Check the vault before you set it again."
+        : "The secret was not set.",
+    }),
   );
 };
+
+/**
+ * The preload's own words when main does not answer within the call's wait
+ * (`invoke` in src/preload/index.ts): its prefix only, never the rest.
+ */
+const BACKEND_TIMEOUT_PREFIX = "junto: backend did not respond";
+const isBackendTimeout = (error: unknown): boolean => error instanceof Error && error.message.startsWith(BACKEND_TIMEOUT_PREFIX);

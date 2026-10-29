@@ -7,6 +7,7 @@ import { buildOperatorFeed, type FeedItem, type OperatorFeed as Feed } from "../
 import { OperatorFeed } from "../src/renderer/components/feed/OperatorFeed";
 import type { SignalForm, WorkTiming } from "../src/renderer/lib/signal-work";
 import { state$ } from "../src/renderer/lib/state";
+import { VAULT_ENABLED } from "../src/shared/features";
 import { settleLazy } from "./support/settle-lazy";
 
 // The real feed, fed by hand, as in operator-feed-held.
@@ -138,12 +139,18 @@ it("a notice that carries a form is still cleared, never handed in", async () =>
   expect(pane().querySelector("[data-testid='signal-work-form']")).toBeNull();
 });
 
-it("a secret form is never answered in text: it says the vault is not set up, and the keys send nothing", async () => {
+it("a secret form is never answered in text: the vault's field when it is on, the note when off, and the keys send nothing", async () => {
   const respond = vi.fn(async () => ({ ok: true as const }));
   vi.stubGlobal("junto", { agentSignalRespond: respond, agentSignalDismiss: vi.fn() });
   live.set(feedWith({ kind: "work", form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN", regionId: "region-1", machine: "studio" } }));
   await act(async () => root.render(<OperatorFeed />));
-  expect(pane().querySelector("[role='note']")?.textContent).toContain("This asks for a secret.");
+  if (VAULT_ENABLED) {
+    expect(pane().querySelector("[data-testid='signal-work-form']")?.getAttribute("data-form")).toBe("secret");
+    expect(pane().querySelector("input[type='password']")).not.toBeNull();
+  } else {
+    expect(pane().querySelector("[role='note']")?.textContent).toContain("This asks for a secret.");
+    expect(pane().querySelector("input")).toBeNull();
+  }
   expect(buttons()).not.toContain("Write reply");
   expect(pane().querySelector("textarea")).toBeNull();
   for (const key of ["1", "a", "d", "Enter"]) {

@@ -91,6 +91,14 @@ describe("a secret's value, through the vault", () => {
 
     vi.stubGlobal("window", { junto: { signalSecretPut: async () => Promise.reject(new Error("failed with the-value")) } });
     expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set." });
+    // A wait that ran out says the value may be set, not that it was not.
+    vi.stubGlobal("window", {
+      junto: { signalSecretPut: async () => Promise.reject(new Error("junto: backend did not respond (junto:signal-secret-put). Try restarting the app.")) },
+    });
+    expect(await putSignalSecret("s1", "the-value")).toEqual({
+      ok: false,
+      message: "Junto did not answer in time, so the value may be set. Check the vault before you set it again.",
+    });
     // A throw on the way in, not a rejection, takes the same path.
     vi.stubGlobal("window", {
       junto: {
