@@ -12,7 +12,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Deferred, Effect, Layer, ManagedRuntime } from "effect";
+import { Cause, Deferred, Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
@@ -529,5 +529,27 @@ describe("the fleet driver holds a canvas while it drains", () => {
     for (let round = 0; round < 10 && mini.authority.status().lastIndex > mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
     expect(await held(mini.store)).toMatchObject({ rulings: [ARTIFACT_OP, "01M62AA0000000000000000002"] });
     expect(mini.failures).toEqual([]);
+  });
+});
+
+describe("the fleet driver refuses a proposal it cannot take", () => {
+  it("retryable, and stays open: a follower's proposal changes nothing and the next tick runs", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [SELF, MACBOOK]) {
+      const store = await makeStore(id, [SELF, MACBOOK]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    const up = () => true;
+    for (let round = 0; round < 30 && !pair[SELF]!.authority.status().canCommit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    const macbook = pair[MACBOOK]!;
+    expect(macbook.authority.status().role).toBe("follower");
+    const before = await logOf(macbook.store);
+
+    const exit = await macbook.store.runtime.runPromiseExit(macbook.authority.propose({ kind: "structure.changed", seq: 1 }));
+    expect(exit._tag).toBe("Failure");
+    const error = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined;
+    expect(error).toMatchObject({ _tag: "FleetDriverError", retryable: true, message: expect.stringMatching(/not-leader/) });
+    expect(await logOf(macbook.store)).toEqual(before);
+    expect((await macbook.store.runtime.runPromiseExit(macbook.authority.tick()))._tag).toBe("Success");
   });
 });

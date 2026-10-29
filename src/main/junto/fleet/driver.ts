@@ -36,7 +36,7 @@ import type { ResourceCommand } from "@shared/resource-command";
 import { RulingRecorder, type RulingRecordFailed } from "../work/ruling-recorder";
 import { RulingCapture, type RecordRulingInput } from "../work/repository";
 import { foldRuling } from "../work/ruling-projection";
-import { ConsensusNode, type Entry, type EntryPayload, type HardState, type MemberList, type Message, type Ready, type Status } from "./consensus";
+import { ConsensusNode, ProposalRefused, type Entry, type EntryPayload, type HardState, type MemberList, type Message, type Ready, type Status } from "./consensus";
 
 export class FleetDriverError extends Schema.TaggedError<FleetDriverError>()("FleetDriverError", {
   message: Schema.String,
@@ -391,6 +391,14 @@ export const openCanvasAuthority = (
     const canvasLock = Semaphore.makeUnsafe(1);
     const exclusive = canvasLock.withPermits(1);
 
+    /** The core refused before changing anything: not leader, a list pending, and the like; the caller sends again. */
+    const refusal = (cause: unknown) =>
+      new FleetDriverError({
+        message: cause instanceof ProposalRefused ? `${canvasName} refused the proposal: ${cause.reason}` : `the authority of ${canvasName} refused`,
+        cause,
+        ...(cause instanceof ProposalRefused ? { retryable: true } : {}),
+      });
+
     const isEmpty = (ready: Ready) => ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0;
 
     /** What `ready()` says to persist, inside the caller's transaction. */
@@ -472,8 +480,16 @@ export const openCanvasAuthority = (
                 Effect.flatMap(Effect.provideService(batch, RulingCapture, capture), (judged) => Effect.fail(new Judged(judged))),
               ).pipe(Effect.catchIf((error): error is Judged<A> => error instanceof Judged, (judged) => Effect.succeed(judged.value)));
               const ruledAt = Date.now();
-              proposed = true;
-              const entries = captured.map((input) => node.propose(encodeLogData({ kind: "ruling", ruling: loggedRuling(input, ruledAt) })));
+              const entries: Array<Entry> = [];
+              for (const input of captured) {
+                const entry = yield* Effect.try({
+                  try: () => node.propose(encodeLogData({ kind: "ruling", ruling: loggedRuling(input, ruledAt) })),
+                  catch: (cause) => refusal(cause),
+                });
+                // From the first entry on, the core holds what the disk does not yet.
+                proposed = true;
+                entries.push(entry);
+              }
               const ready = node.ready();
               yield* unrevoked(ready);
               // Appended in the judgment's own transaction: this machine's acknowledgement.
@@ -491,7 +507,7 @@ export const openCanvasAuthority = (
       }));
 
     const guarded = <A>(run: () => A) =>
-      Effect.suspend(() => (broken !== undefined ? Effect.fail(broken) : Effect.try({ try: run, catch: failed(`the authority of ${canvasName} refused`) })));
+      Effect.suspend(() => (broken !== undefined ? Effect.fail(broken) : Effect.try({ try: run, catch: refusal })));
 
     /** Mutate the core, then drain it, holding the canvas throughout. */
     const held = <A>(mutate: () => A) => exclusive(Effect.flatMap(guarded(mutate), (result) => Effect.as(drain, result)));
