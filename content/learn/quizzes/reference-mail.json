@@ -1,0 +1,111 @@
+{
+  "id": "reference-mail",
+  "title": "Mail and seat commands",
+  "questions": [
+    {
+      "id": "seat-read",
+      "concepts": [
+        "mail",
+        "terminals"
+      ],
+      "reader": "agent",
+      "prompt": "What does junto seat read let one seat do to another?",
+      "choices": [
+        {
+          "id": "type",
+          "text": "Type into its terminal",
+          "why": "seat read carries no input authority."
+        },
+        {
+          "id": "read",
+          "text": "Read its state and screen, nothing more",
+          "correct": true,
+          "why": "seat read is read-only: no input, resize or signal."
+        },
+        {
+          "id": "resize",
+          "text": "Resize its terminal",
+          "why": "seat read carries no resize authority."
+        },
+        {
+          "id": "stop",
+          "text": "Stop it",
+          "why": "No seat command stops another seat."
+        }
+      ],
+      "receipts": [
+        "src/shared/seat-control.ts:12@951f99eac"
+      ]
+    },
+    {
+      "id": "prompt",
+      "concepts": [
+        "mail"
+      ],
+      "reader": "agent",
+      "prompt": "How does msg send --prompt differ from plain mail?",
+      "choices": [
+        {
+          "id": "skip-line",
+          "text": "It skips the line check",
+          "why": "A prompt needs the same line as any mail."
+        },
+        {
+          "id": "full-turn",
+          "text": "It types the full text at once, as its own turn",
+          "correct": true,
+          "why": "A prompt is typed whole and never batched; plain mail is typed up to 2,500 characters."
+        },
+        {
+          "id": "faster",
+          "text": "It is delivered sooner",
+          "why": "Both wait for an empty input box."
+        },
+        {
+          "id": "interrupt",
+          "text": "It interrupts the seat's turn",
+          "why": "Mail never interrupts a turn."
+        }
+      ],
+      "receipts": [
+        "src/shared/message-delivery.ts:161@951f99eac",
+        "src/shared/message-delivery.ts:314@951f99eac"
+      ]
+    },
+    {
+      "id": "batching",
+      "concepts": [
+        "mail"
+      ],
+      "reader": "both",
+      "prompt": "Mail for a seat arrives one second after other mail for it. What happens?",
+      "choices": [
+        {
+          "id": "separate",
+          "text": "Each is typed as its own turn",
+          "why": "Mail within two seconds of other mail is typed together."
+        },
+        {
+          "id": "together",
+          "text": "They are typed together as one turn",
+          "correct": true,
+          "why": "Mail within 2 seconds of other mail is batched, typed at most 10 seconds after the first."
+        },
+        {
+          "id": "next-session",
+          "text": "The second waits for the next session",
+          "why": "Batching happens within the running session."
+        },
+        {
+          "id": "dropped",
+          "text": "The second is dropped",
+          "why": "Mail is never dropped; it waits with no time limit when it cannot be typed."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/work/message-delivery.ts:113@951f99eac",
+        "src/main/junto/work/message-delivery.ts:29@951f99eac"
+      ]
+    }
+  ]
+}

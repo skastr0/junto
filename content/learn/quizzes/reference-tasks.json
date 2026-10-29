@@ -1,0 +1,102 @@
+{
+  "id": "reference-tasks",
+  "title": "Task commands",
+  "questions": [
+    {
+      "id": "rules-unmet",
+      "concepts": [
+        "tasks",
+        "rules"
+      ],
+      "reader": "agent",
+      "prompt": "A seat finishes a task but leaves one of the board's rules unanswered. What happens?",
+      "choices": [
+        {
+          "id": "warning",
+          "text": "The task finishes with a warning",
+          "why": "An unanswered rule refuses the finish."
+        },
+        {
+          "id": "refused",
+          "text": "The finish is refused rules-unmet",
+          "correct": true,
+          "why": "Only a claim answers a rule; a finish that leaves one unanswered is refused, naming it."
+        },
+        {
+          "id": "dropped",
+          "text": "The rule is dropped",
+          "why": "Rules are the operator's; a seat cannot skip one."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/task.ts:78@951f99eac"
+      ]
+    },
+    {
+      "id": "changes-text",
+      "concepts": [
+        "tasks",
+        "review"
+      ],
+      "reader": "agent",
+      "prompt": "What does task stamp <task> changes need?",
+      "choices": [
+        {
+          "id": "nothing",
+          "text": "Nothing else",
+          "why": "changes without --text is refused before it is sent."
+        },
+        {
+          "id": "text",
+          "text": "--text saying what to change",
+          "correct": true,
+          "why": "The assignee needs to know what to change, so the text is required."
+        },
+        {
+          "id": "commit",
+          "text": "A commit",
+          "why": "A stamp needs no commit."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/task.ts:87@951f99eac"
+      ]
+    },
+    {
+      "id": "reach",
+      "concepts": [
+        "tasks",
+        "reach"
+      ],
+      "reader": "both",
+      "prompt": "Which seats can work the tasks on a board?",
+      "choices": [
+        {
+          "id": "line",
+          "text": "Only seats with a line to the board",
+          "why": "No line reaches a board; reach does."
+        },
+        {
+          "id": "region",
+          "text": "Seats in its region, a region inside it, or a region around it",
+          "correct": true,
+          "why": "A seat reaches resources in its own region, the regions inside it and the regions around it, never a sibling's."
+        },
+        {
+          "id": "all",
+          "text": "Every seat on the canvas",
+          "why": "A board in a sibling region is out of reach."
+        },
+        {
+          "id": "overseers",
+          "text": "Only overseers",
+          "why": "Ordinary seats work boards in their reach."
+        }
+      ],
+      "receipts": [
+        "src/shared/region-reach.ts:5-9@951f99eac",
+        "src/main/junto/work/authz.ts:615@951f99eac"
+      ]
+    }
+  ]
+}

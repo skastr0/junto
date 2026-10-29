@@ -1,0 +1,111 @@
+{
+  "id": "reference-session",
+  "title": "Session commands",
+  "questions": [
+    {
+      "id": "offboard",
+      "concepts": [
+        "session"
+      ],
+      "reader": "agent",
+      "prompt": "When does junto offboard end the session?",
+      "choices": [
+        {
+          "id": "next-turn",
+          "text": "After the agent's next turn",
+          "why": "Nothing waits for a turn."
+        },
+        {
+          "id": "returns",
+          "text": "The moment it returns",
+          "correct": true,
+          "why": "Offboard ends the session as it returns, so it runs last."
+        },
+        {
+          "id": "approval",
+          "text": "When the operator approves it",
+          "why": "Offboard needs no approval."
+        },
+        {
+          "id": "idle",
+          "text": "When the seat goes idle",
+          "why": "Idle plays no part; the command itself ends the session."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/seat-discovery.ts:202@951f99eac"
+      ]
+    },
+    {
+      "id": "op-show",
+      "concepts": [
+        "session",
+        "writes"
+      ],
+      "reader": "agent",
+      "prompt": "A write timed out. How does the seat learn whether it applied?",
+      "choices": [
+        {
+          "id": "again",
+          "text": "Run the same write again",
+          "why": "A blind rerun can apply twice; resend with --op-id so it applies once."
+        },
+        {
+          "id": "op-show",
+          "text": "junto op show with the opId it returned",
+          "correct": true,
+          "why": "op show reports the write: queued until the editing machine rules it, then applied, or refused with its error."
+        },
+        {
+          "id": "since",
+          "text": "junto since",
+          "why": "since lists what changed for the seat, not the fate of one write."
+        },
+        {
+          "id": "lost",
+          "text": "It cannot; the write is lost",
+          "why": "Every write carries an opId that op show can look up."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/op.ts:22@951f99eac",
+        "src/cli/core/op-id.ts:14@951f99eac"
+      ]
+    },
+    {
+      "id": "onboard",
+      "concepts": [
+        "session",
+        "onboard"
+      ],
+      "reader": "agent",
+      "prompt": "Which command loads a seat's briefing and the commands it may run?",
+      "choices": [
+        {
+          "id": "since",
+          "text": "junto since",
+          "why": "since lists only what changed since the last session."
+        },
+        {
+          "id": "onboard",
+          "text": "junto onboard",
+          "correct": true,
+          "why": "onboard loads guidance, briefings, connected seats, reach and the commands each allows."
+        },
+        {
+          "id": "docs",
+          "text": "junto docs",
+          "why": "docs is the general reference, the same for every seat."
+        },
+        {
+          "id": "preamble",
+          "text": "junto preamble",
+          "why": "A preamble is a short thought bubble above the seat."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/seat-discovery.ts:150@951f99eac"
+      ]
+    }
+  ]
+}

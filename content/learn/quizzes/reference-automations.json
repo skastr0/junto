@@ -1,0 +1,95 @@
+{
+  "id": "reference-automations",
+  "title": "Automation commands",
+  "questions": [
+    {
+      "id": "read-only",
+      "concepts": [
+        "automations"
+      ],
+      "reader": "agent",
+      "prompt": "Can an ordinary seat create an automation?",
+      "choices": [
+        {
+          "id": "create",
+          "text": "Yes, with automation create",
+          "why": "Seats get list, show and history only."
+        },
+        {
+          "id": "read",
+          "text": "No: seats only read automations",
+          "correct": true,
+          "why": "The operator and overseers write automations."
+        },
+        {
+          "id": "line",
+          "text": "Only with a line to the node",
+          "why": "Automations take no line, and lines grant no writes on them."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/automation.ts:77@951f99eac",
+        "src/shared/region-reach.ts:60-63@951f99eac"
+      ]
+    },
+    {
+      "id": "machine",
+      "concepts": [
+        "automations",
+        "machines"
+      ],
+      "reader": "agent",
+      "prompt": "Where are automation commands answered?",
+      "choices": [
+        {
+          "id": "any",
+          "text": "On any machine",
+          "why": "Elsewhere they are refused, naming the editing machine."
+        },
+        {
+          "id": "editing",
+          "text": "Only on the machine that edits the canvas",
+          "correct": true,
+          "why": "Automation reads are answered there and refused not_available on other machines."
+        },
+        {
+          "id": "own",
+          "text": "On the seat's own machine",
+          "why": "Only the editing machine answers."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/automation.ts:43@951f99eac"
+      ]
+    },
+    {
+      "id": "history",
+      "concepts": [
+        "automations"
+      ],
+      "reader": "agent",
+      "prompt": "What does junto automation history show?",
+      "choices": [
+        {
+          "id": "edits",
+          "text": "The automation's edit history",
+          "why": "Versions are what show names; history lists firings."
+        },
+        {
+          "id": "firings",
+          "text": "Its firings, newest first: fired, interrupted or skipped, and why",
+          "correct": true,
+          "why": "History lists firings with each action's ruling, or why one was interrupted or skipped."
+        },
+        {
+          "id": "next",
+          "text": "When it runs next",
+          "why": "History looks back, not forward."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/automation.ts:48@951f99eac"
+      ]
+    }
+  ]
+}

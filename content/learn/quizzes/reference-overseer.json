@@ -1,0 +1,95 @@
+{
+  "id": "reference-overseer",
+  "title": "Overseer commands",
+  "questions": [
+    {
+      "id": "grant",
+      "concepts": [
+        "overseer"
+      ],
+      "reader": "both",
+      "prompt": "Who can turn a seat into an overseer?",
+      "choices": [
+        {
+          "id": "self",
+          "text": "The seat itself",
+          "why": "Overseer commands need a seat a human granted."
+        },
+        {
+          "id": "peer",
+          "text": "Any connected seat",
+          "why": "A line grants mail and observation, never overseer."
+        },
+        {
+          "id": "operator",
+          "text": "The operator",
+          "correct": true,
+          "why": "Overseer commands require a live, human-granted overseer seat."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/overseer.ts:628@951f99eac"
+      ]
+    },
+    {
+      "id": "no-lines",
+      "concepts": [
+        "overseer",
+        "lines"
+      ],
+      "reader": "agent",
+      "prompt": "Does an overseer need a line to act on a node or seat?",
+      "choices": [
+        {
+          "id": "per-node",
+          "text": "Yes, one line per node",
+          "why": "Overseer commands are marked edges not required."
+        },
+        {
+          "id": "no",
+          "text": "No: overseer commands need no lines",
+          "correct": true,
+          "why": "Every overseer command is described as Overseer; edges not required."
+        },
+        {
+          "id": "seats-only",
+          "text": "Only for seats",
+          "why": "No overseer command needs a line."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/overseer.ts:646-647@951f99eac"
+      ]
+    },
+    {
+      "id": "input",
+      "concepts": [
+        "overseer",
+        "cli"
+      ],
+      "reader": "agent",
+      "prompt": "How does an overseer command take its input?",
+      "choices": [
+        {
+          "id": "flags",
+          "text": "As flags only",
+          "why": "The input is one JSON argument."
+        },
+        {
+          "id": "json",
+          "text": "As one JSON object: inline, @file, or - for stdin",
+          "correct": true,
+          "why": "Each takes a JSON object, an @file path, a raw JSON string, or stdin."
+        },
+        {
+          "id": "env",
+          "text": "From environment variables",
+          "why": "Only identity comes from the environment."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/overseer.ts:49-51@951f99eac"
+      ]
+    }
+  ]
+}

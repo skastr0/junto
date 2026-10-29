@@ -1,0 +1,108 @@
+{
+  "id": "reference-terminals",
+  "title": "Terminals and mail delivery",
+  "questions": [
+    {
+      "id": "draft",
+      "concepts": [
+        "terminals",
+        "mail"
+      ],
+      "reader": "you",
+      "prompt": "You are typing in a seat when mail for it arrives. What does Junto do?",
+      "choices": [
+        {
+          "id": "append",
+          "text": "Types it after your text",
+          "why": "Junto never types over or after a draft."
+        },
+        {
+          "id": "wait",
+          "text": "Waits until the input box is empty",
+          "correct": true,
+          "why": "Only a box proven empty authorizes typing; mail waits in order with no time limit."
+        },
+        {
+          "id": "interrupt",
+          "text": "Interrupts the seat",
+          "why": "Mail never interrupts."
+        },
+        {
+          "id": "drop",
+          "text": "Drops the mail",
+          "why": "Waiting mail is never dropped."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/term/drive/managed-terminal-drive.ts:134@951f99eac",
+        "src/main/junto/work/message-delivery.ts:29@951f99eac"
+      ]
+    },
+    {
+      "id": "resume",
+      "concepts": [
+        "terminals",
+        "resume"
+      ],
+      "reader": "you",
+      "prompt": "Junto quits and opens again. What comes back for a seat?",
+      "choices": [
+        {
+          "id": "process",
+          "text": "The same process",
+          "why": "Quitting stops every local session."
+        },
+        {
+          "id": "session",
+          "text": "The harness's session, resumed by its id",
+          "correct": true,
+          "why": "Resume is used when the harness's own store proves the session exists; otherwise a fresh session starts."
+        },
+        {
+          "id": "nothing",
+          "text": "Nothing",
+          "why": "The seat starts again, resuming when it can."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/term/local-host.ts:5@951f99eac",
+        "src/main/junto/term/session-existence.ts:599@951f99eac"
+      ]
+    },
+    {
+      "id": "long-mail",
+      "concepts": [
+        "terminals",
+        "mail"
+      ],
+      "reader": "agent",
+      "prompt": "A seat mails 4,000 characters without --prompt. What is typed?",
+      "choices": [
+        {
+          "id": "all",
+          "text": "All of it",
+          "why": "Plain mail is typed up to 2,500 characters."
+        },
+        {
+          "id": "cut",
+          "text": "The first 2,500, with a pointer to junto msg read",
+          "correct": true,
+          "why": "Longer mail is cut at 2,500 characters with a pointer to msg read."
+        },
+        {
+          "id": "refused",
+          "text": "Nothing: it is refused",
+          "why": "Long mail is accepted and cut."
+        },
+        {
+          "id": "two",
+          "text": "Two turns of 2,000",
+          "why": "Mail is not split into turns."
+        }
+      ],
+      "receipts": [
+        "src/shared/message-delivery.ts:65@951f99eac"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "id": "reference-cli",
+  "title": "The junto CLI",
+  "questions": [
+    {
+      "id": "failure",
+      "concepts": [
+        "cli",
+        "errors"
+      ],
+      "reader": "agent",
+      "prompt": "What tells an agent that a junto call failed?",
+      "choices": [
+        {
+          "id": "message",
+          "text": "The wording of the message",
+          "why": "Messages are written for people and can change; code should not parse them."
+        },
+        {
+          "id": "ok-false",
+          "text": "ok: false and a typed error",
+          "correct": true,
+          "why": "Every failure prints ok: false with an error whose type names the kind of failure, on stderr with exit code 1."
+        },
+        {
+          "id": "empty-data",
+          "text": "An empty data field",
+          "why": "A failure has no data field at all; it carries error instead."
+        },
+        {
+          "id": "not-json",
+          "text": "A line that is not JSON",
+          "why": "The CLI prints one JSON envelope for success and failure alike."
+        }
+      ],
+      "receipts": [
+        "src/cli/core/output.ts:69-74@951f99eac",
+        "src/cli/command-runner.ts:70@951f99eac"
+      ]
+    },
+    {
+      "id": "identity",
+      "concepts": [
+        "cli",
+        "identity"
+      ],
+      "reader": "agent",
+      "prompt": "Can an agent act as another seat by naming that seat in a call?",
+      "choices": [
+        {
+          "id": "target",
+          "text": "Yes, by passing its id as the target",
+          "why": "A target names who you call, never who you are."
+        },
+        {
+          "id": "region",
+          "text": "Yes, if both seats share a region",
+          "why": "Sharing a region makes a seat visible; it never changes who the caller is."
+        },
+        {
+          "id": "credential",
+          "text": "No: identity comes from the credential in its own environment",
+          "correct": true,
+          "why": "Junto mints JUNTO_WORK_TOKEN for each seat process; the CLI presents it, and a process without it is refused."
+        }
+      ],
+      "receipts": [
+        "src/shared/work-control.ts:56-63@951f99eac",
+        "src/cli/core/socket.ts:56-66@951f99eac"
+      ]
+    },
+    {
+      "id": "paused-retry",
+      "concepts": [
+        "cli",
+        "errors",
+        "play-pause"
+      ],
+      "reader": "agent",
+      "prompt": "A call fails with Paused and retryable: true. What should the agent do?",
+      "choices": [
+        {
+          "id": "loop",
+          "text": "Retry in a loop until it passes",
+          "why": "Retries are bounded: at most twice, then adapt or escalate."
+        },
+        {
+          "id": "wait",
+          "text": "Wait for the operator to play the canvas, and retry at most twice",
+          "correct": true,
+          "why": "A paused canvas refuses writes until play, and the retry law allows at most two retries."
+        },
+        {
+          "id": "blocked",
+          "text": "Raise blocked at once",
+          "why": "Paused is not a problem the operator must solve for this seat; waiting is the first move."
+        },
+        {
+          "id": "give-up",
+          "text": "Give up on the work",
+          "why": "retryable: true says a later attempt may pass."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/work/control.ts:1280-1291@951f99eac",
+        "src/shared/junto-doctrine.ts:209@951f99eac"
+      ]
+    }
+  ]
+}

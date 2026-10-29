@@ -1,0 +1,100 @@
+{
+  "id": "reference-artifacts",
+  "title": "Artifact commands",
+  "questions": [
+    {
+      "id": "base",
+      "concepts": [
+        "artifacts"
+      ],
+      "reader": "agent",
+      "prompt": "What must junto artifact edit name?",
+      "choices": [
+        {
+          "id": "author",
+          "text": "The artifact's author",
+          "why": "Authorship plays no part in an edit."
+        },
+        {
+          "id": "base",
+          "text": "--base: the version it was written against",
+          "correct": true,
+          "why": "Every edit names the version it read."
+        },
+        {
+          "id": "label",
+          "text": "A label",
+          "why": "Labels are set with artifact label, not edit."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/artifact.ts:123@951f99eac"
+      ]
+    },
+    {
+      "id": "labels",
+      "concepts": [
+        "artifacts"
+      ],
+      "reader": "agent",
+      "prompt": "How many labels can one artifact hold?",
+      "choices": [
+        {
+          "id": "five",
+          "text": "5",
+          "why": "The limit is 20."
+        },
+        {
+          "id": "twenty",
+          "text": "20",
+          "correct": true,
+          "why": "At most 20 labels, each 1 to 40 characters."
+        },
+        {
+          "id": "forty",
+          "text": "40",
+          "why": "40 is the longest a label can be, not the count."
+        },
+        {
+          "id": "any",
+          "text": "No limit",
+          "why": "The limit is 20."
+        }
+      ],
+      "receipts": [
+        "src/cli/commands/artifact.ts:124@951f99eac"
+      ]
+    },
+    {
+      "id": "sibling",
+      "concepts": [
+        "artifacts",
+        "reach"
+      ],
+      "reader": "both",
+      "prompt": "Can a seat use an artifacts node in a sibling region?",
+      "choices": [
+        {
+          "id": "always",
+          "text": "Yes, always",
+          "why": "Reach never includes a sibling or a cousin region."
+        },
+        {
+          "id": "no",
+          "text": "No: it is outside the seat's reach",
+          "correct": true,
+          "why": "Artifacts nodes are reached by region, and a sibling's region is out of reach."
+        },
+        {
+          "id": "line",
+          "text": "Only with a messages line",
+          "why": "No line grants a resource node; reach does."
+        }
+      ],
+      "receipts": [
+        "src/shared/region-reach.ts:5-9@951f99eac",
+        "src/main/junto/work/authz.ts:615@951f99eac"
+      ]
+    }
+  ]
+}
