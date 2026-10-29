@@ -184,6 +184,13 @@ describe("request decoding", () => {
     "thread.get": { canvasName: "main", nodeId: "planner", threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" },
     "canvas.open": { canvasName: "main" },
     "canvas.close": { canvasName: "main" },
+    "artifacts.nodes": { canvasName: "main" },
+    "artifacts.list": { canvasName: "main", nodeId: "art-notes", labels: ["launch"], query: "pricing", limit: 20 },
+    "artifact.get": { canvasName: "main", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5", version: 2 },
+    "artifact.history": { canvasName: "main", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5", before: 5, limit: 20 },
+    "artifact.pending": { canvasName: "main", nodeId: "art-notes" },
+    "artifact.moveCheck": { canvasName: "main", artifactIds: ["01KAZ3Q8X4V6W2N5R7T9Y1B3D5"], to: "art-launch" },
+    "inbox.set": { canvasName: "main", nodeId: "art-notes" },
     "comments.list": { canvasName: "main", subject: { kind: "artifact", nodeId: "art-notes", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" } },
     "mentions.candidates": { canvasName: "main", from: "planner", trigger: "@", query: "at" },
     "comment.post": {

@@ -143,10 +143,68 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed) | `{ "messages": ThreadMessage[], "older"?: string, "cut": boolean }` oldest first, at most 200 |
 | `canvas.open` | `{ "canvasName": string }` (closed) | `{ "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[] }`, then `canvas.changed` events |
 | `canvas.close` | `{ "canvasName": string }` (closed) | `{}` |
+| `artifacts.nodes` | `{ "canvasName": string }` (closed; needs `features` to list `artifacts/1`) | `{ "nodes": ArtifactNode[], "inboxNodeId"?: string }` every Artifacts node of the canvas (at most 200) |
+| `artifacts.list` | `{ "canvasName": string, "nodeId"?: string, "type"?: ArtifactType, "labels"?: string[], "archived"?: boolean, "query"?: string (1 to 256), "limit"?: 1..200, "before"?: string (1 to 256) }` (closed; needs `artifacts/1`) | `{ "artifacts": ArtifactListItem[], "more": boolean, "next"?: string }` |
+| `artifact.get` | `{ "canvasName": string, "artifactId": ULID, "version"?: number }` (closed; needs `artifacts/1`) | `{ "artifact": Artifact, "version": number, "bodyRef": ContentRef, "body"?: ArtifactBody, "labelColours"?: {...}, "pending"?: true }` |
+| `artifact.history` | `{ "canvasName": string, "artifactId": ULID, "before"?: number, "limit"?: 1..200 }` (closed; needs `artifacts/1`) | `{ "versions": ArtifactVersion[], "moves": ArtifactMove[], "more": boolean }` |
+| `artifact.pending` | `{ "canvasName": string, "nodeId": string }` (closed; needs `artifacts/1`) | `{ "writes": PendingWrite[] }` |
+| `artifact.moveCheck` | `{ "canvasName": string, "artifactIds": ULID[] (1 to 100), "to": string }` (closed; needs `artifacts/1`) | `{ "warning"?: string }` |
+| `inbox.set` | `{ "canvasName": string, "nodeId": string }` (closed; counts as a write) | `{ "inboxNodeId": string }` |
 | `comments.list` | `{ "canvasName": string, "subject": CommentSubject, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed; needs `features` to list `artifacts/1`) | `{ "threads": CommentThread[], "cut": boolean, "next"?: string }`, newest thread first, at most 200 |
 | `comment.post` | `{ "canvasName": string, "subject": CommentSubject, "opId": ULID, "text": string (1 to 8000), "anchor"?: ArtifactPlaceAnchor, "threadId"?: ULID }` (closed; counts as a write) | `{ "threadId": ULID, "messageId": ULID, "unlinked"?: { "token": string, "nearest": string[] }[] }` |
 | `mentions.candidates` | `{ "canvasName": string, "from": string, "trigger": "@" \| "#" \| "[[", "query"?: string (0 to 100), "limit"?: 1..50 }` (closed; needs `artifacts/1`) | `{ "candidates": MentionCandidate[] }` (at most 50) |
 
+Artifacts (feature `artifacts/1`, section 2). `ArtifactNode` is
+`{ "nodeId", "title", "region": FeedRegion, "live": number, "archived": number,
+"labelColours": { [label]: "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "purple" | "pink" } }`:
+`live` and `archived` count the artifacts the node holds, and a label with no
+colour is absent. `inboxNodeId` is this Mac's own Inbox, the node the
+desktop's quick capture (Cmd+T) lands in, and only while it is still one of
+`nodes`; absent, none is set here. `inbox.set` writes that same setting
+through the path the desktop's Settings page uses, so it is `invalid` for a
+node that is not one of the canvas's Artifacts nodes, and the desktop's next
+Cmd+T uses what the phone chose. The phone cannot make a node.
+
+`artifacts.list` covers the whole canvas when `nodeId` is absent (browse and
+quick add) and one Artifacts node when it is named, which must be one of the
+canvas's (`not-found` otherwise). `labels` must all match, each by equality or
+by sitting under it (`a` matches `a/b`); `archived: true` lists archived
+artifacts instead of live ones. Without `query` the rows run newest change
+first; with it they are ranked by the desktop's quick-capture search (the title
+first, then the type, the labels and a document's words), best first. An
+`ArtifactListItem` is `{ artifactId, nodeId, type, title, version, updatedAt,
+archived, labels, snippet?, pending? }`: `snippet` is the first 200 characters
+of the artifact's text (absent while the body is not on this Mac yet) and
+`pending: true` says one of this Mac's queued writes touches it. A page that
+would pass the frame's byte budget carries fewer rows than `limit`; `more` and
+`next` say so, and `before: next` resumes after the last row sent. A cursor
+this list did not give is `invalid`.
+
+`artifact.get` answers one artifact by id, wherever it sits now. `artifact` is
+the head record and `version` the version whose body this is: the head's, or
+the older one `version` asked for. `bodyRef` is always there and `content.get`
+reads it. `body` is the body itself, and is sent only when the whole encoded
+result fits 480 KiB, counted in bytes as it encodes (JSON escaping and UTF-8
+make a document under its 512,000-character cap pass a frame); otherwise read
+`bodyRef`. A version that is not on this Mac yet answers `unavailable` while it
+is brought from the machine that edits the canvas: ask again. An artifact or
+version this canvas does not hold is `not-found`.
+
+`artifact.history` lists versions newest first, 50 by default; `before` is the
+last version of the page before and `more` says older ones remain. A version is
+`{ version, author: ResourceActor, at, change }` where `change` is `create`
+(version 1), `replace`, `patch` or `unrecorded` (it arrived without its edit).
+`moves` is every move of the artifact, oldest first, `{ from, to, by, at }`
+(the newest 200 of a longer run), for the phone to interleave by `at`.
+
+`artifact.pending` lists this Mac's writes to the node's artifacts that the
+machine editing the canvas has not ruled yet, in queue order, each
+`{ opId, artifactId, op, wouldRefuse?, waiting? }`: `wouldRefuse` is the
+sentence the ruler would answer with as things stand, `waiting: true` says its
+base is not on this Mac yet so there is no preview. `artifact.moveCheck` gives
+the desktop's reach-change sentence for moving those artifacts to the node
+`to` ("Seats in X will no longer reach this"); absent, no seat's reach changes.
+Neither op changes anything.
 Semantics:
 
 - `signal.answer` does exactly what the desktop reply does: the answer is
@@ -246,7 +304,9 @@ Semantics:
   - A file staged and never sent is let go after an hour; unpairing the phone
     lets go of its uploads at once. Nothing in a file is ever run or opened by
     Junto.
-- `content.get` returns the bytes of a file a Needs you item or a mail carries, in
+- `content.get` returns the bytes of a file a Needs you item or a mail carries,
+  or, with `artifacts/1`, of an artifact on any canvas (a version's `bodyRef`, a
+  file or link's content, a pad's image), in
   chunks. `sha256` is 64 lower-case hex; `offset` is a safe integer from 0;
   `length` is 1 to 262144 (256 KiB, which as base64 keeps a response under
   the 512 KiB frame). `data` is standard padded base64 of the bytes

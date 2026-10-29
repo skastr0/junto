@@ -75,6 +75,7 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     admitStage: none,
     dropStaged: async () => undefined,
     mailContentRef: async () => undefined,
+    artifactContentRef: async () => undefined,
     portrait: none,
     contentRange: none,
     machines: none,
@@ -83,6 +84,13 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     threads: none,
     thread: none,
     canvasScene: none,
+    artifactNodes: none,
+    artifactList: none,
+    artifactGet: none,
+    artifactHistory: none,
+    artifactPending: none,
+    artifactMoveCheck: none,
+    inboxSet: none,
   };
   return stub;
 };

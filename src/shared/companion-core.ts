@@ -121,6 +121,30 @@ export type CompanionBackend = {
   readonly mentionCandidates: (
     args: CompanionArgsByOp["mentions.candidates"],
   ) => Promise<CompanionOutcome<CompanionResultByOp["mentions.candidates"]>>;
+  /** The canvas's Artifacts nodes with their counts and label colours, and this Mac's Inbox when it is still one of them. */
+  readonly artifactNodes: (canvasName: string) => Promise<CompanionOutcome<CompanionResultByOp["artifacts.nodes"]>>;
+  /** An artifact's versions newest first, a page at a time, with every move it has made. */
+  readonly artifactHistory: (
+    args: CompanionArgsByOp["artifact.history"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["artifact.history"]>>;
+  /** This Mac's unruled writes to an Artifacts node, with the ones that would be refused now. */
+  readonly artifactPending: (
+    args: CompanionArgsByOp["artifact.pending"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["artifact.pending"]>>;
+  /** The line the desktop shows before a move that changes which seats reach the artifacts. */
+  readonly artifactMoveCheck: (
+    args: CompanionArgsByOp["artifact.moveCheck"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["artifact.moveCheck"]>>;
+  /** One artifact: its head, its body by ref, and the body itself when the whole result fits a frame. */
+  readonly artifactGet: (
+    args: CompanionArgsByOp["artifact.get"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["artifact.get"]>>;
+  /** A page of the canvas's artifacts, or of one node's, filtered, or searched by the quick-capture rule. */
+  readonly artifactList: (
+    args: CompanionArgsByOp["artifacts.list"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["artifacts.list"]>>;
+  /** Name the Inbox, through the path the desktop's Settings and Cmd+T use; `invalid` for a node that is not an Artifacts node of the canvas. */
+  readonly inboxSet: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionResultByOp["inbox.set"]>>;
   readonly quickReplies: () => Promise<CompanionOutcome<CompanionResultByOp["quickReplies.get"]>>;
   readonly portrait: (
     portraitIdentity: string,
@@ -142,6 +166,12 @@ export type CompanionBackend = {
    * Its byteLength is the store's, never the request's.
    */
   readonly mailContentRef: (sha256: string) => Promise<ContentRef | undefined>;
+  /**
+   * The ref an artifact on any canvas holds for this digest: a version's body,
+   * a file or link's content, a pad's image. Its byteLength is the store's,
+   * never the request's.
+   */
+  readonly artifactContentRef: (sha256: string) => Promise<ContentRef | undefined>;
   /** Every machine this Mac knows, as its owner lists them. */
   readonly machines: () => Promise<CompanionOutcome<ReadonlyArray<CompanionMachine>>>;
   /** One machine read now, across its link if it has one. An unreachable machine is an answer. */
@@ -207,7 +237,7 @@ const contentGet = async (
   // Membership first, on the feeds and the mail as they stand now: outside them the bytes are never read.
   const feeds = await backend.feeds();
   if (!feeds.ok) return companionFail(id, feeds.error);
-  const ref = feedContentRefs(feeds.value).get(args.sha256) ?? (await backend.mailContentRef(args.sha256));
+  const ref = feedContentRefs(feeds.value).get(args.sha256) ?? (await backend.mailContentRef(args.sha256)) ?? (await backend.artifactContentRef(args.sha256));
   if (ref === undefined) return companionFail(id, companionError("not-found", CONTENT_NOT_IN_FEED));
   const empty = ref.byteLength === 0 && args.offset === 0;
   if (args.offset >= ref.byteLength && !empty)
@@ -502,6 +532,20 @@ export const handleCompanionRequest = async (
       return respond(id, backend.comment(frame.args), (value) => companionOk(id, "comment.post", value));
     case "mentions.candidates":
       return respond(id, backend.mentionCandidates(frame.args), (value) => companionOk(id, "mentions.candidates", value));
+    case "artifacts.nodes":
+      return respond(id, backend.artifactNodes(frame.args.canvasName), (value) => companionOk(id, "artifacts.nodes", value));
+    case "artifact.history":
+      return respond(id, backend.artifactHistory(frame.args), (value) => companionOk(id, "artifact.history", value));
+    case "artifact.pending":
+      return respond(id, backend.artifactPending(frame.args), (value) => companionOk(id, "artifact.pending", value));
+    case "artifact.moveCheck":
+      return respond(id, backend.artifactMoveCheck(frame.args), (value) => companionOk(id, "artifact.moveCheck", value));
+    case "artifact.get":
+      return respond(id, backend.artifactGet(frame.args), (value) => companionOk(id, "artifact.get", value));
+    case "artifacts.list":
+      return respond(id, backend.artifactList(frame.args), (value) => companionOk(id, "artifacts.list", value));
+    case "inbox.set":
+      return respond(id, backend.inboxSet(frame.args.canvasName, frame.args.nodeId), (value) => companionOk(id, "inbox.set", value));
     case "quickReplies.get":
       return respond(id, backend.quickReplies(), (value) => companionOk(id, "quickReplies.get", value));
     case "portrait.get": {

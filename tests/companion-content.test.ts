@@ -116,6 +116,7 @@ describe("content.get through the request core", () => {
     admitStage: async () => outcomeOk(undefined),
     dropStaged: async () => undefined,
     mailContentRef: async () => undefined,
+    artifactContentRef: async () => undefined,
     portrait: async () => outcomeOk({ svg: "" }),
     contentRange: async (_ref, _offset, length) => outcomeOk(new Uint8Array(length)),
     machines: async () => outcomeOk([]),
@@ -124,6 +125,13 @@ describe("content.get through the request core", () => {
     threads: async () => outcomeOk({ threads: [], cut: false }),
     thread: async () => outcomeFail("not-found"),
     canvasScene: async () => outcomeFail("not-found"),
+    artifactNodes: async () => outcomeFail("not-found"),
+    artifactList: async () => outcomeFail("not-found"),
+    artifactGet: async () => outcomeFail("not-found"),
+    artifactHistory: async () => outcomeFail("not-found"),
+    artifactPending: async () => outcomeFail("not-found"),
+    artifactMoveCheck: async () => outcomeFail("not-found"),
+    inboxSet: async () => outcomeFail("not-found"),
     ...over,
   });
   const call = (backend: CompanionBackend, args: object, gates = makeCompanionGates()) =>

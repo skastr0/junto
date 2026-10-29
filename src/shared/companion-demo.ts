@@ -37,6 +37,7 @@ import { OPERATOR_SEAT_ID } from "./work-reference";
 import { companionPortraitSvg } from "./companion-portrait";
 import type { CompanionChange, CompanionHost } from "./companion-session";
 import { companionSeat } from "./companion-seats";
+import { demoArtifactBytes, makeDemoArtifactReads } from "./companion-demo-artifacts";
 import {
   COMPANION_FEATURES,
   COMPANION_PROTOCOL,
@@ -542,8 +543,9 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     contentRange: async (ref, offset, length) => {
       const stored = DEMO_CONTENT.find((content) => content.ref.sha256 === ref.sha256);
-      if (stored === undefined) return outcomeFail("unavailable");
-      return outcomeOk(new TextEncoder().encode(stored.text).subarray(offset, offset + length));
+      const bytes = stored === undefined ? demoArtifactBytes(ref.sha256) : new TextEncoder().encode(stored.text);
+      if (bytes === undefined) return outcomeFail("unavailable");
+      return outcomeOk(bytes.subarray(offset, offset + length));
     },
     machines: async () => outcomeOk(DEMO_MACHINES.map((entry) => entry.machine)),
     machine: async (name, minLevel) => {
@@ -556,6 +558,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       return outcomeOk({ machine: entry.machine, status: entry.status, logs });
     },
     tailnetPeers: async () => outcomeOk({ available: true, peers: DEMO_TAILNET }),
+    ...makeDemoArtifactReads(CANVAS, known),
     canvasScene: async (canvasName) => known(canvasName) ? outcomeOk(companionCanvasDrawn(CANVAS)) : outcomeFail("not-found", "No such canvas."),
   };
 };

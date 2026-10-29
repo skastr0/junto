@@ -66,6 +66,7 @@ import { AppRuntime } from "../../runtime";
 import { ContentService } from "../content/service";
 import { readContentObjectRange } from "../content/store";
 import { companionMachineBackend } from "./machines";
+import { companionArtifactReadBackend } from "./artifact-reads";
 import { companionThreadBackend } from "./threads";
 import { companionCommentBackend } from "./comments";
 import { companionMentionBackend } from "./mentions";
@@ -541,6 +542,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   ...companionMachineBackend,
   ...companionThreadBackend,
+  ...companionArtifactReadBackend,
   ...companionCommentBackend,
   ...companionMentionBackend,
   ...companionStageBackend,

@@ -42,6 +42,7 @@ describe("wire module import closure", () => {
         "artifact-labels.ts",
         "artifact-link.ts",
         "canvas-name.ts",
+        "companion-artifact-reads.ts",
         "companion-artifact-writes.ts",
         "companion-artifacts.ts",
         "companion-protocol.ts",
