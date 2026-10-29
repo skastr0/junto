@@ -253,9 +253,14 @@ const bootstrap = (sql: SqlClient.SqlClient, canvasName: string, self: Installat
       VALUES (${canvasName}, 1, NULL, 0, 0) ON CONFLICT (canvas_name) DO NOTHING`;
     const held = yield* sql<{ installation_id: string }>`
       SELECT installation_id FROM canvas_authorities WHERE canvas_name = ${canvasName} ORDER BY position`;
-    const list = held.length > 0
-      ? held.map((row) => row.installation_id)
-      : [((yield* sql<{ editor: string | null }>`SELECT editor_installation_id AS editor FROM canvases WHERE canvas_name = ${canvasName}`)[0]?.editor ?? self)];
+    // Entry 1 is F6's list, never a guess: two machines guessing differently would write two entries at (1,1).
+    if (held.length === 0) {
+      return yield* Effect.fail(new FleetDriverError({
+        message: `${canvasName} has no authority list to begin its log from`,
+        cause: { canvasName, self },
+      }));
+    }
+    const list = held.map((row) => row.installation_id);
     const sole = (yield* sql<{ sole: string | null }>`SELECT sole_installation_id AS sole FROM canvas_consensus WHERE canvas_name = ${canvasName}`)[0]?.sole;
     const members: MemberList = { list, ...(sole === null || sole === undefined ? {} : { sole }) };
     yield* writeEntry(sql, canvasName, { term: 1, index: 1, payload: { kind: "list", members } });
@@ -361,7 +366,7 @@ export const openCanvasAuthority = (
         }
         return { consensus: (yield* readConsensus(sql, canvasName))!, log: yield* readLog(sql, canvasName) };
       }),
-    ).pipe(Effect.mapError(failed(`the authority of ${canvasName} could not be read`)));
+    ).pipe(Effect.mapError((cause) => (cause instanceof FleetDriverError ? cause : failed(`the authority of ${canvasName} could not be read`)(cause))));
 
     const { consensus, log } = loaded;
     // Committed and not applied: a crash came between persisting and applying. Applied now, once.

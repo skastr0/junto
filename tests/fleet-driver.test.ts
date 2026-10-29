@@ -69,8 +69,8 @@ afterEach(async () => {
   }
 });
 
-/** One machine's store; `authorities`, when given, is the list F6 seeded for the canvas. */
-const makeStore = async (self: InstallationId = SELF, authorities?: ReadonlyArray<InstallationId>): Promise<Store> => {
+/** One machine's store; `authorities` is the list F6 seeded for the canvas, this machine alone unless given. */
+const makeStore = async (self: InstallationId = SELF, authorities: ReadonlyArray<InstallationId> = [self]): Promise<Store> => {
   const root = await mkdtemp(join(tmpdir(), "junto-fleet-driver-"));
   const store: Store = { root, runtime: undefined as never, recorded: [], failing: false };
   const recorder = Layer.effect(
@@ -115,7 +115,7 @@ const makeStore = async (self: InstallationId = SELF, authorities?: ReadonlyArra
           yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${new Date(AT).toISOString()})`;
           yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [automations("routines"), artifacts("arts"), seat("lead")] }]]) });
           yield* sql`UPDATE canvases SET editor_installation_id = ${SELF} WHERE canvas_name = ${CANVAS}`;
-          for (const [position, id] of (authorities ?? []).entries()) {
+          for (const [position, id] of authorities.entries()) {
             yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index) VALUES (${CANVAS}, 1, 0, 0) ON CONFLICT DO NOTHING`;
             yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${CANVAS}, ${position}, ${id})`;
           }
@@ -466,5 +466,16 @@ describe("the fleet driver, one batch in flight", () => {
     );
     for (let round = 0; round < 10 && mini.authority.status().lastIndex > mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
     expect(await held(mini.store)).toMatchObject({ rulings: [ARTIFACT_OP, "01M62AA0000000000000000002"] });
+  });
+});
+
+describe("the fleet driver begins a canvas's log", () => {
+  it("only from the authority list F6 seeded, and refuses without one rather than guess the editor", async () => {
+    const store = await makeStore(SELF, []);
+    const exit = await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/no authority list/);
+    // Nothing was written at (1,1): a later open, once F6 seeds the list, begins it.
+    expect((await logOf(store)).rows).toEqual([]);
   });
 });
