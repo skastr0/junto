@@ -36,6 +36,7 @@
 import { Schema } from "effect";
 import { isValidCronExpression } from "./cron-expression";
 import { InstallationId } from "./installation-id";
+import { ARTIFACT_MAX_TITLE_LENGTH } from "./artifact";
 import { ArtifactLabel, ArtifactLabels, artifactLabelsMatch } from "./artifact-labels";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
@@ -302,7 +303,8 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
           Schema.Struct({
             kind: Schema.Literal("artifact"),
             node,
-            title: Schema.optionalKey(Text(AGENT_SIGNAL_MAX_TEXT_LENGTH)),
+            // The document's title, so an artifact's length, not the signal's.
+            title: Schema.optionalKey(Text(ARTIFACT_MAX_TITLE_LENGTH)),
             labels: Schema.optionalKey(ArtifactLabels),
             minWords: Schema.optionalKey(Bounded(1, AUTOMATION_SIGNAL_MIN_WORDS_MAX)),
           }),
@@ -532,7 +534,12 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
       if (!(action.show ?? []).every((shown) => shown.kind === "artifact")) {
         return { reason: "invalid_input", message: "a signal shows artifacts", next_step: "Name only artifacts for the signal to show" };
       }
-      return action.work !== undefined && action.signal !== "work"
+      if (action.signal === "work") return undefined;
+      // A notice is read and cleared: nothing answers a form, nothing falls due.
+      if (action.form !== undefined) {
+        return { reason: "invalid_input", message: "only a work signal asks for an answer", next_step: "Make it a work signal, or drop its form" };
+      }
+      return action.work !== undefined
         ? { reason: "invalid_input", message: "only a work signal falls due", next_step: "Make it a work signal, or drop its due time" }
         : undefined;
     case "append-artifact":

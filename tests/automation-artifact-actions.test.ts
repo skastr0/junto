@@ -200,6 +200,10 @@ describe("a signal action (0.11/07 N2)", () => {
     expect(targetNodeIds({ ...automation, then: [{ ...write, show: undefined } as never] })).toEqual([SHELF]);
     expect(actionText(write as never)).toBe("Write 500 words\nToday, {{fired.at}}\nWords {{fired.at}}");
     expect(actionRefusal(write as never)).toBeUndefined();
-    expect(actionRefusal({ ...write, signal: "notice" } as never)).toMatchObject({ message: "only a work signal falls due" });
+    expect(actionRefusal({ ...write, signal: "notice", form: undefined } as never)).toMatchObject({ message: "only a work signal falls due" });
+    expect(actionRefusal({ ...write, signal: "notice", work: undefined } as never)).toMatchObject({ message: "only a work signal asks for an answer" });
+    // The form's title becomes the document's, so an artifact title's length.
+    expect(Schema.is(Action)({ ...signal, form: { kind: "artifact", node: SHELF, title: "x".repeat(200) } })).toBe(true);
+    expect(Schema.is(Action)({ ...signal, form: { kind: "artifact", node: SHELF, title: "x".repeat(201) } })).toBe(false);
   });
 });
