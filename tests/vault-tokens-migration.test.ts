@@ -1,17 +1,18 @@
 /**
  * Step 62 adds the vault tokens' scope records (0.11, 07 N5): which vault
  * each machine's token is for, with which permissions, minted or pasted.
- * Proven on both shipped fixtures brought to version 61 by the real steps: the
- * step's schema hashes the same as the witness, every row already held
+ * The step's schema hashes the same as the witness, every row already held
  * survives as it was, and the table starts empty, so a machine from before
  * the step holds no vault token.
+ *
+ * The version-61 database is made at version 61 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 61 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, so no
+ * path is shared with any other test. The step is create-table only, so rows
+ * seeded before it stand in for what a shipped database holds.
  */
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -23,21 +24,6 @@ import {
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V61_SQL, STATE_SCHEMA_V62_SQL } from "./fixtures/state-v13/schema";
 import { MACHINE_VAULT_TOKEN_TABLES } from "../src/main/junto/vault/state-schema";
-
-let dir: string | undefined;
-afterEach(async () => {
-  if (dir) await rm(dir, { recursive: true, force: true });
-  dir = undefined;
-});
-
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
-  dir = await mkdtemp(join(tmpdir(), "junto-vault-tokens-migration-"));
-  const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
-  return database;
-};
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
   (
@@ -60,6 +46,13 @@ const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPl
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version),
 });
 
+/** A version-61 database, fresh and in memory. */
+const openAt61 = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, upTo(61, STATE_SCHEMA_V61_SQL))).toMatchObject({ schemaVersion: 61, ...STATE_SCHEMA_V61_IDENTITY });
+  return database;
+};
+
 const TABLES: ReadonlyArray<string> = MACHINE_VAULT_TOKEN_TABLES;
 
 const insert = (database: DatabaseSync, row: { machine: string; vault: string; permissions: string; origin: string; account: string | null }) =>
@@ -73,12 +66,17 @@ describe("state migration 61 -> 62 (each vault token's scope record)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V62_SQL)).toEqual(STATE_SCHEMA_V62_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "adds the empty table to %s, hashes as a fresh 62, and leaves every row as it was",
-    async (fixture) => {
-      const database = await openCopy(fixture);
+  it(
+    "adds the empty table, hashes as a fresh 62, and leaves every row as it was",
+    () => {
+      const database = openAt61();
       try {
-        migrateStateSchema(database, upTo(61, STATE_SCHEMA_V61_SQL));
+        database.exec(`
+          INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('main', 'canvas-1', 'now', 'now');
+          INSERT INTO artifact_boards (canvas_name, id, x, y, width, height, z_index, color, created_at, updated_at, label)
+            VALUES ('main', 'shelf', 0, 0, 10, 10, 0, NULL, 'now', 'now', 'Shelf');
+          INSERT INTO view_sections (section, open) VALUES ('artifact-comments', 1);
+        `);
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
         for (const table of TABLES) expect(Object.keys(before)).not.toContain(table);
 
@@ -88,6 +86,7 @@ describe("state migration 61 -> 62 (each vault token's scope record)", () => {
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 
         const after = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
+        expect(after["canvases"]).toHaveLength(1);
         expect(Object.keys(after).filter((table) => !TABLES.includes(table))).toEqual(Object.keys(before));
         for (const table of TABLES) expect(after[table], table).toEqual([]);
         for (const table of Object.keys(before)) expect(after[table], table).toEqual(before[table]);
@@ -98,8 +97,8 @@ describe("state migration 61 -> 62 (each vault token's scope record)", () => {
     60_000,
   );
 
-  it("holds one record per machine, closed permissions, and an account name exactly when minted", async () => {
-    const database = await openCopy("command-center-v13.db");
+  it("holds one record per machine, closed permissions, and an account name exactly when minted", () => {
+    const database = openAt61();
     try {
       migrateStateSchema(database, upTo(62, STATE_SCHEMA_V62_SQL));
       insert(database, { machine: "macbook", vault: "Junto", permissions: "read_items,write_items", origin: "minted", account: "junto-macbook-write" });
