@@ -1,6 +1,8 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { ulid } from "ulid";
+import { asNodeId } from "@shared/physics/schema";
+import { ItemId } from "@shared/work-ids";
 import {
   type AgentSignal,
   type AgentSignalAttachment,
@@ -15,6 +17,7 @@ import {
   type WorkTiming,
 } from "@shared/agent-signals";
 import type { ContentRef } from "@shared/wire/content-ref";
+import type { SignalReplyArtifact } from "@shared/agent-signals";
 import { StateTransactionOperation } from "../state/service";
 import { emitAgentSignalChanged } from "./changes";
 
@@ -146,6 +149,8 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
       signalId: string,
       text: string,
       files?: ReadonlyArray<ContentRef>,
+      /** What a work form's reply left: its document, or its proof's addresses. */
+      reply?: SignalReplyRecord,
     ) => Effect.Effect<AgentSignal, AgentSignalRepositoryError>;
     readonly dismiss: (
       signalId: string,
@@ -198,6 +203,7 @@ const SignalRow = Schema.Struct({
   attachments_json: Schema.String,
   suggestions_json: Schema.String,
   answer_files_json: Schema.String,
+  answer_reply_json: Schema.NullOr(Schema.String),
 });
 
 /**
@@ -206,6 +212,18 @@ const SignalRow = Schema.Struct({
  * leaves it out, so it needs no migration.
  */
 const ANSWER_FILE_PART_KIND = "answer-file";
+
+/**
+ * What a work reply left on the answer: the document it made (names only) or
+ * the addresses its proof carries. A value never rides here; the vault holds
+ * a secret's. Stored as its own part, so a build that does not know the kind
+ * leaves it out, and read back onto the response.
+ */
+export type SignalReplyRecord =
+  | { readonly kind: "artifact"; readonly nodeId: string; readonly artifactId: string; readonly title: string; readonly words: number }
+  | { readonly kind: "links"; readonly links: ReadonlyArray<string> };
+
+const ANSWER_REPLY_PART_KIND = "answer-reply";
 
 /**
  * A signal's columns, with its parts folded in three: what the operator can
@@ -240,12 +258,32 @@ const columnsOf = (from: string): string => `
       WHERE agent_signal_parts.signal_id = ${from}.signal_id AND agent_signal_parts.kind = '${ANSWER_FILE_PART_KIND}'
       ORDER BY position
     )
-  ) AS answer_files_json
+  ) AS answer_files_json,
+  (
+    SELECT json(body_json)
+    FROM agent_signal_parts
+    WHERE agent_signal_parts.signal_id = ${from}.signal_id AND agent_signal_parts.kind = '${ANSWER_REPLY_PART_KIND}'
+    LIMIT 1
+  ) AS answer_reply_json
 `;
 const COLUMNS = columnsOf("agent_signals");
 
 /** Written only by `answer` below, from refs main claimed. */
 const answerFilesOf = (json: string): ReadonlyArray<ContentRef> => JSON.parse(json) as ReadonlyArray<ContentRef>;
+
+/** The reply a work form's answer left: its document, or its proof's addresses. */
+const replyOf = (json: string | null): { readonly artifact?: SignalReplyArtifact; readonly links?: ReadonlyArray<string> } => {
+  if (json === null) return {};
+  const decoded = Schema.decodeUnknownOption(Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: Schema.String, artifactId: Schema.String, title: Schema.String, words: Schema.Number }),
+    Schema.Struct({ kind: Schema.Literal("links"), links: Schema.Array(Schema.String) }),
+  ]))(JSON.parse(json));
+  if (Option.isNone(decoded)) return {};
+  const record = decoded.value;
+  return record.kind === "artifact"
+    ? { artifact: { nodeId: asNodeId(record.nodeId), artifactId: ItemId.make(record.artifactId), title: record.title, words: record.words } }
+    : { links: record.links };
+};
 
 type PartJson = {
   readonly kind: string;
@@ -347,6 +385,7 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
             text: row.response_text,
             at: Number(row.response_at),
             ...(answerFilesOf(row.answer_files_json).length > 0 ? { attachments: answerFilesOf(row.answer_files_json) } : {}),
+            ...replyOf(row.answer_reply_json),
           },
         }),
     ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
@@ -527,6 +566,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       signalId: string,
       text: string,
       files: ReadonlyArray<ContentRef> = [],
+      reply?: SignalReplyRecord,
     ) {
       const now = Date.now();
       const changed = yield* sql`
@@ -551,6 +591,12 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         yield* sql`
           INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
           VALUES (${signalId}, ${Number(after?.next ?? 0) + index}, ${ANSWER_FILE_PART_KIND}, ${body})
+        `;
+      }
+      if (reply !== undefined) {
+        yield* sql`
+          INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
+          VALUES (${signalId}, ${Number(after?.next ?? 0) + files.length}, ${ANSWER_REPLY_PART_KIND}, ${JSON.stringify(reply)})
         `;
       }
       return (yield* readOne(signalId))!;
@@ -651,7 +697,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       listRaisedHands,
       listCanvas,
       get,
-      answer: (signalId, text, files) => told(answer(signalId, text, files)),
+      answer: (signalId, text, files, reply) => told(answer(signalId, text, files, reply)),
       dismiss: (signalId) => told(dismiss(signalId)),
       take: (input) =>
         takeRow(input).pipe(

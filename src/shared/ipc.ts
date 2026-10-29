@@ -10,6 +10,7 @@ import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
+import type { SignalReply } from "./signal-reply";
 import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type { PageShotPurged, PageShotPurgeRequest } from "./page-shot";
 import type {
@@ -217,6 +218,7 @@ export const IPC_CHANNELS = {
   /** Agent signals: list per canvas, operator answer / dismiss, live upsert. */
   agentSignalsList: "junto:agent-signals-list",
   agentSignalRespond: "junto:agent-signal-respond",
+  agentSignalReply: "junto:agent-signal-reply",
   agentSignalDismiss: "junto:agent-signal-dismiss",
   /** Previews of files an agent names in its text: one guarded read, and reveal. */
   previewRead: "junto:preview-read",
@@ -760,6 +762,12 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     text: string,
     options?: AgentSignalAnswerOptions,
   ) => Promise<AgentSignalOperatorResult>;
+  /**
+   * Hand in the work an open signal's form asks for (0.11/07, N1): a document
+   * written in the signal, or proof. The form's condition is ruled before
+   * anything is written.
+   */
+  readonly agentSignalReply: (signalId: string, reply: SignalReply) => Promise<AgentSignalOperatorResult>;
   /** Close an open signal without mail. */
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
   /**

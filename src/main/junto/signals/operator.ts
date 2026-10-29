@@ -1,5 +1,13 @@
 import { Effect, Option } from "effect";
 import { ulid } from "ulid";
+import type { Canvas } from "@shared/model";
+import { rulingContextOf } from "@shared/ruling-context";
+import { ItemId, OpId } from "@shared/work-ids";
+import { asNodeId } from "@shared/physics/schema";
+import type { WorkErrorBody } from "@shared/work-control";
+import type { ArtifactPorts } from "../work/artifact-control";
+import { ruleSignalReply, type SignalReply } from "@shared/signal-reply";
+import type { SignalReplyRecord } from "./repository";
 import {
   AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE,
   AGENT_SIGNAL_FILES_RESPONSE,
@@ -44,7 +52,12 @@ const repositoryMessage = (error: { readonly message: string }) => error.message
 export const answerAgentSignal = (
   signalId: string,
   response: string,
-  options?: { readonly silent?: boolean; readonly attachments?: ReadonlyArray<ContentRef> },
+  options?: {
+    readonly silent?: boolean;
+    readonly attachments?: ReadonlyArray<ContentRef>;
+    /** What a work form's reply left, recorded on the answer. */
+    readonly reply?: SignalReplyRecord;
+  },
 ) =>
   Effect.gen(function* () {
     const silent = options?.silent === true;
@@ -117,7 +130,7 @@ export const answerAgentSignal = (
       messageId = appended.data.messageId;
     }
 
-    const answered = yield* Effect.result(signals.answer(signalId, text, refs));
+    const answered = yield* Effect.result(signals.answer(signalId, text, refs, options?.reply));
     if (answered._tag === "Failure") {
       // Mailed, the files stay with the mail; recorded only, they go with the answer.
       if (messageId === undefined) yield* releaseFiles;
@@ -131,6 +144,75 @@ export const answerAgentSignal = (
       signal: answered.success,
       ...(messageId === undefined ? {} : { messageId }),
     };
+  });
+
+/**
+ * The operator hands in the work a signal asks for (0.11/07, N1): a document
+ * written in the signal, or proof. The form's condition is ruled first, by
+ * the same rule the pane fills its meter from, so nothing is written for a
+ * reply that does not meet it. A document is created in the form's Artifacts
+ * node as the operator, under the window's reply id, so a hand-in sent twice
+ * writes one document; proof keeps its words, its addresses and its files on
+ * the answer.
+ */
+export type SignalReplyPorts = {
+  readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
+  readonly artifacts: Pick<ArtifactPorts, "submit">;
+};
+
+export const replyAgentSignal = (signalId: string, reply: SignalReply, ports: SignalReplyPorts) =>
+  Effect.gen(function* () {
+    const signals = yield* AgentSignalRepository;
+    const current = yield* Effect.result(signals.get(signalId));
+    if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
+    const signal = current.success;
+    if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
+    const form = signal.form;
+    if (form === undefined) return refused("this signal asks for no work: answer it instead of handing work in");
+    const ruled = ruleSignalReply(form, reply);
+    if (!ruled.ok) return refused(ruled.message);
+
+    if (form.kind === "artifact" && reply.kind === "artifact") {
+      const canvas = yield* Effect.result(ports.topology(signal.canvasName));
+      if (canvas._tag === "Failure") return refused(canvas.failure.message);
+      const shelf = canvas.success.nodes.get(asNodeId(form.nodeId));
+      if (shelf === undefined || shelf.kind !== "artifacts") {
+        return refused(`the Artifacts node this signal writes into is gone from ${signal.canvasName}`);
+      }
+      const artifactId = ItemId.make(ulid());
+      const written = yield* Effect.result(
+        ports.artifacts.submit(
+          {
+            opId: OpId.make(reply.replyId),
+            canvasName: signal.canvasName,
+            actor: { kind: "operator" },
+            target: { kind: "artifact", nodeId: asNodeId(form.nodeId), itemId: artifactId },
+            basis: null,
+            after: [],
+            op: {
+              op: "create",
+              title: form.title,
+              body: { type: "document", markdown: reply.markdown },
+              ...(form.labels.length === 0 ? {} : { labels: [...form.labels] }),
+            },
+          },
+          rulingContextOf(canvas.success, () => undefined),
+        ),
+      );
+      if (written._tag === "Failure") return refused(written.failure.message);
+      if (written.success.kind === "refused") return refused(written.success.error.message);
+      const record: SignalReplyRecord = { kind: "artifact", nodeId: form.nodeId, artifactId, title: form.title, words: ruled.words };
+      return yield* answerAgentSignal(signalId, `${form.title} is written, ${ruled.words} ${ruled.words === 1 ? "word" : "words"}.`, { reply: record });
+    }
+
+    if (reply.kind === "proof") {
+      const record: SignalReplyRecord = { kind: "links", links: [...reply.links] };
+      return yield* answerAgentSignal(signalId, reply.text, {
+        attachments: (reply.files ?? []) as ReadonlyArray<ContentRef>,
+        reply: record,
+      });
+    }
+    return refused("this signal asks for something else");
   });
 
 export const dismissAgentSignal = (signalId: string) =>

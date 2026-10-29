@@ -13,6 +13,7 @@ export const MAIN_AUTHORING_LABELS = [
   "startup.canvas.ensure-seed",
   "ipc.work.message-append",
   "ipc.work.signal-answer",
+  "ipc.work.signal-reply",
   "ipc.work.signal-dismiss",
   "ipc.resource.task-apply",
   "ipc.resource.artifact-apply",

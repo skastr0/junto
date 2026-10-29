@@ -21,6 +21,7 @@ import {
   sendOperatorThreadMail,
 } from "./work/operator-threads";
 import { OperatorAttachments, OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
+import { SignalReply } from "@shared/signal-reply";
 import { putOperatorContent } from "./content/operator-attachments";
 import {
   IPC_CHANNELS,
@@ -126,7 +127,9 @@ import {
   answerAgentSignal,
   dismissAgentSignal,
   listCanvasAgentSignals,
+  replyAgentSignal,
 } from "./signals/operator";
+import { liveArtifactPorts } from "./work/artifact-control";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { TaskRepository } from "./work/task-repository";
@@ -628,6 +631,35 @@ export const registerJuntoIpc = (): void => {
       // The answer is durable mail now; typing it into the seat follows the
       // ordinary delivery path (at once when live, else when it comes up).
       // A silent answer carries no mail: nothing is typed, nothing starts.
+      if (result.ok && result.messageId !== undefined) {
+        void messageDelivery
+          .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
+          .catch(() => undefined);
+      }
+      return result;
+    },
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.agentSignalReply,
+    async (_event, signalId: string, reply: unknown) => {
+      const decoded = Schema.decodeUnknownResult(SignalReply)(reply);
+      if (Result.isFailure(decoded)) return { ok: false as const, message: "The reply could not be read." };
+      const result = await runSignalOperator(
+        "ipc.work.signal-reply",
+        replyAgentSignal(String(signalId), decoded.success, {
+          topology: (canvasName: string) =>
+            Effect.tryPromise({
+              try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+              catch: () => ({
+                type: "InternalError" as const,
+                message: `canvas ${canvasName} could not be read`,
+                details: { retryable: true },
+              }),
+            }).pipe(Effect.map((read) => read.canvas)),
+          artifacts: liveArtifactPorts,
+        }),
+      );
+      // The hand-in is durable mail now: typed into the seat as an answer is.
       if (result.ok && result.messageId !== undefined) {
         void messageDelivery
           .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
