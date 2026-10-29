@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import type { ContextMenuItem as FileTreeContextMenuItem, ContextMenuOpenContext as FileTreeContextMenuOpenContext } from "@pierre/trees";
 import { createPortal } from "react-dom";
 import { FilePlus, FolderInput, FolderPlus, Pencil, Trash2, type LucideIcon } from "lucide-react";
-import { baseName, joinFilePath, ROOT_PATH, type FilePath, type FilesNodeRef } from "@shared/files";
+import { baseName, joinFilePath, ROOT_PATH, type FilePath, type FilesNodeRef, type FilesResult } from "@shared/files";
 import { filesErrorLine, filesSource } from "../../lib/files-source";
 import { claimFocus } from "../../lib/focus-ownership";
 import { Button, Combobox, ConfirmDialog, Dialog, Input } from "../ui";
@@ -103,6 +103,18 @@ export function FilesRowMenu({
   );
 }
 
+/** Said when a call never answered (a timeout, a thrown IPC): the dialog stays, and can be tried again. */
+export const NO_ANSWER_LINE = "Junto got no answer from this folder. Try again.";
+
+/** A folder call's answer, or null when it threw: the caller says NO_ANSWER_LINE and stops being busy. */
+const answerOf = async <A,>(call: () => Promise<FilesResult<A>>): Promise<FilesResult<A> | null> => {
+  try {
+    return await call();
+  } catch {
+    return null;
+  }
+};
+
 /** Where a new entry or a move lands, in words: the folder's path, or the root's name. */
 export const folderLabel = (folder: FilePath, rootName: string): string => (folder === ROOT_PATH ? rootName : folder);
 
@@ -132,8 +144,9 @@ export function FilesCreateDialog({
     const path = joinFilePath(action.into, name.trim());
     if (path === undefined) return setError(filesErrorLine("invalid-path"));
     setBusy(true);
-    const result = await filesSource().create(filesRef, path, action.dir);
+    const result = await answerOf(() => filesSource().create(filesRef, path, action.dir));
     setBusy(false);
+    if (result === null) return setError(NO_ANSWER_LINE);
     if (!result.ok) return setError(filesErrorLine(result.error));
     onDone({ path: result.value.path, dir: action.dir });
   };
@@ -198,11 +211,20 @@ export function FilesMoveDialog({
   readonly onCancel: () => void;
 }) {
   const [folders, setFolders] = useState<ReadonlyArray<FilePath> | null>(null);
+  /** The walk threw: the list is empty and says so, and a typed path still moves. */
+  const [unlisted, setUnlisted] = useState(false);
   useEffect(() => {
     let live = true;
-    void walkFolders(filesRef, () => live).then((found) => {
-      if (live) setFolders(moveTargets(found, action.path));
-    });
+    walkFolders(filesRef, () => live).then(
+      (found) => {
+        if (live) setFolders(moveTargets(found, action.path));
+      },
+      () => {
+        if (!live) return;
+        setFolders([]);
+        setUnlisted(true);
+      },
+    );
     return () => {
       live = false;
     };
@@ -219,8 +241,9 @@ export function FilesMoveDialog({
     if (busy) return;
     if (into === undefined) return setError("That is not a folder path in this folder.");
     setBusy(true);
-    const result = await filesSource().move(filesRef, action.path, into);
+    const result = await answerOf(() => filesSource().move(filesRef, action.path, into));
     setBusy(false);
+    if (result === null) return setError(NO_ANSWER_LINE);
     if (!result.ok) return setError(filesErrorLine(result.error));
     onDone({ from: action.path, to: result.value, dir: action.dir });
   };
@@ -264,7 +287,13 @@ export function FilesMoveDialog({
           onCommit={(folder, value) => void move(folder ?? typedFolder(value))}
           onOptionDoubleClick={(folder) => void move(folder)}
           status={folders === null ? "Listing folders" : undefined}
-          empty={folders === null ? null : "No folder by that name. Enter moves it to the path as typed."}
+          empty={
+            folders === null
+              ? null
+              : unlisted
+                ? "Junto could not list the folders. Type a path and press Enter."
+                : "No folder by that name. Enter moves it to the path as typed."
+          }
         />
         {error ? (
           <p className="files-dialog__error" role="alert">
@@ -300,16 +329,21 @@ export function FilesTrashDialog({
       onConfirm={() => {
         if (busy) return;
         setBusy(true);
-        void filesSource()
-          .trash(filesRef, action.path)
-          .then((result) => {
-            setBusy(false);
-            if (result.ok) onDone({ path: action.path, dir: action.dir });
-            else setError(filesErrorLine(result.error));
-          });
+        void answerOf(() => filesSource().trash(filesRef, action.path)).then((result) => {
+          setBusy(false);
+          if (result === null) setError(NO_ANSWER_LINE);
+          else if (result.ok) onDone({ path: action.path, dir: action.dir });
+          else setError(filesErrorLine(result.error));
+        });
       }}
     >
-      {error ?? (action.dir ? "The folder and everything in it go to the system Trash, where you can put them back." : "It goes to the system Trash, where you can put it back.")}
+      {action.dir ? "The folder and everything in it go to the system Trash, where you can put them back." : "It goes to the system Trash, where you can put it back."}
+      {error ? (
+        // Said as an alert: the keyboard is on a button, and a reader there hears it.
+        <p className="files-dialog__error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </ConfirmDialog>
   );
 }

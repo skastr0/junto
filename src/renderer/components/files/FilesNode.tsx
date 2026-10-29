@@ -265,7 +265,10 @@ export function FilesNode({
    */
   const startCreate = (dir: boolean): void => act({ kind: "create", dir, into: ROOT_PATH }, focusedRow());
   const startRename = (treePath: string): void => {
-    if (!model.startRenaming(treePath)) setTreeError("That row cannot be renamed now.");
+    if (model.startRenaming(treePath)) return;
+    setTreeError("That row cannot be renamed now.");
+    // The menu closed without taking focus back, for the rename field: give it to the row.
+    focusRowWhenShown(model, rowOf(treePath) ?? null);
   };
   const actOnRow = (row: { readonly path: FilePath; readonly dir: boolean }, kind: "move" | "trash"): void => act({ kind, ...row }, row);
   /** Delete or Cmd+Backspace on a focused row asks to move it to the Trash, as the menu does. */
