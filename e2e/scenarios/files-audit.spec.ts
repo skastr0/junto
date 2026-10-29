@@ -6,8 +6,8 @@
  * axe (WCAG 2.2 A and AA) and shows no middle dot, the copy law. Mirrors
  * artifacts-a11y.spec.ts; the frames are the review copy for the operator.
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/files-audit.spec.ts
- * Frames default to test-results/files-audit, which git ignores. Fixme until
- * the Files surfaces are on main.
+ * Frames default to test-results/files-audit, which git ignores. It is part of
+ * the 0.11.0 accessibility sign-off, run in the release lane.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -67,7 +67,7 @@ const setTheme = async (page: Page, theme: "bright" | "dark"): Promise<void> => 
 
 const MODAL = '[role="dialog"][aria-label="Files"]';
 
-test.describe.fixme("Files surfaces, bright and dark (F1 to F7)", () => {
+test.describe("Files surfaces, bright and dark (F1 to F7)", () => {
   test("every Files surface passes axe and carries no middle dot, bright and dark", async () => {
     test.setTimeout(900_000);
     const stage = await stageFiles();
