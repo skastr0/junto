@@ -12,6 +12,8 @@ import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
 import { TaskRepositoryLive } from "./junto/work/task-repository";
+import { CanvasAuthoritiesLive } from "./junto/fleet/host";
+import { SeatReleaseHealLive } from "./junto/work/seat-release";
 import { RulingRecorderLive } from "./junto/work/ruling-recorder";
 import { ResourceRulerLive } from "./junto/work/resource-ruler";
 import { makeAutomationRepositoryLive } from "./junto/automation/repository";
@@ -86,8 +88,11 @@ export const makeCoreProductLayer = (home: string) => {
         Layer.provide(ArtifactRepositoryLive, Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive))),
         makeContentServiceLive({ home }),
       ),
-      // The task ruler records its rulings the same way.
-      Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive))),
+      // The task ruler records its rulings the same way, and behind the authority judges them on its canvas's (fleet/host.ts).
+      Layer.provide(TaskRepositoryLive, Layer.provideMerge(
+        Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive),
+        Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
+      )),
     ),
     Layer.provideMerge(Layer.provide(ModelLive, ProductModelDependentsLive), Layer.mergeAll(state, installOps)),
   );
@@ -102,6 +107,8 @@ export const makeCoreProductLayer = (home: string) => {
       Layer.provideMerge(KernelLive, WorkLive),
       CanvasControlQueries.layer,
       Layer.provideMerge(NativeConfigLive, HarnessInventoryLive),
+      // Behind the authority, every canvas's owed seat releases are judged at boot (seat-release.ts).
+      SeatReleaseHealLive,
     ),
     occupants,
   );

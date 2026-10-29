@@ -14,7 +14,8 @@
  * delete and every release land, or none do. Closed tasks keep their
  * assignee as history.
  */
-import { Effect } from "effect";
+import { Effect, Layer, Option, Result } from "effect";
+import { AUTHORITY_ENABLED } from "@shared/features";
 import { SqlClient } from "effect/unstable/sql";
 import { nodesOf } from "@shared/model/canvas";
 import type { Canvas, Command } from "@shared/model";
@@ -57,6 +58,9 @@ const taskCommand = (canvasName: string, node: TaskNodeId, taskId: TaskId, op: T
 
 /** Run a canvas command, releasing the tasks of each seat it removes and giving them back to each seat it restores. */
 export const commandReleasingSeats = (command: Command, source: "operator" | "overseer") =>
+  AUTHORITY_ENABLED ? commandThenHeal(command, source) : releasingInOneTransaction(command, source);
+
+const releasingInOneTransaction = (command: Command, source: "operator" | "overseer") =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const model = yield* ModelService;
@@ -65,6 +69,9 @@ export const commandReleasingSeats = (command: Command, source: "operator" | "ov
     const services = yield* Effect.context<never>();
     // A command on a whole canvas, or on its authority, moves no seat it could release.
     const seatsMove = command._tag !== "CreateCanvas" && command._tag !== "RemoveCanvas" && command._tag !== "GrantOverseer";
+    // Behind the authority this one transaction cannot hold: a judged unassign commits on its own (commandThenHeal).
+    // Once structure.changed is logged (0.11/06 F2), the removal and its unassigns become one judged batch,
+    // and that bridge goes.
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         const canvasName = command.canvas;
@@ -152,3 +159,142 @@ export const commandReleasingSeats = (command: Command, source: "operator" | "ov
       }),
     );
   }).pipe(Effect.mapError((cause) => modelError("seat-release", cause)));
+
+/**
+ * Behind the authority, a bridge (0.11/06 F2) until a canvas's structure
+ * change and its unassigns are one judged batch: the command commits first,
+ * then each owed release is judged on its own. What is owed is read from
+ * state, never from memory, so a crash or a failed judgment between the two
+ * is healed by the next release and at boot (`healEverySeatRelease`). Run
+ * inside a caller's transaction, as an overseer's edit is, the heal waits for
+ * that transaction to commit, and the command cannot count what it kept.
+ */
+const commandThenHeal = (command: Command, source: "operator" | "overseer") =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const model = yield* ModelService;
+    const services = yield* Effect.context<SqlClient.SqlClient | ModelService | TaskRepository | MachineRepository>();
+    const seatsMove = command._tag !== "CreateCanvas" && command._tag !== "RemoveCanvas" && command._tag !== "GrantOverseer";
+    const result: ReleasingCommandResult = yield* sql.withTransaction(model.command(command, source));
+    if (!seatsMove) return result;
+    const heal = healSeatReleases(command.canvas);
+    if (Option.isSome(yield* Effect.serviceOption(sql.transactionService))) {
+      yield* afterSqlCommit(sql, () => {
+        void Effect.runPromiseWith(services)(heal.pipe(Effect.catchCause((cause) => Effect.logWarning("a seat release was left owed", cause))));
+      });
+      return result;
+    }
+    const healed = yield* heal;
+    return healed.kept > 0 ? { ...result, tasksKept: healed.kept } : result;
+  }).pipe(Effect.mapError((cause) => modelError("seat-release", cause)));
+
+/** What one heal did: the tasks it released, gave back, and kept in the backlog. */
+export type SeatReleaseHealed = { readonly released: number; readonly given: number; readonly kept: number };
+
+/**
+ * Settle what a canvas owes its seats, one judged command each, outside any
+ * transaction: each open task whose seat is gone goes back to the backlog,
+ * and each task a seat now back on the canvas let go returns to it, while
+ * nothing has ruled on it since. A command the ruler refuses is logged and
+ * left for the next release or boot; one the authority could not judge
+ * stays owed the same way. Each is tried once a heal, so a heal ends.
+ *
+ * An unassign of a task on a gone seat is refused only when the task is no
+ * longer open, or it or its node is gone, between the read and the
+ * judgment: then nothing is owed, and the next heal finds nothing.
+ */
+export const healSeatReleases = (canvasName: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const model = yield* ModelService;
+    const tasks = yield* TaskRepository;
+    const machines = yield* MachineRepository;
+    const services = yield* Effect.context<never>();
+    const canvas = yield* model.canvas(canvasName);
+    const seats = agentIds(canvas);
+    const writer = yield* machines.installationId;
+    const env = taskCanvasEnv(canvas);
+    const context = taskRulingContext(canvas);
+    const headOf = (taskId: string) =>
+      Effect.map(
+        sql<Record<string, unknown>>`SELECT * FROM task_heads WHERE canvas_name = ${canvasName} AND task_id = ${taskId}`,
+        ([head]) => (head === undefined ? "null" : JSON.stringify(head)),
+      );
+    const judged = (taskId: string, command: ResourceCommand<TaskCommand>) =>
+      Effect.result(tasks.submit(writer, command, context, env)).pipe(
+        Effect.tap((outcome) =>
+          Result.isFailure(outcome)
+            ? Effect.logWarning(`task ${taskId} on ${canvasName}: its seat release stays owed`, outcome.failure)
+            : outcome.success.kind === "refused"
+              ? Effect.logWarning(`task ${taskId} on ${canvasName}: its seat release was refused, left for the next release or boot`, outcome.success.error)
+              : Effect.void),
+        Effect.map((outcome) => Result.isSuccess(outcome) && outcome.success.kind === "applied"),
+      );
+
+    // Owed unassigns: each open task held by a seat no longer on the canvas.
+    const released: Released[] = [];
+    const { tasks: open } = yield* tasks.list(canvasName, { nodeIds: taskNodeIds(canvas), states: OPEN_TASK_STATES, limit: SCAN_LIMIT });
+    for (const task of open) {
+      const seat = task.current.assignee;
+      if (seat === undefined || seats.has(seat)) continue;
+      if (!(yield* judged(task.taskId, taskCommand(canvasName, task.current.node, task.taskId, { kind: "unassign" })))) continue;
+      // Written once the unassign applied, from the head it left: the give-back reads it.
+      yield* sql`
+        INSERT OR REPLACE INTO task_seat_releases (canvas_name, seat_node_id, task_id, released_head)
+        VALUES (${canvasName}, ${seat}, ${task.taskId}, ${yield* headOf(task.taskId)})`;
+      released.push({ node: task.current.node, taskId: task.taskId });
+    }
+
+    // Owed give-backs: each release row whose seat is on the canvas again. A row goes only once settled.
+    let given = 0;
+    let kept = 0;
+    const rows = yield* sql<{ readonly seat_node_id: string; readonly task_id: string; readonly released_head: string }>`
+      SELECT seat_node_id, task_id, released_head FROM task_seat_releases WHERE canvas_name = ${canvasName}`;
+    for (const row of rows) {
+      if (!seats.has(row.seat_node_id)) continue;
+      const settled = sql`DELETE FROM task_seat_releases
+        WHERE canvas_name = ${canvasName} AND seat_node_id = ${row.seat_node_id} AND task_id = ${row.task_id}`;
+      const node = (JSON.parse(row.released_head) as { readonly node_id: string }).node_id;
+      if ((yield* headOf(row.task_id)) !== row.released_head || !canvas.nodes.has(node as never)) {
+        yield* settled;
+        kept += 1;
+        continue;
+      }
+      const command = taskCommand(canvasName, node as TaskNodeId, row.task_id as TaskId, { kind: "assign", seat: row.seat_node_id as SeatNodeId });
+      const outcome = yield* Effect.result(tasks.submit(writer, command, context, env));
+      // Not judged: still owed, and the row stays for the next heal.
+      if (Result.isFailure(outcome)) {
+        yield* Effect.logWarning(`task ${row.task_id} on ${canvasName}: its give-back stays owed`, outcome.failure);
+        continue;
+      }
+      yield* settled;
+      if (outcome.success.kind === "applied") given += 1;
+      else kept += 1;
+    }
+
+    if (released.length > 0 || given > 0) {
+      noteResourceChanged("task", canvasName);
+      for (const task of released) {
+        void Effect.runPromiseWith(services)(
+          postSubjectComment(
+            { subject: { kind: "task", nodeId: task.node, taskId: task.taskId }, text: SEAT_RELEASE_LINE, actor: operator, opId: mintOpId() },
+            { canvas, canvasName, people: [] },
+          ).pipe(Effect.catchCause((cause) => Effect.logWarning("a released task's thread line was not posted", cause))),
+        );
+      }
+    }
+    return { released: released.length, given, kept } satisfies SeatReleaseHealed;
+  });
+
+/** At boot, behind the authority: heal every canvas, since a canvas nothing judges would keep tasks on a gone seat. */
+export const healEverySeatRelease = Effect.gen(function* () {
+  if (!AUTHORITY_ENABLED) return;
+  const sql = yield* SqlClient.SqlClient;
+  const names = yield* sql<{ readonly canvas_name: string }>`SELECT canvas_name FROM canvases ORDER BY canvas_name`;
+  for (const { canvas_name } of names) {
+    yield* healSeatReleases(canvas_name).pipe(Effect.catchCause((cause) => Effect.logWarning(`the seat releases of ${canvas_name} were not healed`, cause)));
+  }
+});
+
+/** The boot heal, run beside the product once its stores are up. */
+export const SeatReleaseHealLive = Layer.effectDiscard(Effect.forkScoped(healEverySeatRelease));

@@ -57,6 +57,8 @@ import {
 import type { WorkErrorBody } from "@shared/work-control";
 import { CompletionEvidence } from "@shared/work-model";
 import { ItemId, type OpId } from "@shared/work-ids";
+import { AUTHORITY_ENABLED } from "@shared/features";
+import { CanvasAuthorities } from "../fleet/authorities";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "./resource-rulings";
 import { RulingRecorder, type RulingRecordFailed } from "./ruling-recorder";
@@ -538,7 +540,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       return Option.fromNullishOr((yield* viewsOf(canvasName, [row.value]))[0]);
     }, Effect.mapError(persistence("get")));
 
-    const submit = Effect.fn("tasks.submit")(function* (
+    const ruleHere = Effect.fn("tasks.submit")(function* (
       writer: InstallationId,
       command: ResourceCommand<TaskCommand>,
       context: RulingContext,
@@ -637,6 +639,17 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       const state = yield* readBoard(canvasName);
       return overlay(taskDomain({ ...env, at: Date.now() }), emptyRuled<TaskBoardState, TaskFact>(state), writer, queued, context).pending;
     }, Effect.mapError(persistence("overlay")));
+
+    // Behind the authority a command is judged on its canvas's authority, and lands when its entry applies (0.11/06 F2).
+    const authorities = yield* Effect.serviceOption(CanvasAuthorities);
+    const submit: TaskRepository["Service"]["submit"] = (writer, command, context, env) =>
+      AUTHORITY_ENABLED && Option.isSome(authorities)
+        ? authorities.value.judge(command.canvasName, ruleHere(writer, command, context, env)).pipe(
+          Effect.map((judged) => judged.value),
+          Effect.mapError((error) =>
+            error instanceof TaskPersistenceError ? error : TaskPersistenceError.make({ operation: "submit", message: error.message, cause: error })),
+        )
+        : ruleHere(writer, command, context, env);
 
     return TaskRepository.of({ list, get, submit, precheck: precheckOf, overlay: overlayOf });
   }),

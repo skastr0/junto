@@ -9,7 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit, Layer, ManagedRuntime, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The one-transaction release, as in ship; behind the authority see tests/seat-release-authority.test.ts.
+vi.mock("@shared/features", async (original) => ({
+  ...(await original<typeof import("../src/shared/features")>()),
+  AUTHORITY_ENABLED: false,
+}));
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
