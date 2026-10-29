@@ -9,6 +9,7 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { resolveSignalForm, signalKindTakesForm } from "../src/main/junto/signals/form-rule";
 import { artifacts, canvasOf, region, seat, taskBoard } from "./support/model-nodes";
+import { resourcesSeatReaches } from "../src/shared/region-reach";
 import type { NodeId } from "../src/shared/physics/schema";
 
 const SEAT = "agent" as NodeId;
@@ -28,7 +29,7 @@ const board = canvasOf(
 );
 
 const resolve = (request: Parameters<typeof resolveSignalForm>[0]["request"], text = "Write the post.") =>
-  resolveSignalForm({ board, seatId: SEAT, text, request });
+  resolveSignalForm({ board, reaches: resourcesSeatReaches(board, SEAT).map((node) => node.id), text, request });
 
 const failure = (result: ReturnType<typeof resolve>) => {
   if (Result.isSuccess(result)) throw new Error("expected a refusal");

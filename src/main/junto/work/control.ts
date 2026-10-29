@@ -180,7 +180,7 @@ import {
   toolsBeyondGuidance,
 } from "@shared/seat-onboarding";
 import { SINCE_PER_SECTION } from "@shared/seat-since";
-import { isResourceKind, reaches, resourcesInReach } from "@shared/region-reach";
+import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches } from "@shared/region-reach";
 import { seatPageShot, type SeatPageShot } from "./page-shot-seat";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
@@ -2358,7 +2358,12 @@ const dispatchOp = (
         request === undefined
           ? undefined
           : yield* Effect.fromResult(
-              resolveSignalForm({ board, seatId: asNodeId(caller.nodeId), text, request }),
+              resolveSignalForm({
+                board,
+                reaches: resourcesSeatReaches(board, asNodeId(caller.nodeId)).map((node) => node.id),
+                text,
+                request,
+              }),
             );
       // Attached files: the seat uploaded them already. They are judged here,
       // whatever the CLI already checked, and held under the signal's id

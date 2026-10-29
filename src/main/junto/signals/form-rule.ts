@@ -4,7 +4,6 @@ import { foldArtifactLabels } from "@shared/artifact-labels";
 import type { Canvas } from "@shared/model";
 import { titleOf } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
-import { resourcesSeatReaches } from "@shared/region-reach";
 import { resolveTarget } from "@shared/target-resolution";
 import type { TargetCandidate, WorkErrorBody } from "@shared/work-control";
 import {
@@ -34,7 +33,11 @@ export const signalKindTakesForm = (kind: AgentSignalKind): boolean => kind !== 
 
 export const resolveSignalForm = (input: {
   readonly board: Canvas;
-  readonly seatId: NodeId;
+  /**
+   * The nodes this raise may write into, already ruled: a seat's reach, or the
+   * targets a firing ruled. Only an Artifacts node among them can hold a form.
+   */
+  readonly reaches: ReadonlyArray<NodeId>;
   readonly text: string;
   readonly request: SignalFormRequest;
 }): Result.Result<SignalForm, WorkErrorBody> => {
@@ -81,13 +84,12 @@ const refusal = (input: {
 const named = (candidate: TargetCandidate): string => `${candidate.name} [${candidate.nodeId}]`;
 
 const artifactForm = (
-  input: { readonly board: Canvas; readonly seatId: NodeId; readonly text: string },
+  input: { readonly board: Canvas; readonly reaches: ReadonlyArray<NodeId>; readonly text: string },
   request: Extract<SignalFormRequest, { readonly kind: "artifact" }>,
 ): Result.Result<SignalForm, WorkErrorBody> => {
-  const shelves = resourcesSeatReaches(input.board, input.seatId).filter((node) => node.kind === "artifacts");
-  const candidates: ReadonlyArray<TargetCandidate> = shelves.map((node) => {
-    const found = input.board.nodes.get(node.id);
-    return { kind: "artifacts", nodeId: node.id, name: found === undefined ? node.id : titleOf(found) };
+  const candidates: ReadonlyArray<TargetCandidate> = input.reaches.flatMap((nodeId) => {
+    const node = input.board.nodes.get(nodeId);
+    return node?.kind === "artifacts" ? [{ kind: "artifacts" as const, nodeId, name: titleOf(node) }] : [];
   });
   const resolved = resolveTarget({
     typed: request.node,
