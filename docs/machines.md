@@ -176,6 +176,9 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 9. **Folders and secrets belong to the machine.** A region names a folder per
    machine. A secret's value lives only on the machine it was set on, and Junto
    never sends one between machines. The canvas shows which machines lack one.
+   A region's vault (The vault) is how one secret reaches every machine: each
+   reads it from 1Password with its own token, and that token, once at setup,
+   is the only secret Junto ever carries to another machine.
 10. **Install without privileges.** Sending Junto to a machine is a copy over
     SSH into the user's home directory plus a per-user service. No admin
     account, no logged-in screen, no `/Applications`, no Electron on a machine
@@ -241,6 +244,67 @@ machine never held. Taking the machine off the canvas is what stops it.
 Junto never sends a value from its secret store between machines. Text the
 operator writes into a briefing, a note or a launch setting is ordinary canvas
 content and travels with the copy.
+
+## The vault
+
+Behind `VAULT_ENABLED`: on in all-on builds, off in ship, carried to 0.12.
+Off, no vault token is read, minted or written, and a source reads exactly as
+it did before the vault.
+
+A region names a vault, never a value: `environment.vault` is
+`{ backend: "onepassword", vault: <name> }`, and each `onepassword` source
+with no `tokenFrom` must point into it, `op://<vault>/...`. A vault name
+holds no `:` or `,` (they would widen the mint's `--vault` argument), no `/`
+and no control character; Junto refuses one at config time and again at the
+mint.
+
+**One token per machine.** Each machine reads the vault with its own
+1Password service-account token, a 0600 file at `<junto home>/core/vault/op-token`,
+as the Boat machine key is kept. It is never in argv, an environment value, a
+copy, a row or a log, never in a seat's environment, and always a known value
+for the scrub. `op` runs under it in a closed environment:
+`OP_SERVICE_ACCOUNT_TOKEN`, `PATH` and `HOME` only, never `OP_CONNECT_*`. The
+window's machine holds the only token that writes (`read_items,write_items`);
+every other machine's only reads (`read_items`).
+
+**Giving a machine its token**, on the window's machine:
+
+- `junto machine vault-token <machine> --vault <V>` reads a pasted token
+  from stdin (never a terminal). Its scope is the operator's word, shown
+  unverified.
+- With `--mint`, nothing is read: the window's Junto runs the one fixed
+  `op service-account create junto-<machine>-<read|write> --vault <V>:read_items[,write_items] --raw`
+  under the operator's own 1Password session, its environment the app's less
+  `OP_SERVICE_ACCOUNT_TOKEN` and `OP_CONNECT_*`. Never `--can-create-vaults`,
+  no `--expires-in`. That argv is the proof of scope, shown verified. It
+  mints only once the machine's route and install paths are checked, and a
+  placement that fails after the mint names the account to delete in
+  1Password.
+
+The token reaches another machine once, on the operator's SSH session's stdin,
+where `junto machine vault-token-local` hands it to that machine's core, which
+writes the file and its record in one act. That is the only thing the vault
+ever sends between machines. Each machine keeps a names-only record in
+`junto.db` (`machine_vault_tokens`: vault, permissions, origin, account,
+when set). Verified is proven only in the window machine's list; a receiving
+machine's own label repeats what the window told it. `op vault get` checks
+that a token reaches its vault, a liveness check and never proof of scope;
+`op vault list` showing other vaults is a best-effort warning, unverified.
+Revoking a token is the operator's, in 1Password: Junto only shows its age.
+
+**The secret form.** A seat or an automation may raise a signal asking for a
+secret by name. The raise records the name, the machine that will read it and
+the innermost region that declares it for that machine. The operator types the
+value in the window, which sends `signals.secret-put {signalId, value}`; main
+takes the region, the machine and the name from the stored form, never the
+caller. A `onepassword` source is written into the vault with the window
+machine's write token, the value on `op`'s stdin only (`op item create --vault <V> -`
+from a template, or an existing item read, its one field set, and piped to
+`op item edit`). A `secret` source is saved in the window machine's own store,
+so only for a seat on that machine. The signal is answered with names only: the
+item, the name, the region, the machine and when. Refusals are closed:
+`not-declared`, `not-in-vault`, `other-machine-store`, `no-vault-token`,
+`token-refused`, `rate-limited`, `op-missing`, `store-failed`, `not-open`.
 
 ## The exercise
 
