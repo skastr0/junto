@@ -67,6 +67,8 @@ import { type Fired, type FiredReads, firedValue } from "./values";
 import { AutomationCodeRunner, runCodeStep } from "./code-step";
 import { artifactsWrittenByAutomation } from "./artifact-writers";
 import { type ArtifactPort, isArtifactAction, performArtifactAction } from "./artifact-actions";
+import { performSignalAction } from "./signal-action";
+import { AgentSignalRepository } from "../signals/repository";
 import type { ArtifactLabel } from "@shared/artifact-labels";
 import { WorkRepository } from "../work/repository";
 import { PausePlane } from "../pause-plane";
@@ -443,14 +445,12 @@ export const performAction = (
         });
         return ruledAs(index, assigned);
       }
-      // A code step, an artifact write and a seat control have the runner's own ports (performCode, performArtifactAction, performSeatControl).
+      // A code step, an artifact write, a seat control and a signal have the runner's own ports (performCode, performArtifactAction, performSeatControl, performSignalAction).
       case "code":
       case "create-artifact":
       case "append-artifact":
       case "label-artifact":
       case "seat-control":
-        return notAvailable(index);
-      // Not available until the feed takes a signal an automation raised (0.11/07 N1).
       case "signal":
         return notAvailable(index);
     }
@@ -479,6 +479,7 @@ export const AutomationRunnerLive = Layer.effect(
     const model = yield* ModelService;
     const records = yield* ModelRecords;
     const work = yield* Effect.serviceOption(WorkService);
+    const agentSignals = yield* Effect.serviceOption(AgentSignalRepository);
     const machines = yield* Effect.serviceOption(MachineRepository);
     const taskStore = yield* Effect.serviceOption(TaskRepository);
     // With the runtime seat-state source, seat changes are its firings; without it, the task index says them.
@@ -780,6 +781,19 @@ export const AutomationRunnerLive = Layer.effect(
             resolve: resolveFor(canvasName, fired),
             idOf: (part) => automationMailId(firingId, index, part),
             rules: here.get(canvasName)?.edits === true,
+          })
+        // A signal is raised here, from the Automations node, into the feed (0.11/07 N2).
+        : action.kind === "signal" ? Option.match(agentSignals, {
+            onNone: () => Effect.succeed(notAvailable(index)),
+            onSome: (signals) => performSignalAction(signals, {
+              canvasName,
+              automation,
+              action,
+              index,
+              fired,
+              resolve: resolveFor(canvasName, fired),
+              signalId: automationMailId(firingId, index, "signal"),
+            }),
           })
         // An automation acts from its own machine (S2): mail goes out from here, and a task write is
         // ruled here when this machine rules the canvas, or proposed to the machine that does.
