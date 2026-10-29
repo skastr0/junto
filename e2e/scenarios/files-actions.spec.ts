@@ -8,7 +8,9 @@
  *     disk and the keyboard is on its row in the new folder. A path typed
  *     outside the root is refused.
  *   - Move to Trash asks first, naming the entry, says where it went, and the
- *     keyboard lands on the next row. Delete on a row asks the same.
+ *     keyboard lands on the next row. Delete and Cmd+Backspace on a row ask
+ *     the same; a trash the system refuses is said as an alert in the ask.
+ *   - The menu also opens by the Menu key and by right-click.
  * The system Trash is stood in for in main, so no run fills the real one.
  *   JUNTO_SHOTS_DIR=<dir> scripts/with-app-run-lock.sh bun run test:e2e:fast e2e/scenarios/files-actions.spec.ts
  */
@@ -71,6 +73,8 @@ test("files actions: the row menu, create, move and trash, all from the keyboard
       const fs = process.getBuiltinModule("node:fs");
       const path = process.getBuiltinModule("node:path");
       shell.trashItem = async (absolute: string) => {
+        // README.md stands for an entry the system Trash refuses.
+        if (path.basename(absolute) === "README.md") throw new Error("refused by the stand-in");
         fs.mkdirSync(into, { recursive: true });
         fs.renameSync(absolute, path.join(into, path.basename(absolute)));
       };
@@ -151,6 +155,30 @@ test("files actions: the row menu, create, move and trash, all from the keyboard
     await expect(modal.getByRole("status").filter({ hasText: "plan.md is in the Trash." })).toBeVisible();
     await expect.poll(() => focusedRowPath(page), { timeout: 5_000 }).toBe("data/");
 
+    // The Menu key and a right-click open the same menu.
+    await treeRow(modal, "README.md").focus();
+    await page.keyboard.press("ContextMenu");
+    menu = page.getByRole("menu", { name: "Actions for README.md" });
+    await expect(menu.getByRole("menuitem", { name: "New file" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await treeRow(modal, "README.md").click({ button: "right" });
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    // Cmd+Backspace asks; a trash the system refuses is an alert in the ask, which stays.
+    await treeRow(modal, "README.md").focus();
+    await page.keyboard.press("Meta+Backspace");
+    const refused = page.getByRole("alertdialog", { name: "Move README.md to the Trash?" });
+    await expect(refused).toBeVisible();
+    await refused.getByRole("button", { name: "Move to Trash" }).click();
+    await expect(refused.getByRole("alert")).toBeVisible({ timeout: 10_000 });
+    await shoot(page, "5-trash-refused");
+    expect(existsSync(join(root, "README.md"))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(refused).toHaveCount(0);
+    await expect.poll(() => focusedRowPath(page), { timeout: 5_000 }).toBe("README.md");
+
     // Delete on a row asks the same; Cancel leaves it and the keyboard on it.
     await treeRow(modal, "archive/").focus();
     await page.keyboard.press("Delete");
@@ -159,7 +187,7 @@ test("files actions: the row menu, create, move and trash, all from the keyboard
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     expect(existsSync(join(root, "archive"))).toBe(true);
     await expect.poll(() => focusedRowPath(page), { timeout: 5_000 }).toBe("archive/");
-    await shoot(page, "5-after");
+    await shoot(page, "6-after");
   } finally {
     await junto.close();
     await stage.cleanup();
