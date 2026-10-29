@@ -107,16 +107,17 @@ const measure = (
  */
 const SMALL_WINDOW = 32, LARGE_WINDOW = 256;
 const COST_BOUND = 24;
-const costRatio = (work: (lines: number) => void): number => {
+const costRatio = (work: (lines: number) => void, reps = 20): { readonly ratio: number; readonly small: number } => {
   const time = (lines: number) => {
     const started = performance.now();
-    for (let rep = 0; rep < 20; rep += 1) work(lines);
+    for (let rep = 0; rep < reps; rep += 1) work(lines);
     return performance.now() - started;
   };
   time(SMALL_WINDOW); time(LARGE_WINDOW);
   const small: number[] = [], large: number[] = [];
   for (let round = 0; round < 9; round += 1) { small.push(time(SMALL_WINDOW)); large.push(time(LARGE_WINDOW)); }
-  return Math.min(...large) / Math.max(Math.min(...small), 0.05);
+  const best = { small: Math.min(...small), large: Math.min(...large) };
+  return { ratio: best.large / Math.max(best.small, 0.05), small: best.small };
 };
 const readAndProject = (observer: SessionObserver) => (lines: number) => {
   selectAwarenessInput({ ...observer.readWindowNow(lines), observedAt: 0 });
@@ -134,7 +135,7 @@ describe("window calibration on the real corpus", () => {
         const retained = observer.readWindowNow(4096).totalLines;
         const sizes = [32, 64, 96, 128, 256];
         const measured = sizes.map((size) => ({ size, ...measure(observer, size) }));
-        const ratio = costRatio(readAndProject(observer));
+        const { ratio } = costRatio(readAndProject(observer));
         rows.push(
           `${name.padEnd(6)} cols=${capture.cols} rows=${capture.rows} retained=${String(retained).padStart(3)} | ` +
             measured
@@ -172,12 +173,18 @@ describe("window calibration on the real corpus", () => {
 
   it("the cost bound fails a quadratic read", () => {
     let sink = 0;
+    // (4 lines) squared per call: 16 K steps for the small window and 1 M for
+    // the large. Twelve reps put the small sample several times over the
+    // 0.05 ms floor and keep the whole measure well under a second. The sink
+    // stays a small integer, so every step costs the same.
     const quadratic = (lines: number) => {
       const n = lines * 4;
-      for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) sink += i ^ j;
+      for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) sink = (sink + (i ^ j)) | 0;
     };
-    expect(costRatio(quadratic)).toBeGreaterThanOrEqual(COST_BOUND);
-    expect(sink).toBeGreaterThan(0);
+    const { ratio, small } = costRatio(quadratic, 12);
+    console.log(`[awareness] quadratic stand-in: cost ${LARGE_WINDOW}/${SMALL_WINDOW}=${ratio.toFixed(2)}, small ${small.toFixed(3)} ms`);
+    expect(ratio).toBeGreaterThanOrEqual(COST_BOUND);
+    expect(Number.isInteger(sink)).toBe(true);
   });
 
   it("reads exactly C's candidate cap, so no capture is clipped by the window", async () => {
