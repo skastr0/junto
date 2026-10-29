@@ -45,14 +45,16 @@ afterEach(async () => {
   host.remove();
 });
 
-const draw = async (props: { taskByNumber?: ReadonlyMap<number, FeedTaskRef>; onOpenTask?: (task: FeedTaskRef) => void }): Promise<void> => {
+const draw = async (
+  props: { taskByNumber?: ReadonlyMap<number, FeedTaskRef>; onOpenTask?: (task: FeedTaskRef) => void; selected?: boolean },
+): Promise<void> => {
   await act(async () =>
     root.render(
       <FeedCardView
         item={ITEM}
         nowMs={NOW}
         quickReplies={[]}
-        selected={false}
+        selected={props.selected ?? false}
         reveal={false}
         leaving={false}
         sending={null}
@@ -65,6 +67,22 @@ const draw = async (props: { taskByNumber?: ReadonlyMap<number, FeedTaskRef>; on
 };
 
 const chip = (): HTMLButtonElement | null => document.body.querySelector<HTMLButtonElement>(".operator-feed__text .resource-chip");
+
+it("is a Tab stop only on the selected card, so a list does not grow one per card", async () => {
+  await draw({ taskByNumber: new Map([[42, TASK]]), onOpenTask: () => {} });
+  expect(chip()?.tabIndex).toBe(-1);
+  await draw({ taskByNumber: new Map([[42, TASK]]), onOpenTask: () => {}, selected: true });
+  expect(chip()?.tabIndex).toBe(0);
+});
+
+it("names itself by the number first, with no stray words after it", async () => {
+  await draw({ taskByNumber: new Map([[42, TASK]]), onOpenTask: () => {} });
+  // Everything spoken is in the button's own text: "#42", the title, and nothing else.
+  const spoken = chip()!.textContent ?? "";
+  expect(spoken.startsWith("#42")).toBe(true);
+  expect(spoken).toContain("ask the release name");
+  expect(spoken).not.toContain(",");
+});
 
 it("draws the number as a task chip, and a press opens that task", async () => {
   const opened: FeedTaskRef[] = [];
@@ -112,5 +130,6 @@ it("a board's own need names its task once: the chip carries the title", async (
   );
   const sentence = document.body.querySelector(".operator-feed__text")!;
   expect(sentence.textContent).toContain("wants your input");
-  expect(sentence.textContent).not.toContain("ask the release name wants");
+  // The title is said once: in the chip, never again in the words after it.
+  expect((sentence.textContent ?? "").match(/ask the release name/gu) ?? []).toHaveLength(1);
 });

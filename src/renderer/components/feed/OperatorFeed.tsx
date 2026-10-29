@@ -277,7 +277,7 @@ function FeedDetail({
         <div className="operator-feed__detail-head">
           <FeedPortrait item={item} node={node} />
           <div className="operator-feed__body">
-            <FeedWords item={item} nowMs={nowMs} taskByNumber={taskByNumber} onOpenTask={onOpenTask} />
+            <FeedWords item={item} nowMs={nowMs} taskByNumber={taskByNumber} chipTabStop onOpenTask={onOpenTask} />
           </div>
         </div>
         {/* Only a signal carries details, so the signal is always there to read from. */}
@@ -639,6 +639,9 @@ export function OperatorFeed() {
     if (event.target instanceof Element && event.target.closest('[data-testid="signal-reply"]')) return;
     // A task or artifact chip is a button: Enter opens it, and no answer key acts from it.
     if (event.target instanceof Element && event.target.closest('[data-testid="signal-resource-chips"]')) return;
+    // A task chip in a card's words is a button: Enter opens the task, and no
+    // answer key acts from it (a chip can name another card's task).
+    if (event.target instanceof Element && event.target.closest(".operator-feed__text .resource-chip")) return;
     // The order menu reads letters as type-ahead: keys that land inside a
     // listbox are the menu's, never j/k movement.
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;

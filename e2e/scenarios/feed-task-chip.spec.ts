@@ -6,7 +6,8 @@
  *
  * Asserts:
  *   - the card's sentence carries the words either side of one task chip
- *   - the chip says "#1" and the task's title
+ *   - the chip says "#1" and the task's title, and is named by its number
+ *   - Enter on the chip opens the task: the feed's answer keys stand down there
  *   - a press closes the feed and opens the task, named in its own detail
  */
 import { mkdir } from "node:fs/promises";
@@ -88,6 +89,8 @@ test("a task named in a card's words is a chip that opens it", async () => {
     await expect(chip).toContainText("#1");
     await expect(chip).toContainText(TITLE);
     await expect(card.locator(".operator-feed__text")).toContainText("is ready for you");
+    // Named by the number first, so speech says which task this is.
+    await expect(feed.getByRole("button", { name: /^#1 /u })).toHaveCount(1);
 
     await shot(page, "dark", "1-task-chip");
     await shot(page, "bright", "2-task-chip-bright");
@@ -95,6 +98,17 @@ test("a task named in a card's words is a chip that opens it", async () => {
 
     // A press leaves the feed and opens the task on its board.
     await chip.click();
+    await expect(feed).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 10_000 });
+
+    // Enter, the key an operator reaches for first, opens the task rather than
+    // answering the need: the feed's answer keys stand down inside a chip.
+    await page.keyboard.press("Meta+I");
+    await expect(feed).toBeVisible({ timeout: 10_000 });
+    await chip.focus();
+    await page.keyboard.press("Enter");
+    await expect(feed).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByTestId("signal-reply")).toHaveCount(0);
     await expect(feed).toBeHidden({ timeout: 10_000 });
     await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 10_000 });
   } finally {

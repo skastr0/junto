@@ -74,6 +74,7 @@ export function FeedWords({
   nowMs,
   labelId,
   taskByNumber,
+  chipTabStop,
   onOpenTask,
 }: {
   readonly item: FeedItem;
@@ -81,6 +82,8 @@ export function FeedWords({
   readonly labelId?: string;
   /** The canvas's tasks by number: a `#42` the canvas holds is drawn as a chip that opens it. */
   readonly taskByNumber?: ReadonlyMap<number, FeedTaskRef>;
+  /** The chip is a Tab stop only on the selected card, so a long list does not grow one stop per card. */
+  readonly chipTabStop?: boolean;
   readonly onOpenTask?: (task: FeedTaskRef) => void;
 }) {
   const age = mailAgeLabel(nowMs, item.since);
@@ -118,6 +121,7 @@ export function FeedWords({
                 kind="task"
                 label={piece.task.title}
                 number={piece.number}
+                tabIndex={chipTabStop ? 0 : -1}
                 {...(onOpenTask === undefined ? {} : { onOpen: () => onOpenTask(piece.task) })}
               />
             ),
@@ -195,6 +199,8 @@ export type FeedCardViewProps = {
   readonly pills?: boolean;
   /** The canvas's tasks by number: a `#42` the canvas holds is drawn as a chip that opens it. */
   readonly taskByNumber?: ReadonlyMap<number, FeedTaskRef>;
+  /** See FeedWords: the selected row's chip is the list's one Tab stop. */
+  readonly chipTabStop?: boolean;
   readonly onOpenTask?: (task: FeedTaskRef) => void;
   readonly onSelect: () => void;
   readonly onQuickReply: (text: string) => void;
@@ -219,6 +225,7 @@ export function FeedCardView({
   sending,
   pills = true,
   taskByNumber,
+  chipTabStop,
   onOpenTask,
   onSelect,
   onQuickReply,
@@ -251,6 +258,7 @@ export function FeedCardView({
             nowMs={nowMs}
             labelId={labelId}
             {...(taskByNumber === undefined ? {} : { taskByNumber })}
+            chipTabStop={chipTabStop ?? selected}
             {...(onOpenTask === undefined ? {} : { onOpenTask })}
           />
           {pills && selected && item.signalId ? (
