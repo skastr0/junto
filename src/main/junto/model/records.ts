@@ -9,6 +9,7 @@ import {
 } from "@shared/model";
 import { isAbsolute } from "node:path";
 import { UNNAMED_MACHINE } from "@shared/canvas-copy";
+import { AUTHORITY_ENABLED } from "@shared/features";
 import { withSqlRead } from "../state/sql-read";
 import { archiveAutomationsOnNode, restoreAutomationsOnNode } from "../automation/repository";
 import { KIND_TABLES } from "./state-schema";
@@ -331,8 +332,19 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         id: string,
       ) => {
         const at = new Date().toISOString();
-        return sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,editor_installation_id)
-          VALUES (${canvas},${id},${at},${at},(SELECT installation_id FROM installation WHERE singleton = 1))`.pipe(
+        const created = sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,editor_installation_id)
+          VALUES (${canvas},${id},${at},${at},(SELECT installation_id FROM installation WHERE singleton = 1))`;
+        // The canvas begins with one authority, this machine, as step 61 seeds one that existed (0.11/06 F6).
+        return (AUTHORITY_ENABLED
+          ? created.pipe(
+            Effect.andThen(sql`INSERT INTO canvas_consensus (canvas_name, current_term, voted_for, commit_index, applied_index)
+              VALUES (${canvas}, 1, NULL, 0, 0) ON CONFLICT (canvas_name) DO NOTHING`),
+            Effect.andThen(sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id)
+              SELECT ${canvas}, 0, installation_id FROM installation WHERE singleton = 1
+              ON CONFLICT DO NOTHING`),
+          )
+          : created
+        ).pipe(
           Effect.asVoid,
           failure("createCanvas"),
         );
