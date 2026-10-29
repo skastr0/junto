@@ -92,7 +92,7 @@ describe("macOS privacy policy", () => {
     expect(probe).toMatch(/const timeoutMs = probe\.timeoutMs \?\? SHELL_ENVIRONMENT_TIMEOUT_MS/u);
     expect(probe).toContain("[SHELL_ENVIRONMENT_RESOLVING_KEY]: \"1\"");
     expect(tool).toMatch(/sizes\[stream\] > TOOL_MAX_OUTPUT_BYTES/u);
-    expect(tool).toContain("io.stdin.end()");
+    expect(tool).toContain("io.stdin.end(call.stdin)");
     expect(tool).toContain("plane.spawnGroup(");
     expect(entry).toContain("runTool,");
     expect(entry).toContain('join(resolveJuntoHome(), ".junto")');
