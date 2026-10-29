@@ -160,6 +160,23 @@ describe("motion law: rings move on the compositor", () => {
     expect(cluster).toMatch(/`\$\{node\}::before`\)\.join\(",\\n"\)\} \{ animation: none !important; \}/);
   });
 
+  it("a media spinner on a card whose body is not drawn at far or overview stops", () => {
+    const css = read("src/renderer/components/work/content-media.css").replace(/\s+/g, " ");
+    // Each selector mirrors a hide rule; if a hide rule changes, so must this.
+    const lod = read("src/renderer/styles/canvas-lod.css");
+    expect(lod).toContain(
+      `html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], :has(.kind-seat))):not([data-look="spine"]) > * {\n  visibility: hidden;`,
+    );
+    for (const hidden of [
+      `html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], :has(.kind-seat))):not([data-look="spine"]) .content-media__spin`,
+      `html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .junto-node[data-look="spine"][data-node-kind="text"] .junto-node__body .content-media__spin`,
+      `html[data-canvas-tier="overview"] .react-flow__viewport .react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent):not(:has(.kind-seat)) .content-media__spin`,
+    ]) {
+      expect(css).toContain(hidden);
+    }
+    expect(css).toMatch(/\.react-flow__node:not\(\.react-flow__node-group\):not\(\.junto-flow-agent\):not\(:has\(\.kind-seat\)\) \.content-media__spin \{ animation: none !important; \}/);
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);
