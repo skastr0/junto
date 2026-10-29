@@ -1013,13 +1013,14 @@ const FORM_WORD: Readonly<Record<string, string>> = {
   [REPLY]: "By replying",
   artifact: "By writing a document",
   proof: "With proof of what was done",
-  secret: "With a secret (comes with the vault)",
+  secret: "With a secret (kept while chosen; set up with the vault)",
 };
 
 /**
  * How the operator answers the signal: a reply, a document written in the
- * signal, or proof. A secret form made elsewhere is kept and shown, not
- * offered: it comes with the vault (N5).
+ * signal, or proof. A secret form made elsewhere is kept while it stays
+ * chosen: picking another form replaces it, and it cannot be picked here
+ * until the vault (N5).
  */
 function SignalFormFields({
   form,

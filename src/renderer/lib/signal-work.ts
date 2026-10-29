@@ -108,15 +108,22 @@ export const proofLinksOf = (
 };
 
 /**
- * What the operator has written for a signal and not handed in, kept for as
- * long as the window runs: closing the feed, or moving to another signal,
- * never loses a page of writing.
+ * What the operator has written for a signal and not handed in, by part
+ * (the writing; a proof's text and links), kept for as long as the window
+ * runs: closing the feed, or moving to another signal, never loses it.
+ * Attached files are not kept: they go with the tray.
  */
+export type WorkDraftPart = "writing" | "proof-text" | "proof-links";
 const drafts = new Map<string, string>();
-export const workDraftOf = (signalId: string): string => drafts.get(signalId) ?? "";
-export const keepWorkDraft = (signalId: string, text: string): void => {
-  if (text === "") drafts.delete(signalId);
-  else drafts.set(signalId, text);
+const draftKey = (signalId: string, part: WorkDraftPart): string => `${signalId}\u0000${part}`;
+export const workDraftOf = (signalId: string, part: WorkDraftPart = "writing"): string => drafts.get(draftKey(signalId, part)) ?? "";
+export const keepWorkDraft = (signalId: string, text: string, part: WorkDraftPart = "writing"): void => {
+  if (text === "") drafts.delete(draftKey(signalId, part));
+  else drafts.set(draftKey(signalId, part), text);
+};
+/** Handed in or dismissed: nothing of it is kept. */
+export const forgetWorkDrafts = (signalId: string): void => {
+  for (const part of ["writing", "proof-text", "proof-links"] as const) drafts.delete(draftKey(signalId, part));
 };
 
 /**

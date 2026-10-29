@@ -449,7 +449,15 @@ function FeedDetail({
         ) : workKind === "notice" && item.signalId ? (
           // A notice is read and cleared: no reply to write.
           <div className="operator-feed__actions">
-            <Button size="xs" variant="primary" disabled={sending !== null} onClick={() => onAnswer({ kind: "acknowledge" })}>
+            {/* aria-disabled, not disabled: focus stays on Clear while it is sent. */}
+            <Button
+              size="xs"
+              variant="primary"
+              aria-disabled={sending !== null || undefined}
+              onClick={() => {
+                if (sending === null) onAnswer({ kind: "acknowledge" });
+              }}
+            >
               Clear
             </Button>
           </div>

@@ -4,7 +4,8 @@
  * between spaces holding at least one letter or digit. Markdown's own marks
  * (`#`, `-`, `>`, `**` alone), a fence line and an address are not words;
  * `**bold**` is one, a link counts by its text, and an HTML comment counts
- * nothing. One rule, here, so the field that fills as the operator writes
+ * nothing. Code inside a fence counts, as written words: only the fence
+ * lines themselves do not. One rule, here, so the field that fills as the operator writes
  * and main's ruling agree.
  */
 const COMMENT = /<!--[\s\S]*?(?:-->|$)/gu;

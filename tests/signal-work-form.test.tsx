@@ -6,7 +6,7 @@ import { EditorView } from "@codemirror/view";
 import { asCanvasName } from "../src/shared/model";
 import { SignalWorkForm } from "../src/renderer/components/signals/SignalWorkForm";
 import type { SignalActionResult } from "../src/renderer/lib/agent-signals-view";
-import { keepWorkDraft, type SignalForm, type WorkReply } from "../src/renderer/lib/signal-work";
+import { forgetWorkDrafts, type SignalForm, type WorkReply } from "../src/renderer/lib/signal-work";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { settleLazy } from "./support/settle-lazy";
 import { artifacts } from "./support/model-nodes";
@@ -85,8 +85,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   release();
-  keepWorkDraft("sig-1", "");
-  keepWorkDraft("sig-2", "");
+  forgetWorkDrafts("sig-1");
+  forgetWorkDrafts("sig-2");
 });
 
 describe("work done in the signal", () => {
@@ -97,6 +97,8 @@ describe("work done in the signal", () => {
     const handIn = button("Hand in");
     expect(handIn.getAttribute("aria-disabled")).toBe("true");
     expect(handIn.title).toBe("5 more words to hand in");
+    // The shortfall is said on the button, not only in its title.
+    expect(document.getElementById(handIn.getAttribute("aria-describedby")!)?.textContent).toBe("0 words of 5");
     await act(async () => handIn.click());
     expect(handed).toEqual([]);
 
@@ -129,6 +131,22 @@ describe("work done in the signal", () => {
     expect(host.querySelector(".signal-work__count")?.textContent).toBe("5 words of 5");
   });
 
+  it("an artifact form whose Artifacts node is gone says so", async () => {
+    await draw({ ...writing, nodeId: "gone-1", labels: [] });
+    expect(host.querySelector(".signal-work__where")?.textContent).toBe("Becomes Morning pages in an Artifacts node out of reach");
+  });
+
+  it("a half-written proof is there again when the signal is opened again", async () => {
+    await draw({ kind: "proof" }, "sig-2");
+    typeInto("What you did", "Posted two of five.");
+    typeInto("Links, one per line", "https://example.com/1");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await draw({ kind: "proof" }, "sig-2");
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="What you did"]')?.value).toBe("Posted two of five.");
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Links, one per line"]')?.value).toBe("https://example.com/1");
+  });
+
   it("dismissing work asks first, and closes it undone only when confirmed", async () => {
     await draw(writing);
     await act(async () => button("Dismiss").click());
@@ -144,6 +162,7 @@ describe("work done in the signal", () => {
   it("a proof form takes what was done and links, refuses a link that is not one, and hands in the rest", async () => {
     await draw({ kind: "proof" });
     expect(button("Hand in").title).toBe("Say what you did, or add a link or a file");
+    expect(document.getElementById(button("Hand in").getAttribute("aria-describedby")!)?.textContent).toBe("Say what you did, or add a link or a file");
     typeInto("What you did", "Posted the thread.");
     typeInto("Links, one per line", "https://example.com/post/1\nftp://nope");
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("ftp://nope: only http and https addresses can be attached.");

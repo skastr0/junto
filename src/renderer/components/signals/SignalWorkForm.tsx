@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { ulid } from "ulid";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
@@ -6,6 +6,7 @@ import type { ContentRef } from "@shared/wire/content-ref";
 import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { useAttachments } from "../../lib/operator-attachments";
 import {
+  forgetWorkDrafts,
   keepWorkDraft,
   proofLinksOf,
   wordProgressOf,
@@ -52,7 +53,7 @@ export function SignalWorkForm({
 }) {
   const [asking, setAsking] = useState(false);
   const { pending, error, act } = useSignalAction(() => {
-    keepWorkDraft(signalId, "");
+    forgetWorkDrafts(signalId);
     onDone();
   });
   // One id per hand-in attempt: a retry after a failure that did land is not a second document.
@@ -62,7 +63,15 @@ export function SignalWorkForm({
   };
   const dismissal = (
     <>
-      <Button size="xs" variant="subtle" disabled={pending !== null} onClick={() => setAsking(true)}>
+      {/* aria-disabled, not disabled, so focus stays on it while a hand-in is in flight. */}
+      <Button
+        size="xs"
+        variant="subtle"
+        aria-disabled={pending !== null || undefined}
+        onClick={() => {
+          if (pending === null) setAsking(true);
+        }}
+      >
         Dismiss
       </Button>
       {asking ? (
@@ -99,6 +108,7 @@ export function SignalWorkForm({
     />
   ) : (
     <ProofWork
+      signalId={signalId}
       canvasName={canvasName}
       busy={pending !== null}
       dismissal={dismissal}
@@ -133,11 +143,12 @@ function ArtifactWork({
   const counted = wordProgressWords(progress);
   const short = progress.min - progress.words;
   const fill = Math.min(1, progress.words / progress.min);
+  const countId = useId();
   return (
     <div className="signal-work" data-testid="signal-work-form" data-form="artifact">
       <p className="signal-work__where">
         Becomes <span className="signal-work__title">{form.title}</span>
-        {shelf ? ` in ${titleOf(shelf)}` : null}
+        {shelf ? ` in ${titleOf(shelf)}` : " in an Artifacts node out of reach"}
         {form.labels.length > 0 ? `, labelled ${form.labels.join(", ")}` : null}
       </p>
       <LiveMarkdownField
@@ -166,7 +177,9 @@ function ArtifactWork({
             <span className="signal-work__meter-fill" />
           </div>
         ) : null}
-        <span className="signal-work__count">{counted}</span>
+        <span id={countId} className="signal-work__count">
+          {counted}
+        </span>
       </div>
       {/* Said once, as the condition comes to hold, not on every word. */}
       <span className="sr-only" role="status">
@@ -179,6 +192,8 @@ function ArtifactWork({
           size="xs"
           variant="primary"
           aria-disabled={!progress.met || busy}
+          // The shortfall is the count beside it: a reader hears it on the button.
+          aria-describedby={progress.met ? undefined : countId}
           title={progress.met ? "Hand in: the writing becomes the document, and the work is done" : `${short} more ${short === 1 ? "word" : "words"} to hand in`}
           onClick={() => {
             if (progress.met && !busy) onHandIn(markdown);
@@ -192,20 +207,23 @@ function ArtifactWork({
 }
 
 function ProofWork({
+  signalId,
   canvasName,
   busy,
   dismissal,
   failure,
   onHandIn,
 }: {
+  readonly signalId: string;
   readonly canvasName: string;
   readonly busy: boolean;
   readonly dismissal: ReactNode;
   readonly failure: ReactNode;
   readonly onHandIn: (proof: { readonly text: string; readonly links: ReadonlyArray<string>; readonly files: ReadonlyArray<ContentRef> }) => void;
 }) {
-  const [text, setText] = useState("");
-  const [typedLinks, setTypedLinks] = useState("");
+  const [text, setText] = useState(() => workDraftOf(signalId, "proof-text"));
+  const [typedLinks, setTypedLinks] = useState(() => workDraftOf(signalId, "proof-links"));
+  const whyId = useId();
   const attachments = useAttachments(canvasName);
   const { links, problem } = proofLinksOf(typedLinks);
   const files = attachments.ready ?? [];
@@ -221,7 +239,10 @@ function ProofWork({
         value={text}
         aria-label="What you did"
         placeholder="What you did"
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value);
+          keepWorkDraft(signalId, event.target.value, "proof-text");
+        }}
       />
       <Textarea
         dense
@@ -231,7 +252,10 @@ function ProofWork({
         aria-label="Links, one per line"
         aria-invalid={problem !== undefined || undefined}
         placeholder="Links, one per line"
-        onChange={(event) => setTypedLinks(event.target.value)}
+        onChange={(event) => {
+          setTypedLinks(event.target.value);
+          keepWorkDraft(signalId, event.target.value, "proof-links");
+        }}
       />
       {problem ? (
         <p className="signal-work__error" role="alert">
@@ -240,6 +264,10 @@ function ProofWork({
       ) : null}
       <AttachmentTray attachments={attachments} />
       {failure}
+      {/* Why Hand in waits, for a reader on the button; the links' own problem is said above. */}
+      <span id={whyId} className="sr-only">
+        {problem === undefined ? (why ?? "") : ""}
+      </span>
       <div className="signal-work__actions">
         <span className="mr-auto flex">
           <AttachButton attachments={attachments} disabled={busy} />
@@ -249,6 +277,7 @@ function ProofWork({
           size="xs"
           variant="primary"
           aria-disabled={!ready}
+          aria-describedby={ready || problem !== undefined ? undefined : whyId}
           title={why ?? "Hand in: the proof is kept on the signal, and the work is done"}
           onClick={() => {
             // The tray keeps its files until the hand-in lands: a refusal leaves them to send again.
