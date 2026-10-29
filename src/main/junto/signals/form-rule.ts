@@ -1,8 +1,10 @@
 import { Result } from "effect";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
 import { foldArtifactLabels } from "@shared/artifact-labels";
-import type { Canvas } from "@shared/model";
-import { titleOf } from "@shared/model";
+import { VAULT_ENABLED } from "@shared/features";
+import { isThisMachine } from "@shared/machine-identity";
+import type { Canvas, Region } from "@shared/model";
+import { regionStack, titleOf } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
 import { resolveTarget } from "@shared/target-resolution";
 import type { TargetCandidate, WorkErrorBody } from "@shared/work-control";
@@ -21,9 +23,12 @@ import {
  *
  * One form per signal. `text` is today's reply and needs nothing, `proof` is
  * text with links or files, and `artifact` writes a document of at least
- * `minWords` words. The `secret` form waits for the vault (N5): no typed
- * value crosses machines, so a raise that asks for one is refused here until
- * the vault lands, plainly.
+ * `minWords` words.
+ *
+ * The `secret` form is the vault's (0.12, N5), behind VAULT_ENABLED: the raise
+ * records the name, the machine the value is for and the region that declares
+ * it, and the operator's value goes into the vault from the window, never
+ * through Junto's rows. Off that flag, it is refused plainly, as before.
  */
 /**
  * Which kinds may ask for a form at all. A notice is read and cleared, and a
@@ -40,6 +45,13 @@ export const resolveSignalForm = (input: {
   readonly reaches: ReadonlyArray<NodeId>;
   readonly text: string;
   readonly request: SignalFormRequest;
+  /** Who is asking: the seat's node, or the Automations node. The regions around it are the secret's. */
+  readonly raiser?: NodeId;
+  /**
+   * The machine that will read the value: a seat's own machine, or the machine
+   * a firing ran on. Absent on an automation means the firing has no machine.
+   */
+  readonly machine?: string;
 }): Result.Result<SignalForm, WorkErrorBody> => {
   const request = input.request;
   switch (request.kind) {
@@ -48,18 +60,93 @@ export const resolveSignalForm = (input: {
     case "proof":
       return Result.succeed({ kind: "proof" });
     case "secret":
-      return Result.fail({
-        type: "InvalidTransition",
-        message: `the secret form arrives with the vault (0.11, N5): a value never crosses machines through Junto`,
-        details: {
-          path: "args.form",
-          retryable: false,
-          next_step: `ask for ${request.name} in words for now and write it on the machine that reads it`,
-        },
-      });
+      return secretForm(input, request);
     case "artifact":
       return artifactForm(input, request);
   }
+};
+
+/**
+ * Where a secret lives, from the same plan a seat's environment is built
+ * from: the regions around the asking node, innermost outward, the first that
+ * declares the name for that machine. A sealed region cuts everything outside
+ * it. Two regions at one depth that both declare the name are ambiguous, and
+ * say so rather than guessing: the value would land where the seat might not
+ * read it.
+ */
+export const secretSourceOf = (
+  board: Canvas,
+  raiser: NodeId,
+  machine: string,
+  name: string,
+): { readonly region: Region; readonly sourceId: string } | "ambiguous" | undefined => {
+  const stack = regionStack(board, raiser);
+  let scope = stack;
+  // A sealed region cuts everything outside it, the innermost seal winning.
+  stack.forEach((region, index) => {
+    if (region.environment?.sealed === true) scope = stack.slice(index);
+  });
+  const declaring = [...scope].reverse().flatMap((region) => {
+    const sources = (region.environment?.sources ?? []).filter(
+      (source) =>
+        (source.kind === "onepassword" || source.kind === "secret") &&
+        source.name === name &&
+        (source.host === undefined || isThisMachine(source.host, machine)),
+    );
+    // Within one region a later source wins, as the environment's own plan says.
+    const source = sources.at(-1);
+    return source === undefined ? [] : [{ region, source }];
+  });
+  const first = declaring[0];
+  if (first === undefined) return undefined;
+  // Same depth reads as the same area on one canvas: identical frames, one level.
+  const level = declaring.filter((entry) => entry.region.width * entry.region.height === first.region.width * first.region.height);
+  return level.length > 1 ? "ambiguous" : { region: first.region, sourceId: first.source.id };
+};
+
+const secretForm = (
+  input: { readonly board: Canvas; readonly raiser?: NodeId; readonly machine?: string },
+  request: Extract<SignalFormRequest, { readonly kind: "secret" }>,
+): Result.Result<SignalForm, WorkErrorBody> => {
+  if (!VAULT_ENABLED) {
+    return Result.fail({
+      type: "InvalidTransition",
+      message: "the secret form arrives with the vault (0.12, N5): a value never crosses machines through Junto",
+      details: {
+        path: "args.form",
+        retryable: false,
+        reason: "not_available",
+        next_step: `ask for ${request.name} in words for now and write it on the machine that reads it`,
+      },
+    });
+  }
+  const raiser = input.raiser;
+  const asked = raiser === undefined ? undefined : input.board.nodes.get(raiser);
+  // A seat's machine is its own node's; a firing's is the machine it ran on, which only the caller knows.
+  const machine = input.machine ?? (asked?.kind === "agent" ? asked.host : undefined);
+  if (raiser === undefined || machine === undefined) {
+    return Result.fail({
+      type: "InvalidTransition",
+      message: `the machine that reads ${request.name} could not be told, so the secret was not asked for`,
+      details: { path: "args.form", retryable: true, reason: "not_declared", next_step: "raise it from a seat, or from an automation run on a machine" },
+    });
+  }
+  const declared = secretSourceOf(input.board, raiser, machine, request.name);
+  if (declared === undefined) {
+    return Result.fail({
+      type: "InputError",
+      message: `no region around this asker declares ${request.name} for ${machine}`,
+      details: { path: "args.form", retryable: false, reason: "not_declared", next_step: `declare ${request.name} as a region source for ${machine}, then ask again` },
+    });
+  }
+  if (declared === "ambiguous") {
+    return Result.fail({
+      type: "InputError",
+      message: `more than one region around this asker declares ${request.name} for ${machine}; the value would land where the seat may not read it`,
+      details: { path: "args.form", retryable: false, reason: "ambiguous", next_step: "leave one region declaring it at that depth, then ask again" },
+    });
+  }
+  return Result.succeed({ kind: "secret", name: request.name, regionId: declared.region.id, machine });
 };
 
 const refusal = (input: {

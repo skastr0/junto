@@ -11,6 +11,7 @@ import { resolveSignalForm, signalKindTakesForm } from "../src/main/junto/signal
 import { artifacts, canvasOf, region, seat, taskBoard } from "./support/model-nodes";
 import { resourcesSeatReaches } from "../src/shared/region-reach";
 import type { NodeId } from "../src/shared/physics/schema";
+import { THIS_MACHINE } from "./support/machines";
 
 const SEAT = "agent" as NodeId;
 
@@ -18,7 +19,11 @@ const SEAT = "agent" as NodeId;
 const board = canvasOf(
   [
     seat("agent", { x: 0, y: 0, width: 100, height: 40 }),
-    region("region", { x: -20, y: -20, width: 620, height: 120 }, { label: "Forge", instruction: "ship" }),
+    region("region", { x: -20, y: -20, width: 620, height: 120 }, {
+      label: "Forge",
+      instruction: "ship",
+      environment: { sources: [{ id: "cf", kind: "secret", name: "CLOUDFLARE_TOKEN", secretId: "secret-cf" }] },
+    }),
     artifacts("shelf", { x: 0, y: 0, width: 100, height: 40, label: "Shelf" }),
     artifacts("shelf-two", { x: 120, y: 0, width: 100, height: 40, label: "Shelf Two" }),
     region("elsewhere", { x: 800, y: -20, width: 240, height: 160 }, { label: "Elsewhere", instruction: "other work" }),
@@ -29,7 +34,13 @@ const board = canvasOf(
 );
 
 const resolve = (request: Parameters<typeof resolveSignalForm>[0]["request"], text = "Write the post.") =>
-  resolveSignalForm({ board, reaches: resourcesSeatReaches(board, SEAT).map((node) => node.id), text, request });
+  resolveSignalForm({
+    board,
+    reaches: resourcesSeatReaches(board, SEAT).map((node) => node.id),
+    text,
+    request,
+    raiser: SEAT,
+  });
 
 const failure = (result: ReturnType<typeof resolve>) => {
   if (Result.isSuccess(result)) throw new Error("expected a refusal");
@@ -82,11 +93,16 @@ describe("the reply form a raise asks for", () => {
     expect(refused.message).toContain("is not a label");
   });
 
-  it("refuses a secret until the vault lands, and says what to do instead", () => {
-    const refused = failure(resolve({ kind: "secret", name: "CLOUDFLARE_TOKEN" }));
-    expect(refused.type).toBe("InvalidTransition");
-    expect(refused.details?.next_step).toContain("CLOUDFLARE_TOKEN");
-    expect(refused.message).toContain("vault");
+  it("settles a secret in the region that declares it for the asker's machine, or says which it lacks", () => {
+    // The forge region declares CLOUDFLARE_TOKEN; the seat's machine reads it there.
+    expect(resolve({ kind: "secret", name: "CLOUDFLARE_TOKEN" })).toEqual(
+      Result.succeed({ kind: "secret", name: "CLOUDFLARE_TOKEN", regionId: "region", machine: THIS_MACHINE }),
+    );
+    const refused = failure(resolve({ kind: "secret", name: "STRIPE_KEY" }));
+    expect(refused.type).toBe("InputError");
+    expect(refused.details?.reason).toBe("not_declared");
+    expect(refused.message).toContain("STRIPE_KEY");
+    expect(refused.message).toContain(THIS_MACHINE);
   });
 
   it("only a kind that asks the operator to produce something carries one", () => {
