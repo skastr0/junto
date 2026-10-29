@@ -271,10 +271,20 @@ const bootstrap = (sql: SqlClient.SqlClient, canvasName: string, self: Installat
  */
 const durableLock = Semaphore.makeUnsafe(1);
 
-/** A consensus transaction: its acknowledgement survives power loss, so it commits under synchronous=FULL. */
-export const durableTransaction = <A, E, R>(sql: SqlClient.SqlClient, transaction: Effect.Effect<A, E, R>) =>
+/**
+ * A consensus transaction: its acknowledgement survives power loss, so it
+ * commits under synchronous=FULL. `beforeBegin` runs between setting FULL and
+ * BEGIN, the gap a second canvas would race into; only tests pass it.
+ */
+export const durableTransaction = <A, E, R>(
+  sql: SqlClient.SqlClient,
+  transaction: Effect.Effect<A, E, R>,
+  beforeBegin: Effect.Effect<void> = Effect.void,
+) =>
   durableLock.withPermits(1)(
-    Effect.andThen(sql`PRAGMA synchronous = FULL`, sql.withTransaction(transaction)).pipe(
+    sql`PRAGMA synchronous = FULL`.pipe(
+      Effect.andThen(beforeBegin),
+      Effect.andThen(sql.withTransaction(transaction)),
       Effect.ensuring(Effect.ignore(sql`PRAGMA synchronous = NORMAL`)),
     ),
   );

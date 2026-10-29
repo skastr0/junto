@@ -30,20 +30,20 @@ it("holds synchronous=FULL through every consensus transaction, however many can
     const seen = await runtime.runPromise(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        const inside = yield* Deferred.make<void>();
-        const drain = (canvas: string, entered?: Deferred.Deferred<void>) =>
+        const set = yield* Deferred.make<void>();
+        const drain = (canvas: string, beforeBegin?: Effect.Effect<void>) =>
           durableTransaction(
             sql,
             Effect.gen(function* () {
-              if (entered !== undefined) yield* Deferred.succeed(entered, undefined);
-              // The second canvas starts while this one holds the connection, as a drain does between its statements.
-              for (let turn = 0; turn < 8; turn++) yield* Effect.yieldNow;
               yield* sql`INSERT INTO acks (canvas) VALUES (${canvas})`;
               const [row] = yield* sql<{ synchronous: number }>`PRAGMA synchronous`;
               return row!.synchronous;
             }),
+            beforeBegin,
           );
-        return yield* Effect.all([drain("factory", inside), Effect.andThen(Deferred.await(inside), drain("home"))], { concurrency: "unbounded" });
+        // The first canvas has set FULL and not yet begun: the second drains whole in that gap, unless the lock holds it.
+        const gap = Effect.andThen(Deferred.succeed(set, undefined), Effect.forEach(Array.from({ length: 50 }), () => Effect.yieldNow, { discard: true }));
+        return yield* Effect.all([drain("factory", gap), Effect.andThen(Deferred.await(set), drain("home"))], { concurrency: "unbounded" });
       }),
     );
     // 2 is FULL.
