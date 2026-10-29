@@ -44,7 +44,8 @@
     "src/renderer/components/RegionPathsModal.css": 1,
     "src/renderer/components/UsageHud.css": 1,
     "src/renderer/components/settings-panel.css": 1,
-    "src/renderer/styles.css": 10
+    "src/renderer/styles.css": 9,
+    "src/renderer/styles/kbd.css": 1
   },
   "tracking": {
     "src/renderer/components/CanvasMagnifier.css": 1,

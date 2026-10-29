@@ -2,6 +2,7 @@
 @import "./styles/theme.generated.css";
 @import "./styles/layers.css";
 @import "./styles/seat-card.css";
+@import "./styles/kbd.css";
 
 /* ============================================================================
    JUNTO DESIGN TOKENS come from one source: src/shared/theme/ (authored in
@@ -878,28 +879,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   color: var(--color-dim);
   font-size: var(--text-caption);
   line-height: var(--leading-dense);
-}
-.help-map__kbd {
-  width: max-content;
-  max-width: 100%;
-  border: 1px solid color-mix(in oklab, var(--color-second) 22%, transparent);
-  border-radius: var(--radius-sm);
-  background: color-mix(in oklab, var(--color-second) 6%, transparent);
-  /* The text token, not the mark token: in bright the mark cyan is 3 to 1 on
-     this chip, the text cyan 5 to 1. They are one value in dark. */
-  color: var(--color-second-fg);
-  padding: 3px 5px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: var(--text-caption);
-  line-height: var(--leading-compact);
-}
-/* Kbd size md: a key cap that is read in a list, not glanced at in a footer.
-   A single key is as wide as it is tall, so a chord's caps line up. */
-.help-map__kbd--md {
-  min-width: 22px;
-  padding: 3px 6px;
-  font-size: var(--text-body);
-  text-align: center;
 }
 @media (max-width: 1360px) {
   .station-bar { gap: 8px; padding: 0 10px 0 84px; }
