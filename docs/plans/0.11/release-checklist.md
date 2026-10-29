@@ -157,7 +157,8 @@ I run them at the cut hash if asked.
       none yet: run 1 at head 63 migrated clean but the live copy has no stubs,
       so the row copy is proved by the 7b run, which seeds file, git and page
       stubs.
-      A no from the operator reverts the step before the cut. Receipt:
+      The operator answered yes (product-lead, 2026-10-29), so step 63
+      stays. Files over SSH from other machines is recorded for 0.12. Receipt:
 - [ ] Text reads cap at 5 MB. Receipt (tech-lead, relayed):
       `FILE_TEXT_MAX_BYTES`, `shared/files.ts:81`.
 - [ ] Git guard (e9cc0324e, reported by remote-lead): every git main runs
