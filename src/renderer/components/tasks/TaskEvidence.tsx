@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { BadgeCheck } from "lucide-react";
 import { asNodeId } from "@shared/physics/schema";
 import type { CompletionEvidence } from "@shared/work-model";
+import type { ItemId } from "@shared/work-ids";
+import { useArtifactMovedFrom } from "../../lib/artifact-where";
 import { artifactsSource, type ArtifactsSource } from "../../lib/artifacts-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { Eyebrow, ResourceChip } from "../ui";
@@ -45,6 +47,25 @@ const useEvidenceHeads = (canvasName: string, nodeId: string): Heads => {
   return heads;
 };
 
+/**
+ * A cited artifact its node no longer holds: gone, unless it is found by id
+ * where its last move took it (0.11.1, 10).
+ */
+function MovedEvidenceArtifact({ canvasName, nodeId, id }: { readonly canvasName: string; readonly nodeId: string; readonly id: string }) {
+  const where = useArtifactMovedFrom(canvasName, asNodeId(nodeId), id as ItemId);
+  const head = where?.heads.find((entry) => entry.artifact.artifactId === id);
+  return head === undefined ? (
+    <ResourceChip kind="artifact" label="Gone" missing />
+  ) : (
+    <ResourceChip
+      kind="artifact"
+      artifactType={head.artifact.type}
+      label={head.artifact.title}
+      onOpen={() => openWorkDetail(where!.nodeId, { itemId: id })}
+    />
+  );
+}
+
 /** The cited artifacts of one Artifacts node, named by their titles, each a chip that opens it. */
 function EvidenceArtifacts({
   canvasName,
@@ -65,7 +86,7 @@ function EvidenceArtifacts({
         if (read.state === "failed") return <ResourceChip key={id} kind="artifact" label="Could not be read" />;
         const head = read.heads.find((entry) => entry.artifact.artifactId === id);
         return head === undefined ? (
-          <ResourceChip key={id} kind="artifact" label="Gone" missing />
+          <MovedEvidenceArtifact key={id} canvasName={canvasName} nodeId={nodeId} id={id} />
         ) : (
           <ResourceChip
             key={id}

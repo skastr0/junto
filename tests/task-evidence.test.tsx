@@ -208,6 +208,21 @@ describe("evidence chips and the artifact read", () => {
     expect(host.textContent).not.toContain("queued");
   });
 
+  it("names a cited artifact that moved by its title where it is now, and opens it there (0.11.1, 10)", async () => {
+    setArtifactsSource({
+      list: async (_canvas: string, nodeId: string) =>
+        nodeId === "artifacts-y" ? [{ artifact: { artifactId: "a1", title: "Release notes", type: "document" } }] : [],
+      moves: async () => [{ from: "artifacts-x", to: "artifacts-y", by: { kind: "operator" }, at: 1 }],
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+    await act(async () => {
+      root.render(<TaskEvidence canvasName="c" evidence={one} />);
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(host.textContent).toContain("Release notes");
+    expect(host.textContent).not.toContain("Gone");
+  });
+
   it("says an artifact the node no longer holds is gone", async () => {
     await mount(async () => []);
     expect(host.textContent).toContain("Gone");
