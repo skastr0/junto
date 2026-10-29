@@ -1,16 +1,17 @@
 /**
  * Step 53 adds `artifact_labels`, one row per label an artifact's head carries
- * (0.11, 03), and nothing else moves. Proven on both shipped fixtures brought
- * to version 52 by the real steps: the step's schema hashes the same as the
- * witness, every row already held survives as it was, and a head written
+ * (0.11, 03), and nothing else moves: the step's schema hashes the same as
+ * the witness, every row already held survives as it was, and a head written
  * before the step reads as no labels.
+ *
+ * The version-52 database is made at version 52 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 52 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, so no
+ * path is shared with any other test. The step is create-table only, so rows
+ * seeded before it stand in for what a shipped database holds.
  */
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -21,21 +22,6 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V52_SQL, STATE_SCHEMA_V53_SQL } from "./fixtures/state-v13/schema";
-
-let dir: string | undefined;
-afterEach(async () => {
-  if (dir) await rm(dir, { recursive: true, force: true });
-  dir = undefined;
-});
-
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
-  dir = await mkdtemp(join(tmpdir(), "junto-artifact-labels-migration-"));
-  const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
-  return database;
-};
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
   (
@@ -58,11 +44,27 @@ const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPl
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version),
 });
 
-const canvasOf = (database: DatabaseSync): string => {
-  const canvas = database.prepare("SELECT canvas_name FROM canvases ORDER BY canvas_name LIMIT 1").get();
-  if (canvas) return String(canvas.canvas_name);
-  database.prepare("INSERT INTO canvases(canvas_name, canvas_id, created_at, updated_at, seq) VALUES ('main', 'c', 't', 't', 0)").run();
-  return "main";
+const CANVAS = "main";
+const ARTIFACT = "01M5EVKRB1X4P80GXRGDK8V5AS";
+
+/** A version-52 database, fresh and in memory, holding a canvas, an Artifacts board and one artifact head. */
+const openAt52 = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, upTo(52, STATE_SCHEMA_V52_SQL))).toMatchObject({ schemaVersion: 52, ...STATE_SCHEMA_V52_IDENTITY });
+  database.prepare("INSERT INTO canvases(canvas_name, canvas_id, created_at, updated_at, seq) VALUES (?, 'c', 't', 't', 0)").run(CANVAS);
+  database
+    .prepare(
+      `INSERT INTO artifact_boards (canvas_name, id, x, y, width, height, z_index, color, created_at, updated_at, label)
+       VALUES (?, 'artifacts-1', 0, 0, 10, 10, 0, NULL, 't', 't', 'Shelf')`,
+    )
+    .run(CANVAS);
+  database
+    .prepare(
+      `INSERT INTO artifact_heads (canvas_name, artifact_id, node_id, type, title, version, created_by_json, updated_at, archived, task_ids_json)
+       VALUES (?, ?, 'artifacts-1', 'document', 'Plan', 1, '{"kind":"operator"}', 1, 0, '[]')`,
+    )
+    .run(CANVAS, ARTIFACT);
+  return database;
 };
 
 describe("state migration 52 -> 53 (the artifact labels)", () => {
@@ -71,15 +73,14 @@ describe("state migration 52 -> 53 (the artifact labels)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V53_SQL)).toEqual(STATE_SCHEMA_V53_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "adds an empty artifact_labels to %s, hashes as a fresh 53, and leaves every row as it was",
-    async (fixture) => {
-      const database = await openCopy(fixture);
+  it(
+    "adds an empty artifact_labels, hashes as a fresh 53, and leaves every row as it was",
+    () => {
+      const database = openAt52();
       try {
-        migrateStateSchema(database, upTo(52, STATE_SCHEMA_V52_SQL));
-        canvasOf(database);
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
         expect(Object.keys(before)).not.toContain("artifact_labels");
+        expect(before.artifact_heads).toHaveLength(1);
 
         const result = migrateStateSchema(database, upTo(53, STATE_SCHEMA_V53_SQL));
         expect(result).toMatchObject({ previousVersion: 52, schemaVersion: 53, ...STATE_SCHEMA_V53_IDENTITY });
@@ -94,21 +95,14 @@ describe("state migration 52 -> 53 (the artifact labels)", () => {
         database.close();
       }
     },
-    60_000,
   );
 
-  it("keeps a head's label rows only while the head exists, and a head from before reads as none", async () => {
-    const database = await openCopy("command-center-v13.db");
+  it("keeps a head's label rows only while the head exists, and a head from before reads as none", () => {
+    const database = openAt52();
     try {
       migrateStateSchema(database, upTo(53, STATE_SCHEMA_V53_SQL));
-      const canvas = canvasOf(database);
-      const artifact = "01M5EVKRB1X4P80GXRGDK8V5AS";
-      database
-        .prepare(
-          `INSERT INTO artifact_heads (canvas_name, artifact_id, node_id, type, title, version, created_by_json, updated_at, archived, task_ids_json)
-           VALUES (?, ?, 'artifacts-1', 'document', 'Plan', 1, '{"kind":"operator"}', 1, 0, '[]')`,
-        )
-        .run(canvas, artifact);
+      const canvas = CANVAS;
+      const artifact = ARTIFACT;
       // A head written before the step has no rows here: it reads as no labels.
       expect(database.prepare("SELECT label FROM artifact_labels WHERE artifact_id = ?").all(artifact)).toEqual([]);
 
