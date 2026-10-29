@@ -246,6 +246,10 @@ export const artifactRuler = (repo: ArtifactRepository["Service"], authors: Auto
     const op = decodeArtifactOp(command.op);
     if (Result.isFailure(op)) return undecodable("artifact");
     const decoded = { ...command, op: op.success };
+    // A move lands only on an Artifacts node (0.11.1, 10): the ruler judges it, whoever proposed it.
+    if (op.success.op === "move" && canvas.nodes.get(op.success.to)?.kind !== "artifacts") {
+      return { kind: "refuse", refusal: { reason: "unknown_target", message: "An artifact moves only to an Artifacts node on this canvas" } } as const;
+    }
     const context = rulingContextOf(canvas, yield* authors(command.canvasName, command));
     // A command on the node itself (a label colour) names no artifact.
     const outcome = yield* (command.target.itemId === undefined ? repo.submitNode(writer, decoded, context) : repo.submit(writer, decoded, context))
