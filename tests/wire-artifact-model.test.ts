@@ -12,12 +12,17 @@ import * as modelSheet from "../src/shared/model/sheet";
 import * as physics from "../src/shared/physics/schema";
 import * as resourceCommand from "../src/shared/resource-command";
 import * as sheet from "../src/shared/sheet";
-import { ULID_PATTERN } from "../src/shared/ulid";
+import * as canvasName from "../src/shared/canvas-name";
+import * as nodeRef from "../src/shared/node-ref";
+import * as ulid from "../src/shared/ulid";
 import * as workIds from "../src/shared/work-ids";
 import * as wireIds from "../src/shared/wire/ids";
 import * as wireLabels from "../src/shared/wire/artifact-labels";
+import * as wireCanvasName from "../src/shared/wire/canvas-name";
+import * as wireNodeRef from "../src/shared/wire/node-ref";
 import * as wireActor from "../src/shared/wire/resource-actor";
 import * as wireSheet from "../src/shared/wire/sheet";
+import * as wireUlid from "../src/shared/wire/ulid";
 
 /** Each name is the same object on the desktop path as on the wire. */
 const same = (desktop: Record<string, unknown>, wire: Record<string, unknown>, names: ReadonlyArray<string>): void => {
@@ -31,8 +36,7 @@ describe("the artifact model on the wire is the desktop's own", () => {
   it("ids: NodeId, ItemId, OpId and TaskNumber are one definition", () => {
     same(physics, wireIds, ["NodeId"]);
     same(workIds, wireIds, ["ItemId", "OpId", "TaskNumber", "isItemId", "isOpId", "isTaskNumber", "ULID_SHAPE"]);
-    expect(wireIds.WIRE_ULID_PATTERN.source).toBe(ULID_PATTERN.source);
-    expect(wireIds.WIRE_ULID_PATTERN.flags).toBe(ULID_PATTERN.flags);
+    same(ulid, wireUlid, ["ULID_PATTERN", "isUlid"]);
   });
 
   it("the writer: ResourceActor and ActorSeatId are one definition", () => {
@@ -48,5 +52,10 @@ describe("the artifact model on the wire is the desktop's own", () => {
   it("sheets: the grid, its rows and columns and every sheet rule are one definition", () => {
     same(sheet, wireSheet, Object.keys(wireSheet));
     same(modelSheet, wireSheet, ["SheetGrid"]);
+  });
+
+  it("node refs: the junto:// form, its parser and the canvas-name check are one definition", () => {
+    same(nodeRef, wireNodeRef, Object.keys(wireNodeRef));
+    same(canvasName, wireCanvasName, Object.keys(wireCanvasName));
   });
 });

@@ -39,10 +39,12 @@ describe("wire module import closure", () => {
       new Set([
         "agent-signals.ts",
         "artifact-labels.ts",
+        "canvas-name.ts",
         "companion-protocol.ts",
         "content-ref.ts",
         "ids.ts",
         "mail-threads.ts",
+        "node-ref.ts",
         "operator-feed.ts",
         "resource-actor.ts",
         "rings.ts",
@@ -52,6 +54,7 @@ describe("wire module import closure", () => {
         "sheet.ts",
         "thread-health.ts",
         "thread-subject.ts",
+        "ulid.ts",
         "urgency.ts",
         // Not protocol: the --demo data, synced by junto-app's in-app demo.
         "companion-demo-fixture.ts",

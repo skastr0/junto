@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ULID_PATTERN as ULID } from "./ulid";
 
 /**
  * The ids a resource write names, as the desktop and the phone read them
@@ -8,9 +9,6 @@ import { Schema } from "effect";
  * import closure is `effect` alone; `physics/schema.ts` and `work-ids.ts`
  * re-export these, so there is one definition of each.
  */
-
-/** A ULID: 26 characters of Crockford base32 (`ulid.ts` holds the same, effect-free). */
-const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/u;
 
 /** What a ULID is, said in a refusal instead of the string that failed. */
 export const ULID_SHAPE = "26 characters of Crockford base32 (a ULID)";
@@ -46,6 +44,3 @@ export type TaskNumber = typeof TaskNumber.Type;
 export const isOpId = Schema.is(OpId);
 export const isItemId = Schema.is(ItemId);
 export const isTaskNumber = Schema.is(TaskNumber);
-
-/** The ULID pattern the ids check, for a test to hold equal to `ulid.ts`'s. */
-export const WIRE_ULID_PATTERN = ULID;
