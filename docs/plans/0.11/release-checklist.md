@@ -190,6 +190,13 @@ the live file. They rerun everything at the cut hash. Results per line:
       its modal with the Files code editor, unsaved code survives Escape,
       Revert asks first; and word N2 for automationSignals, checked against the
       code.
+- [ ] Cut floor, second part (product-lead via canvas-lead): main does not
+      build from ffa6c836c through 42a15903b (`control.ts:115` imports
+      briefing-mentions, which landed only in e6cfecf72; "Could not resolve" in
+      the machine core bundle). The cut is at or after both e6cfecf72 and
+      a1308dd3a. Two more cut blockers are being built: Files create, trash and
+      a keyboard move in the modal (product-shell), and the Cmd+P Clear button
+      (product-modals).
 - [ ] Cut floor (product-lead): the cut hash is at or after a1308dd3a, which
       gates the region source's vault token read behind VAULT_ENABLED (210a7506e
       let it read in ship). tech-lead's section 3 receipts ran at 210a7506e and
