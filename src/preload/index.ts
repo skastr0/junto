@@ -791,6 +791,8 @@ const terminalApi: JuntoTerminalApi = {
       input,
     ),
   terminalRelease: (leaseId) => invoke(IPC_CHANNELS.terminalRelease, IPC_TIMEOUT_MS, leaseId),
+  terminalPark: (leaseId, parked) =>
+    invoke(IPC_CHANNELS.terminalPark, HOST_ACTIVATION_IPC_TIMEOUT_MS, leaseId, parked),
   terminalWrite: (leaseId, data, encoding) => invoke(IPC_CHANNELS.terminalWrite, IPC_TIMEOUT_MS, leaseId, data, encoding),
   terminalManagedPrompt: (input) =>
     invoke(IPC_CHANNELS.terminalManagedPrompt, AGENT_MESSAGE_TIMEOUT_MS, input),

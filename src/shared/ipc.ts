@@ -443,6 +443,8 @@ export const IPC_CHANNELS = {
   terminalFinishNodeDelete: "junto:terminal-finish-node-delete",
   terminalAttach: "junto:terminal-attach",
   terminalRelease: "junto:terminal-release",
+  /** A hidden view parks its stream; shown again, it catches up. */
+  terminalPark: "junto:terminal-park",
   terminalWrite: "junto:terminal-write",
   /** Operator multi-prompt via durable prompt-mail (deliver now or queue). */
   terminalManagedPrompt: "junto:terminal-managed-prompt",
@@ -1300,6 +1302,27 @@ export interface TerminalAttachInput {
   readonly hostId?: string;
 }
 
+/**
+ * A park answer. `missed` says main held back output while the view was
+ * parked; the view then repaints from `screen` (the main grid's serialized
+ * state, scrollback included) or, for a generation that already exited and
+ * has no grid, from its final `journal`.
+ */
+export type TerminalParkResult =
+  | { readonly ok: false }
+  | {
+      readonly ok: true;
+      readonly missed: boolean;
+      readonly screen?: {
+        readonly epoch: string;
+        readonly cols: number;
+        readonly rows: number;
+        readonly seq: bigint;
+        readonly serialized: string;
+      };
+      readonly journal?: readonly { readonly type: string; readonly data?: string; readonly seq?: bigint }[];
+    };
+
 export interface JuntoGitApi {
   readonly gitStatus: (cwd: string) => Promise<GitStatusResult>;
   readonly gitLog: (cwd: string, limit?: number) => Promise<GitLogResult>;
@@ -1344,6 +1367,12 @@ export interface JuntoTerminalApi {
   ) => Promise<HostDirectorySnapshot>;
   readonly terminalAttach: (input: TerminalAttachInput) => Promise<unknown>;
   readonly terminalRelease: (leaseId: string) => Promise<boolean>;
+  /**
+   * Park (true) or unpark (false) this window's lease. A parked lease keeps
+   * its control and its scrollback, and main sends it no output until it is
+   * unparked; the unpark answer carries the catch-up.
+   */
+  readonly terminalPark?: (leaseId: string, parked: boolean) => Promise<TerminalParkResult>;
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
   /**
    * Submit one operator multi-prompt via durable prompt-mail. Immediate

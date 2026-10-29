@@ -15,6 +15,7 @@ import {
   type TerminalAttachInput,
   type TerminalFinishNodeDeleteOutcome,
   type TerminalNodeDeleteResource,
+  type TerminalParkResult,
 } from "@shared/ipc";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { asCanvasName } from "@shared/model";
@@ -33,6 +34,10 @@ type LeaseOwner = {
   readonly sender: WebContents;
   readonly hostId: string;
   readonly release: () => void;
+  /** The view is hidden: it is sent no output until it unparks. */
+  parked: boolean;
+  /** Output was held back while parked, so the unpark carries a catch-up. */
+  missed: boolean;
 };
 
 export type TerminalIpcGate = {
@@ -157,6 +162,12 @@ export const registerTerminalIpc = (
         release(leaseId);
         continue;
       }
+      // A hidden view parses nothing: its bytes stay in the main grid, which
+      // its unpark reads back. Every other event still reaches it.
+      if (owner.parked && payload.type === "output") {
+        owner.missed = true;
+        continue;
+      }
       try {
         owner.sender.send(IPC_CHANNELS.terminalEvent, payload);
       } catch {
@@ -171,8 +182,12 @@ export const registerTerminalIpc = (
   // event loop turn instead of per window, so a batch never waits on a clock;
   // every other stream keeps the long window. `controlByBinding` is already
   // the authority for who holds control, so this reads the existing fact
-  // rather than inventing a second notion of "visible".
-  (bindingId: string) => controlByBinding.has(bindingId));
+  // rather than inventing a second notion of "visible". A parked control view
+  // is hidden, so its binding keeps the long window.
+  (bindingId: string) => {
+    const leaseId = controlByBinding.get(bindingId);
+    return leaseId !== undefined && owners.get(leaseId)?.parked !== true;
+  });
   // A linked seat's view the seat's machine ended: tell its window, then forget the lease.
   router.on("lease-ended", (end: { readonly leaseId: string; readonly reason: string }) => {
     if (!owners.has(end.leaseId)) return;
@@ -415,6 +430,8 @@ export const registerTerminalIpc = (
       sender,
       hostId,
       release: releaseOwner,
+      parked: false,
+      missed: false,
     });
     if (result.lease.mode === "control") {
       controlByBinding.set(result.lease.bindingId, leaseId);
@@ -428,6 +445,51 @@ export const registerTerminalIpc = (
     release(leaseId);
     return true;
   });
+
+  // A hidden view parks its stream and keeps its lease, so the main grid keeps
+  // the watched scrollback for it. Shown again, a view that missed output
+  // repaints from that grid's full snapshot, read through a short observe
+  // lease so local, linked and viewed seats answer the same way. Output that
+  // flows after the unpark carries later sequence numbers than the snapshot,
+  // the same contract a first attach keeps.
+  ipcMain.handle(
+    IPC_CHANNELS.terminalPark,
+    async (event, leaseId: string, parked: boolean): Promise<TerminalParkResult> => {
+      assertTrusted(event);
+      const owner = owned(event.sender, leaseId);
+      if (!owner) return { ok: false };
+      if (parked) {
+        if (!owner.parked) {
+          coalescer.flush(terminalBindingKey(owner.lease.bindingId, owner.lease.epoch));
+          owner.parked = true;
+          owner.missed = false;
+        }
+        return { ok: true, missed: false };
+      }
+      if (!owner.parked) return { ok: true, missed: false };
+      owner.parked = false;
+      const missed = owner.missed;
+      owner.missed = false;
+      if (!missed) return { ok: true, missed: false };
+      const view = await router.attach({
+        bindingId: owner.lease.bindingId,
+        mode: "observe",
+        hostId: owner.hostId,
+      });
+      if (!view.ok) return { ok: true, missed: true };
+      void router.release(view.lease, owner.hostId);
+      if (view.lease.epoch !== owner.lease.epoch) return { ok: true, missed: true };
+      const screen = view.screen?.epoch === owner.lease.epoch ? view.screen : undefined;
+      return {
+        ok: true,
+        missed: true,
+        ...(screen
+          ? { screen: { epoch: screen.epoch, cols: screen.cols, rows: screen.rows, seq: screen.seq, serialized: screen.serialized } }
+          : {}),
+        journal: view.journal,
+      };
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.terminalWrite,
