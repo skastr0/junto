@@ -417,7 +417,7 @@ describe("measured observer callback overhead", () => {
     expect(added).toBeLessThan(50_000);
   });
 
-  it("keeps a bounded flush of eight seats well under a millisecond", () => {
+  it("flushes eight seats in one bounded flush", () => {
     const h = harness();
     h.runtime.start();
     for (let seat = 0; seat < 8; seat += 1) {
