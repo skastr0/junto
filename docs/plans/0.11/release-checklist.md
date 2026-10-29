@@ -353,3 +353,44 @@ says 0.11.1 and the downloaded zip hashes to the stapled sha256.
 - Known: `bun run audit:dependencies` fails with 14 highs (Electron 43.5.0
   and others) on a lock unchanged since 0.10.3; carried to 0.11.2.
 - The tag is local; `v0.11.0` is on origin, `v0.11.1` is not pushed.
+
+## 0.11.2 receipt (product-releases, 2026-10-29)
+
+Published from tag `v0.11.2` = `cf45e6f48` (branch `release/0.11.2`, pushed):
+the bump `d8deae328` on main plus five cherry-picks, none of main's later
+work: `63f12dd58`, `314d51f2f`, `8e5d01376` (lanes), `568c1c1a8`,
+`14870f03b` (tech-lead fixture) and `b481efe1f` (the preview test, with one
+app line in `QuickCapture.tsx`, approved by product-documents). Notarization
+`af884549-81f8-4cfe-991f-ac5468ad9656` Accepted. Stapled zip sha256
+`e4011e3a3ec1d66e13a7a1cfee4ecae9a534311649fd583fe687488e38f8b073`, dmg sha256
+`8147a1debb3a02134bfa5397a0e5e5ea612b462142c3d79c618c7da81f585ecf`. The feed
+says 0.11.2 and the downloaded zip hashes to the stapled sha256.
+
+- DB proof (on `d8deae328`, the cut differs by tests and one preview key):
+  read-only `.backup` of the live v63 file, state engine of the cut, v63 to
+  v65 through 64 in 11 s, identity `aefea454` matches the code, only
+  `artifact_moves` and `view_capture_inboxes` are new (empty), the other 126
+  tables equal, canvases and seats identical, one v63 backup before the
+  stamp, a second open runs no step.
+- Security receipts on the final cut: 10 files, 165 tests (ship profile; a
+  first run failed git-guard twice under load 65, both pass alone and in the
+  repeat). Lints clean, `test:features:ship` 13 files, signed packaged audit
+  `ok:true`, `audit:dependencies` now clean (845f3864e).
+- Unit lane: not a pass. Operator ruling (via product-lead): ignore load
+  timing failures. Shared lane passed in 7 of 8 runs at 3 to 4 workers (the
+  failure was a 1 worker run, which the shared lane does not support).
+  Isolated lane never passed whole at load 20 to 65; every failure was a
+  5 s timeout or a wall-clock bound and each file passed alone where it was
+  rerun. Final cut's isolated run failed on `lint-product-name` and
+  `overseer-live-repository` (timeouts), the alone lane never ran, and the
+  published build skipped `bun run test` through a PATH shim, with
+  typecheck, the ship feature lane, the packaged smoke, signing and
+  notarization intact. Files seen failing on timing across runs:
+  adapter-exec-lifecycle (fixed in the cut), artifact-cli, machine-install,
+  one-machine-log-migration, git-summary, quick-capture-open (test, fixed in
+  the cut), pty-e2e harness-classification, drain-rekey, jev/replay and
+  mail-composer-availability, lint-product-name, overseer-live-repository.
+- Not run: the runbook's installed-state qualification (it would migrate the
+  operator's live database).
+- Main carries ahead of this cut: `ebbb81f88` (preview reads the row live),
+  `a6342515c` (focus ring CSS), `63f12dd58` order differs but is in both.
