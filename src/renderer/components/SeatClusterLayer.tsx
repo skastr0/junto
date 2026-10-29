@@ -79,6 +79,8 @@ const writeHidden = (ids: ReadonlyArray<string>): void => {
     el.textContent = [
       `${nodes.join(",\n")} { visibility: hidden !important; }`,
       `${nodes.map((node) => `${node} .junto-mark__part`).join(",\n")} { display: none !important; }`,
+      // The reach preview's ring (reach-preview.css) breathes on the node itself.
+      `${nodes.map((node) => `${node}::before`).join(",\n")} { animation: none !important; }`,
     ].join("\n");
   }
   for (const id of parted) {

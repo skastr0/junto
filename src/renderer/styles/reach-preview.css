@@ -67,3 +67,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   50% { opacity: 0.55; transform: scale(1.015); }
 }
 html[data-surface-motion="paused"] .react-flow__node[data-reach-preview]::before { animation: none; }
+/* A card hidden at overview (canvas-lod-regions.css) draws no ring, so it
+   breathes none (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8); a clustered
+   seat's is stopped in SeatClusterLayer. */
+html[data-canvas-tier="overview"] .react-flow__viewport .react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent):not(:has(.kind-seat))[data-reach-preview]::before { animation: none; }

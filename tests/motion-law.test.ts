@@ -150,6 +150,16 @@ describe("motion law: rings move on the compositor", () => {
     expect(css).toMatch(/\.workbench-pane--parked :is\(\.session-load__spinner, \.content-media__spin, \.animate-spin\) \{\s*animation: none !important;/);
   });
 
+  it("a reach preview ring on a card hidden at overview or in a cluster does not breathe", () => {
+    const css = read("src/renderer/styles/reach-preview.css");
+    expect(css).toMatch(
+      /html\[data-canvas-tier="overview"\] \.react-flow__viewport \.react-flow__node:not\(\.react-flow__node-group\):not\(\.junto-flow-agent\):not\(:has\(\.kind-seat\)\)\[data-reach-preview\]::before \{ animation: none; \}/,
+    );
+    const cluster = read("src/renderer/components/SeatClusterLayer.tsx");
+    expect(cluster).toMatch(/\{ visibility: hidden !important; \}/);
+    expect(cluster).toMatch(/`\$\{node\}::before`\)\.join\(",\\n"\)\} \{ animation: none !important; \}/);
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);
