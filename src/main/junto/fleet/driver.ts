@@ -34,7 +34,7 @@ import { rulingRowOf } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import type { ResourceCommand } from "@shared/resource-command";
 import { RulingRecorder, type RulingRecordFailed } from "../work/ruling-recorder";
-import type { RecordRulingInput } from "../work/repository";
+import { RulingCapture, type RecordRulingInput } from "../work/repository";
 import { foldRuling } from "../work/ruling-projection";
 import { ConsensusNode, type Entry, type EntryPayload, type HardState, type MemberList, type Message, type Ready, type Status } from "./consensus";
 
@@ -268,8 +268,29 @@ export type CanvasAuthorityOptions = {
   readonly heartbeatTicks?: number;
 };
 
+/** A judged batch: what the rulers answered, and the entries their rulings became, all applied. */
+export type Judgment<A> = {
+  readonly value: A;
+  readonly entries: ReadonlyArray<Entry>;
+  readonly messages: ReadonlyArray<Message>;
+};
+
+/** A batch's answer, carried out of the savepoint that rolls its judgment back. */
+class Judged<A> {
+  readonly _tag = "Judged";
+  constructor(readonly value: A) {}
+}
+
 export type CanvasAuthority = {
   readonly status: () => Status;
+  /**
+   * Judge a batch of commands (0.11, 06 F2, steps 1 to 3): in one
+   * transaction, the rulers run unchanged in a savepoint that is rolled back,
+   * keeping the rulings they record, and those are appended as entries with
+   * this machine's acknowledgement. Then what committed is applied, and only
+   * then is the batch's answer returned. One batch at a time per canvas.
+   */
+  readonly judge: <A, E, R>(batch: Effect.Effect<A, E, R>) => Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
   /** Propose a judged ruling; on a canvas this machine rules alone it is committed and applied when this returns. */
   readonly propose: (ruling: LoggedRuling) => Effect.Effect<Entry, FleetDriverError>;
   readonly tick: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
@@ -324,40 +345,82 @@ export const openCanvasAuthority = (
     const node = new ConsensusNode({ id: self, electionTicks, heartbeatTicks: options.heartbeatTicks ?? 1, hardState, log });
     let broken: FleetDriverError | undefined;
 
-    const persist = (ready: Ready) =>
+    const isEmpty = (ready: Ready) => ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0;
+
+    /** What `ready()` says to persist, inside the caller's transaction. */
+    const writeReady = (ready: Ready) =>
       Effect.gen(function* () {
-        if (ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0) return;
-        yield* sql`PRAGMA synchronous = FULL`;
-        yield* sql.withTransaction(
-          Effect.gen(function* () {
-            if (ready.hardState !== undefined) {
-              yield* sql`UPDATE canvas_consensus
-                SET current_term = ${ready.hardState.term}, voted_for = ${ready.hardState.votedFor}, commit_index = ${ready.hardState.commit}
-                WHERE canvas_name = ${canvasName}`;
-            }
-            const from = Math.min(ready.truncateFrom ?? Number.POSITIVE_INFINITY, ...ready.entries.map((entry) => entry.index));
-            if (Number.isFinite(from)) yield* sql`DELETE FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index >= ${from}`;
-            for (const entry of ready.entries) yield* writeEntry(sql, canvasName, entry);
-          }),
-        ).pipe(Effect.ensuring(Effect.ignore(sql`PRAGMA synchronous = NORMAL`)));
+        if (ready.hardState !== undefined) {
+          yield* sql`UPDATE canvas_consensus
+            SET current_term = ${ready.hardState.term}, voted_for = ${ready.hardState.votedFor}, commit_index = ${ready.hardState.commit}
+            WHERE canvas_name = ${canvasName}`;
+        }
+        const from = Math.min(ready.truncateFrom ?? Number.POSITIVE_INFINITY, ...ready.entries.map((entry) => entry.index));
+        if (Number.isFinite(from)) yield* sql`DELETE FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index >= ${from}`;
+        for (const entry of ready.entries) yield* writeEntry(sql, canvasName, entry);
       });
+
+    /** A consensus transaction: its acknowledgement survives power loss, so it runs under synchronous=FULL. */
+    const durably = <A, E, R>(transaction: Effect.Effect<A, E, R>) =>
+      Effect.andThen(sql`PRAGMA synchronous = FULL`, sql.withTransaction(transaction)).pipe(
+        Effect.ensuring(Effect.ignore(sql`PRAGMA synchronous = NORMAL`)),
+      );
+
+    // The core ran ahead of what is on disk: only opening the canvas again tells it the truth.
+    const breaks = (cause: unknown) => {
+      broken = cause instanceof FleetDriverError ? cause : new FleetDriverError({ message: `the authority of ${canvasName} must be opened again`, cause });
+      return broken;
+    };
+
+    const applyCommitted = (ready: Ready) =>
+      ready.committed.length === 0 ? Effect.void : apply(ready.committed, ready.committed.at(-1)!.index);
 
     /** Drain the core: persist, hand back the messages to send, then apply what committed. */
     const drain = Effect.suspend(() => {
       if (broken !== undefined) return Effect.fail(broken);
       const ready = node.ready();
       return Effect.gen(function* () {
-        yield* persist(ready);
-        if (ready.committed.length > 0) yield* apply(ready.committed, ready.committed.at(-1)!.index);
+        if (!isEmpty(ready)) yield* durably(writeReady(ready));
+        yield* applyCommitted(ready);
         return ready.messages;
-      }).pipe(
-        Effect.mapError((cause) => {
-          // The core ran ahead of what is on disk: only opening the canvas again tells it the truth.
-          broken = cause instanceof FleetDriverError ? cause : new FleetDriverError({ message: `the authority of ${canvasName} must be opened again`, cause });
-          return broken;
-        }),
-      );
+      }).pipe(Effect.mapError(breaks));
     });
+
+    const judge = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
+      Effect.suspend(() => {
+        if (broken !== undefined) return Effect.fail(broken);
+        if (!node.status().canCommit) {
+          return Effect.fail(new FleetDriverError({ message: `this machine cannot commit for ${canvasName} now`, cause: node.status().role }));
+        }
+        const captured: Array<RecordRulingInput> = [];
+        const capture = (input: RecordRulingInput) => {
+          if (input.canvasName === canvasName) captured.push(input);
+        };
+        let proposed = false;
+        return Effect.gen(function* () {
+          const appended = yield* durably(
+            Effect.gen(function* () {
+              // Judge against committed state and the batch's own earlier commands, then roll the judgment back.
+              const value = yield* sql.withTransaction(
+                Effect.flatMap(Effect.provideService(batch, RulingCapture, capture), (judged) => Effect.fail(new Judged(judged))),
+              ).pipe(Effect.catchIf((error): error is Judged<A> => error instanceof Judged, (judged) => Effect.succeed(judged.value)));
+              const ruledAt = Date.now();
+              proposed = true;
+              const entries = captured.map((input) => node.propose(encodeLogData({ kind: "ruling", ruling: loggedRuling(input, ruledAt) })));
+              const ready = node.ready();
+              // Appended in the judgment's own transaction: this machine's acknowledgement.
+              yield* writeReady(ready);
+              return { value, entries, ready };
+            }),
+          );
+          // Applied, and only now answered.
+          yield* applyCommitted(appended.ready);
+          return { value: appended.value, entries: appended.entries, messages: appended.ready.messages };
+        }).pipe(
+          Effect.mapError((cause) => (proposed ? breaks(cause) : (cause as E | FleetDriverError))),
+          Effect.catchDefect((defect) => Effect.fail(proposed ? breaks(defect) : failed(`the batch for ${canvasName} could not be judged`)(defect))),
+        ) as Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
+      });
 
     const guarded = <A>(run: () => A) =>
       Effect.suspend(() => (broken !== undefined ? Effect.fail(broken) : Effect.try({ try: run, catch: failed(`the authority of ${canvasName} refused`) })));
@@ -372,6 +435,7 @@ export const openCanvasAuthority = (
 
     return {
       status: () => node.status(),
+      judge,
       propose: (ruling) =>
         Effect.flatMap(guarded(() => node.propose(encodeLogData({ kind: "ruling", ruling }))), (entry) => Effect.as(drain, entry)),
       tick: () => Effect.flatMap(guarded(() => node.tick()), () => drain),

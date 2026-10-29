@@ -510,6 +510,17 @@ export type RecordRulingInput = {
   readonly placement?: CanvasPlacement;
 };
 
+/**
+ * While set in a fiber, every ruling recorded in it is also handed here, once
+ * its row is written: the authority keeps a judged batch's rulings this way
+ * (0.11/06 F2), whichever recorder each ruler was built with. Unset, nothing
+ * changes.
+ */
+export const RulingCapture = Context.Reference<((input: RecordRulingInput) => void) | undefined>(
+  "@junto/RulingCapture",
+  { defaultValue: () => undefined },
+);
+
 /** A recorded ruling, and the notices it owed this machine's seats, for delivery once the caller commits. */
 export type RecordedRuling = LocalFactResult<RulingResult> & { readonly notices: ReadonlyArray<RulingNoticeWrite> };
 
@@ -5087,7 +5098,7 @@ export const WorkRepositoryLive = Layer.effect(
             : [];
           return { ...recorded, notices };
         }),
-      );
+      ).pipe(Effect.tap(() => Effect.flatMap(RulingCapture, (capture) => Effect.sync(() => capture?.(input)))));
     };
 
     const purgeShot: WorkRepositoryShape["purgeShot"] = (input) => {

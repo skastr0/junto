@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -54,7 +54,14 @@ type Store = {
 };
 const stores: Array<Store> = [];
 
+// One frozen clock: a judged store and a direct one stamp every row alike.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(AT);
+});
+
 afterEach(async () => {
+  vi.useRealTimers();
   for (const store of stores.splice(0)) {
     await store.runtime.dispose();
     await rm(store.root, { recursive: true, force: true });
@@ -245,5 +252,77 @@ describe("the fleet driver", () => {
     await open(store);
     await open(store);
     expect(await held(store)).toMatchObject({ seq: before.seq + 1, automations: 1, rulings: [AUTOMATION_OP] });
+  });
+});
+
+const editArtifact = (opId: string, baseVersion: number, markdown: string, itemId: string = ARTIFACT_OP) =>
+  Effect.flatMap(ArtifactRepository, (repo) =>
+    repo.submit(SELF, {
+      opId: opId as OpId,
+      canvasName: CANVAS,
+      actor: { kind: "operator" },
+      target: { kind: "artifact", nodeId: asNodeId("arts"), itemId },
+      basis: null,
+      after: [],
+      op: { op: "edit", edit: { kind: "replace", baseVersion, body: { type: "document", markdown } } },
+    } as unknown as ResourceCommand<ArtifactOp>, everywhere));
+
+const BATCH = Effect.all([
+  createArtifact,
+  // Judged after the create in the same batch: the savepoint holds the version it edits.
+  editArtifact("01M62AA0000000000000000002", 1, "the plan, longer"),
+  placeAutomation,
+  // No such artifact: refused, and recorded as refused.
+  editArtifact("01M62AA0000000000000000003", 1, "nothing", "01M62AA0000000000000000009"),
+]);
+
+const CONSENSUS_TABLES = new Set(["canvas_consensus", "canvas_authorities", "canvas_log", "canvas_log_members", "canvas_log_waiting"]);
+
+/** Every table both paths reach, leaving out the log and a content ref's id (drawn fresh at each put). */
+const tablesOf = (store: Store) =>
+  store.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const names = (yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+        .map((row) => row.name)
+        .filter((name) => !CONSENSUS_TABLES.has(name));
+      const tables: Record<string, ReadonlyArray<string>> = {};
+      for (const name of names) {
+        const rows = yield* sql.unsafe<Record<string, unknown>>(`SELECT * FROM "${name}"`);
+        if (rows.length > 0) tables[name] = rows.map(({ ref_id: _refId, ...row }) => JSON.stringify(row)).sort();
+      }
+      return tables;
+    }),
+  );
+
+describe("the fleet driver judges a batch", () => {
+  it("as the rulers write it directly: answers, facts, bodies, count and ruling rows", async () => {
+    const direct = await makeStore();
+    const answered = await direct.runtime.runPromise(BATCH as unknown as Effect.Effect<ReadonlyArray<unknown>, unknown, never>);
+
+    const judged = await makeStore();
+    const authority = await open(judged);
+    const judgment = await judged.runtime.runPromise(authority.judge(BATCH) as unknown as Effect.Effect<{ value: ReadonlyArray<unknown>; entries: ReadonlyArray<unknown> }, unknown, never>);
+
+    expect(judgment.value).toEqual(answered);
+    expect(judgment.entries).toHaveLength(4);
+    expect(await tablesOf(judged)).toEqual(await tablesOf(direct));
+    expect(await held(judged)).toMatchObject({ refs: 1, automations: 1 });
+    const status = authority.status();
+    expect((await held(judged)).applied_index).toBe(status.lastIndex);
+  });
+
+  it("proposes nothing when the batch itself fails, and judges the next one", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const before = await held(store);
+    const failing = Effect.flatMap(createArtifact, () => Effect.fail("the batch broke" as const));
+    const exit = await store.runtime.runPromiseExit(authority.judge(failing) as Effect.Effect<unknown, unknown, never>);
+    expect(exit._tag).toBe("Failure");
+    expect(await held(store)).toEqual(before);
+    expect(authority.status().lastIndex).toBe(before.commit_index);
+
+    await store.runtime.runPromise(authority.judge(createArtifact) as Effect.Effect<unknown, unknown, never>);
+    expect(await held(store)).toMatchObject({ refs: 1, rulings: [ARTIFACT_OP] });
   });
 });
