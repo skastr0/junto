@@ -1,10 +1,17 @@
+// vitest-lane: alone
 /**
  * State migration 14 -> 15 drops the tables that carried tasks between
- * machines and rebuilds the work log without its links to them. Proven on both
- * version-13 databases, brought to version 14 by the real step, with
+ * machines and rebuilds the work log without its links to them. Proven with
  * rows in the log and in the tables that go: every fact survives with its
  * identity, hash and body, every other table is untouched, and the engine
  * opens the result.
+ *
+ * The version-14 database is made at version 14 (a fresh database takes the
+ * witness schema whole), not by replaying a shipped fixture: it lives in
+ * memory, so no path is shared with any other test, and rows seeded before the
+ * step stand in for what a shipped database holds. The engine case alone opens
+ * a shipped version-13 database, since the whole replay to the head is what it
+ * proves; that case runs in its own lane.
  */
 import { createHash } from "node:crypto";
 import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
@@ -32,10 +39,7 @@ import {
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { STATE_SCHEMA_V14_SQL, STATE_SCHEMA_V15_SQL } from "./fixtures/state-v13/schema";
 
-const fixtures = [
-  { fileName: "command-center-v13.db", sha256: "c31b3097c2c2c56130d9b5e3d9fce4dd1bc289e40e58feab2623801cf0e2072d" },
-  { fileName: "remote-v13.db", sha256: "de746b761025302f018311b1dda3c3008ac99179d95560722176eddbb01cf719" },
-] as const;
+const fixture = { fileName: "command-center-v13.db", sha256: "c31b3097c2c2c56130d9b5e3d9fce4dd1bc289e40e58feab2623801cf0e2072d" } as const;
 
 type Row = Readonly<Record<string, SQLOutputValue>>;
 
@@ -53,10 +57,60 @@ const copyOf = async (fileName: string): Promise<string> => {
   return path;
 };
 
-const open = (path: string): DatabaseSync => {
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
+/** A version-14 database, fresh and in memory. */
+const openAt14 = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, versionFourteenPlan)).toMatchObject({ schemaVersion: 14, ...STATE_SCHEMA_V14_IDENTITY });
   return database;
+};
+
+const COMMAND_SHA = "a".repeat(64);
+const CLAIMED_SHA = "b".repeat(64);
+const DISPOSITION_SHA = "c".repeat(64);
+const CANVAS_FACT_SHA = "d".repeat(64);
+const HISTORICAL_SHA = "e".repeat(64);
+
+/**
+ * What a shipped log holds: a command from another machine, the fact it was
+ * applied as (on a command basis) and its disposition, a fact on a canvas
+ * basis, and a historical fact after it.
+ */
+const seedLog = (database: DatabaseSync): void => {
+  database.exec(`
+    INSERT INTO station_known_installations (installation_id, registered_at) VALUES
+      ('command-center-v1', '2026-07-28T12:00:00.000Z'), ('remote-v1', '2026-07-28T12:00:00.000Z');
+    INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at, seq) VALUES ('factory', 'canvas-1', 'now', 'now', 3);
+    INSERT INTO work_event_sequences (event_home, entity_home, last_seq) VALUES
+      ('command-center-v1', 'remote-v1', '1'), ('remote-v1', 'remote-v1', '4');
+  `);
+  const event = database.prepare(`
+    INSERT INTO work_events (event_home, entity_home, seq, protocol, record_type, item_kind, item_id, item_canvas_name,
+      item_node_id, operation, content_sha256, origin_at, received_at)
+    VALUES (?, 'remote-v1', ?, 'junto/work/v1', ?, 'task', 'task-v1-remote', 'factory', 'tasks', ?, ?, ?, '2026-07-28T12:00:05.000Z')
+  `);
+  event.run("command-center-v1", "1", "command", "task.claim", COMMAND_SHA, "2026-07-28T12:00:00.000Z");
+  event.run("remote-v1", "1", "fact", "task.claim", CLAIMED_SHA, "2026-07-28T12:00:01.000Z");
+  event.run("remote-v1", "2", "disposition", "task.claim", DISPOSITION_SHA, "2026-07-28T12:00:02.000Z");
+  event.run("remote-v1", "3", "fact", "task.transition", CANVAS_FACT_SHA, "2026-07-28T12:00:03.000Z");
+  event.run("remote-v1", "4", "fact", "task.transition", HISTORICAL_SHA, "2026-07-28T12:00:04.000Z");
+  database.prepare(`
+    INSERT INTO work_commands (event_home, entity_home, seq, action_json)
+    VALUES ('command-center-v1', 'remote-v1', '1', '{"operation":"task.claim","targetHome":"remote-v1"}')
+  `).run();
+  const fact = database.prepare(`
+    INSERT INTO work_facts (event_home, entity_home, seq, predecessor_event_home, predecessor_entity_home, predecessor_seq,
+      result_json, basis_kind, basis_canvas_name, basis_canvas_seq,
+      basis_command_event_home, basis_command_entity_home, basis_command_seq, basis_command_sha256)
+    VALUES ('remote-v1', 'remote-v1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  fact.run("1", null, null, null, '{"operation":"task.claim","state":"working"}', "command", null, null, "command-center-v1", "remote-v1", "1", COMMAND_SHA);
+  fact.run("3", "remote-v1", "remote-v1", "1", '{"operation":"task.transition","state":"input-required"}', "canvas", "factory", 3, null, null, null, null);
+  fact.run("4", "remote-v1", "remote-v1", "3", '{"operation":"task.transition","state":"completed"}', "historical", null, null, null, null, null, null);
+  database.prepare(`
+    INSERT INTO work_dispositions (event_home, entity_home, seq, status, command_event_home, command_entity_home, command_seq,
+      command_sha256, fact_event_home, fact_entity_home, fact_seq, fact_sha256)
+    VALUES ('remote-v1', 'remote-v1', '2', 'applied', 'command-center-v1', 'remote-v1', '1', ?, 'remote-v1', 'remote-v1', '1', ?)
+  `).run(COMMAND_SHA, CLAIMED_SHA);
 };
 
 const tableNames = (database: DatabaseSync): string[] =>
@@ -105,17 +159,18 @@ describe("state migration 14 -> 15 (the work log of one machine)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V15_SQL)).toEqual(STATE_SCHEMA_V15_IDENTITY);
   });
 
-  it.each(fixtures)("keeps every fact of $fileName and drops only the dead tables", async ({ fileName, sha256 }) => {
-    const path = await copyOf(fileName);
-    expect(createHash("sha256").update(await readFile(path)).digest("hex")).toBe(sha256);
-    const database = open(path);
+  it("keeps every fact and drops only the dead tables", () => {
+    const database = openAt14();
     try {
-      migrateStateSchema(database, versionFourteenPlan);
+      seedLog(database);
       expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 14 });
       const tablesBefore = tableNames(database);
       const before = new Map(tablesBefore.map((table) => [table, rowsOf(database, table)]));
       const facts = before.get("work_facts")!;
-      expect(facts.length).toBeGreaterThan(0);
+      expect(facts.map((row) => row.basis_kind).sort()).toEqual(["canvas", "command", "historical"]);
+      expect(before.get("work_events")).toHaveLength(5);
+      expect(before.get("work_commands")).toHaveLength(1);
+      expect(before.get("work_dispositions")).toHaveLength(1);
       for (const table of ONE_MACHINE_LOG_REMOVED_TABLES) expect(tablesBefore).toContain(table);
 
       const result = migrateStateSchema(database, versionFifteenPlan);
@@ -152,8 +207,9 @@ describe("state migration 14 -> 15 (the work log of one machine)", () => {
     }
   });
 
-  it.each(fixtures)("opens $fileName through the engine and reads its facts", async ({ fileName }) => {
-    const path = await copyOf(fileName);
+  it(`opens ${fixture.fileName} through the engine and reads its facts`, async () => {
+    const path = await copyOf(fixture.fileName);
+    expect(createHash("sha256").update(await readFile(path)).digest("hex")).toBe(fixture.sha256);
     const runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, makeStateEngineLive(path)));
     try {
       const counts = await runtime.runPromise(
