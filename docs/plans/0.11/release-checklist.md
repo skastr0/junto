@@ -35,6 +35,18 @@ and is noted unverified.
 - [ ] Whether the Files stub step (53) was picked, known before the notes'
       upgrade paragraph and section 1 are filled in.
 
+- [x] Go (operator, 2026-10-28): the real release, no preview build. Database
+      steps cleared as needed, each proven on a `.backup` copy of the live
+      `~/.junto/state/junto.db` (v50); a step that would break it goes to the
+      operator as a signal.
+- [x] Files ships on (operator, 2026-10-28): `SHIP_FEATURES` gets
+      `files: true` now, not at the cut.
+- [ ] Files stub step: signal with the operator; default yes, built by the
+      canvas team as the next step after 62.
+- [x] Scope frozen (product-lead, 2026-10-28): fleet state and the N5 vault go
+      to 0.12; N1 to N4, N2, K2, K4, K5 and A4 ship only if verified in the
+      real app by the cut, otherwise gated off in ship.
+
 ## 1. State steps (51 files node, 52 artifact links, labels, stub if picked)
 
 Notes open with it, as 0.10.3 did: the older release refuses the newer
