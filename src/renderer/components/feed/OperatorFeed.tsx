@@ -89,7 +89,8 @@ import {
   type SignalAnswer,
 } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
-import { dueWords, handInSignalWork, itemWorkOf, paneAnswerOf, workIsDue, type PaneAnswer } from "../../lib/signal-work";
+import { dueWords, handInSignalWork, itemWorkOf, paneAnswerOf, putSignalSecret, workIsDue, type PaneAnswer } from "../../lib/signal-work";
+import { VAULT_ENABLED } from "@shared/features";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
@@ -437,19 +438,23 @@ function FeedDetail({
         <SignalResourceChips canvasName={item.canvasName} attachments={item.attachments} beforeOpen={closeOperatorFeed} />
       </div>
       <div className="operator-feed__answer">
-        {item.signalId && (form?.kind === "artifact" || form?.kind === "proof") && answer === form.kind ? (
+        {item.signalId &&
+        (form?.kind === "artifact" || form?.kind === "proof" || (form?.kind === "secret" && VAULT_ENABLED)) &&
+        answer === form.kind ? (
           <SignalWorkForm
             key={item.signalId}
             signalId={item.signalId}
             canvasName={item.canvasName}
             text={item.text}
             form={form}
+            asker={item.seat.name}
             handIn={handInSignalWork}
+            putSecret={putSignalSecret}
             dismiss={dismissAgentSignal}
             onDone={() => onReply(false)}
           />
         ) : item.signalId && answer === "secret" ? (
-          // Never answered in text: a secret goes only into the vault, which comes later (N5).
+          // Never answered in text: a secret goes only into the vault, which this build has off.
           <p className="operator-feed__secret-wait" role="note">
             This asks for a secret. Secrets are set through the vault, which is not set up yet, so it cannot be answered here.
           </p>

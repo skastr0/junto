@@ -10,7 +10,7 @@ import { forgetWorkDrafts, type SignalForm, type WorkReply } from "../src/render
 import { modelStore } from "../src/renderer/lib/use-model";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
 import { settleLazy } from "./support/settle-lazy";
-import { artifacts } from "./support/model-nodes";
+import { artifacts, region } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.
@@ -32,9 +32,11 @@ let release: () => void;
 let handed: Array<WorkReply>;
 let dismissed: Array<string>;
 let answer: SignalActionResult;
+let put: Array<{ readonly signalId: string; readonly value: string }>;
+let putAnswer: SignalActionResult;
 let done: number;
 
-const draw = async (form: SignalForm & { readonly kind: "artifact" | "proof" }, signalId = "sig-1"): Promise<void> => {
+const draw = async (form: SignalForm & { readonly kind: "artifact" | "proof" | "secret" }, signalId = "sig-1"): Promise<void> => {
   await act(async () =>
     root.render(
       <SignalWorkForm
@@ -42,9 +44,14 @@ const draw = async (form: SignalForm & { readonly kind: "artifact" | "proof" }, 
         canvasName={CANVAS}
         text="Write 5 words"
         form={form}
+        asker="deploy-bot"
         handIn={async (_id, reply) => {
           handed.push(reply);
           return answer;
+        }}
+        putSecret={async (id, value) => {
+          put.push({ signalId: id, value });
+          return putAnswer;
         }}
         dismiss={async (id) => {
           dismissed.push(id);
@@ -78,7 +85,14 @@ const typeInto = (label: string, text: string): void => {
 };
 
 beforeEach(() => {
-  release = modelStore.adopt({ canvas: asCanvasName(CANVAS), seq: 0, wires: [], nodes: [artifacts("shelf-1", { label: "Journal" })] });
+  release = modelStore.adopt({
+    canvas: asCanvasName(CANVAS),
+    seq: 0,
+    wires: [],
+    nodes: [artifacts("shelf-1", { label: "Journal" }), region("region-1", { x: 0, y: 0, width: 100, height: 100 }, { label: "Release" })],
+  });
+  put = [];
+  putAnswer = { ok: true };
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -182,5 +196,45 @@ describe("work done in the signal", () => {
     await act(async () => button("Hand in").click());
     expect(handed).toHaveLength(1);
     expect(handed[0]).toMatchObject({ kind: "proof", text: "Posted the thread.", links: ["https://example.com/post/1"], files: [] });
+  });
+
+  it("a secret form says who asks for what, where, sends the value once, and empties the field whatever comes back", async () => {
+    const secret = { kind: "secret", name: "CLOUDFLARE_API_TOKEN", regionId: "region-1", machine: "studio" } as const;
+    putAnswer = { ok: false, message: "The vault token on studio was refused." };
+    await draw(secret);
+    expect(host.querySelector(".signal-work__where")?.textContent).toBe("deploy-bot asks for CLOUDFLARE_API_TOKEN, declared in Release, for studio.");
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Value of CLOUDFLARE_API_TOKEN"]')!;
+    expect(field.type).toBe("password");
+    expect(field.autocomplete).toBe("off");
+    expect(button("Set secret").getAttribute("aria-disabled")).toBe("true");
+    await act(async () => button("Set secret").click());
+    expect(put).toEqual([]);
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "cf-secret-value");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Set secret").click());
+    expect(put).toEqual([{ signalId: "sig-1", value: "cf-secret-value" }]);
+    // Emptied as it went, the refusal said, and the value nowhere in the page.
+    expect(field.value).toBe("");
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("The vault token on studio was refused.");
+    expect(document.body.innerHTML).not.toContain("cf-secret-value");
+    expect(done).toBe(0);
+
+    putAnswer = { ok: true };
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, "second-try");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(put.at(-1)).toEqual({ signalId: "sig-1", value: "second-try" });
+    expect(field.value).toBe("");
+    expect(done).toBe(1);
+  });
+
+  it("a secret for a region gone says so", async () => {
+    await draw({ kind: "secret", name: "API_KEY", regionId: "gone", machine: "studio" });
+    expect(host.querySelector(".signal-work__where")?.textContent).toBe("deploy-bot asks for API_KEY, declared in a region out of reach, for studio.");
   });
 });

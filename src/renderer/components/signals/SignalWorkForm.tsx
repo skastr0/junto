@@ -1,5 +1,6 @@
-import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ulid } from "ulid";
+import { regionName } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -19,7 +20,7 @@ import {
 import { useCanvas } from "../../lib/use-model";
 import { LiveMarkdownField } from "../artifacts/lazy-editors";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
-import { Button, ConfirmDialog, Textarea } from "../ui";
+import { Button, ConfirmDialog, Input, Textarea } from "../ui";
 import { useSignalAction } from "./SignalReply";
 import "./signal-work.css";
 
@@ -34,15 +35,19 @@ const RULING_PROBE = "00000000000000000000000000";
  * word condition filling as the operator writes; it is handed in once the
  * condition holds and becomes the document in its Artifacts node. A proof
  * form is what was done, with links and files. Writing not handed in is
- * kept while the window runs. Dismissing work is deliberate: it asks first,
- * and the work closes undone.
+ * kept while the window runs. A secret form (with the vault) takes a value
+ * that goes to the vault and nowhere else: the field is never held, and is
+ * emptied after each try. Dismissing work is deliberate: it asks first, and
+ * the work closes undone.
  */
 export function SignalWorkForm({
   signalId,
   canvasName,
   text,
   form,
+  asker,
   handIn,
+  putSecret,
   dismiss,
   onDone,
 }: {
@@ -50,8 +55,11 @@ export function SignalWorkForm({
   readonly canvasName: string;
   /** The signal's own sentence: what the work is. */
   readonly text: string;
-  readonly form: FormOf<"artifact"> | FormOf<"proof">;
+  readonly form: FormOf<"artifact"> | FormOf<"proof"> | FormOf<"secret">;
+  /** Who raised it, the seat or the automation, as the card names it: a secret form says who asks. */
+  readonly asker: string;
   readonly handIn: (signalId: string, reply: WorkReply) => Promise<SignalActionResult>;
+  readonly putSecret: (signalId: string, value: string) => Promise<SignalActionResult>;
   readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
   readonly onDone: () => void;
 }) {
@@ -100,6 +108,21 @@ export function SignalWorkForm({
       {error}
     </p>
   ) : null;
+  if (form.kind === "secret") {
+    return (
+      <SecretWork
+        form={form}
+        canvasName={canvasName}
+        asker={asker}
+        busy={pending !== null}
+        dismissal={dismissal}
+        failure={failure}
+        onPut={(value) => {
+          if (pending === null) void act("", () => putSecret(signalId, value));
+        }}
+      />
+    );
+  }
   return form.kind === "artifact" ? (
     <ArtifactWork
       signalId={signalId}
@@ -119,6 +142,75 @@ export function SignalWorkForm({
       failure={failure}
       onHandIn={(proof) => send({ kind: "proof", ...proof, replyId })}
     />
+  );
+}
+
+function SecretWork({
+  form,
+  canvasName,
+  asker,
+  busy,
+  dismissal,
+  failure,
+  onPut,
+}: {
+  readonly form: FormOf<"secret">;
+  readonly canvasName: string;
+  readonly asker: string;
+  readonly busy: boolean;
+  readonly dismissal: ReactNode;
+  readonly failure: ReactNode;
+  readonly onPut: (value: string) => void;
+}) {
+  // The value lives in the field alone: never in state, a draft or the view.
+  const field = useRef<HTMLInputElement>(null);
+  const [typed, setTyped] = useState(false);
+  const canvas = useCanvas(canvasName);
+  const region = canvas.nodes.get(form.regionId as NodeId);
+  const where = region?.kind === "region" ? regionName(region) : "a region out of reach";
+  const noteId = useId();
+  const put = (): void => {
+    const input = field.current;
+    if (input === null || input.value === "" || busy) return;
+    const value = input.value;
+    // Emptied as it goes, whatever comes back.
+    input.value = "";
+    setTyped(false);
+    onPut(value);
+  };
+  return (
+    <div className="signal-work" data-testid="signal-work-form" data-form="secret">
+      <p className="signal-work__where">
+        {asker} asks for <span className="signal-work__title">{form.name}</span>, declared in {where}, for {form.machine}.
+      </p>
+      <p id={noteId} className="signal-work__where">
+        It goes into the vault and nowhere else: not this signal, its answer or any log.
+      </p>
+      <Input
+        ref={field}
+        dense
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        aria-label={`Value of ${form.name}`}
+        aria-describedby={noteId}
+        placeholder="Paste the value"
+        onChange={(event) => setTyped(event.target.value !== "")}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            put();
+          }
+        }}
+      />
+      {failure}
+      <div className="signal-work__actions">
+        {dismissal}
+        <Button size="xs" variant="primary" aria-disabled={!typed || busy} title={typed ? `Set ${form.name} in the vault` : "Paste the value first"} onClick={put}>
+          Set secret
+        </Button>
+      </div>
+    </div>
   );
 }
 

@@ -156,3 +156,25 @@ export const handInSignalWork = async (signalId: string, reply: WorkReply): Prom
     (error: unknown) => ({ ok: false, message: error instanceof Error ? error.message : "hand in failed" }),
   );
 };
+
+/**
+ * Set a secret form's value through the vault (N5). The value goes to main
+ * and nowhere else; what comes back names only the vault item. Set but not
+ * recorded keeps the signal open, and says so. A failure that is not main's
+ * own answer says nothing of what was sent.
+ */
+export const putSignalSecret = async (signalId: string, value: string): Promise<SignalActionResult> => {
+  const api = getJuntoApi();
+  if (!api) return { ok: false, message: "Junto is not connected." };
+  return api.signalSecretPut({ signalId, value }).then(
+    (result): SignalActionResult => {
+      if (!result.ok) return { ok: false, message: sentenceOf(result.message) };
+      if (result.signal === undefined) {
+        return { ok: false, message: `The value is set in ${result.item}, but the answer was not recorded, so this stays open.` };
+      }
+      upsertAgentSignal(result.signal);
+      return { ok: true };
+    },
+    () => ({ ok: false, message: "The secret was not set." }),
+  );
+};

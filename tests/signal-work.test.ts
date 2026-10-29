@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { signalWordCount as wordCountOf } from "../src/shared/word-count";
 import { afterEach, vi } from "vitest";
-import { dueWords, handInSignalWork, replyRefusalOf, sentenceOf, wordProgressOf, wordProgressWords, workIsDue } from "../src/renderer/lib/signal-work";
+import { dueWords, handInSignalWork, putSignalSecret, replyRefusalOf, sentenceOf, wordProgressOf, wordProgressWords, workIsDue } from "../src/renderer/lib/signal-work";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
 
 describe("word count", () => {
@@ -71,5 +71,25 @@ describe("handing in, by main's rule", () => {
     const sent = { kind: "artifact", markdown: "x", replyId } as const;
     expect(await handInSignalWork("s1", sent)).toEqual({ ok: false, message: "The document holds 212 words of 500." });
     expect(reply).toHaveBeenCalledWith("s1", sent);
+  });
+});
+
+describe("a secret's value, through the vault", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("set but not recorded keeps the signal open and says so; a refusal is main's sentence; a throw says nothing of the value", async () => {
+    const put = vi.fn(async () => ({ ok: true as const, item: "op://Junto/CLOUDFLARE_API_TOKEN" }));
+    vi.stubGlobal("window", { junto: { signalSecretPut: put } });
+    expect(await putSignalSecret("s1", "v")).toEqual({
+      ok: false,
+      message: "The value is set in op://Junto/CLOUDFLARE_API_TOKEN, but the answer was not recorded, so this stays open.",
+    });
+    expect(put).toHaveBeenCalledWith({ signalId: "s1", value: "v" });
+
+    vi.stubGlobal("window", { junto: { signalSecretPut: async () => ({ ok: false, reason: "not-declared", message: "the region does not declare API_KEY" }) } });
+    expect(await putSignalSecret("s1", "v")).toEqual({ ok: false, message: "The region does not declare API_KEY." });
+
+    vi.stubGlobal("window", { junto: { signalSecretPut: async () => Promise.reject(new Error("failed with the-value")) } });
+    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set." });
   });
 });
