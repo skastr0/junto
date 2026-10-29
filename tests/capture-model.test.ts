@@ -54,3 +54,22 @@ describe("a type switch", () => {
     expect(convertCapture(convertCapture(doc("a\nb"), "pad"), "document")).toEqual(doc("a\nb"));
   });
 });
+
+describe("Move to's suggestions for an artifact", () => {
+  it("say why each node is offered, from the words the editor holds", async () => {
+    const { moveSuggestionsFor } = await import("../src/renderer/components/capture/capture-model");
+    const { artifacts, canvasOf } = await import("./support/model-nodes");
+    const canvas = canvasOf([artifacts("inbox"), artifacts("ops", { x: 400 })]);
+    const head = (id: string, nodeId: string, title: string, markdown: string) =>
+      ({
+        artifact: { artifactId: id, nodeId, type: "document", title, version: 1, labels: [], archived: false },
+        body: { type: "document", markdown },
+        bodyRef: null,
+      }) as never;
+    const mine = head("01M639AA000000000000000001", "inbox", "Capture", "");
+    const theirs = head("01M639AA000000000000000002", "ops", "Revenue forecast", "quarterly revenue forecast");
+    expect(moveSuggestionsFor(canvas, mine, [mine, theirs], "quarterly revenue forecast")).toEqual([
+      { nodeId: "ops", why: "Artifacts like it are here" },
+    ]);
+  });
+});

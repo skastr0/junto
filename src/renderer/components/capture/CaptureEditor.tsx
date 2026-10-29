@@ -5,13 +5,11 @@ import {
   type ArtifactEdit,
   type ArtifactOp,
   type ArtifactVersion,
-  artifactText,
   emptyBody,
   FIRST_ARTIFACT_VERSION,
   padOf,
   type TextPatch,
 } from "@shared/artifact";
-import { captureRoutes, routeReasonLine } from "@shared/capture-routes";
 import type { MentionOf } from "@shared/mention";
 import type { NodeId } from "@shared/physics/schema";
 import type { ArtifactHead } from "@shared/resource-ipc";
@@ -31,7 +29,17 @@ import { FilePreview, LinkPreview } from "../artifacts/ArtifactPreview";
 import { ArtifactSheetEditor, type SheetCellLinks } from "../artifacts/ArtifactSheetEditor";
 import type { DocumentMentions } from "../artifacts/DocumentEditor";
 import { DocumentEditor } from "../artifacts/lazy-editors";
-import { CAPTURE_TYPES, type CaptureType, captureTitleOf, captureTypeName, convertCapture, isCaptureType, isEmptyCapture, UNTITLED_CAPTURE } from "./capture-model";
+import {
+  CAPTURE_TYPES,
+  type CaptureType,
+  captureTitleOf,
+  captureTypeName,
+  convertCapture,
+  isCaptureType,
+  isEmptyCapture,
+  moveSuggestionsFor,
+  UNTITLED_CAPTURE,
+} from "./capture-model";
 import "../artifacts/artifacts.css";
 import "./capture-editor.css";
 
@@ -335,22 +343,15 @@ function CaptureWriter({
   const canvas = useCanvas(canvasName);
   const everything = useCanvasArtifacts(canvasName);
   // Read as Move to opens, from the words as they stand then.
-  const suggestions = useMemo(() => {
-    if (!moving || current === null || head === undefined || body === null) return [];
-    const others = everything.map(({ artifact, body: theirs }) => ({
-      artifactId: artifact.artifactId,
-      nodeId: artifact.nodeId,
-      title: artifact.title,
-      text: theirs === null ? "" : artifactText(theirs),
-      labels: artifact.labels,
-      archived: artifact.archived,
-    }));
-    const text = body.type === "document" ? wordsNow() : artifactText(body);
-    const mine = { artifactId: current.artifactId, nodeId: current.nodeId, title: head.artifact.title, text, labels: head.artifact.labels, archived: false };
-    return captureRoutes(canvas, mine, others).map((route) => ({ nodeId: route.nodeId, why: routeReasonLine(route.reasons[0]!) }));
+  const suggestions = useMemo(
+    () =>
+      !moving || head === undefined || body === null
+        ? []
+        : moveSuggestionsFor(canvas, head, everything, body.type === "document" ? wordsNow() : undefined),
     // wordsNow reads refs: the moment Move to opens is what counts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moving, current, head, body, everything, canvas]);
+    [moving, head, body, everything, canvas],
+  );
 
   const editor = (() => {
     if (body === null) return <p className="capture-editor__wait">{head === undefined ? "Finding it." : "Loading this version."}</p>;

@@ -9,8 +9,11 @@
  * archives the new one and restores the old. Nothing is ever lost to a
  * switch.
  */
-import { ARTIFACT_MAX_DOCUMENT_LENGTH, ARTIFACT_MAX_TITLE_LENGTH, type ArtifactBody, emptyBody, padOf } from "@shared/artifact";
+import { ARTIFACT_MAX_DOCUMENT_LENGTH, ARTIFACT_MAX_TITLE_LENGTH, type ArtifactBody, artifactText, emptyBody, padOf } from "@shared/artifact";
+import { captureRoutes, type RouteArtifact, routeReasonLine } from "@shared/capture-routes";
 import { mentionLinksOf } from "@shared/mention";
+import type { ReachCanvas } from "@shared/region-reach";
+import type { ArtifactHead } from "@shared/resource-ipc";
 import type { PadElementId, PadShape } from "@shared/pad";
 import { SHEET_MAX_CELL_LENGTH, SHEET_MAX_COLUMNS, SHEET_MAX_ROWS } from "@shared/sheet";
 
@@ -159,3 +162,28 @@ export const convertCapture = (body: ArtifactBody, to: CaptureType): ArtifactBod
 
 /** The type switch's word for a type. */
 export const captureTypeName = (type: CaptureType): string => (type === "document" ? "Document" : type === "pad" ? "Pad" : "Sheet");
+
+const routeArtifactOf = (head: ArtifactHead, text?: string): RouteArtifact => ({
+  artifactId: head.artifact.artifactId,
+  nodeId: head.artifact.nodeId,
+  title: head.artifact.title,
+  text: text ?? (head.body === null ? "" : artifactText(head.body)),
+  labels: head.artifact.labels,
+  archived: head.artifact.archived,
+});
+
+/**
+ * Move to's suggestions for one artifact (11 Q5), as the picker takes them:
+ * from the header, or M on an Inbox row. `text` is a document's words as
+ * the editor holds them, when they are ahead of its head.
+ */
+export const moveSuggestionsFor = (
+  canvas: ReachCanvas,
+  head: ArtifactHead,
+  everything: ReadonlyArray<ArtifactHead>,
+  text?: string,
+): ReadonlyArray<{ readonly nodeId: ArtifactHead["artifact"]["nodeId"]; readonly why: string }> =>
+  captureRoutes(canvas, routeArtifactOf(head, text), everything.map((one) => routeArtifactOf(one))).map((route) => ({
+    nodeId: route.nodeId,
+    why: routeReasonLine(route.reasons[0]!),
+  }));
