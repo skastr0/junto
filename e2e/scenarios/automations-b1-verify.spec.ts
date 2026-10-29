@@ -37,7 +37,9 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 
 /** A design-system Select: open its trigger by name, pick the option. */
 const choose = async (page: Page, scope: Locator, label: string | RegExp, option: string | RegExp): Promise<void> => {
-  await scope.getByRole("button", { name: label, exact: typeof label === "string" ? true : undefined }).click();
+  // A Select is named "<label>, <value>" once a value is chosen (bcbca4801): match the label as the prefix.
+  const name = typeof label === "string" ? new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(,|$)`, "u") : label;
+  await scope.getByRole("button", { name }).click();
   await page.getByRole("option", { name: option, exact: typeof option === "string" ? true : undefined }).first().click();
 };
 

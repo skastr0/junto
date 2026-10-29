@@ -38,7 +38,9 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 };
 
 const choose = async (page: Page, scope: Locator, label: string | RegExp, option: string | RegExp): Promise<void> => {
-  await scope.getByRole("button", { name: label, exact: typeof label === "string" ? true : undefined }).click();
+  // A Select is named "<label>, <value>" once a value is chosen (bcbca4801): match the label as the prefix.
+  const name = typeof label === "string" ? new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(,|$)`, "u") : label;
+  await scope.getByRole("button", { name }).click();
   await page.getByRole("option", { name: option, exact: typeof option === "string" ? true : undefined }).first().click();
 };
 
@@ -273,7 +275,7 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
     await expect(pane).toBeVisible({ timeout: 20_000 });
     await build("Read the brief");
     await action1.getByRole("textbox", { name: "Signal title", exact: true }).fill("Read the brief");
-    await check("notice: no form offered in the editor", () => expect(action1.getByRole("button", { name: "How you answer" })).toHaveCount(0));
+    await check("notice: no form offered in the editor", () => expect(action1.getByRole("button", { name: /^How you answer(,|$)/u })).toHaveCount(0));
     const show = action1.getByLabel("Artifact to show, optional");
     await show.click();
     await show.pressSequentially("#Brief");

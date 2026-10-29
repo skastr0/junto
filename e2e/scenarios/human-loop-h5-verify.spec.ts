@@ -34,7 +34,9 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 };
 
 const choose = async (page: Page, scope: Locator, label: string | RegExp, option: string | RegExp): Promise<void> => {
-  await scope.getByRole("button", { name: label, exact: typeof label === "string" ? true : undefined }).click();
+  // A Select is named "<label>, <value>" once a value is chosen (bcbca4801): match the label as the prefix.
+  const name = typeof label === "string" ? new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(,|$)`, "u") : label;
+  await scope.getByRole("button", { name }).click();
   await page.getByRole("option", { name: option, exact: typeof option === "string" ? true : undefined }).first().click();
 };
 
@@ -100,7 +102,7 @@ test("H5: an answered escalate starts a linked automation that writes a dated re
     if ((await on.getAttribute("aria-checked")) !== "true") await on.click();
     await choose(page, action(1), "Action 1", "Raise a signal");
     await check("the signal step offers the seat kinds and no work", async () => {
-      await action(1).getByRole("button", { name: "What the signal asks", exact: true }).click();
+      await action(1).getByRole("button", { name: /^What the signal asks(,|$)/u }).click();
       const offered = (await page.getByRole("option").allTextContents()).map((t) => t.trim());
       console.log("H5-KINDS", JSON.stringify(offered));
       expect(offered).toEqual(expect.arrayContaining(["Escalate, a question for you", "Blocked, waiting on you", "Feedback, for your review", "Notice, only to read"]));
