@@ -4,8 +4,8 @@
  * suggestion is only offered; a route is the move from 10-artifact-move.md,
  * and nothing routes on its own.
  *
- * Four things point, each worth a fixed share so no one of them drowns the
- * rest:
+ * Four things point, each worth a bounded share so no one of them drowns
+ * the rest (likeness at most one full share per node):
  * - a link to an artifact points at the node that holds it now, found by id
  *   (a link's node is only a hint, 10);
  * - a mention of a seat, a Tasks node or a page points at the Artifacts nodes
@@ -142,7 +142,9 @@ export const captureRoutes = (
     }
   }
 
-  const live = others.filter((other) => !other.archived);
+  // Only artifacts elsewhere point by labels and likeness: the capture's own
+  // node's, the other captures above all, would fill every place and say nothing.
+  const live = others.filter((other) => !other.archived && other.nodeId !== capture.nodeId && isArtifactsNode(other.nodeId));
 
   for (const label of new Set(capture.labels)) {
     const carriers = live.filter((other) => other.labels.includes(label));
@@ -151,13 +153,16 @@ export const captureRoutes = (
 
   const words = wordsOf(`${capture.title}\n${capture.text}`);
   if (words.length > 0 && live.length > 0) {
+    const similar = new Map<NodeId, number>();
     const [mine, ...theirs] = vectors([words, ...live.map((other) => wordsOf(`${other.title}\n${other.text}`))]);
     live
       .map((other, index) => ({ other, likeness: cosine(mine!, theirs[index]!) }))
       .filter(({ likeness }) => likeness >= SIMILAR_FLOOR)
       .sort((a, b) => b.likeness - a.likeness)
       .slice(0, SIMILAR_TOP)
-      .forEach(({ other, likeness }) => add(other.nodeId, "similar", WEIGHT.similar * likeness));
+      .forEach(({ other, likeness }) => similar.set(other.nodeId, (similar.get(other.nodeId) ?? 0) + likeness));
+    // One node's share is capped at one full likeness, so several alike artifacts never outweigh a link.
+    for (const [nodeId, likeness] of similar) add(nodeId, "similar", WEIGHT.similar * Math.min(1, likeness));
   }
 
   return [...scores]

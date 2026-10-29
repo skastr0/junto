@@ -92,4 +92,18 @@ describe("capture routes", () => {
     const text = link({ kind: "artifact", nodeId: node("Gone"), artifactId: id(7) }, "lost");
     expect(captureRoutes(board, capture(text), [])).toEqual([]);
   });
+
+  it("finds a match elsewhere however many captures in its own node are like it", () => {
+    const inbox = [1, 2, 3, 4, 5].map((n) => art(10 + n, "Inbox", `revenue forecast retail note ${String(n)}`, "revenue forecast retail"));
+    const routes = captureRoutes(board, capture("revenue forecast for retail"), [...inbox, art(1, "Ops", "Retail revenue forecast")]);
+    expect(routes.map((route) => route.nodeId)).toEqual(["Ops"]);
+  });
+
+  it("caps likeness at one share per node, so a link still outranks several alike artifacts", () => {
+    const text = `${link({ kind: "artifact", nodeId: node("Specs"), artifactId: id(1) }, "Spec")} quarterly revenue forecast`;
+    const alike = [2, 3, 4, 5, 6].map((n) => art(n, "Ops", `Revenue forecast ${String(n)}`, "quarterly revenue forecast"));
+    const routes = captureRoutes(board, capture(text), [art(1, "Specs", "Spec"), ...alike]);
+    expect(routes[0]?.nodeId).toBe("Specs");
+    expect(routes.find((route) => route.nodeId === "Ops")!.score).toBeLessThanOrEqual(2);
+  });
 });
