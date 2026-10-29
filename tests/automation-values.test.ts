@@ -2,6 +2,8 @@ import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { performAction } from "../src/main/junto/automation/live";
 import { changeMatches, type ChangeEvent } from "../src/main/junto/automation/plan";
+import { automationTargets } from "../src/shared/region-reach";
+import { artifacts, automations, canvasOf, region } from "./support/model-nodes";
 import { firedValue } from "../src/main/junto/automation/values";
 import type { WorkServiceShape } from "../src/main/junto/work/service";
 import {
@@ -111,7 +113,18 @@ describe("an artifact watch on a node", () => {
     // After the move its edits come from artifacts-2.
     expect(changeMatches(onOld, editedOn("artifacts-2"), new Set())).toBe(false);
     expect(changeMatches(onNew, editedOn("artifacts-2"), new Set())).toBe(true);
-    expect(changeMatches(onIt as never, editedOn("artifacts-2"), new Set())).toBe(true);
+    // A watch on it follows it while it stays in the automation's reach, and stops once it moves to another region.
+    const board = canvasOf([
+      region("here", { x: 0, y: 0, width: 1000, height: 1000 }),
+      automations("auto", { x: 10, y: 10 }),
+      artifacts("artifacts-1", { x: 300, y: 10 }),
+      artifacts("artifacts-2", { x: 600, y: 10 }),
+      region("away", { x: 2000, y: 0, width: 1000, height: 1000 }),
+      artifacts("artifacts-far", { x: 2100, y: 10 }),
+    ]);
+    const targets = new Set(automationTargets(board, asNodeId("auto"), { kind: "operator" }).map((node) => node.id));
+    expect(changeMatches(onIt as never, editedOn("artifacts-2"), targets)).toBe(true);
+    expect(changeMatches(onIt as never, editedOn("artifacts-far"), targets)).toBe(false);
   });
 
   it("with a label: an edit to one carrying it, or the label gained, one under it included", () => {

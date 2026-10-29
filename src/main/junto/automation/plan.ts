@@ -209,8 +209,9 @@ export const changeMatches = (watch: Watch, event: ChangeEvent, targets: Readonl
         watch.event === event.event &&
         artifactWatchLabelMatches(watch, event.labels, event.gained) &&
         ("kind" in watch.artifact
-          ? // One artifact is watched by its id wherever it moves; its node is a hint (0.11.1, 10).
-            watch.artifact.kind === "artifact" && watch.artifact.artifactId === event.artifactId
+          ? // One artifact is watched by its id wherever it moves, its node a hint (0.11.1, 10),
+            // but only while where it is now is in the automation's reach: reach is never the hint's.
+            watch.artifact.kind === "artifact" && watch.artifact.artifactId === event.artifactId && targets.has(event.nodeId)
           : watch.artifact.node === event.nodeId)
       );
     case "signal":
