@@ -90,6 +90,11 @@ const fake = () => {
       reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", at: at(0, 31) }],
     } as Record<string, SeatThreadMessage[]>,
     lists: 0,
+    /** Set to stand in for a seat with more threads than one page holds. */
+    total: undefined as number | undefined,
+    /** A count main could not read: it answers undefined, never zero. */
+    countFails: false,
+    counts: 0,
   };
   const source: SeatThreadsSource = {
     list: async () => {
@@ -111,6 +116,12 @@ const fake = () => {
     onReadChanged: (listener) => {
       readListeners.add(listener);
       return () => readListeners.delete(listener);
+    },
+    // The seat's total, over every thread it has: the page's rows are not the count.
+    unreadTotal: async () => {
+      state.counts += 1;
+      if (state.countFails) return undefined;
+      return state.total ?? state.threads.reduce((sum, item) => sum + item.unread, 0);
     },
   };
   const change = (seatId?: string) => listeners.forEach((listener) => listener({ canvasName: "factory", seatId }));
@@ -208,6 +219,35 @@ describe("the Threads button", () => {
     expect(row("notes")?.querySelector('[data-testid="seat-threads-row-unread"]')).toBeNull();
   });
 
+  it("counts the whole seat, not the page the list has read", async () => {
+    const fixture = fake();
+    fixture.state.threads = [
+      thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) }),
+      thread({ threadId: "banner", title: "Cache banner", lastAt: at(0, 58), unread: 2 }),
+    ];
+    fixture.state.total = 57;
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    // The row says its own two; the header says the seat's fifty-seven.
+    expect(q("seat-threads-row-unread")?.textContent).toBe("2");
+    expect(q("seat-threads-button")?.textContent).toBe("Threads57");
+  });
+
+  it("keeps the count it had when a count cannot be read, rather than say nothing is waiting", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) })];
+    fixture.state.total = 3;
+    setSeatThreadsSource(fixture.source);
+    await render();
+    expect(await act(async () => { await flush(); return q("seat-threads-button")?.textContent; })).toBe("Threads3");
+
+    fixture.state.countFails = true;
+    act(() => fixture.change());
+    await flush();
+    expect(q("seat-threads-button")?.textContent).toBe("Threads3");
+  });
+
   it("marks the thread it shows as read, and the count goes with it", async () => {
     const fixture = fake();
     fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
@@ -296,6 +336,7 @@ describe("main's threads IPC as the source", () => {
         mail.add(listener);
         return () => mail.delete(listener);
       },
+      seatThreadUnread: vi.fn(async () => 0),
       seatThreadMarkRead: vi.fn(async () => ({ through: "m1", at: at(1, 3) })),
       onSeatThreadReadChanged: (listener: (change: { canvasName: string; threadId: string; seats: ReadonlyArray<string> }) => void) => {
         readChanges.add(listener);
@@ -822,6 +863,7 @@ describe("paging in the popup", () => {
       messages: async () => ({ messages: [] }),
       onChanged: () => () => undefined,
       markRead: async () => undefined,
+      unreadTotal: async () => 0,
       onReadChanged: () => () => undefined,
     };
     return { source, calls, everything };
@@ -967,6 +1009,7 @@ describe("paging in the popup", () => {
       },
       onChanged: () => () => undefined,
       markRead: async () => undefined,
+      unreadTotal: async () => 0,
       onReadChanged: () => () => undefined,
     };
     setSeatThreadsSource(source);

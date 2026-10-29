@@ -13,6 +13,7 @@ import {
   threadTime,
   useSeatThreadMessages,
   useSeatThreads,
+  useSeatUnread,
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
@@ -33,12 +34,12 @@ import "./seat-threads.css";
 /**
  * The Threads button in a seat's header, left of Params. It carries the
  * operator's unread count for that seat, on every device: reading a thread in
- * the popup, or on the phone, clears it.
+ * the popup, or on the phone, clears it. The count is the seat's total, not the
+ * part of it the popup happens to have paged in.
  */
 export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; readonly name: string }) {
   const [open, setOpen] = useState(false);
-  const { threads } = useSeatThreads(seat);
-  const unread = threads.reduce((sum, thread) => sum + thread.unread, 0);
+  const unread = useSeatUnread(seat);
   return (
     <>
       <Button

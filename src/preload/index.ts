@@ -841,6 +841,7 @@ const terminalApi: JuntoTerminalApi = {
   seatThreadSend: (input) => invoke(IPC_CHANNELS.seatThreadSend, IPC_TIMEOUT_MS, input),
   seatThreadMentionables: (query) => invoke(IPC_CHANNELS.seatThreadMentionables, IPC_TIMEOUT_MS, query),
   seatThreadReads: (query) => invoke(IPC_CHANNELS.seatThreadReads, IPC_TIMEOUT_MS, query),
+  seatThreadUnread: (query) => invoke(IPC_CHANNELS.seatThreadUnread, IPC_TIMEOUT_MS, query),
   seatThreadMarkRead: (input) => invoke(IPC_CHANNELS.seatThreadMarkRead, IPC_TIMEOUT_MS, input),
   onSeatThreadReadChanged: (listener) => subscribe(IPC_CHANNELS.seatThreadReadChanged, listener),
   operatorContentPut: (input) => invoke(IPC_CHANNELS.operatorContentPut, IPC_TIMEOUT_MS, input),

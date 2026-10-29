@@ -16,7 +16,7 @@ import {
   type MailReadPoint,
   type OperatorThreadSent,
 } from "@shared/mail-threads";
-import { markRead, onReadChanged, readPoints } from "./work/mail-reads";
+import { markRead, onReadChanged, readPoints, unreadTotal } from "./work/mail-reads";
 import {
   deliverOperatorThreadMail,
   mentionableSeats,
@@ -569,6 +569,13 @@ export const registerJuntoIpc = (): void => {
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(SeatThreadReadsQuery, { onExcessProperty: "error" })(input);
       return Object.fromEntries(yield* readPoints(query.canvasName, query.nodeId, query.threadIds));
+    })),
+  );
+  // The header's count: every thread of the seat, never the page the list holds.
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadUnread, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadReadsQuery, { onExcessProperty: "error" })(input);
+      return yield* unreadTotal(query.canvasName, query.nodeId);
     })),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMarkRead, (_event, input: unknown): Promise<MailReadPoint | undefined> => {

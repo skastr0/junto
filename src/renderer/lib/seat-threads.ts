@@ -81,6 +81,8 @@ export type SeatThreadsSource = {
   ) => Promise<SeatThreadMessagesPage>;
   /** Something changed in this canvas's threads; no seat means any. */
   readonly onChanged: (listener: (change: { readonly canvasName: string; readonly seatId?: string }) => void) => () => void;
+  /** What the operator has not read in the seat, over every thread of it, never a page of them; undefined when it cannot be read. */
+  readonly unreadTotal: (seat: SeatAddress) => Promise<number | undefined>;
   /** The operator read a thread: their shared point moves, on every device. It never rejects. */
   readonly markRead: (seat: SeatAddress & { readonly threadId: string }) => Promise<void>;
   /** The operator's read state moved, here or on the phone; the seats whose counts changed. */
@@ -99,12 +101,14 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
   const messages = api?.seatThreadMessages;
   const onMail = api?.onWorkMailChanged;
   const markRead = api?.seatThreadMarkRead;
+  const unreadTotal = api?.seatThreadUnread;
   const onRead = api?.onSeatThreadReadChanged;
   if (
     typeof list !== "function" ||
     typeof messages !== "function" ||
     typeof onMail !== "function" ||
     typeof markRead !== "function" ||
+    typeof unreadTotal !== "function" ||
     typeof onRead !== "function"
   ) {
     return undefined;
@@ -155,6 +159,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
     },
     // Any mailbox can change a seat's threads: the canvas alone decides.
     onChanged: (listener) => onMail((event) => listener({ canvasName: event.canvasName })),
+    unreadTotal: ({ canvasName, seatId }) => unreadTotal({ canvasName, nodeId: seatId }),
     markRead: async ({ canvasName, seatId, threadId }) => {
       // Main answers the point or undefined, and never rejects; the list is read again either way.
       await markRead({ canvasName, nodeId: seatId, threadId });
@@ -178,7 +183,10 @@ export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void 
   offRead = undefined;
   installed = next;
   if (retained.size > 0) listenForChanges();
-  for (const key of retained.keys()) void refreshSeat(key);
+  for (const key of retained.keys()) {
+    void refreshSeat(key);
+    void refreshUnread(key);
+  }
   for (const key of Object.keys(seatThreads$.messages.peek())) void refreshThread(key);
 };
 
@@ -207,7 +215,9 @@ type ThreadState = {
 export const seatThreads$ = observable<{
   readonly seats: Record<string, SeatState | undefined>;
   readonly messages: Record<string, ThreadState | undefined>;
-}>({ seats: {}, messages: {} });
+  /** What the operator has not read in a seat, over every thread of it; absent until read. */
+  readonly unread: Record<string, number | undefined>;
+}>({ seats: {}, messages: {}, unread: {} });
 
 const seatKey = (seat: SeatAddress): string => `${seat.canvasName}\u0000${seat.seatId}`;
 const threadKey = (seat: SeatAddress, threadId: string): string => `${seatKey(seat)}\u0000${threadId}`;
@@ -299,6 +309,24 @@ const refreshSeat = (key: string): Promise<void> =>
     } catch (error) {
       const prior = seatThreads$.seats[key].peek();
       seatThreads$.seats[key].set({ ...prior, threads: prior?.threads ?? [], loaded: true, error: errorText(error) });
+    }
+  });
+
+/**
+ * The seat's unread total read again, as the button shows it: every thread of
+ * the seat, so paging the list never moves the number (0.11.3).
+ */
+const refreshUnread = (key: string): Promise<void> =>
+  coalesce(`${key}\u0001unread`, async () => {
+    const read = activeSource();
+    if (!read || !retained.has(key)) return;
+    try {
+      const total = await read.unreadTotal(seatOfKey(key));
+      if (activeSource() !== read || !retained.has(key)) return;
+      // A count that cannot be read keeps the last one: zero would claim nothing is waiting.
+      if (total !== undefined) seatThreads$.unread[key].set(total);
+    } catch {
+      // A count that cannot be read leaves the last one; the list's own error line carries the failure.
     }
   });
 
@@ -402,6 +430,7 @@ const listenForChanges = (): void => {
       if (seat.canvasName !== change.canvasName) continue;
       if (change.seatId !== undefined && change.seatId !== seat.seatId) continue;
       void refreshSeat(key);
+      void refreshUnread(key);
     }
     for (const key of openThreads.keys()) {
       const [canvasName, seatId] = key.split("\u0000");
@@ -416,6 +445,7 @@ const listenForChanges = (): void => {
       const seat = seatOfKey(key);
       if (seat.canvasName !== change.canvasName || !change.seatIds.includes(seat.seatId)) continue;
       void refreshSeat(key);
+      void refreshUnread(key);
     }
   });
 };
@@ -437,7 +467,7 @@ export const markSeatThreadRead = async (seat: SeatAddress, threadId: string): P
   const read = activeSource();
   if (!read) return;
   await read.markRead({ ...seat, threadId });
-  await refreshSeat(seatKey(seat));
+  await Promise.all([refreshSeat(seatKey(seat)), refreshUnread(seatKey(seat))]);
 };
 
 /** Read a retained seat's threads again now, as after the operator sent in them. */
@@ -453,6 +483,7 @@ export const retainSeatThreads = (seat: SeatAddress): (() => void) => {
   retained.set(key, (retained.get(key) ?? 0) + 1);
   listenForChanges();
   void refreshSeat(key);
+  void refreshUnread(key);
   let released = false;
   return () => {
     if (released) return;
@@ -486,6 +517,20 @@ export const useSeatThreads = (seat: SeatAddress, enabled = true): SeatState => 
     return retainSeatThreads({ canvasName, seatId });
   }, [canvasName, seatId, enabled]);
   return use$(() => seatThreads$.seats[seatKey(seat)].get()) ?? NO_THREADS;
+};
+
+/**
+ * What the operator has not read in the seat, over every thread of it: the
+ * header's count, which paging never moves. Kept current with the seat's
+ * threads while mounted, and 0 until the first read lands.
+ */
+export const useSeatUnread = (seat: SeatAddress, enabled = true): number => {
+  const { canvasName, seatId } = seat;
+  useEffect(() => {
+    if (!enabled || !canvasName) return;
+    return retainSeatThreads({ canvasName, seatId });
+  }, [canvasName, seatId, enabled]);
+  return use$(() => seatThreads$.unread[seatKey(seat)].get()) ?? 0;
 };
 
 /** One thread's messages, read while mounted. */
@@ -604,5 +649,5 @@ export const resetSeatThreads = (): void => {
   retained.clear();
   openThreads.clear();
   flights.clear();
-  seatThreads$.set({ seats: {}, messages: {} });
+  seatThreads$.set({ seats: {}, messages: {}, unread: {} });
 };

@@ -10,7 +10,7 @@
  */
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { mailAfter, readPointKey, seatMailThreadEntries, type MailReadChanged, type MailReadPoint } from "@shared/mail-threads";
+import { mailAfter, readPointKey, seatMailThreadEntries, unreadPast, type MailReadChanged, type MailReadPoint } from "@shared/mail-threads";
 import { afterSqlCommit } from "../state/sql-commit";
 import { StateTransactionOperation } from "../state/service";
 import { seatThreadsInput } from "./operator-threads";
@@ -73,6 +73,33 @@ export const readPoints = (canvasName: string, nodeId: string, threadIds?: Reado
     for (const [threadId, point] of yield* canvasPoints(sql, canvasName)) if (wanted.has(threadId)) points.set(threadId, point);
     return points as ReadonlyMap<string, MailReadPoint>;
   });
+
+/**
+ * What the operator has not read in a seat: every thread of it counted with
+ * `unreadPast`, never a page's part, so the number a surface shows does not
+ * move as the list pages. The canvas's points are read whole, by the key's
+ * prefix, and the seat's own threads decide which count. Undefined when the
+ * count cannot be read, never 0: 0 is a count, and a surface keeps its last
+ * one rather than claim nothing is unread.
+ */
+export const unreadTotal = (canvasName: string, nodeId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const threads = seatMailThreadEntries(yield* seatThreadsInput(canvasName), nodeId);
+    // A seat with no threads has nothing unread, and needs no points read.
+    if (threads.size === 0) return 0;
+    const points = yield* canvasPoints(sql, canvasName);
+    let total = 0;
+    for (const [threadId, entries] of threads) total += unreadPast(entries, points.get(threadId));
+    return total;
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        console.error(`[mail-reads] ${canvasName}/${nodeId} unread total could not be read:`, error);
+        return undefined;
+      }),
+    ),
+  );
 
 /**
  * Read a seat's thread through `through`, or through its newest mail when none

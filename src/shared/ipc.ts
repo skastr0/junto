@@ -513,6 +513,8 @@ export const IPC_CHANNELS = {
   seatThreadMentionables: "junto:seat-thread-mentionables",
   /** Renderer → main: the operator's read points of a seat's threads. */
   seatThreadReads: "junto:seat-thread-reads",
+  /** Renderer → main: what the operator has not read in a seat, over every thread of it. */
+  seatThreadUnread: "junto:seat-thread-unread",
   /** Renderer → main: the operator read a seat's thread. */
   seatThreadMarkRead: "junto:seat-thread-mark-read",
   /** Main → renderer: a read point moved, on the desktop or the phone. */
@@ -1502,6 +1504,12 @@ export interface JuntoTerminalApi {
    * a thread between two seats read under one is read under both.
    */
   readonly seatThreadReads: (query: SeatThreadReadsQuery) => Promise<Readonly<Record<string, MailReadPoint>>>;
+  /**
+   * What the operator has not read in a seat, counted over every thread of it
+   * rather than the page a list holds. Undefined when it cannot be read, so a
+   * surface keeps the count it had rather than claim zero.
+   */
+  readonly seatThreadUnread: (query: SeatThreadReadsQuery) => Promise<number | undefined>;
   /**
    * Read a thread through a mail, or through its newest. Forward only; a mark
    * that moves nothing writes nothing and tells no one, so it is safe on every
