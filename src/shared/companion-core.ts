@@ -152,6 +152,14 @@ export type CompanionBackend = {
   ) => Promise<CompanionOutcome<CompanionResultByOp["artifacts.list"]>>;
   /** Name the Inbox, through the path the desktop's Settings and Cmd+T use; `invalid` for a node that is not an Artifacts node of the canvas. */
   readonly inboxSet: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionResultByOp["inbox.set"]>>;
+  /**
+   * One artifact write, through the desktop's own ruler as the operator: applied with the head,
+   * queued while the editing machine is elsewhere, or a refusal the phone reads by `reason`.
+   * A replayed opId answers as the first ruling did.
+   */
+  readonly artifactApply: (
+    args: CompanionArgsByOp["artifact.apply"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["artifact.apply"]>>;
   readonly quickReplies: () => Promise<CompanionOutcome<CompanionResultByOp["quickReplies.get"]>>;
   readonly portrait: (
     portraitIdentity: string,
@@ -462,6 +470,8 @@ export const handleCompanionRequest = async (
     readonly backend: CompanionBackend;
     readonly device: CompanionDeviceView;
     readonly allowWrite: () => boolean;
+    /** Artifact writes take their own 60-per-10s budget, apart from the 20 mail and signals share (03 section 5, 3). */
+    readonly allowArtifactWrite: () => boolean;
     /** This phone's `content.get` and `machine.get` slots ({@link makeCompanionGates}). */
     readonly gates: CompanionGates;
   },
@@ -502,6 +512,8 @@ export const handleCompanionRequest = async (
         companionOk(id, "seat.get", { seat }),
       );
     case "signal.answer":
+      // The artifact-form member lands with its write path; until then it is not a text answer.
+      if ("artifact" in frame.args) return companionFail(id, companionError("invalid", "Artifact answers are not on this build yet."));
       return respond(
         id,
         backend.answerSignal(frame.args.signalId, frame.args.text, "quiet" in frame.args, frame.args.attachments ?? []),
@@ -559,6 +571,9 @@ export const handleCompanionRequest = async (
       return respond(id, backend.artifactList(frame.args), (value) => companionOk(id, "artifacts.list", value));
     case "inbox.set":
       return respond(id, backend.inboxSet(frame.args.canvasName, frame.args.nodeId), (value) => companionOk(id, "inbox.set", value));
+    case "artifact.apply":
+      if (!context.allowArtifactWrite()) return companionFail(id, companionError("rate-limited", COMPANION_ERROR_COPY["rate-limited"]));
+      return respond(id, backend.artifactApply(frame.args), (value) => companionOk(id, "artifact.apply", value));
     case "quickReplies.get":
       return respond(id, backend.quickReplies(), (value) => companionOk(id, "quickReplies.get", value));
     case "portrait.get": {
@@ -589,6 +604,9 @@ export const handleCompanionRequest = async (
       }
     }
     case "content.stage": {
+      // The artifact purpose lands with its claim path; until then nothing claims for artifacts.
+      if (frame.args.purpose !== undefined)
+        return companionFail(id, companionError("invalid", "Staging for an artifact is not on this build yet."));
       const release = context.gates.stage();
       if (release === undefined)
         return companionFail(id, companionError("rate-limited", "Send one piece at a time, and wait for it to land."));

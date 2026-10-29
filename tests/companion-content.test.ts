@@ -109,8 +109,9 @@ describe("content.get through the request core", () => {
     mailList: async () => outcomeOk([]),
     mailSend: async () => outcomeFail("not-found"),
     comments: async () => outcomeFail("not-found"),
-    comment: async () => outcomeFail("not-found"),
     mentionCandidates: async () => outcomeFail("not-found"),
+    artifactApply: async () => outcomeFail("not-found"),
+    comment: async () => outcomeFail("not-found"),
     quickReplies: async () => outcomeOk({ replies: [] }),
     stagePiece: async () => outcomeFail("invalid"),
     admitStage: async () => outcomeOk(undefined),
@@ -136,7 +137,7 @@ describe("content.get through the request core", () => {
     ...over,
   });
   const call = (backend: CompanionBackend, args: object, gates = makeCompanionGates()) =>
-    handleCompanionRequest(frame(args), { backend, device: { deviceId: "dev", state: "paired" }, allowWrite: () => true, gates });
+    handleCompanionRequest(frame(args), { backend, device: { deviceId: "dev", state: "paired" }, allowWrite: () => true, allowArtifactWrite: () => true, gates });
 
   it("never asks the store for a digest outside the feed", async () => {
     let asked = 0;

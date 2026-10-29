@@ -188,6 +188,13 @@ describe("request decoding", () => {
     "artifacts.nodes": { canvasName: "main" },
     "artifacts.list": { canvasName: "main", nodeId: "art-notes", labels: ["launch"], query: "pricing", limit: 20 },
     "artifact.get": { canvasName: "main", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5", version: 2 },
+    "artifact.apply": {
+      canvasName: "main",
+      nodeId: "art-notes",
+      artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5",
+      opId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D6",
+      op: { op: "create", title: "Launch notes", body: { type: "document", markdown: "# Notes\n" } },
+    },
     "artifact.history": { canvasName: "main", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5", before: 5, limit: 20 },
     "artifact.pending": { canvasName: "main", nodeId: "art-notes" },
     "artifact.moveCheck": { canvasName: "main", artifactIds: ["01KAZ3Q8X4V6W2N5R7T9Y1B3D5"], to: "art-launch" },

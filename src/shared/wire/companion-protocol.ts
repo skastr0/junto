@@ -47,6 +47,13 @@ import {
   CompanionInboxSetArgs,
   CompanionInboxSetResult,
 } from "./companion-artifact-reads";
+import {
+  CompanionArtifactApplyArgs,
+  CompanionArtifactApplyResult,
+  COMPANION_ARTIFACT_CONFLICT_FIELDS,
+  CompanionContentStagePurpose,
+  CompanionSignalArtifactAnswer,
+} from "./companion-artifact-writes";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 import { RingState } from "./rings";
 import { ResourceSubject } from "./thread-subject";
@@ -549,6 +556,7 @@ export const COMPANION_OPS = [
   "artifacts.list",
   "artifacts.nodes",
   "inbox.set",
+  "artifact.apply",
   "threads.list",
   "thread.get",
   "threads.read",
@@ -611,6 +619,7 @@ export const CompanionArgs = {
       text: bounded(0, COMPANION_MAX_TEXT),
       attachments: Schema.optionalKey(Attachments),
     }).pipe(Schema.check(textOrFiles)),
+    CompanionSignalArtifactAnswer,
   ]),
   "signal.dismiss": Schema.Struct({ signalId: bounded(1, 128) }),
   "mail.list": Schema.Struct({
@@ -657,6 +666,8 @@ export const CompanionArgs = {
     byteLength: intBetween(1, COMPANION_ATTACHMENT_MAX_BYTES),
     mediaType: ContentMediaType,
     displayName: Schema.optionalKey(ContentDisplayName),
+    /** What the bytes are for; absent, a mail or answer attachment claims them. */
+    purpose: Schema.optionalKey(CompanionContentStagePurpose),
     offset: SafeOffset,
     /** Standard padded base64 of 1 to COMPANION_STAGE_CHUNK_MAX bytes. */
     data: bounded(4, Math.ceil(COMPANION_STAGE_CHUNK_MAX / 3) * 4),
@@ -692,6 +703,7 @@ export const CompanionArgs = {
   "artifact.history": CompanionArtifactHistoryArgs,
   "artifact.moveCheck": CompanionArtifactMoveCheckArgs,
   "artifact.pending": CompanionArtifactPendingArgs,
+  "artifact.apply": CompanionArtifactApplyArgs,
   "artifact.get": CompanionArtifactGetArgs,
   "artifacts.list": CompanionArtifactsListArgs,
   "artifacts.nodes": CompanionArtifactsNodesArgs,
@@ -715,6 +727,7 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "artifact.moveCheck",
   "artifact.pending",
   "artifact.get",
+  "artifact.apply",
   "artifacts.list",
   "artifacts.nodes",
   "inbox.set",
@@ -812,6 +825,7 @@ export const CompanionResults = {
   "artifact.history": CompanionArtifactHistoryResult,
   "artifact.moveCheck": CompanionArtifactMoveCheckResult,
   "artifact.pending": CompanionArtifactPendingResult,
+  "artifact.apply": CompanionArtifactApplyResult,
   "artifact.get": CompanionArtifactGetResult,
   "artifacts.list": CompanionArtifactsListResult,
   "artifacts.nodes": CompanionArtifactsNodesResult,
@@ -848,6 +862,8 @@ export const CompanionError = Schema.Struct({
   message: bounded(1, 500),
   /** `conflict` only: the signal as it now stands. */
   signal: Schema.optionalKey(AgentSignal),
+  /** `conflict` on an artifact write only: which conflict, and the head to merge or take. */
+  ...COMPANION_ARTIFACT_CONFLICT_FIELDS,
 });
 export type CompanionError = typeof CompanionError.Type;
 

@@ -33,6 +33,7 @@ export const MAIN_AUTHORING_LABELS = [
   "companion.signal-dismiss",
   "companion.mail-send",
   "companion.comment",
+  "companion.artifact.apply",
   "delivery.message-stamp",
   "review.checkout",
   "kernel.flag-mirror",

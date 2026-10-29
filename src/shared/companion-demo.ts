@@ -12,6 +12,7 @@
  * shapes a real Mac sends.
  */
 
+import { Result } from "effect";
 import { asCanvasName, asNodeId, asWireId, canvasFromOpened, type BindingId, type Canvas, type Node, type NodeOf } from "./model";
 import { companionCanvasDrawn } from "./companion-canvas";
 import type { AgentSignal } from "./agent-signals";
@@ -24,6 +25,7 @@ import {
   outcomeOk,
   type CompanionBackend,
   type CompanionMailThread,
+  type CompanionOutcome,
 } from "./companion-core";
 import { companionCommentsPage, type CommentPostView, type CommentThreadView } from "./companion-comments";
 import type { ItemId } from "./wire/ids";
@@ -58,6 +60,10 @@ import {
   type CompanionResponseFrame,
   type CompanionThreadMessage,
 } from "./companion-protocol";
+import type { CompanionResultByOp } from "./wire/companion-protocol";
+import { decodeArtifactBody, ruleArtifactEdit, type Artifact, type ArtifactBody, type ArtifactEdit, type ArtifactVersion, type ArtifactVersionRecord } from "./wire/artifact";
+import { ARTIFACT_LABEL_RULE, artifactLabelOf, artifactLabelsOf, type ArtifactLabelColour } from "./wire/artifact-labels";
+import { COMPANION_ARTIFACT_WRITE_LIMIT } from "./wire/companion-artifact-writes";
 import { buildOperatorFeed, feedSeatsFromCanvas, feedSourcesFromCanvas, type FeedHealth } from "./operator-feed";
 
 /** One thread mail as the store holds it: the mailbox it sits in, and the row. */
@@ -88,6 +94,7 @@ import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type
 import {
   DEMO_ACTIVITY,
   DEMO_ACTIVITY_AT,
+  DEMO_ARTIFACT_LABEL_COLOURS,
   DEMO_ARTIFACTS,
   DEMO_ARTIFACT_THREADS,
   DEMO_BRIEFINGS,
@@ -235,6 +242,20 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
   let commentSeq = 0;
   // A replayed opId answers as the first one did, never a second comment.
   const commentOps = new Map<string, { readonly threadId: string; readonly messageId: string }>();
+  // --- artifact writes (03, the phone's artifacts) ---------------------------
+  // A replayed opId answers as the first ruling did, as the Mac's does.
+  const applyOps = new Map<string, CompanionResultByOp["artifact.apply"]>();
+  // Edits this session applied, per artifact, so an edit behind the head can rebase or refuse as the Mac's does.
+  const appliedEdits = new Map<string, Array<ArtifactEdit>>();
+  // The bytes each new version's body ref names, as the Mac's content store keeps them.
+  const appliedBytes = new Map<string, Uint8Array>();
+  const mutableArtifacts = DEMO_ARTIFACTS as Array<{
+    head: { -readonly [K in keyof Artifact]: Artifact[K] };
+    body: ArtifactBody;
+    versions: Array<ArtifactVersionRecord>;
+  }>;
+  const mutableColours = DEMO_ARTIFACT_LABEL_COLOURS as Record<string, Record<string, ArtifactLabelColour | undefined>>;
+  const OPERATOR_AUTHOR = { kind: "operator" } as const;
 
   const now = (): number => clock;
   const tick = (): number => {
@@ -305,6 +326,10 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
   };
 
   const known = (canvasName: string) => canvasName === DEMO_CANVAS;
+  const demoArtifactReads = makeDemoArtifactReads(CANVAS, known);
+  const artifactsNodeIds = new Set(
+    [...CANVAS.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id as string),
+  );
   const regionIdOf = (nodeId: string): string | null =>
     feedSeatsFromCanvas(CANVAS).find((entry) => entry.seat.nodeId === nodeId)?.region.regionId ?? null;
   const seatExists = (nodeId: string) => SEATS.some((seat) => seat.id === nodeId);
@@ -566,7 +591,10 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     contentRange: async (ref, offset, length) => {
       const stored = DEMO_CONTENT.find((content) => content.ref.sha256 === ref.sha256);
-      const bytes = stored === undefined ? demoArtifactBytes(ref.sha256) : new TextEncoder().encode(stored.text);
+      const bytes =
+        stored === undefined
+          ? (demoArtifactBytes(ref.sha256) ?? appliedBytes.get(ref.sha256))
+          : new TextEncoder().encode(stored.text);
       if (bytes === undefined) return outcomeFail("unavailable");
       return outcomeOk(bytes.subarray(offset, offset + length));
     },
@@ -581,7 +609,117 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       return outcomeOk({ machine: entry.machine, status: entry.status, logs });
     },
     tailnetPeers: async () => outcomeOk({ available: true, peers: DEMO_TAILNET }),
-    ...makeDemoArtifactReads(CANVAS, known),
+    ...demoArtifactReads,
+    // One write, ruled as the Mac rules: applied with the head, a conflict with the
+    // head for an edit behind the version, invalid for what the ruler cannot read.
+    artifactApply: async (args) => {
+      if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
+      const replayed = applyOps.get(args.opId);
+      if (replayed !== undefined) return outcomeOk(replayed);
+      const op = args.op;
+      const conflict = (reason: "stale" | "rebase_conflict", head: Artifact, message: string) =>
+        ({ ok: false as const, error: { code: "conflict" as const, message, reason, artifact: head } });
+      const keep = async (result: CompanionResultByOp["artifact.apply"], artifactId?: ItemId): Promise<CompanionOutcome<CompanionResultByOp["artifact.apply"]>> => {
+        applyOps.set(args.opId, result);
+        // The reads serve a bodyRef for each new version; keep its bytes so content.get answers them.
+        if (result.disposition === "applied" && artifactId !== undefined) {
+          const served = await demoArtifactReads.artifactGet({ canvasName: DEMO_CANVAS, artifactId });
+          const held = mutableArtifacts.find((candidate) => candidate.head.artifactId === artifactId);
+          if (served.ok && held !== undefined) {
+            appliedBytes.set(served.value.bodyRef.sha256, new TextEncoder().encode(JSON.stringify(held.body)));
+          }
+        }
+        return outcomeOk(result);
+      };
+
+      if (op.op === "labelColour") {
+        if (!artifactsNodeIds.has(args.nodeId)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
+        const label = artifactLabelOf(op.label);
+        if (label === undefined) return outcomeFail("invalid", ARTIFACT_LABEL_RULE);
+        const nodeColours = (mutableColours[args.nodeId] ??= {});
+        if (op.colour === null) delete nodeColours[label];
+        else nodeColours[label] = op.colour;
+        tick();
+        return keep({ disposition: "applied" });
+      }
+
+      if (op.op === "create") {
+        if (args.artifactId === undefined) return outcomeFail("invalid", "A create names the artifact it makes.");
+        if (mutableArtifacts.some((held) => held.head.artifactId === args.artifactId))
+          return outcomeFail("invalid", "An artifact of that id already lives here.");
+        if (!artifactsNodeIds.has(args.nodeId)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
+        const decoded = decodeArtifactBody(op.body);
+        if (Result.isFailure(decoded)) return outcomeFail("invalid", "That body is not one the wire reads.");
+        const labels = artifactLabelsOf(op.labels ?? []);
+        if (labels === undefined) return outcomeFail("invalid", ARTIFACT_LABEL_RULE);
+        const at = tick();
+        const body = decoded.success;
+        const head: Artifact = {
+          artifactId: args.artifactId,
+          nodeId: args.nodeId,
+          type: body.type,
+          title: op.title,
+          version: 1 as ArtifactVersion,
+          createdBy: OPERATOR_AUTHOR,
+          updatedAt: at,
+          archived: false,
+          taskIds: op.taskIds ?? [],
+          labels,
+        };
+        mutableArtifacts.push({ head, body, versions: [{ artifactId: head.artifactId, version: 1 as ArtifactVersion, author: OPERATOR_AUTHOR, at, body }] });
+        return keep({ disposition: "applied", artifact: head, version: 1 as ArtifactVersion }, head.artifactId);
+      }
+
+      if (args.artifactId === undefined) return outcomeFail("invalid", "That write names no artifact.");
+      const held = mutableArtifacts.find((candidate) => candidate.head.artifactId === args.artifactId);
+      if (held === undefined || held.head.nodeId !== args.nodeId)
+        return outcomeFail("not-found", "That artifact is not on that node of this canvas.");
+      const at = tick();
+      switch (op.op) {
+        case "edit": {
+          const edits = appliedEdits.get(held.head.artifactId) ?? [];
+          const since = edits.slice(Math.max(0, edits.length - (held.head.version - op.edit.baseVersion)));
+          const ruled = ruleArtifactEdit({ version: held.head.version, body: held.body }, op.edit, since);
+          if (Result.isFailure(ruled)) {
+            const code = ruled.failure.code;
+            if (code === "stale" || code === "rebase_conflict") return conflict(code, held.head, ruled.failure.message.slice(0, 500));
+            return outcomeFail("invalid", ruled.failure.message.slice(0, 500));
+          }
+          held.body = ruled.success.body;
+          held.head.version = ruled.success.version;
+          held.head.updatedAt = at;
+          held.versions.push({ artifactId: held.head.artifactId, version: ruled.success.version, author: OPERATOR_AUTHOR, at, body: ruled.success.body });
+          edits.push(op.edit);
+          appliedEdits.set(held.head.artifactId, edits);
+          return keep({ disposition: "applied", artifact: held.head, version: held.head.version }, held.head.artifactId);
+        }
+        case "retitle":
+          held.head.title = op.title;
+          held.head.updatedAt = at;
+          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+        case "labels": {
+          const labels = artifactLabelsOf(op.labels);
+          if (labels === undefined) return outcomeFail("invalid", ARTIFACT_LABEL_RULE);
+          held.head.labels = labels;
+          held.head.updatedAt = at;
+          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+        }
+        case "archive":
+        case "restore":
+          held.head.archived = op.op === "archive";
+          held.head.updatedAt = at;
+          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+        case "tasks":
+          held.head.taskIds = op.taskIds;
+          held.head.updatedAt = at;
+          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+        case "move":
+          if (!artifactsNodeIds.has(op.to)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
+          // Only the node changes: no version, no body, not even when it last changed.
+          held.head.nodeId = op.to;
+          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+      }
+    },
     canvasScene: async (canvasName) => known(canvasName) ? outcomeOk(companionCanvasDrawn(CANVAS)) : outcomeFail("not-found", "No such canvas."),
   };
 };
@@ -595,6 +733,7 @@ export const makeDemoHost = (options: {
 }): CompanionHost => {
   const backend = makeDemoBackend(options.machineName, options.portraitPng);
   const allowWrite = makeWriteLimiter();
+  const allowArtifactWrite = makeWriteLimiter(COMPANION_ARTIFACT_WRITE_LIMIT);
   const gates = makeCompanionGates();
   let waiters: Array<() => void> = [];
   const wake = (): void => {
@@ -626,6 +765,7 @@ export const makeDemoHost = (options: {
         backend,
         device: { deviceId: DEMO_DEVICE_ID, state: "paired" },
         allowWrite,
+        allowArtifactWrite,
         gates,
       });
       if (backend.revision() !== before) wake();

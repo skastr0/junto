@@ -67,6 +67,7 @@ import { ContentService } from "../content/service";
 import { readContentObjectRange } from "../content/store";
 import { companionMachineBackend } from "./machines";
 import { companionArtifactReadBackend } from "./artifact-reads";
+import { companionArtifactWriteBackend } from "./artifact-writes";
 import { companionThreadBackend } from "./threads";
 import { companionCommentBackend } from "./comments";
 import { companionMentionBackend } from "./mentions";
@@ -543,6 +544,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   ...companionMachineBackend,
   ...companionThreadBackend,
   ...companionArtifactReadBackend,
+  ...companionArtifactWriteBackend,
   ...companionCommentBackend,
   ...companionMentionBackend,
   ...companionStageBackend,

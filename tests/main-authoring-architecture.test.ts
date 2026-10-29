@@ -108,6 +108,9 @@ describe("main authoring architecture", () => {
       // The automation runner's actions write as the automation's own node
       // (automationActorRef), only on the machine that edits the canvas.
       "src/main/junto/automation/live.ts",
+      // The phone's artifact writes rule through the desktop's own resource
+      // ruler as the operator, only under the companion.artifact.apply label.
+      "src/main/junto/companion/artifact-writes.ts",
       // The phone companion reads a seat's recent-ops Activity through WorkService.
       "src/main/junto/companion/backend.ts",
       // A subject's comments for the phone: the desktop's topology and mailbox
@@ -160,6 +163,8 @@ describe("main authoring architecture", () => {
     expect(companion).toContain('.run("companion.signal-dismiss"');
     // The phone's mail send lives with the thread reads it answers.
     expect(source("src/main/junto/companion/threads.ts")).toContain('.run("companion.mail-send"');
+    // The phone's artifact writes run only under their own authoring label.
+    expect(source("src/main/junto/companion/artifact-writes.ts")).toContain('.run("companion.artifact.apply"');
     // A phone's comment is written through the desktop's comment path, under its own label.
     expect(source("src/main/junto/companion/comments.ts")).toContain('.run("companion.comment"');
 

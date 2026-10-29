@@ -71,7 +71,7 @@ const session = () => {
   const send = (args: Record<string, unknown>): Promise<CompanionResponseFrame> =>
     handleCompanionRequest(
       { v: COMPANION_PROTOCOL, type: "request", id: `r${String(n++)}`, op: "content.stage", args } as CompanionRequestFrame,
-      { backend: store.backend, device: { deviceId: "dev_x", state: "paired" }, allowWrite: () => true, gates },
+      { backend: store.backend, device: { deviceId: "dev_x", state: "paired" }, allowWrite: () => true, allowArtifactWrite: () => true, gates },
     );
   const piece = (f: ReturnType<typeof file>, offset: number, length: number) =>
     send({

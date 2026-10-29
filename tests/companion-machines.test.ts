@@ -210,7 +210,7 @@ describe("machine.get in flight", () => {
     const call = () => {
       const decoded = decodeCompanionRequestLine(demoRequest("g", "machine.get", { name: "mini" }));
       if (Result.isFailure(decoded)) throw new Error("did not decode");
-      return handleCompanionRequest(decoded.success, { backend, device: { deviceId: "dev", state: "paired" }, allowWrite: () => true, gates });
+      return handleCompanionRequest(decoded.success, { backend, device: { deviceId: "dev", state: "paired" }, allowWrite: () => true, allowArtifactWrite: () => true, gates });
     };
     const pending = [call(), call()];
     await new Promise((resolve) => setTimeout(resolve, 0));

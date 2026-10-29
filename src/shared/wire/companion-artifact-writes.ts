@@ -24,6 +24,13 @@ const bounded = (min: number, max: number) =>
 /** A canvas name, as the companion protocol spells one. */
 const CanvasName = bounded(1, 256);
 
+/**
+ * The artifact write budget, a limiter of its own (section 5, 3): 60 applies
+ * per 10 seconds, apart from the 20 mail and signal writes share, so a
+ * document saving at every pause does not starve mail.
+ */
+export const COMPANION_ARTIFACT_WRITE_LIMIT = 60;
+
 // --- artifact.apply -----------------------------------------------------------
 
 /**
@@ -60,8 +67,9 @@ export type CompanionArtifactApplyArgs = typeof CompanionArtifactApplyArgs.Type;
 export const CompanionArtifactApplyResult = Schema.Union([
   Schema.Struct({
     disposition: Schema.Literal("applied"),
-    artifact: Artifact,
-    version: ArtifactVersion,
+    /** The head as it now stands: absent only on `labelColour`, the one op on the node itself. */
+    artifact: Schema.optionalKey(Artifact),
+    version: Schema.optionalKey(ArtifactVersion),
   }),
   Schema.Struct({
     disposition: Schema.Literal("queued"),

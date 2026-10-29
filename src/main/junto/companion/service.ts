@@ -50,6 +50,7 @@ import {
   companionPairingUrl,
   type CompanionRequestFrame,
 } from "@shared/companion-protocol";
+import { COMPANION_ARTIFACT_WRITE_LIMIT } from "@shared/wire/companion-artifact-writes";
 import {
   OPERATOR_PROTOCOL_VERSION,
   type OperatorRequestEnvelope,
@@ -193,6 +194,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   const editKeys = (edit: (text: string) => string): Promise<void> =>
     authorizedKeysPath === undefined ? Promise.resolve() : editAuthorizedKeys(edit, authorizedKeysPath).then(() => undefined);
   const limiters = new Map<string, () => boolean>();
+  const artifactLimiters = new Map<string, () => boolean>();
   const gates = new Map<string, CompanionGates>();
   const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Pending pairing links stay in main; the renderer only ever gets the QR.
@@ -394,6 +396,11 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
         allowWrite = makeWriteLimiter();
         limiters.set(device.deviceId, allowWrite);
       }
+      let allowArtifactWrite = artifactLimiters.get(device.deviceId);
+      if (!allowArtifactWrite) {
+        allowArtifactWrite = makeWriteLimiter(COMPANION_ARTIFACT_WRITE_LIMIT);
+        artifactLimiters.set(device.deviceId, allowArtifactWrite);
+      }
       let deviceGates = gates.get(device.deviceId);
       if (!deviceGates) {
         deviceGates = makeCompanionGates();
@@ -403,6 +410,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
         backend,
         device: { deviceId: device.deviceId, state: device.state },
         allowWrite,
+        allowArtifactWrite,
         gates: deviceGates,
       });
       return success(request, { response });
@@ -470,6 +478,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     forgetLink(deviceId);
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
+    artifactLimiters.delete(deviceId);
     const deviceGates = gates.get(deviceId);
     gates.delete(deviceId);
     // Its open uploads are dropped and the finished ones it never used let go.
