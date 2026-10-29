@@ -139,7 +139,7 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/shared/settings.ts", name: "NotificationSettings", rule: "names", reason: "notification toggles per category, not seat urgency" },
   { file: "src/shared/settings.ts", name: "NotificationPatch", rule: "names", reason: "notification toggles per category, not seat urgency" },
   { file: "src/shared/settings.ts", name: "defaultNotifications", rule: "names", reason: "notification toggles per category, not seat urgency" },
-  { file: "src/shared/pad.ts", name: "PadShapeStatus", rule: "names", reason: "a pad task's status, not seat urgency" },
+  { file: "src/shared/wire/pad.ts", name: "PadShapeStatus", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/pad-project.ts", name: "PadFocusedItem.status", rule: "names", reason: "a pad task's status, not seat urgency" },
   { file: "src/shared/update.ts", name: "UpdatePhase", rule: "names", reason: "the app updater's phases, not seat urgency" },
 
