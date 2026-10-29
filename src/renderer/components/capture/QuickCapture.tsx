@@ -246,6 +246,8 @@ export function QuickCapture() {
                   <FileText size={13} aria-hidden />
                   <span className="quick-capture__row-main">
                     <span className="quick-capture__row-title">{rowLabel(row)}</span>
+                    {/* A reader hears the title, then the type and labels, not run together. */}
+                    <span className="sr-only">, </span>
                     <span className="quick-capture__row-detail">{row.detail}</span>
                   </span>
                 </li>
