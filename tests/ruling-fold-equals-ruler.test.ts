@@ -272,6 +272,24 @@ const canceledInReview: ReadonlyArray<TaskStep> = (() => {
   ];
 })();
 
+/** Every op the coverage check names, applied once, so no seed's draw leaves one out. */
+const everyOp: ReadonlyArray<TaskStep> = (() => {
+  const [operator, assignee] = [actors[0]!, actors[1]!];
+  const [first, second] = [TASK_IDS[0]!, TASK_IDS[1]!];
+  const at = (actor: ResourceActor, op: TaskCommand, task: TaskId): TaskStep => ({ actor, op: { op, task }, node: nodeOf(task) });
+  return [
+    at(operator, { kind: "create", taskId: first, title: "First" } as TaskCommand, first),
+    at(operator, { kind: "create", taskId: second, title: "Second" } as TaskCommand, second),
+    at(operator, { kind: "depend", on: first } as TaskCommand, second),
+    at(operator, { kind: "edit", title: "Ship it" } as TaskCommand, first),
+    at(operator, { kind: "assign", seat: ada } as TaskCommand, first),
+    at(assignee, { kind: "start" } as TaskCommand, first),
+    at(assignee, { kind: "pause" } as TaskCommand, first),
+    at(assignee, { kind: "resume" } as TaskCommand, first),
+    at(assignee, { kind: "finish", handoff: "done" } as TaskCommand, first),
+  ];
+})();
+
 type TaskStep = { readonly actor: ResourceActor; readonly op: { readonly op: TaskCommand; readonly task: TaskId }; readonly node: typeof build };
 
 const taskCommand = (index: number, step: TaskStep) =>
@@ -319,7 +337,7 @@ describe("the fold equals the ruler", () => {
           store.database.close();
         }
       }),
-      { ...runs(60, TASK_BUDGET_MS), examples: [[[...canceledInReview]]] },
+      { ...runs(60, TASK_BUDGET_MS), examples: [[[...canceledInReview]], [[...everyOp]]] },
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["assign", "create", "depend", "edit", "finish", "pause", "resume", "start"]));
   }, timeoutFor(TASK_BUDGET_MS));
