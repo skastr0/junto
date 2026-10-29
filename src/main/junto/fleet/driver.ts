@@ -41,6 +41,8 @@ import { ConsensusNode, type Entry, type EntryPayload, type HardState, type Memb
 export class FleetDriverError extends Schema.TaggedError<FleetDriverError>()("FleetDriverError", {
   message: Schema.String,
   cause: Schema.Unknown,
+  /** The command is still to rule: the caller keeps it queued and sends it again. */
+  retryable: Schema.optionalKey(Schema.Boolean),
 }) {}
 
 /** A judged ruling as the log carries it: what the recorder takes, the bodies the judgment kept, and when it was judged. */
@@ -418,8 +420,17 @@ export const openCanvasAuthority = (
     const judge = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
       Effect.suspend(() => {
         if (broken !== undefined) return Effect.fail(broken);
-        if (!node.status().canCommit) {
-          return Effect.fail(new FleetDriverError({ message: `this machine cannot commit for ${canvasName} now`, cause: node.status().role }));
+        const status = node.status();
+        if (!status.canCommit) {
+          return Effect.fail(new FleetDriverError({ message: `this machine cannot commit for ${canvasName} now`, cause: status.role, retryable: true }));
+        }
+        // One batch in flight: the next is judged only on committed state, or two edits at one base could both pass.
+        if (status.lastIndex > status.commit) {
+          return Effect.fail(new FleetDriverError({
+            message: `a batch for ${canvasName} is appended and not yet committed`,
+            cause: { lastIndex: status.lastIndex, commit: status.commit },
+            retryable: true,
+          }));
         }
         const captured: Array<RecordRulingInput> = [];
         const capture = (input: RecordRulingInput) => {

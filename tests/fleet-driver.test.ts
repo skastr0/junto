@@ -430,3 +430,41 @@ describe("the fleet driver after an alone fork", () => {
     expect(macbook.failures).toEqual([]);
   });
 });
+
+describe("the fleet driver, one batch in flight", () => {
+  it("refuses a second batch, retryable, while the first is appended and not committed", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [SELF, MACBOOK]) {
+      const store = await makeStore(id, [SELF, MACBOOK]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(mini.authority.status()).toMatchObject({ role: "leader", canCommit: true });
+
+    // The MacBook, the pair's fallback, stops answering: the first batch is appended here and waits for it.
+    linked = false;
+    const first = await mini.store.runtime.runPromise(mini.authority.judge(createArtifact) as unknown as Effect.Effect<{ entries: ReadonlyArray<{ index: number }> }, unknown, never>);
+    expect(mini.authority.status().lastIndex).toBe(first.entries.at(-1)!.index);
+    expect(mini.authority.status().commit).toBeLessThan(first.entries.at(-1)!.index);
+
+    const second = await mini.store.runtime.runPromiseExit(
+      mini.authority.judge(editArtifact("01M62AA0000000000000000002", 1, "the plan, longer")) as unknown as Effect.Effect<unknown, unknown, never>,
+    );
+    expect(second._tag).toBe("Failure");
+    expect(String(second._tag === "Failure" ? second.cause : "")).toMatch(/not yet committed/);
+    expect(mini.failures).toEqual([]);
+
+    // Once the fallback answers, the first commits and the next batch is judged.
+    linked = true;
+    for (let round = 0; round < 10 && mini.authority.status().lastIndex > mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(mini.authority.status().commit).toBe(mini.authority.status().lastIndex);
+    await mini.store.runtime.runPromise(
+      mini.authority.judge(editArtifact("01M62AA0000000000000000002", 1, "the plan, longer")) as unknown as Effect.Effect<unknown, unknown, never>,
+    );
+    for (let round = 0; round < 10 && mini.authority.status().lastIndex > mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(await held(mini.store)).toMatchObject({ rulings: [ARTIFACT_OP, "01M62AA0000000000000000002"] });
+  });
+});
