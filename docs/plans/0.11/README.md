@@ -216,3 +216,8 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 - Files: an open file renamed outside Junto follows its new name (pair the
   watcher's delete and add by file id); a twin Files node on the same folder
   notices the other's save at once (tech-lead).
+- Quick open, from the 0.11 accessibility review: Tab closes the palette, so
+  its clear control is out of the Tab order (a reader or voice invokes it, and
+  the field is the keyboard path); decide whether Tab moves to the control
+  instead of closing, whether the count settles before it is announced, and
+  whether the dialog needs `aria-modal` (product-accessibility, 2026-10-29).
