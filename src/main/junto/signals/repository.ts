@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import {
@@ -7,6 +7,12 @@ import {
   type AgentSignalAttachmentKind,
   AgentSignalKind,
   AgentSignalState,
+  SignalForm as SignalFormSchema,
+  type SignalForm,
+  SignalSource as SignalSourceSchema,
+  type SignalSource,
+  WorkTiming as WorkTimingSchema,
+  type WorkTiming,
 } from "@shared/agent-signals";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { StateTransactionOperation } from "../state/service";
@@ -43,6 +49,12 @@ export type RaiseAgentSignal = AgentSignalSeat & {
   readonly kind: AgentSignalKind;
   readonly text: string;
   readonly detail?: string;
+  /** Who raised it; absent is the seat at `nodeId`. */
+  readonly source?: SignalSource;
+  /** A work signal's due time and urgent mark. */
+  readonly work?: WorkTiming;
+  /** The reply it asks for, one per signal. */
+  readonly form?: SignalForm;
   /**
    * The id to raise under, when the caller had to name the signal before it
    * existed (its attachments are stored under it first). Default: a new one.
@@ -65,6 +77,9 @@ export type TakenAgentSignal = AgentSignalSeat & {
   readonly kind: AgentSignalKind;
   readonly text: string;
   readonly detail?: string;
+  readonly source?: SignalSource;
+  readonly work?: WorkTiming;
+  readonly form?: SignalForm;
   /** Pre-baked replies the raise carried, when the sender stated them. */
   readonly suggestions?: ReadonlyArray<string>;
   /** What the raise attached, as kept here: a file of no stated kind until judged. */
@@ -172,6 +187,9 @@ const SignalRow = Schema.Struct({
   kind: AgentSignalKind,
   text: Schema.String,
   detail: Schema.NullOr(Schema.String),
+  source_json: Schema.NullOr(Schema.String),
+  work_json: Schema.NullOr(Schema.String),
+  form_json: Schema.NullOr(Schema.String),
   created_at: Schema.Number,
   state: AgentSignalState,
   response_text: Schema.NullOr(Schema.String),
@@ -197,6 +215,7 @@ const ANSWER_FILE_PART_KIND = "answer-file";
  */
 const columnsOf = (from: string): string => `
   ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
+  ${from}.source_json, ${from}.work_json, ${from}.form_json,
   ${from}.created_at, ${from}.state, ${from}.response_text, ${from}.response_at, ${from}.closed_at,
   (
     SELECT json_group_array(json_object('kind', kind, 'body', json(body_json), 'caption', caption))
@@ -293,28 +312,46 @@ const withSuggestions = (json: string): { readonly suggestions?: ReadonlyArray<s
   return suggestions.length > 0 ? { suggestions } : {};
 };
 
-const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
-  signalId: row.signal_id,
-  canvasName: row.canvas_name,
-  nodeId: row.node_id,
-  kind: row.kind,
-  text: row.text,
-  ...(row.detail === null ? {} : { detail: row.detail }),
-  ...withAttachments(row.attachments_json),
-  ...withSuggestions(row.suggestions_json),
-  createdAt: Number(row.created_at),
-  state: row.state,
-  ...(row.response_text === null || row.response_at === null
-    ? {}
-    : {
-        response: {
-          text: row.response_text,
-          at: Number(row.response_at),
-          ...(answerFilesOf(row.answer_files_json).length > 0 ? { attachments: answerFilesOf(row.answer_files_json) } : {}),
-        },
-      }),
-  ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
-});
+/** A signal's own fields as its column holds them: one JSON object, or null. */
+const jsonOf = (value: object | undefined): string | null => (value === undefined ? null : JSON.stringify(value));
+
+/** A column this build cannot read as its schema is left out, never guessed at. */
+const claimed = <A, I>(schema: Schema.Codec<A, I, never, never>, json: string | null): A | undefined => {
+  if (json === null) return undefined;
+  const decoded = Schema.decodeUnknownOption(schema)(JSON.parse(json) as I);
+  return Option.isSome(decoded) ? decoded.value : undefined;
+};
+
+const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
+  const source = claimed(SignalSourceSchema, row.source_json);
+  const work = claimed(WorkTimingSchema, row.work_json);
+  const form = claimed(SignalFormSchema, row.form_json);
+  return {
+    signalId: row.signal_id,
+    canvasName: row.canvas_name,
+    nodeId: row.node_id,
+    kind: row.kind,
+    text: row.text,
+    ...(row.detail === null ? {} : { detail: row.detail }),
+    ...(source === undefined ? {} : { source }),
+    ...(work === undefined ? {} : { work }),
+    ...(form === undefined ? {} : { form }),
+    ...withAttachments(row.attachments_json),
+    ...withSuggestions(row.suggestions_json),
+    createdAt: Number(row.created_at),
+    state: row.state,
+    ...(row.response_text === null || row.response_at === null
+      ? {}
+      : {
+          response: {
+            text: row.response_text,
+            at: Number(row.response_at),
+            ...(answerFilesOf(row.answer_files_json).length > 0 ? { attachments: answerFilesOf(row.answer_files_json) } : {}),
+          },
+        }),
+    ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
+  };
+};
 
 const notFound = (signalId: string, message: string) =>
   AgentSignalNotFound.make({ signalId, message });
@@ -393,8 +430,9 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     const raise = Effect.fn("agent-signals.raise")(function* (input: RaiseAgentSignal) {
       const signalId = input.signalId ?? ulid();
       yield* sql`
-        INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
-        VALUES (${signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${Date.now()}, 'open')
+        INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json, created_at, state)
+        VALUES (${signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null},
+          ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${Date.now()}, 'open')
       `;
       for (const [position, attachment] of (input.attachments ?? []).entries()) {
         const part = partOf(attachment);
@@ -537,8 +575,9 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       if (held === undefined) {
         if (!input.raises) return yield* notFound(input.signalId, `no signal ${input.signalId} to close`);
         yield* sql`
-          INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
-          VALUES (${input.signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${input.createdAt}, 'open')
+          INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json, created_at, state)
+          VALUES (${input.signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null},
+            ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${input.createdAt}, 'open')
         `;
         // What it attached lands as parts by reference, then the suggestions behind them, as a raise stores them.
         for (const [position, attachment] of (input.attachments ?? []).entries()) {

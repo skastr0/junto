@@ -46,6 +46,7 @@ import { migrateTaskChecks } from "./migrate-task-checks";
 import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
+import { migrateSignalKinds, SIGNAL_KINDS_REPLACED_TABLES } from "../signals/migrate-signal-kinds";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
 import {
   ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL,
@@ -755,7 +756,19 @@ export const STATE_SCHEMA_V59_IDENTITY = {
     "f0f0259198e72c73cea1647593d037769dc9a8ea56e486cb5b27d78075cc8998",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 59;
+/**
+ * Version 60 lets an automation raise a signal for the operator (0.11, 07
+ * N1): `agent_signals` rebuilt with `notice` and `work` in its kind CHECK,
+ * every row copied as it was, and `source_json`, `work_json` and `form_json`
+ * added beside it, empty on every signal already held. Approved by the
+ * operator 2026-10-28. Consolidate.
+ */
+export const STATE_SCHEMA_V60_IDENTITY = {
+  actualSchemaSha256:
+    "0df7137242857b6e8666fc8a71a0bee4469d99fa8f92c8bbfd346aec48136b60",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 60;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -763,7 +776,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 59;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V59_IDENTITY;
+  STATE_SCHEMA_V60_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1226,6 +1239,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V58_IDENTITY,
     migrate: (database) => database.exec(SEAT_CONTROLS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 59,
+    toVersion: 60,
+    name: "let an automation raise a signal, with its form and its due time",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V59_IDENTITY,
+    replacesTables: [...SIGNAL_KINDS_REPLACED_TABLES],
+    migrate: migrateSignalKinds,
   },
 ];
 

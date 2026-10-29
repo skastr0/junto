@@ -342,3 +342,15 @@ export const STATE_SCHEMA_V58_SQL = stepped(
   STATE_SCHEMA_V57_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 58)!.migrate,
 );
+
+/** Step 59 adds `seat_controls`. */
+export const STATE_SCHEMA_V59_SQL = stepped(
+  STATE_SCHEMA_V58_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 59)!.migrate,
+);
+
+/** Step 60 rebuilds `agent_signals` with the operator's kinds, source, work and form. */
+export const STATE_SCHEMA_V60_SQL = stepped(
+  STATE_SCHEMA_V59_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 60)!.migrate,
+);

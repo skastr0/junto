@@ -14,9 +14,18 @@ export const AGENT_SIGNALS_STATE_SCHEMA_SQL = `
         AND canvas_name NOT GLOB '*[^a-z0-9_-]*'
       ),
     node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 1024),
-    kind TEXT NOT NULL CHECK (kind IN ('escalate', 'blocked', 'feedback')),
+    kind TEXT NOT NULL CHECK (kind IN ('escalate', 'blocked', 'feedback', 'notice', 'work')),
     text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 280),
     detail TEXT CHECK (detail IS NULL OR length(detail) BETWEEN 1 AND 8000),
+    source_json TEXT CHECK (
+      source_json IS NULL OR (json_valid(source_json) AND json_type(source_json) = 'object')
+    ),
+    work_json TEXT CHECK (
+      work_json IS NULL OR (json_valid(work_json) AND json_type(work_json) = 'object')
+    ),
+    form_json TEXT CHECK (
+      form_json IS NULL OR (json_valid(form_json) AND json_type(form_json) = 'object')
+    ),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     state TEXT NOT NULL
       CHECK (state IN ('open', 'answered', 'dismissed', 'withdrawn')),
