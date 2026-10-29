@@ -100,15 +100,16 @@ const seatsChapter: TourChapter = {
       </p>
       <p>
         Each seat is a character you can make your own: its look and mood,
-        its name, a soul that sets its voice, and standing instructions it
-        reads every time it starts. That is the editor on the right.
+        its name, a soul that sets its voice, and standing instructions. The
+        agent reads its soul and instructions when it runs{" "}
+        <code>junto onboard</code>. That is the editor on the right.
       </p>
     </>
   ),
   tryIt: [
     { keys: ["right-click"], text: <>the canvas and choose an agent, or press <strong>Add item</strong>.</> },
     { keys: ["double-click"], text: <>a seat to open its terminal.</> },
-    { keys: ["click"], text: <>a seat&apos;s portrait to customize its character.</> },
+    { keys: ["right-click"], text: <>a seat and choose <strong>customize character</strong>.</> },
   ],
   pip: "happy",
 };
@@ -137,9 +138,9 @@ function StatesDemo() {
   const idle = terminalActivity({ seatState: "idle" });
   return (
     <div className="tour-column">
-      <TourStage width={COL * 4} height={ROW * 2} label="Seats in every state: working, wants your input, waiting on you, blocked, done, resting, ready for review, not running">
+      <TourStage width={COL * 4} height={ROW * 2} label="Seats in every state: working, needs input, waiting on you, blocked, done, resting, ready for review, not running">
         <DemoSeat id="tour-s1" name="planner" harness="claude" x={8} y={8} spec={terminalActivity({ seatState: "working" })} caption="working: the ring laps" />
-        <DemoSeat id="tour-s2" name="reviewer" harness="claude" x={8 + COL} y={8} spec={terminalActivity({ seatState: "attention" })} caption="wants your input: rings go out" />
+        <DemoSeat id="tour-s2" name="reviewer" harness="claude" x={8 + COL} y={8} spec={terminalActivity({ seatState: "attention" })} caption="needs input: rings go out" />
         <DemoSeat id="tour-s3" name="schema" harness="codex" x={8 + COL * 2} y={8} spec={idle} signal={signalOf("escalate", "two specs disagree")} caption="waiting on you: it circles" />
         <DemoSeat id="tour-s4" name="deploy" harness="codex" x={8 + COL * 3} y={8} spec={idle} signal={signalOf("blocked", "needs the prod password")} caption="blocked: a steady beat" />
         <DemoSeat
@@ -151,7 +152,7 @@ function StatesDemo() {
           spec={read ? idle : terminalActivity({ seatState: "idle", needsLook: true })}
           caption={read ? "you opened it: resting" : "done: green until you read it"}
         />
-        <DemoSeat id="tour-s6" name="notes" harness="claude" x={8 + COL} y={8 + ROW} spec={idle} caption="resting: the one still ring" />
+        <DemoSeat id="tour-s6" name="notes" harness="claude" x={8 + COL} y={8 + ROW} spec={idle} caption="resting: a still ring" />
         <DemoSeat id="tour-s7" name="docs" harness="grok" x={8 + COL * 2} y={8 + ROW} spec={idle} signal={signalOf("feedback", "draft ready")} caption="ready for review" />
         <DemoSeat id="tour-s8" name="archive" harness="claude" x={8 + COL * 3} y={8 + ROW} spec={terminalActivity({ managedSeat: true, seatState: "unknown" })} caption="not running" />
       </TourStage>
@@ -177,7 +178,8 @@ const statesChapter: TourChapter = {
     <>
       <p>
         Each state moves its ring in its own way, so you can read a whole
-        canvas without opening anything. Only a resting seat is still.
+        canvas without opening anything. Only a resting seat and one that
+        is not running are still.
       </p>
       <p>
         When an agent finishes, its ring turns green and keeps a faint glint
@@ -215,7 +217,7 @@ const note = (
 /** Scripted traffic: a hand-off, its answer, then a prompt to the reviewer. */
 const TRAFFIC = [
   { wire: "builder", kind: "notice", reverse: false, to: "builder", text: "mail from planner: split the migration in two", action: "mail-in", tone: "violet" },
-  { wire: "builder", kind: "answer", reverse: true, to: "planner", text: "mail from builder: both steps pass", action: "mail-in", tone: "green" },
+  { wire: "builder", kind: "notice", reverse: true, to: "planner", text: "mail from builder: both steps pass", action: "mail-in", tone: "violet" },
   { wire: "reviewer", kind: "prompt", reverse: false, to: "reviewer", text: "asked by planner: review the migration", action: "mail-in", tone: "amber" },
 ] as const;
 
@@ -279,8 +281,8 @@ const talkChapter: TourChapter = {
       <p>
         Draw a wire between two seats and those agents can message each other:
         hand off work, ask a question, report back. Each message lights the wire
-        as it crosses: violet for mail, amber when it lands as a prompt, green
-        for an answer. Messages flow while the canvas is playing.
+        as it crosses: violet for mail, amber when it lands as a prompt.
+        Messages flow while the canvas is playing.
       </p>
       <p>
         Above a seat, a short note says what just arrived or what the agent is
@@ -344,7 +346,7 @@ function FeedDemo() {
           signal={answered ? undefined : signalOf("escalate", "two specs disagree on ids")}
           bubble={
             answered
-              ? note("tour-schema-answer", "answered: go on", "signal-clear", "green", 1, "operator")
+              ? note("tour-schema-answer", "answered: Go on", "signal-clear", "green", 1, "operator")
               : note("tour-schema-ask", "wants you: two specs disagree on ids", "signal", "amber", 0)
           }
         />
@@ -376,7 +378,7 @@ function FeedDemo() {
             selected={phase >= 1}
             reveal={false}
             leaving={phase === 3}
-            sending={phase === 2 ? (replies[3] ?? null) : null}
+            sending={phase === 2 ? (replies[2] ?? null) : null}
             onSelect={NO_OP}
             onQuickReply={NO_OP}
           />
@@ -530,8 +532,8 @@ const organizeChapter: TourChapter = {
       <p>
         Select several agents and open them as a <strong>grid</strong> to watch
         their terminals side by side. Save any selection to a numbered slot in
-        the bar at the bottom; press the number to bring it back, and press it
-        again to open each one in turn.
+        the top bar; press the number to bring it back, and press it again
+        to open each one in turn.
       </p>
     </>
   ),
@@ -593,14 +595,15 @@ const playChapter: TourChapter = {
         through Junto. Once you play it, it opens playing every time.
       </p>
       <p>
-        To play, press the <strong>paused</strong> button at the top right of
-        the window, or choose <strong>Play canvas</strong> from the command
-        bar. Messages then flow between agents joined by a wire. Press it
-        again to pause the whole canvas, and that flow stops.
+        To play, press the play button at the top right of the window, or
+        choose <strong>Play canvas</strong> from the command bar. The first
+        time, Junto asks you to confirm. Messages then flow between agents
+        joined by a wire. Press it again to pause the whole canvas, and that
+        flow stops.
       </p>
     </>
   ),
-  tryIt: [{ keys: ["⌘K"], text: <>then <strong>Play canvas</strong>, or press the switch at the top right.</> }],
+  tryIt: [{ keys: ["⌘K", "Tab"], text: <>for actions, then <strong>Play canvas</strong>, or press the switch at the top right.</> }],
   pip: "eager",
 };
 

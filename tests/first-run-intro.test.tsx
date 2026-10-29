@@ -163,7 +163,7 @@ describe("what the tour says", () => {
   it("shows every ring state live, done until read, and the AI reading only when built in", () => {
     const html = chapterAt("states");
     const copy = text(html);
-    for (const state of ["working", "wants your input", "waiting on you", "blocked", "resting", "ready for review", "not running"]) {
+    for (const state of ["working", "needs input", "waiting on you", "blocked", "resting", "ready for review", "not running"]) {
       expect(copy).toContain(state);
     }
     expect(copy).toContain("until you open the seat and read the answer");
@@ -213,7 +213,8 @@ describe("what the tour says", () => {
     const copy = text(chapterAt("play"));
     expect(copy).toContain("A new workspace starts paused");
     expect(copy).toContain("it opens playing every time");
-    expect(copy).toContain("the paused button at the top right of the window");
+    expect(copy).toContain("the play button at the top right of the window");
+    expect(copy).toContain("The first time, Junto asks you to confirm");
     expect(copy).toContain("Play canvas");
   });
 
