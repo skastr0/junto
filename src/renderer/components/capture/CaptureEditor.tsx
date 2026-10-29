@@ -473,7 +473,8 @@ function CaptureWriter({
           onDone={(done) => {
             setMoving(false);
             setLine(movedLine(done.titles, done.queued, done.to.title));
-            setCurrent({ nodeId: done.to.id, artifactId: current.artifactId });
+            // What it holds and its title carry over until the new node lists it: the editor stays, the title never blanks.
+            setCurrent({ nodeId: done.to.id, artifactId: current.artifactId }, body, head.artifact.title);
           }}
         />
       ) : null}

@@ -20,6 +20,8 @@ import { artifacts, region } from "./support/model-nodes";
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
+// The picker brings its highlight into view; jsdom has nowhere to scroll it.
+Element.prototype.scrollIntoView ??= function scrollIntoView() {};
 
 const CANVAS = "factory";
 const INBOX = asNodeId("inbox");
@@ -219,4 +221,24 @@ describe("a capture", () => {
     await settle();
     expect((await live()).map((head) => head.artifact.type)).toEqual(["document"]);
   });
+
+  it("keeps its editor and its title through Move to, until the new node lists it", async () => {
+    await mount();
+    await typeInto("Rates for the lease");
+    await settle();
+    const before = editorView();
+    await act(async () => button("Move to").click());
+    await settle();
+    const specs = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((one) => one.textContent?.includes("Specs"))!;
+    await act(async () => specs.click());
+    const move = [...document.querySelectorAll<HTMLButtonElement>("button")].find((one) => one.textContent === "Move")!;
+    await act(async () => move.click());
+    // The first render after the move, before the new node's list is read again.
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Title"]')?.value).toBe("Rates for the lease");
+    expect(editorView()).toBe(before);
+    await settle();
+    expect((await source.list(CANVAS, asNodeId("specs"))).map((head) => head.artifact.title)).toEqual(["Rates for the lease"]);
+    expect(refs.at(-1)?.nodeId).toBe("specs");
+  });
 });
+
