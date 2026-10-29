@@ -218,6 +218,36 @@ describe("a [[ link drawn in a document", () => {
     expect(said).toEqual(["gone"]);
   });
 
+  // A link names the node it was written on; a moved artifact is found by id where it is now (0.11.1, 10).
+  const movedTo = (now: string) =>
+    setArtifactsSource({
+      ...original,
+      list: async (_canvas: string, nodeId: string) =>
+        nodeId === now ? [{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan, moved", type: "document", archived: false } }] : [],
+      moves: async () => [{ from: NODE, to: now, by: { kind: "operator" }, at: 1 }],
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+
+  it("a link written before its artifact moved says its title now and opens, read where it is", async () => {
+    movedTo("artifacts-release");
+    const moved: Record<string, NodeKind> = { ...kinds, "artifacts-release": "artifacts" };
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => moved[id]} />));
+    const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.dataset.missing).toBeUndefined();
+    expect(chip.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, moved");
+  });
+
+  it("follows a move even once the node it was written on is gone, and is missing where it moved to a node that is gone", async () => {
+    movedTo("artifacts-release");
+    await act(async () =>
+      root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => (id === "artifacts-release" ? "artifacts" : undefined)} />),
+    );
+    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, moved");
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds[id]} />));
+    expect(host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!.dataset.missing).toBe("true");
+  });
+
   it("an artifact that is gone keeps its written title, unavailable", async () => {
     await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={() => undefined} />));
     const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;

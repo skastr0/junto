@@ -7,7 +7,7 @@ import { ARTIFACT_GONE_LINE, artifactLinkStateOf } from "@shared/artifact-link";
 import { mentionRefOf, parseMentionHref, type MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
-import { artifactsSource } from "../../lib/artifacts-source";
+import { readArtifactWhereItIs } from "../../lib/artifact-where";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { openMention } from "../../lib/mention-open";
@@ -162,15 +162,16 @@ export function LiveMarkdownField({
   const sayGone = (): void => {
     if (view.current !== null) sayInDocument(view.current, ARTIFACT_GONE_LINE);
   };
-  /** Open what a link names; an artifact its node no longer holds says it is gone instead. */
+  /** Open what a link names, a moved artifact where it is now; an artifact held nowhere says it is gone instead. */
   const openLinked = (ref: MentionRef, canvasName: string): void => {
     if (ref.kind !== "artifact") return openMention(ref);
-    void artifactsSource()
-      .list(canvasName, ref.nodeId)
-      .then(
-        (heads) => (artifactLinkStateOf(ref.artifactId, heads.map((head) => head.artifact), "").state === "missing" ? sayGone() : openMention(ref)),
-        () => openMention(ref),
-      );
+    void readArtifactWhereItIs(canvasName, ref.nodeId, ref.artifactId).then(
+      (where) =>
+        artifactLinkStateOf(ref.artifactId, where.heads.map((head) => head.artifact), "").state === "missing"
+          ? sayGone()
+          : openMention({ ...ref, nodeId: where.nodeId }),
+      () => openMention(ref),
+    );
   };
   const handlers = useRef<LiveMarkdownHandlers["current"]>({});
   handlers.current = {

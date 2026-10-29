@@ -4,7 +4,7 @@ import { matchMention, parseMentionHref, type MentionOf } from "@shared/mention"
 import type { NodeKind } from "@shared/model/kinds";
 import { parseNodeRef } from "@shared/node-ref";
 import type { NodeId } from "@shared/physics/schema";
-import { useNodeArtifactsRead } from "../../lib/artifacts-source";
+import { useArtifactWhereItIs } from "../../lib/artifact-where";
 import { mentionChipOf, openMention } from "../../lib/mention-open";
 import type { ArtifactType } from "../../lib/resource-visuals";
 import { ResourceChip, mentionMark } from "../ui/ResourceChip";
@@ -50,31 +50,41 @@ function Chip({ mark, label, number, open, artifactType, archived = false, gone 
 /**
  * An artifact chip says what the link names now (`artifactLinkStateOf`, one
  * state for every surface): its title and type's glyph, live; dimmed and
- * named archived, still opening; or, once its node is read and does not hold
- * it, "Missing artifact", whose press says it is gone. Until the node is
- * read, the words the link was written with and the generic mark.
+ * named archived, still opening; or, once read and held nowhere, "Missing
+ * artifact", whose press says it is gone. Until it is read, the words the
+ * link was written with and the generic mark. It is found by id: the link's
+ * node is a hint, and a moved artifact is read and opened where it is now.
  */
 function ArtifactChip({
   refOf,
   canvasName,
   written,
   onGone,
+  nodeKindOf,
+  hintGone = false,
   ...chip
 }: ChipProps & {
   readonly refOf: MentionOf<"artifact">;
   readonly canvasName: string;
   readonly written: string;
   readonly onGone: (() => void) | undefined;
+  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  /** The link's node is gone from the canvas: unless the artifact moved on before, the chip is its written words, unavailable. */
+  readonly hintGone?: boolean;
 }) {
-  const heads = useNodeArtifactsRead(canvasName, refOf.nodeId);
+  const where = useArtifactWhereItIs(canvasName, refOf.nodeId, refOf.artifactId);
+  // Held on a node the canvas no longer has is held nowhere.
+  const heads = where === undefined ? undefined : nodeKindOf(where.nodeId) === "artifacts" ? where.heads : [];
   const link = artifactLinkStateOf(refOf.artifactId, heads?.map((head) => head.artifact), written);
+  if (hintGone && (link.state === "unread" || link.state === "missing")) return <Chip {...chip} />;
+  const open = where === undefined ? chip.open : () => openMention({ ...refOf, nodeId: where.nodeId });
   switch (link.state) {
     case "unread":
       return <Chip {...chip} label={link.words} />;
     case "live":
-      return <Chip {...chip} label={link.words} artifactType={link.type} />;
+      return <Chip {...chip} label={link.words} artifactType={link.type} open={open} />;
     case "archived":
-      return <Chip {...chip} label={link.words} artifactType={link.type} archived />;
+      return <Chip {...chip} label={link.words} artifactType={link.type} archived open={open} />;
     case "missing":
       return <Chip {...chip} label={link.words} open={undefined} gone={onGone} />;
   }
@@ -112,6 +122,25 @@ export function DocumentMentionChip({
   // A `[[ ]]` link draws as its title, without the brackets it is typed with.
   const linkTitle = artifactLinkTitle(label);
   const { ref, kind, label: shown, number } = mentionChipOf({ target, label: linkTitle ?? label }, nodeKindOf);
+  const canvas = canvasName ?? canvasOfHref(href);
+  // An artifact link whose node is gone from the canvas may name one that moved before the node went.
+  if (ref === undefined && kind === "artifact" && target.item !== undefined && canvas !== undefined) {
+    const refOf = { kind: "artifact", nodeId: target.nodeId, artifactId: target.item as MentionOf<"artifact">["artifactId"] } as const;
+    return (
+      <ArtifactChip
+        mark={{ kind }}
+        label={shown}
+        number={number}
+        open={undefined}
+        refOf={refOf}
+        canvasName={canvas}
+        written={label}
+        onGone={onGone}
+        nodeKindOf={nodeKindOf}
+        hintGone
+      />
+    );
+  }
   // A gone seat or page: its link cannot say which, so it is its words, struck.
   if (kind === undefined) {
     return (
@@ -121,12 +150,11 @@ export function DocumentMentionChip({
     );
   }
   const chip: ChipProps = { mark: ref === undefined ? { kind } : mentionMark(ref), label: shown, number, open: ref === undefined ? undefined : () => openMention(ref) };
-  const canvas = canvasName ?? canvasOfHref(href);
   if (ref === undefined || canvas === undefined) return <Chip {...chip} />;
   return matchMention(ref, {
     seat: () => <Chip {...chip} />,
     page: () => <Chip {...chip} />,
     task: () => <Chip {...chip} />,
-    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} written={label} onGone={onGone} />,
+    artifact: (artifact) => <ArtifactChip {...chip} refOf={artifact} canvasName={canvas} written={label} onGone={onGone} nodeKindOf={nodeKindOf} />,
   });
 }
