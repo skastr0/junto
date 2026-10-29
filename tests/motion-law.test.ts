@@ -17,6 +17,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { markAtlasCss, ringCells } from "../src/renderer/lib/activity-atlas";
+import { coversMark } from "../src/renderer/lib/mark-occlusion";
 import { MARK_PHASE_MS, RING_CYCLE_FRAMES, RING_FRAME_MS, RING_MOTION, type LoopRing } from "../src/shared/rings";
 
 const root = resolve(__dirname, "..");
@@ -34,6 +35,7 @@ const RING_SOURCES = [
   "src/renderer/lib/activity-atlas.ts",
   "src/renderer/lib/activity-rings.ts",
   "src/renderer/components/ActivityMark.tsx",
+  "src/renderer/lib/mark-occlusion.ts",
 ];
 
 /** Every @keyframes block in the ring sheet, by name. */
@@ -98,6 +100,29 @@ describe("motion law: rings move on the compositor", () => {
       expect(source, rel).not.toMatch(/requestAnimationFrame|\bset(Interval|Timeout)\s*\(/);
     }
     expect(() => read("src/renderer/lib/activity-live.ts")).toThrow();
+  });
+
+  // The operator's third exception (signal 01M630R3Y59C42SSY754K3ADZZ): a ring
+  // no one can see because an opaque surface wholly covers it.
+  it("a ring stops only when wholly covered: partly covered or over the surface, it keeps running", () => {
+    const covered = { isIntersecting: true, intersectionRatio: 1, ownedBySurface: false, surfaceOnTop: true };
+    expect(coversMark(covered)).toBe(true);
+    for (const ratio of [0.999, 0.5, 0.01]) expect(coversMark({ ...covered, intersectionRatio: ratio }), String(ratio)).toBe(false);
+    expect(coversMark({ ...covered, surfaceOnTop: false })).toBe(false);
+    expect(coversMark({ ...covered, ownedBySurface: true })).toBe(false);
+  });
+
+  it("a ring shown again goes back on the shared clock in the same task", () => {
+    const source = read("src/renderer/components/ActivityMark.tsx");
+    expect(source).toMatch(/const showIfSeen = \(el: HTMLElement\): void => setVisible\(el, intersecting\.has\(el\) && !isCovered\(el\)\)/);
+    expect(source).toMatch(/if \(on && !visible\.has\(el\)\) \{\s*syncPhase\(el\);/);
+  });
+
+  it("the motion law names its three exceptions", () => {
+    const law = read("AGENTS.md");
+    expect(law).toMatch(/hidden\s+window/);
+    expect(law).toMatch(/reduced\s+motion/);
+    expect(law).toMatch(/wholly\s+under\s+an\s+opaque\s+surface/);
   });
 
   it("no frame-stamping clock comes back to step the rings", () => {

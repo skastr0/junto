@@ -15,6 +15,7 @@ import { MARK_PHASE_MS } from "@shared/rings";
 import { ensureMarkAtlas, ringCells, type RingParts } from "../lib/activity-atlas";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { canvasTier$ } from "../lib/canvas-tier";
+import { isCovered, onCoverChange, watchCoverable } from "../lib/mark-occlusion";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
 import { themeMode$ } from "../lib/theme-mode";
 
@@ -94,11 +95,13 @@ export function ActivityMarkFromSpec({
 // --- visibility: one observer for every looping mark -------------------------
 
 /**
- * A looping mark's parts show only while it intersects the window, so an
- * offscreen mark holds no compositor layer and runs nothing. Toggled
- * straight on the DOM: visibility never re-renders React.
+ * A looping mark's parts show only while it intersects the window and no
+ * opaque surface wholly covers it (mark-occlusion.ts), so a mark no one can
+ * see holds no compositor layer and runs nothing. Toggled straight on the
+ * DOM: visibility never re-renders React.
  */
 const watched = new WeakSet<Element>();
+const intersecting = new Set<HTMLElement>();
 const visible = new Set<HTMLElement>();
 let observer: IntersectionObserver | undefined;
 let unsubMotion: (() => void) | undefined;
@@ -139,27 +142,46 @@ const setVisible = (el: Element, on: boolean): void => {
   }
 };
 
+/** Shows a mark when it is on screen and uncovered; showing puts it on the shared clock. */
+const showIfSeen = (el: HTMLElement): void => setVisible(el, intersecting.has(el) && !isCovered(el));
+
+const setIntersecting = (el: Element, on: boolean): void => {
+  if (!watched.has(el) || !(el instanceof HTMLElement)) return;
+  if (on) intersecting.add(el);
+  else intersecting.delete(el);
+  showIfSeen(el);
+};
+
 const visibilityObserver = (): IntersectionObserver | undefined => {
   if (observer) return observer;
   if (typeof IntersectionObserver !== "function") return undefined;
   observer = new IntersectionObserver(
     (entries) => {
-      for (const entry of entries) setVisible(entry.target, entry.isIntersecting);
+      for (const entry of entries) setIntersecting(entry.target, entry.isIntersecting);
     },
     { rootMargin: "48px" },
   );
   return observer;
 };
 
-const watchLoop = (el: Element): (() => void) => {
+let coverWatched = false;
+
+const watchLoop = (el: HTMLElement): (() => void) => {
+  if (!coverWatched) {
+    onCoverChange(showIfSeen);
+    coverWatched = true;
+  }
   const io = visibilityObserver();
   watched.add(el);
+  const uncover = watchCoverable(el);
   if (io) io.observe(el);
   // No observer (tests, old engines): treat as visible so it still animates.
-  else setVisible(el, true);
+  else setIntersecting(el, true);
   return () => {
     io?.unobserve(el);
+    uncover();
     setVisible(el, false);
+    intersecting.delete(el);
     watched.delete(el);
   };
 };

@@ -6,6 +6,7 @@ import {
   type FocusMeasure,
 } from "../lib/focus-measure";
 import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
+import { registerOpaqueSurface, type OpaqueSurface } from "../lib/mark-occlusion";
 import { noteSubjectInUse, subjectOf, useModalLayer } from "../lib/modal-stack";
 import { clampToFrame, watchOperatorResize } from "../lib/operator-resize";
 import { nodeViewStore } from "../lib/node-view-state";
@@ -216,6 +217,24 @@ export function FocusSurface({
       root?.removeEventListener("focusin", onFocusIn);
     };
   }, [hasAside]);
+
+  // The panel is opaque: a moving ring wholly under it cannot be seen, so its
+  // parts stop (mark-occlusion.ts). Maximize and the rail beside it can move
+  // the panel without resizing it, so either reads its box again.
+  const occluder = useRef<OpaqueSurface | undefined>(undefined);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const surface = registerOpaqueSurface(panel);
+    occluder.current = surface;
+    return () => {
+      surface.release();
+      occluder.current = undefined;
+    };
+  }, []);
+  useEffect(() => {
+    occluder.current?.refresh();
+  }, [maximized, hasAside]);
 
   const root = (
     <div
