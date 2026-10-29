@@ -18,7 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { loggedRuling, openCanvasAuthority, type LoggedRuling } from "../src/main/junto/fleet/driver";
+import type { Message } from "../src/main/junto/fleet/consensus";
+import { loggedRuling, openCanvasAuthority, type CanvasAuthority, type LogData } from "../src/main/junto/fleet/driver";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { PausePlaneLive } from "../src/main/junto/pause-plane";
@@ -68,7 +69,8 @@ afterEach(async () => {
   }
 });
 
-const makeStore = async (): Promise<Store> => {
+/** One machine's store; `authorities`, when given, is the list F6 seeded for the canvas. */
+const makeStore = async (self: InstallationId = SELF, authorities?: ReadonlyArray<InstallationId>): Promise<Store> => {
   const root = await mkdtemp(join(tmpdir(), "junto-fleet-driver-"));
   const store: Store = { root, runtime: undefined as never, recorded: [], failing: false };
   const recorder = Layer.effect(
@@ -96,7 +98,7 @@ const makeStore = async (): Promise<Store> => {
             AgentSignalRepositoryLive,
             ReferencesRepositoryLive,
             Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
-            makeMachineRepositoryLive({ defaultName: () => SELF, makeInstallationId: () => SELF }),
+            makeMachineRepositoryLive({ defaultName: () => self, makeInstallationId: () => self }),
           ),
           Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
         ),
@@ -109,10 +111,14 @@ const makeStore = async (): Promise<Store> => {
       const sql = yield* SqlClient.SqlClient;
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES (${SELF}, ${new Date(AT).toISOString()})`;
-          yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${SELF}, ${new Date(AT).toISOString()})`;
+          yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES (${self}, ${new Date(AT).toISOString()})`;
+          yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${new Date(AT).toISOString()})`;
           yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [automations("routines"), artifacts("arts"), seat("lead")] }]]) });
           yield* sql`UPDATE canvases SET editor_installation_id = ${SELF} WHERE canvas_name = ${CANVAS}`;
+          for (const [position, id] of (authorities ?? []).entries()) {
+            yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index) VALUES (${CANVAS}, 1, 0, 0) ON CONFLICT DO NOTHING`;
+            yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${CANVAS}, ${position}, ${id})`;
+          }
         }),
       );
     }),
@@ -173,11 +179,12 @@ const judge = <A, E, R>(store: Store, submit: Effect.Effect<A, E, R>) =>
       yield* sql.withTransaction(Effect.flatMap(submit, () => Effect.fail(new Judged()))).pipe(
         Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
       );
-      return store.recorded.splice(mark).map((input) => loggedRuling(input, AT));
-    }) as unknown as Effect.Effect<ReadonlyArray<LoggedRuling>, unknown, never>,
+      return store.recorded.splice(mark).map((input): LogData => ({ kind: "ruling", ruling: loggedRuling(input, AT) }));
+    }) as unknown as Effect.Effect<ReadonlyArray<LogData>, unknown, never>,
   );
 
-const open = (store: Store) => store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
+const open = (store: Store, self: InstallationId = SELF) =>
+  store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self, electionTicks: 3 }));
 
 /** What a doubled apply would show: content refs per artifact version, the canvas count, ruling rows, and where the log stands. */
 const held = (store: Store) =>
@@ -324,5 +331,102 @@ describe("the fleet driver judges a batch", () => {
 
     await store.runtime.runPromise(authority.judge(createArtifact) as Effect.Effect<unknown, unknown, never>);
     expect(await held(store)).toMatchObject({ refs: 1, rulings: [ARTIFACT_OP] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Two machines: an alone fork must never leave a follower skipping history it counts as applied.
+
+const MACBOOK = "macbook" as InstallationId;
+type Seat = { readonly store: Store; readonly authority: CanvasAuthority; readonly failures: Array<string> };
+
+/** Carry messages between the pair while `up` lets them through, until none are left. */
+const deliver = async (pair: Record<string, Seat>, messages: ReadonlyArray<Message>, up: () => boolean) => {
+  let queue = [...messages];
+  for (let round = 0; queue.length > 0 && round < 200; round++) {
+    const next: Array<Message> = [];
+    for (const message of queue) {
+      const seat = pair[message.to];
+      if (!up() || seat === undefined) continue;
+      const exit = await seat.store.runtime.runPromiseExit(seat.authority.step(message));
+      if (exit._tag === "Success") next.push(...exit.value);
+      else seat.failures.push(String(exit.cause));
+    }
+    queue = next;
+  }
+};
+
+const tickPair = async (pair: Record<string, Seat>, ids: ReadonlyArray<string>, up: () => boolean) => {
+  for (const id of ids) {
+    const seat = pair[id]!;
+    const exit = await seat.store.runtime.runPromiseExit(seat.authority.tick());
+    if (exit._tag === "Success") await deliver(pair, exit.value, up);
+    else seat.failures.push(String(exit.cause));
+  }
+};
+
+const proposeOn = async (pair: Record<string, Seat>, id: string, seq: number, up: () => boolean) => {
+  const seat = pair[id]!;
+  await seat.store.runtime.runPromise(seat.authority.propose({ kind: "structure.changed", seq }));
+  await tickPair(pair, [id], up);
+};
+
+const logOf = (store: Store) =>
+  store.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql<{ log_index: number; term: number; kind: string; structure_seq: number | null }>`
+        SELECT log_index, term, kind, structure_seq FROM canvas_log WHERE canvas_name = ${CANVAS} ORDER BY log_index`;
+      const [consensus] = yield* sql<{ commit_index: number; applied_index: number }>`
+        SELECT commit_index, applied_index FROM canvas_consensus WHERE canvas_name = ${CANVAS}`;
+      return { rows: rows.map((row) => ({ ...row })), ...consensus! };
+    }),
+  );
+
+describe("the fleet driver after an alone fork", () => {
+  it("refuses on the machine whose applied entries the fork revoked, and keeps them, instead of skipping the new history", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [MACBOOK, SELF]) {
+      const store = await makeStore(id, [MACBOOK, SELF]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const macbook = pair[MACBOOK]!;
+    const mini = pair[SELF]!;
+
+    // The MacBook rules term 2 on the mini's vote, and both apply what it commits.
+    for (let round = 0; round < 30 && !macbook.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    expect(macbook.authority.status()).toMatchObject({ role: "leader", canCommit: true });
+    await proposeOn(pair, MACBOOK, 1, up);
+    await tickPair(pair, [MACBOOK, SELF, MACBOOK], up);
+    const shared = (await logOf(mini.store)).applied_index;
+    expect(shared).toBe((await logOf(macbook.store)).applied_index);
+
+    // The lid closes without a word: the mini takes over on its casting vote and commits alone.
+    linked = false;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    expect(mini.authority.status()).toMatchObject({ role: "leader", canCommit: true });
+    await proposeOn(pair, SELF, 2, up);
+    await proposeOn(pair, SELF, 3, up);
+    const ruledAlone = await logOf(mini.store);
+    expect(ruledAlone.applied_index).toBeGreaterThan(shared);
+    expect(macbook.authority.status().canCommit).toBe(false);
+
+    // The operator, on the MacBook, says the mini is dead.
+    const forked = await macbook.store.runtime.runPromise(macbook.authority.alone());
+    await deliver(pair, forked, up);
+    await proposeOn(pair, MACBOOK, 4, up);
+    expect(macbook.authority.status()).toMatchObject({ canCommit: true, members: { sole: MACBOOK } });
+
+    // The link comes back: the mini hears the later term, and its applied entries are revoked.
+    linked = true;
+    for (let round = 0; round < 6 && mini.failures.length === 0; round++) await tickPair(pair, [MACBOOK], up);
+    expect(mini.failures.join("\n")).toMatch(/revoked/);
+    // Nothing of the new history was taken at indices it counts as applied: its log and index stand as it ruled them.
+    expect(await logOf(mini.store)).toEqual(ruledAlone);
+    // And it takes nothing more until the operator settles the fork.
+    expect((await mini.store.runtime.runPromiseExit(mini.authority.tick()))._tag).toBe("Failure");
+    expect(macbook.failures).toEqual([]);
   });
 });

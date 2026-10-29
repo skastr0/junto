@@ -291,10 +291,12 @@ export type CanvasAuthority = {
    * then is the batch's answer returned. One batch at a time per canvas.
    */
   readonly judge: <A, E, R>(batch: Effect.Effect<A, E, R>) => Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
-  /** Propose a judged ruling; on a canvas this machine rules alone it is committed and applied when this returns. */
-  readonly propose: (ruling: LoggedRuling) => Effect.Effect<Entry, FleetDriverError>;
+  /** Propose an entry (a judged ruling, a structure change); on a canvas this machine rules alone it is committed and applied when this returns. */
+  readonly propose: (data: LogData) => Effect.Effect<Entry, FleetDriverError>;
   readonly tick: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
   readonly step: (message: Message) => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
+  /** `junto authority alone`: the operator says the pair's other machine is dead; this one becomes sole voter. */
+  readonly alone: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
 };
 
 /** Open a canvas's group on this machine: load it, apply what was committed and not applied, and settle a lone authority. */
@@ -375,11 +377,26 @@ export const openCanvasAuthority = (
     const applyCommitted = (ready: Ready) =>
       ready.committed.length === 0 ? Effect.void : apply(ready.committed, ready.committed.at(-1)!.index);
 
+    /**
+     * An `alone` fork took entries this machine had applied: the history that
+     * replaces them sits at indices it counts as applied, so applying on would
+     * skip them and diverge. Until revoked entries wait for the operator, the
+     * driver refuses instead, and persists nothing of this ready.
+     */
+    const unrevoked = (ready: Ready) =>
+      ready.revoked.length === 0
+        ? Effect.void
+        : Effect.fail(breaks(new FleetDriverError({
+          message: `an alone fork revoked ${ready.revoked.length} applied entries of ${canvasName}; the operator must settle them`,
+          cause: ready.revoked.map((entry) => entry.index),
+        })));
+
     /** Drain the core: persist, hand back the messages to send, then apply what committed. */
     const drain = Effect.suspend(() => {
       if (broken !== undefined) return Effect.fail(broken);
       const ready = node.ready();
       return Effect.gen(function* () {
+        yield* unrevoked(ready);
         if (!isEmpty(ready)) yield* durably(writeReady(ready));
         yield* applyCommitted(ready);
         return ready.messages;
@@ -408,6 +425,7 @@ export const openCanvasAuthority = (
               proposed = true;
               const entries = captured.map((input) => node.propose(encodeLogData({ kind: "ruling", ruling: loggedRuling(input, ruledAt) })));
               const ready = node.ready();
+              yield* unrevoked(ready);
               // Appended in the judgment's own transaction: this machine's acknowledgement.
               yield* writeReady(ready);
               return { value, entries, ready };
@@ -436,9 +454,9 @@ export const openCanvasAuthority = (
     return {
       status: () => node.status(),
       judge,
-      propose: (ruling) =>
-        Effect.flatMap(guarded(() => node.propose(encodeLogData({ kind: "ruling", ruling }))), (entry) => Effect.as(drain, entry)),
+      propose: (data) => Effect.flatMap(guarded(() => node.propose(encodeLogData(data))), (entry) => Effect.as(drain, entry)),
       tick: () => Effect.flatMap(guarded(() => node.tick()), () => drain),
       step: (message) => Effect.flatMap(guarded(() => node.step(message)), () => drain),
+      alone: () => Effect.flatMap(guarded(() => node.alone()), () => drain),
     } satisfies CanvasAuthority;
   });
