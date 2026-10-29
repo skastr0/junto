@@ -80,12 +80,16 @@ const SIGNAL_WORD: Readonly<Record<AgentSignalKind, string>> = {
   blocked: "blocked",
   escalate: "wants you",
   feedback: "ready for review",
+  work: "to do",
+  notice: "notice",
 };
 
 const SIGNAL_TONE: Readonly<Record<AgentSignalKind, PreambleTone>> = {
   blocked: "crimson",
   escalate: "amber",
   feedback: "cyan",
+  work: "amber",
+  notice: "steel",
 };
 
 /** A signal raised, answered, dismissed or withdrawn, as its seat's note. */

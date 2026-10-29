@@ -29,6 +29,8 @@ const SIGNAL_STATE: Readonly<Record<AgentSignalKind, readonly [CompanionSeatStat
   blocked: ["blocked", "blocked"],
   escalate: ["waiting_on_you", "wants you"],
   feedback: ["waiting_on_you", "ready for review"],
+  notice: ["waiting_on_you", "read it"],
+  work: ["waiting_on_you", "to do"],
 };
 
 const pick = (input: CompanionSeatInput): readonly [CompanionSeatState, string] => {

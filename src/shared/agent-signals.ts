@@ -59,6 +59,8 @@ const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
   blocked: "blocked",
   escalate: "escalate",
   feedback: "feedback",
+  notice: "notice",
+  work: "to do",
 };
 
 /**

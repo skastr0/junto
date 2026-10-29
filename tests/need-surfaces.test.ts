@@ -36,10 +36,11 @@ import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../s
 import { deriveRegionRollups } from "../src/shared/region-rollup";
 import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
 import { FeedItemKind } from "../src/shared/wire/operator-feed";
-import { levelOfFeedItem, rankOf } from "../src/shared/wire/urgency";
+import { Level, levelOfFeedItem, rankOf } from "../src/shared/wire/urgency";
 import { NOTIFY_CATEGORIES } from "../src/shared/desktop-notifications";
 import type { AgentSeatState } from "../src/shared/agent-seat-state";
 import type { AgentSignal } from "../src/shared/agent-signals";
+import type { SeatRaiseKind } from "../src/shared/wire/agent-signals";
 import type { ThreadHealthReading } from "../src/shared/thread-health";
 import type { BindingId as ModelBindingId } from "../src/shared/model";
 import { clueFromAgentSeat, workSurfaceFromSeat } from "../src/renderer/lib/agent-seat-state";
@@ -69,7 +70,7 @@ const awareness = (value: "waiting_on_operator"): SignalEnvelope =>
     packVersion: "awareness-pack/2",
   });
 
-const report = (kind: AgentSignal["kind"]): SignalEnvelope =>
+const report = (kind: SeatRaiseKind): SignalEnvelope =>
   at("seat", { _tag: "SeatReported", kind, signalId: `s-${kind}`, state: "open" });
 
 /** One seat, and what today's sources say about it. */
@@ -327,11 +328,14 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
   });
 
   it("operator feed kind is each cause's level on the urgency ladder", () => {
-    for (const kind of FeedItemKind.literals) {
+    // Notice and work are raised by an automation, not derived from a seat's need, so no cause projects to them.
+    const raised: ReadonlySet<FeedItemKind> = new Set(["notice", "work"]);
+    for (const kind of FeedItemKind.literals.filter((each) => !raised.has(each))) {
       const causes = (Object.keys(NEED_CAUSES) as NeedCause[]).filter((cause) => FEED_FROM_NEED[cause] === kind);
       expect(causes.length, kind).toBeGreaterThan(0);
       for (const cause of causes) expect(levelOfFeedItem(kind), `${kind} from ${cause}`).toBe(NEED_CAUSES[cause].level);
     }
+    expect([levelOfFeedItem("work"), levelOfFeedItem("notice")]).toEqual([Level.todo, Level.notice]);
   });
 
   it("desktop notifications", () => {

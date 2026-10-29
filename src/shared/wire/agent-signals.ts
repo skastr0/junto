@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { ARTIFACT_MAX_TITLE_LENGTH } from "../artifact";
+import { ArtifactLabels } from "../artifact-labels";
 import { ContentRef } from "./content-ref";
 
 /**
@@ -13,9 +15,23 @@ import { ContentRef } from "./content-ref";
  * health (`thread-health.ts`) is a separate axis and must not be merged in.
  */
 
-export const AGENT_SIGNAL_KINDS = ["escalate", "blocked", "feedback"] as const;
+export const AGENT_SIGNAL_KINDS = ["escalate", "blocked", "feedback", "notice", "work"] as const;
 export const AgentSignalKind = Schema.Literals(AGENT_SIGNAL_KINDS);
 export type AgentSignalKind = typeof AgentSignalKind.Type;
+
+/** The kinds a seat may raise. `notice` and `work` are an automation's kinds. */
+export const SEAT_RAISE_KINDS = ["escalate", "blocked", "feedback"] as const;
+export const SeatRaiseKind = Schema.Literals(SEAT_RAISE_KINDS);
+export type SeatRaiseKind = typeof SeatRaiseKind.Type;
+
+/** Does a raise, as a seat asks for it, name one of the seat's own kinds? */
+export const isSeatRaiseKind = (kind: AgentSignalKind): kind is SeatRaiseKind =>
+  (SEAT_RAISE_KINDS as ReadonlyArray<AgentSignalKind>).includes(kind);
+
+/** The kinds an automation may raise. */
+export const AUTOMATION_RAISE_KINDS = ["notice", "work"] as const;
+export const AutomationRaiseKind = Schema.Literals(AUTOMATION_RAISE_KINDS);
+export type AutomationRaiseKind = typeof AutomationRaiseKind.Type;
 
 export const AGENT_SIGNAL_STATES = ["open", "answered", "dismissed", "withdrawn"] as const;
 export const AgentSignalState = Schema.Literals(AGENT_SIGNAL_STATES);
@@ -221,22 +237,168 @@ export const AgentSignalAttachmentInput = Schema.Union([
 ]);
 export type AgentSignalAttachmentInput = typeof AgentSignalAttachmentInput.Type;
 
+// ── The operator's work (0.11/07) ─────────────────────────────────────────
+
+/** The most artifacts a signal may show: the reading for the day, a brief, a handful more. */
+export const SIGNAL_SHOWN_ARTIFACTS_MAX = 8;
+/** An artifact form's condition when the raise named none. */
+export const SIGNAL_DEFAULT_MIN_WORDS = 1;
+/** The longest artifact form condition. */
+export const SIGNAL_MAX_MIN_WORDS = 100_000;
+
+/** A variable name a process environment accepts, as a region's sources name one. */
+const SignalSecretName = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)),
+);
+
+/**
+ * Who raised a signal. A seat signal names its seat; an automation signal
+ * names the Automations node and the automation, and never a seat.
+ */
+export const SignalSource = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("seat"), nodeId: WireNodeId }),
+  Schema.Struct({
+    kind: Schema.Literal("automation"),
+    automationId: WireItemId,
+    nodeId: WireNodeId,
+  }),
+]);
+export type SignalSource = typeof SignalSource.Type;
+
+/** Who raised a signal: its own source, or the seat its `nodeId` names. */
+export const sourceOf = (signal: {
+  readonly nodeId: string;
+  readonly source?: SignalSource | undefined;
+}): SignalSource => signal.source ?? { kind: "seat", nodeId: signal.nodeId };
+
+/** When work is due, and whether whoever raised it marked it urgent (a work signal only). */
+export const WorkTiming = Schema.Struct({
+  /** Epoch ms. */
+  dueAt: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))),
+  urgent: Schema.optionalKey(Schema.Boolean),
+});
+export type WorkTiming = typeof WorkTiming.Type;
+
+/**
+ * What a signal asks the operator to produce. The raise names it; main
+ * resolves the fields a window may not choose (the artifact node's id, the
+ * hidden request for a secret) before it stores the form below.
+ *
+ * One form per signal in this version.
+ */
+export const SignalFormRequest = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("text") }),
+  Schema.Struct({
+    kind: Schema.Literal("artifact"),
+    /** The Artifacts node, as the raiser named it; main resolves it in reach. */
+    node: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    /** The document's title; the raise defaults it to the signal's text. */
+    title: Schema.optionalKey(
+      Schema.String.pipe(
+        Schema.check(Schema.isMinLength(1)),
+        Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH)),
+      ),
+    ),
+    labels: Schema.optionalKey(Schema.Array(Schema.String)),
+    /** The condition: at least this many words. */
+    minWords: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ minimum: SIGNAL_DEFAULT_MIN_WORDS, maximum: SIGNAL_MAX_MIN_WORDS })),
+    ),
+  }),
+  Schema.Struct({ kind: Schema.Literal("secret"), name: SignalSecretName }),
+  Schema.Struct({ kind: Schema.Literal("proof") }),
+]);
+export type SignalFormRequest = typeof SignalFormRequest.Type;
+
+/**
+ * A form as stored on the signal: the request with the resolved artifact
+ * node, title, canonical labels and condition, or the secret request the
+ * asking machine recorded.
+ */
+export const SignalForm = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("text") }),
+  Schema.Struct({
+    kind: Schema.Literal("artifact"),
+    nodeId: WireNodeId,
+    title: Schema.String.pipe(
+      Schema.check(Schema.isMinLength(1)),
+      Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH)),
+    ),
+    labels: ArtifactLabels,
+    minWords: Schema.Int.check(Schema.isBetween({ minimum: SIGNAL_DEFAULT_MIN_WORDS, maximum: SIGNAL_MAX_MIN_WORDS })),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("secret"),
+    name: SignalSecretName,
+    /** The asking machine's own record of the request (its `agent_signal_secret_requests` row). */
+    requestId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    regionId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    /** The machine the value is for, by its real short name. */
+    machine: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  }),
+  Schema.Struct({ kind: Schema.Literal("proof") }),
+]);
+export type SignalForm = typeof SignalForm.Type;
+
+/** An artifact a signal shows; stored as the existing artifact attachment. */
+export const SignalShownArtifact = Schema.Struct({ nodeId: WireNodeId, artifactId: WireItemId });
+export type SignalShownArtifact = typeof SignalShownArtifact.Type;
+
+/** The document a reply made, and the condition it met. */
+export const SignalReplyArtifact = Schema.Struct({
+  nodeId: WireNodeId,
+  artifactId: WireItemId,
+  title: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH))),
+  /** Words in the markdown, by the one word rule (`word-count.ts`). */
+  words: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type SignalReplyArtifact = typeof SignalReplyArtifact.Type;
+
+/** A secret's reply, by name only: the value is never here. */
+export const SignalReplySecret = Schema.Struct({
+  /** The vault item or the local secret id the value went to. */
+  item: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  name: SignalSecretName,
+  regionId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  machine: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  /** Epoch ms the vault or store confirmed it. */
+  setAt: Schema.Number,
+});
+export type SignalReplySecret = typeof SignalReplySecret.Type;
+
 export const AgentSignalResponse = Schema.Struct({
   text: AgentSignalResponseText,
   /** Epoch ms. */
   at: Schema.Number,
   /** Files the operator sent with the answer, in order. Absent when there are none. */
   attachments: Schema.optionalKey(Schema.Array(ContentRef)),
+  /** The document an artifact form's reply made. */
+  artifact: Schema.optionalKey(SignalReplyArtifact),
+  /** The names a secret form's reply set; never the value. */
+  secret: Schema.optionalKey(SignalReplySecret),
+  /** Links a proof carries, in the order given. */
+  links: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type AgentSignalResponse = typeof AgentSignalResponse.Type;
 
 export const AgentSignal = Schema.Struct({
   signalId: Schema.String,
   canvasName: Schema.String,
+  /** The seat's node, or the Automations node for an automation's signal. */
   nodeId: Schema.String,
+  /**
+   * Who raised it. Absent on a signal a seat raised, which is every signal
+   * before automations could raise one: a seat signal's source is its own
+   * `nodeId`. Present names the automation, and `nodeId` is its node.
+   */
+  source: Schema.optionalKey(SignalSource),
   kind: AgentSignalKind,
   text: AgentSignalText,
   detail: Schema.optionalKey(AgentSignalDetail),
+  /** When work is due; present only on a work signal. */
+  work: Schema.optionalKey(WorkTiming),
+  /** What the operator must produce; one per signal. Absent when it asks for nothing. */
+  form: Schema.optionalKey(SignalForm),
   /** Files the agent attached, in the order given. Absent when there are none. */
   attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment)),
   /**

@@ -848,6 +848,10 @@ const SIGNAL_NEXT_STEP = {
     "keep working: the operator's answer arrives in this seat as operator mail; junto signal list shows it",
   feedback:
     "keep going or wrap up: any review arrives as operator mail; junto signal clear withdraws this if it no longer applies",
+  notice:
+    "read and clear it: junto signal clear withdraws it; the operator sees it in the feed, not this seat",
+  work:
+    "it stays open until the operator's reply meets its condition; junto signal clear withdraws it if it no longer applies",
 } as const;
 
 const OVERSEER_TOOL = Object.freeze({

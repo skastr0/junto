@@ -115,11 +115,17 @@ export const RING_MOTION: Readonly<Record<LoopRing, RingMotion>> = {
 
 // --- which ring ----------------------------------------------------------------
 
-/** Declared signal hues: blocked crimson, escalate amber, feedback cyan. */
+/**
+ * Declared signal hues: blocked crimson, escalate amber, feedback cyan. The
+ * operator's own work (0.11/07) is amber too, attention the operator owes
+ * themselves; a notice is quiet steel until read.
+ */
 export const SIGNAL_FLAG_TONE: Readonly<Record<AgentSignalKind, ActivityTone>> = {
   blocked: "crimson",
   escalate: "amber",
   feedback: "cyan",
+  work: "amber",
+  notice: "steel",
 };
 
 export type RingStateInput = {

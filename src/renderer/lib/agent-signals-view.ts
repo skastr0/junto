@@ -19,10 +19,12 @@ import { FEED_KIND_LABEL } from "@shared/operator-feed";
 export const SIGNALS_SECTION = "signals";
 
 /** Same hues as the canvas badge: blocked crimson, escalate amber, feedback cyan. */
-export const SIGNAL_KIND_TONE: Readonly<Record<AgentSignalKind, "crimson" | "amber" | "cyan">> = {
+export const SIGNAL_KIND_TONE: Readonly<Record<AgentSignalKind, "crimson" | "amber" | "cyan" | "steel">> = {
   blocked: "crimson",
   escalate: "amber",
   feedback: "cyan",
+  work: "amber",
+  notice: "steel",
 };
 
 /** The feed's own words for each kind: one name per state everywhere. */

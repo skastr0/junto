@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { AgentSignalAttachment, AgentSignalKind } from "./agent-signals";
+import { AgentSignalAttachment, AgentSignalKind, SignalForm, SignalSource, WorkTiming } from "./agent-signals";
 import { ThreadHealthValue } from "./thread-health";
 import { levelOfFeedItem, rankOf, UrgencyRank } from "./urgency";
 
@@ -31,7 +31,7 @@ import { levelOfFeedItem, rankOf, UrgencyRank } from "./urgency";
  *    Since urgency.ts (0.9.2) it is an UrgencyRank, 0 offline .. 9 blocked,
  *    in the same field: a reader compares it, never reads a level from it.
  */
-export const OPERATOR_FEED_VERSION = 3 as const;
+export const OPERATOR_FEED_VERSION = 4 as const;
 
 export const FeedItemKind = Schema.Literals([
   "blocked",
@@ -40,6 +40,8 @@ export const FeedItemKind = Schema.Literals([
   "escalate",
   "feedback",
   "health",
+  "notice",
+  "work",
 ]);
 export type FeedItemKind = typeof FeedItemKind.Type;
 
@@ -54,6 +56,8 @@ export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {
   escalate: "waiting on you",
   feedback: "ready for review",
   health: "AI read",
+  notice: "notice",
+  work: "to do",
 };
 
 /**
@@ -63,6 +67,7 @@ export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {
 const FEED_KIND_LABEL_MANY: Readonly<Partial<Record<FeedItemKind, string>>> = {
   attention: "need input",
   health: "AI reads",
+  notice: "notices",
 };
 
 /** "2 need input": a count of one state, in the label table's words. */
@@ -134,6 +139,12 @@ export const FeedItem = Schema.Struct({
   /** Present for declared signals: the id to answer or dismiss. */
   signalId: Schema.optionalKey(Schema.String),
   signalKind: Schema.optionalKey(AgentSignalKind),
+  /** Who raised a signal: a seat, or an automation on its machine. */
+  source: Schema.optionalKey(SignalSource),
+  /** A work signal's timing: its due time and urgent mark. */
+  work: Schema.optionalKey(WorkTiming),
+  /** The reply a signal asks for; one per signal. */
+  form: Schema.optionalKey(SignalForm),
   health: Schema.optionalKey(FeedHealth),
   /** Set for a canvas need: read off the work graph or a sink, not said by a seat. */
   canvas: Schema.optionalKey(Schema.Boolean),

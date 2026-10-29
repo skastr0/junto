@@ -12,21 +12,24 @@
  *   stopped    a usage limit, a sign-in error, a crash, an unexpected exit
  *   waiting    a proven dialog: permission, question, dialog
  *   escalated  a declared escalation; the AI reading the operator as awaited
+ *   due        the operator's work, marked urgent or past its due time
  *   review     a seat asked to have its work reviewed
+ *   todo       the operator's open work, not yet due
  *   done       a turn settled and nobody has read it
+ *   notice     something happened; the operator reads it and clears it
  *   degraded   retrying, stalled, the AI's advisory readings
  *   working    in flight
  *   resting    idle
  *   offline    exited, unknown, not running
  *
- * The rank is the ladder as a number, higher more urgent (9 blocked, 0
+ * The rank is the ladder as a number, higher more urgent (12 blocked, 0
  * offline), the direction every wire already speaks. compareUrgency compares
  * urgency only; each caller names its own tie rule.
  *
  * Imports nothing but effect and sibling wire modules, so the phone syncs it.
  */
 import { type Brand, Schema } from "effect";
-import type { AgentSignalKind } from "./agent-signals";
+import type { AgentSignalKind, WorkTiming } from "./agent-signals";
 import type { FeedItemKind } from "./operator-feed";
 import type { RingForm } from "./rings";
 
@@ -35,8 +38,11 @@ const LADDER = [
   "stopped",
   "waiting",
   "escalated",
+  "due",
   "review",
+  "todo",
   "done",
+  "notice",
   "degraded",
   "working",
   "resting",
@@ -88,6 +94,8 @@ const SIGNAL_LEVEL = {
   blocked: Level.blocked,
   escalate: Level.escalated,
   feedback: Level.review,
+  notice: Level.notice,
+  work: Level.todo,
 } as const satisfies Record<AgentSignalKind, UrgencyLevel>;
 
 const FEED_LEVEL = {
@@ -98,6 +106,8 @@ const FEED_LEVEL = {
   // The AI reading the operator as awaited ranks with a declared escalation.
   health: Level.escalated,
   feedback: Level.review,
+  notice: Level.notice,
+  work: Level.todo,
 } as const satisfies Record<FeedItemKind, UrgencyLevel>;
 
 const RING_LEVEL = {
@@ -116,8 +126,19 @@ const RING_LEVEL = {
   off: Level.offline,
 } as const satisfies Record<RingForm, UrgencyLevel>;
 
-/** A declared signal's level. */
-export const levelOfSignal = (kind: AgentSignalKind): UrgencyLevel => SIGNAL_LEVEL[kind];
+/**
+ * A declared signal's level. A work signal is `due` once whoever raised it
+ * marked it urgent or its due time has passed, `todo` before; pass its
+ * timing (and the moment to judge it) to read that. Other kinds ignore both.
+ */
+export const levelOfSignal = (
+  kind: AgentSignalKind,
+  timing?: WorkTiming,
+  nowMs: number = Date.now(),
+): UrgencyLevel =>
+  kind === "work" && (timing?.urgent === true || (timing?.dueAt !== undefined && timing.dueAt <= nowMs))
+    ? Level.due
+    : SIGNAL_LEVEL[kind];
 /** An operator feed item's level. */
 export const levelOfFeedItem = (kind: FeedItemKind): UrgencyLevel => FEED_LEVEL[kind];
 /**
@@ -231,9 +252,9 @@ export const compareView =
 /** The seat rail, the step keys and the alerts. */
 export const SeatUrgency = defineView("SeatUrgency", ["blocked", "waiting", "review", "done", "working", "resting", "offline"], {
   blocked: ["blocked", "stopped"],
-  waiting: ["waiting", "escalated"],
-  review: ["review"],
-  done: ["done"],
+  waiting: ["waiting", "escalated", "due"],
+  review: ["review", "todo"],
+  done: ["done", "notice"],
   working: ["degraded", "working"],
   resting: ["resting"],
   offline: ["offline"],
@@ -242,17 +263,17 @@ export const SeatUrgency = defineView("SeatUrgency", ["blocked", "waiting", "rev
 /** A region's urgency badge; calm shows nothing. */
 export const RegionUrgency = defineView("RegionUrgency", ["blocked", "needs-you", "review", "calm"], {
   blocked: ["blocked", "stopped"],
-  "needs-you": ["waiting", "escalated"],
-  review: ["review"],
-  calm: ["done", "degraded", "working", "resting", "offline"],
+  "needs-you": ["waiting", "escalated", "due"],
+  review: ["review", "todo"],
+  calm: ["done", "notice", "degraded", "working", "resting", "offline"],
 });
 
 /** A region rollup member's tier. */
 export const MemberSeverity = defineView("MemberSeverity", ["blocked", "attention", "escalated", "ready", "working", "idle"], {
   blocked: ["blocked", "stopped"],
   attention: ["waiting"],
-  escalated: ["escalated"],
-  ready: ["review", "done"],
+  escalated: ["escalated", "due"],
+  ready: ["review", "todo", "done", "notice"],
   working: ["degraded", "working"],
   idle: ["resting", "offline"],
 });
@@ -260,8 +281,8 @@ export const MemberSeverity = defineView("MemberSeverity", ["blocked", "attentio
 /** An in-app alert's kind; quiet raises none. */
 export const AlertKind = defineView("AlertKind", ["blocked", "attention", "ready", "working", "quiet"], {
   blocked: ["blocked", "stopped"],
-  attention: ["waiting", "escalated"],
-  ready: ["review", "done"],
+  attention: ["waiting", "escalated", "due"],
+  ready: ["review", "todo", "done", "notice"],
   working: ["degraded", "working"],
   quiet: ["resting", "offline"],
 });
@@ -269,8 +290,8 @@ export const AlertKind = defineView("AlertKind", ["blocked", "attention", "ready
 /** What a sound cue is for, loudest first. */
 export const CueUrgency = defineView("CueUrgency", ["stopped", "needs-you", "ready", "moving", "chrome"], {
   stopped: ["blocked", "stopped"],
-  "needs-you": ["waiting", "escalated"],
-  ready: ["review", "done"],
+  "needs-you": ["waiting", "escalated", "due"],
+  ready: ["review", "todo", "done", "notice"],
   moving: ["degraded", "working"],
   chrome: ["resting", "offline"],
 });
@@ -288,10 +309,10 @@ export const Palette = defineView(
   ["blocked", "waiting", "working", "review", "done", "resting", "offline"],
   {
     blocked: ["blocked", "stopped"],
-    waiting: ["waiting", "escalated"],
+    waiting: ["waiting", "escalated", "due"],
     working: ["degraded", "working"],
-    review: ["review"],
-    done: ["done"],
+    review: ["review", "todo"],
+    done: ["done", "notice"],
     resting: ["resting"],
     offline: ["offline"],
   },

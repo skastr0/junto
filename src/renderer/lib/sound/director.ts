@@ -34,6 +34,8 @@ const SIGNAL_CUE: Readonly<Record<AgentSignalKind, CueId>> = {
   blocked: "blocked",
   escalate: "waiting",
   feedback: "review",
+  work: "review",
+  notice: "bell",
 };
 
 /**

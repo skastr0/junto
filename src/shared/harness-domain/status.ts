@@ -14,7 +14,7 @@
  */
 import { Schema } from "effect";
 import { BindingId } from "../terminal-session-domain";
-import { AgentSignalKind } from "../wire/agent-signals";
+import { SeatRaiseKind } from "../wire/agent-signals";
 import {
   AwarenessAnswer,
   CompactionTrigger,
@@ -74,7 +74,8 @@ export type SeatStatus = typeof SeatStatus.Type;
 // ── Snapshot ──────────────────────────────────────────────────────────────
 
 export const SeatReport = Schema.Struct({
-  kind: AgentSignalKind,
+  /** A seat raises its own three kinds; the operator's notice and work are an automation's. */
+  kind: SeatRaiseKind,
   signalId: Schema.String,
   text: Schema.optionalKey(Schema.String),
   since: EpochMs,

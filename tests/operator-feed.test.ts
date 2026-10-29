@@ -5,6 +5,7 @@ import { canvasOf, region, seat } from "./support/model-nodes";
 import { BindingId } from "../src/shared/terminal-session-domain";
 import { initialSnapshot, reduceSeatSignals, type SeatSignal, type SignalSource } from "../src/shared/harness-domain";
 import type { ThreadHealthReading } from "../src/shared/thread-health";
+import { Level, rankOf } from "../src/shared/wire/urgency";
 import {
   buildOperatorFeed,
   feedRegionForCanvas,
@@ -15,6 +16,7 @@ import {
   isMailWaitingItem,
   needsOperatorCount,
   OperatorFeed,
+  OPERATOR_FEED_VERSION,
   type FeedItemKind,
   type FeedSeatInput,
 } from "../src/shared/operator-feed";
@@ -229,7 +231,7 @@ describe("buildOperatorFeed", () => {
 
   it("is an empty, valid feed when nobody needs the operator", () => {
     const feed = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: seats(), signals: [] });
-    expect(feed).toEqual({ version: 3, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
+    expect(feed).toEqual({ version: OPERATOR_FEED_VERSION, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
   });
 
   it("counts what needs the operator: canvas needs count, an AI reading does not", () => {
@@ -324,12 +326,12 @@ describe("buildOperatorFeed", () => {
   });
 
   it("ranks on the one ladder: blocked, stopped, a proven dialog, then an escalation, which an AI waiting reading ties, then review", () => {
-    const order: FeedItemKind[] = ["blocked", "stopped", "attention", "escalate", "feedback"];
+    const order: FeedItemKind[] = ["blocked", "stopped", "attention", "escalate", "feedback", "work", "notice"];
     for (const [index, kind] of order.entries()) {
       if (index > 0) expect(feedItemRank(kind)).toBeLessThan(feedItemRank(order[index - 1]!));
     }
     expect(feedItemRank("health")).toBe(feedItemRank("escalate"));
-    expect([feedItemRank("blocked"), feedItemRank("feedback")]).toEqual([9, 5]);
+    expect([feedItemRank("blocked"), feedItemRank("feedback")]).toEqual([rankOf(Level.blocked), rankOf(Level.review)]);
   });
 
   it("says a count in the label table's words, agreeing with the number", () => {

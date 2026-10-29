@@ -56,6 +56,8 @@ export const SIGNAL_ROLLUP_TONE: Readonly<Record<AgentSignalKind, SeatRollupTone
   blocked: "crimson",
   escalate: "amber",
   feedback: "cyan",
+  work: "amber",
+  notice: "steel",
 };
 
 /** Health hues: trouble and waiting amber (never crimson), good green, steady none. */

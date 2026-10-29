@@ -38,7 +38,7 @@ import {
   type SeatStatus,
 } from "@shared/harness-domain";
 import { UrgencyLevel, UrgencyRank } from "@shared/wire/urgency";
-import { AgentSignalKind } from "@shared/wire/agent-signals";
+import { SeatRaiseKind } from "@shared/wire/agent-signals";
 import { ACTIVITY_AGO_MAX_MS, BoundedMs, clampMs } from "./seats-launch";
 
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -107,7 +107,7 @@ const WireSnapshot = Schema.Struct({
   lastError: Schema.optionalKey(Schema.Struct({ kind: ErrorKind, at: Ms })),
   compaction: Schema.optionalKey(Schema.Struct({ trigger: CompactionTrigger, since: Ms })),
   turnUnseen: Schema.optionalKey(Schema.Struct({ outcome: Schema.Literals(["completed", "failed"]), since: Ms })),
-  reports: Schema.Array(Schema.Struct({ kind: AgentSignalKind, signalId: Id, since: Ms })).pipe(
+  reports: Schema.Array(Schema.Struct({ kind: SeatRaiseKind, signalId: Id, since: Ms })).pipe(
     Schema.check(Schema.isMaxLength(32)),
   ),
   awareness: Schema.Array(

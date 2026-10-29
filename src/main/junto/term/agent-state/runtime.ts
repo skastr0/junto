@@ -25,7 +25,7 @@ import {
   type SignalEnvelope,
 } from "../../../../shared/harness-domain";
 import { projectAgentSeatState } from "./projection";
-import type { AgentSignalKind } from "../../../../shared/wire/agent-signals";
+import type { SeatRaiseKind } from "../../../../shared/wire/agent-signals";
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import {
@@ -237,7 +237,7 @@ export class SeatStateRuntime {
    */
   seatReported(
     bindingId: string,
-    report: { readonly signalId: string; readonly kind: AgentSignalKind; readonly open: boolean; readonly text?: string },
+    report: { readonly signalId: string; readonly kind: SeatRaiseKind; readonly open: boolean; readonly text?: string },
   ): AgentSeatStateEvent | null {
     return this.machine.publishFact(bindingId, {
       signal: {

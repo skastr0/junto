@@ -111,6 +111,9 @@ const FEED_NEED = {
   attention: shown("dialog"),
   escalate: shown("seat_escalated"),
   feedback: shown("seat_feedback"),
+  // The operator's own work asks for them; a notice is something to read.
+  work: shown("seat_escalated"),
+  notice: shown("turn_unseen"),
 } as const;
 
 /**

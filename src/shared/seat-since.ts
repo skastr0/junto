@@ -106,6 +106,8 @@ const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
   blocked: "blocked",
   escalate: "escalate",
   feedback: "feedback",
+  notice: "notice",
+  work: "to do",
 };
 
 /** Each state as a sentence says it, after "is". Total, so a new state fails the typecheck until it is worded. */

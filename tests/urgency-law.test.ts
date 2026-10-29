@@ -68,7 +68,7 @@ const MODULE = "src/shared/wire/urgency.ts";
 
 /** The ladder's names and every old tier's: two in one literal is a copy of an order. */
 const URGENCY_NAMES = new Set([
-  ...["blocked", "stopped", "waiting", "escalated", "review", "done", "degraded", "working", "resting", "offline"],
+  ...["blocked", "stopped", "waiting", "escalated", "due", "review", "todo", "done", "notice", "degraded", "working", "resting", "offline"],
   ...["attention", "needs-you", "escalate", "feedback", "ready", "idle"],
 ]);
 /**
@@ -396,16 +396,16 @@ describe("urgency law: one ladder, declared once", () => {
 const VIEWS: readonly UrgencyView<string, string>[] = [SeatUrgency, RegionUrgency, MemberSeverity, AlertKind, CueUrgency, Palette];
 
 describe("urgency law: the ladder and its views", () => {
-  it("the ladder is ten levels, ranked 9 blocked down to 0 offline", () => {
-    expect(URGENCY_LADDER).toEqual(["blocked", "stopped", "waiting", "escalated", "review", "done", "degraded", "working", "resting", "offline"]);
-    expect(URGENCY_LADDER.map(rankOf)).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+  it("the ladder is thirteen levels, ranked 12 blocked down to 0 offline", () => {
+    expect(URGENCY_LADDER).toEqual(["blocked", "stopped", "waiting", "escalated", "due", "review", "todo", "done", "notice", "degraded", "working", "resting", "offline"]);
+    expect(URGENCY_LADDER.map(rankOf)).toEqual([12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
     for (const [name, level] of Object.entries(Level)) expect(level).toBe(name);
   });
 
-  it("a rank decodes only as an integer 0..9, a level only as a ladder name", () => {
+  it("a rank decodes only as an integer 0..12, a level only as a ladder name", () => {
     const rank = Schema.decodeUnknownOption(UrgencyRank);
-    for (const bad of [-1, 10, 1.5, "3"]) expect(rank(bad)._tag, String(bad)).toBe("None");
-    for (const good of [0, 9]) expect(rank(good)._tag).toBe("Some");
+    for (const bad of [-1, 13, 1.5, "3"]) expect(rank(bad)._tag, String(bad)).toBe("None");
+    for (const good of [0, 12]) expect(rank(good)._tag).toBe("Some");
     const level = Schema.decodeUnknownOption(UrgencyLevel);
     for (const bad of ["ready", "idle", "attention", "needs-you", 3]) expect(level(bad)._tag, String(bad)).toBe("None");
   });
@@ -472,9 +472,9 @@ describe("urgency law: the ladder and its views", () => {
   });
 
   it("the predicates split the ladder where the module says", () => {
-    expect(URGENCY_LADDER.filter(waitsOnOperator)).toEqual(["blocked", "stopped", "waiting", "escalated"]);
-    expect(URGENCY_LADDER.filter(wantsLook)).toEqual(["review", "done"]);
-    expect(URGENCY_LADDER.filter(needsOperator)).toEqual(["blocked", "stopped", "waiting", "escalated", "review", "done"]);
+    expect(URGENCY_LADDER.filter(waitsOnOperator)).toEqual(["blocked", "stopped", "waiting", "escalated", "due"]);
+    expect(URGENCY_LADDER.filter(wantsLook)).toEqual(["review", "todo", "done", "notice"]);
+    expect(URGENCY_LADDER.filter(needsOperator)).toEqual(["blocked", "stopped", "waiting", "escalated", "due", "review", "todo", "done", "notice"]);
   });
 });
 

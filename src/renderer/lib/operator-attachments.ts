@@ -110,7 +110,7 @@ export type Attachments = {
   /** Every file's ref once all are in; undefined while one is uploading or failed. */
   readonly ready: ReadonlyArray<ContentRef> | undefined;
   /** A file the tray would not take (too many, too large), in words. */
-  readonly notice: string | undefined;
+  readonly refused: string | undefined;
   /** A file is being dragged over the composer. */
   readonly dragging: boolean;
   readonly add: (files: ReadonlyArray<File>) => void;
@@ -137,11 +137,11 @@ let nextId = 0;
 /**
  * The tray's files for one composer: add uploads at once, remove and clear
  * let go of the thumbnails. A file past the count or the size is refused
- * with a notice and never uploaded.
+ * in words and never uploaded.
  */
 export const useAttachments = (canvasName: string): Attachments => {
   const [items, setItems] = useState<ReadonlyArray<AttachmentItem>>([]);
-  const [notice, setNotice] = useState<string>();
+  const [refused, setRefused] = useState<string>();
   const [dragging, setDragging] = useState(false);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -156,14 +156,14 @@ export const useAttachments = (canvasName: string): Attachments => {
     (files: ReadonlyArray<File>) => {
       if (files.length === 0) return;
       const room = OPERATOR_ATTACHMENTS_MAX - itemsRef.current.length;
-      const refused: string[] = [];
-      if (files.length > room) refused.push(`A mail carries at most ${OPERATOR_ATTACHMENTS_MAX} files.`);
+      const refusals: string[] = [];
+      if (files.length > room) refusals.push(`A mail carries at most ${OPERATOR_ATTACHMENTS_MAX} files.`);
       const taken = files.slice(0, Math.max(0, room)).filter((file) => {
         if (file.size <= OPERATOR_ATTACHMENT_MAX_BYTES) return true;
-        refused.push(`${attachmentName(file.name) || "A file"} is over ${MAX_MB} MB.`);
+        refusals.push(`${attachmentName(file.name) || "A file"} is over ${MAX_MB} MB.`);
         return false;
       });
-      setNotice(refused.length > 0 ? refused.join(" ") : undefined);
+      setRefused(refusals.length > 0 ? refusals.join(" ") : undefined);
       const put = activePutter();
       const added = taken.map((file): { item: AttachmentItem; file: File } => {
         const name = attachmentName(file.name) || "file";
@@ -205,14 +205,14 @@ export const useAttachments = (canvasName: string): Attachments => {
     const gone = itemsRef.current.find((item) => item.id === id);
     if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
     setItems((current) => current.filter((item) => item.id !== id));
-    setNotice(undefined);
+    setRefused(undefined);
   }, []);
 
   const clear = useCallback(() => {
     for (const item of itemsRef.current) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
     live.current.clear();
     setItems([]);
-    setNotice(undefined);
+    setRefused(undefined);
   }, []);
 
   // The thumbnails let go with the composer.
@@ -231,7 +231,7 @@ export const useAttachments = (canvasName: string): Attachments => {
   return {
     items,
     ready,
-    notice,
+    refused,
     dragging,
     add,
     remove,

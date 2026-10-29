@@ -5,7 +5,7 @@
  * that binds to a seat picks up the signals already open there.
  */
 import type { AgentSeatStateEvent } from "../../../../shared/agent-seat-state";
-import type { AgentSignal } from "../../../../shared/wire/agent-signals";
+import { isSeatRaiseKind, type AgentSignal, type SeatRaiseKind } from "../../../../shared/wire/agent-signals";
 
 export type SeatReportsDeps = {
   /** This machine's live seats and the canvas node each occupies. */
@@ -18,7 +18,7 @@ export type SeatReportsDeps = {
   }>;
   readonly seatReported: (
     bindingId: string,
-    report: { readonly signalId: string; readonly kind: AgentSignal["kind"]; readonly open: boolean; readonly text?: string },
+    report: { readonly signalId: string; readonly kind: SeatRaiseKind; readonly open: boolean; readonly text?: string },
   ) => unknown;
   readonly subscribeSeatState: (listener: (event: AgentSeatStateEvent) => void) => () => void;
   readonly onSignalChanged: (listener: (signal: AgentSignal) => void) => () => void;
@@ -26,12 +26,11 @@ export type SeatReportsDeps = {
   readonly signalsOf: (canvasName: string, nodeId: string) => Promise<ReadonlyArray<AgentSignal>>;
 };
 
-const report = (signal: AgentSignal) => ({
-  signalId: signal.signalId,
-  kind: signal.kind,
-  open: signal.state === "open",
-  text: signal.text,
-});
+/** A seat's own signal as it reports it; the operator's notice and work are no seat's claim. */
+const reportOf = (signal: AgentSignal) =>
+  isSeatRaiseKind(signal.kind)
+    ? { signalId: signal.signalId, kind: signal.kind, open: signal.state === "open", text: signal.text }
+    : undefined;
 
 export const wireSeatReports = (deps: SeatReportsDeps): (() => void) => {
   const live = () => deps.sessions().filter((session) => session.status !== "exited" && session.status !== "missing");
@@ -39,9 +38,11 @@ export const wireSeatReports = (deps: SeatReportsDeps): (() => void) => {
   const seeded = new Map<string, string>();
 
   const offSignals = deps.onSignalChanged((signal) => {
+    const report = reportOf(signal);
+    if (report === undefined) return;
     for (const session of live()) {
       if (session.canvasName === signal.canvasName && session.nodeId === signal.nodeId) {
-        deps.seatReported(session.bindingId, report(signal));
+        deps.seatReported(session.bindingId, report);
       }
     }
   });
@@ -61,7 +62,8 @@ export const wireSeatReports = (deps: SeatReportsDeps): (() => void) => {
       (signals) => {
         if (seeded.get(event.bindingId) !== key) return;
         for (const signal of signals) {
-          if (signal.state === "open") deps.seatReported(event.bindingId, report(signal));
+          const report = reportOf(signal);
+          if (report !== undefined && signal.state === "open") deps.seatReported(event.bindingId, report);
         }
       },
       () => undefined,

@@ -50,7 +50,7 @@ import { rulingContextOf } from "@shared/ruling-context";
 import { checkTaskCommand, type TaskCommandWire } from "@shared/task-model";
 import { noteResourceChanged, onResourceChanged } from "../work/resource-changes";
 import { onAgentSignalChanged } from "../signals/changes";
-import type { AgentSignal } from "@shared/wire/agent-signals";
+import { isSeatRaiseKind, type AgentSignal } from "@shared/wire/agent-signals";
 import { threadSubjectOf } from "@shared/thread-subject";
 import { taskCanvasEnv } from "../work/task-control";
 import { TaskRepository } from "../work/task-repository";
@@ -942,11 +942,15 @@ export const AutomationRunnerLive = Layer.effect(
   }),
 );
 
-/** A signal as a change trigger hears it: only when raised, keyed by its id so a claim dedupes it. */
+/**
+ * A signal as a change trigger hears it: only when raised, keyed by its id so
+ * a claim dedupes it. A signal an automation can watch is a seat's own, so the
+ * operator's notice and work never fire one.
+ */
 export const signalChange = (
   signal: Pick<AgentSignal, "signalId" | "nodeId" | "kind" | "state" | "text">,
 ): Extract<ChangeEvent, { readonly kind: "signal" }> | undefined =>
-  signal.state === "open"
+  signal.state === "open" && isSeatRaiseKind(signal.kind)
     ? { kind: "signal", key: `signal:${signal.signalId}`, seat: signal.nodeId as NodeId, signal: signal.kind, text: signal.text }
     : undefined;
 

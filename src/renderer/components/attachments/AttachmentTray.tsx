@@ -112,8 +112,8 @@ function AttachmentChip({ item, onRemove }: { readonly item: AttachmentItem; rea
 
 /** The files on the mail, and why one was not taken. Nothing when there are none. */
 export function AttachmentTray({ attachments }: { readonly attachments: Attachments }) {
-  const { items, notice } = attachments;
-  if (items.length === 0 && notice === undefined) return null;
+  const { items, refused } = attachments;
+  if (items.length === 0 && refused === undefined) return null;
   return (
     <div className="flex flex-col gap-1" data-testid="attachment-tray">
       {items.length > 0 ? (
@@ -123,9 +123,9 @@ export function AttachmentTray({ attachments }: { readonly attachments: Attachme
           ))}
         </ul>
       ) : null}
-      {notice ? (
+      {refused ? (
         <p className="text-label text-crimson-fg" role="status">
-          {notice}
+          {refused}
         </p>
       ) : null}
     </div>
