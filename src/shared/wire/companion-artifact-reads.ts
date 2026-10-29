@@ -37,8 +37,8 @@ export const CompanionArtifactsNodesArgs = Schema.Struct({ canvasName: CanvasNam
 
 /**
  * One Artifacts node of the canvas: its title and region as the feed draws
- * them, how many artifacts it holds (`live`) and how many of those are
- * archived (`archived`), and the colours its labels carry. A label with no
+ * them, how many of its artifacts are live (`live`) and how many archived
+ * (`archived`), counted apart, and the colours its labels carry. A label with no
  * colour is absent.
  */
 export const CompanionArtifactNode = Schema.Struct({
