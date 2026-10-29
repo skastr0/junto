@@ -233,6 +233,27 @@ describe.runIf(AUTOMATION_SIGNALS_ENABLED)("signal steps that send their answer 
     expect(edited).toMatchObject({ kind: "apply", facts: [{ fact: "automation.edited", definition: { then: [{ id: "step-1" }] } }] });
   });
 
+  it("refuse an answered watch naming an automation on another Automations node, saying why", () => {
+    expect(rules(emptyAutomationState(), {
+      kind: "create",
+      automationId: LISTENER,
+      enabled: true,
+      definition: definition(A, {
+        name: "Write review",
+        when: [],
+        trigger: { kind: "change", on: { kind: "answered", automation: { node: asNodeId("automations-2"), automationId: ID } } },
+        then: [{ kind: "mail", to: { kind: "seat", nodeId: A }, text: "{{answer.text}}" }],
+      }),
+    }, LISTENER)).toEqual({
+      kind: "refuse",
+      refusal: {
+        reason: "invalid_input",
+        message: "an answered watch listens to an automation on its own Automations node",
+        next_step: "Make this automation on the node that holds the one raising the signal",
+      },
+    });
+  });
+
   it("take a listener on any machine: the step and its values ride the signal", () => {
     const raiser = rules(emptyAutomationState(), {
       kind: "create", automationId: ID, enabled: true, machine: "mini" as never, definition: definition(A, { when: [], then: [ask("ask")] }),
