@@ -5,6 +5,7 @@
  * stays a word.
  */
 import { expect, it } from "vitest";
+import { taskTitleWords } from "../src/shared/task-title-words";
 import { feedTasksByNumber, feedTextPieces, type FeedTaskRef } from "../src/renderer/components/feed/feed-text";
 
 const task = (number: number | undefined, title: string, nodeId = "board"): { taskId: string; number?: number; title: string; current: { node: string } } => ({
@@ -53,6 +54,36 @@ it("cuts every number it knows, in order", () => {
     { kind: "task", number: 7, task: { nodeId: "board", taskId: "task-7", title: "ship" } },
     { kind: "text", text: " and " },
     { kind: "task", number: 42, task: REF },
+  ]);
+});
+
+it("does not say the title twice when the words after the number already name it", () => {
+  // The board's input need reads "#42 fix tabs wants your input": the chip carries the title.
+  expect(feedTextPieces("#42 fix tabs wants your input", refs)).toEqual([
+    { kind: "task", number: 42, task: REF },
+    { kind: "text", text: " wants your input" },
+  ]);
+  expect(feedTextPieces("#42 fix tabs", refs)).toEqual([{ kind: "task", number: 42, task: REF }]);
+  // A sentence writes the cut title; the whole one still matches, and so does the cut.
+  const long = "pick the release name and ship it before the deadline passes for the launch";
+  const cutRef = new Map<number, FeedTaskRef>([[7, { nodeId: "board", taskId: "task-7", title: long }]]);
+  const cut = taskTitleWords(long);
+  expect(cut).not.toBe(long);
+  expect(feedTextPieces(`#7 ${cut} wants your input`, cutRef)).toEqual([
+    { kind: "task", number: 7, task: { nodeId: "board", taskId: "task-7", title: long } },
+    { kind: "text", text: " wants your input" },
+  ]);
+});
+
+it("leaves words that only look like the title", () => {
+  const ship = new Map<number, FeedTaskRef>([[1, { nodeId: "board", taskId: "task-1", title: "ship" }]]);
+  expect(feedTextPieces("#1 shipwreck found", ship)).toEqual([
+    { kind: "task", number: 1, task: { nodeId: "board", taskId: "task-1", title: "ship" } },
+    { kind: "text", text: " shipwreck found" },
+  ]);
+  expect(feedTextPieces("#42 different words", refs)).toEqual([
+    { kind: "task", number: 42, task: REF },
+    { kind: "text", text: " different words" },
   ]);
 });
 

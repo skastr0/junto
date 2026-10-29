@@ -88,6 +88,9 @@ export function FeedWords({
   const { kind: workKind, work } = itemWorkOf(item);
   const due = workKind === "work" ? dueWords(work?.dueAt, nowMs) : undefined;
   const urgent = workKind === "work" && work !== undefined && workIsDue(work, nowMs);
+  const pieces = feedTextPieces(item.text, taskByNumber);
+  // Nothing named: the sentence is the sentence, not a span inside one.
+  const plain = pieces.length === 1 && pieces[0]!.kind === "text" ? pieces[0]!.text : undefined;
   return (
     <>
       <header className="operator-feed__card-head">
@@ -105,19 +108,20 @@ export function FeedWords({
         ) : null}
       </header>
       <p id={labelId && `${labelId}-text`} className="operator-feed__text">
-        {feedTextPieces(item.text, taskByNumber).map((piece, index) =>
-          piece.kind === "text" ? (
-            <span key={index}>{piece.text}</span>
-          ) : (
-            <ResourceChip
-              key={index}
-              kind="task"
-              label={piece.task.title}
-              number={piece.number}
-              {...(onOpenTask === undefined ? {} : { onOpen: () => onOpenTask(piece.task) })}
-            />
-          ),
-        )}
+        {plain ??
+          pieces.map((piece, index) =>
+            piece.kind === "text" ? (
+              <span key={index}>{piece.text}</span>
+            ) : (
+              <ResourceChip
+                key={index}
+                kind="task"
+                label={piece.task.title}
+                number={piece.number}
+                {...(onOpenTask === undefined ? {} : { onOpen: () => onOpenTask(piece.task) })}
+              />
+            ),
+          )}
       </p>
       {health ? (
         <p className="operator-feed__health" title="Jev's reading of the screen, not the agent's own claim">

@@ -90,3 +90,27 @@ it("draws a plain sentence when given no tasks at all", async () => {
   expect(chip()).toBeNull();
   expect(document.body.querySelector(".operator-feed__text")?.textContent).toBe(ITEM.text);
 });
+
+it("a board's own need names its task once: the chip carries the title", async () => {
+  const need: FeedItem = { ...ITEM, text: "#42 ask the release name wants your input" };
+  await act(async () =>
+    root.render(
+      <FeedCardView
+        item={need}
+        nowMs={NOW}
+        quickReplies={[]}
+        selected={false}
+        reveal={false}
+        leaving={false}
+        sending={null}
+        taskByNumber={new Map([[42, TASK]])}
+        onOpenTask={() => {}}
+        onSelect={() => {}}
+        onQuickReply={() => {}}
+      />,
+    ),
+  );
+  const sentence = document.body.querySelector(".operator-feed__text")!;
+  expect(sentence.textContent).toContain("wants your input");
+  expect(sentence.textContent).not.toContain("ask the release name wants");
+});

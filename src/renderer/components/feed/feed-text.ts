@@ -8,6 +8,7 @@
  * Pure, and given the tasks by its caller: the feed passes the canvas's own,
  * the kit and the tour pass none and every piece stays words.
  */
+import { taskTitleWords } from "@shared/task-title-words";
 
 /** What a named task is, for the chip: its board, the task, and its title. */
 export type FeedTaskRef = {
@@ -23,6 +24,23 @@ export type FeedTextPiece =
 /** `#42`, at the start of the sentence or after a space or punctuation, never inside a word or a link. */
 const TASK_NUMBER = /(^|[^\w#/])#(\d{1,9})(?![\w])/gu;
 
+/**
+ * The title the words after a chipped number may repeat, so it is not said
+ * twice: the chip already carries it. Both the whole title and the cut form a
+ * sentence writes (`taskTitleWords`), and only at a word boundary, so a task
+ * named `ship` never eats the front of `shipwreck`.
+ */
+const titleRunAt = (text: string, at: number, task: FeedTaskRef): number => {
+  const cut = taskTitleWords(task.title);
+  for (const run of cut === task.title ? [` ${task.title}`] : [` ${task.title}`, ` ${cut}`]) {
+    if (!text.startsWith(run, at)) continue;
+    const next = text[at + run.length];
+    if (next !== undefined && /\w/u.test(next)) continue;
+    return at + run.length;
+  }
+  return at;
+};
+
 export const feedTextPieces = (
   text: string,
   taskByNumber: ReadonlyMap<number, FeedTaskRef> | undefined,
@@ -36,7 +54,7 @@ export const feedTextPieces = (
     const start = match.index + match[1]!.length;
     if (start > at) pieces.push({ kind: "text", text: text.slice(at, start) });
     pieces.push({ kind: "task", number: Number(match[2]), task });
-    at = match.index + match[0].length;
+    at = titleRunAt(text, match.index + match[0].length, task);
   }
   if (at < text.length) pieces.push({ kind: "text", text: text.slice(at) });
   return pieces;

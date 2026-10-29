@@ -5,6 +5,7 @@ import { earliestStateSince, type ExecutionGraph } from "./execution-graph";
 import { rankStoppageSeeds } from "./impact";
 import { attentionText, feedRegionForCanvas, type FeedCanvasNeed } from "./operator-feed";
 import type { TaskView } from "./task-model";
+import { taskTitleWords } from "./task-title-words";
 
 /**
  * What the canvas knows that no seat said, as needs for the operator feed:
@@ -24,15 +25,11 @@ const holdsUp = (count: number): string =>
 const earlier = (a: number | undefined, b: number | undefined): number | undefined =>
   a === undefined ? b : b === undefined ? a : Math.min(a, b);
 
-/** How much of a task's title a card's sentence carries before it is cut. */
-const TASK_TITLE_MAX = 60;
-
 /** "#42 fix tabs", or undefined while a create still waits for its number. */
 const taskNamed = (task: TaskView): string | undefined => {
   if (task.number === undefined) return undefined;
-  const title = task.title.trim().replace(/\s+/gu, " ");
-  const short = title.length > TASK_TITLE_MAX ? `${title.slice(0, TASK_TITLE_MAX - 1).trimEnd()}…` : title;
-  return short === "" ? `#${task.number}` : `#${task.number} ${short}`;
+  const title = taskTitleWords(task.title);
+  return title === "" ? `#${task.number}` : `#${task.number} ${title}`;
 };
 
 /**
