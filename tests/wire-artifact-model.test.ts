@@ -1,0 +1,29 @@
+/**
+ * The artifact model is a wire model (0.11.3, the phone's artifacts): its
+ * schemas and rules live in src/shared/wire/ with an `effect`-only closure
+ * (tests/wire-closure.test.ts), and every desktop path that held them
+ * re-exports the very same value. So the phone decodes and rules a write with
+ * the schema and the function the Mac uses, not a copy that can drift.
+ */
+import { describe, expect, it } from "vitest";
+import * as physics from "../src/shared/physics/schema";
+import { ULID_PATTERN } from "../src/shared/ulid";
+import * as workIds from "../src/shared/work-ids";
+import * as wireIds from "../src/shared/wire/ids";
+
+/** Each name is the same object on the desktop path as on the wire. */
+const same = (desktop: Record<string, unknown>, wire: Record<string, unknown>, names: ReadonlyArray<string>): void => {
+  for (const name of names) {
+    expect(wire[name], `wire has ${name}`).toBeDefined();
+    expect(desktop[name], name).toBe(wire[name]);
+  }
+};
+
+describe("the artifact model on the wire is the desktop's own", () => {
+  it("ids: NodeId, ItemId, OpId and TaskNumber are one definition", () => {
+    same(physics, wireIds, ["NodeId"]);
+    same(workIds, wireIds, ["ItemId", "OpId", "TaskNumber", "isItemId", "isOpId", "isTaskNumber", "ULID_SHAPE"]);
+    expect(wireIds.WIRE_ULID_PATTERN.source).toBe(ULID_PATTERN.source);
+    expect(wireIds.WIRE_ULID_PATTERN.flags).toBe(ULID_PATTERN.flags);
+  });
+});

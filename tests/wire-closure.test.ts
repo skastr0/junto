@@ -40,6 +40,7 @@ describe("wire module import closure", () => {
         "agent-signals.ts",
         "companion-protocol.ts",
         "content-ref.ts",
+        "ids.ts",
         "mail-threads.ts",
         "operator-feed.ts",
         "rings.ts",

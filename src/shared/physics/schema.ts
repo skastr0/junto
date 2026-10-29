@@ -1,4 +1,5 @@
 import { HashSet, Schema } from "effect";
+import { NodeId } from "../wire/ids";
 
 // Canvas physics schema surface — pure domain brands, ports, and grants.
 // No Node / Electron. Roles are derived from kind (see kinds.ts); never authorial.
@@ -6,12 +7,8 @@ import { HashSet, Schema } from "effect";
 // ---------------------------------------------------------------------------
 // Brands
 
-export const NodeId = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1)),
-  Schema.check(Schema.isMaxLength(256)),
-  Schema.brand("NodeId"),
-);
-export type NodeId = typeof NodeId.Type;
+/** A node on a canvas: a wire value (`../wire/ids.ts`), one definition for the desktop and the phone. */
+export { NodeId };
 
 export const EdgeId = Schema.String.pipe(Schema.brand("EdgeId"));
 export type EdgeId = typeof EdgeId.Type;
