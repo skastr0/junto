@@ -18,6 +18,14 @@ import {
   type SeatClockRecord,
   type SeatOffboardFacts,
 } from "../src/main/junto/seat-sessions/operator-offboard";
+// Static, not awaited inside a test: the IPC module's cold import pulls the
+// terminal graph and costs seconds on a loaded CI runner, past the 5 s test budget.
+import {
+  handleSeatCacheDueAnswer,
+  handleSeatOffboardRun,
+  handleSeatOffboardStatus,
+  seatCacheDueForWindow,
+} from "../src/main/junto/seat-sessions/operator-offboard-ipc";
 import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/operator-holds";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { initialSnapshot, type SeatSnapshot, type SeatStatus } from "../src/shared/harness-domain";
@@ -1056,9 +1064,6 @@ describe("the clock across a restart", () => {
 
 describe("the renderer's two calls", () => {
   it("check what arrives off IPC and never throw", async () => {
-    const { handleSeatOffboardRun, handleSeatOffboardStatus } = await import(
-      "../src/main/junto/seat-sessions/operator-offboard-ipc"
-    );
     const { setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
     const w = world([seat("a"), seat("b", { state: "working" })]);
     setOperatorOffboard(w.offboard);
@@ -1096,9 +1101,6 @@ describe("the renderer's two calls", () => {
   });
 
   it("before the app has wired the operation, every seat is refused in plain words", async () => {
-    const { handleSeatOffboardRun, handleSeatOffboardStatus } = await import(
-      "../src/main/junto/seat-sessions/operator-offboard-ipc"
-    );
     expect(await handleSeatOffboardRun({ canvasName: CANVAS, seatIds: ["a"], action: "now" })).toMatchObject({
       refused: 1,
       results: [{ seatId: "a", ok: false, code: "failed", reason: "Junto is still starting. Try again in a moment." }],
@@ -1347,7 +1349,6 @@ describe("the cache mode, case by case", () => {
   });
 
   it("the window's answer is decoded closed, names the open question, and never throws", async () => {
-    const { handleSeatCacheDueAnswer, seatCacheDueForWindow } = await import("../src/main/junto/seat-sessions/operator-offboard-ipc");
     const { CACHE_QUESTION_GONE, setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
     const good = { canvasName: CANVAS, seatId: "a", question: qid(1), answer: "keep" };
     expect(await handleSeatCacheDueAnswer(good)).toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
