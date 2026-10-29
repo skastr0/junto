@@ -199,6 +199,29 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
         expect(g.why.top, "below the name").toBeGreaterThanOrEqual(g.name.bottom - 1);
         expect(g.why.scroll, "not cut").toBeLessThanOrEqual(g.why.client);
       });
+      // 2bf6db1f4: a row takes the list's width, so nothing scrolls sideways and every place reads whole.
+      const fit = await dialog.locator('[role="listbox"]').first().evaluate((list) => {
+        const box = list.getBoundingClientRect();
+        return {
+          list: { left: box.left, right: box.right, scroll: list.scrollWidth, client: list.clientWidth },
+          rows: [...list.querySelectorAll<HTMLElement>(".artifact-move__target")].map((row) => {
+            const place = row.querySelector<HTMLElement>(".artifact-move__place")!;
+            return { name: row.querySelector(".artifact-move__name")?.textContent, right: row.getBoundingClientRect().right, place: place.textContent, scroll: place.scrollWidth, client: place.clientWidth };
+          }),
+        };
+      });
+      console.log(`Q6-FIT-${theme}`, JSON.stringify(fit));
+      await check(`${theme}: every Move to row ends within the list, and the list does not scroll sideways`, () => {
+        expect(fit.list.scroll, "no sideways scroll").toBeLessThanOrEqual(fit.list.client);
+        for (const one of fit.rows) expect(one.right, `${one.name ?? ""} ends inside the list`).toBeLessThanOrEqual(fit.list.right + 0.5);
+      });
+      await check(`${theme}: No region reads whole on the suggested row and on Errands`, () => {
+        expect(fit.rows.length).toBeGreaterThanOrEqual(2);
+        for (const one of fit.rows) {
+          expect(one.place).toBe("No region");
+          expect(one.scroll, `${one.name ?? ""}'s place is not cut`).toBeLessThanOrEqual(one.client);
+        }
+      });
       mkdirSync(join(SHOTS, theme), { recursive: true });
       await page.screenshot({ path: join(SHOTS, theme, "05-move-to-suggested.png") });
       await dialog.screenshot({ path: join(SHOTS, theme, "05a-move-dialog.png") });
