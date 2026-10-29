@@ -19,6 +19,7 @@ import {
 import { state$ } from "../lib/state";
 import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
+import { unseenRef } from "../lib/unseen";
 import { openSettings } from "../lib/settings-state";
 import { openMachines, prefetchMachinesWindow } from "../lib/machines-window";
 import { HUE, HUE_TEXT, withAlpha } from "../lib/theme";
@@ -102,7 +103,7 @@ function CanvasPicker({
           options={canvases.map((canvas) => ({ value: canvas.name, label: canvas.name }))}
           onChange={onOpen}
         />
-        {busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
+        {busy ? <span ref={unseenRef} className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
         <button type="button" className="station-canvas__action" disabled={busy} title="New canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}>
           <Plus size={14} />
         </button>
@@ -254,7 +255,7 @@ function SaveStatus() {
   const saveState = use$(state$.saveState);
   const label = saveState === "saving" ? "saving" : saveState === "error" ? "save error" : "saved";
   if (saveState === "error") return <button className="station-save station-save--error" title="Retry writing the latest canvas change" aria-label="Retry save" onClick={retrySave}><span className="station-save__dot" /><span>retry save</span></button>;
-  return <div role="status" aria-live="polite" className={`station-save station-save--${saveState}`} title={`Canvas ${label}`}><span className="station-save__dot" /><span>{label}</span></div>;
+  return <div ref={unseenRef} role="status" aria-live="polite" className={`station-save station-save--${saveState}`} title={`Canvas ${label}`}><span className="station-save__dot" /><span>{label}</span></div>;
 }
 
 export function TopBar({

@@ -195,6 +195,17 @@ describe("motion law: rings move on the compositor", () => {
     expect(css).toMatch(/\.tab-strip__tab\[data-unseen\] \.tab-strip__loading \{\s*animation: none;/);
   });
 
+  it("the top bar's opening and saving pulses stop when the bar cuts them off", () => {
+    const unseen = read("src/renderer/lib/unseen.ts");
+    expect(unseen).toMatch(/entry\.target\.toggleAttribute\("data-unseen", !entry\.isIntersecting\)/);
+    const bar = read("src/renderer/components/TopBar.tsx");
+    expect(bar).toMatch(/<span ref=\{unseenRef\} className="station-context__loading"/);
+    expect(bar).toMatch(/<div ref=\{unseenRef\} role="status" aria-live="polite" className=\{`station-save /);
+    expect(read("src/renderer/styles.css")).toContain(
+      ".station-context__loading[data-unseen], .station-save[data-unseen] .station-save__dot { animation: none; }",
+    );
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);

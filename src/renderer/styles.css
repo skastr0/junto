@@ -633,6 +633,9 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .station-save--error { color: var(--color-crimson-fg); }
 .station-save--error .station-save__dot { background: var(--color-crimson); }
 @keyframes station-pulse { 50% { opacity: .45; } }
+/* Cut off by .station-left in a narrow window, the pulse stops (lib/unseen.ts,
+   operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8). */
+.station-context__loading[data-unseen], .station-save[data-unseen] .station-save__dot { animation: none; }
 
 /* =============================================================================
    Agent switcher: an operator modal, up while Cmd is held. The dim and the
