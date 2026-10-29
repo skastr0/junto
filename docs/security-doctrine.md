@@ -426,8 +426,9 @@ same root path is never opened on a different disk. The root is set by the
 operator, or by an overseer through `node.create` and `node.configure`
 (which gives a seat nothing its own shell lacks); the host is fixed at
 creation and no edit changes it. The root never leaves the machine: a canvas
-copy carries the node as a stub once schema step 52 lands, and nothing
-before it (`canvas-copy.ts`), and mention mail,
+copy carries the node as a stub with only its label once state step 63
+lands (`stubs.stub_of` admits `files`), and nothing before it
+(`src/shared/canvas-copy.ts`), and mention mail,
 thread anchors, extracted artifact descriptions, IPC replies, errors, change
 events and `junto-file:` addresses carry the node id plus a path relative
 to the root, never an absolute path. The renderer never names one either,
