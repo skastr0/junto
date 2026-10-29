@@ -4,6 +4,7 @@ import {
   AGENT_SIGNAL_MAX_SUGGESTIONS,
   AgentSignalSuggestions,
   type AgentSignalKind,
+  type SeatRaiseKind,
 } from "../../shared/agent-signals";
 import type { SignalRaiseArgs } from "../../shared/work-control";
 import {
@@ -145,7 +146,7 @@ export type SignalRaiseCliInput = typeof SignalRaiseCliInput.Type;
 const ATTACH_FLAG_NAMES = ["attach", "code", "diff", "compare", "commit", "video", "task", "artifact"] as const;
 
 export const loadSignalRaiseArgs = (
-  kind: AgentSignalKind,
+  kind: SeatRaiseKind,
   input: string,
   detail: string | undefined,
   /** The attachment flags; a bare list is `--attach` values. */

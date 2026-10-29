@@ -128,7 +128,7 @@ describe("feedStatusLine", () => {
 const nested = (path: ReadonlyArray<string>, kinds: ReadonlyArray<FeedItemKind>, color?: string): FeedSection => ({
   region: { regionId: path.join("/") || null, label: path.at(-1) ?? "open field", path: [...path], ...(color ? { color } : {}) },
   items: kinds.map((kind, index) => ({ ...item(`${path.join("/")}#${index}`), kind, urgency: feedItemRank(kind) })),
-  worstUrgency: kinds.map(feedItemRank).sort((a, b) => b - a)[0]!,
+  worstUrgency: kinds.map((kind) => feedItemRank(kind)).sort((a, b) => b - a)[0]!,
 });
 
 describe("region chips and the parent pick", () => {

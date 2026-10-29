@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { AgentSignalAttachment, AgentSignalKind, SignalForm, SignalSource, WorkTiming } from "./agent-signals";
 import { ThreadHealthValue } from "./thread-health";
-import { levelOfFeedItem, rankOf, UrgencyRank } from "./urgency";
+import { levelOfFeedItem, levelOfSignal, rankOf, UrgencyRank } from "./urgency";
 
 /**
  * The operator feed: everything on one canvas that wants the operator, as a
@@ -46,7 +46,16 @@ export const FeedItemKind = Schema.Literals([
 export type FeedItemKind = typeof FeedItemKind.Type;
 
 /** An item's rank: its kind's level on the one ladder (urgency.ts). */
-export const feedItemRank = (kind: FeedItemKind): UrgencyRank => rankOf(levelOfFeedItem(kind));
+/**
+ * A feed item's rank. A work signal carries its timing, so it reads `due`
+ * once whoever raised it marked it urgent or its time passed, `todo` before;
+ * every other kind ranks by its kind alone.
+ */
+export const feedItemRank = (
+  kind: FeedItemKind,
+  work?: WorkTiming | undefined,
+  nowMs: number = Date.now(),
+): UrgencyRank => rankOf(kind === "work" ? levelOfSignal("work", work, nowMs) : levelOfFeedItem(kind));
 
 /** The one name for each state, wherever a surface says it in words. */
 export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {

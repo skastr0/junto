@@ -21,6 +21,8 @@ import {
   AgentSignalAttachmentInput,
   AgentSignalKind,
   AgentSignalSuggestions,
+  SeatRaiseKind,
+  SignalFormRequest,
 } from "./agent-signals";
 import { UrgencyLevel, UrgencyRank } from "./wire/urgency";
 export {
@@ -492,10 +494,17 @@ export type PreambleArgs = typeof PreambleArgs.Type;
  * shape (`SignalRaiseCliInput` in the CLI).
  */
 export const SignalRaiseArgs = Schema.Struct({
-  kind: AgentSignalKind,
+  /** A seat raises its own kinds only: `notice` and `work` are an automation's. */
+  kind: SeatRaiseKind,
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
   attach: Schema.optionalKey(Schema.Array(AgentSignalAttachmentInput)),
+  /**
+   * The reply the signal asks the operator for (0.11, 07 N1): a document
+   * written in an Artifacts node, proof, or today's text. Main resolves the
+   * node in the seat's reach before it stores the form.
+   */
+  form: Schema.optionalKey(SignalFormRequest),
   /**
    * Replies the seat pre-bakes for the operator (`AgentSignalSuggestions`):
    * at most two short pills, shown ahead of the quick replies. Sending one

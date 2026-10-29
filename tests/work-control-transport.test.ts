@@ -1787,6 +1787,37 @@ describe("work control transport", () => {
     ).toEqual(expect.any(Number));
   });
 
+  it("stores the form a raise asks for, and refuses one its kind cannot carry", async () => {
+    const server = servers[0]!;
+    const proof = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "blocked", text: "Show the run passed.", form: { kind: "proof" } },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    expect(proof.ok).toBe(true);
+    expect(proof.data.signal.form).toEqual({ kind: "proof" });
+
+    // A review asks the operator to look, not to produce: main refuses the form the CLI would.
+    const review = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "feedback", text: "Ready to look.", form: { kind: "proof" } },
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(review.ok).toBe(false);
+    expect(review.error.type).toBe("InputError");
+    expect(review.error.message).toContain("asks for no form");
+
+    // A document's shelf is resolved in the seat's reach: this canvas holds none.
+    const nowhere = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "blocked", text: "Write the post.", form: { kind: "artifact", node: "shelf" } },
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(nowhere.ok).toBe(false);
+    expect(nowhere.error.type).toBe("UnknownTarget");
+    expect(nowhere.error.message).toContain("reaches no Artifacts node");
+  });
+
   it("msg.react refuses a foreign mailbox", async () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {

@@ -251,7 +251,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
     listed.add(entry.seat.nodeId);
     items.push({
       ...item,
-      urgency: feedItemRank(item.kind),
+      urgency: feedItemRank(item.kind, item.work, nowMs),
       canvasName,
       seat: entry.seat,
       region: entry.region,
@@ -276,6 +276,9 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       since: signal.createdAt,
       signalId: signal.signalId,
       signalKind: signal.kind,
+      ...(signal.source === undefined ? {} : { source: signal.source }),
+      ...(signal.work === undefined ? {} : { work: signal.work }),
+      ...(signal.form === undefined ? {} : { form: signal.form }),
     });
   }
 

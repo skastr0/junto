@@ -1,6 +1,6 @@
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
-import type { AgentSignalKind } from "../../shared/agent-signals";
+import type { SeatRaiseKind } from "../../shared/agent-signals";
 import type { WorkOpName } from "../../shared/work-control";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeJsonCommand } from "../core/output";
@@ -114,7 +114,7 @@ const call = (op: WorkOpName, args: unknown, timeout?: number) =>
     return yield* socket.call(op, args, timeout);
   });
 
-const raise = (kind: AgentSignalKind, input: string, detail: Option.Option<string>, timeout: Option.Option<number>, suggest: ReadonlyArray<string>, attach: AttachFlags, form: FormFlags = {}) =>
+const raise = (kind: SeatRaiseKind, input: string, detail: Option.Option<string>, timeout: Option.Option<number>, suggest: ReadonlyArray<string>, attach: AttachFlags, form: FormFlags = {}) =>
   executeJsonCommand(
     kind,
     Effect.gen(function* () {
@@ -123,7 +123,7 @@ const raise = (kind: AgentSignalKind, input: string, detail: Option.Option<strin
     }),
   );
 
-const raiseCommand = (kind: AgentSignalKind, description: string) =>
+const raiseCommand = (kind: SeatRaiseKind, description: string) =>
   Command.make(
     kind,
     { input: sentenceArg, detail: detailOption, ...attachOptions, timeout: timeoutOption },
@@ -131,7 +131,7 @@ const raiseCommand = (kind: AgentSignalKind, description: string) =>
   ).pipe(Command.withDescription(description));
 
 /** Blocked and escalate also ask for a reply form. */
-const raiseWithFormCommand = (kind: AgentSignalKind, description: string) =>
+const raiseWithFormCommand = (kind: SeatRaiseKind, description: string) =>
   Command.make(
     kind,
     { input: sentenceArg, detail: detailOption, ...attachOptions, ...formOptions, timeout: timeoutOption },

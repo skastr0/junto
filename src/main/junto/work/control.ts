@@ -119,6 +119,7 @@ import {
   signalAttachmentOwner,
 } from "../signals/attachments";
 import { signalResourcesFor } from "../signals/resource-refs";
+import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
 import { WorkService, type WorkOpResult } from "./service";
 import { isAutomationReadOp, isAutomationWriteOp } from "@shared/automation-control";
 import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
@@ -2342,6 +2343,23 @@ const dispatchOp = (
           details: { path: "args.detail", retryable: false },
         });
       }
+      // The reply the signal asks for (0.11, 07 N1). The wire lets a form ride
+      // any raise; here is where it is resolved, and only the kinds that ask
+      // the operator to produce something may carry one.
+      const request = decoded.success.form;
+      if (request !== undefined && !signalKindTakesForm(decoded.success.kind)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `${decoded.success.kind} asks for no form: a notice is read and cleared, a review asks the operator to look`,
+          details: { path: "args.form", retryable: false, next_step: "raise blocked or escalate to ask for something" },
+        });
+      }
+      const form =
+        request === undefined
+          ? undefined
+          : yield* Effect.fromResult(
+              resolveSignalForm({ board, seatId: asNodeId(caller.nodeId), text, request }),
+            );
       // Attached files: the seat uploaded them already. They are judged here,
       // whatever the CLI already checked, and held under the signal's id
       // before the signal itself is written.
@@ -2385,6 +2403,7 @@ const dispatchOp = (
           kind: decoded.success.kind,
           text,
           ...(detail ? { detail } : {}),
+          ...(form === undefined ? {} : { form }),
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(suggestions !== undefined && suggestions.length > 0 ? { suggestions } : {}),
         })
