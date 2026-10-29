@@ -175,7 +175,7 @@ export const putSignalSecret = async (signalId: string, value: string): Promise<
     .then(() => api.signalSecretPut({ signalId, value }))
     .then(
     (result): SignalActionResult => {
-      if (!result.ok) return { ok: false, message: sentenceOf(result.message) };
+      if (!result.ok) return { ok: false, message: `${sentenceOf(result.message)} ${PASTE_AGAIN}` };
       if (result.signal === undefined) {
         return { ok: false, message: `The value is set in ${result.item}, but the answer was not recorded, so this stays open.` };
       }
@@ -187,10 +187,13 @@ export const putSignalSecret = async (signalId: string, value: string): Promise<
       ok: false,
       message: isBackendTimeout(error)
         ? "Junto did not answer in time, so the value may be set. Check the vault before you set it again."
-        : "The secret was not set.",
+        : `The secret was not set. ${PASTE_AGAIN}`,
     }),
   );
 };
+
+/** The field was emptied before the send, so after a refusal or a failure the value has to be given again. Said here once, not by main. */
+const PASTE_AGAIN = "Paste it again.";
 
 /**
  * The preload's own words when main does not answer within the call's wait

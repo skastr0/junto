@@ -87,10 +87,10 @@ describe("a secret's value, through the vault", () => {
     expect(put).toHaveBeenCalledWith({ signalId: "s1", value: "v" });
 
     vi.stubGlobal("window", { junto: { signalSecretPut: async () => ({ ok: false, reason: "not-declared", message: "the region does not declare API_KEY" }) } });
-    expect(await putSignalSecret("s1", "v")).toEqual({ ok: false, message: "The region does not declare API_KEY." });
+    expect(await putSignalSecret("s1", "v")).toEqual({ ok: false, message: "The region does not declare API_KEY. Paste it again." });
 
     vi.stubGlobal("window", { junto: { signalSecretPut: async () => Promise.reject(new Error("failed with the-value")) } });
-    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set." });
+    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
     // A wait that ran out says the value may be set, not that it was not.
     vi.stubGlobal("window", {
       junto: { signalSecretPut: async () => Promise.reject(new Error("junto: backend did not respond (junto:signal-secret-put). Try restarting the app.")) },
@@ -107,6 +107,6 @@ describe("a secret's value, through the vault", () => {
         },
       },
     });
-    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set." });
+    expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
   });
 });
