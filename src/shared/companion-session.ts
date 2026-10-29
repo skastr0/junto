@@ -44,7 +44,7 @@ import {
   type CompanionSeat,
   type CompanionThreadSummary,
 } from "./companion-protocol";
-import type { CompanionCommentSubject } from "./wire/companion-artifacts";
+import type { CompanionArtifactChanged, CompanionCommentSubject } from "./wire/companion-artifacts";
 import type { OperatorFeed } from "./operator-feed";
 
 export type CompanionChange = {
@@ -53,6 +53,8 @@ export type CompanionChange = {
   readonly changed: boolean;
   /** Signal upserts since the cursor, oldest first. */
   readonly signals: ReadonlyArray<AgentSignal>;
+  /** Artifact changes since the cursor, oldest first: the host sends them only to a connection that asked. */
+  readonly artifacts?: ReadonlyArray<CompanionArtifactChanged>;
   /** The cursor was not recognized (app restarted): refresh everything. */
   readonly reset: boolean;
 };
@@ -149,6 +151,8 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   /** Seats whose threads this connection listed or opened, by seat ref: each thread summary as last sent. The newest few. */
   const threadFocus = new Map<string, { readonly canvasName: string; readonly nodeId: string; readonly sent: Map<string, string> }>();
   /** The comments list this connection has open: its subject, and the answer it last sent. */
+  /** The canvas whose artifact changes this connection follows, from `artifacts.subscribe`. */
+  let artifactsCanvas: string | undefined;
   let commentsFocus:
     | { readonly canvasName: string; readonly subject: CompanionCommentSubject; readonly sent: string }
     | undefined;
@@ -239,7 +243,10 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     }
   };
 
-  const refresh = async (signals: ReadonlyArray<AgentSignal>): Promise<void> => {
+  const refresh = async (signals: ReadonlyArray<AgentSignal>, artifacts: ReadonlyArray<CompanionArtifactChanged> = []): Promise<void> => {
+    for (const change of artifacts) {
+      if (artifactsCanvas !== undefined && change.canvasName === artifactsCanvas) emit("artifact.changed", change);
+    }
     // signal.changed: every upsert, whoever made it, for a subscribed feed or the focused seat.
     for (const signal of signals) {
       const inFeed =
@@ -384,6 +391,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     mailFocus !== undefined ||
     threadFocus.size > 0 ||
     commentsFocus !== undefined ||
+    artifactsCanvas !== undefined ||
     canvasFocus !== undefined;
 
   const runEvents = async (): Promise<void> => {
@@ -402,7 +410,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       // The first cursor may already count a change made while the phone's
       // answer was on its way: read once against what was sent, then wait.
       if (first || change.changed || change.reset || change.signals.length > 0) {
-        await refresh(change.signals).catch(() => undefined);
+        await refresh(change.signals, change.artifacts ?? []).catch(() => undefined);
       }
     }
   };
@@ -461,6 +469,10 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       } else if (frame.op === "threads.read" && "thread" in response.result) {
         // The phone has the thread as its read left it: no echo of its own read.
         threadFocus.get(seatRef(frame.args.canvasName, frame.args.nodeId))?.sent.set(response.result.thread.threadId, JSON.stringify(response.result.thread));
+      } else if (frame.op === "artifacts.subscribe") {
+        artifactsCanvas = frame.args.canvasName;
+      } else if (frame.op === "artifacts.unsubscribe") {
+        artifactsCanvas = undefined;
       } else if (frame.op === "comments.list" && "threads" in response.result) {
         commentsFocus = { canvasName: frame.args.canvasName, subject: frame.args.subject, sent: JSON.stringify(response.result) };
       }

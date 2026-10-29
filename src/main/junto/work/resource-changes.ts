@@ -6,14 +6,23 @@
 // A thread is its own notice: a comment on a file changes no file, so it says
 // only that the threads of its kind moved (F7).
 
+import type { ArtifactOp } from "@shared/artifact";
+import type { ResourceCommand } from "@shared/resource-command";
 import type { ResourceIpcDomain, ThreadResourceSubject } from "@shared/resource-ipc";
 
-export type ResourceChangeListener = (domain: ResourceIpcDomain, canvasName: string) => void;
+/**
+ * The artifact write behind a change, when the writer knows it: the command as
+ * it was ruled. A replicated row arrives without one, and then a reader knows
+ * the canvas's artifacts moved but not which or how.
+ */
+export type ArtifactChange = { readonly command: ResourceCommand<ArtifactOp> };
+
+export type ResourceChangeListener = (domain: ResourceIpcDomain, canvasName: string, artifact?: ArtifactChange) => void;
 
 const listeners = new Set<ResourceChangeListener>();
 
-export const noteResourceChanged = (domain: ResourceIpcDomain, canvasName: string): void => {
-  for (const listener of listeners) listener(domain, canvasName);
+export const noteResourceChanged = (domain: ResourceIpcDomain, canvasName: string, artifact?: ArtifactChange): void => {
+  for (const listener of listeners) listener(domain, canvasName, artifact);
 };
 
 /** Returns the unsubscribe. */

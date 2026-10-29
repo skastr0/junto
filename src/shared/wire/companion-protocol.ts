@@ -22,6 +22,8 @@
 import { Result, Schema } from "effect";
 import { AgentSignal, AgentSignalKind, type SignalSource } from "./agent-signals";
 import {
+  CompanionArtifactChanged,
+  CompanionArtifactsSubscribeArgs,
   CompanionCommentsChanged,
   CompanionCommentsListArgs,
   CompanionCommentsListData,
@@ -47,6 +49,7 @@ import {
   CompanionInboxSetArgs,
   CompanionInboxSetResult,
 } from "./companion-artifact-reads";
+export type { CompanionArtifactChanged } from "./companion-artifacts";
 import {
   CompanionArtifactApplyArgs,
   CompanionArtifactApplyResult,
@@ -566,6 +569,9 @@ export const COMPANION_OPS = [
   "comments.list",
   "comment.post",
   "mentions.candidates",
+  /** One canvas's artifact changes, and the events that follow. */
+  "artifacts.subscribe",
+  "artifacts.unsubscribe",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -711,6 +717,8 @@ export const CompanionArgs = {
   "comments.list": CompanionCommentsListArgs,
   "comment.post": CompanionCommentPostArgs,
   "mentions.candidates": CompanionMentionCandidatesArgs,
+  "artifacts.subscribe": CompanionArtifactsSubscribeArgs,
+  "artifacts.unsubscribe": Empty,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 /**
@@ -738,6 +746,8 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "comments.list",
   "comment.post",
   "mentions.candidates",
+  "artifacts.subscribe",
+  "artifacts.unsubscribe",
 ]);
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
@@ -833,6 +843,8 @@ export const CompanionResults = {
   "comments.list": CompanionCommentsListData,
   "comment.post": CompanionCommentPostData,
   "mentions.candidates": CompanionMentionCandidatesData,
+  "artifacts.subscribe": Empty,
+  "artifacts.unsubscribe": Empty,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 export type CompanionResultByOp = { readonly [Op in CompanionOpName]: (typeof CompanionResults)[Op]["Type"] };
@@ -892,6 +904,8 @@ export const CompanionEvents = {
   }),
   /** A comment landed on a subject this phone has a `comments.list` open on: list it again. */
   "comments.changed": CompanionCommentsChanged,
+  /** An artifact on the subscribed canvas changed, by anyone. */
+  "artifact.changed": CompanionArtifactChanged,
 } as const;
 export type CompanionEventName = keyof typeof CompanionEvents;
 export type CompanionEventDataByName = {

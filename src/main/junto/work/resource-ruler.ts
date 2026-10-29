@@ -255,7 +255,7 @@ export const artifactRuler = (repo: ArtifactRepository["Service"], authors: Auto
     const outcome = yield* (command.target.itemId === undefined ? repo.submitNode(writer, decoded, context) : repo.submit(writer, decoded, context))
       .pipe(Effect.mapError(failed("the artifact ruler could not rule")));
     // Committed: the panes on this machine read the artifacts again.
-    if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName);
+    if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName, { command: decoded });
     return { kind: "ruled" } as const;
   });
 

@@ -14,7 +14,9 @@
  */
 
 import { Schema } from "effect";
-import { ActorSeatId } from "./resource-actor";
+import { ArtifactEdit } from "./artifact";
+import { CompanionArtifactListItem } from "./companion-artifact-reads";
+import { ActorSeatId, ResourceActor } from "./resource-actor";
 import { ContentRef } from "./content-ref";
 import { ItemId, NodeId, OpId } from "./ids";
 import { MentionRef } from "./mention";
@@ -190,3 +192,31 @@ export const CompanionMentionCandidatesData = Schema.Struct({
   ),
 });
 export type CompanionMentionCandidatesData = typeof CompanionMentionCandidatesData.Type;
+
+// --- artifacts.subscribe and artifact.changed --------------------------------
+
+/** The most edit an `artifact.changed` carries inline; a larger one is left out and the phone refetches. */
+export const COMPANION_ARTIFACT_EDIT_MAX_BYTES = 32 * 1024;
+
+export const CompanionArtifactsSubscribeArgs = Schema.Struct({ canvasName: CanvasName });
+export type CompanionArtifactsSubscribeArgs = typeof CompanionArtifactsSubscribeArgs.Type;
+
+/**
+ * A change to an artifact on the canvas this connection subscribed to, by
+ * anyone: the desktop, a seat, an automation, the phone itself. `edit` rides
+ * along when it fits, so an open editor applies the patch without a refetch;
+ * absent, the phone reads the artifact again. An archive or a move is the
+ * same event with the new head.
+ */
+export const CompanionArtifactChanged = Schema.Struct({
+  canvasName: CanvasName,
+  artifact: CompanionArtifactListItem,
+  /** Who wrote it. */
+  author: ResourceActor,
+  /** Epoch ms the change was ruled. */
+  at: Schema.Int,
+  edit: Schema.optionalKey(ArtifactEdit),
+  /** The body's ref at the new version; `content.get` serves its bytes when the phone needs them. */
+  bodyRef: Schema.optionalKey(ContentRef),
+});
+export type CompanionArtifactChanged = typeof CompanionArtifactChanged.Type;

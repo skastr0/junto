@@ -12,8 +12,11 @@
 
 import { randomBytes } from "node:crypto";
 import type { AgentSignal } from "@shared/agent-signals";
+import type { CompanionArtifactChanged } from "@shared/companion-protocol";
 
 const SIGNAL_RING = 256;
+/** Artifact changes kept for a poll: a burst of edits is a burst of frames, so the bound is generous. */
+const ARTIFACT_RING = 512;
 /** Bursts (a canvas write touches several planes) coalesce into one wake. */
 const COALESCE_MS = 120;
 
@@ -25,6 +28,8 @@ export type CompanionChanges = {
    */
   readonly close: () => void;
   readonly noteSignal: (signal: AgentSignal) => void;
+  /** An artifact change, for the connection that subscribed to its canvas. */
+  readonly noteArtifact: (change: CompanionArtifactChanged) => void;
   readonly wait: (
     cursor: string | undefined,
     waitMs: number,
@@ -32,6 +37,7 @@ export type CompanionChanges = {
     readonly cursor: string;
     readonly changed: boolean;
     readonly signals: ReadonlyArray<AgentSignal>;
+    readonly artifacts: ReadonlyArray<CompanionArtifactChanged>;
     readonly reset: boolean;
   }>;
 };
@@ -40,6 +46,7 @@ export const makeCompanionChanges = (): CompanionChanges => {
   const boot = randomBytes(6).toString("hex");
   let seq = 0;
   const ring: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
+  const artifacts: Array<{ readonly seq: number; readonly change: CompanionArtifactChanged }> = [];
   let waiters: Array<() => void> = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
@@ -79,12 +86,18 @@ export const makeCompanionChanges = (): CompanionChanges => {
       if (ring.length > SIGNAL_RING) ring.splice(0, ring.length - SIGNAL_RING);
       wake();
     },
+    noteArtifact: (change) => {
+      seq += 1;
+      artifacts.push({ seq, change });
+      if (artifacts.length > ARTIFACT_RING) artifacts.splice(0, artifacts.length - ARTIFACT_RING);
+      wake();
+    },
     wait: async (cursor, waitMs) => {
       const since = parse(cursor);
       // Unknown, foreign or too old for the ring: start over from now.
       const oldest = ring[0]?.seq ?? seq;
       if (since === undefined || since > seq || (since < oldest - 1 && ring.length === SIGNAL_RING)) {
-        return { cursor: cursorOf(seq), changed: false, signals: [], reset: cursor !== undefined };
+        return { cursor: cursorOf(seq), changed: false, signals: [], artifacts: [], reset: cursor !== undefined };
       }
       if (since === seq && !closed) {
         await new Promise<void>((resolve) => {
@@ -104,6 +117,7 @@ export const makeCompanionChanges = (): CompanionChanges => {
         cursor: cursorOf(now),
         changed: now !== since,
         signals: ring.filter((entry) => entry.seq > since && entry.seq <= now).map((entry) => entry.signal),
+        artifacts: artifacts.filter((entry) => entry.seq > since && entry.seq <= now).map((entry) => entry.change),
         reset: false,
       };
     },

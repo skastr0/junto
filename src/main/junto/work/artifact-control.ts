@@ -272,7 +272,7 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
         // A resend answered from the stored ruling made nothing.
         Effect.tap((outcome) =>
           Effect.sync(() => {
-            if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName);
+            if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName, { command });
           })),
       ),
     labelColours: (canvasName, nodeIds) => withRepo((repo) => repo.labelColours(canvasName, nodeIds)),
@@ -316,7 +316,7 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
         // A resend answered from the stored ruling made nothing.
         Effect.tap((outcome) =>
           Effect.sync(() => {
-            if (outcome.kind === "applied" && outcome.changed) noteResourceChanged("artifact", command.canvasName);
+            if (outcome.kind === "applied" && outcome.changed) noteResourceChanged("artifact", command.canvasName, { command });
           })),
         Effect.map((outcome): LabelColourOutcome => (outcome.kind === "refused" ? outcome : { kind: outcome.kind, opId: outcome.opId })),
       );

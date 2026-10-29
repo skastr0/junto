@@ -201,6 +201,8 @@ describe("request decoding", () => {
     "inbox.set": { canvasName: "main", nodeId: "art-notes" },
     "comments.list": { canvasName: "main", subject: { kind: "artifact", nodeId: "art-notes", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" } },
     "mentions.candidates": { canvasName: "main", from: "planner", trigger: "@", query: "at" },
+    "artifacts.subscribe": { canvasName: "main" },
+    "artifacts.unsubscribe": {},
     "comment.post": {
       canvasName: "main",
       subject: { kind: "artifact", nodeId: "art-notes", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" },

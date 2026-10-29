@@ -154,6 +154,12 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `comments.list` | `{ "canvasName": string, "subject": CommentSubject, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed; needs `features` to list `artifacts/1`) | `{ "threads": CommentThread[], "cut": boolean, "next"?: string }`, newest thread first, at most 200 |
 | `comment.post` | `{ "canvasName": string, "subject": CommentSubject, "opId": ULID, "text": string (1 to 8000), "anchor"?: ArtifactPlaceAnchor, "threadId"?: ULID }` (closed; counts as a write) | `{ "threadId": ULID, "messageId": ULID, "unlinked"?: { "token": string, "nearest": string[] }[] }` |
 | `mentions.candidates` | `{ "canvasName": string, "from": string, "trigger": "@" \| "#" \| "[[", "query"?: string (0 to 100), "limit"?: 1..50 }` (closed; needs `artifacts/1`) | `{ "candidates": MentionCandidate[] }` (at most 50) |
+| `artifacts.subscribe` | `{ "canvasName": string }` (closed; needs `artifacts/1`) | `{}`, then `artifact.changed` for that canvas until `artifacts.unsubscribe` or another subscribe |
+| `artifacts.unsubscribe` | `{}` (closed) | `{}` |
+| `artifacts.subscribe` | `{ "canvasName": string }` (closed; needs `artifacts/1`) | `{}`, then `artifact.changed` for that canvas until `artifacts.unsubscribe` or another subscribe |
+| `artifacts.unsubscribe` | `{}` (closed) | `{}` |
+| `artifacts.subscribe` | `{ "canvasName": string }` (closed; needs `artifacts/1`) | `{}`, then `artifact.changed` for that canvas until `artifacts.unsubscribe` or another subscribe |
+| `artifacts.unsubscribe` | `{}` (closed) | `{}` |
 
 Artifacts (feature `artifacts/1`, section 2). `ArtifactNode` is
 `{ "nodeId", "title", "region": FeedRegion, "live": number, "archived": number,
@@ -165,6 +171,8 @@ desktop's quick capture (Cmd+T) lands in, and only while it is still one of
 through the path the desktop's Settings page uses, so it is `invalid` for a
 node that is not one of the canvas's Artifacts nodes, and the desktop's next
 Cmd+T uses what the phone chose. The phone cannot make a node.
+
+`mentions.candidates` is the desktop's own picker rule (`mentionableNodesFrom` for the scope, `filterCandidates` for the query, `shared/mention-candidates.ts`): a seat's `@` names the seats wired to it and the pages in its reach; from a resource, `@` names that resource's reach. `#` names the tasks on the boards and the artifacts in the Artifacts nodes in reach; `[[` the same artifacts by title. A `MentionCandidate` is `{ ref, kind, label, title, subtitle?, note? }`: `title` is the bare name, `subtitle` where it sits, `note` its state in words.
 
 `artifacts.list` covers the whole canvas when `nodeId` is absent (browse and
 quick add) and one Artifacts node when it is named, which must be one of the
@@ -397,6 +405,9 @@ Events:
 | `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
 | `canvas.changed` | `{ "canvasName": string, "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[], "removedNodes": string[], "removedWires": string[] }`: whole nodes and wires added or changed since `seq - 1`, and the ids gone, for the canvas of the last `canvas.open` until `canvas.close` |
 | `comments.changed` | `{ "canvasName": string, "subject": CommentSubject }`: a comment landed on the subject of the last `comments.list`, by anyone; list it again |
+| `artifact.changed` | `{ "canvasName": string, "artifact": ArtifactListItem, "author": ResourceActor, "at": number, "edit"?: ArtifactEdit, "bodyRef"?: ContentRef }`: one artifact changed on the subscribed canvas, by anyone who wrote through that Mac; `edit` rides along when it fits (at most 32 KiB), else read the artifact again. An archive or move is the same event with the new head |
+| `artifact.changed` | `{ "canvasName": string, "artifact": ArtifactListItem, "author": ResourceActor, "at": number, "edit"?: ArtifactEdit, "bodyRef"?: ContentRef }`: one artifact changed on the subscribed canvas, by anyone who wrote through that Mac; `edit` rides along when it fits (at most 32 KiB), else read the artifact again. An archive or move is the same event with the new head |
+| `artifact.changed` | `{ "canvasName": string, "artifact": ArtifactListItem, "author": ResourceActor, "at": number, "edit"?: ArtifactEdit, "bodyRef"?: ContentRef }`: one artifact changed on the subscribed canvas, by anyone who wrote through that Mac; `edit` rides along when it fits (at most 32 KiB), else read the artifact again. An archive or move is the same event with the new head |
 
 Event origin: `signal.changed`, `feed.changed` and `seat.changed` fire for
 every change no matter who made it: the phone, the desktop, or the agent

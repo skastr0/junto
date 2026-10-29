@@ -557,6 +557,10 @@ export const handleCompanionRequest = async (
       return respond(id, backend.comment(frame.args), (value) => companionOk(id, "comment.post", value));
     case "mentions.candidates":
       return respond(id, backend.mentionCandidates(frame.args), (value) => companionOk(id, "mentions.candidates", value));
+    case "artifacts.subscribe":
+      return companionOk(id, "artifacts.subscribe", {});
+    case "artifacts.unsubscribe":
+      return companionOk(id, "artifacts.unsubscribe", {});
     case "artifacts.nodes":
       return respond(id, backend.artifactNodes(frame.args.canvasName), (value) => companionOk(id, "artifacts.nodes", value));
     case "artifact.history":

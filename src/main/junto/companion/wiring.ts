@@ -18,8 +18,10 @@ import { onRemoteSeatState } from "../term/remote-seat-state";
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { messageDelivery } from "../work/message-delivery";
 import { noteMailFailure } from "./backend";
+import { noteArtifactChanged } from "./artifact-changes";
 import type { CompanionChanges } from "./changes";
 import { onDesktopReport } from "./desktop-report";
+import { onResourceChanged } from "../work/resource-changes";
 import { notePreamble } from "./preambles";
 import { onReadChanged } from "../work/mail-reads";
 
@@ -43,6 +45,10 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
       changes.bump();
     }),
     onDesktopReport(() => changes.bump()),
+    // A write through this machine names its artifact and its edit; a replicated row does not.
+    onResourceChanged((domain, canvasName, change) => {
+      if (domain === "artifact") noteArtifactChanged(changes, canvasName, change);
+    }),
     onReadChanged(() => changes.bump()),
   ];
   return () => {

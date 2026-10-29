@@ -7,6 +7,7 @@ import {
   CompanionResponseFrame,
 } from "./companion-protocol";
 import { AgentSignal } from "./agent-signals";
+import { CompanionArtifactChanged } from "./wire/companion-artifacts";
 import {
   MachineOpName, MachineAddInput, MachineEmptyInput, MachineCopyInput, MachineStatusInput,
   MachineTargetInput, MachinePeerIdentity, MachineConfigured, MachinePeerPin,
@@ -110,6 +111,8 @@ export const OperatorCompanionEventsData = Schema.Union([
     cursor: Schema.String,
     changed: Schema.Boolean,
     signals: Schema.Array(AgentSignal),
+    /** Artifact changes since the cursor, for a connection that subscribed to their canvas. */
+    artifacts: Schema.optionalKey(Schema.Array(CompanionArtifactChanged)),
     reset: Schema.Boolean,
   }),
   Schema.Struct({ ok: Schema.Literal(false), error: CompanionError }),
