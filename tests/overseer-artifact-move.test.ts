@@ -143,5 +143,6 @@ describe("artifact move in the CLI", () => {
     expect(ok(examples[0]!.input)).toBe(true);
     expect(OVERSEER_SKILL_MARKDOWN).toContain("artifact move {artifactIds, to, canvas?}");
     expect(OVERSEER_SKILL_MARKDOWN).toContain("`unchanged` when it was already on `to` (a retry is not a refusal)");
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("`queued` when another machine edits the canvas");
   });
 });

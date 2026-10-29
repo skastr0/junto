@@ -297,7 +297,7 @@ const ROW_VERDICT_DESCRIPTIONS: Partial<Record<OverseerOperation, string>> = {
   "agent.offboard":
     "Ask seats to offboard, or end idle sessions now. One result per seat; exits non-zero when any seat was refused",
   "artifact.move":
-    `Move 1 to ${ARTIFACT_MOVE_MAX} artifacts to another Artifacts node: {artifactIds, to, canvas?}. Each keeps its id, versions, history, comments, labels, tasks and links. One row per artifact, moved, unchanged (already there) or refused with its reason; exits non-zero when any was refused`,
+    `Move 1 to ${ARTIFACT_MOVE_MAX} artifacts to another Artifacts node: {artifactIds, to, canvas?}. Each keeps its id, versions, history, comments, labels, tasks and links. One row per artifact, moved, unchanged (already there), queued (another machine edits the canvas and has not ruled it yet) or refused with its reason; exits non-zero when any was refused`,
 };
 
 const makeRowVerdictCommand = (entry: OverseerCatalogEntry, description: string) =>
@@ -1051,7 +1051,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("artifact.move"),
     command: "overseer artifact move",
     name: "move artifacts to another Artifacts node",
-    description: `Only the node changes: links and backlinks hold, and history says who moved each and from where. ids come from junto artifact list; to is the Artifacts node's id. One row per artifact in the order asked: moved, unchanged when it was already there, or refused (not-found, failed) with its reason, and the command exits non-zero. A to that is not an Artifacts node fails the whole call and nothing moves. 1 to ${ARTIFACT_MOVE_MAX} ids, each once.`,
+    description: `Only the node changes: links and backlinks hold, and history says who moved each and from where. ids come from junto artifact list; to is the Artifacts node's id. One row per artifact in the order asked: moved; unchanged when it was already there; queued when another machine edits the canvas and has not ruled it yet; or refused (not-found, failed, which includes a node your seat does not reach) with its reason, and the command exits non-zero. A to that is not an Artifacts node fails the whole call and nothing moves. 1 to ${ARTIFACT_MOVE_MAX} ids, each once.`,
     args: ["overseer", "artifact", "move"],
     input: { artifactIds: ["01M5ESMQ2ZT55QZ073EWPH10SG", "01M5ESMQ2ZT55QZ073EWPH10SH"], to: "artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0" },
   },
