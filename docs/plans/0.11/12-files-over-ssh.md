@@ -49,8 +49,7 @@ service on its own folder) and Rule 9 (a folder belongs to its machine).
   on the machine whose screen shows them, so on another machine's node they
   are refused `elsewhere` and the menu hides them.
 - **Not reachable.** No link to the host: every op is refused `unreachable`,
-  named with the machine and how long it has been unreachable, the way a
-  seat's card says it. A save in flight when the link drops is refused,
+  and the node says its machine is offline and when it was last reached. A save in flight when the link drops is refused,
   never queued: the editor keeps the text and offers to save again. Nothing
   is cached on the window machine.
 
@@ -92,9 +91,9 @@ Order: X1, X2, X4, X3, X5 with each landing. Behind a `files-remote` feature,
 off in ship until remote-verify walks it on the mini and a Linux machine:
 link cut mid-save, host asleep, a 25 MB PDF beside a typing seat.
 
-## Questions for product-lead
+## Decided (product-lead, 2026-10-29)
 
-1. Is any offline view wanted, such as the last tree seen, marked stale?
-   The plan shows none, which is simplest and never wrong.
-2. Should seats get a remote Files node too, so a seat on the MacBook reads
-   the mini's folder? The plan says no: an operator surface only.
+1. **No offline view.** A node whose machine is unreachable says that its
+   machine is offline and when it was last reached. No stale tree is shown.
+2. **Operator surface only.** Seats get no access to another machine's Files
+   node in 0.12.
