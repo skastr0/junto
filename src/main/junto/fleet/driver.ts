@@ -1,0 +1,380 @@
+/**
+ * The driver of one canvas's consensus group (0.11, 06 F2): it holds the pure
+ * core (`consensus.ts`) and does its I/O in the order `ready()` asks, against
+ * the tables of state step 61 (`state-schema.ts`).
+ *
+ * Each `ready()` is two transactions:
+ *
+ * 1. **Persist**, under `synchronous=FULL`: the hard state (term, vote,
+ *    commit), the truncated tail and the new entries. Raft's acknowledgement
+ *    is this write, so it is durable before any message leaves.
+ * 2. **Apply**: every committed entry above `applied_index`, in index order,
+ *    and the new `applied_index`, in one transaction. A ruling is folded
+ *    through `foldRuling` with what the judgment kept, and only then is its
+ *    row recorded, as the ruler does (the row stands on the count a placement
+ *    moved). The fold is not idempotent (a body's content ref is drawn fresh,
+ *    the canvas count moves), so an entry is applied exactly once: a failure
+ *    anywhere in the apply rolls back its folds with the index, and the
+ *    driver must be opened again.
+ *
+ * Opening reads the persisted state, applies whatever was committed and not
+ * applied (a crash between the two transactions), and then hands the core its
+ * log: the core counts everything committed as applied. A canvas with no row
+ * yet starts as the migration seeded every canvas: term 1, its editor (this
+ * machine where none is named) its one authority. Entry 1 is that list,
+ * committed, as every member of a new group starts.
+ *
+ * Messages are the caller's to send; a canvas this machine rules alone needs
+ * none, and settles its own election when opened.
+ */
+import { Effect, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { ArtifactBody } from "@shared/artifact";
+import { rulingRowOf } from "@shared/command-row";
+import type { InstallationId } from "@shared/installation-id";
+import type { ResourceCommand } from "@shared/resource-command";
+import { RulingRecorder, type RulingRecordFailed } from "../work/ruling-recorder";
+import type { RecordRulingInput } from "../work/repository";
+import { foldRuling } from "../work/ruling-projection";
+import { ConsensusNode, type Entry, type EntryPayload, type HardState, type MemberList, type Message, type Ready, type Status } from "./consensus";
+
+export class FleetDriverError extends Schema.TaggedError<FleetDriverError>()("FleetDriverError", {
+  message: Schema.String,
+  cause: Schema.Unknown,
+}) {}
+
+/** A judged ruling as the log carries it: what the recorder takes, the bodies the judgment kept, and when it was judged. */
+export type LoggedRuling = {
+  readonly input: Omit<RecordRulingInput, "bodies" | "placement">;
+  readonly bodies: ReadonlyArray<{ readonly sha256: string; readonly body: ArtifactBody }>;
+  readonly ruledAt: number;
+};
+
+/** What a data entry carries. A structure change folds in F4; until then it only moves the index. */
+export type LogData =
+  | { readonly kind: "ruling"; readonly ruling: LoggedRuling }
+  | { readonly kind: "structure.changed"; readonly seq: number };
+
+const LoggedRulingSchema = Schema.Struct({
+  input: Schema.Struct({
+    canvasName: Schema.String,
+    writer: Schema.String,
+    command: Schema.Struct({ opId: Schema.String, actor: Schema.Unknown, target: Schema.Unknown }),
+    kind: Schema.Literals(["task", "artifact", "thread", "automation"]),
+    record: Schema.Unknown,
+    ruling: Schema.Unknown,
+    at: Schema.optionalKey(Schema.String),
+  }),
+  bodies: Schema.Array(Schema.Struct({ sha256: Schema.String, body: ArtifactBody })),
+  ruledAt: Schema.Number,
+});
+const LogDataSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("ruling"), ruling: LoggedRulingSchema }),
+  Schema.Struct({ kind: Schema.Literal("structure.changed"), seq: Schema.Number }),
+]);
+const decodeLogData = Schema.decodeUnknownResult(Schema.fromJsonString(LogDataSchema));
+
+export const encodeLogData = (data: LogData): string => JSON.stringify(data);
+
+/** A judged ruling, ready to propose: the recorder's input with the bodies its judgment kept. */
+export const loggedRuling = (input: RecordRulingInput, ruledAt: number): LoggedRuling => {
+  const { bodies, placement: _placement, ...rest } = input;
+  return { input: rest, bodies: [...(bodies ?? new Map()).entries()].map(([sha256, body]) => ({ sha256, body })), ruledAt };
+};
+
+const failed = (message: string) => (cause: unknown) => new FleetDriverError({ message, cause });
+
+const dataOf = (payload: Extract<EntryPayload, { kind: "data" }>): Effect.Effect<LogData, FleetDriverError> => {
+  const decoded = decodeLogData(payload.data);
+  return decoded._tag === "Failure"
+    ? Effect.fail(new FleetDriverError({ message: "a log entry carries data this build does not know", cause: decoded.failure }))
+    : Effect.succeed(decoded.success as LogData);
+};
+
+type RecordRuling = (input: RecordRulingInput) => Effect.Effect<void, RulingRecordFailed>;
+
+type ConsensusRow = {
+  readonly current_term: number;
+  readonly voted_for: string | null;
+  readonly commit_index: number;
+  readonly applied_index: number;
+};
+
+type LogRow = {
+  readonly log_index: number;
+  readonly term: number;
+  readonly kind: "noop" | "list" | "ruling" | "structure.changed";
+  readonly writer: string | null;
+  readonly command_json: string | null;
+  readonly ruling_json: string | null;
+  readonly structure_seq: number | null;
+  readonly sole_installation_id: string | null;
+};
+
+type MemberRow = { readonly log_index: number; readonly side: "list" | "old"; readonly installation_id: string };
+
+/** The ruling columns of a log row, and back: the command and the rest, never the canvas (the row's key). */
+const rulingColumns = (ruling: LoggedRuling) => {
+  const { command, writer, canvasName: _canvasName, ...rest } = ruling.input;
+  return {
+    writer,
+    opId: command.opId,
+    commandJson: JSON.stringify(command),
+    rulingJson: JSON.stringify({ ...rest, bodies: ruling.bodies, ruledAt: ruling.ruledAt }),
+  };
+};
+
+const payloadOf = (canvasName: string, row: LogRow, members: ReadonlyArray<MemberRow>): EntryPayload => {
+  switch (row.kind) {
+    case "noop":
+      return { kind: "noop" };
+    case "list": {
+      const side = (name: "list" | "old") => members.filter((member) => member.side === name).map((member) => member.installation_id);
+      const old = side("old");
+      return {
+        kind: "list",
+        members: {
+          list: side("list"),
+          ...(old.length > 0 ? { old } : {}),
+          ...(row.sole_installation_id === null ? {} : { sole: row.sole_installation_id }),
+        },
+      };
+    }
+    case "ruling": {
+      const rest = JSON.parse(row.ruling_json!) as Record<string, unknown>;
+      const { bodies, ruledAt, ...input } = rest;
+      const data: LogData = {
+        kind: "ruling",
+        ruling: {
+          input: { ...input, canvasName, writer: row.writer, command: JSON.parse(row.command_json!) } as never,
+          bodies: bodies as never,
+          ruledAt: ruledAt as number,
+        },
+      };
+      return { kind: "data", data: encodeLogData(data) };
+    }
+    case "structure.changed":
+      return { kind: "data", data: encodeLogData({ kind: "structure.changed", seq: row.structure_seq! }) };
+  }
+};
+
+const writeEntry = (sql: SqlClient.SqlClient, canvasName: string, entry: Entry) =>
+  Effect.gen(function* () {
+    const { payload } = entry;
+    if (payload.kind === "data") {
+      const data = yield* dataOf(payload);
+      if (data.kind === "ruling") {
+        const columns = rulingColumns(data.ruling);
+        yield* sql`INSERT INTO canvas_log (canvas_name, log_index, term, kind, writer, op_id, command_json, ruling_json)
+          VALUES (${canvasName}, ${entry.index}, ${entry.term}, 'ruling', ${columns.writer}, ${columns.opId}, ${columns.commandJson}, ${columns.rulingJson})`;
+      } else {
+        yield* sql`INSERT INTO canvas_log (canvas_name, log_index, term, kind, structure_seq)
+          VALUES (${canvasName}, ${entry.index}, ${entry.term}, 'structure.changed', ${data.seq})`;
+      }
+      return;
+    }
+    if (payload.kind === "noop") {
+      yield* sql`INSERT INTO canvas_log (canvas_name, log_index, term, kind) VALUES (${canvasName}, ${entry.index}, ${entry.term}, 'noop')`;
+      return;
+    }
+    const { members } = payload;
+    yield* sql`INSERT INTO canvas_log (canvas_name, log_index, term, kind, sole_installation_id)
+      VALUES (${canvasName}, ${entry.index}, ${entry.term}, 'list', ${members.sole ?? null})`;
+    for (const [side, ids] of [["list", members.list], ["old", members.old ?? []]] as const) {
+      for (const [position, id] of ids.entries()) {
+        yield* sql`INSERT INTO canvas_log_members (canvas_name, log_index, side, position, installation_id)
+          VALUES (${canvasName}, ${entry.index}, ${side}, ${position}, ${id})`;
+      }
+    }
+  });
+
+/** A committed list: the final list becomes the canvas's authorities; a joint one waits in the log for its successor. */
+const applyList = (sql: SqlClient.SqlClient, canvasName: string, members: MemberList) =>
+  Effect.gen(function* () {
+    if (members.old !== undefined) return;
+    yield* sql`UPDATE canvas_consensus SET sole_installation_id = ${members.sole ?? null} WHERE canvas_name = ${canvasName}`;
+    yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = ${canvasName}`;
+    for (const [position, id] of members.list.entries()) {
+      yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${canvasName}, ${position}, ${id})`;
+    }
+  });
+
+/** One committed entry, folded as the ruler would have written it: the facts, then the ruling row. */
+const applyEntry = (sql: SqlClient.SqlClient, record: RecordRuling, canvasName: string, entry: Entry) =>
+  Effect.gen(function* () {
+    const { payload } = entry;
+    if (payload.kind === "noop") return;
+    if (payload.kind === "list") return yield* applyList(sql, canvasName, payload.members);
+    const data = yield* dataOf(payload);
+    if (data.kind === "structure.changed") return;
+    const { input, bodies, ruledAt } = data.ruling;
+    const ruled: RecordRulingInput = { ...input, bodies: new Map(bodies.map(({ sha256, body }) => [sha256, body])) };
+    const row = rulingRowOf(ruled.writer, ruled.command, ruled.kind, ruled.ruling as never);
+    if (row.operation === "ruling.applied") {
+      yield* foldRuling(sql, canvasName, row, ruledAt, {
+        bodies: ruled.bodies,
+        command: ruled.command as Pick<ResourceCommand<unknown>, "op" | "target">,
+      });
+    }
+    yield* record(ruled);
+  });
+
+const readConsensus = (sql: SqlClient.SqlClient, canvasName: string) =>
+  Effect.map(
+    sql<ConsensusRow>`SELECT current_term, voted_for, commit_index, applied_index FROM canvas_consensus WHERE canvas_name = ${canvasName}`,
+    (rows) => rows[0],
+  );
+
+const readLog = (sql: SqlClient.SqlClient, canvasName: string) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<LogRow>`
+      SELECT log_index, term, kind, writer, command_json, ruling_json, structure_seq, sole_installation_id
+      FROM canvas_log WHERE canvas_name = ${canvasName} ORDER BY log_index`;
+    const members = yield* sql<MemberRow>`
+      SELECT log_index, side, installation_id FROM canvas_log_members
+      WHERE canvas_name = ${canvasName} ORDER BY log_index, side, position`;
+    return rows.map((row): Entry => ({
+      term: row.term,
+      index: row.log_index,
+      payload: payloadOf(canvasName, row, members.filter((member) => member.log_index === row.log_index)),
+    }));
+  });
+
+/**
+ * A canvas from before its first entry: the row the migration would have
+ * seeded, and entry 1 its list, committed and applied (as the simulation's
+ * genesis). Every member writes the same entry 1 from the same list.
+ */
+const bootstrap = (sql: SqlClient.SqlClient, canvasName: string, self: InstallationId) =>
+  Effect.gen(function* () {
+    yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, voted_for, commit_index, applied_index)
+      VALUES (${canvasName}, 1, NULL, 0, 0) ON CONFLICT (canvas_name) DO NOTHING`;
+    const held = yield* sql<{ installation_id: string }>`
+      SELECT installation_id FROM canvas_authorities WHERE canvas_name = ${canvasName} ORDER BY position`;
+    const list = held.length > 0
+      ? held.map((row) => row.installation_id)
+      : [((yield* sql<{ editor: string | null }>`SELECT editor_installation_id AS editor FROM canvases WHERE canvas_name = ${canvasName}`)[0]?.editor ?? self)];
+    const sole = (yield* sql<{ sole: string | null }>`SELECT sole_installation_id AS sole FROM canvas_consensus WHERE canvas_name = ${canvasName}`)[0]?.sole;
+    const members: MemberList = { list, ...(sole === null || sole === undefined ? {} : { sole }) };
+    yield* writeEntry(sql, canvasName, { term: 1, index: 1, payload: { kind: "list", members } });
+    yield* applyList(sql, canvasName, members);
+    yield* sql`UPDATE canvas_consensus SET commit_index = 1, applied_index = 1 WHERE canvas_name = ${canvasName}`;
+  });
+
+export type CanvasAuthorityOptions = {
+  readonly canvasName: string;
+  readonly self: InstallationId;
+  readonly electionTicks?: number;
+  readonly heartbeatTicks?: number;
+};
+
+export type CanvasAuthority = {
+  readonly status: () => Status;
+  /** Propose a judged ruling; on a canvas this machine rules alone it is committed and applied when this returns. */
+  readonly propose: (ruling: LoggedRuling) => Effect.Effect<Entry, FleetDriverError>;
+  readonly tick: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
+  readonly step: (message: Message) => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
+};
+
+/** Open a canvas's group on this machine: load it, apply what was committed and not applied, and settle a lone authority. */
+export const openCanvasAuthority = (
+  options: CanvasAuthorityOptions,
+): Effect.Effect<CanvasAuthority, FleetDriverError, SqlClient.SqlClient | RulingRecorder> =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const recorder = yield* RulingRecorder;
+    const { canvasName, self } = options;
+    const electionTicks = options.electionTicks ?? 10;
+
+    const apply = (entries: ReadonlyArray<Entry>, through: number) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const applied = (yield* readConsensus(sql, canvasName))?.applied_index ?? 0;
+          let last = applied;
+          for (const entry of entries) {
+            if (entry.index <= last) continue;
+            yield* applyEntry(sql, recorder.record, canvasName, entry);
+            last = entry.index;
+          }
+          if (through > applied) {
+            yield* sql`UPDATE canvas_consensus SET applied_index = ${through}, last_applied_at_epoch_ms = ${Date.now()}
+              WHERE canvas_name = ${canvasName}`;
+          }
+        }),
+      );
+
+    const loaded = yield* sql.withTransaction(
+      Effect.gen(function* () {
+        if ((yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM canvas_log WHERE canvas_name = ${canvasName}`)[0]!.n === 0) {
+          yield* bootstrap(sql, canvasName, self);
+        }
+        return { consensus: (yield* readConsensus(sql, canvasName))!, log: yield* readLog(sql, canvasName) };
+      }),
+    ).pipe(Effect.mapError(failed(`the authority of ${canvasName} could not be read`)));
+
+    const { consensus, log } = loaded;
+    // Committed and not applied: a crash came between persisting and applying. Applied now, once.
+    if (consensus.commit_index > consensus.applied_index) {
+      yield* apply(log.filter((entry) => entry.index <= consensus.commit_index), consensus.commit_index).pipe(
+        Effect.mapError(failed(`the committed entries of ${canvasName} could not be applied`)),
+      );
+    }
+
+    const hardState: HardState = { term: consensus.current_term, votedFor: consensus.voted_for, commit: consensus.commit_index };
+    const node = new ConsensusNode({ id: self, electionTicks, heartbeatTicks: options.heartbeatTicks ?? 1, hardState, log });
+    let broken: FleetDriverError | undefined;
+
+    const persist = (ready: Ready) =>
+      Effect.gen(function* () {
+        if (ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0) return;
+        yield* sql`PRAGMA synchronous = FULL`;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            if (ready.hardState !== undefined) {
+              yield* sql`UPDATE canvas_consensus
+                SET current_term = ${ready.hardState.term}, voted_for = ${ready.hardState.votedFor}, commit_index = ${ready.hardState.commit}
+                WHERE canvas_name = ${canvasName}`;
+            }
+            const from = Math.min(ready.truncateFrom ?? Number.POSITIVE_INFINITY, ...ready.entries.map((entry) => entry.index));
+            if (Number.isFinite(from)) yield* sql`DELETE FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index >= ${from}`;
+            for (const entry of ready.entries) yield* writeEntry(sql, canvasName, entry);
+          }),
+        ).pipe(Effect.ensuring(Effect.ignore(sql`PRAGMA synchronous = NORMAL`)));
+      });
+
+    /** Drain the core: persist, hand back the messages to send, then apply what committed. */
+    const drain = Effect.suspend(() => {
+      if (broken !== undefined) return Effect.fail(broken);
+      const ready = node.ready();
+      return Effect.gen(function* () {
+        yield* persist(ready);
+        if (ready.committed.length > 0) yield* apply(ready.committed, ready.committed.at(-1)!.index);
+        return ready.messages;
+      }).pipe(
+        Effect.mapError((cause) => {
+          // The core ran ahead of what is on disk: only opening the canvas again tells it the truth.
+          broken = cause instanceof FleetDriverError ? cause : new FleetDriverError({ message: `the authority of ${canvasName} must be opened again`, cause });
+          return broken;
+        }),
+      );
+    });
+
+    const guarded = <A>(run: () => A) =>
+      Effect.suspend(() => (broken !== undefined ? Effect.fail(broken) : Effect.try({ try: run, catch: failed(`the authority of ${canvasName} refused`) })));
+
+    // A lone authority needs no one's vote: settle its election now, so it takes proposals when opened.
+    const lone = () => {
+      const members = node.status().members;
+      return members.sole === self || (members.old === undefined && members.list.length === 1 && members.list[0] === self);
+    };
+    for (let at = 0; lone() && node.status().role !== "leader" && at <= electionTicks * 2; at++) node.tick();
+    yield* drain;
+
+    return {
+      status: () => node.status(),
+      propose: (ruling) =>
+        Effect.flatMap(guarded(() => node.propose(encodeLogData({ kind: "ruling", ruling }))), (entry) => Effect.as(drain, entry)),
+      tick: () => Effect.flatMap(guarded(() => node.tick()), () => drain),
+      step: (message) => Effect.flatMap(guarded(() => node.step(message)), () => drain),
+    } satisfies CanvasAuthority;
+  });
