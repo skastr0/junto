@@ -12,9 +12,16 @@ tasks, and every link to it and from it. Only its node changes.
 
 ## Decisions
 
-- **A move changes the node, nothing else.** Links are stored by id, so none
-  break, and backlinks stay. History gets one entry: "moved from Specs to
-  Release by the operator" (or by the overseer seat).
+- **A move changes the node, nothing else.** History gets one entry: "moved
+  from Specs to Release by the operator" (or by the overseer seat).
+- **A link finds its artifact by id.** A link is stored as
+  `junto://canvas/<c>?node=<node>&item=<artifact>` (`artifact-links.ts:43`).
+  The artifact id resolves it, and the node is only a hint, so links in
+  bodies, comments, mail, briefings and region instructions all hold after a
+  move with nothing rewritten. Reach and the chip's title come from the
+  artifact's current node, never the hint. A link whose id resolves nowhere
+  stays missing. New links write the current node. (product-documents found
+  this, 2026-10-29.)
 - **Where.**
   - In the window, "Move to…" sits in the artifact's header and on a sidebar
     row's menu. With several rows selected, it moves them all.
