@@ -44,7 +44,7 @@ import {
   type CompanionResponseFrame,
   type CompanionThreadMessage,
 } from "./companion-protocol";
-import { buildOperatorFeed, feedSeatsFromCanvas, type FeedHealth } from "./operator-feed";
+import { buildOperatorFeed, feedSeatsFromCanvas, feedSourcesFromCanvas, type FeedHealth } from "./operator-feed";
 
 /** One thread mail as the store holds it: the mailbox it sits in, and the row. */
 const demoThreadRow = (message: CompanionThreadMessage): { readonly nodeId: string; readonly row: Message } => {
@@ -211,6 +211,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       nowMs: clock,
       seats: feedSeatsFromCanvas(CANVAS, { attentionByNodeId, healthByNodeId }),
       signals: [...signals.values()],
+      sources: feedSourcesFromCanvas(CANVAS),
     });
   };
 

@@ -11,6 +11,7 @@ import {
   OPEN_FIELD,
   buildOperatorFeed,
   feedSeatsFromCanvas,
+  feedSourcesFromCanvas,
   needsOperatorCount,
   orderFeedSections,
   type FeedCanvasNeed,
@@ -75,6 +76,7 @@ export const operatorFeedFor = (
     }),
     signals,
     canvasNeeds: needs,
+    sources: feedSourcesFromCanvas(canvas),
   });
 };
 

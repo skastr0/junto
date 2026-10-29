@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import type { AgentSignal } from "../src/shared/agent-signals";
-import { canvasOf, region, seat } from "./support/model-nodes";
+import { automations, canvasOf, region, seat } from "./support/model-nodes";
 import { BindingId } from "../src/shared/terminal-session-domain";
 import { initialSnapshot, reduceSeatSignals, type SeatSignal, type SignalSource } from "../src/shared/harness-domain";
 import type { ThreadHealthReading } from "../src/shared/thread-health";
@@ -11,6 +11,7 @@ import {
   feedRegionForCanvas,
   feedKindCount,
   feedSeatsFromCanvas,
+  feedSourcesFromCanvas,
   feedStopOf,
   feedItemRank,
   isMailWaitingItem,
@@ -227,6 +228,34 @@ describe("buildOperatorFeed", () => {
     const feed = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: [], signals: [signal({ signalId: "s", nodeId: "gone" })] });
     expect(feed.sections[0]?.items[0]?.seat.name).toBe("removed seat");
     expect(feed.sections[0]?.region.regionId).toBeNull();
+  });
+
+  it("names an automation's own signal by its node and region, never as a seat that is gone", () => {
+    const board = canvasOf(
+      [
+        region("routines", { x: 0, y: 0, width: 600, height: 400 }, { label: "Writing" }),
+        automations("daily", { x: 20, y: 20, width: 200, height: 100, label: "Daily writing" }),
+        agent("a", 800, 800),
+      ],
+      [],
+    );
+    const raised = signal({ signalId: "s-work", nodeId: "daily", kind: "work", text: "Write 500 words." });
+    const named = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: feedSeatsFromCanvas(board),
+      signals: [raised],
+      sources: feedSourcesFromCanvas(board),
+    });
+    expect(named.sections[0]?.items[0]).toMatchObject({
+      seat: { nodeId: "daily", name: "Daily writing" },
+      region: { regionId: "routines", label: "Writing" },
+      kind: "work",
+    });
+
+    // Without an entry, a signal from a node the canvas no longer holds still lists, as a gone seat.
+    const gone = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: feedSeatsFromCanvas(board), signals: [raised] });
+    expect(gone.sections[0]?.items[0]).toMatchObject({ seat: { name: "removed seat" }, region: { regionId: null } });
   });
 
   it("is an empty, valid feed when nobody needs the operator", () => {

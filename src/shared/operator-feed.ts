@@ -75,12 +75,27 @@ export type FeedCanvasNeed = {
   readonly since?: number;
 };
 
+/**
+ * A node that is no seat but can raise a signal: an Automations node. The feed
+ * names it by its own title and region, never as a seat that is gone.
+ */
+export type FeedSourceNode = {
+  readonly name: string;
+  readonly region: FeedRegion;
+};
+
 export type OperatorFeedInput = {
   readonly canvasName: string;
   readonly nowMs: number;
   readonly seats: ReadonlyArray<FeedSeatInput>;
   readonly signals: ReadonlyArray<AgentSignal>;
   readonly canvasNeeds?: ReadonlyArray<FeedCanvasNeed>;
+  /**
+   * The non-seat nodes a signal can come from, by id. Without an entry a
+   * signal from one still lists, named as a seat that is gone, which is what
+   * an older reader and a removed node deserve.
+   */
+  readonly sources?: ReadonlyMap<string, FeedSourceNode>;
 };
 
 export const OPEN_FIELD: FeedRegion = { regionId: null, label: "open field", path: [] };
@@ -90,6 +105,16 @@ export const feedRegionForCanvas = (canvas: Canvas, nodeId: string): FeedRegion 
   const stack = modelRegionStack(canvas, asNodeId(nodeId));
   const inner = stack[stack.length - 1];
   return inner ? { regionId: inner.id, label: regionName(inner), path: stack.map(regionName), ...(inner.color ? { color: inner.color } : {}) } : OPEN_FIELD;
+};
+
+/** The non-seat nodes a signal can come from: the Automations node, by its title and region. */
+export const feedSourcesFromCanvas = (canvas: Canvas): ReadonlyMap<string, FeedSourceNode> => {
+  const sources = new Map<string, FeedSourceNode>();
+  for (const node of canvas.nodes.values()) {
+    if (node.kind !== "automations") continue;
+    sources.set(node.id, { name: titleOf(node), region: feedRegionForCanvas(canvas, node.id) });
+  }
+  return sources;
 };
 
 export const feedSeatsFromCanvas = (canvas: Canvas, options: {
@@ -262,9 +287,14 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
 
   for (const signal of input.signals) {
     if (signal.state !== "open" || signal.canvasName !== canvasName) continue;
+    const source = input.sources?.get(signal.nodeId);
     const entry = seatsById.get(signal.nodeId) ?? {
-      seat: { nodeId: signal.nodeId, name: "removed seat", portraitIdentity: signal.nodeId },
-      region: OPEN_FIELD,
+      seat: {
+        nodeId: signal.nodeId,
+        name: source?.name ?? "removed seat",
+        portraitIdentity: signal.nodeId,
+      },
+      region: source?.region ?? OPEN_FIELD,
     };
     push(entry, {
       itemId: `signal:${signal.signalId}`,

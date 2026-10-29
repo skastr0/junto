@@ -51,6 +51,7 @@ import { executionGraphFromSnapshot } from "@shared/execution-graph";
 import {
   buildOperatorFeed,
   feedSeatsFromCanvas,
+  feedSourcesFromCanvas,
   type FeedCanvasNeed,
   type FeedHealth,
   type FeedSeatInput,
@@ -196,6 +197,7 @@ const feedFor = (canvasName: string, view: CanvasView, now: number): OperatorFee
     seats: feedSeats(view.canvas, now),
     signals: view.signals,
     canvasNeeds: canvasNeedsFor(canvasName, view),
+    sources: feedSourcesFromCanvas(view.canvas),
   });
 
 const processOf = (binding: string | undefined): "running" | "starting" | "stopped" | undefined => {
