@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractFile, getRawHeader } from "@electron/asar";
+import { extractFile, getRawHeader, listPackage, statFile } from "@electron/asar";
 import {
   FuseState,
   FuseV1Options,
@@ -33,6 +33,7 @@ import { checkMachinePackage, sourceMachinePackage, type MachinePackageExpectati
 import { isCiSourcePackage } from "./source-package-mode";
 import { machineSigningIdentifier, machineNeedsJit, machineMachOFiles } from "./sign-machine-bundle.mjs";
 import { auditMachineReleaseApp } from "./machine-release-publication";
+import { trustedRendererMimeType } from "../src/main/junto/trusted-renderer-protocol";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -951,6 +952,26 @@ export const auditMachinePayloads = async (appPath: string, expected: MachinePac
   await checkMachinePackage(root, expected);
 };
 
+const RENDERER_ASAR_ROOT = "/out/renderer/";
+
+/**
+ * Every file the packaged renderer holds must be one the `junto-app:`
+ * protocol serves: a kind it refuses (415) loads in dev, where Vite serves
+ * it, and fails only in the packaged app. 0.11.0 shipped the pdf.js worker
+ * as `.mjs` this way, and no PDF opened.
+ */
+export const auditRendererAssetTypes = (asarPath: string): number => {
+  const files = listPackage(asarPath, { isPack: false })
+    .filter((entry) => entry.startsWith(RENDERER_ASAR_ROOT))
+    .filter((entry) => !("files" in statFile(asarPath, entry.slice(1), false)));
+  if (files.length === 0) throw new Error("app.asar holds no renderer files under out/renderer");
+  const refused = files.filter((entry) => trustedRendererMimeType(entry.slice(RENDERER_ASAR_ROOT.length)) === undefined);
+  if (refused.length > 0) {
+    throw new Error(`renderer files the junto-app protocol would refuse: ${refused.join(", ")}`);
+  }
+  return files.length;
+};
+
 export const auditPackagedApp = async (
   requestedPath: string,
 ): Promise<PackageAuditReceipt> => {
@@ -987,6 +1008,7 @@ export const auditPackagedApp = async (
     asarPath: appAsarPath,
     workCliPath,
   });
+  auditRendererAssetTypes(appAsarPath);
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",
@@ -1044,6 +1066,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(asarPath);
   await auditRetiredStateRuntimeBundle({ asarPath, workCliPath });
+  auditRendererAssetTypes(asarPath);
   const plist = JSON.parse(runFixedCommand("/usr/bin/plutil", [
     "-convert", "json", "-o", "-", path.join(appPath, "Contents", "Info.plist"),
   ]));
