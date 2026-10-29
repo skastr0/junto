@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import * as actorSeat from "../src/shared/actor-seat";
 import * as labels from "../src/shared/artifact-labels";
+import * as mention from "../src/shared/mention";
 import * as modelSheet from "../src/shared/model/sheet";
 import * as physics from "../src/shared/physics/schema";
 import * as resourceCommand from "../src/shared/resource-command";
@@ -19,6 +20,7 @@ import * as workIds from "../src/shared/work-ids";
 import * as wireIds from "../src/shared/wire/ids";
 import * as wireLabels from "../src/shared/wire/artifact-labels";
 import * as wireCanvasName from "../src/shared/wire/canvas-name";
+import * as wireMention from "../src/shared/wire/mention";
 import * as wireNodeRef from "../src/shared/wire/node-ref";
 import * as wireActor from "../src/shared/wire/resource-actor";
 import * as wireSheet from "../src/shared/wire/sheet";
@@ -57,5 +59,10 @@ describe("the artifact model on the wire is the desktop's own", () => {
   it("node refs: the junto:// form, its parser and the canvas-name check are one definition", () => {
     same(nodeRef, wireNodeRef, Object.keys(wireNodeRef));
     same(canvasName, wireCanvasName, Object.keys(wireCanvasName));
+  });
+
+  it("mentions: the refs, the link, its parsers and the kinds are one definition", () => {
+    same(mention, wireMention, Object.keys(wireMention));
+    expect(Object.keys(mention).sort()).toEqual(Object.keys(wireMention).sort());
   });
 });

@@ -44,6 +44,7 @@ describe("wire module import closure", () => {
         "content-ref.ts",
         "ids.ts",
         "mail-threads.ts",
+        "mention.ts",
         "node-ref.ts",
         "operator-feed.ts",
         "resource-actor.ts",
