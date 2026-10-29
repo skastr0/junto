@@ -12,7 +12,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Deferred, Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
@@ -477,5 +477,55 @@ describe("the fleet driver begins a canvas's log", () => {
     expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/no authority list/);
     // Nothing was written at (1,1): a later open, once F6 seeds the list, begins it.
     expect((await logOf(store)).rows).toEqual([]);
+  });
+});
+
+describe("the fleet driver holds a canvas while it drains", () => {
+  it("judges the next batch only once a step's commit is applied", async () => {
+    let gap: Deferred.Deferred<void> | undefined;
+    let entered: (() => void) | undefined;
+    const beforeApply = Effect.suspend(() => {
+      entered?.();
+      return gap === undefined ? Effect.void : Deferred.await(gap);
+    });
+    const pair: Record<string, Seat> = {};
+    for (const id of [SELF, MACBOOK]) {
+      const store = await makeStore(id, [SELF, MACBOOK]);
+      const authority = await store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self: id, electionTicks: 3, ...(id === SELF ? { beforeApply } : {}) }));
+      pair[id] = { store, authority, failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const mini = pair[SELF]!;
+    const macbook = pair[MACBOOK]!;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(mini.authority.status()).toMatchObject({ role: "leader", canCommit: true });
+
+    // The create is appended here; the MacBook's acknowledgement is what commits it.
+    const first = await mini.store.runtime.runPromise(mini.authority.judge(createArtifact) as unknown as Effect.Effect<{ messages: ReadonlyArray<Message> }, unknown, never>);
+    const acks: Array<Message> = [];
+    for (const message of first.messages) acks.push(...(await macbook.store.runtime.runPromise(macbook.authority.step(message))));
+    expect(acks.length).toBeGreaterThan(0);
+
+    // The acknowledgement commits the create; its apply waits in the gap, and the edit of it is judged meanwhile.
+    gap = await mini.store.runtime.runPromise(Deferred.make<void>());
+    const inGap = new Promise<void>((resolve) => (entered = resolve));
+    const stepped = Promise.all(acks.map((ack) => mini.store.runtime.runPromise(mini.authority.step(ack))));
+    await inGap;
+    expect(mini.authority.status().commit).toBe(mini.authority.status().lastIndex);
+    const edited = mini.store.runtime.runPromise(
+      mini.authority.judge(editArtifact("01M62AA0000000000000000002", 1, "the plan, longer")) as unknown as Effect.Effect<{ value: unknown }, unknown, never>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await mini.store.runtime.runPromise(Deferred.succeed(gap, undefined));
+    gap = undefined;
+    await stepped;
+    const judged = await edited;
+
+    // The edit saw the create applied: it was accepted, not refused as an edit of nothing.
+    expect((judged.value as { kind: string }).kind).not.toBe("refused");
+    for (let round = 0; round < 10 && mini.authority.status().lastIndex > mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(await held(mini.store)).toMatchObject({ rulings: [ARTIFACT_OP, "01M62AA0000000000000000002"] });
+    expect(mini.failures).toEqual([]);
   });
 });

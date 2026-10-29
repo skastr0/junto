@@ -299,6 +299,8 @@ export type CanvasAuthorityOptions = {
   readonly self: InstallationId;
   readonly electionTicks?: number;
   readonly heartbeatTicks?: number;
+  /** Runs between persisting a drain and applying what it committed; only tests pass it, to hold that gap open. */
+  readonly beforeApply?: Effect.Effect<void>;
 };
 
 /** A judged batch: what the rulers answered, and the entries their rulings became, all applied. */
@@ -379,6 +381,15 @@ export const openCanvasAuthority = (
     const hardState: HardState = { term: consensus.current_term, votedFor: consensus.voted_for, commit: consensus.commit_index };
     const node = new ConsensusNode({ id: self, electionTicks, heartbeatTicks: options.heartbeatTicks ?? 1, hardState, log });
     let broken: FleetDriverError | undefined;
+    /**
+     * One holder of this canvas's core at a time: mutate, take ready, persist
+     * and apply as one step. A ready taken outside it can be stale by the time
+     * it persists, deleting entries another holder just acknowledged; and
+     * inside it commit equals applied whenever a batch is judged. The
+     * process-wide FULL lock nests inside, never the other way.
+     */
+    const canvasLock = Semaphore.makeUnsafe(1);
+    const exclusive = canvasLock.withPermits(1);
 
     const isEmpty = (ready: Ready) => ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0;
 
@@ -427,13 +438,14 @@ export const openCanvasAuthority = (
       return Effect.gen(function* () {
         yield* unrevoked(ready);
         if (!isEmpty(ready)) yield* durably(writeReady(ready));
+        if (ready.committed.length > 0 && options.beforeApply !== undefined) yield* options.beforeApply;
         yield* applyCommitted(ready);
         return ready.messages;
       }).pipe(Effect.mapError(breaks));
     });
 
     const judge = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
-      Effect.suspend(() => {
+      exclusive(Effect.suspend(() => {
         if (broken !== undefined) return Effect.fail(broken);
         const status = node.status();
         if (!status.canCommit) {
@@ -476,10 +488,14 @@ export const openCanvasAuthority = (
           Effect.mapError((cause) => (proposed ? breaks(cause) : (cause as E | FleetDriverError))),
           Effect.catchDefect((defect) => Effect.fail(proposed ? breaks(defect) : failed(`the batch for ${canvasName} could not be judged`)(defect))),
         ) as Effect.Effect<Judgment<A>, E | FleetDriverError, R>;
-      });
+      }));
 
     const guarded = <A>(run: () => A) =>
       Effect.suspend(() => (broken !== undefined ? Effect.fail(broken) : Effect.try({ try: run, catch: failed(`the authority of ${canvasName} refused`) })));
+
+    /** Mutate the core, then drain it, holding the canvas throughout. */
+    const held = <A>(mutate: () => A) => exclusive(Effect.flatMap(guarded(mutate), (result) => Effect.as(drain, result)));
+    const drained = <A>(mutate: () => A) => exclusive(Effect.flatMap(guarded(mutate), () => drain));
 
     // A lone authority needs no one's vote: settle its election now, so it takes proposals when opened.
     const lone = () => {
@@ -492,9 +508,9 @@ export const openCanvasAuthority = (
     return {
       status: () => node.status(),
       judge,
-      propose: (data) => Effect.flatMap(guarded(() => node.propose(encodeLogData(data))), (entry) => Effect.as(drain, entry)),
-      tick: () => Effect.flatMap(guarded(() => node.tick()), () => drain),
-      step: (message) => Effect.flatMap(guarded(() => node.step(message)), () => drain),
-      alone: () => Effect.flatMap(guarded(() => node.alone()), () => drain),
+      propose: (data) => held(() => node.propose(encodeLogData(data))),
+      tick: () => drained(() => node.tick()),
+      step: (message) => drained(() => node.step(message)),
+      alone: () => drained(() => node.alone()),
     } satisfies CanvasAuthority;
   });
