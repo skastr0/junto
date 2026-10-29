@@ -118,12 +118,39 @@ it("work not yet due shows when, quietly", async () => {
   expect(pane().querySelector("[data-testid='signal-work-form']")?.getAttribute("data-form")).toBe("proof");
 });
 
-it("a notice is read and cleared, with no reply to write", async () => {
+it("a notice is read and cleared, with no reply to write, and Clear acknowledges it quietly", async () => {
+  const respond = vi.fn(async () => ({ ok: false as const, message: "kept open for the test" }));
+  vi.stubGlobal("junto", { agentSignalRespond: respond, agentSignalDismiss: vi.fn() });
   live.set(feedWith({ kind: "notice" }));
   await act(async () => root.render(<OperatorFeed />));
   expect(buttons()).toContain("Clear");
   expect(buttons()).not.toContain("Write reply");
   expect(card().querySelector(".operator-feed__due")).toBeNull();
+  const clear = [...pane().querySelectorAll("button")].find((button) => button.textContent?.trim() === "Clear")!;
+  await act(async () => clear.click());
+  expect(respond).toHaveBeenCalledWith("s1", "", { silent: true });
+});
+
+it("a notice that carries a form is still cleared, never handed in", async () => {
+  live.set(feedWith({ kind: "notice", form: { kind: "artifact", nodeId: "shelf-1", title: "x", labels: [], minWords: 1 } }));
+  await act(async () => root.render(<OperatorFeed />));
+  expect(buttons()).toContain("Clear");
+  expect(pane().querySelector("[data-testid='signal-work-form']")).toBeNull();
+});
+
+it("a secret form is never answered in text: it says the vault is not set up, and the keys send nothing", async () => {
+  const respond = vi.fn(async () => ({ ok: true as const }));
+  vi.stubGlobal("junto", { agentSignalRespond: respond, agentSignalDismiss: vi.fn() });
+  live.set(feedWith({ kind: "work", form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } }));
+  await act(async () => root.render(<OperatorFeed />));
+  expect(pane().querySelector("[role='note']")?.textContent).toContain("This asks for a secret.");
+  expect(buttons()).not.toContain("Write reply");
+  expect(pane().querySelector("textarea")).toBeNull();
+  for (const key of ["1", "a", "d", "Enter"]) {
+    await act(async () => card().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
+  }
+  expect(respond).not.toHaveBeenCalled();
+  expect(document.body.querySelector("[data-testid='operator-feed-keys']")?.textContent).not.toContain("dismiss");
 });
 
 it("an empty feed says the day's work is done", async () => {

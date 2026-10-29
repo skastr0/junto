@@ -909,14 +909,16 @@ function ActionFields({
               onChange(show.length === 0 ? rest : { ...rest, show });
             }}
           />
-          <SignalFormFields
-            form={action.form}
-            pickers={pickers}
-            onChange={(form) => {
-              const { form: _old, ...rest } = action;
-              onChange(form === undefined ? rest : { ...rest, form });
-            }}
-          />
+          {action.signal === "work" ? (
+            <SignalFormFields
+              form={action.form}
+              pickers={pickers}
+              onChange={(form) => {
+                const { form: _old, ...rest } = action;
+                onChange(form === undefined ? rest : { ...rest, form });
+              }}
+            />
+          ) : null}
           {action.signal === "work" ? (
             <SignalWorkFields
               work={action.work}
@@ -1013,7 +1015,7 @@ const FORM_WORD: Readonly<Record<string, string>> = {
   [REPLY]: "By replying",
   artifact: "By writing a document",
   proof: "With proof of what was done",
-  secret: "With a secret (kept while chosen; set up with the vault)",
+  secret: "With a secret (made in the CLI; kept while chosen)",
 };
 
 /**

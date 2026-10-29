@@ -89,7 +89,7 @@ import {
   type SignalAnswer,
 } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
-import { dueWords, handInSignalWork, itemWorkOf, workLevel } from "../../lib/signal-work";
+import { dueWords, handInSignalWork, itemWorkOf, paneAnswerOf, workLevel, type PaneAnswer } from "../../lib/signal-work";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
@@ -343,11 +343,15 @@ function FeedKeys({
   item,
   quickCount,
   quietCount,
+  answer,
 }: {
   readonly item: FeedItem;
   readonly quickCount: number;
   readonly quietCount: number;
+  /** How the pane answers: only a reply or a notice takes a and d, only a reply Enter. */
+  readonly answer: PaneAnswer;
 }) {
+  const keyed = item.signalId !== undefined && (answer === "reply" || answer === "clear");
   const range = (count: number, shift: boolean): ReactNode => (
     <>
       <Kbd>{shift ? "⇧1" : "1"}</Kbd>
@@ -359,9 +363,9 @@ function FeedKeys({
       <span><Kbd>j</Kbd><Kbd>k</Kbd> move</span>
       {item.signalId && quickCount > 0 ? <span>{range(quickCount, false)} quick reply</span> : null}
       {item.signalId && quietCount > 0 ? <span>{range(quietCount, true)} quiet note</span> : null}
-      {item.signalId ? <span><Kbd>a</Kbd> acknowledge</span> : null}
-      {item.signalId ? <span><Kbd>d</Kbd> dismiss</span> : null}
-      {item.signalId ? <span><Kbd>↵</Kbd> write reply</span> : null}
+      {keyed ? <span><Kbd>a</Kbd> {answer === "clear" ? "clear" : "acknowledge"}</span> : null}
+      {keyed ? <span><Kbd>d</Kbd> dismiss</span> : null}
+      {item.signalId && answer === "reply" ? <span><Kbd>↵</Kbd> write reply</span> : null}
       <span><Kbd>o</Kbd> open seat</span>
       <span><Kbd>esc</Kbd> close</span>
     </footer>
@@ -401,9 +405,10 @@ function FeedDetail({
 }) {
   const isSeat = node === undefined || node.kind === "agent";
   const thisMac = isThisMacItem(item);
-  const { kind: workKind, form } = itemWorkOf(item);
-  // Work answered in a form: the form is the whole answer, with its own Dismiss.
-  const workForm = item.signalId !== undefined && (form?.kind === "artifact" || form?.kind === "proof") ? form : undefined;
+  const work = itemWorkOf(item);
+  const { form } = work;
+  // A notice is read and cleared, whatever it carries; otherwise a form is the whole answer.
+  const answer = paneAnswerOf(work);
   const hasDetails = item.signalId !== undefined && (Boolean(item.detail) || (item.attachments?.length ?? 0) > 0);
   return (
     <section
@@ -435,18 +440,23 @@ function FeedDetail({
         <SignalResourceChips canvasName={item.canvasName} attachments={item.attachments} beforeOpen={closeOperatorFeed} />
       </div>
       <div className="operator-feed__answer">
-        {workForm && item.signalId ? (
+        {item.signalId && (form?.kind === "artifact" || form?.kind === "proof") && answer === form.kind ? (
           <SignalWorkForm
             key={item.signalId}
             signalId={item.signalId}
             canvasName={item.canvasName}
             text={item.text}
-            form={workForm}
+            form={form}
             handIn={handInSignalWork}
             dismiss={dismissAgentSignal}
             onDone={() => onReply(false)}
           />
-        ) : workKind === "notice" && item.signalId ? (
+        ) : item.signalId && answer === "secret" ? (
+          // Never answered in text: a secret goes only into the vault, which comes later (N5).
+          <p className="operator-feed__secret-wait" role="note">
+            This asks for a secret. Secrets are set through the vault, which is not set up yet, so it cannot be answered here.
+          </p>
+        ) : answer === "clear" && item.signalId ? (
           // A notice is read and cleared: no reply to write.
           <div className="operator-feed__actions">
             {/* aria-disabled, not disabled: focus stays on Clear while it is sent. */}
@@ -518,8 +528,9 @@ function FeedDetail({
       </div>
       <FeedKeys
         item={item}
-        quickCount={mergedQuickReplies(quickReplies, item.suggestions).length}
-        quietCount={quietNotes.length}
+        quickCount={answer === "reply" ? mergedQuickReplies(quickReplies, item.suggestions).length : 0}
+        quietCount={answer === "reply" ? quietNotes.length : 0}
+        answer={answer}
       />
     </section>
   );
@@ -736,13 +747,23 @@ export function OperatorFeed() {
     // A held key answers once: its repeats would land on the neighbour that
     // takes the selection, closing a signal the operator never saw.
     if (event.repeat) return;
-    const chosen = item.signalId
+    const keyed = item.signalId
       ? feedAnswerForKey(event, mergedQuickReplies(quickReplies, item.suggestions), quietNotes)
       : null;
+    // Keys answer in text only where a reply is the answer: a notice takes a and d,
+    // and work in a form or a secret takes none (its Dismiss asks first).
+    const pane = paneAnswerOf(itemWorkOf(item));
+    const chosen =
+      keyed === null || pane === "reply"
+        ? keyed
+        : pane === "clear" && (keyed.kind === "acknowledge" || keyed.kind === "dismiss")
+          ? keyed
+          : null;
     if (chosen !== null) {
       event.preventDefault();
       void answer(item, chosen);
-    } else if (event.key === "Enter" || event.key === "o") {
+    } else if (event.key === "o" || (event.key === "Enter" && (item.signalId === undefined || pane === "reply"))) {
+      // Enter writes a reply only where a reply is the answer; a form is answered in its own fields.
       event.preventDefault();
       if (event.key === "Enter" && item.signalId) setReplyFor(item.itemId);
       else openSeat(item, nodesById.get(item.seat.nodeId));

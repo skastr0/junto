@@ -168,9 +168,9 @@ describe("artifact automations, the draft", () => {
       expect(back.ok && back.definition.then[0]).toEqual({ ...signal, work: { dueInMs } });
     }
     expect(draftOf({ ...stored, then: [{ ...signal, work: { dueInMs: 3_600_000 } }] }).then[0]).toMatchObject({ work: { dueHours: "1" } });
-    // A notice carries no timing: turned into one, the work's timing goes and the form stays.
+    // A notice is read and cleared: turned into one, the work's form and timing go.
     const notice = finishDraft({ ...loaded, then: [{ ...loaded.then[0]!, signal: "notice" } as ActionDraft] });
-    expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words", form });
+    expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words" });
   });
 
   it("a signal's form and timing say what is wrong with them", () => {
@@ -179,6 +179,8 @@ describe("artifact automations, the draft", () => {
       actionProblem(draftWith(trigger, [{ kind: "signal", signal: "work", title: "Write", form, ...(work ? { work } : {}) }]));
     expect(asking({ kind: "artifact" })).toBe("Pick the Artifacts node the writing goes to.");
     expect(asking({ kind: "artifact", node: shelf, minWords: "0" })).toBe("Ask for 1 to 100,000 words.");
+    // The title becomes the document's, so it takes the artifact's bound.
+    expect(asking({ kind: "artifact", node: shelf, title: "t".repeat(201) })).toBe("The document title is longer than 200 characters.");
     expect(asking({ kind: "artifact", node: shelf, minWords: "500", labels: ["publish/"] })).toBe(ARTIFACT_LABEL_RULE);
     expect(asking({ kind: "proof" }, { dueHours: "soon" })).toBe("Work falls due within 8784 hours of the firing.");
     expect(asking({ kind: "artifact", node: shelf, minWords: "500" }, { dueHours: "0.5", urgent: true })).toBeUndefined();
@@ -294,7 +296,8 @@ describe("artifact automations, the form", () => {
     expect(host.querySelector<HTMLInputElement>('[aria-label="Urgent from the start"]')?.checked).toBe(true);
 
     await render(draftWith(trigger, [{ kind: "signal", signal: "notice", title: "Deploy finished" }]));
-    expect(host.querySelector('[aria-label="How you answer"]')?.textContent).toContain("By replying");
+    // A notice asks nothing back: no form to choose.
+    expect(host.querySelector('[aria-label="How you answer"]')).toBeNull();
     expect(host.querySelector('[aria-label="Artifacts node for the writing"]')).toBeNull();
     expect(host.querySelector('[aria-label="Due after, in hours"]')).toBeNull();
   });

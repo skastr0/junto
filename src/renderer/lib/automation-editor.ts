@@ -46,6 +46,7 @@ import {
   type WatchedSignal,
 } from "@shared/automation";
 import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "@shared/wire/agent-signals";
+import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
 import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelOf, artifactLabelsMatch, artifactLabelsOf, type ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -664,7 +665,8 @@ const signalFormProblem = (form: SignalFormDraft | undefined): string | undefine
   if (form?.kind !== "artifact") return undefined;
   if (form.node === undefined) return "Pick the Artifacts node the writing goes to.";
   const title = form.title?.trim() ?? "";
-  if (title.length > AGENT_SIGNAL_MAX_TEXT_LENGTH) return `The document title is longer than ${AGENT_SIGNAL_MAX_TEXT_LENGTH} characters.`;
+  // The artifact's own bound, not the signal's: the title becomes the document's.
+  if (title.length > ARTIFACT_MAX_TITLE_LENGTH) return `The document title is longer than ${ARTIFACT_MAX_TITLE_LENGTH} characters.`;
   const labels = labelsProblem((form.labels ?? []).filter((label) => label.trim() !== ""));
   if (labels) return labels;
   const typed = form.minWords?.trim() ?? "";
@@ -681,10 +683,12 @@ const signalWorkProblem = (work: SignalWorkDraft | undefined): string | undefine
     : `Work falls due within ${AUTOMATION_SIGNAL_DUE_MAX_MS / HOUR_MS} hours of the firing.`;
 };
 
-const signalFormOf = (form: SignalFormDraft): StoredSignalForm | Record<string, unknown> => {
+/** A form whose problems are settled: an artifact form has its node by then. */
+const signalFormOf = (form: SignalFormDraft): StoredSignalForm => {
   if (form.kind !== "artifact") return form;
+  if (form.node === undefined) throw new Error("an artifact form is finished only once its node is picked");
   const title = form.title?.trim() ?? "";
-  const labels = foldedLabels(form.labels);
+  const labels = artifactLabelsOf((form.labels ?? []).filter((label) => label.trim() !== "")) ?? [];
   const words = wholeNumber(form.minWords ?? "");
   return {
     kind: "artifact",
@@ -771,7 +775,7 @@ const actionProblem = (
         (detail.trim().length > AGENT_SIGNAL_MAX_DETAIL_LENGTH ? `The detail is longer than ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters.` : undefined) ??
         valueProblem(detail, carried, afterCode) ??
         ((action.show ?? []).some((shown) => shown.kind !== "artifact") ? "A signal shows artifacts only." : undefined) ??
-        signalFormProblem(action.form) ??
+        (action.signal === "work" ? signalFormProblem(action.form) : undefined) ??
         (action.signal === "work" ? signalWorkProblem(action.work) : undefined)
       );
     }
@@ -878,8 +882,8 @@ const actionOf = (action: ActionDraft): unknown => {
         title: action.title.trim(),
         ...(detail === "" ? {} : { detail }),
         ...(show.length === 0 ? {} : { show }),
-        ...(action.form === undefined ? {} : { form: signalFormOf(action.form) }),
-        // Timing belongs to work: a notice drops it.
+        // A form and timing belong to work: a notice is read and cleared, so it drops both.
+        ...(action.form === undefined || action.signal !== "work" ? {} : { form: signalFormOf(action.form) }),
         ...(work === undefined ? {} : { work }),
       };
     }

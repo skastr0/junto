@@ -470,6 +470,13 @@
   align-self: stretch;
 }
 
+/* A secret form, until the vault: said plainly, with nothing to type into. */
+.operator-feed__secret-wait {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  color: var(--color-dim);
+}
+
 .operator-feed__error {
   margin: 0;
   font-size: var(--text-body-lg);

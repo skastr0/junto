@@ -18,8 +18,8 @@ import { getJuntoApi } from "./junto-api";
 /**
  * The reply a signal asks for, one per signal. `artifact` is a document the
  * operator writes in the signal, made in an Artifacts node; `proof` is text
- * with links or files; `text` is today's reply. The secret form comes with
- * N5 (a vault), not here.
+ * with links or files; `text` is today's reply; `secret` waits for the
+ * vault (N5) and is never answered in text.
  */
 export type SignalForm =
   | { readonly kind: "text" }
@@ -33,6 +33,8 @@ export type SignalForm =
       /** The condition: at least this many words (1 when the raise named none). */
       readonly minWords: number;
     }
+  /** A region secret by name, set through the vault (N5): never answered in text. */
+  | { readonly kind: "secret"; readonly name: string }
   | { readonly kind: "proof" };
 
 /** What a work signal carries (`signal.work`): when it is due, and whether whoever raised it marked it urgent. */
@@ -144,6 +146,23 @@ export const itemWorkOf = (item: { readonly kind: string }): ItemWork => {
     form: carried.form,
     work: carried.work,
   };
+};
+
+/** How the pane answers an item: a notice is cleared; a form is its own answer; else a reply. Every form named, none falls through. */
+export type PaneAnswer = "clear" | "reply" | "artifact" | "proof" | "secret";
+export const paneAnswerOf = ({ kind, form }: ItemWork): PaneAnswer => {
+  if (kind === "notice") return "clear";
+  if (form === undefined) return "reply";
+  switch (form.kind) {
+    case "text":
+      return "reply";
+    case "artifact":
+    case "proof":
+    case "secret":
+      return form.kind;
+    default:
+      return form satisfies never;
+  }
 };
 
 /**
