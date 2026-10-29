@@ -150,6 +150,8 @@ describe("overseer automation writes", () => {
       "{kind: answered, automation: {node, automationId}, step?, signal?}", "one per firing, never merged",
     ];
     for (const word of signalWords) expect(create.includes(word), word).toBe(AUTOMATION_SIGNALS_ENABLED);
+    // An answerTo title names the answer values on any trigger (answerToValuesOf), not only on an answered watch.
+    expect(create.includes("its title naming the step's own values and, said when the answer comes, {{answer.text}}"), "answerTo title").toBe(AUTOMATION_SIGNALS_ENABLED);
     // work went with 0.11/09: escalate with a form asks for the same.
     for (const word of ["notice or work", "dueInMs", "work {"]) expect(create, word).not.toContain(word);
   });
