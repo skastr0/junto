@@ -7,8 +7,16 @@
  * edited from.
  */
 import { useEffect, useId, useMemo, useState, type ReactNode, type Ref } from "react";
-import { ArrowDown, ArrowUp, Code, Plus, X } from "lucide-react";
-import { actionKindInBuild, automationValuesOf, signalTakesForm, type CodeLanguage } from "@shared/automation";
+import { ArrowDown, ArrowUp, ArrowUpRight, Code, Plus, X } from "lucide-react";
+import {
+  actionKindInBuild,
+  answerToValuesOf,
+  automationValuesOf,
+  signalTakesForm,
+  type Automation,
+  type AutomationId,
+  type CodeLanguage,
+} from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
 import type { ArtifactLabel } from "@shared/artifact-labels";
@@ -16,6 +24,7 @@ import type { NodeId } from "@shared/physics/schema";
 import { automationTargets } from "@shared/region-reach";
 import {
   ACTION_LABEL,
+  ANSWER_TO_KINDS,
   ARTIFACT_EVENT_WORD,
   ARTIFACT_EVENTS,
   SEAT_BECOMES,
@@ -25,10 +34,15 @@ import {
   SIGNALS,
   TASK_BECOMES,
   TRIGGER_LABEL,
-  VALUE_WORDS,
   WATCH_LABEL,
+  answerableSteps,
+  answeringAutomations,
+  blankAnswerTo,
   blankWatch,
   cadenceWords,
+  raisedValuesOf,
+  raisesAnswerable,
+  valueWords,
   draftProblems,
   editDraft,
   seatStateWord,
@@ -38,12 +52,15 @@ import {
   watchedNode,
   type ActionDraft,
   type ActionKind,
+  type AnswerToDraft,
+  type AnswerToKind,
   type AutomationDraft,
   type ConditionDraft,
   type DraftEdit,
   type DraftProblem,
   type EditableTriggerKind,
   type NameOf,
+  type RaisingAutomation,
   type SignalFormDraft,
   type SignalRaise,
   type TargetRef,
@@ -375,6 +392,118 @@ function ArtifactTargetFields({
 }
 
 /**
+ * The node's automations, for an answered watch to name the one it hears and
+ * for a signal step to show what runs on its answer (0.11/09).
+ */
+type Linked = {
+  readonly automations: ReadonlyArray<Automation>;
+  /** The automation being edited, never offered as its own raiser. */
+  readonly selfId: AutomationId;
+  /** Opens one of them; unsaved edits ask first. Absent where the editor is read alone. */
+  readonly onOpen?: ((automationId: AutomationId) => void) | undefined;
+};
+
+const ANY = "any";
+const raisingValue = (raising: RaisingAutomation): string => `${raising.node}/${raising.automationId}`;
+const findRaising = (automations: ReadonlyArray<Automation>, raising: RaisingAutomation): Automation | undefined =>
+  automations.find((automation) => automation.nodeId === raising.node && automation.automationId === raising.automationId);
+
+/** A step's title short enough for an option. */
+const stepTitle = (title: string): string => {
+  const flat = title.replace(/\s+/gu, " ").trim();
+  return [...flat].length > 48 ? `${[...flat].slice(0, 47).join("").trimEnd()}…` : flat;
+};
+
+const ANSWERED_KIND_WORD: Readonly<Record<(typeof SIGNALS)[number], string>> = {
+  escalate: "that escalates",
+  blocked: "that says blocked",
+  feedback: "that asks for review",
+};
+
+/**
+ * An answered watch as the rest of its sentence: "from Daily review, the
+ * step "Review the draft", of any kind, is answered". It is made by a signal
+ * step's "When answered…", so the automation it names is offered among the
+ * node's raisers; one this node does not hold still shows, named as such.
+ */
+function AnsweredFields({
+  watch,
+  onChange,
+  linked,
+}: {
+  readonly watch: Extract<WatchDraft, { readonly kind: "answered" }>;
+  readonly onChange: (watch: WatchDraft) => void;
+  readonly linked: Linked | undefined;
+}) {
+  const automations = linked?.automations ?? [];
+  const raisers = automations.filter((automation) => automation.automationId !== linked?.selfId && raisesAnswerable(automation));
+  const raising = findRaising(automations, watch.automation);
+  const steps = raising === undefined ? [] : answerableSteps(raising);
+  const stepLost = watch.step !== undefined && !steps.some((step) => step.id === watch.step);
+  const onOpen = linked?.onOpen;
+  return (
+    <>
+      <Word>from</Word>
+      <Select
+        dense
+        aria-label="Automation that raises it"
+        value={raisingValue(watch.automation)}
+        options={[
+          ...raisers.map((automation) => ({
+            value: raisingValue({ node: automation.nodeId, automationId: automation.automationId }),
+            label: automation.name,
+          })),
+          ...(raising === undefined || !raisers.includes(raising)
+            ? [{ value: raisingValue(watch.automation), label: raising?.name ?? "an automation this node does not hold" }]
+            : []),
+        ]}
+        onChange={(value) => {
+          const picked = raisers.find((automation) => raisingValue({ node: automation.nodeId, automationId: automation.automationId }) === value);
+          // Step ids are each automation's own: another automation drops the step, and keeps the kind.
+          if (picked !== undefined && value !== raisingValue(watch.automation))
+            onChange({
+              kind: "answered",
+              automation: { node: picked.nodeId, automationId: picked.automationId },
+              ...(watch.signal === undefined ? {} : { signal: watch.signal }),
+            });
+        }}
+      />
+      <Select
+        dense
+        aria-label="Which of its signals"
+        value={watch.step ?? ANY}
+        options={[
+          { value: ANY, label: "any of its signals" },
+          ...steps.map((step) => ({ value: step.id, label: `the step "${stepTitle(step.title)}"` })),
+          ...(stepLost ? [{ value: watch.step!, label: `the step ${watch.step}, no longer in it` }] : []),
+        ]}
+        onChange={(value) => {
+          const { step: _old, ...rest } = watch;
+          onChange(value === ANY ? rest : { ...rest, step: value });
+        }}
+      />
+      <Select
+        dense
+        aria-label="Of which kind"
+        value={watch.signal ?? ANY}
+        options={[{ value: ANY, label: "of any kind" }, ...SIGNALS.map((kind) => ({ value: kind, label: ANSWERED_KIND_WORD[kind] }))]}
+        onChange={(value) => {
+          const { signal: _old, ...rest } = watch;
+          onChange(value === ANY ? rest : { ...rest, signal: value as (typeof SIGNALS)[number] });
+        }}
+      />
+      <Word>is answered</Word>
+      {raising !== undefined && onOpen !== undefined ? (
+        <Button size="xs" variant="chrome" onClick={() => onOpen(raising.automationId)}>
+          <ArrowUpRight size={12} aria-hidden />
+          Open {raising.name}
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * A watch as a sentence: "a task in Release becomes done", "a task named #42
  * becomes done". A trigger reads "becomes", a condition "is"; the trigger's
  * "When" and the conditions' "Only when" are their section's.
@@ -384,13 +513,21 @@ function WatchFields({
   onChange,
   pickers,
   conditionOnly,
+  linked,
 }: {
   readonly watch: WatchDraft;
   readonly onChange: (watch: WatchDraft) => void;
   readonly pickers: Pickers;
   readonly conditionOnly?: boolean;
+  /** The node's automations, for an answered trigger. */
+  readonly linked?: Linked | undefined;
 }) {
-  const kinds = conditionOnly ? (["seat", "task"] as const) : (["seat", "task", "artifact", "signal"] as const);
+  // An answered watch is made by a signal step's "When answered…", never picked blank: it is offered while it is the watch.
+  const kinds = conditionOnly
+    ? (["seat", "task"] as const)
+    : watch.kind === "answered"
+      ? (["seat", "task", "artifact", "signal", "answered"] as const)
+      : (["seat", "task", "artifact", "signal"] as const);
   const mode: WatchMode = conditionOnly ? "is" : "becomes";
   // Named apart from the action pickers' fields in a screen reader's list of controls.
   const stateLabel = mode === "becomes" ? "State it becomes" : "State it is in";
@@ -418,7 +555,7 @@ function WatchFields({
           value={watch.kind}
           options={kinds.map((kind) => ({ value: kind, label: WATCH_LABEL[kind] }))}
           onChange={(kind) => {
-            if (kind !== watch.kind) onChange(blank(kind as Exclude<WatchDraft["kind"], "answered">));
+            if (kind !== watch.kind && kind !== "answered") onChange(blank(kind as Exclude<WatchDraft["kind"], "answered">));
           }}
         />
         {watch.kind === "seat" ? (
@@ -535,6 +672,7 @@ function WatchFields({
             />
           </>
         ) : null}
+        {watch.kind === "answered" ? <AnsweredFields watch={watch} onChange={onChange} linked={linked} /> : null}
       </div>
       {/* The note, whole, under the sentence: the label field's description. */}
       {note === undefined ? null : (
@@ -625,14 +763,24 @@ function PollFields({
   );
 }
 
-function TriggerFields({ trigger, onChange, pickers }: { readonly trigger: TriggerDraft; readonly onChange: (trigger: TriggerDraft) => void; readonly pickers: Pickers }) {
+function TriggerFields({
+  trigger,
+  onChange,
+  pickers,
+  linked,
+}: {
+  readonly trigger: TriggerDraft;
+  readonly onChange: (trigger: TriggerDraft) => void;
+  readonly pickers: Pickers;
+  readonly linked: Linked;
+}) {
   switch (trigger.kind) {
     case "schedule":
       return <ScheduleFields trigger={trigger} onChange={onChange} />;
     case "poll":
       return <PollFields trigger={trigger} onChange={onChange} />;
     case "change":
-      return <WatchFields watch={trigger.on} pickers={pickers} onChange={(on) => onChange({ ...trigger, on })} />;
+      return <WatchFields watch={trigger.on} pickers={pickers} linked={linked} onChange={(on) => onChange({ ...trigger, on })} />;
     case "webhook":
       return <p className="automation-editor__note">A webhook trigger. Webhooks are not available yet; pick another trigger above to save.</p>;
     default:
@@ -640,11 +788,20 @@ function TriggerFields({ trigger, onChange, pickers }: { readonly trigger: Trigg
   }
 }
 
+/** What a signal step shows of its answer coming back: what runs on it, and the control that makes one. */
+type WhenAnsweredLinks = {
+  readonly linked: ReadonlyArray<Automation>;
+  readonly onOpen?: ((automationId: AutomationId) => void) | undefined;
+  readonly onWhenAnswered?: (() => void) | undefined;
+};
+
 function ActionFields({
   action,
   onChange,
   pickers,
   values,
+  answerValues,
+  answered,
   onEditCode,
   artifactFired,
 }: {
@@ -653,6 +810,10 @@ function ActionFields({
   readonly pickers: Pickers;
   /** The values this automation's trigger carries, for the Insert value list. */
   readonly values: ReadonlyArray<ValueChoice>;
+  /** What an answer's document title may name: these, and the answer's own. */
+  readonly answerValues: ReadonlyArray<ValueChoice>;
+  /** A signal step's answered links. */
+  readonly answered: WhenAnsweredLinks;
   /** Whether the trigger is an artifact change, so an artifact action may write the one that fired. */
   readonly artifactFired: boolean;
   /** Opens this step's code; absent where the editor is read alone. */
@@ -946,6 +1107,21 @@ function ActionFields({
               }}
             />
           ) : null}
+          {/* A notice is read and cleared: no answer comes back, so nothing goes anywhere or runs on it. */}
+          {action.signal === "notice" ? null : (
+            <>
+              <AnswerToFields
+                answerTo={action.answerTo}
+                pickers={pickers}
+                values={answerValues}
+                onChange={(answerTo) => {
+                  const { answerTo: _old, ...rest } = action;
+                  onChange(answerTo === undefined ? rest : { ...rest, answerTo });
+                }}
+              />
+              <WhenAnswered {...answered} />
+            </>
+          )}
         </>
       );
     case "label-artifact":
@@ -986,11 +1162,126 @@ function ActionFields({
 }
 
 const SIGNAL_RAISE_WORD: Readonly<Record<SignalRaise, string>> = {
-  notice: "A notice, to read",
-  escalate: "An escalate, a question for you",
+  notice: "A notice, only to read",
+  escalate: "Escalate, a question for you",
   blocked: "Blocked, waiting on you",
-  feedback: "Feedback, for your review",
+  feedback: "Feedback, asks for your review",
 };
+
+const NO_ANSWER_TO = "none";
+const ANSWER_TO_WORD: Readonly<Record<AnswerToKind | typeof NO_ANSWER_TO, string>> = {
+  [NO_ANSWER_TO]: "Answer stays in the feed",
+  seat: "Answer goes to a seat",
+  document: "Answer becomes a document",
+  append: "Answer is added to an artifact",
+};
+
+/**
+ * Where the answer goes besides the feed (0.11/09): a seat hears it as a
+ * prompt, a new document holds it, or it is added to an artifact's end as a
+ * dated section. A document's title may name the answer's values.
+ */
+function AnswerToFields({
+  answerTo,
+  pickers,
+  values,
+  onChange,
+}: {
+  readonly answerTo: AnswerToDraft | undefined;
+  readonly pickers: Pickers;
+  readonly values: ReadonlyArray<ValueChoice>;
+  readonly onChange: (answerTo: AnswerToDraft | undefined) => void;
+}) {
+  const chosen = answerTo?.kind ?? NO_ANSWER_TO;
+  return (
+    <>
+      <Select
+        aria-label="Where the answer goes"
+        value={chosen}
+        options={[NO_ANSWER_TO, ...ANSWER_TO_KINDS].map((kind) => ({ value: kind, label: ANSWER_TO_WORD[kind as AnswerToKind] }))}
+        onChange={(kind) => {
+          if (kind !== chosen) onChange(kind === NO_ANSWER_TO ? undefined : blankAnswerTo(kind as AnswerToKind));
+        }}
+      />
+      {answerTo?.kind === "seat" ? (
+        <TargetPicker
+          {...pickers}
+          kinds={["seat"]}
+          label="Seat the answer goes to"
+          placeholder="@seat"
+          value={answerTo.to?.kind === "seat" ? answerTo.to : undefined}
+          onChange={(to) => onChange(to === undefined ? { kind: "seat" } : { kind: "seat", to })}
+        />
+      ) : null}
+      {answerTo?.kind === "document" ? (
+        <>
+          <Select
+            aria-label="Artifacts node for the answer"
+            placeholder="Pick an Artifacts node"
+            value={answerTo.node ?? ""}
+            options={pickers.artifactNodes.map((node) => ({ value: node.id, label: node.title }))}
+            onChange={(node) => onChange({ ...answerTo, node: node as NodeId })}
+          />
+          <ActionText
+            label="Answer document title"
+            noun="answer document's title"
+            multiline={false}
+            value={answerTo.title}
+            placeholder="Review {{answer.at|date:YYYY-MM-DD}}"
+            values={values}
+            onValue={(title) => onChange({ ...answerTo, title })}
+          />
+        </>
+      ) : null}
+      {answerTo?.kind === "append" ? (
+        <TargetPicker
+          {...pickers}
+          kinds={["artifact"]}
+          label="Artifact the answer is added to"
+          placeholder="#artifact"
+          value={answerTo.to?.kind === "artifact" ? answerTo.to : undefined}
+          onChange={(to) => onChange(to === undefined ? { kind: "append" } : { kind: "append", to })}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Under a signal step: the automations that run when it is answered, each
+ * opening it, and "When answered…", which saves this one and starts a new
+ * automation whose trigger names this step.
+ */
+function WhenAnswered({ linked, onOpen, onWhenAnswered }: WhenAnsweredLinks) {
+  const hintId = useId();
+  if (linked.length === 0 && onWhenAnswered === undefined) return null;
+  return (
+    <div className="automation-editor__answered" role="group" aria-label="When answered">
+      {linked.length > 0 ? <Word>When answered, runs</Word> : null}
+      {linked.map((automation) =>
+        onOpen === undefined ? (
+          <Word key={automation.automationId}>{automation.name}</Word>
+        ) : (
+          <Button key={automation.automationId} size="xs" variant="chrome" onClick={() => onOpen(automation.automationId)}>
+            <ArrowUpRight size={12} aria-hidden />
+            {automation.name}
+          </Button>
+        ),
+      )}
+      {onWhenAnswered === undefined ? null : (
+        <>
+          <Button size="xs" variant="subtle" aria-describedby={hintId} onClick={onWhenAnswered}>
+            <Plus size={12} aria-hidden />
+            {linked.length === 0 ? "When answered…" : "Another when answered…"}
+          </Button>
+          <span id={hintId} className="sr-only">
+            Saves this automation, then opens a new one that runs when this signal is answered.
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * The artifacts a signal opens from the feed: one picker each, and one more
@@ -1134,6 +1425,9 @@ export function AutomationEditor({
   onRevert,
   refusal,
   refusalStep,
+  automations = [],
+  onOpenAutomation,
+  onWhenAnswered,
 }: {
   readonly draft: AutomationDraft;
   readonly onDraft: (draft: AutomationDraft) => void;
@@ -1154,6 +1448,12 @@ export function AutomationEditor({
   readonly refusal?: string;
   /** What to do about it, on its own line under the refusal. */
   readonly refusalStep?: string;
+  /** The node's automations: what an answered trigger names, and what runs on a signal step's answer (0.11/09). */
+  readonly automations?: ReadonlyArray<Automation>;
+  /** Opens another of the node's automations; unsaved edits ask first. */
+  readonly onOpenAutomation?: (automationId: AutomationId) => void;
+  /** A signal step's "When answered…", by its index in then, once the draft has nothing to fix. */
+  readonly onWhenAnswered?: (index: number) => void;
 }) {
   const canvas = useCanvas(canvasName);
   // Task boards and Artifacts nodes offer only the items handed to them: without these every #picker is empty.
@@ -1180,11 +1480,22 @@ export function AutomationEditor({
     return { boards: choices("task"), artifactNodes: choices("artifacts") };
   }, [canvas, draft.nodeId, draft.author]);
   const pickers: Pickers = { candidates, canvasName, nameOf, boards, artifactNodes, labelsOf };
+  // An answered trigger also carries what the raising firing carried, `raised.<name>`.
+  const raising =
+    draft.trigger.kind === "change" && draft.trigger.on.kind === "answered" ? findRaising(automations, draft.trigger.on.automation) : undefined;
   // Each text an action writes may name what fired it; the trigger decides the set.
   const values = useMemo(
-    (): ReadonlyArray<ValueChoice> => automationValuesOf(draft.trigger).map((name) => ({ name, words: VALUE_WORDS[name] })),
-    [draft.trigger],
+    (): ReadonlyArray<ValueChoice> =>
+      [...automationValuesOf(draft.trigger), ...raisedValuesOf(raising)].map((name) => ({ name, words: valueWords(name) })),
+    [draft.trigger, raising],
   );
+  // An answer's document title is said when the answer comes back, so it names the answer's values too.
+  const answerValues = useMemo(
+    (): ReadonlyArray<ValueChoice> =>
+      [...answerToValuesOf(draft.trigger), ...raisedValuesOf(raising)].map((name) => ({ name, words: valueWords(name) })),
+    [draft.trigger, raising],
+  );
+  const linked: Linked = { automations, selfId: draft.automationId, onOpen: onOpenAutomation };
   // Problems show once a save was tried on this automation, not while it is being written.
   const [triedOn, setTriedOn] = useState<string>();
   const tried = triedOn === draft.automationId;
@@ -1204,6 +1515,14 @@ export function AutomationEditor({
     if (draftProblems(draft).length > 0) setTriedOn(draft.automationId);
     else onSave();
   };
+  // "When answered…" saves this automation first, so a draft with something to fix says it, as Save does.
+  const whenAnswered =
+    onWhenAnswered === undefined || !actionKindInBuild("signal")
+      ? undefined
+      : (index: number) => (): void => {
+          if (draftProblems(draft).length > 0) setTriedOn(draft.automationId);
+          else onWhenAnswered(index);
+        };
 
   return (
     <div className="automation-editor" data-testid="automation-editor">
@@ -1235,7 +1554,7 @@ export function AutomationEditor({
           options={TRIGGER_KINDS.map((kind) => ({ value: kind, label: TRIGGER_LABEL[kind] }))}
           onChange={(kind) => edit({ type: "trigger-kind", kind: kind as EditableTriggerKind })}
         />
-        <TriggerFields trigger={draft.trigger} pickers={pickers} onChange={(trigger) => edit({ type: "trigger", trigger })} />
+        <TriggerFields trigger={draft.trigger} pickers={pickers} linked={linked} onChange={(trigger) => edit({ type: "trigger", trigger })} />
         <Problem id={`${baseId}-trigger`} message={problemAt(problems, isTrigger)} />
       </Section>
 
@@ -1304,6 +1623,12 @@ export function AutomationEditor({
                   action={action}
                   pickers={pickers}
                   values={values}
+                  answerValues={answerValues}
+                  answered={{
+                    linked: answeringAutomations(automations, draft, index),
+                    onOpen: onOpenAutomation,
+                    onWhenAnswered: whenAnswered?.(index),
+                  }}
                   artifactFired={draft.trigger.kind === "change" && draft.trigger.on.kind === "artifact"}
                   onEditCode={onEditCode === undefined ? undefined : () => onEditCode(index)}
                   onChange={(next) => edit({ type: "action", index, action: next })}

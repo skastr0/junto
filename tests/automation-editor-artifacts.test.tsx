@@ -275,7 +275,7 @@ describe("artifact automations, the form", () => {
 
   it("a signal step asks its kind, a title and detail with values, and grows one artifact picker at a time", async () => {
     await render(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "signal", signal: "escalate", title: "Write 500 words" }]));
-    expect(host.querySelector('[aria-label="What the signal asks"]')?.textContent).toContain("An escalate, a question for you");
+    expect(host.querySelector('[aria-label="What the signal asks"]')?.textContent).toContain("Escalate, a question for you");
     expect(host.querySelector<HTMLTextAreaElement>('[aria-label="Signal title"]')?.value).toBe("Write 500 words");
     expect(host.querySelector('[aria-label="Signal detail, optional"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Artifact to show, optional"]')).not.toBeNull();

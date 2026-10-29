@@ -264,13 +264,24 @@
   white-space: nowrap;
 }
 
-.automation-editor__insert-trigger:hover {
+.automation-editor__insert-trigger:hover:not(:disabled) {
   border-color: var(--color-dim);
   color: var(--color-ink);
 }
 
 .automation-editor__insert-menu {
   min-width: 260px;
+}
+
+/* ── Answered back (plan 0.11/09) ─────────────────────────────────────────── */
+
+/* Under a signal step: what runs when it is answered, and the control that makes one. */
+.automation-editor__answered {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ── A code step (plan 0.11/05, Code steps) ───────────────────────────────── */

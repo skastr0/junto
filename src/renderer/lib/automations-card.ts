@@ -56,7 +56,9 @@ export const automationsCardFacts = (
     automationId: automation.automationId,
     name: automation.name,
     on: automation.enabled,
-    trigger: triggerWords(draftOf(automation).trigger, nameOf),
+    trigger: triggerWords(draftOf(automation).trigger, nameOf, (raising) =>
+      automations.find((other) => other.nodeId === raising.node && other.automationId === raising.automationId)?.name,
+    ),
     failed: failed.has(automation.automationId),
   }));
   return {

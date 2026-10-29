@@ -25,8 +25,11 @@ import {
   MAX_PER_HOUR_CEILING,
   POLL_MIN_EVERY_MS,
   AutomationDefinition,
+  answerToValuesOf,
   automationValuesOf,
+  formatProblem,
   isCodeValueName,
+  isRaisedValueName,
   signalTakesForm,
   valueNamesIn,
   type Action,
@@ -41,12 +44,15 @@ import {
   type Firing,
   type SeatBecomes,
   type SkipReason,
+  type StepId,
   type Trigger,
   type Watch,
   type WatchedSignal,
 } from "@shared/automation";
 import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "@shared/wire/agent-signals";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
+import { parseValueFormat, VALUE_FORMATS } from "@shared/automation-formats";
+import type { Refusal } from "@shared/resource-command";
 import { ARTIFACT_LABEL_RULE, ARTIFACT_LABELS_MAX, artifactLabelOf, artifactLabelsMatch, artifactLabelsOf, type ArtifactLabel } from "@shared/artifact-labels";
 import type { NodeId } from "@shared/physics/schema";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -89,6 +95,35 @@ export type SignalFormDraft =
   | { readonly kind: "proof" };
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
 export type CommentTarget = CommentAction["on"];
+type AnsweredWatch = Extract<Watch, { readonly kind: "answered" }>;
+/** The automation an answered watch names: the one whose signal comes back answered. */
+export type RaisingAutomation = AnsweredWatch["automation"];
+
+/**
+ * Where a signal's answer goes (0.11/09), as the editor holds it: a seat it
+ * prompts, a new document in an Artifacts node, or the end of an artifact.
+ * The target is unpicked until picked; a document's title as typed.
+ */
+export type AnswerToDraft =
+  | { readonly kind: "seat"; readonly to?: TargetRef }
+  | { readonly kind: "document"; readonly node?: NodeId; readonly title: string }
+  | { readonly kind: "append"; readonly to?: TargetRef };
+export type AnswerToKind = AnswerToDraft["kind"];
+export const ANSWER_TO_KINDS: ReadonlyArray<AnswerToKind> = ["seat", "document", "append"];
+
+/** A new answer target of one kind; a document starts titled by the signal and the day it was answered. */
+export const blankAnswerTo = (kind: AnswerToKind): AnswerToDraft => {
+  switch (kind) {
+    case "seat":
+      return { kind };
+    case "document":
+      return { kind, title: "{{signal.title}} {{answer.at|date:YYYY-MM-DD}}" };
+    case "append":
+      return { kind };
+    default:
+      return kind satisfies never;
+  }
+};
 
 export type EditableTriggerKind = "schedule" | "poll" | "change";
 export type WatchKind = Watch["kind"];
@@ -184,8 +219,8 @@ export type ActionDraft =
       readonly form?: SignalFormDraft;
       /** The step's id, for an answered watch; kept as loaded. */
       readonly id?: SignalAction["id"];
-      /** Where its answer goes; kept as loaded. */
-      readonly answerTo?: SignalAction["answerTo"];
+      /** Where its answer goes besides the feed; never for a notice. */
+      readonly answerTo?: AnswerToDraft;
     }
   /** A seat started or stopped where it runs. Seat only; it writes no text. */
   | { readonly kind: "seat-control"; readonly seat?: TargetRef; readonly op: SeatControlOp }
@@ -339,6 +374,125 @@ export const newDraft = (
   minIntervalMinutes: minutesText(DEFAULT_AUTOMATION_LIMITS.minIntervalMs),
   maxPerHour: String(DEFAULT_AUTOMATION_LIMITS.maxPerHour),
 });
+
+// ── Answered back (0.11/09) ────────────────────────────────────────────────
+
+const STEP_ID_MAX = 32;
+/** A value token in a title, left out of the step id minted from it. */
+const VALUE_TOKEN_TEXT = /\{\{[^{}]*\}\}/gu;
+
+/**
+ * A signal step's id, minted from its title the first time something links
+ * to it: the title's words as a slug, values left out, "signal" for a title
+ * with no words, and a number after it when another signal step has it.
+ */
+export const mintStepId = (draft: AutomationDraft, index: number): StepId => {
+  const action = draft.then[index];
+  if (action?.kind === "signal" && action.id !== undefined) return action.id;
+  const taken = new Set(draft.then.flatMap((other, at) => (other.kind === "signal" && other.id !== undefined && at !== index ? [other.id] : [])));
+  const title = action?.kind === "signal" ? action.title : "";
+  const words = title
+    .replace(VALUE_TOKEN_TEXT, " ")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  // Room for a number after it, so a second one stays within the bound.
+  const base = words.slice(0, STEP_ID_MAX - 4).replace(/-+$/u, "") || "signal";
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n += 1) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
+};
+
+/** The draft with this signal step named, and its id; a step that has one keeps it, and the draft is the same draft. */
+export const withStepId = (draft: AutomationDraft, index: number): { readonly draft: AutomationDraft; readonly id: StepId } | undefined => {
+  const action = draft.then[index];
+  if (action?.kind !== "signal") return undefined;
+  if (action.id !== undefined) return { draft, id: action.id };
+  const id = mintStepId(draft, index);
+  return { draft: { ...draft, then: replaceAt(draft.then, index, { ...action, id }) }, id };
+};
+
+/** A title on one line, clipped to `max` characters with an ellipsis. */
+const clipped = (text: string, max: number): string => {
+  const flat = text.replace(/\s+/gu, " ").trim();
+  return [...flat].length <= max ? flat : `${[...flat].slice(0, max - 1).join("").trimEnd()}…`;
+};
+
+/**
+ * A new automation that runs when one signal step is answered: the step's
+ * own "When answered…". Its trigger names the raising automation and the
+ * step by id; it starts off, with one action to fill in.
+ */
+export const newAnsweredDraft = (
+  automationId: AutomationId,
+  nodeId: NodeId,
+  author: AutomationAuthor,
+  raising: RaisingAutomation,
+  step: StepId,
+  signalTitle: string,
+): AutomationDraft => {
+  const title = signalTitle.trim();
+  const opening = "When ";
+  const closing = " is answered";
+  const room = AUTOMATION_NAME_MAX_CHARS - opening.length - closing.length - 2;
+  return {
+    ...newDraft(automationId, nodeId, author),
+    name: title === "" ? "When its signal is answered" : `${opening}"${clipped(title, room)}"${closing}`,
+    trigger: { kind: "change", on: { kind: "answered", automation: raising, step } },
+  };
+};
+
+const sameRaising = (a: RaisingAutomation, b: RaisingAutomation): boolean => a.node === b.node && a.automationId === b.automationId;
+
+/**
+ * Whether an answered watch hears this signal step: it names the step's
+ * automation, and the step and the kind when it narrows to them. A notice
+ * is never answered, so nothing hears it.
+ */
+export const answeredWatchHears = (
+  watch: AnsweredWatch,
+  raising: RaisingAutomation,
+  step: { readonly id?: StepId; readonly signal: SignalRaise },
+): boolean =>
+  step.signal !== "notice" &&
+  sameRaising(watch.automation, raising) &&
+  (watch.step === undefined || watch.step === step.id) &&
+  (watch.signal === undefined || watch.signal === step.signal);
+
+/** The automations that run when this signal step is answered, as their trigger says: the two shown as linked. */
+export const answeringAutomations = (
+  automations: ReadonlyArray<Automation>,
+  draft: Pick<AutomationDraft, "nodeId" | "automationId" | "then">,
+  index: number,
+): ReadonlyArray<Automation> => {
+  const step = draft.then[index];
+  if (step?.kind !== "signal") return [];
+  const raising = { node: draft.nodeId, automationId: draft.automationId };
+  return automations.filter(
+    (automation) =>
+      automation.automationId !== draft.automationId &&
+      automation.trigger.kind === "change" &&
+      automation.trigger.on.kind === "answered" &&
+      answeredWatchHears(automation.trigger.on, raising, step),
+  );
+};
+
+/** The signal steps an answered watch may narrow to: the ones with an id, a notice never. */
+export const answerableSteps = (
+  automation: Pick<Automation, "then">,
+): ReadonlyArray<{ readonly id: StepId; readonly title: string; readonly signal: WatchedSignal }> =>
+  automation.then.flatMap((action) =>
+    action.kind === "signal" && action.id !== undefined && action.signal !== "notice"
+      ? [{ id: action.id, title: action.title, signal: action.signal }]
+      : [],
+  );
+
+/** Whether an automation raises any signal that comes back answered, so an answered watch may name it. */
+export const raisesAnswerable = (automation: Pick<Automation, "then">): boolean =>
+  automation.then.some((action) => action.kind === "signal" && action.signal !== "notice");
+
+/** The raising firing's values an answered trigger carries, `raised.<name>`: what the raising automation's own trigger carries. */
+export const raisedValuesOf = (raising: Pick<Automation, "trigger"> | undefined): ReadonlyArray<string> =>
+  raising === undefined ? [] : automationValuesOf(raising.trigger).map((name) => `raised.${name}`);
 
 const watchDraftOf = (watch: Watch): WatchDraft => watch;
 
@@ -624,13 +778,36 @@ const triggerProblem = (trigger: TriggerDraft): string | undefined => {
   }
 };
 
+/** What an action's text may name where it stands: its trigger's values, code fields after a code step, the raising firing's. */
+type ValueScope = {
+  readonly carried: ReadonlyArray<string>;
+  /** What an answer's document title may name: the step's own values, then the answer's. */
+  readonly answerCarried: ReadonlyArray<string>;
+  /** Whether a code step ran before this action, so it may name `{{code.<field>}}`. */
+  readonly afterCode: boolean;
+  /** Whether the trigger is an answered watch, so a text may name `{{raised.<name>}}`. */
+  readonly answered: boolean;
+  /** Whether the trigger is an artifact change, so "the artifact that fired" means something. */
+  readonly artifactFired: boolean;
+};
+
+/** A refusal as one or two sentences under its field. */
+const refusalSentences = (refusal: Refusal): string => {
+  const message = `${refusal.message.charAt(0).toUpperCase()}${refusal.message.slice(1)}.`;
+  return refusal.next_step === undefined ? message : `${message} ${refusal.next_step}.`;
+};
+
 /**
- * A value the trigger does not carry, at the action that writes it: main
- * refuses the same name at save (`valueRefusal`), and the editor says it
- * before the round trip, in the same words.
+ * A format the set does not hold, or a value the trigger does not carry, at
+ * the action that writes it: main refuses the same at save (`valueRefusal`),
+ * and the editor says it before the round trip, in the same words.
  */
-const valueProblem = (text: string, carried: ReadonlyArray<string>, afterCode: boolean): string | undefined => {
-  const missing = valueNamesIn(text).find((name) => !carried.includes(name) && !(afterCode && isCodeValueName(name)));
+const valueProblem = (text: string, scope: ValueScope, carried: ReadonlyArray<string> = scope.carried): string | undefined => {
+  const formats = formatProblem(text);
+  if (formats !== undefined) return refusalSentences(formats);
+  const missing = valueNamesIn(text).find(
+    (name) => !carried.includes(name) && !(scope.afterCode && isCodeValueName(name)) && !(scope.answered && isRaisedValueName(name)),
+  );
   if (missing === undefined) return undefined;
   return `This trigger carries no {{${missing}}}. It carries ${carried.map((name) => `{{${name}}}`).join(", ")}.`;
 };
@@ -678,32 +855,48 @@ const signalFormOf = (form: SignalFormDraft): StoredSignalForm => {
   };
 };
 
+/** Where the answer goes, once its problems are settled: the target picked, the title trimmed. */
+const answerToOf = (answerTo: AnswerToDraft): unknown =>
+  answerTo.kind === "document" ? { kind: answerTo.kind, node: answerTo.node, title: answerTo.title.trim() } : answerTo;
+
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
 
-const actionProblem = (
-  action: ActionDraft,
-  carried: ReadonlyArray<string>,
-  afterCode: boolean,
-  /** Whether the trigger is an artifact change, so "the artifact that fired" means something. */
-  artifactFired: boolean,
-): string | undefined => {
+/** Where the answer goes, settled: its target picked, a document's title written. */
+const answerToProblem = (answerTo: AnswerToDraft | undefined, scope: ValueScope): string | undefined => {
+  switch (answerTo?.kind) {
+    case undefined:
+      return undefined;
+    case "seat":
+      return answerTo.to?.kind === "seat" ? undefined : "Pick the seat the answer goes to.";
+    case "document":
+      if (answerTo.node === undefined) return "Pick the Artifacts node the answer is written in.";
+      return textProblem(answerTo.title, ARTIFACT_MAX_TITLE_LENGTH, "answer document's title") ?? valueProblem(answerTo.title, scope, scope.answerCarried);
+    case "append":
+      return answerTo.to?.kind === "artifact" ? undefined : "Pick the artifact the answer is added to.";
+    default:
+      return answerTo satisfies never;
+  }
+};
+
+const actionProblem = (action: ActionDraft, scope: ValueScope): string | undefined => {
+  const { artifactFired } = scope;
   switch (action.kind) {
     case "mail":
       if (action.to === undefined) return "Pick who the mail goes to.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text, carried, afterCode);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "mail") ?? valueProblem(action.text, scope);
     case "prompt":
       if (action.to === undefined) return "Pick the seat to prompt.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text, carried, afterCode);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "prompt") ?? valueProblem(action.text, scope);
     case "create-task":
       if (action.node === undefined) return "Pick the task board.";
-      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title, carried, afterCode);
+      return textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "task title") ?? valueProblem(action.title, scope);
     case "assign-task":
       if (action.task === undefined) return "Pick the task to assign.";
       if (action.to === undefined) return "Pick the seat to assign it to.";
       return undefined;
     case "comment":
       if (action.on === undefined) return "Pick what the comment is on.";
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text, carried, afterCode);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "comment") ?? valueProblem(action.text, scope);
     case "code": {
       const seconds = wholeNumber(action.timeoutSeconds);
       const ms = seconds === undefined ? undefined : seconds * 1000;
@@ -715,17 +908,17 @@ const actionProblem = (
       if (action.node === undefined) return "Pick the Artifacts node.";
       return (
         textProblem(action.title, AUTOMATION_NAME_MAX_CHARS, "artifact title") ??
-        valueProblem(action.title, carried, afterCode) ??
+        valueProblem(action.title, scope) ??
         (action.body !== undefined && action.body.trim().length > AUTOMATION_TEXT_MAX_CHARS
           ? `The body is longer than ${AUTOMATION_TEXT_MAX_CHARS} characters.`
           : undefined) ??
-        valueProblem(action.body ?? "", carried, afterCode) ??
+        valueProblem(action.body ?? "", scope) ??
         labelsProblem((action.labels ?? []).filter((label) => label.trim() !== ""))
       );
     case "append-artifact":
       if (action.to === undefined) return "Pick the artifact to append to.";
       if ("fired" in action.to && !artifactFired) return FIRED_NEEDS_ARTIFACT;
-      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "text to append") ?? valueProblem(action.text, carried, afterCode);
+      return textProblem(action.text, AUTOMATION_TEXT_MAX_CHARS, "text to append") ?? valueProblem(action.text, scope);
     case "label-artifact": {
       if (action.to === undefined) return "Pick the artifact to label.";
       if ("fired" in action.to && !artifactFired) return FIRED_NEEDS_ARTIFACT;
@@ -744,11 +937,12 @@ const actionProblem = (
       const detail = action.detail ?? "";
       return (
         textProblem(action.title, AGENT_SIGNAL_MAX_TEXT_LENGTH, "signal title") ??
-        valueProblem(action.title, carried, afterCode) ??
+        valueProblem(action.title, scope) ??
         (detail.trim().length > AGENT_SIGNAL_MAX_DETAIL_LENGTH ? `The detail is longer than ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters.` : undefined) ??
-        valueProblem(detail, carried, afterCode) ??
+        valueProblem(detail, scope) ??
         ((action.show ?? []).some((shown) => shown.kind !== "artifact") ? "A signal shows artifacts only." : undefined) ??
-        (signalTakesForm(action.signal) ? signalFormProblem(action.form) : undefined)
+        (signalTakesForm(action.signal) ? signalFormProblem(action.form) : undefined) ??
+        (action.signal === "notice" ? undefined : answerToProblem(action.answerTo, scope))
       );
     }
     default:
@@ -768,14 +962,17 @@ export const draftProblems = (draft: AutomationDraft): ReadonlyArray<DraftProble
     if (message) problems.push({ at: "condition", index, message });
   });
   if (draft.then.length === 0) problems.push({ at: "actions", message: "Add at least one action." });
-  const carried = automationValuesOf(draft.trigger);
-  /** Whether a code step ran before this action, so it may name `{{code.<field>}}`. */
-  let afterCode = false;
-  const artifactFired = draft.trigger.kind === "change" && draft.trigger.on.kind === "artifact";
+  let scope: ValueScope = {
+    carried: automationValuesOf(draft.trigger),
+    answerCarried: answerToValuesOf(draft.trigger),
+    afterCode: false,
+    answered: draft.trigger.kind === "change" && draft.trigger.on.kind === "answered",
+    artifactFired: draft.trigger.kind === "change" && draft.trigger.on.kind === "artifact",
+  };
   draft.then.forEach((action, index) => {
-    const message = actionProblem(action, carried, afterCode, artifactFired);
+    const message = actionProblem(action, scope);
     if (message) problems.push({ at: "action", index, message });
-    if (action.kind === "code") afterCode = true;
+    if (action.kind === "code") scope = { ...scope, afterCode: true };
   });
   const minInterval = minutesMs(draft.minIntervalMinutes);
   const maxPerHour = wholeNumber(draft.maxPerHour);
@@ -856,7 +1053,8 @@ const actionOf = (action: ActionDraft): unknown => {
         ...(show.length === 0 ? {} : { show }),
         // A form belongs to escalate and blocked: a notice is read and cleared, feedback answered in words.
         ...(action.form === undefined || !signalTakesForm(action.signal) ? {} : { form: signalFormOf(action.form) }),
-        ...(action.answerTo === undefined || action.signal === "notice" ? {} : { answerTo: action.answerTo }),
+        // A notice is read and cleared: no answer comes back to send anywhere.
+        ...(action.answerTo === undefined || action.signal === "notice" ? {} : { answerTo: answerToOf(action.answerTo) }),
       };
     }
     case "label-artifact": {
@@ -910,6 +1108,15 @@ export const finishDraft = (draft: AutomationDraft): FinishedDraft => {
 export type NodeScope = { readonly node: NodeId };
 /** How a target, or a node a watch covers whole, is named in a sentence: `@product-feed`, `#42 fix tabs`, `Release`. */
 export type NameOf = (ref: TargetRef | NodeScope) => string;
+/** An automation an answered watch names, by its name, or undefined when this window does not hold it. */
+export type AutomationNameOf = (automation: RaisingAutomation) => string | undefined;
+
+/** A signal kind as the subject of "is answered": "an escalate", "a blocked signal". */
+const ANSWERED_KIND_WORDS: Readonly<Record<WatchedSignal, string>> = {
+  escalate: "an escalate",
+  blocked: "a blocked signal",
+  feedback: "a feedback signal",
+};
 
 const becomesWords: Readonly<Record<SeatBecomes, string>> = {
   idle: "goes idle",
@@ -930,7 +1137,7 @@ const signalWords: Readonly<Record<WatchedSignal, string>> = {
   feedback: "posts feedback",
 };
 
-export const watchWords = (watch: WatchDraft, nameOf: NameOf): string => {
+export const watchWords = (watch: WatchDraft, nameOf: NameOf, automationNameOf?: AutomationNameOf): string => {
   switch (watch.kind) {
     case "seat":
       return `${watch.seat ? nameOf(watch.seat) : "a seat"} ${becomesWords[watch.becomes]}`;
@@ -944,15 +1151,17 @@ export const watchWords = (watch: WatchDraft, nameOf: NameOf): string => {
     }
     case "signal":
       return `${watch.from ? nameOf(watch.from) : "any seat"} ${signalWords[watch.signal]}`;
-    case "answered":
-      return `${watch.signal === undefined ? "a signal" : `${watch.signal === "escalate" ? "an" : "a"} ${watch.signal} signal`} it raised is answered`;
+    case "answered": {
+      const from = automationNameOf?.(watch.automation) ?? "another automation";
+      return `${watch.signal === undefined ? "a signal" : ANSWERED_KIND_WORDS[watch.signal]} from ${from} is answered`;
+    }
     default:
       return watch satisfies never;
   }
 };
 
 /** The trigger in a few words, for the sidebar row and the pane's header. */
-export const triggerWords = (trigger: TriggerDraft, nameOf: NameOf): string => {
+export const triggerWords = (trigger: TriggerDraft, nameOf: NameOf, automationNameOf?: AutomationNameOf): string => {
   switch (trigger.kind) {
     case "schedule":
       return `${describeCronExpression(trigger.cron)}, ${trigger.timezone}`;
@@ -961,7 +1170,7 @@ export const triggerWords = (trigger: TriggerDraft, nameOf: NameOf): string => {
       return ms === undefined ? "polls" : ms === MINUTE_MS ? "every minute" : `every ${ms / MINUTE_MS} minutes`;
     }
     case "change":
-      return `when ${watchWords(trigger.on, nameOf)}`;
+      return `when ${watchWords(trigger.on, nameOf, automationNameOf)}`;
     case "webhook":
       return "webhook, not available yet";
     default:
@@ -1015,6 +1224,62 @@ export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
   "answer.at": "when it was answered",
   "signal.title": "the signal's title",
   "signal.link": "a link to the automation that raised it",
+};
+
+/** A value's words in the Insert value list; a raised one is the raising firing's, said when it was raised. */
+export const valueWords = (name: string): string => {
+  const inner = name.startsWith("raised.") ? name.slice("raised.".length) : name;
+  const words = (VALUE_WORDS as Readonly<Record<string, string>>)[inner] ?? "a value";
+  return inner === name ? words : `${words}, as it was when the signal was raised`;
+};
+
+/** A format the Format value list offers: what is written after the value's `|`, and what it does. */
+export type FormatChoice = { readonly format: string; readonly words: string };
+
+/**
+ * The formats Format value offers, one for each in the closed set and three
+ * common date patterns; any other pattern is typed by hand. A date is
+ * written in the automation's time zone.
+ */
+export const FORMAT_CHOICES: ReadonlyArray<FormatChoice> = [
+  { format: "date:YYYY-MM-DD", words: "a time as its day, 2026-10-29" },
+  { format: "date:YYYY-MM-DD HH:mm", words: "a time to the minute, 2026-10-29 09:30" },
+  { format: "date:HH:mm", words: "a time of day, 09:30" },
+  { format: "slug", words: "lower case, dashes between words" },
+  { format: "lower", words: "lower case" },
+  { format: "upper", words: "upper case" },
+  { format: "trim", words: "no spaces at either end" },
+];
+
+/** The closed set's own names, so a test holds that every one is offered: `date:<pattern>` is `date`. */
+export const VALUE_FORMAT_KINDS: ReadonlyArray<string> = VALUE_FORMATS.map((format) => format.split(":")[0]!);
+export const formatChoiceKind = (choice: FormatChoice): string | undefined => parseValueFormat(choice.format)?.kind;
+
+const TOKEN_AT = /\{\{[^{}]*\}\}/gu;
+
+/** Whether a text holds a value for a format to go on. */
+export const hasValueToken = (text: string): boolean => /\{\{[^{}]*\}\}/u.test(text);
+
+/**
+ * A format added to one value in a text: the value the caret is in or just
+ * after, else the last before the caret, else the first. The format goes
+ * last, before the closing braces, and the caret after them. Undefined when
+ * the text holds no value.
+ */
+export const withFormat = (
+  text: string,
+  caret: number,
+  format: string,
+): { readonly text: string; readonly caret: number } | undefined => {
+  const tokens = [...text.matchAll(TOKEN_AT)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
+  if (tokens.length === 0) return undefined;
+  const token =
+    tokens.find((candidate) => candidate.start < caret && caret <= candidate.end) ??
+    tokens.filter((candidate) => candidate.end <= caret).at(-1) ??
+    tokens[0]!;
+  const written = `|${format}`;
+  const at = token.end - 2;
+  return { text: `${text.slice(0, at)}${written}${text.slice(at)}`, caret: token.end + written.length };
 };
 
 const artifactTargetWords = (to: ArtifactTarget | undefined, nameOf: NameOf): string =>

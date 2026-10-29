@@ -2,11 +2,14 @@
  * The text an action writes (plan 0.11/05): multi-line where it is prose, and
  * the values its trigger carries one press away. Insert value writes
  * `{{name}}` where the caret is and leaves the caret after it, so the operator
- * carries on typing. The value is text to this field, never a control: the
- * editor never checks it here, main resolves it when the automation fires.
+ * carries on typing. Format value writes `|format` into the value at the
+ * caret (0.11/09), `{{fired.at|date:YYYY-MM-DD}}`, from the closed set. The
+ * value is text to this field, never a control: the editor never checks it
+ * here, main resolves it when the automation fires.
  */
 import { useLayoutEffect, useRef } from "react";
 import { claimFocus } from "../../lib/focus-ownership";
+import { FORMAT_CHOICES, hasValueToken, withFormat } from "../../lib/automation-editor";
 import { Dropdown, Input, Textarea } from "../ui";
 
 /** A value the trigger carries, as the Insert value list shows it. */
@@ -83,6 +86,15 @@ export function ActionText({
     pending.current = start + token.length;
   };
 
+  /** A format onto the value at the caret, or the nearest one before it. */
+  const format = (written: string): void => {
+    const { end } = place(area.current ?? line.current);
+    const next = withFormat(value, end, written);
+    if (next === undefined) return;
+    onValue(next.text);
+    pending.current = next.caret;
+  };
+
   const shared = {
     value,
     "aria-label": label,
@@ -124,6 +136,23 @@ export function ActionText({
           detail: choice.words,
         }))}
         onChange={insert}
+      />
+      <Dropdown
+        className="automation-editor__insert"
+        triggerClassName="automation-editor__insert-trigger"
+        menuClassName="automation-editor__insert-menu"
+        // Off until the text holds a value: a format goes on a value, never alone.
+        disabled={!hasValueToken(value)}
+        aria-label={`Format value in the ${noun}`}
+        title={hasValueToken(value) ? undefined : "Insert a value first, then format it"}
+        placeholder="Format value"
+        value=""
+        options={FORMAT_CHOICES.map((choice) => ({
+          value: choice.format,
+          label: `|${choice.format}`,
+          detail: choice.words,
+        }))}
+        onChange={format}
       />
     </div>
   );

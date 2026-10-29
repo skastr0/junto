@@ -41,10 +41,13 @@ import {
   firingWords,
   historyOrder,
   signalRulingWords,
+  newAnsweredDraft,
   newDraft,
   triggerWords,
+  withStepId,
   type ActionDraft,
   type AutomationDraft,
+  type AutomationNameOf,
 } from "../../lib/automation-editor";
 import {
   automationsSource,
@@ -268,13 +271,21 @@ function CodeStepEditor({
   );
 }
 
+/** An automation of this list by its name, for an answered trigger's words. */
+const automationNameIn =
+  (automations: ReadonlyArray<Automation>): AutomationNameOf =>
+  (raising) =>
+    automations.find((automation) => automation.nodeId === raising.node && automation.automationId === raising.automationId)?.name;
+
 function SidebarRow({
   automation,
   selected,
   dirty,
   canvasName,
   onSelect,
+  automationNameOf,
 }: {
+  readonly automationNameOf: AutomationNameOf;
   readonly automation: Automation;
   readonly selected: boolean;
   readonly dirty: boolean;
@@ -293,7 +304,7 @@ function SidebarRow({
       selected={selected}
       leading={<StatusDot tone={automation.enabled ? "green" : "dim"} />}
       title={`${automation.name}${dirty ? ", edited" : ""}`}
-      meta={triggerWords(trigger, nameOf)}
+      meta={triggerWords(trigger, nameOf, automationNameOf)}
       onClick={onSelect}
     />
   );
@@ -447,6 +458,37 @@ export function AutomationsPane({
     if (result.kind === "applied" && result.automation)
       open(editingOf(result.automation));
     return result.kind === "applied";
+  };
+
+  /**
+   * A signal step's "When answered…": the step gets its id, the automation
+   * is saved with it when anything is unsaved, and a new automation opens
+   * whose trigger names the step. It is made on this node: an answered
+   * watch names an automation on its own node.
+   */
+  const whenAnswered = async (index: number): Promise<void> => {
+    if (!editing) return;
+    const named = withStepId(editing.draft, index);
+    const step = editing.draft.then[index];
+    if (named === undefined || step?.kind !== "signal") return;
+    if ((named.draft !== editing.draft || dirty || editing.base === undefined) && !(await save(editing.base, named.draft))) return;
+    const draft = newAnsweredDraft(
+      ItemId.make(ulid()) as AutomationId,
+      nodeId,
+      author,
+      { node: nodeId, automationId: editing.draft.automationId },
+      named.id,
+      step.title,
+    );
+    open({ draft, base: undefined, loaded: draft });
+    // The name is what you type next: it says which signal it answers, for the operator to keep or change.
+    setRefocus("name");
+  };
+
+  /** Another automation of this node, from a link between an answered trigger and its signal step. */
+  const openAutomation = (automationId: AutomationId): void => {
+    const head = headOf(automationId);
+    if (head !== undefined && automationId !== editing?.draft.automationId) leave(() => open(editingOf(head)));
   };
 
   const codeAction = codeStep === undefined ? undefined : editing?.draft.then[codeStep];
@@ -725,6 +767,7 @@ export function AutomationsPane({
                     key={automation.automationId}
                     automation={automation}
                     canvasName={canvasName}
+                    automationNameOf={automationNameIn(automations)}
                     selected={automation.automationId === selectedId}
                     dirty={automation.automationId === selectedId && dirty}
                     onSelect={() => {
@@ -801,6 +844,9 @@ export function AutomationsPane({
                 refusalStep={refusal ? refusalStepWords(refusal) : undefined}
                 onSave={() => void save()}
                 onEditCode={(index) => setCodeStep(index)}
+                automations={automations}
+                onOpenAutomation={openAutomation}
+                onWhenAnswered={(index) => void whenAnswered(index)}
                 onRevert={() =>
                   setEditing({ ...editing, draft: editing.loaded })
                 }
