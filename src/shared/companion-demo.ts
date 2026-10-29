@@ -65,7 +65,8 @@ import {
   type CompanionThreadMessage,
 } from "./companion-protocol";
 import type { CompanionResultByOp } from "./wire/companion-protocol";
-import { decodeArtifactBody, ruleArtifactEdit, type Artifact, type ArtifactBody, type ArtifactEdit, type ArtifactVersion, type ArtifactVersionRecord } from "./wire/artifact";
+import { decodeArtifactBody, ruleArtifactEdit, type Artifact, type ArtifactBody, type ArtifactEdit, type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "./wire/artifact";
+import type { ContentByteLength, ContentRef, ContentSha256 } from "./wire/content-ref";
 import { ARTIFACT_LABEL_RULE, artifactLabelOf, artifactLabelsOf, type ArtifactLabelColour } from "./wire/artifact-labels";
 import { COMPANION_ARTIFACT_WRITE_LIMIT } from "./wire/companion-artifact-writes";
 import { buildOperatorFeed, feedSeatsFromCanvas, feedSourcesFromCanvas, type FeedHealth } from "./operator-feed";
@@ -256,6 +257,20 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
   const appliedEdits = new Map<string, Array<ArtifactEdit>>();
   // The bytes each new version's body ref names, as the Mac's content store keeps them.
   const appliedBytes = new Map<string, Uint8Array>();
+  // Uploads staged for the artifact purpose, by stage id; a staged file is claimed once.
+  const stagedUploads = new Map<string, { readonly canvasName: string; bytes: Uint8Array }>();
+  const stagedBytes = new Map<string, Uint8Array>();
+  const stagedByStage = new Map<string, string>();
+  let stageSeq = 0;
+  const stagedRefsOf = (op: ArtifactOp): ReadonlyArray<ContentRef> => {
+    const bodyRefs = (body: ArtifactBody): ReadonlyArray<ContentRef> =>
+      body.type === "file" ? [body.content] : body.type === "link" && body.target.kind === "content" ? [body.target.content] : [];
+    if (op.op === "create") return bodyRefs(op.body);
+    if (op.op !== "edit") return [];
+    if (op.edit.kind === "replace") return bodyRefs(op.edit.body);
+    if (op.edit.type === "pad") return op.edit.patches.flatMap((p) => (p.op === "upsert" && p.layer === "image" ? [p.image.ref] : []));
+    return [];
+  };
   const mutableArtifacts = DEMO_ARTIFACTS as Array<{
     head: { -readonly [K in keyof Artifact]: Artifact[K] };
     body: ArtifactBody;
@@ -384,6 +399,88 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     );
     noteActivity(nodeId, { at, label: "got your mail", kind: "mail" });
     return { ...message, canvasName: DEMO_CANVAS };
+  };
+
+  /** Write an artifact head into the demo world: the mutation the Mac's create commit makes. */
+  const createArtifact = (
+    nodeId: string,
+    artifactId: ItemId,
+    op: Extract<ArtifactOp, { readonly op: "create" }>,
+  ): CompanionOutcome<Artifact> => {
+    if (mutableArtifacts.some((held) => held.head.artifactId === artifactId))
+      return outcomeFail("invalid", "An artifact of that id already lives here.");
+    if (!artifactsNodeIds.has(nodeId)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
+    const decoded = decodeArtifactBody(op.body);
+    if (Result.isFailure(decoded)) return outcomeFail("invalid", "That body is not one the wire reads.");
+    const labels = artifactLabelsOf(op.labels ?? []);
+    if (labels === undefined) return outcomeFail("invalid", ARTIFACT_LABEL_RULE);
+    const at = tick();
+    const body = decoded.success;
+    const head: Artifact = {
+      artifactId,
+      nodeId: nodeId as Artifact["nodeId"],
+      type: body.type,
+      title: op.title,
+      version: 1 as ArtifactVersion,
+      createdBy: OPERATOR_AUTHOR,
+      updatedAt: at,
+      archived: false,
+      taskIds: op.taskIds ?? [],
+      labels,
+    };
+    mutableArtifacts.push({ head, body, versions: [{ artifactId, version: 1 as ArtifactVersion, author: OPERATOR_AUTHOR, at, body }] });
+    return outcomeOk(head);
+  };
+
+  // What an applied write keeps: its ruling under the op id for resends, the
+  // staged bytes it claimed, the body ref bytes the reads then serve, and the
+  // change a subscribed phone hears.
+  const keep = async (
+    opId: string,
+    op: ArtifactOp,
+    result: CompanionResultByOp["artifact.apply"],
+  ): Promise<CompanionOutcome<CompanionResultByOp["artifact.apply"]>> => {
+    applyOps.set(opId, result);
+    if (result.disposition === "applied") {
+      for (const ref of stagedRefsOf(op)) {
+        const bytes = stagedBytes.get(ref.sha256);
+        if (bytes !== undefined) {
+          stagedBytes.delete(ref.sha256);
+          appliedBytes.set(ref.sha256, bytes);
+        }
+      }
+      if (result.artifact !== undefined) {
+        const servedArtifact = result.artifact;
+        const served = await demoArtifactReads.artifactGet({ canvasName: DEMO_CANVAS, artifactId: servedArtifact.artifactId });
+        const held = mutableArtifacts.find((candidate) => candidate.head.artifactId === servedArtifact.artifactId);
+        const bodyRef = served.ok ? served.value.bodyRef : undefined;
+        if (served.ok && held !== undefined) {
+          appliedBytes.set(served.value.bodyRef.sha256, new TextEncoder().encode(JSON.stringify(held.body)));
+        }
+        revision += 1;
+        artifactLog.push({
+          seq: revision,
+          change: {
+            canvasName: DEMO_CANVAS,
+            artifact: {
+              artifactId: servedArtifact.artifactId,
+              nodeId: servedArtifact.nodeId,
+              type: servedArtifact.type,
+              title: servedArtifact.title,
+              version: servedArtifact.version,
+              updatedAt: servedArtifact.updatedAt,
+              archived: servedArtifact.archived,
+              labels: servedArtifact.labels,
+            },
+            author: { kind: "operator" },
+            at: clock,
+            ...(op.op === "edit" ? { edit: op.edit } : {}),
+            ...(bodyRef === undefined ? {} : { bodyRef }),
+          },
+        });
+      }
+    }
+    return outcomeOk(result);
   };
 
   return {
@@ -686,10 +783,54 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
             });
       return outcomeOk({ bodies, mail: [] });
     },
-    // The demo keeps no files: it does not advertise attachments, so a phone sends none.
-    stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),
-    admitStage: async () => outcomeFail("invalid", "The demo does not take files."),
-    dropStaged: async () => undefined,
+    // Uploads land only for the artifact purpose: a file body or a pad image an apply then claims.
+    stagePiece: async (canvasName, args) => {
+      const purpose = args.purpose;
+      if (purpose === undefined) return outcomeFail("invalid", "The demo takes files only for artifacts.");
+      if (purpose.canvasName !== canvasName) return outcomeFail("invalid", "That piece is for another canvas's artifacts.");
+      if (!known(canvasName)) return outcomeFail("not-found", "No such canvas.");
+      const stageId = args.stageId ?? `stg_${String(++stageSeq).padStart(32, "0")}`;
+      const held = stagedUploads.get(stageId) ?? { canvasName, bytes: new Uint8Array(0) };
+      if (args.bytesBase64 !== undefined) {
+        const piece = Buffer.from(args.bytesBase64, "base64");
+        const next = new Uint8Array(held.bytes.length + piece.length);
+        next.set(held.bytes, 0);
+        next.set(piece, held.bytes.length);
+        held.bytes = next;
+      }
+      if (args.done === undefined) {
+        stagedUploads.set(stageId, held);
+        return outcomeOk({ stageId, byteLength: held.bytes.length });
+      }
+      const expected = args.done.expected;
+      if (expected !== undefined && held.bytes.length !== expected.byteLength) {
+        stagedUploads.delete(stageId);
+        return outcomeFail("invalid", `That file is ${String(held.bytes.length)} bytes, not ${String(expected.byteLength)}.`);
+      }
+      // The demo never hashes: the ref names the digest the phone declared for these bytes.
+      const sha256 = expected?.sha256 ?? ("0".repeat(64) as ContentSha256);
+      stagedUploads.delete(stageId);
+      stagedBytes.set(sha256, held.bytes);
+      stagedByStage.set(stageId, sha256);
+      return outcomeOk({
+        ref: {
+          sha256,
+          byteLength: held.bytes.length as ContentByteLength,
+          mediaType: args.done.mediaType,
+          ...(args.done.displayName === undefined ? {} : { displayName: args.done.displayName }),
+        },
+      });
+    },
+    admitStage: async (canvasName) =>
+      known(canvasName) ? outcomeOk(undefined) : outcomeFail("not-found", "No such canvas."),
+    dropStaged: async (canvasName, stageId) => {
+      stagedUploads.delete(stageId);
+      const sha256 = stagedByStage.get(stageId);
+      if (sha256 !== undefined) {
+        stagedByStage.delete(stageId);
+        stagedBytes.delete(sha256);
+      }
+    },
     mailContentRef: async () => undefined,
     quickReplies: async () => outcomeOk({ replies: DEMO_QUICK_REPLIES, quietNotes: DEMO_QUIET_NOTES }),
     portrait: async (portraitIdentity, size, theme, format) => {
@@ -702,7 +843,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const stored = DEMO_CONTENT.find((content) => content.ref.sha256 === ref.sha256);
       const bytes =
         stored === undefined
-          ? (demoArtifactBytes(ref.sha256) ?? appliedBytes.get(ref.sha256))
+          ? (demoArtifactBytes(ref.sha256) ?? appliedBytes.get(ref.sha256) ?? stagedBytes.get(ref.sha256))
           : new TextEncoder().encode(stored.text);
       if (bytes === undefined) return outcomeFail("unavailable");
       return outcomeOk(bytes.subarray(offset, offset + length));
@@ -728,42 +869,8 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const op = args.op;
       const conflict = (reason: "stale" | "rebase_conflict", head: Artifact, message: string) =>
         ({ ok: false as const, error: { code: "conflict" as const, message, reason, artifact: head } });
-      const keep = async (result: CompanionResultByOp["artifact.apply"], artifactId?: ItemId): Promise<CompanionOutcome<CompanionResultByOp["artifact.apply"]>> => {
-        applyOps.set(args.opId, result);
-        // The reads serve a bodyRef for each new version; keep its bytes so content.get answers them.
-        if (result.disposition === "applied" && result.artifact !== undefined) {
-          const servedArtifact = result.artifact;
-          const served = await demoArtifactReads.artifactGet({ canvasName: DEMO_CANVAS, artifactId: servedArtifact.artifactId });
-          const held = mutableArtifacts.find((candidate) => candidate.head.artifactId === servedArtifact.artifactId);
-          const bodyRef = served.ok ? served.value.bodyRef : undefined;
-          if (served.ok && held !== undefined) {
-            appliedBytes.set(served.value.bodyRef.sha256, new TextEncoder().encode(JSON.stringify(held.body)));
-          }
-          // The change a subscribed phone hears, as the Mac's own event reads.
-          revision += 1;
-          artifactLog.push({
-            seq: revision,
-            change: {
-              canvasName: DEMO_CANVAS,
-              artifact: {
-                artifactId: servedArtifact.artifactId,
-                nodeId: servedArtifact.nodeId,
-                type: servedArtifact.type,
-                title: servedArtifact.title,
-                version: servedArtifact.version,
-                updatedAt: servedArtifact.updatedAt,
-                archived: servedArtifact.archived,
-                labels: servedArtifact.labels,
-              },
-              author: { kind: "operator" },
-              at: clock,
-              ...(op.op === "edit" ? { edit: op.edit } : {}),
-              ...(bodyRef === undefined ? {} : { bodyRef }),
-            },
-          });
-        }
-        return outcomeOk(result);
-      };
+      const kept = (result: CompanionResultByOp["artifact.apply"]): Promise<CompanionOutcome<CompanionResultByOp["artifact.apply"]>> =>
+        keep(args.opId, op, result);
 
       if (op.op === "labelColour") {
         if (!artifactsNodeIds.has(args.nodeId)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
@@ -773,34 +880,14 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         if (op.colour === null) delete nodeColours[label];
         else nodeColours[label] = op.colour;
         tick();
-        return keep({ disposition: "applied" });
+        return kept({ disposition: "applied" });
       }
 
       if (op.op === "create") {
         if (args.artifactId === undefined) return outcomeFail("invalid", "A create names the artifact it makes.");
-        if (mutableArtifacts.some((held) => held.head.artifactId === args.artifactId))
-          return outcomeFail("invalid", "An artifact of that id already lives here.");
-        if (!artifactsNodeIds.has(args.nodeId)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
-        const decoded = decodeArtifactBody(op.body);
-        if (Result.isFailure(decoded)) return outcomeFail("invalid", "That body is not one the wire reads.");
-        const labels = artifactLabelsOf(op.labels ?? []);
-        if (labels === undefined) return outcomeFail("invalid", ARTIFACT_LABEL_RULE);
-        const at = tick();
-        const body = decoded.success;
-        const head: Artifact = {
-          artifactId: args.artifactId,
-          nodeId: args.nodeId,
-          type: body.type,
-          title: op.title,
-          version: 1 as ArtifactVersion,
-          createdBy: OPERATOR_AUTHOR,
-          updatedAt: at,
-          archived: false,
-          taskIds: op.taskIds ?? [],
-          labels,
-        };
-        mutableArtifacts.push({ head, body, versions: [{ artifactId: head.artifactId, version: 1 as ArtifactVersion, author: OPERATOR_AUTHOR, at, body }] });
-        return keep({ disposition: "applied", artifact: head, version: 1 as ArtifactVersion }, head.artifactId);
+        const created = createArtifact(args.nodeId, args.artifactId, op);
+        if (!created.ok) return created;
+        return kept({ disposition: "applied", artifact: created.value, version: 1 as ArtifactVersion });
       }
 
       if (args.artifactId === undefined) return outcomeFail("invalid", "That write names no artifact.");
@@ -824,33 +911,33 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
           held.versions.push({ artifactId: held.head.artifactId, version: ruled.success.version, author: OPERATOR_AUTHOR, at, body: ruled.success.body });
           edits.push(op.edit);
           appliedEdits.set(held.head.artifactId, edits);
-          return keep({ disposition: "applied", artifact: held.head, version: held.head.version }, held.head.artifactId);
+          return kept({ disposition: "applied", artifact: held.head, version: held.head.version });
         }
         case "retitle":
           held.head.title = op.title;
           held.head.updatedAt = at;
-          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+          return kept({ disposition: "applied", artifact: held.head, version: held.head.version });
         case "labels": {
           const labels = artifactLabelsOf(op.labels);
           if (labels === undefined) return outcomeFail("invalid", ARTIFACT_LABEL_RULE);
           held.head.labels = labels;
           held.head.updatedAt = at;
-          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+          return kept({ disposition: "applied", artifact: held.head, version: held.head.version });
         }
         case "archive":
         case "restore":
           held.head.archived = op.op === "archive";
           held.head.updatedAt = at;
-          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+          return kept({ disposition: "applied", artifact: held.head, version: held.head.version });
         case "tasks":
           held.head.taskIds = op.taskIds;
           held.head.updatedAt = at;
-          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+          return kept({ disposition: "applied", artifact: held.head, version: held.head.version });
         case "move":
           if (!artifactsNodeIds.has(op.to)) return outcomeFail("not-found", "That is not one of this canvas's Artifacts nodes.");
           // Only the node changes: no version, no body, not even when it last changed.
           held.head.nodeId = op.to;
-          return keep({ disposition: "applied", artifact: held.head, version: held.head.version });
+          return kept({ disposition: "applied", artifact: held.head, version: held.head.version });
       }
     },
     canvasScene: async (canvasName) => known(canvasName) ? outcomeOk(companionCanvasDrawn(CANVAS)) : outcomeFail("not-found", "No such canvas."),
