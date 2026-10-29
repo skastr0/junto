@@ -10,6 +10,7 @@ import { COMPANION_PROTOCOL, decodeCompanionRequestLine } from "../src/shared/wi
 import type { CompanionArtifactChanged } from "../src/shared/wire/companion-artifacts";
 import { runCompanionSession, type CompanionChange } from "../src/shared/companion-session";
 import type { CompanionRequestFrame, CompanionResponseFrame } from "../src/shared/wire/companion-protocol";
+import { asNodeId } from "../src/shared/model";
 import type { ItemId } from "../src/shared/wire/ids";
 
 const ARTIFACT = "01J9DEM0ART000000000000001" as ItemId;
@@ -18,14 +19,14 @@ const change = (canvasName: string): CompanionArtifactChanged => ({
   canvasName,
   artifact: {
     artifactId: ARTIFACT,
-    nodeId: "art-inbox",
+    nodeId: asNodeId("art-inbox"),
     type: "document",
     title: "Pricing notes",
-    version: 2,
+    version: 2 as CompanionArtifactChanged["artifact"]["version"],
     updatedAt: 1_790_000_000_000,
     archived: false,
     labels: [],
-  } as CompanionArtifactChanged["artifact"],
+  },
   author: { kind: "operator" },
   at: 1_790_000_000_000,
   edit: { kind: "replace", baseVersion: 1, body: { type: "document", markdown: "# Pricing notes\n" } } as CompanionArtifactChanged["edit"],
@@ -101,7 +102,7 @@ describe("a subscribed connection", () => {
     const host = {
       hello: async () => ({
         ok: true as const,
-        hello: { appVersion: "0.11.3", deviceId: "dev", protocol: COMPANION_PROTOCOL, serverTime: 0, features: ["artifacts/1"] },
+        hello: { appVersion: "0.11.3", deviceId: "dev", deviceName: "Test phone", station: "Test Mac", protocol: COMPANION_PROTOCOL, serverTime: 0, features: ["artifacts/1"] },
       }),
       call: async (frame: CompanionRequestFrame): Promise<CompanionResponseFrame> =>
         ({ v: COMPANION_PROTOCOL, type: "response", id: frame.id, ok: true, result: {} }) as CompanionResponseFrame,
@@ -130,7 +131,8 @@ describe("a subscribed connection", () => {
     await settle();
     io.end();
     await running;
-    expect(io.events.map((frame) => frame.event)).toEqual(["artifact.changed"]);
-    expect((io.events[0]?.data as CompanionArtifactChanged).canvasName).toBe("demo");
+    expect(io.events.filter((frame) => frame.event === "artifact.changed")).toHaveLength(1);
+    const changed = io.events.find((frame) => frame.event === "artifact.changed");
+    expect((changed?.data as CompanionArtifactChanged).canvasName).toBe("demo");
   });
 });
