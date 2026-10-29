@@ -20,7 +20,7 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, Kbd } from "../ui";
 import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
 import { PromptComposer } from "../rts/PromptComposer";
-import { FeedCard } from "../feed/OperatorFeed";
+import { FeedCardView } from "../feed/FeedCardView";
 import { feedItemRank, type FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
@@ -357,9 +357,8 @@ function FeedDemo() {
           <span>Needs you</span>
           <Kbd>⌘I</Kbd>
         </div>
-        <FeedCard
+        <FeedCardView
           item={feedItem("deploy", "deploy", "claude", "blocked", "Needs the production database password to run the migration.", now - 6 * 60_000)}
-          node={undefined}
           nowMs={now}
           quickReplies={replies}
           selected={false}
@@ -370,9 +369,8 @@ function FeedDemo() {
           onQuickReply={NO_OP}
         />
         {phase < 4 ? (
-          <FeedCard
+          <FeedCardView
             item={feedItem("schema", "schema", "codex", "escalate", "Two specs disagree on how ids are formed. Which one wins?", now - 2 * 60_000)}
-            node={undefined}
             nowMs={now}
             quickReplies={replies}
             selected={phase >= 1}
