@@ -143,6 +143,13 @@ describe("motion law: rings move on the compositor", () => {
     }
   });
 
+  // Operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8: motion no one can see stops.
+  it("a parked pane's spinners stop: the pane is opacity 0 and off screen", () => {
+    const css = read("src/renderer/styles.css");
+    expect(css).toMatch(/\.workbench-pane--parked \{[^}]*opacity: 0;/);
+    expect(css).toMatch(/\.workbench-pane--parked :is\(\.session-load__spinner, \.content-media__spin, \.animate-spin\) \{\s*animation: none !important;/);
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);

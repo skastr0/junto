@@ -448,6 +448,12 @@ html[data-junto-platform="darwin"] .focus-surface__aside {
   top: 0;
   flex: 0 0 0;
 }
+/* No one sees a parked pane, so its spinners stop: a stuck session load
+   would otherwise spin there until it resolves (operator signal
+   01M63W6RQY1YT2Q65MCM0N3YQ8). Its rings are already stopped off screen. */
+.workbench-pane--parked :is(.session-load__spinner, .content-media__spin, .animate-spin) {
+  animation: none !important;
+}
 .workbench-pane > .dock-slot,
 .workbench-pane > .workbench-surface {
   flex: 1 1 auto;
