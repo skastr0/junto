@@ -36,6 +36,8 @@ declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
 declare const __JUNTO_FILES_TIER__: FeatureTier | undefined;
+declare const __JUNTO_AUTHORITY_ENABLED__: boolean | undefined;
+declare const __JUNTO_VAULT_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -224,6 +226,24 @@ export const FILES_TIER: FeatureTier =
 /** The Files node is in this build at all (on or experimental). */
 export const FILES_COMPILED: boolean = FILES_TIER !== false;
 
+/**
+ * One authority per canvas (0.11/06): the consensus driver, the authority
+ * owner ops and `junto authority`. OFF in ship (carried to 0.12), on in all-on.
+ */
+export const AUTHORITY_ENABLED: boolean =
+  typeof __JUNTO_AUTHORITY_ENABLED__ === "boolean"
+    ? __JUNTO_AUTHORITY_ENABLED__
+    : envEnabled("JUNTO_AUTHORITY");
+
+/**
+ * A vault per machine (0.11/07, N5): token scope, token file and a region
+ * source read with this machine's own token. OFF in ship (carried to 0.12).
+ */
+export const VAULT_ENABLED: boolean =
+  typeof __JUNTO_VAULT_ENABLED__ === "boolean"
+    ? __JUNTO_VAULT_ENABLED__
+    : envEnabled("JUNTO_VAULT");
+
 export const BUILD_FEATURES = {
   browser: BROWSER_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
@@ -244,6 +264,8 @@ export const BUILD_FEATURES = {
   harnessSettings: HARNESS_SETTINGS_ENABLED,
   seatAwareness: SEAT_AWARENESS_TIER,
   files: FILES_TIER,
+  authority: AUTHORITY_ENABLED,
+  vault: VAULT_ENABLED,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
 
 /** The operator's experimental toggles, as the settings row stores them. */

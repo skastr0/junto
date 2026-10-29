@@ -36,6 +36,9 @@ describe("compile-time feature profiles", () => {
       seatAwareness: "experimental",
       // The Files node ships on in 0.11.
       files: true,
+      // Fleet authority and the vault are carried to 0.12: never live in ship.
+      authority: false,
+      vault: false,
       // Every managed harness ships ON; each gate remains the way back off.
       harnessHermes: true,
       harnessKimi: true,

@@ -134,6 +134,26 @@ export const FEATURE_CATALOG = {
       applies: "live",
     },
   },
+  /**
+   * One authority per canvas, by quorum commit (0.11/06, F1 to F6): the
+   * consensus driver, the authority owner ops and `junto authority`. Carried
+   * to 0.12: off in ship, on in all-on. Off, nothing starts the driver and no
+   * way in reaches the ops; the state step's tables stay empty.
+   */
+  authority: {
+    env: "JUNTO_AUTHORITY",
+    define: "__JUNTO_AUTHORITY_ENABLED__",
+  },
+  /**
+   * A vault per machine, 1Password first (0.11/07, N5): the token's scope
+   * record, the token file and a region source read with this machine's own
+   * token. Carried to 0.12: off in ship, on in all-on. Off, no token is read,
+   * minted or written, and the state step's table stays empty.
+   */
+  vault: {
+    env: "JUNTO_VAULT",
+    define: "__JUNTO_VAULT_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -206,6 +226,9 @@ export const SHIP_FEATURES: FeatureSet = {
   seatAwareness: "experimental",
   // The Files node (0.11) ships on.
   files: true,
+  // Fleet authority and the vault are carried to 0.12: built from main, never live in ship.
+  authority: false,
+  vault: false,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -228,6 +251,8 @@ export const ALL_FEATURES: FeatureSet = {
   devTools: true,
   seatAwareness: true,
   files: true,
+  authority: true,
+  vault: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
