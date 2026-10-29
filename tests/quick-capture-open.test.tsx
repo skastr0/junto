@@ -151,9 +151,12 @@ describe("Cmd+T lands the keyboard in a new document", () => {
     await pressChord();
     for (let i = 0; i < 40 && editor() === null; i += 1) await settle();
 
-    // The list reads asynchronously; the arrows act on what is there.
-    for (let i = 0; i < 40 && document.querySelectorAll(".quick-capture__row").length < 2; i += 1) await settle();
-    expect(document.querySelectorAll(".quick-capture__row")).toHaveLength(2);
+    // The list reads asynchronously, and its order is by recency: two rows,
+    // whichever came first, is the condition the arrows act on.
+    const rowTitles = (): ReadonlyArray<string> =>
+      [...document.querySelectorAll(".quick-capture__row-title")].map((title) => title.textContent ?? "");
+    for (let i = 0; i < 40 && rowTitles().length < 2; i += 1) await settle();
+    expect(rowTitles()).toHaveLength(2);
 
     // The arrows belong to the list once the search field holds the keyboard.
     const search = document.querySelector<HTMLInputElement>(".quick-capture__search input")!;
@@ -161,11 +164,20 @@ describe("Cmd+T lands the keyboard in a new document", () => {
     await act(async () => {
       search.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
     });
-    await settle();
 
-    const preview = document.querySelector(".quick-capture__preview");
-    expect(preview?.textContent).toContain("Beta body");
-    expect(preview?.textContent).not.toContain("Alpha body");
+    // The preview names the picked row and carries that row's body: wait for
+    // the field to land, never for a fixed number of turns.
+    const picked = (): string =>
+      document.querySelector('.quick-capture__row[aria-selected="true"] .quick-capture__row-title')?.textContent ?? "";
+    const shown = (): string => document.querySelector(".quick-capture__preview")?.textContent ?? "";
+    const wanted = (): string => `${picked()} body`;
+    for (let i = 0; i < 40 && picked() === "" ; i += 1) await settle();
+    const second = rowTitles()[1]!;
+    expect(picked()).toBe(second);
+    for (let i = 0; i < 40 && !shown().includes(wanted()); i += 1) await settle();
+    expect(wanted()).toBe(`${second} body`);
+    expect(shown()).toContain(wanted());
+    expect(shown()).not.toContain(`${rowTitles()[0]!} body`);
   });
 
   it("closes on the chord with the document kept, and focus back where it was", async () => {

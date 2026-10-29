@@ -288,7 +288,7 @@ export function QuickCapture() {
                 <p className="quick-capture__preview-title">{rowLabel(edit.row)}</p>
                 <p className="quick-capture__preview-detail">{edit.row.detail}</p>
                 <div className="quick-capture__preview-body">
-                  <CapturePreview key={edit.row.artifactId} row={edit.row} canvasName={canvasName} />
+                  <CapturePreview key={`${edit.row.artifactId}:${String(edit.row.updatedAt)}`} row={edit.row} canvasName={canvasName} />
                 </div>
               </div>
             )
