@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { asNodeId } from "../src/shared/physics/schema";
 import { makeLocalArtifactsSource, setArtifactsSource, type ArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { mintItemId, mintOpId } from "../src/shared/resource-command";
 import { setCaptureInbox } from "../src/renderer/lib/capture-inbox";
 import { installKeyDispatcher } from "../src/renderer/lib/key-dispatcher";
 import { KEY_ACTIONS } from "../src/renderer/lib/key-actions";
@@ -20,7 +21,9 @@ import { setNodeViewStore } from "../src/renderer/lib/node-view-state";
 import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
 import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
 import { OperatorModalHost } from "../src/renderer/components/operator-modal/OperatorModalHost";
-import { artifacts, canvasOf, region } from "./support/model-nodes";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { asCanvasName } from "../src/shared/model";
+import { artifacts, region } from "./support/model-nodes";
 
 await loadLazySurfaces();
 
@@ -68,7 +71,7 @@ beforeEach(() => {
   source = makeLocalArtifactsSource();
   setArtifactsSource(source);
   state$.canvasName.set(CANVAS);
-  canvasOf(NODES, [], CANVAS);
+  modelStore.adopt({ canvas: asCanvasName(CANVAS), seq: 0, wires: [], nodes: NODES });
   setCaptureInbox(CANVAS, INBOX);
   host = document.createElement("div");
   document.body.append(host);
@@ -112,6 +115,57 @@ describe("Cmd+T lands the keyboard in a new document", () => {
 
     const [head] = await source.list(CANVAS, INBOX);
     expect(head?.body).toEqual({ type: "document", markdown: "Call Ana about rates" });
+  });
+
+  it("closes on one Escape with the words in the Inbox", async () => {
+    await act(async () => root.render(<OperatorModalHost />));
+    await pressChord();
+    for (let i = 0; i < 40 && editor() === null; i += 1) await settle();
+    const view = EditorView.findFromDOM(document.querySelector<HTMLElement>(".quick-capture .cm-editor")!);
+    await act(async () => {
+      view!.dispatch({ changes: { from: 0, insert: "Kept words" }, userEvent: "input.type" });
+    });
+
+    // One press: the surface closes, and the typing is the artifact's.
+    await act(async () => {
+      editor()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(operatorModal$.open.peek()).toBeNull();
+    await settle();
+
+    const [head] = await source.list(CANVAS, INBOX);
+    expect(head?.body).toEqual({ type: "document", markdown: "Kept words" });
+  });
+
+  it("the preview follows the row: a second document shows its own body, not the first one's", async () => {
+    const create = (title: string, markdown: string) =>
+      source.apply(CANVAS, INBOX, mintItemId() as never, mintOpId(), {
+        op: "create",
+        title,
+        body: { type: "document", markdown },
+      });
+    expect((await create("Alpha", "Alpha body")).kind).toBe("applied");
+    expect((await create("Beta", "Beta body")).kind).toBe("applied");
+
+    await act(async () => root.render(<OperatorModalHost />));
+    await pressChord();
+    for (let i = 0; i < 40 && editor() === null; i += 1) await settle();
+
+    // The list reads asynchronously; the arrows act on what is there.
+    for (let i = 0; i < 40 && document.querySelectorAll(".quick-capture__row").length < 2; i += 1) await settle();
+    expect(document.querySelectorAll(".quick-capture__row")).toHaveLength(2);
+
+    // The arrows belong to the list once the search field holds the keyboard.
+    const search = document.querySelector<HTMLInputElement>(".quick-capture__search input")!;
+    await act(async () => search.focus());
+    await act(async () => {
+      search.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    });
+    await settle();
+
+    const preview = document.querySelector(".quick-capture__preview");
+    expect(preview?.textContent).toContain("Beta body");
+    expect(preview?.textContent).not.toContain("Alpha body");
   });
 
   it("closes on the chord with the document kept, and focus back where it was", async () => {

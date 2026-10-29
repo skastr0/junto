@@ -187,7 +187,17 @@ export function QuickCapture() {
       panelClassName="quick-capture"
       onKeyDown={onKeyDown}
     >
-      <div className="quick-capture__body">
+      <div
+        className="quick-capture__body"
+        // In this surface one Escape closes it, the writing saved (Q6 walk):
+        // caught here, before the live field's own stop-writing press.
+        onKeyDownCapture={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          closeOperatorModal("capture");
+        }}
+      >
         <div className="quick-capture__list">
           <div className="quick-capture__search">
             <Search size={14} aria-hidden />
@@ -276,7 +286,7 @@ export function QuickCapture() {
                 <p className="quick-capture__preview-title">{rowLabel(edit.row)}</p>
                 <p className="quick-capture__preview-detail">{edit.row.detail}</p>
                 <div className="quick-capture__preview-body">
-                  <CapturePreview row={edit.row} canvasName={canvasName} />
+                  <CapturePreview key={edit.row.artifactId} row={edit.row} canvasName={canvasName} />
                 </div>
               </div>
             )
@@ -285,10 +295,13 @@ export function QuickCapture() {
       </div>
       <div className="quick-capture__foot">
         <span className="quick-capture__hint">
-          <Kbd>↑↓</Kbd> preview
+          <Kbd>↑↓</Kbd> list
         </span>
         <span className="quick-capture__hint">
           <Kbd>↵</Kbd> edit
+        </span>
+        <span className="quick-capture__hint">
+          <Kbd>{capsOf(keyCaps("inCapture.route")) ?? "M"}</Kbd> move
         </span>
         {newCapture === undefined ? null : (
           <span className="quick-capture__hint">
