@@ -112,7 +112,6 @@ const runGroupObservationScenario = async () => {
     readonly grandchildPid: number;
   };
 
-  const activeCleanupStartedAt = Date.now();
   const drain = terminateAdapterChildrenOnQuit();
   const repeatedQuitCoalesced = drain === terminateAdapterChildrenOnQuit();
   const appDrain = appProcessPlane.drainOnQuit();
@@ -120,13 +119,13 @@ const runGroupObservationScenario = async () => {
   const drainResult = await drain;
   const inheritedAliveAtAdapterDrain = processAlive(inheritedGrandchildPid);
   const closedAliveAtAdapterDrain = processAlive(closedGrandchildPid);
-  await waitUntil(
-    "active group reaped",
-    () => processGoneOrZombie(activePids.parentPid) &&
-      processGoneOrZombie(activePids.grandchildPid),
-  );
-  const activeGroupReapedBeforeHardExpiry = Date.now() - activeCleanupStartedAt < 1_500;
+  // Order, not wall clock: the drain settles clean only from a phase that
+  // emptied before its KILL grace (the hard expiry) ran out, and the group
+  // must already be gone when it does.
   const appDrainResult = await appDrain;
+  const activeGroupReapedBeforeHardExpiry = appDrainResult.clean &&
+    processGoneOrZombie(activePids.parentPid) &&
+    processGoneOrZombie(activePids.grandchildPid);
   const inheritedAliveAtAppDrain = processAlive(inheritedGrandchildPid);
   const closedAliveAtAppDrain = processAlive(closedGrandchildPid);
 
