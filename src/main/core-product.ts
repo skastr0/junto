@@ -59,6 +59,12 @@ export const makeCoreProductLayer = (home: string) => {
   const state = makeStateEngineLive(join(home, ".junto", "state", "junto.db"));
   const installOps = makeInstallOpsLive(join(home, ".junto", "state", "install-ops.db"));
   const settings = makeSettingsLive();
+  // One host of this machine's canvas authorities, shared by every ruler that judges on it: a
+  // second would open a canvas the first holds (fleet/driver.ts). It records through the ruling recorder.
+  const authorities = Layer.provideMerge(
+    Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive),
+    Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
+  );
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
       FactoryPauseRepositoryLive,
@@ -83,16 +89,14 @@ export const makeCoreProductLayer = (home: string) => {
       makeAutomationRepositoryLive(),
       Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
       // The artifact store puts each version's bytes in the content store.
-      // Each ruling is recorded once, for every machine, through the work store.
+      // Each ruling is recorded once, for every machine, through the work store,
+      // and behind the authority judged on its canvas's (fleet/host.ts).
       Layer.provideMerge(
-        Layer.provide(ArtifactRepositoryLive, Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive))),
+        Layer.provide(ArtifactRepositoryLive, authorities),
         makeContentServiceLive({ home }),
       ),
-      // The task ruler records its rulings the same way, and behind the authority judges them on its canvas's (fleet/host.ts).
-      Layer.provide(TaskRepositoryLive, Layer.provideMerge(
-        Layer.provide(CanvasAuthoritiesLive, MachineRepositoryLive),
-        Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, MachineRepositoryLive)),
-      )),
+      // The task ruler records and judges its rulings the same way.
+      Layer.provide(TaskRepositoryLive, authorities),
     ),
     Layer.provideMerge(Layer.provide(ModelLive, ProductModelDependentsLive), Layer.mergeAll(state, installOps)),
   );

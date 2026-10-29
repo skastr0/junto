@@ -67,7 +67,10 @@ import { canonicalJson } from "@shared/work-canonical-json";
 import type { WorkErrorBody } from "@shared/work-control";
 import { type ArtifactLabel, ArtifactLabelColour, type ArtifactLabelColours } from "@shared/artifact-labels";
 import type { ItemId, OpId } from "@shared/work-ids";
+import { AUTHORITY_ENABLED } from "@shared/features";
 import { ContentService } from "../content/service";
+import { CanvasAuthorities } from "../fleet/authorities";
+import type { FleetDriverError } from "../fleet/driver";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "./resource-rulings";
 import { RulingRecorder, type RulingRecordFailed } from "./ruling-recorder";
@@ -359,7 +362,7 @@ const outcomeOf = (
   return { kind: "applied", opId: ruling.opId, artifactId, version: entry!.artifact.version, facts: ruling.facts };
 };
 
-const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | RulingRecordFailed | ArtifactPersistenceError) =>
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | RulingRecordFailed | FleetDriverError | ArtifactPersistenceError) =>
   error instanceof ArtifactPersistenceError ? error : ArtifactPersistenceError.make({ operation, message: error.message, cause: error });
 
 /** A stored row that no longer decodes: refused loudly, never read as absent and written over. */
@@ -755,7 +758,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       return read;
     }, Effect.mapError(persistence("moves")));
 
-    const submit = Effect.fn("artifacts.submit")(function* (
+    const ruleHere = Effect.fn("artifacts.submit")(function* (
       writer: InstallationId,
       command: ResourceCommand<ArtifactOp>,
       context: RulingContext,
@@ -851,6 +854,16 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submit"), Effect.mapError(persistence("submit")));
+
+    // Behind the authority a command is judged on its canvas's authority, and lands when its entry applies (0.11/06 F2).
+    const authorities = yield* Effect.serviceOption(CanvasAuthorities);
+    const submit: ArtifactRepository["Service"]["submit"] = (writer, command, context) =>
+      AUTHORITY_ENABLED && Option.isSome(authorities)
+        ? authorities.value.judge(command.canvasName, ruleHere(writer, command, context)).pipe(
+          Effect.map((judged) => judged.value),
+          Effect.mapError(persistence("submit")),
+        )
+        : ruleHere(writer, command, context);
 
     const submitNode = Effect.fn("artifacts.submitNode")(function* (
       writer: InstallationId,
