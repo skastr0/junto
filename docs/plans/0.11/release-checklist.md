@@ -322,3 +322,34 @@ React), wait for load under 40, set `JUNTO_MACHINE_LINUX_ORB`,
    feed zip hashes to the stapled sha256.
 7. Delete the export, keep the notarization receipt, mail product-lead the
    hash, artifact names and sizes, sha256, submission id.
+
+## 0.11.1 receipt (product-releases, 2026-10-29)
+
+Published from tag `v0.11.1` = `e41db5bbd` (branch `release/0.11.1`): the bump
+`d4907aa89` plus `2f812e263` (test only, one file), cut before quick capture
+landed on main. Notarization `eace0b55-61ef-45cf-babf-7a41d98fe038` Accepted.
+Stapled zip sha256 `e8bc14274b286508ea097d0099350438c9605796483678e304df33b58496e251`
+(sha512 in `latest-mac.yml`), dmg sha256
+`6d1e419348ce1f9241b5170dfb080559dd98cc2e70e5a6be8c1ecaedd42a7f7a`. The feed
+says 0.11.1 and the downloaded zip hashes to the stapled sha256.
+
+- DB proof, run on a read-only `.backup` of the live v63 file with the cut's
+  state engine: v63 to v64 in 7 s, schema identity `f35438d5` matches the
+  code, only `artifact_moves` is new (0 rows), the other 126 tables equal,
+  canvases and seats identical, `quick_check` ok, one v63 backup written
+  before the stamp, a second open runs no step.
+- Security receipts at the cut: files-contract, files-service,
+  files-import-drop-gate, git-guard (and hooks), install, notarize and
+  package security, motion-law: 10 files, 165 tests (ship profile). Four
+  lints clean. `test:features:ship` 48 pass, 12 skipped. Signed packaged
+  audit `ok:true`, team 4452968868, no forbidden entitlements.
+- Unit lane flakes, each passing alone: `automation-editor-actions` (2
+  caret tests), `awareness-window-calibration` and `credentials-scrub`
+  (wall-clock bounds) under load 20 to 27. The last was fixed by `2f812e263`
+  and the final lane passed whole.
+- Not run: the runbook's installed-state qualification (installing the
+  candidate over an older install and a cold start). It would have migrated
+  the operator's live database; the engine proof above stands in for it.
+- Known: `bun run audit:dependencies` fails with 14 highs (Electron 43.5.0
+  and others) on a lock unchanged since 0.10.3; carried to 0.11.2.
+- The tag is local; `v0.11.0` is on origin, `v0.11.1` is not pushed.
