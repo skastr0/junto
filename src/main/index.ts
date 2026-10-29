@@ -50,6 +50,7 @@ import { MachineOwnerControl } from "./junto/hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
+import { onAgentSignalChanged } from "./junto/signals/changes";
 import { SeatGuidanceRepository } from "./junto/seat-guidance/repository";
 import { seatGuidanceIndex } from "./junto/seat-guidance/index-memory";
 import {
@@ -1560,7 +1561,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     try {
       const [link, machineStatus, rows, seats] = await AppRuntime.runPromise(Effect.all([MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats]));
-      rows.onSignalTaken(sendAgentSignal);
+      // A take writes through the repository, which emits the change the window hears.
       const inventory = await AppRuntime.runPromise(makeInventoryChannel());
       const nativeConfig = await AppRuntime.runPromise(makeNativeConfigChannel());
       const settings = await AppRuntime.runPromise(makeSettingsChannel());
@@ -1722,13 +1723,18 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           ) return;
           window.webContents.send(IPC_CHANNELS.preamble, event);
         },
-        onAgentSignal: (signal) => {
-          raisedHands.note(signal);
-          sendAgentSignal(signal);
-        },
         onOverseer: overseerComposition.onOverseer,
         onOverseerLive: overseerLive?.onHost,
         validateOverseerLive: overseerLive?.validateOperation,
+      });
+      // Every committed signal write reaches the window here, whichever plane
+      // wrote it: a seat's raise by socket, an automation's raise inside main,
+      // an operator's answer, another machine's take. The control socket's own
+      // callback used to be the only sender, so an automation's work stayed
+      // invisible until the canvas was reopened.
+      onAgentSignalChanged((signal) => {
+        raisedHands.note(signal);
+        sendAgentSignal(signal);
       });
       if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {

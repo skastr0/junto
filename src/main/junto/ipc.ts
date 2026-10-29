@@ -99,7 +99,6 @@ import {
   type PreviewShotSource,
   type PreviewSource,
 } from "@shared/preview";
-import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
@@ -610,14 +609,10 @@ export const registerJuntoIpc = (): void => {
     label: MainAuthoringLabel,
     program: Effect.Effect<AgentSignalOperatorResult, never, AgentSignalRepository | WorkService>,
   ): Promise<AgentSignalOperatorResult> =>
+    // The window hears of the answer through the store's own change, as every
+    // committed signal write is pushed from one place (main/index.ts), so this
+    // path only answers the caller.
     runMainAuthoring(label, () => AppRuntime.runPromise(program))
-      .then((result) => {
-        if (result.ok) {
-          raisedHands.note(result.signal);
-          broadcast(IPC_CHANNELS.agentSignal, result.signal);
-        }
-        return result;
-      })
       .catch((error: unknown) => ({
         ok: false as const,
         message: error instanceof Error ? error.message : "signal update failed",
@@ -696,8 +691,6 @@ export const registerJuntoIpc = (): void => {
       // pane shows a refusal as a sentence. One sentence, no value, no detail.
       ).catch(() => ({ ok: false as const, reason: "store-failed" as const, message: "The secret was not set." }));
       if (result.ok && result.signal !== undefined) {
-        raisedHands.note(result.signal);
-        broadcast(IPC_CHANNELS.agentSignal, result.signal);
         if (result.messageId !== undefined) {
           void messageDelivery
             .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
