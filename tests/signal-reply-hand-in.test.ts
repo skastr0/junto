@@ -22,10 +22,18 @@ import type { ArtifactOp } from "../src/shared/artifact";
 
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<AgentSignalRepository | WorkService, unknown>;
+/** Every mail the answer wrote, as the seat reads it. */
+const sent: Array<string> = [];
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-signal-reply-"));
-  const mail = { workSystemMailboxNotify: () => Effect.succeed({ ok: true as const, data: { messageId: "m-answer" } }) };
+  sent.length = 0;
+  const mail = {
+    workSystemMailboxNotify: (_canvas: string, _node: string, message: { readonly parts: ReadonlyArray<{ readonly text?: string }> }) => {
+      sent.push(message.parts.map((part) => part.text ?? "").join(""));
+      return Effect.succeed({ ok: true as const, data: { messageId: "m-answer" } });
+    },
+  };
   runtime = ManagedRuntime.make(
     Layer.merge(
       AgentSignalRepositoryLive.pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))),
@@ -139,11 +147,14 @@ describe("handing work in through a signal", () => {
       ),
     );
     expect(handed.ok).toBe(true);
-    // The seat reads the proof's words and its addresses: the record keeps both, the mail says both.
+    // The record keeps the words and the addresses apart; the seat's mail says both (mailText).
     expect(handed.ok && handed.signal.response).toMatchObject({
-      text: "The run passed.\n\nhttps://example.com/run/1",
+      text: "The run passed.",
       links: ["https://example.com/run/1"],
     });
+    expect(handed.ok && handed.messageId).toBe("m-answer");
+    // The seat reads the proof's addresses in its mail, on their own line.
+    expect(sent.join("")).toContain("https://example.com/run/1");
   }, 20_000);
 
   it("refuses a hand-in on a signal that asks for nothing", async () => {

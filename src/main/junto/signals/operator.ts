@@ -57,6 +57,12 @@ export const answerAgentSignal = (
     readonly attachments?: ReadonlyArray<ContentRef>;
     /** What a work form's reply left, recorded on the answer. */
     readonly reply?: SignalReplyRecord;
+    /**
+     * The words the seat's mail carries, when they say more than the recorded
+     * answer does: proof's addresses ride with its words in the mail, and the
+     * record keeps them structured instead of repeating them in its text.
+     */
+    readonly mailText?: string;
   },
 ) =>
   Effect.gen(function* () {
@@ -90,6 +96,7 @@ export const answerAgentSignal = (
       refs = claimed.success;
     }
     const text = typed || (refs.length > 0 ? AGENT_SIGNAL_FILES_RESPONSE : AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
+    const mailed = options?.mailText ?? text;
 
     let messageId: string | undefined;
     if (!silent) {
@@ -120,9 +127,9 @@ export const answerAgentSignal = (
         }),
       );
       // A row main will not write goes again with the answer's words as a file.
-      const mailed = yield* writeMailCarryingText(write, { text, attachments: refs, owner, filesText: AGENT_SIGNAL_TEXT_FILE_RESPONSE });
-      const appended = mailed.written;
-      refs = mailed.attachments;
+      const carried = yield* writeMailCarryingText(write, { text: mailed, attachments: refs, owner, filesText: AGENT_SIGNAL_TEXT_FILE_RESPONSE });
+      const appended = carried.written;
+      refs = carried.attachments;
       if (!appended.ok) {
         yield* releaseFiles;
         return refused(appended.message);
@@ -138,7 +145,7 @@ export const answerAgentSignal = (
     }
     yield* releaseSignalAttachments(answered.success);
     // Copies go only once the answer stands: a refused answer told no one.
-    if (messageId !== undefined) yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, text, messageId, copies.seats);
+    if (messageId !== undefined) yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, mailed, messageId, copies.seats);
     return {
       ok: true as const,
       signal: answered.success,
@@ -221,9 +228,10 @@ export const replyAgentSignal = (signalId: string, reply: SignalReply, ports: Si
     if (form.kind === "proof") {
       if (reply.kind !== "proof") return refused("this signal asks for proof: its words with links or files");
       const record: SignalReplyRecord = { kind: "links", links: [...reply.links] };
-      return yield* answerAgentSignal(signalId, proofSaid(reply.text, reply.links), {
+      return yield* answerAgentSignal(signalId, reply.text, {
         attachments: (reply.files ?? []) as ReadonlyArray<ContentRef>,
         reply: record,
+        ...(reply.links.length === 0 ? {} : { mailText: proofSaid(reply.text, reply.links) }),
       });
     }
     return refused("this signal asks for a reply, not a document or proof: answer it in words");
