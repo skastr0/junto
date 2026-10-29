@@ -157,7 +157,7 @@ test("automations A1 to A3: the operator's example fires, pickers, an artifact w
     const promptText = action1.getByRole("textbox", { name: "Prompt text", exact: true });
     await promptText.fill("");
     // (3a) Insert value offers only the task trigger's values.
-    await action1.getByRole("button", { name: /^Insert a value into (prompt text|the prompt)$/u }).click();
+    await action1.getByRole("button", { name: /^Insert value into the prompt(,|$)/u }).click();
     const offered = (await page.getByRole("option").allTextContents()).map((t) => t.trim());
     const names = offered.map((t) => /\{\{([^}]+)\}\}/u.exec(t)?.[1]).filter((n): n is string => n !== undefined);
     expect(names.sort(), `Insert value offered ${JSON.stringify(offered)}`).toEqual(["board.title", "fired.at", "task.assignee", "task.link", "task.state", "task.title"].sort());
