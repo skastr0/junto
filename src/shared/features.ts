@@ -38,6 +38,8 @@ declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
 declare const __JUNTO_FILES_TIER__: FeatureTier | undefined;
 declare const __JUNTO_AUTHORITY_ENABLED__: boolean | undefined;
 declare const __JUNTO_VAULT_ENABLED__: boolean | undefined;
+declare const __JUNTO_CODE_STEPS_ENABLED__: boolean | undefined;
+declare const __JUNTO_AUTOMATION_SIGNALS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -244,6 +246,18 @@ export const VAULT_ENABLED: boolean =
     ? __JUNTO_VAULT_ENABLED__
     : envEnabled("JUNTO_VAULT");
 
+/** Code steps in automations (0.11/05 K1 to K4): saved, offered and run. */
+export const CODE_STEPS_ENABLED: boolean =
+  typeof __JUNTO_CODE_STEPS_ENABLED__ === "boolean"
+    ? __JUNTO_CODE_STEPS_ENABLED__
+    : envEnabled("JUNTO_CODE_STEPS");
+
+/** The signal action in automations (0.11/07 N2): saved, offered and raised. */
+export const AUTOMATION_SIGNALS_ENABLED: boolean =
+  typeof __JUNTO_AUTOMATION_SIGNALS_ENABLED__ === "boolean"
+    ? __JUNTO_AUTOMATION_SIGNALS_ENABLED__
+    : envEnabled("JUNTO_AUTOMATION_SIGNALS");
+
 export const BUILD_FEATURES = {
   browser: BROWSER_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
@@ -266,6 +280,8 @@ export const BUILD_FEATURES = {
   files: FILES_TIER,
   authority: AUTHORITY_ENABLED,
   vault: VAULT_ENABLED,
+  codeSteps: CODE_STEPS_ENABLED,
+  automationSignals: AUTOMATION_SIGNALS_ENABLED,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
 
 /** The operator's experimental toggles, as the settings row stores them. */

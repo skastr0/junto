@@ -45,6 +45,7 @@ import type { AutomationAuthor as ReachAuthor } from "./region-reach";
 import { RefusalReason, type Refusal } from "./resource-command";
 import { TASK_STATES } from "./task-model";
 import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "./wire/agent-signals";
+import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "./features";
 import { ContentRef } from "./wire/content-ref";
 import { ItemId } from "./work-ids";
 
@@ -520,6 +521,31 @@ export const targetNodeIds = (automation: Automation): ReadonlyArray<NodeId> => 
  * prompt to anything but a seat, an artifact write to anything but an
  * artifact, a label change that changes nothing or names one label both ways.
  */
+/**
+ * Whether this build saves, offers and performs an action kind: code steps
+ * and the signal action ship off until their real-app walks pass (0.11).
+ */
+export const actionKindInBuild = (kind: ActionKind): boolean =>
+  kind === "code" ? CODE_STEPS_ENABLED : kind === "signal" ? AUTOMATION_SIGNALS_ENABLED : true;
+
+/** Why this build refuses an action kind, worded for whoever saved it. */
+export const ACTION_KIND_OFF: Readonly<Partial<Record<ActionKind, Refusal>>> = {
+  code: {
+    reason: "not_available",
+    message: "code steps are off in this build",
+    next_step: "Remove the code step to save; a build with code steps on runs it",
+  },
+  signal: {
+    reason: "not_available",
+    message: "signals from automations are off in this build",
+    next_step: "Remove the signal step to save, or mail the seat that should raise it",
+  },
+};
+
+/** The build's refusal of an action kind it does not carry, if it does not. */
+export const actionKindRefusal = (kind: ActionKind): Refusal | undefined =>
+  actionKindInBuild(kind) ? undefined : ACTION_KIND_OFF[kind];
+
 export const actionRefusal = (action: Action): Refusal | undefined => {
   switch (action.kind) {
     case "prompt":

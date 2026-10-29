@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { AUTOMATION_VALUES, type CodeLanguage, DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
+import { ACTION_KIND_OFF, actionKindInBuild, AUTOMATION_VALUES, type CodeLanguage, DEFAULT_AUTOMATION_LIMITS } from "../../shared/automation";
 import {
   AutomationCreateCliArgs,
   AutomationEditCliArgs,
@@ -41,12 +41,19 @@ export const AUTOMATION_WRITE_CLI_SCHEMAS: { readonly [Op in AutomationWriteOp]:
 
 const braced = (names: ReadonlyArray<string>) => names.map((name) => `{{${name}}}`).join(", ");
 
+// Code steps and the signal action are said only where this build carries them (0.11 gates).
+const SIGNALS = actionKindInBuild("signal");
+const CODE = actionKindInBuild("code");
+
 /** The values each trigger carries, as the help says them (0.11, 05, A4). */
-export const VALUES_HELP = `Text in mail, prompt, comment and append-artifact actions, a new task's title, a new artifact's title and body, and a signal's title, detail and artifact form title may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal; and after a code step, {{code.<field>}} for each field its output names. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
+export const VALUES_HELP = `Text in mail, prompt, comment and append-artifact actions, a new task's title${SIGNALS ? ", a new artifact's title and body, and a signal's title, detail and artifact form title" : " and a new artifact's title and body"} may name values of what fired it: ${braced(AUTOMATION_VALUES.every)} on every trigger; ${braced(AUTOMATION_VALUES.task)} on a task change; ${braced(AUTOMATION_VALUES.artifact)} on an artifact change; ${braced(AUTOMATION_VALUES.seat)} on a seat change; ${braced(AUTOMATION_VALUES.signal)} on a signal${CODE ? "; and after a code step, {{code.<field>}} for each field its output names" : ""}. A value the trigger does not carry is refused at save, naming the ones it does. A value is inserted as text, never read again`;
+
+const SIGNAL_HELP = `A signal action {kind: signal, signal: notice or work, title, detail?, show?, form?, work?} raises a signal in the operator's needs-you feed: notice is read and cleared, work stays open until the operator produces it; show names artifacts it opens. form is what the operator answers in: {kind: text}, {kind: artifact, node, title?, labels?, minWords?} a document in that Artifacts node, titled from the signal unless named, of at least minWords, {kind: secret, name} a region secret, or {kind: proof}. work {dueInMs?, urgent?} gives work a due time after the firing, and marks it urgent. `;
+const CODE_HELP = `A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. `;
 
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. An artifact watch {kind: artifact, artifact: <ref> or {node}, event: edited, commented or labelled, label?} fires on labelled when an artifact gains label (or a level under it), created with it included. Artifact actions: create-artifact {node, title, body?, labels?} makes a document from markdown; append-artifact {to, text} adds markdown at a document's end; label-artifact {to, add?, remove?} changes its labels, never one label in both. Their to is an artifact, or {fired: true}, the one that fired an artifact trigger. Labels fold to lowercase. A signal action {kind: signal, signal: notice or work, title, detail?, show?, form?, work?} raises a signal in the operator's needs-you feed: notice is read and cleared, work stays open until the operator produces it; show names artifacts it opens. form is what the operator answers in: {kind: text}, {kind: artifact, node, title?, labels?, minWords?} a document in that Artifacts node, titled from the signal unless named, of at least minWords, {kind: secret, name} a region secret, or {kind: proof}. work {dueInMs?, urgent?} gives work a due time after the firing, and marks it urgent. A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ${VALUES_HELP}`,
+    `Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. An artifact watch {kind: artifact, artifact: <ref> or {node}, event: edited, commented or labelled, label?} fires on labelled when an artifact gains label (or a level under it), created with it included. Artifact actions: create-artifact {node, title, body?, labels?} makes a document from markdown; append-artifact {to, text} adds markdown at a document's end; label-artifact {to, add?, remove?} changes its labels, never one label in both. Their to is an artifact, or {fired: true}, the one that fired an artifact trigger. Labels fold to lowercase. ${SIGNALS ? SIGNAL_HELP : ""}${CODE ? CODE_HELP : ""}${VALUES_HELP}`,
   "automation.edit":
     `Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused. Values in text are checked against the trigger as stored after the change. ${VALUES_HELP}`,
   "automation.enable": "Turn an automation on",
@@ -82,8 +89,11 @@ export const codeFilesOf = (operation: AutomationWriteOp, input: unknown): Effec
     const files: CodeFile[] = [];
     const steps = stepsOf(operation, input) ?? [];
     for (const [index, step] of steps.entries()) {
-      if (!isRecord(step) || step.kind !== "code" || step.file === undefined) continue;
+      if (!isRecord(step) || step.kind !== "code") continue;
       const at = stepsPath(operation, index);
+      // Refused before its file is staged, worded as the save would word it.
+      if (!CODE) return yield* Effect.fail(new InputError({ message: `${ACTION_KIND_OFF.code!.message}: ${ACTION_KIND_OFF.code!.next_step}`, path: `${at}.kind` }));
+      if (step.file === undefined) continue;
       if (typeof step.file !== "string" || step.file.length === 0) {
         return yield* Effect.fail(new InputError({ message: "file is the path of the step's program", path: `${at}.file` }));
       }
@@ -251,7 +261,7 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
       then: [{ kind: "prompt", to: "@product-verify", text: "{{task.title}} is done ({{task.link}}), check it in the real app." }],
     },
   ),
-  example(
+  ...(CODE ? [example(
     "create",
     "check a service every ten minutes in code, and mail what it found",
     "The file is staged into the content store and sent as source; {{code.status}} is a field of its output.",
@@ -264,8 +274,8 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
         { kind: "mail", to: "@tech-lead", text: "service check at {{fired.at}}: {{code.status}}" },
       ],
     },
-  ),
-  example(
+  )] : []),
+  ...(SIGNALS ? [example(
     "create",
     "ask the operator for today's writing every morning",
     "A work signal stays in the needs-you feed until the operator does it; show takes the brief's junto:// link, from junto artifact show.",
@@ -283,7 +293,7 @@ export const overseerAutomationExamples: ReadonlyArray<CommandExample> = [
         },
       ],
     },
-  ),
+  )] : []),
   example(
     "create",
     "when a document is labelled review, log it and move it on",

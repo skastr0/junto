@@ -39,6 +39,9 @@ describe("compile-time feature profiles", () => {
       // Fleet authority and the vault are carried to 0.12: never live in ship.
       authority: false,
       vault: false,
+      // Code steps and automation signals ship off until their real-app walks pass.
+      codeSteps: false,
+      automationSignals: false,
       // Every managed harness ships ON; each gate remains the way back off.
       harnessHermes: true,
       harnessKimi: true,

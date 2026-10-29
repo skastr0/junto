@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { ArrowDown, ArrowUp, Code, Plus, X } from "lucide-react";
-import { automationValuesOf, type CodeLanguage } from "@shared/automation";
+import { actionKindInBuild, automationValuesOf, type CodeLanguage } from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
 import type { ArtifactLabel } from "@shared/artifact-labels";
@@ -1161,7 +1161,8 @@ function SignalWorkFields({
   );
 }
 
-const ACTION_KINDS = Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>;
+/** The kinds this build offers; a loaded step of another kind still shows as itself, and save says why. */
+const ACTION_KINDS = (Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>).filter(actionKindInBuild);
 const TRIGGER_KINDS = Object.keys(TRIGGER_LABEL) as ReadonlyArray<EditableTriggerKind>;
 
 export function AutomationEditor({
@@ -1341,7 +1342,7 @@ export function AutomationEditor({
                 <Select
                   aria-label={`Action ${index + 1}`}
                   value={action.kind}
-                  options={ACTION_KINDS.map((kind) => ({ value: kind, label: ACTION_LABEL[kind] }))}
+                  options={(ACTION_KINDS.includes(action.kind) ? ACTION_KINDS : [...ACTION_KINDS, action.kind]).map((kind) => ({ value: kind, label: ACTION_LABEL[kind] }))}
                   onChange={(kind) => edit({ type: "action-kind", index, kind: kind as ActionKind })}
                 />
                 <ActionFields

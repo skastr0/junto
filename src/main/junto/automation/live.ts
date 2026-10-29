@@ -27,7 +27,7 @@ import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
 import { TASK_TITLE_MAX, type TaskId, type TaskState } from "@shared/task-model";
 import type { SeatTask } from "@shared/seat-task-index";
-import { automationValuesOf, FiringId, resolveValues, valueNamesIn } from "@shared/automation";
+import { actionKindInBuild, automationValuesOf, FiringId, resolveValues, valueNamesIn } from "@shared/automation";
 import { mailExtensionMetadata } from "@shared/crew";
 import { automationActorRef, AutomationNodeId } from "@shared/mail-author";
 import { automationSenderStamp } from "@shared/mail-sender";
@@ -767,7 +767,9 @@ export const AutomationRunnerLive = Layer.effect(
       // Until mail and commands are valid from an automation's own machine (S2), only the editing machine acts.
       // A code step runs on the automation's own machine, which is here: it writes nothing another machine judges.
       perform: (canvasName, automation, action, index, firingId, fired) =>
-        action.kind === "code" ? performCode(canvasName, automation, action, index, firingId, fired)
+        // A kind this build does not carry is not run, whatever a store or another build saved (0.11 gates).
+        !actionKindInBuild(action.kind) ? Effect.succeed(notAvailable(index))
+        : action.kind === "code" ? performCode(canvasName, automation, action, index, firingId, fired)
         // A seat control acts here or writes its row (S4).
         : action.kind === "seat-control" ? performSeatControl(canvasName, automation, action, index, firingId)
         // An artifact write is ruled where the canvas is ruled; it does not queue yet (B1).

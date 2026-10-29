@@ -154,6 +154,27 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_VAULT",
     define: "__JUNTO_VAULT_ENABLED__",
   },
+  /**
+   * Code steps in automations (0.11/05, K1 to K4): the step in the editor and
+   * the CLI, and the runner that starts its process. Off in ship until a
+   * real-app walk passes. Off, a save refuses a code step, the editor and the
+   * CLI do not offer one, and a stored one is ruled not_available unrun.
+   */
+  codeSteps: {
+    env: "JUNTO_CODE_STEPS",
+    define: "__JUNTO_CODE_STEPS_ENABLED__",
+  },
+  /**
+   * The signal action in automations (0.11/07, N2): an automation raising a
+   * notice or work in the needs-you feed. Off in ship until a real-app walk
+   * passes. Off, a save refuses the action, the editor and the CLI do not
+   * offer it, and a stored one is ruled not_available unraised. Seat raises
+   * and their forms (N1, N3, N4) are not under it.
+   */
+  automationSignals: {
+    env: "JUNTO_AUTOMATION_SIGNALS",
+    define: "__JUNTO_AUTOMATION_SIGNALS_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -229,6 +250,9 @@ export const SHIP_FEATURES: FeatureSet = {
   // Fleet authority and the vault are carried to 0.12: built from main, never live in ship.
   authority: false,
   vault: false,
+  // Unverified in the real app at the freeze: each flips on when its walk passes (0.11 release checklist).
+  codeSteps: false,
+  automationSignals: false,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -253,6 +277,8 @@ export const ALL_FEATURES: FeatureSet = {
   files: true,
   authority: true,
   vault: true,
+  codeSteps: true,
+  automationSignals: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,

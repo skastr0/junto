@@ -27,6 +27,7 @@ import {
   AutomationVersion,
   targetNodeIds,
   triggerRefusal,
+  actionKindRefusal,
   actionRefusal,
   firedTargetRefusal,
   valueRefusal,
@@ -120,7 +121,7 @@ const definitionRefusal = (
     return { reason: "not_available", message: "webhook triggers are not available in this version" };
   }
   for (const action of automation.then) {
-    const refused = actionRefusal(action);
+    const refused = actionKindRefusal(action.kind) ?? actionRefusal(action);
     if (refused !== undefined) return refused;
   }
   const values = valueRefusal(automation) ?? firedTargetRefusal(automation);
