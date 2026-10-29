@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+## 0.11.2 — 2026-10-29
+
+Opening the database with 0.11.2 moves it to version 65, and 0.11.1 then
+refuses it as newer than supported. To go back to 0.11.1, open the backup
+taken at the upgrade. The step adds one table, which keeps which Artifacts
+node is each canvas's Inbox; it stays on this machine, and every node, wire,
+task and artifact is kept as it was.
+
+- Quick capture: Cmd+T (Ctrl+T on other systems, left alone in a terminal
+  where it transposes characters), or the pen button beside the needs-you
+  button, opens a surface over whatever you are doing, the canvas, a terminal
+  or a dialog, with the caret already in a new Markdown document. Write at
+  once: the first line becomes the title unless you set one, and the capture
+  is a real artifact from the first keystroke, so nothing is lost. Cmd+T or
+  Escape closes the surface and what you wrote stays.
+- Captures land in an Inbox, an Artifacts node you pick in Settings, Inbox.
+  The first Cmd+T on a canvas asks once: pick an Artifacts node, or Make an
+  Inbox, which places a new Artifacts node named Inbox past the canvas's edge.
+- The same surface searches every artifact on the canvas, in any Artifacts
+  node. With no query the list shows the Inbox first and then recent
+  artifacts; with one it ranks by title, type, labels and a document's words.
+  The right half is the editor, or a large preview of the row in focus: a
+  document rendered, a pad drawn, a sheet as a table. Arrows move through the
+  list, Enter edits that artifact in place, Cmd+Enter opens it in its own
+  node, Cmd+N starts another capture, Cmd+L goes to the search field.
+- A capture can become a pad or a sheet from its header. While it is empty
+  the type simply changes; with text, a pad keeps the words as a text box and
+  a sheet keeps each line as a row, and undo puts it back.
+- Routing: Move to, in the capture's header and on M in the list, offers up
+  to three Artifacts nodes first, each saying why: where the capture's
+  [[links]], mentions and labels point, and the node holding the artifacts
+  most like it. Nothing routes on its own; the Inbox list is the queue to go
+  down, M and a node for each. A move is the same Move to as in 0.11.1.
+- Move to: a long node name no longer widens the picker past its frame, and a
+  suggestion that arrives after the picker opened is picked first unless you
+  already chose.
+- Fixed from 0.11.1: the first Backspace after a modal closed did not delete a
+  selected card on the canvas, and took two presses. Delete and Backspace
+  inside a modal still never reach the card behind it.
+- Opening any operator window, by its button, a signal link, the command bar
+  or a desktop notification, now ends a held agent switcher, as its key
+  chord did.
+- The top bar's icon buttons show the house focus ring on the keyboard.
+- Security: Electron 43.8.4 carries the mitigation for the compromised eMudhra
+  intermediate certificates, and updated Vite, undici and zod close the other
+  high advisories the dependency audit listed (undici's denial of service,
+  cache poisoning and TLS option bugs, launch-editor on Windows, and zod's
+  memory use on large collections).
+
 ## 0.11.1 — 2026-10-29
 
 Opening the database with 0.11.1 moves it to version 64, and 0.11.0 then
