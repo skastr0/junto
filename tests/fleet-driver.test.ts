@@ -599,3 +599,15 @@ describe("the fleet driver judges one canvas's batch", () => {
     await store.runtime.runPromise(factory.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
   });
 });
+
+describe("the fleet driver logs only the rulings that stand", () => {
+  it("drops a ruling the batch recorded and then undid in a transaction of its own", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const undone = Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      Effect.ignore(sql.withTransaction(Effect.andThen(createArtifact, Effect.fail(new Error("the caller changed its mind"))))));
+    const judged = await store.runtime.runPromise(authority.judge(undone) as unknown as Effect.Effect<{ entries: ReadonlyArray<unknown> }, unknown, never>);
+    expect(judged.entries).toEqual([]);
+    expect(await held(store)).toMatchObject({ rulings: [] });
+  });
+});

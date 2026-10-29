@@ -494,7 +494,19 @@ export const openCanvasAuthority = (
               const value = yield* sql.withTransaction(
                 Effect.flatMap(
                   batch.pipe(Effect.provideService(RulingCapture, capture), Effect.provideService(Judging, canvasName)),
-                  (judged) => Effect.fail(new Judged(judged)),
+                  (judged) =>
+                    Effect.gen(function* () {
+                      // The rows the savepoint holds, read before it rolls back, say which rulings stand: one a
+                      // ruler recorded and then undid in a transaction of its own was captured, and must not be logged.
+                      const standing: Array<RecordRulingInput> = [];
+                      for (const input of captured) {
+                        const [row] = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM resource_rulings
+                          WHERE canvas_name = ${input.canvasName} AND writer = ${input.writer} AND op_id = ${input.command.opId}`;
+                        if (row!.n > 0) standing.push(input);
+                      }
+                      captured.splice(0, captured.length, ...standing);
+                      return yield* Effect.fail(new Judged(judged));
+                    }),
                 ),
               ).pipe(Effect.catchIf((error): error is Judged<A> => error instanceof Judged, (judged) => Effect.succeed(judged.value)));
               // Its rows rolled back with the savepoint and no entry carries them: answering would claim a write that never lands.
