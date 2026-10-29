@@ -129,10 +129,24 @@ describe("motion law: rings move on the compositor", () => {
     expect(source).toMatch(/\{attached \? null : \(\s*<ActivityMark/);
   });
 
+  // A ring or run inside a margin but off screen is culled from paint and fails
+  // the same way (canvas-scale lab, 2026-10-29: one such ring, 115/s). Operator
+  // signal 01M63W6RQY1YT2Q65MCM0N3YQ8: an entering ring may show its rest pose
+  // for a frame.
+  it("a ring or track run moves only on screen: its observer has no margin", () => {
+    for (const rel of ["src/renderer/components/ActivityMark.tsx", "src/renderer/components/edges/FlowTrack.tsx"]) {
+      const source = read(rel);
+      expect(source, rel).toMatch(/\{ rootMargin: "0px" \}/);
+      expect(source, rel).not.toMatch(/rootMargin: "[1-9]/);
+    }
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);
     expect(law).toMatch(/off\s+screen\s+or\s+clipped\s+to\s+nothing/);
+    expect(law).toMatch(/rest\s+pose\s+for\s+one\s+frame/);
+    expect(law).toMatch(/partly\s+on\s+screen,\s+keeps\s+turning\s+every\s+frame/);
     expect(law).toMatch(/hidden\s+window/);
     expect(law).toMatch(/reduced\s+motion/);
     expect(law).toMatch(/wholly\s+under\s+an\s+opaque\s+surface/);

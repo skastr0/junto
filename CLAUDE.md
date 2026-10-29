@@ -19,7 +19,8 @@ compounds ("access stops"), never dotted.
 
 ## Motion law — hard invariant
 
-**Never slow, step, throttle or still an animation to save performance.**
+**Never slow, step, throttle or still an animation anyone can see to save
+performance.** Motion no one can see may stop (see `AGENTS.md`).
 Motion runs on the compositor, never on the main thread: rings turn and
 pulse every display frame with `transform` and `opacity` only, and CSS
 animation is allowed everywhere. Only the operator changes motion.
