@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { use$ } from "@legendapp/state/react";
 import { FileText, Search } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
+import type { ItemId } from "@shared/resource-command";
 import { claimFocus } from "../../lib/focus-ownership";
 import { keyIs, keyCaps } from "../../lib/key-match";
 import { isMac } from "../../lib/platform";
@@ -16,9 +17,9 @@ import {
   optionAria,
   type ListboxAriaState,
 } from "../../lib/listbox-aria";
-import { LiveMarkdownField, type LiveMarkdownFieldHandle } from "../artifacts/LiveMarkdownField";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { Kbd } from "../ui";
+import { CaptureEditor } from "./CaptureEditor";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
 import { captureRowsOf, type CaptureRow } from "./capture-list";
 import "./quick-capture.css";
@@ -44,30 +45,6 @@ type Edit =
 const capsOf = (caps: readonly string[] | undefined): string | undefined =>
   caps === undefined ? undefined : caps.join(isMac() ? "" : "+");
 
-/** The stand-in capture editor until Q2's CaptureEditor lands: a live document, kept in memory. */
-function CaptureStandIn({ captureKey }: { readonly captureKey: number }) {
-  const [text, setText] = useState("");
-  const field = useRef<LiveMarkdownFieldHandle>(null);
-  // The caret is in the first line when the surface opens: the operator writes
-  // at once, never after a press.
-  useEffect(() => {
-    field.current?.revealLine(1);
-  }, [captureKey]);
-  return (
-    <div className="quick-capture__write" data-capture-entry="">
-      <LiveMarkdownField
-        key={captureKey}
-        handle={field}
-        value={text}
-        onChange={setText}
-        label="Capture"
-        surfaceLabel="New capture, document"
-        placeholder="Write anything."
-      />
-    </div>
-  );
-}
-
 const rowLabel = (row: CaptureRow): string => (row.title === "" ? "Untitled" : row.title);
 
 export function QuickCapture() {
@@ -78,6 +55,7 @@ export function QuickCapture() {
   const [active, setActive] = useState<string | undefined>(undefined);
   const [edit, setEdit] = useState<Edit>({ kind: "new", key: 0 });
   const searchRef = useRef<HTMLInputElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
   const rows = useMemo(
     () => captureRowsOf(heads, inbox as NodeId | undefined, query),
@@ -93,6 +71,31 @@ export function QuickCapture() {
     activeKey: activeRow?.artifactId,
     selection: { kind: "highlight" },
   };
+
+  // The caret is in the document when the surface opens, and in whatever the
+  // right half comes to hold: the editor's engine loads lazily, so the claim
+  // waits for its line to exist rather than landing on the frame.
+  const openKey = edit.kind === "new" ? `new-${String(edit.key)}` : edit.kind === "artifact" ? edit.row.artifactId : "preview";
+  useEffect(() => {
+    let live = true;
+    const claim = (): boolean => {
+      const entry = rightRef.current?.querySelector<HTMLElement>("[data-capture-entry] .cm-content");
+      if (!live || entry == null) return false;
+      claimFocus(entry, "open");
+      return true;
+    };
+    if (claim()) return () => { live = false; };
+    const right = rightRef.current;
+    if (right === null) return () => { live = false; };
+    const observer = new MutationObserver(() => {
+      if (claim()) observer.disconnect();
+    });
+    observer.observe(right, { childList: true, subtree: true });
+    return () => {
+      live = false;
+      observer.disconnect();
+    };
+  }, [openKey]);
 
   const focusRow = (id: string | undefined): void => {
     setActive(id);
@@ -210,24 +213,27 @@ export function QuickCapture() {
             )}
           </ul>
         </div>
-        <div className="quick-capture__right">
+        <div className="quick-capture__right" ref={rightRef}>
           {edit.kind === "new" ? (
             inbox === undefined ? (
               <CaptureInboxAsk canvas={canvasName} onChosen={() => setEdit({ kind: "new", key: edit.key + 1 })} />
             ) : (
-              <CaptureStandIn captureKey={edit.key} />
+              <CaptureEditor
+                canvasName={canvasName}
+                inbox={inbox as NodeId}
+                open={{ kind: "new", key: edit.key }}
+                onArtifact={(ref) => {
+                  if (ref !== null) setActive(ref.artifactId);
+                }}
+              />
             )
           ) : null}
           {edit.kind === "artifact" ? (
-            <div className="quick-capture__edit" data-capture-entry="">
-              <LiveMarkdownField
-                key={edit.row.artifactId}
-                value={edit.row.head.body?.type === "document" ? edit.row.head.body.markdown : ""}
-                label={rowLabel(edit.row)}
-                surfaceLabel={`${rowLabel(edit.row)}, ${edit.row.type}`}
-                readOnly
-              />
-            </div>
+            <CaptureEditor
+              canvasName={canvasName}
+              inbox={inbox as NodeId | undefined}
+              open={{ kind: "artifact", nodeId: edit.row.nodeId, artifactId: edit.row.artifactId as ItemId }}
+            />
           ) : null}
           {edit.kind === "preview" ? (
             <div className="quick-capture__preview">
