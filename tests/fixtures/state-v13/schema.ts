@@ -366,3 +366,9 @@ export const STATE_SCHEMA_V62_SQL = stepped(
   STATE_SCHEMA_V61_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 62)!.migrate,
 );
+
+/** Step 63 rebuilds `stubs` with `files` in its `stub_of` CHECK (F1). */
+export const STATE_SCHEMA_V63_SQL = stepped(
+  STATE_SCHEMA_V62_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 63)!.migrate,
+);

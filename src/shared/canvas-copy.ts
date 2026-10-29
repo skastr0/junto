@@ -218,17 +218,16 @@ const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | und
       return { kind: "label", ...placed(node), text: node.text };
     case "automations":
       return { kind: "automations", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
-    // A stub is called by what the operator wrote, never by its path or address.
+    // A stub is called by what the operator wrote, never by its path or address:
+    // a Files node crosses with no host, root, folder name or file count.
     case "file":
     case "link":
     case "git":
+    case "files":
       return { kind: "stub", of: node.kind, ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
     // A page's name stays home with it: a page stub names only its machine.
     case "page":
       return { kind: "stub", of: "page", ...placed(node), host: editorMachineName };
-    // A files node stays home until its stub can be stored (stubs.stub_of).
-    case "files":
-      return staysHome(node.kind);
     default:
       return staysHome(node.kind);
   }

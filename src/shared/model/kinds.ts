@@ -209,7 +209,7 @@ export const Files = Schema.Struct({
 export type Files = typeof Files.Type;
 
 /** The kinds a stub stands for. */
-export const StubOf = Schema.Literals(["file", "link", "git", "page"]);
+export const StubOf = Schema.Literals(["file", "link", "git", "page", "files"]);
 export type StubOf = typeof StubOf.Type;
 
 /**

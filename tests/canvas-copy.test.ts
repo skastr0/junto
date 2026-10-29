@@ -246,7 +246,8 @@ describe("each kind, cut for each machine", () => {
     page("browser", { ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile" }),
     { kind: "note", id: asNodeId("memo"), ...inRemote(360), text: "Note body stays home." },
     { kind: "automations", id: asNodeId("routines"), ...inRemote(660), label: "Morning routines" },
-    files("folder", { ...inRemote(860), host: "macbook" as never, root: "/Users/op/files-root", label: "Files label stays home" }),
+    files("folder", { ...inRemote(860), host: "macbook" as never, root: "/Users/op/files-root", label: "Shared drafts" }),
+    files("bare-folder", { ...inRemote(910), host: "macbook" as never, root: "/Users/op/bare-files-root" }),
   ];
   const lin = seat("lin", "linux", { x: 2300, y: 50 });
   const everything: CanvasCopySource = {
@@ -294,8 +295,9 @@ describe("each kind, cut for each machine", () => {
     ["note", "memo", undefined],
     // Every machine places the automations on it (0.11/05 S2); what they do rides rulings, never the copy.
     ["automations", "routines", { kind: "automations", id: "routines", ...at(660), label: "Morning routines" }],
-    // Host-local: a files node stays home until its stub can be stored.
-    ["files", "folder", undefined],
+    // A files node crosses as a stub: its label when the operator wrote one, never its host or root.
+    ["files", "folder", { kind: "stub", of: "files", id: "folder", ...at(860), label: "Shared drafts" }],
+    ["files", "bare-folder", { kind: "stub", of: "files", id: "bare-folder", ...at(910) }],
   ];
 
   for (const destination of destinations) {
@@ -323,7 +325,6 @@ describe("each kind, cut for each machine", () => {
           "Page name stays home",
           "plan.md",
           "files-root",
-          "Files label stays home",
           "0 3 * * *",
         ]) {
           expect(sent).not.toContain(never);
@@ -352,12 +353,18 @@ describe("each kind, cut for each machine", () => {
     });
   }
 
-  it("names a file, a link or an unlabelled repository by nothing: no path, folder or address leaks through a default", () => {
-    for (const nodeId of ["spec", "docs", "repo"]) {
+  it("names a file, a link, an unlabelled repository or files node by nothing: no path, folder or address leaks through a default", () => {
+    for (const nodeId of ["spec", "docs", "repo", ...(productNodeKindEnabled("files") ? ["bare-folder"] : [])]) {
       const stub = cutFor(MINI, "mini").resources.find((resource) => resource.id === nodeId)!;
       expect(stub.kind).toBe("stub");
       expect("label" in stub).toBe(false);
     }
+  });
+
+  it("carries a files stub with no host or path for another machine", () => {
+    if (!productNodeKindEnabled("files")) return;
+    const stub = cutFor(MINI, "mini").resources.find((resource) => resource.id === "folder")!;
+    expect(Object.keys(stub).sort()).toEqual(["height", "id", "kind", "label", "of", "width", "x", "y", "z"]);
   });
 
   it("gives a region's private parts only to the machine with a seat in it", () => {

@@ -74,9 +74,9 @@ export const PEERS_STATE_SCHEMA_SQL = table(
  * Files, links, repositories and pages of other machines, held only in a copy
  * of a canvas: what each is and where it sits, a label only when the operator
  * wrote one, and for a page the machine it lives on. No path or address.
- * Added by state migration 29 -> 30.
+ * Added by state migration 29 -> 30; frozen as that step wrote it.
  */
-export const STUBS_STATE_SCHEMA_SQL = table(
+export const STUBS_V30_STATE_SCHEMA_SQL = table(
   "stubs",
   `
     stub_of TEXT NOT NULL CHECK (stub_of IN ('file', 'link', 'git', 'page')),
@@ -85,6 +85,24 @@ export const STUBS_STATE_SCHEMA_SQL = table(
     CHECK ((stub_of = 'page') = (host IS NOT NULL)),
     CHECK (stub_of <> 'page' OR label IS NULL)`,
 );
+
+/**
+ * Stubs as state migration 62 -> 63 rebuilds them: a Files node of another
+ * machine is a stub too, named only by its label, never its host, root,
+ * folder name or file count. Frozen as that step wrote it.
+ */
+export const STUBS_V63_STATE_SCHEMA_SQL = table(
+  "stubs",
+  `
+    stub_of TEXT NOT NULL CHECK (stub_of IN ('file', 'link', 'git', 'page', 'files')),
+    label TEXT,
+    host TEXT,
+    CHECK ((stub_of = 'page') = (host IS NOT NULL)),
+    CHECK (stub_of <> 'page' OR label IS NULL)`,
+);
+
+/** Stubs at the head. */
+export const STUBS_STATE_SCHEMA_SQL = STUBS_V63_STATE_SCHEMA_SQL;
 
 /** Automations nodes (0.10/07). Added by state migration 27 -> 28. */
 export const AUTOMATION_BOARDS_STATE_SCHEMA_SQL = table("automation_boards", "label TEXT");

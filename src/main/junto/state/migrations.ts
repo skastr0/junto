@@ -9,7 +9,7 @@ import {
   CANVAS_EDITOR_COLUMN_SQL,
   FILE_TREES_STATE_SCHEMA_SQL,
   PEERS_STATE_SCHEMA_SQL,
-  STUBS_STATE_SCHEMA_SQL,
+  STUBS_V30_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
@@ -49,6 +49,7 @@ import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
 import { migrateSignalKinds, SIGNAL_KINDS_REPLACED_TABLES } from "../signals/migrate-signal-kinds";
+import { migrateStubFiles, STUB_FILES_REPLACED_TABLES } from "./migrate-stub-files";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
 import {
   ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL,
@@ -793,7 +794,18 @@ export const STATE_SCHEMA_V62_IDENTITY = {
     "6bd4211a71666d421e19a1ba0bf0eb4627ba9b736f556852803db7f6bbc2dfff",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 62;
+/**
+ * Version 63 lets a Files node cross as a stub (0.11, F1): `stubs` rebuilt
+ * with `files` in its `stub_of` CHECK, every row copied as it was. A files
+ * stub is its geometry and the operator's label, never a host, root, folder
+ * name or file count. Consolidate.
+ */
+export const STATE_SCHEMA_V63_IDENTITY = {
+  actualSchemaSha256:
+    "83d7611b0b8a2869fa52b0743d91dbc0262de47196edecebf73e847c64ff3ad5",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 63;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -801,7 +813,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 62;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V62_IDENTITY;
+  STATE_SCHEMA_V63_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -992,7 +1004,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V29_IDENTITY,
     migrate: (database) => {
-      database.exec(STUBS_STATE_SCHEMA_SQL);
+      database.exec(STUBS_V30_STATE_SCHEMA_SQL);
     },
   },
   {
@@ -1292,6 +1304,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V61_IDENTITY,
     migrate: (database) => database.exec(MACHINE_VAULT_TOKENS_SQL),
+  },
+  {
+    fromVersion: 62,
+    toVersion: 63,
+    name: "let a Files node cross as a stub",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V62_IDENTITY,
+    replacesTables: [...STUB_FILES_REPLACED_TABLES],
+    migrate: migrateStubFiles,
   },
 ];
 

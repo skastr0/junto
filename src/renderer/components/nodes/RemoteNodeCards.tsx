@@ -1,4 +1,4 @@
-import { FileText, GitBranch, Globe, Link2 } from "lucide-react";
+import { FileText, FolderTree, GitBranch, Globe, Link2 } from "lucide-react";
 import type { NodeOf } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { machineLabelIn, useMachines } from "../../lib/machines";
@@ -32,6 +32,7 @@ const STUB_LOOK: { readonly [K in NodeOf<"stub">["of"]]: { readonly glyph: typeo
   link: { glyph: Link2, hue: "cyan" },
   git: { glyph: GitBranch, hue: "orange" },
   page: { glyph: Globe, hue: "indigo" },
+  files: { glyph: FolderTree, hue: "dim" },
 };
 
 /** A copy of another machine's node: its kind's chip, dashed, "<kind> on <machine>". */
