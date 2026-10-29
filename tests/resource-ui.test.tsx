@@ -35,8 +35,10 @@ describe("ResourceChip", () => {
     render(<ResourceChip kind="task" number={42} label="fix tabs" onOpen={onOpen} />);
     const button = host.querySelector("button");
     expect(button).not.toBeNull();
+    expect(button?.textContent).toContain("#42");
     expect(button?.textContent).toContain("fix tabs");
-    expect(button?.textContent).toContain("Task 42");
+    // The number is read where it is drawn, so it is not said a second time.
+    expect(button?.textContent).not.toContain("Task 42");
     act(() => button?.click());
     expect(onOpen).toHaveBeenCalledTimes(1);
   });

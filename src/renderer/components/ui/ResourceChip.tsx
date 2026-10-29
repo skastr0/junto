@@ -119,16 +119,17 @@ export function ResourceChip(
   const visual = RESOURCE_KIND_VISUAL[kind];
   const noun = kind === "artifact" && artifactType ? ARTIFACT_TYPE_NOUN[artifactType] : visual.noun;
   const state = missing ? ", unavailable" : pending ? ", queued" : archived ? ", archived" : "";
+  const numbered = kind === "task" && number !== undefined;
+  // A task's "#42" is drawn in the chip's own words, so it is read where it is
+  // drawn: the number needs no second saying, and the words after the label owe
+  // only the state. A task with no number keeps its kind.
+  const suffix = numbered ? state : `, ${noun}${state}`;
   const content = (
     <>
       {kind === "seat" ? <SeatMark seat={seat ?? label} size={SEAT_MARK_SIZE} /> : <ChipGlyph kind={kind} artifactType={artifactType} />}
-      {kind === "task" && number !== undefined ? (
-        <span className="resource-chip__number" aria-hidden>
-          #{number}
-        </span>
-      ) : null}
+      {numbered ? <span className="resource-chip__number">#{number}</span> : null}
       <span className="resource-chip__label">{kind === "seat" ? `@${label}` : label}</span>
-      <span className="sr-only">{`, ${noun}${kind === "task" && number !== undefined ? ` ${number}` : ""}${state}`}</span>
+      {suffix === "" ? null : <span className="sr-only">{suffix}</span>}
     </>
   );
   const common = {
