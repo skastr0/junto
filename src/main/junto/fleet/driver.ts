@@ -27,12 +27,13 @@
  * Messages are the caller's to send; a canvas this machine rules alone needs
  * none, and settles its own election when opened.
  */
-import { Context, Effect, Schema, Semaphore } from "effect";
+import { Context, Effect, Option, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ArtifactBody } from "@shared/artifact";
 import { rulingRowOf } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import type { ResourceCommand } from "@shared/resource-command";
+import { holdSqlCommitCallbacks } from "../state/sql-commit";
 import { RulingRecorder, type RulingRecordFailed } from "../work/ruling-recorder";
 import { RulingCapture, type RecordRulingInput } from "../work/repository";
 import { foldRuling } from "../work/ruling-projection";
@@ -283,6 +284,21 @@ const Judging = Context.Reference<string | undefined>("@junto/FleetJudging", { d
 export const judgingCanvas: Effect.Effect<string | undefined> = Effect.flatMap(Judging, Effect.succeed);
 
 /**
+ * The authority's transactions are its own: a judgment commits under FULL
+ * and its apply follows in another. Run inside a caller's transaction they
+ * would be savepoints, and a caller that rolled back would leave the core
+ * holding entries the disk does not.
+ */
+export const outsideTransactions = (sql: SqlClient.SqlClient, canvasName: string): Effect.Effect<void, FleetDriverError> =>
+  Effect.flatMap(Effect.serviceOption(sql.transactionService), (open) =>
+    Option.isNone(open)
+      ? Effect.void
+      : Effect.fail(new FleetDriverError({
+        message: `the authority of ${canvasName} was reached inside an open transaction: it commits on its own, after the caller's`,
+        cause: canvasName,
+      })));
+
+/**
  * One consensus transaction at a time in this process. `synchronous` is the
  * connection's, set and reset around a transaction as separate statements:
  * without one holder across all three, a second canvas's reset to NORMAL can
@@ -407,6 +423,24 @@ const openClaimed = (
     const { canvasName, self } = options;
     const electionTicks = options.electionTicks ?? 10;
 
+    /**
+     * A judged batch's after-commit callbacks, held until its last entry
+     * applies: its writes land then, not when the judgment commits, and a
+     * listener that read before would find none of them.
+     */
+    const awaiting: Array<{ readonly through: number; readonly callbacks: ReadonlyArray<() => void> }> = [];
+    const runCallbacks = (callbacks: ReadonlyArray<() => void>) =>
+      Effect.forEach(callbacks, (callback) =>
+        Effect.sync(callback).pipe(Effect.catchDefect((defect) => Effect.logError(`an after-commit listener on ${canvasName} failed`, defect))),
+        { discard: true });
+    const appliedThrough = (through: number) =>
+      Effect.suspend(() => {
+        const due = awaiting.filter((held) => held.through <= through);
+        if (due.length === 0) return Effect.void;
+        awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.through > through));
+        return runCallbacks(due.flatMap((held) => held.callbacks));
+      });
+
     const apply = (entries: ReadonlyArray<Entry>, through: number) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -422,7 +456,7 @@ const openClaimed = (
               WHERE canvas_name = ${canvasName}`;
           }
         }),
-      );
+      ).pipe(Effect.tap(() => appliedThrough(through)));
 
     const loaded = yield* sql.withTransaction(
       Effect.gen(function* () {
@@ -457,7 +491,7 @@ const openClaimed = (
     const exclusive = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FleetDriverError, R> =>
       Effect.flatMap(Judging, (outer): Effect.Effect<A, E | FleetDriverError, R> =>
         outer === undefined
-          ? canvasLock.withPermits(1)(effect)
+          ? Effect.andThen(outsideTransactions(sql, canvasName), canvasLock.withPermits(1)(effect))
           : Effect.fail(new FleetDriverError({
             message: `a batch for ${outer} reached the authority of ${canvasName}: a batch is judged by one canvas, and drives no authority itself`,
             cause: { outer, canvasName },
@@ -550,15 +584,17 @@ const openClaimed = (
           else elsewhere.add(input.canvasName);
         };
         let proposed = false;
+        let callbacks: ReadonlyArray<() => void> = [];
         return Effect.gen(function* () {
           const appended = yield* durably(
             Effect.gen(function* () {
               // Judge against committed state and the batch's own earlier commands, then roll the judgment back.
               const value = yield* sql.withTransaction(
                 Effect.flatMap(
-                  batch.pipe(Effect.provideService(RulingCapture, capture), Effect.provideService(Judging, canvasName)),
-                  (judged) =>
+                  holdSqlCommitCallbacks(sql, batch.pipe(Effect.provideService(RulingCapture, capture), Effect.provideService(Judging, canvasName))),
+                  ([judged, held]) =>
                     Effect.gen(function* () {
+                      callbacks = held;
                       // The rows the savepoint holds, read before it rolls back, say which rulings stand: one a
                       // ruler recorded and then undid in a transaction of its own was captured, and must not be logged.
                       const standing: Array<RecordRulingInput> = [];
@@ -597,6 +633,10 @@ const openClaimed = (
               return { value, entries, ready };
             }),
           );
+          // The batch's listeners hear it once its last entry applies; a batch that logged nothing has nothing to wait for.
+          const last = appended.entries.at(-1);
+          if (last === undefined) yield* runCallbacks(callbacks);
+          else awaiting.push({ through: last.index, callbacks });
           // Applied, and only now answered.
           yield* applyCommitted(appended.ready);
           return { value: appended.value, entries: appended.entries, messages: appended.ready.messages };

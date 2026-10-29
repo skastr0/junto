@@ -85,3 +85,25 @@ export const setSqlTransactionLocal = <A>(
       frame.locals.set(key, value);
     }),
   );
+
+/**
+ * Run `effect` holding back every after-commit callback it registers, its
+ * own and its transactions', and hand them back unrun, for a caller that
+ * makes the effect's writes durable by other means and runs them then: the
+ * canvas authority judges a batch in a savepoint it rolls back, and its
+ * writes land when the judged entries apply (0.11/06 F2).
+ */
+export const holdSqlCommitCallbacks = <A, E, R>(
+  sql: SqlClient.SqlClient,
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<readonly [A, ReadonlyArray<() => void>], E, R> =>
+  Effect.flatMap(SqlCommitCallbacks, (frames) => {
+    const frame: TransactionFrame = {
+      callbacks: [],
+      locals: new Map(frames.get(sql.transactionService)?.locals),
+    };
+    return effect.pipe(
+      Effect.provideService(SqlCommitCallbacks, new Map([...frames, [sql.transactionService, frame]])),
+      Effect.map((value) => [value, frame.callbacks] as const),
+    );
+  });

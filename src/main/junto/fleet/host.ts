@@ -14,7 +14,7 @@ import type { InstallationId } from "@shared/installation-id";
 import { MachineRepository } from "../machines/repository";
 import { RulingRecorder } from "../work/ruling-recorder";
 import { CanvasAuthorities } from "./authorities";
-import { FleetDriverError, judgingCanvas, openCanvasAuthority, type CanvasAuthority } from "./driver";
+import { FleetDriverError, judgingCanvas, openCanvasAuthority, outsideTransactions, type CanvasAuthority } from "./driver";
 
 export const makeCanvasAuthorities = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -33,8 +33,9 @@ export const makeCanvasAuthorities = Effect.gen(function* () {
         const current = held.get(canvasName);
         if (current !== undefined && current.authority.usable() && current.canvasId === row?.canvas_id) return current.authority;
         if (current !== undefined) {
-          held.delete(canvasName);
+          // Closed before it is forgotten: a refused close leaves it held, never open and unheld.
           yield* current.authority.close();
+          held.delete(canvasName);
         }
         if (row === undefined) return yield* Effect.fail(new FleetDriverError({ message: `there is no canvas ${canvasName}`, cause: canvasName }));
         const self: InstallationId = yield* machines.installationId.pipe(
@@ -55,7 +56,10 @@ export const makeCanvasAuthorities = Effect.gen(function* () {
         outer !== undefined
           // Opened inside a batch, a canvas's log would begin in a savepoint that rolls back.
           ? Effect.fail(new FleetDriverError({ message: `a batch for ${outer} reached the authority of ${canvasName}: a batch is judged by one canvas, and drives no authority itself`, cause: { outer, canvasName } }))
-          : Effect.flatMap(authorityOf(canvasName), (authority) => authority.judge(batch))),
+          : outsideTransactions(sql, canvasName).pipe(
+            Effect.andThen(authorityOf(canvasName)),
+            Effect.flatMap((authority) => authority.judge(batch)),
+          )),
   });
 });
 

@@ -9,6 +9,7 @@
  * The rulings are judged as the authority will: the ruler runs in a
  * transaction that is rolled back, and what it recorded is proposed.
  */
+import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +23,7 @@ import type { Message } from "../src/main/junto/fleet/consensus";
 import { loggedRuling, openCanvasAuthority, type CanvasAuthority, type LogData } from "../src/main/junto/fleet/driver";
 import type { CanvasAuthorities } from "../src/main/junto/fleet/authorities";
 import { makeCanvasAuthorities } from "../src/main/junto/fleet/host";
+import { afterSqlCommit } from "../src/main/junto/state/sql-commit";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { PausePlaneLive } from "../src/main/junto/pause-plane";
@@ -816,5 +818,76 @@ describe("the authority host", () => {
     expect(exit._tag).toBe("Failure");
     expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/drives no authority itself/);
     expect(await held(store)).toMatchObject({ rulings: [] });
+  });
+});
+
+describe("the fleet driver commits on its own", () => {
+  it("refuses inside a caller's open transaction, on every entry point and the host", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const host = await hostOf(store);
+    const inside = (reach: Effect.Effect<unknown, unknown, unknown>) =>
+      store.runtime.runPromiseExit(
+        Effect.flatMap(SqlClient.SqlClient, (sql) => sql.withTransaction(reach)) as unknown as Effect.Effect<unknown, unknown, never>,
+      );
+    for (const reach of [
+      authority.judge(createArtifact),
+      authority.propose({ kind: "structure.changed", seq: 1 }),
+      authority.tick(),
+      host.judge(CANVAS, createArtifact),
+    ] as ReadonlyArray<Effect.Effect<unknown, unknown, unknown>>) {
+      const exit = await inside(reach);
+      expect(exit._tag).toBe("Failure");
+      expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/inside an open transaction/);
+    }
+    expect(await held(store)).toMatchObject({ rulings: [] });
+    // Outside one, both judge.
+    await store.runtime.runPromise(authority.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
+  });
+});
+
+describe("the fleet driver holds a batch's after-commit listeners", () => {
+  /** What a listener sees when it runs: the ruling rows on disk, read on a connection of its own. */
+  const listening = (store: Store, heard: Array<number>) =>
+    Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      afterSqlCommit(sql, () => {
+        const reader = new DatabaseSync(join(store.root, "junto.db"), { readOnly: true });
+        try {
+          heard.push((reader.prepare("SELECT COUNT(*) AS n FROM resource_rulings WHERE op_id = ?").get(ARTIFACT_OP) as { n: number }).n);
+        } finally {
+          reader.close();
+        }
+      }));
+
+  it("until its entries apply, so a listener reads what the batch wrote", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const heard: Array<number> = [];
+    await store.runtime.runPromise(
+      authority.judge(Effect.andThen(createArtifact, listening(store, heard))) as unknown as Effect.Effect<unknown, unknown, never>,
+    );
+    expect(heard).toEqual([1]);
+  });
+
+  it("on a pair, until the fallback's acknowledgement commits and applies them", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [SELF, MACBOOK]) {
+      const store = await makeStore(id, [SELF, MACBOOK]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    linked = false;
+    const heard: Array<number> = [];
+    await mini.store.runtime.runPromise(
+      mini.authority.judge(Effect.andThen(createArtifact, listening(mini.store, heard))) as unknown as Effect.Effect<unknown, unknown, never>,
+    );
+    // Appended, not committed: nothing has landed, and no listener has run.
+    expect(heard).toEqual([]);
+    linked = true;
+    for (let round = 0; round < 10 && heard.length === 0; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(heard).toEqual([1]);
   });
 });
