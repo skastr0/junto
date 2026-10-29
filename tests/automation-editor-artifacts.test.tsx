@@ -53,8 +53,8 @@ const triggerProblem = (draft: AutomationDraft): string | undefined => draftProb
 describe("artifact automations, the draft", () => {
   it("an artifact trigger says its label in the sentence the list shows", () => {
     expect(triggerWords(onArtifact("edited", "Publish"), nameOf)).toBe("when any artifact in shelf-1 labelled publish is edited");
-    expect(triggerWords(onArtifact("labelled", "publish"), nameOf)).toBe("when any artifact in shelf-1 is labelled publish");
-    expect(triggerWords(onArtifact("labelled"), nameOf)).toBe("when any artifact in shelf-1 is labelled anything");
+    expect(triggerWords(onArtifact("labelled", "publish"), nameOf)).toBe("when any artifact in shelf-1 gains the label publish");
+    expect(triggerWords(onArtifact("labelled"), nameOf)).toBe("when any artifact in shelf-1 gains any label");
     expect(triggerWords(onArtifact("commented"), nameOf)).toBe("when any artifact in shelf-1 is commented on");
   });
 
@@ -253,6 +253,9 @@ describe("artifact automations, the form", () => {
     expect(host.querySelector('[aria-label="Which artifact"]')?.textContent).toContain("one artifact");
     expect(host.querySelector('textarea[aria-label="Artifact to label"]')).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Labels to add"]')?.value).toBe("done");
+    // The comma format is said to a reader, not only in the placeholder.
+    const hint = host.querySelector<HTMLInputElement>('input[aria-label="Labels to add"]')!.getAttribute("aria-describedby")!;
+    expect(document.getElementById(hint)?.textContent).toBe("A comma between labels.");
   });
 
   it("a typed label nothing in the node carries is noted under the sentence and describes the field", async () => {
@@ -260,13 +263,21 @@ describe("artifact automations, the form", () => {
     const field = host.querySelector<HTMLInputElement>('input[aria-label="Only with this label, optional"]')!;
     const note = document.getElementById(field.getAttribute("aria-describedby")!);
     expect(note?.textContent).toBe("No artifact in Specs carries publsh yet.");
-    // A live region, so the miss is heard as it appears, not only when the field is next focused.
-    expect(note?.getAttribute("role")).toBe("status");
 
     await render(draftWith(onArtifact("edited", ""), [{ kind: "mail", to: seat, text: "x" }]));
-    // Mounted and empty while nothing is to say, so its first words are announced.
-    expect(host.querySelector('[role="status"].automation-editor__label-note')?.textContent).toBe("");
     expect(host.querySelector('input[aria-label="Only with this label, optional"]')?.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("the miss is said once typing rests, its first sentence only, never a letter at a time", async () => {
+    const shelfWith = (label: string) => draftWith(onArtifact("edited", label), [{ kind: "mail", to: seat, text: "x" }]);
+    await render(shelfWith(""));
+    const spoken = () => host.querySelector('.sr-only[role="status"]')?.textContent;
+    expect(spoken()).toBe("");
+    for (const typed of ["p", "pu", "pub", "publ", "publs", "publsh"]) await render(shelfWith(typed));
+    // Still typing: nothing said yet.
+    expect(spoken()).toBe("");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    expect(spoken()).toBe("No artifact in Specs carries publsh yet.");
   });
 
   it("a signal step asks notice or work, a title and detail with values, and grows one artifact picker at a time", async () => {

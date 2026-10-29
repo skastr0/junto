@@ -6,7 +6,7 @@
  * until `finishDraft` passes it, and a save carries the version it was
  * edited from.
  */
-import { useId, useMemo, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { ArrowDown, ArrowUp, Code, Plus, X } from "lucide-react";
 import { automationValuesOf, type CodeLanguage } from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
@@ -33,6 +33,7 @@ import {
   editDraft,
   seatStateWord,
   labelNote,
+  labelNoteSpoken,
   taskStateWord,
   watchedNode,
   type ActionDraft,
@@ -277,6 +278,19 @@ const typedLabels = (text: string): ReadonlyArray<string> =>
  * Labels typed as a list, comma between them. The text stays as typed while
  * it says the same labels, so a trailing comma is not taken away mid-word.
  */
+/** How long typing rests before the label note is said. */
+const NOTE_SETTLE_MS = 500;
+
+/** A value once it has held still for `ms`; it starts as the first value. */
+const useSettled = <T,>(value: T, ms: number): T => {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+};
+
 function LabelsField({
   label,
   value,
@@ -287,6 +301,8 @@ function LabelsField({
   readonly onChange: (labels: ReadonlyArray<string> | undefined) => void;
 }) {
   const [text, setText] = useState(() => (value ?? []).join(", "));
+  // The format is said to a reader, not only shown in a placeholder that goes as typing starts.
+  const hintId = useId();
   const same = typedLabels(text).join("\u0000") === (value ?? []).join("\u0000");
   return (
     <FieldLabel>
@@ -297,12 +313,16 @@ function LabelsField({
         spellCheck={false}
         aria-label={label}
         placeholder="publish, weekly"
+        aria-describedby={hintId}
         onChange={(event) => {
           setText(event.target.value);
           const labels = typedLabels(event.target.value);
           onChange(labels.length === 0 ? undefined : labels);
         }}
       />
+      <span id={hintId} className="sr-only">
+        A comma between labels.
+      </span>
     </FieldLabel>
   );
 }
@@ -378,6 +398,8 @@ function WatchFields({
   const baseId = useId();
   const note = watch.kind === "artifact" ? artifactLabelNote(watch, pickers) : undefined;
   const noteId = `${baseId}-label-note`;
+  // What the live region says, only once typing rests: never a letter at a time.
+  const spoken = useSettled(labelNoteSpoken(note), NOTE_SETTLE_MS);
   /** A new task or artifact watch starts on the first node in reach, the common case, else on one item. */
   const blank = (kind: WatchDraft["kind"]): WatchDraft => {
     const watch = blankWatch(kind);
@@ -515,14 +537,20 @@ function WatchFields({
           </>
         ) : null}
       </div>
+      {/* The note, whole, under the sentence: the label field's description. */}
+      {note === undefined ? null : (
+        <p id={noteId} className="automation-editor__note automation-editor__label-note">
+          {note}
+        </p>
+      )}
       {/*
         A live region, mounted while the watch is on artifacts so a reader hears a
-        mistyped label as it appears; the field also names it as its description.
+        mistyped label: its first sentence alone, once typing rests.
       */}
       {watch.kind === "artifact" ? (
-        <p id={noteId} role="status" className="automation-editor__note automation-editor__label-note">
-          {note ?? ""}
-        </p>
+        <span className="sr-only" role="status">
+          {spoken}
+        </span>
       ) : null}
     </>
   );

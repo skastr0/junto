@@ -311,6 +311,9 @@ export const labelNote = (
   return `No artifact in ${where} carries ${label} yet.${after}${known}`;
 };
 
+/** A label note's first sentence, what a reader is told: the labels there stay in the description. */
+export const labelNoteSpoken = (note: string | undefined): string => (note === undefined ? "" : note.split(" Labels there:")[0]!);
+
 /** A new append starts as a dated section: the heading names when it fired. */
 export const APPEND_HEADING = "## {{fired.at}}\n\n";
 
@@ -967,7 +970,7 @@ export const watchWords = (watch: WatchDraft, nameOf: NameOf): string => {
     case "artifact": {
       const label = watch.label?.trim().toLowerCase() || undefined;
       const what = artifactWords(watch.artifact, nameOf);
-      if (watch.event === "labelled") return `${what} is labelled ${label ?? "anything"}`;
+      if (watch.event === "labelled") return `${what} gains ${label === undefined ? "any label" : `the label ${label}`}`;
       return `${what}${label === undefined ? "" : ` labelled ${label}`} is ${ARTIFACT_EVENT_WORD[watch.event]}`;
     }
     case "signal":
