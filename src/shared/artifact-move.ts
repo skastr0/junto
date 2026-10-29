@@ -12,7 +12,7 @@
  */
 import type { NodeId } from "./physics/schema";
 import type { ResourceActor } from "./resource-command";
-import type { ItemId } from "./work-ids";
+import type { ItemId, OpId } from "./work-ids";
 
 /** Most artifacts one call may name. */
 export const ARTIFACT_MOVE_MAX = 100;
@@ -48,6 +48,8 @@ export type ArtifactMoveRunRow =
       readonly outcome: "moved" | "unchanged" | "queued";
       readonly from: NodeId;
       readonly to: NodeId;
+      /** The move command's id, on a `queued` row: what `junto op show` takes. */
+      readonly opId?: OpId;
     }
   | {
       readonly artifactId: ItemId;

@@ -80,9 +80,10 @@ const moveOne = (
     }
     const { title, nodeId: from } = head.value.artifact;
     if (from === toNode) return { artifactId, title, ok: true, outcome: "unchanged", from, to: toNode } as const;
+    const opId = mintOpId();
     const outcome = yield* ports.artifacts.submit(
       {
-        opId: mintOpId(),
+        opId,
         canvasName,
         actor: by,
         target: { kind: "artifact", nodeId: from, itemId: artifactId },
@@ -93,7 +94,9 @@ const moveOne = (
       context,
     );
     if (outcome.kind === "refused") return failed(artifactId, title);
-    return { artifactId, title, ok: true, outcome: outcome.kind === "queued" ? "queued" : "moved", from, to: toNode } as const;
+    return outcome.kind === "queued"
+      ? ({ artifactId, title, ok: true, outcome: "queued", from, to: toNode, opId } as const)
+      : ({ artifactId, title, ok: true, outcome: "moved", from, to: toNode } as const);
   });
 
 let installed: ArtifactMoveRun | undefined;
