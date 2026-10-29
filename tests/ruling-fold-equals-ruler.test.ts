@@ -58,6 +58,23 @@ import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/sh
 const CANVAS = "factory";
 const WRITER = "mini" as InstallationId;
 const START = Date.parse("2026-10-28T12:00:00.000Z");
+// CI replays the pinned seed; a nightly sweeps wider with JUNTO_FOLD_SEED and JUNTO_FOLD_RUNS (a multiple of each count).
+const SEED = Number(process.env.JUNTO_FOLD_SEED ?? 20261028);
+const RUNS = Number(process.env.JUNTO_FOLD_RUNS ?? 1);
+/**
+ * A property stops itself, as a failure, before its test times out. A test that times out leaves its property
+ * running, and the stray one moves the shared fake clock under the next test's setup.
+ */
+const runs = (numRuns: number, budgetMs: number) => ({
+  numRuns: numRuns * RUNS,
+  seed: SEED,
+  interruptAfterTimeLimit: budgetMs * RUNS,
+  markInterruptAsFailure: true,
+});
+/** Room past a property's budget for the case in flight when it stops. */
+const timeoutFor = (budgetMs: number) => budgetMs * RUNS + 60_000;
+const TASK_BUDGET_MS = 60_000;
+const ENGINE_BUDGET_MS = 120_000;
 
 /** One store: its own database, the ruler's runtime, and every ruling the ruler handed its recorder. */
 type Store = {
@@ -69,7 +86,11 @@ type Store = {
 
 const stores: Array<Store> = [];
 
+/** Every store is set up at START, whatever time the last case left: setup stamps are not state the fold makes. */
+const pinSetupClock = () => vi.setSystemTime(START);
+
 const makeStore = async (installation: string): Promise<Store> => {
+  pinSetupClock();
   const database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");
   database.exec(TASKS_STATE_SCHEMA_SQL);
@@ -275,10 +296,10 @@ describe("the fold equals the ruler", () => {
           store.database.close();
         }
       }),
-      { numRuns: 60, seed: 20261028 },
+      runs(60, TASK_BUDGET_MS),
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["assign", "create", "depend", "edit", "finish", "pause", "resume", "start"]));
-  });
+  }, timeoutFor(TASK_BUDGET_MS));
 });
 
 // ---------------------------------------------------------------------------
@@ -293,6 +314,7 @@ const engines: Array<EngineStore> = [];
 const ARTS = asNodeId("arts");
 
 const makeEngineStore = async (installation: string): Promise<EngineStore> => {
+  pinSetupClock();
   const root = await mkdtemp(join(tmpdir(), `junto-fold-${installation}-`));
   const recorded: Array<RecordRulingInput> = [];
   // The ruling's row and its fact, as the real recorder writes them; notices are left out on every store alike.
@@ -484,10 +506,10 @@ describe("the fold equals the ruler, for artifacts", () => {
         expect(await engineTablesOf(replica, resourcesOnly)).toEqual(byRefPending(await engineTablesOf(direct, resourcesOnly)));
         await closeEngines();
       }),
-      { numRuns: 25, seed: 20261028 },
+      runs(25, ENGINE_BUDGET_MS),
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["create", "edit", "labelColour", "labels", "retitle"]));
-  }, 120_000);
+  }, timeoutFor(ENGINE_BUDGET_MS));
 });
 
 // ---------------------------------------------------------------------------
@@ -502,6 +524,7 @@ const automationStores: Array<AutomationStore> = [];
 const ROUTINES = asNodeId("routines");
 
 const makeAutomationStore = async (installation: string): Promise<AutomationStore> => {
+  pinSetupClock();
   const root = await mkdtemp(join(tmpdir(), `junto-fold-auto-${installation}-`));
   const recorded: Array<RecordRulingInput> = [];
   const recorder = Layer.effect(
@@ -664,8 +687,8 @@ describe("the fold equals the ruler, for automations", () => {
         expect(await tablesOfStore(replica, resourcesOnly)).toEqual(await tablesOfStore(direct, resourcesOnly));
         await closeAutomationStores();
       }),
-      { numRuns: 25, seed: 20261028 },
+      runs(25, ENGINE_BUDGET_MS),
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["archive", "create", "edit", "set-enabled", "set-machine"]));
-  }, 120_000);
+  }, timeoutFor(ENGINE_BUDGET_MS));
 });
