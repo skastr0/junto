@@ -1,0 +1,115 @@
+/* Quick capture's Inbox choice: the ask in the capture surface, and the Settings page. */
+.capture-inbox-ask {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.capture-inbox-ask__title {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.capture-inbox-ask__body {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+
+.capture-inbox-picker {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.capture-inbox-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.capture-inbox-picker__row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-stroke);
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
+  font-size: var(--text-body-lg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.capture-inbox-picker__row:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.capture-inbox-picker__row.is-active {
+  border-color: color-mix(in oklab, var(--color-main) 50%, transparent);
+  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.capture-inbox-picker__row:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+.capture-inbox-picker__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-inbox-picker__place {
+  margin-left: auto;
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-inbox-picker__none {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
+.capture-inbox-picker__make {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.capture-inbox-picker__make-hint {
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
+.capture-inbox-picker__error {
+  margin: 0;
+  color: var(--color-crimson-fg);
+  font-size: var(--text-label);
+}

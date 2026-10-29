@@ -16,6 +16,7 @@ const PAGE_SOURCE: Readonly<Record<string, string>> = {
   feed: "settings/QuickRepliesSettingsSection.tsx",
   briefing: "settings/BriefingSettingsSection.tsx",
   references: "settings/ReferencesSettingsSection.tsx",
+  inbox: "settings/InboxSettingsSection.tsx",
   notifications: "settings/NotificationSettingsSection.tsx",
   offboard: "settings/OffboardSettingsSection.tsx",
   companion: "settings/CompanionSettingsSection.tsx",

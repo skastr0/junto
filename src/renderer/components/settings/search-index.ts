@@ -60,6 +60,8 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("briefing", "App briefing", "The text every agent reads when it starts", "AGENTS.md CLAUDE.md instructions import"),
   entry("references", "New reference", "Named text an agent reads when it needs it", "knowledge notes import"),
 
+  entry("inbox", "Inbox", "The Artifacts node your Cmd+T captures land in, on this canvas", "capture quick capture second brain notes"),
+
   entry("feed", "Quick replies", "One-click answers offered when an agent is waiting on you"),
   entry("feed", "Quiet notes", "Answers that close a signal without waking the seat, sent with Shift+1 to 9", "acknowledge silent"),
 

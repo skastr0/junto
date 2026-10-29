@@ -19,6 +19,7 @@ import { radioGroupKeys, radioTabIndex } from "./settings/radio-keys";
 import { searchSettings, settingsIndex, type SettingHit } from "./settings/search-index";
 import { BriefingSettingsSection } from "./settings/BriefingSettingsSection";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
+import { InboxSettingsSection } from "./settings/InboxSettingsSection";
 import { ReferencesSettingsSection } from "./settings/ReferencesSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { MachineSettingsSection } from "./settings/MachineSettingsSection";
@@ -59,7 +60,7 @@ import "./settings-panel.css";
  * Settings sections: preferences, the app update panel, and the experimental
  * features (stored under advanced, shown on their own tab).
  */
-type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion" | "briefing" | "references";
+type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion" | "briefing" | "references" | "inbox";
 
 const PROVIDERS_SECTION_ENABLED = USAGE_ENABLED || LIVE_OVERSEER_ENABLED;
 
@@ -87,6 +88,8 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     label: "Notifications",
     blurb: "",
   },
+  // Where Cmd+T captures land on the canvas in front of you; kept by this machine.
+  { key: "inbox", group: "You", label: "Inbox", blurb: "Where Cmd+T captures land." },
   { key: "briefing", group: "Agents", label: "Briefing", blurb: "Every agent reads this when it starts." },
   { key: "references", group: "Agents", label: "References", blurb: "Named text an agent reads when it needs it." },
   { key: "feed", group: "Agents", label: "Replies", blurb: "" },
@@ -1058,6 +1061,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <BriefingSettingsSection />;
     case "references":
       return <ReferencesSettingsSection />;
+    case "inbox":
+      return <InboxSettingsSection />;
     case "advanced":
       return <AdvancedSection />;
     case "kernel":
@@ -1076,7 +1081,8 @@ const resettableSection = (section: PanelSection): SettingsSectionKey | undefine
   section === "companion" ||
   section === "machine" ||
   section === "briefing" ||
-  section === "references"
+  section === "references" ||
+  section === "inbox"
     ? undefined
     : section;
 
