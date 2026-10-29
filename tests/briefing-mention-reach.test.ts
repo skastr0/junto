@@ -7,18 +7,22 @@ import { mintItemId } from "../src/shared/resource-command";
 import { candidatesOfNodes } from "../src/renderer/lib/mention-sources";
 import * as model from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model";
-import type { NodeKind } from "../src/shared/model/kinds";
+import type { Node } from "../src/shared/model";
 import { asWireId, type Wire } from "../src/shared/model/wire";
-import type { ReachNode } from "../src/shared/region-reach";
 
-const node = (id: string, kind: NodeKind, x: number, y: number, width = 50, height = 50): ReachNode => ({
-  id: asNodeId(id),
-  kind,
-  x,
-  y,
-  width,
-  height,
-});
+type PlacedKind = "agent" | "page" | "region" | "task" | "note" | "artifacts";
+
+const node = (id: string, kind: PlacedKind, x: number, y: number, width = 50, height = 50): Node => {
+  const place = { x, y, width, height };
+  switch (kind) {
+    case "agent": return model.seat(id, place);
+    case "page": return model.page(id, place);
+    case "region": return model.region(id, place);
+    case "task": return model.taskBoard(id, place);
+    case "note": return model.note(id, id, place);
+    case "artifacts": return model.artifacts(id, place);
+  }
+};
 
 const wire = (from: string, to: string): Wire => ({ id: asWireId(`${from}-${to}`), from: asNodeId(from), to: asNodeId(to), verb: "messages" });
 
