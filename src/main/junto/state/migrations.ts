@@ -16,6 +16,7 @@ import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
+import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -768,7 +769,19 @@ export const STATE_SCHEMA_V60_IDENTITY = {
     "0df7137242857b6e8666fc8a71a0bee4469d99fa8f92c8bbfd346aec48136b60",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 60;
+/**
+ * Version 61 holds each canvas's authority by quorum commit (0.11, 06 F6):
+ * `canvas_consensus`, `canvas_authorities`, `canvas_log` with its
+ * `canvas_log_members`, and `canvas_log_waiting`. Every canvas already held
+ * starts at term 1 with nothing committed, its editor its one authority, so
+ * nothing changes until the operator lists a fallback. Expand only.
+ */
+export const STATE_SCHEMA_V61_IDENTITY = {
+  actualSchemaSha256:
+    "8546fa8d9dfbbcdd57683671cf0ef0ef1e6097f3c4374112aaec771b1dbe9ca7",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 61;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -776,7 +789,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 60;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V60_IDENTITY;
+  STATE_SCHEMA_V61_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1248,6 +1261,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V59_IDENTITY,
     replacesTables: [...SIGNAL_KINDS_REPLACED_TABLES],
     migrate: migrateSignalKinds,
+  },
+  {
+    fromVersion: 60,
+    toVersion: 61,
+    name: "hold each canvas's authority by quorum commit",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V60_IDENTITY,
+    migrate: (database) => {
+      database.exec(FLEET_CONSENSUS_STATE_SCHEMA_SQL);
+      database.exec(FLEET_CONSENSUS_SEED_SQL);
+    },
   },
 ];
 

@@ -55,6 +55,7 @@ import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-
 import { VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
+import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -145,6 +146,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   VIEW_STATE_SCHEMA_SQL,
   MACHINE_CODE_ALLOWANCES_SQL,
   SEAT_CONTROLS_STATE_SCHEMA_SQL,
+  FLEET_CONSENSUS_STATE_SCHEMA_SQL,
 ] as const;
 
 

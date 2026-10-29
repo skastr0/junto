@@ -354,3 +354,9 @@ export const STATE_SCHEMA_V60_SQL = stepped(
   STATE_SCHEMA_V59_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 60)!.migrate,
 );
+
+/** Step 61 adds the fleet consensus tables (F6). */
+export const STATE_SCHEMA_V61_SQL = stepped(
+  STATE_SCHEMA_V60_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 61)!.migrate,
+);
