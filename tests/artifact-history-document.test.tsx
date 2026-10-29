@@ -5,6 +5,10 @@ import { expect, it, vi } from "vitest";
 import type { ArtifactVersionRecord } from "../src/shared/artifact";
 import { ArtifactHistory } from "../src/renderer/components/artifacts/ArtifactHistory";
 import { settleLazy } from "./support/settle-lazy";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 it("reads a past document version rendered, with nothing to type into", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

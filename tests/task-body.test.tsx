@@ -8,6 +8,10 @@ import { mintItemId } from "../src/shared/resource-command";
 import { taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
 import { TaskBody } from "../src/renderer/components/tasks/TaskBody";
 import { settleLazy } from "./support/settle-lazy";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.

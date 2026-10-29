@@ -9,6 +9,10 @@ import { AutomationsPane } from "../src/renderer/components/automations/Automati
 import { makeLocalAutomationsSource, setAutomationsSource } from "../src/renderer/lib/automations-source";
 import { nodeViewStore, setNodeViewStore } from "../src/renderer/lib/node-view-state";
 import { makeMemoryNodeViewStore } from "../src/renderer/lib/view-state-stand-in";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

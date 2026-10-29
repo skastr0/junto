@@ -11,6 +11,10 @@ import { modelStore } from "../src/renderer/lib/use-model";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
 import { settleLazy } from "./support/settle-lazy";
 import { artifacts, region } from "./support/model-nodes";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.

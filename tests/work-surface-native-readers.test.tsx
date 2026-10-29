@@ -21,6 +21,10 @@ import { NodeFieldEditors } from "../src/renderer/components/InspectorFields";
 import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
 import type { Artifact, Task } from "../src/shared/work-model";
 import type { WorkSinkQuery } from "../src/shared/work-sinks";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 vi.hoisted(() => {
   HTMLElement.prototype.scrollIntoView = () => {};

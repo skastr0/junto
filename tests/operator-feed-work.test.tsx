@@ -9,6 +9,10 @@ import type { SignalForm, WorkTiming } from "../src/renderer/lib/signal-work";
 import { state$ } from "../src/renderer/lib/state";
 import { VAULT_ENABLED } from "../src/shared/features";
 import { settleLazy } from "./support/settle-lazy";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 // The real feed, fed by hand, as in operator-feed-held.
 const live = vi.hoisted(() => {

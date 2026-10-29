@@ -16,6 +16,7 @@ export const lazySurface = <P extends object>(
   const start = (): Promise<ComponentType<P>> =>
     (loading ??= load().then((component) => (loaded = component)));
   const Pending = lazy(() => start().then((component) => ({ default: component })));
+  starts.add(start);
   whenIdleAfterLoad(() => void start().catch(() => undefined));
 
   return function LazySurface(props: P) {
@@ -29,6 +30,17 @@ export const lazySurface = <P extends object>(
       </Suspense>
     );
   };
+};
+
+const starts = new Set<() => Promise<unknown>>();
+
+/**
+ * Loads every surface defined so far. Each one then draws at once, with no
+ * fallback, however long its load took. A test awaits this at the top of its
+ * file, where no test timeout runs.
+ */
+export const loadLazySurfaces = async (): Promise<void> => {
+  await Promise.all([...starts].map((start) => start()));
 };
 
 /** Runs once the page has loaded and the main thread has a spare moment. */

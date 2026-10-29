@@ -6,6 +6,7 @@ import { asNodeId } from "../src/shared/physics/schema";
 import { parseFilePath } from "../src/shared/files";
 import { asCanvasName } from "../src/shared/model";
 import { files as filesNode } from "./support/model-nodes";
+import { loadLazySurfaces } from "../src/renderer/lib/lazy-surface";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,6 +16,9 @@ const { installFilesSource, makeLocalFiles, setFileDraft, fileDraft } = await im
 const { modelStore } = await import("../src/renderer/lib/use-model");
 const { nodeViewStore, setNodeViewStore } = await import("../src/renderer/lib/node-view-state");
 const { makeMemoryNodeViewStore } = await import("../src/renderer/lib/view-state-stand-in");
+
+// The editors and viewers load before any test, so no test waits on an import.
+await loadLazySurfaces();
 
 const nodeId = asNodeId("files-render");
 const ref = { canvas: "c", node: nodeId };
