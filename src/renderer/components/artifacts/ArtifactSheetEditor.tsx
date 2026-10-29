@@ -36,6 +36,7 @@ import { MentionCombobox, type ComboboxLinks } from "../ui/MentionCombobox";
 import "./artifact-sheet.css";
 import { claimFocus, releaseFocus } from "../../lib/focus-ownership";
 import { linkPiecesOf, useLinkStates, type LinkPiece, type LinkStateOf } from "../../lib/link-titles";
+import { keyIs } from "../../lib/key-match";
 import { openMention } from "../../lib/mention-open";
 import type { MentionCandidate } from "../../lib/mention-draft";
 import { markColor, RESOURCE_KIND_VISUAL } from "../../lib/resource-visuals";
@@ -449,7 +450,7 @@ export function ArtifactSheetEditor({
     if (step !== undefined && !mod) {
       event.preventDefault();
       move(liveSelectionRef.current?.focus ?? at, step, event.shiftKey, event.nativeEvent);
-    } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && cellLinks !== undefined) {
+    } else if (keyIs(event, "inDocument.follow") && cellLinks !== undefined) {
       event.preventDefault();
       openCellLink(at);
     } else if ((event.key === "Enter" || event.key === "F2") && !mod) {

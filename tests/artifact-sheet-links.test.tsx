@@ -10,12 +10,17 @@ import { asNodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
 import type { LinkableArtifact } from "../src/renderer/lib/artifact-link-draft";
 
-const { opened, heads } = vi.hoisted(() => {
+const { opened, heads, mac } = vi.hoisted(() => {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   Element.prototype.scrollIntoView = function scrollIntoView() {};
-  return { opened: [] as unknown[], heads: new Map<string, ReadonlyArray<{ artifact: { artifactId: string; title: string; archived: boolean; type: string } }>>() };
+  return { mac: { value: true }, opened: [] as unknown[], heads: new Map<string, ReadonlyArray<{ artifact: { artifactId: string; title: string; archived: boolean; type: string } }>>() };
 });
 
+// The link chord is the key table's: Cmd+Enter on macOS, Ctrl+Enter elsewhere.
+vi.mock("../src/renderer/lib/platform", async (actual) => ({
+  ...(await actual<typeof import("../src/renderer/lib/platform")>()),
+  isMac: () => mac.value,
+}));
 vi.mock("../src/renderer/lib/mention-open", () => ({ openMention: (ref: unknown) => opened.push(ref) }));
 vi.mock("../src/renderer/lib/artifacts-source", () => ({
   artifactsSource: () => ({
@@ -184,6 +189,22 @@ it("Cmd+Enter on a cell opens its first link", async () => {
   expect(field()).toBeNull();
   key(cell("A1")!, { key: "Enter", metaKey: true });
   expect(opened).toHaveLength(1);
+});
+
+it("Ctrl+Enter opens a cell's link off macOS, and does nothing on macOS", async () => {
+  await render();
+  await act(async () => cell("B1")!.focus());
+  key(cell("B1")!, { key: "Enter", ctrlKey: true });
+  expect(opened).toEqual([]);
+  mac.value = false;
+  try {
+    key(cell("B1")!, { key: "Enter", metaKey: true });
+    expect(opened).toEqual([]);
+    key(cell("B1")!, { key: "Enter", ctrlKey: true });
+    expect(opened).toEqual([plan.ref]);
+  } finally {
+    mac.value = true;
+  }
 });
 
 it("read only draws links and edits nothing", async () => {
