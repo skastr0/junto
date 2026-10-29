@@ -268,6 +268,9 @@ const bootstrap = (sql: SqlClient.SqlClient, canvasName: string, self: Installat
     yield* sql`UPDATE canvas_consensus SET commit_index = 1, applied_index = 1 WHERE canvas_name = ${canvasName}`;
   });
 
+/** The refusals that pass: sent again later, the same proposal can be taken. */
+const PASSING: ReadonlySet<ProposalRefused["reason"]> = new Set(["not-leader", "transferring", "list-pending"]);
+
 /**
  * The canvas whose batch this fiber is judging. The FULL lock is not
  * reentrant, so a batch that reached any canvas's judge would wait on itself:
@@ -406,12 +409,16 @@ export const openCanvasAuthority = (
             cause: { outer, canvasName },
           })));
 
-    /** The core refused before changing anything: not leader, a list pending, and the like; the caller sends again. */
+    /**
+     * The core refused before changing anything. Not leader, handing over or a
+     * list pending pass, so the caller sends again; `alone`'s refusals (not a
+     * pair, not a member, can commit) hold however often it is repeated.
+     */
     const refusal = (cause: unknown) =>
       new FleetDriverError({
-        message: cause instanceof ProposalRefused ? `${canvasName} refused the proposal: ${cause.reason}` : `the authority of ${canvasName} refused`,
+        message: cause instanceof ProposalRefused ? `${canvasName} refused: ${cause.reason}` : `the authority of ${canvasName} refused`,
         cause,
-        ...(cause instanceof ProposalRefused ? { retryable: true } : {}),
+        ...(cause instanceof ProposalRefused && PASSING.has(cause.reason) ? { retryable: true } : {}),
       });
 
     const isEmpty = (ready: Ready) => ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0;

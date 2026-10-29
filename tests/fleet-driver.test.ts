@@ -552,6 +552,17 @@ describe("the fleet driver refuses a proposal it cannot take", () => {
     expect(await logOf(macbook.store)).toEqual(before);
     expect((await macbook.store.runtime.runPromiseExit(macbook.authority.tick()))._tag).toBe("Success");
   });
+
+  it("not retryable for alone's refusals, which repeating never changes", async () => {
+    const store = await makeStore();
+    const authority = await open(store);
+    // A lone canvas is no pair: alone is refused, however often it is asked.
+    const exit = await store.runtime.runPromiseExit(authority.alone());
+    const error = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined;
+    expect(error).toMatchObject({ _tag: "FleetDriverError", message: expect.stringMatching(/not-pair/) });
+    expect((error as { retryable?: boolean }).retryable).toBeUndefined();
+    expect((await store.runtime.runPromiseExit(authority.tick()))._tag).toBe("Success");
+  });
 });
 
 describe("the fleet driver judges one canvas's batch", () => {
