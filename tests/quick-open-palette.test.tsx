@@ -67,6 +67,12 @@ const press = (key: string): void => {
   });
 };
 
+const clearButton = (): HTMLButtonElement => {
+  const found = document.querySelector<HTMLButtonElement>(".quick-open__clear");
+  if (found === null) throw new Error("no clear button");
+  return found;
+};
+
 describe("the quick open palette", () => {
   it("holds the keyboard in its field and opens on the whole list, the top row active", () => {
     render(sourceOf());
@@ -140,6 +146,71 @@ describe("the quick open palette", () => {
       field().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
     });
     expect(held.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears on the click a keyboard or a screen reader activation dispatches", () => {
+    render(sourceOf());
+    type("launch");
+    expect(titles()).toEqual(["Launch brief"]);
+
+    // Enter and Space on a button, and a screen reader's invoke, all arrive as
+    // this click, with no press before it. It must be the clear on its own.
+    act(() => {
+      clearButton().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }));
+    });
+
+    expect(field().value).toBe("");
+    expect(titles()).toEqual(["Launch brief", "Sprint notes", "Spring board"]);
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("keeps Enter and Space on the clear button its own, so nothing behind it acts", () => {
+    const held = render(sourceOf());
+    type("launch");
+    const button = clearButton();
+
+    // The palette's Enter opens the top row; the modal behind owns its keys.
+    const heard: string[] = [];
+    const listen = (event: KeyboardEvent): void => {
+      heard.push(event.key);
+    };
+    document.addEventListener("keydown", listen);
+    act(() => button.focus());
+    for (const key of ["Enter", " "]) {
+      act(() => {
+        button.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      });
+    }
+    document.removeEventListener("keydown", listen);
+
+    expect(held.onOpen).not.toHaveBeenCalled();
+    expect(heard).toEqual([]);
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }));
+    });
+    expect(field().value).toBe("");
+    expect(held.onOpen).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("clears on a press, keeping the caret in the field", () => {
+    render(sourceOf());
+    type("launch");
+    const button = clearButton();
+
+    // The press only holds focus: it is not the clear on its own.
+    act(() => {
+      button.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    });
+    expect(field().value).toBe("launch");
+    expect(document.activeElement).toBe(field());
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    expect(field().value).toBe("");
+    expect(document.activeElement).toBe(field());
   });
 
   it("stays open when the modal behind takes the focus asynchronously", () => {

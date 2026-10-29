@@ -152,6 +152,13 @@ export function QuickOpen({
       return;
     }
     const first = active ?? ids[0];
+    // Enter is the field's key, not the palette's. On the clear button it is
+    // that button's own activation: a row must not open behind it, and the
+    // modal behind must not act on it either.
+    if (event.target !== fieldRef.current) {
+      if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+      return;
+    }
     if (first !== undefined && keyIs(event.nativeEvent, "inQuickOpen.open")) {
       // A row that opens is the palette's Enter, never the modal's behind it.
       event.preventDefault();
@@ -189,9 +196,13 @@ export function QuickOpen({
               type="button"
               className="quick-open__clear"
               aria-label="Clear search"
-              onPointerDown={(event) => {
-                // The caret stays in the field: clearing is more typing, not a pick.
-                event.preventDefault();
+              // A press must not pull the caret out of the field, and clearing
+              // is more typing, not a pick: the press only holds focus here.
+              // The click is the clear, and it is the one activation every way
+              // in produces: a pointer press, Enter or Space on the button, and
+              // a screen reader's invoke.
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={(event) => {
                 setQuery("");
                 claimFocus(fieldRef.current, "gesture", { event });
               }}

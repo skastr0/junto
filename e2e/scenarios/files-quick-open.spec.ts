@@ -122,6 +122,37 @@ test.describe("quick open in every node that has items (F4)", () => {
     }
   });
 
+  test("the clear control clears from Enter, Space and a press, and the caret stays in the field", async () => {
+    test.setTimeout(120_000);
+    const stage = await stageFiles();
+    const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([filesNode(stage.fixture.root)]) } });
+    try {
+      const { page } = junto;
+      await openReadyFilesModal(page);
+      await page.keyboard.press("Meta+p");
+      await expect(palette(page)).toBeVisible();
+
+      const clear = palette(page).getByRole("button", { name: "Clear search" });
+      for (const key of ["Enter", " ", "click"] as const) {
+        await field(page).fill("readme");
+        await expect(titles(page).first()).toHaveText("README.md");
+        if (key === "click") await clear.click();
+        else {
+          // A reader reaches the control without Tab; Tab closes the palette.
+          await clear.focus();
+          await page.keyboard.press(key === " " ? "Space" : key);
+        }
+        await expect(field(page)).toHaveValue("");
+        await expect(field(page)).toBeFocused();
+        // The palette stays open and no row opened behind the key.
+        await expect(palette(page)).toBeVisible();
+      }
+    } finally {
+      await junto.close();
+      await stage.cleanup();
+    }
+  });
+
   test("the header button opens the same palette, and Cmd+P on the bare canvas does nothing", async () => {
     test.setTimeout(120_000);
     const stage = await stageFiles();
