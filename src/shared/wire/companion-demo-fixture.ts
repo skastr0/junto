@@ -7,8 +7,25 @@
  * `src/shared/companion-demo.ts`.
  */
 
+import { Result } from "effect";
 import type { AgentSignal } from "./agent-signals";
+import {
+  emptyBody,
+  ruleArtifactEdit,
+  FIRST_ARTIFACT_VERSION,
+  type Artifact,
+  type ArtifactActor,
+  type ArtifactBody,
+  type ArtifactEdit,
+  type ArtifactHead,
+  type ArtifactVersion,
+  type ArtifactVersionRecord,
+} from "./artifact";
+import { artifactLabelOf, type ArtifactLabel, type ArtifactLabelColour } from "./artifact-labels";
 import type { ContentRef } from "./content-ref";
+import type { ItemId, NodeId } from "./ids";
+import { asPadElementId } from "./pad";
+import type { ActorSeatId } from "./resource-actor";
 import type {
   CompanionActivity,
   CompanionMachine,
@@ -110,7 +127,7 @@ export const DEMO_CONTENT_AFTER = demoContent(
   "<h1>Pick the plan that fits your team</h1>\n<p>Pay monthly, or yearly and save two months.</p>\n",
 );
 export const DEMO_CONTENT_CHECKLIST = demoContent(
-  "6f4e0c2a9b1d47e8a2c5f19b0d3e6a8c7f2b1d4e5a6c8f0b2d4e6a8c1f3b5d7e9", 168, "text/csv", "launch-checklist.csv",
+  "6f4e0c2a9b1d47e8a2c5f19b0d3e6a8c7f2b1d4e5a6c8f0b2d4e6a8c1f3b5d7e", 168, "text/csv", "launch-checklist.csv",
   "item,owner,done\nTier table copy,atlas,yes\nAnnual toggle screenshot,quill,no\nFAQ anchors,prism,yes\nSupport macro update,forge,no\n",
 );
 export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEMO_CONTENT_BEFORE, DEMO_CONTENT_AFTER, DEMO_CONTENT_CHECKLIST];
@@ -118,6 +135,10 @@ export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEM
 /** A real ULID for a demo resource row: fixed time prefix, a kind tag, a sequence tail. */
 export const demoItemId = (tag: "ART" | "TSK" | "THR", seq: number): string =>
   `01J9DEM0${tag}${String(seq).padStart(15, "0")}`;
+
+/** A seat's compiled identity, as `ResourceActor` and comment authors carry one. */
+export const demoSeatId = (seed: number): ActorSeatId =>
+  `seat_${seed.toString(16).padStart(4, "0").repeat(16)}` as ActorSeatId;
 
 /**
  * The resource nodes the demo canvas carries for the artifact ops (03/8):
@@ -144,42 +165,89 @@ export const DEMO_RESOURCE_NODES: ReadonlyArray<DemoResourceNode> = [
   { id: "art-launch", kind: "artifacts", label: "Launch", x: 2040, y: 420, width: 280, height: 180 },
 ];
 
-/** An artifact label as the demo holds it: name, palette colour, and the label it nests under. */
-export type DemoArtifactLabel = {
-  readonly id: string;
-  readonly name: string;
-  readonly color: string;
-  readonly folder?: string;
+/**
+ * A label a demo artifact carries: the wire's canonical form, folded here at
+ * the fixture's edge exactly as the ruler folds typed input. `x/y` reads as
+ * a level under `x`.
+ */
+const demoLabel = (raw: string): ArtifactLabel => {
+  const label = artifactLabelOf(raw);
+  if (label === undefined) throw new Error(`demo fixture label is not canonical: ${raw}`);
+  return label;
 };
 
-export const DEMO_ARTIFACT_LABELS: ReadonlyArray<DemoArtifactLabel> = [
-  { id: "lbl-launch", name: "launch", color: "4" },
-  { id: "lbl-pricing", name: "pricing", color: "2", folder: "launch" },
-  { id: "lbl-review", name: "review", color: "6" },
-];
+/**
+ * The colours set in each Artifacts node, by label: a colour is a node's
+ * setting, never an artifact's, and stays when no artifact carries the label.
+ */
+export const DEMO_ARTIFACT_LABEL_COLOURS: Readonly<Record<string, Readonly<Record<string, ArtifactLabelColour>>>> = {
+  "art-inbox": { launch: "blue", "launch/pricing": "teal" },
+  "art-notes": { launch: "green", review: "pink" },
+  "art-launch": { launch: "orange", "launch/pricing": "purple", review: "yellow" },
+};
 
-export type DemoArtifactBody =
-  | { readonly type: "document"; readonly markdown: string }
-  | { readonly type: "link"; readonly url: string; readonly name: string }
-  | { readonly type: "pad"; readonly svg: string }
-  | { readonly type: "sheet"; readonly text: string }
-  | { readonly type: "file"; readonly content: ContentRef };
-
-/** A stored artifact: header fields plus the body an `artifact.get` serves. */
+/**
+ * An artifact as the demo holds it: the wire `Artifact` head, its body at
+ * head, and every version oldest first, as `artifact.history` pages it.
+ * Nothing here is hand-shaped: each version is the create's body, or a real
+ * `ArtifactEdit` ruled against the version before it, so the fixture cannot
+ * drift from what a Mac would accept.
+ */
 export type DemoArtifact = {
+  readonly head: Artifact;
+  readonly body: ArtifactBody;
+  readonly versions: ReadonlyArray<ArtifactVersionRecord>;
+};
+
+const demoArtifact = (input: {
   readonly id: string;
-  /** The Artifacts node it sits on. */
   readonly nodeId: string;
   readonly title: string;
-  readonly body: DemoArtifactBody;
-  /** Label ids in `DEMO_ARTIFACT_LABELS`, in the order they were added. */
-  readonly labels: ReadonlyArray<string>;
-  /** Head version; every committed edit adds one. */
-  readonly version: number;
+  readonly createdBy: ArtifactActor;
   readonly createdAt: number;
-  readonly updatedAt: number;
-  /** Epoch ms when it was archived; absent while it is live. */
-  readonly archivedAt?: number;
+  readonly body: ArtifactBody;
+  /** One ruled edit per version after the first; each names the version it was written against. */
+  readonly edits?: ReadonlyArray<{
+    readonly edit: ArtifactEdit;
+    readonly at: number;
+    readonly by?: ArtifactActor;
+  }>;
+  readonly labels?: ReadonlyArray<string>;
+  readonly taskIds?: ReadonlyArray<string>;
+  readonly archived?: boolean;
+}): DemoArtifact => {
+  const artifactId = input.id as ItemId;
+  let head: ArtifactHead = { version: FIRST_ARTIFACT_VERSION, body: input.body };
+  const versions: ArtifactVersionRecord[] = [
+    { artifactId, version: head.version, author: input.createdBy, at: input.createdAt, body: head.body },
+  ];
+  let updatedAt = input.createdAt;
+  for (const step of input.edits ?? []) {
+    const ruled = ruleArtifactEdit(head, step.edit);
+    if (!Result.isSuccess(ruled)) {
+      throw new Error(`demo artifact ${input.id} edit refused: ${ruled.failure.message}`);
+    }
+    head = { version: ruled.success.version, body: ruled.success.body };
+    versions.push({ artifactId, version: head.version, author: step.by ?? input.createdBy, at: step.at, body: head.body });
+    updatedAt = step.at;
+  }
+  const labels = (input.labels ?? []).map(demoLabel);
+  return {
+    head: {
+      artifactId,
+      nodeId: input.nodeId as NodeId,
+      type: head.body.type,
+      title: input.title,
+      version: head.version,
+      createdBy: input.createdBy,
+      updatedAt,
+      archived: input.archived ?? false,
+      taskIds: (input.taskIds ?? []).map((taskId) => taskId as ItemId),
+      labels,
+    },
+    body: head.body,
+    versions,
+  };
 };
 
 export const DEMO_ARTIFACT_PRICING_NOTES = demoItemId("ART", 1);
@@ -191,6 +259,12 @@ export const DEMO_ARTIFACT_CHECKLIST = demoItemId("ART", 6);
 export const DEMO_ARTIFACT_BRAINSTORM = demoItemId("ART", 7);
 export const DEMO_TASK_PRICING = demoItemId("TSK", 1);
 
+const ATLAS = { kind: "seat", seatId: demoSeatId(1), nodeId: "atlas" as NodeId } as const;
+const QUILL = { kind: "seat", seatId: demoSeatId(4), nodeId: "quill" as NodeId } as const;
+const OPERATOR = { kind: "operator" } as const;
+
+const PRICING_NOTES_V1 = `# Pricing notes\n\n[@Atlas](junto://canvas/demo?node=atlas) ran the numbers on staging.\n\nAnnual billing saves two months. The FAQ sits below the table.\n`;
+
 /**
  * One of each type, spread over the three nodes: an Inbox document that
  * mentions a seat, a task, an artifact and a page; a link; a pad; a second
@@ -198,103 +272,227 @@ export const DEMO_TASK_PRICING = demoItemId("TSK", 1);
  * filter.
  */
 export const DEMO_ARTIFACTS: ReadonlyArray<DemoArtifact> = [
-  {
+  demoArtifact({
     id: DEMO_ARTIFACT_PRICING_NOTES,
     nodeId: "art-inbox",
     title: "Pricing notes",
-    body: {
-      type: "document",
-      markdown:
-        `# Pricing notes\n\n` +
-        `[@Atlas](junto://canvas/demo?node=atlas) ran the numbers on staging.\n\n` +
-        `- Compare against [#1 launch pricing](junto://canvas/demo?node=task-roadmap&item=${DEMO_TASK_PRICING})\n` +
-        `- Keep it in step with [Roadmap draft](junto://canvas/demo?node=art-notes&item=${DEMO_ARTIFACT_ROADMAP_DRAFT})\n` +
-        `- Screenshots live on [Pricing docs](junto://canvas/demo?node=page-docs)\n\n` +
-        `Annual billing saves two months. The FAQ sits below the table.\n`,
-    },
-    labels: ["lbl-launch", "lbl-pricing"],
-    version: 3,
+    createdBy: ATLAS,
     createdAt: DEMO_T0 - 2 * 24 * 60 * MIN,
-    updatedAt: DEMO_T0 - 35 * MIN,
-  },
-  {
+    body: { type: "document", markdown: PRICING_NOTES_V1 },
+    edits: [
+      {
+        // The task and page mentions came in with the second draft.
+        edit: {
+          kind: "replace",
+          baseVersion: 1 as ArtifactVersion,
+          body: {
+            type: "document",
+            markdown:
+              `# Pricing notes\n\n` +
+              `[@Atlas](junto://canvas/demo?node=atlas) ran the numbers on staging.\n\n` +
+              `- Compare against [#1 launch pricing](junto://canvas/demo?node=task-roadmap&item=${DEMO_TASK_PRICING})\n` +
+              `- Screenshots live on [Pricing docs](junto://canvas/demo?node=page-docs)\n\n` +
+              `Annual billing saves two months. The FAQ sits below the table.\n`,
+          },
+        },
+        at: DEMO_T0 - 45 * MIN,
+        by: ATLAS,
+      },
+      {
+        // A splice against the head: the draft's link to the roadmap doc.
+        edit: {
+          kind: "patch",
+          type: "document",
+          baseVersion: 2 as ArtifactVersion,
+          patches: [
+            {
+              op: "splice",
+              at: PRICING_NOTES_V1.indexOf("Annual billing"),
+              remove: 0,
+              insert: `- Keep it in step with [Roadmap draft](junto://canvas/demo?node=art-notes&item=${DEMO_ARTIFACT_ROADMAP_DRAFT})\n`,
+            },
+          ],
+        },
+        at: DEMO_T0 - 35 * MIN,
+      },
+    ],
+    labels: ["launch", "launch/pricing"],
+    taskIds: [DEMO_TASK_PRICING],
+  }),
+  demoArtifact({
     id: DEMO_ARTIFACT_COMPETITOR,
     nodeId: "art-inbox",
     title: "Competitor pricing",
-    body: { type: "link", url: "https://example.com/pricing", name: "Competitor pricing page" },
-    labels: ["lbl-pricing"],
-    version: 1,
+    createdBy: OPERATOR,
     createdAt: DEMO_T0 - 30 * 60 * 1000,
-    updatedAt: DEMO_T0 - 30 * 60 * 1000,
-  },
-  {
+    body: { type: "link", target: { kind: "url", url: "https://example.com/pricing" } },
+    labels: ["launch/pricing"],
+  }),
+  demoArtifact({
     id: DEMO_ARTIFACT_SKETCH,
     nodeId: "art-notes",
     title: "Onboarding sketch",
-    body: {
-      type: "pad",
-      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200"><rect x="20" y="30" width="120" height="80" rx="8" fill="none" stroke="currentColor" stroke-width="2"/><rect x="180" y="60" width="120" height="80" rx="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M140 70 L180 100" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
-    },
-    labels: ["lbl-review"],
-    version: 4,
+    createdBy: QUILL,
     createdAt: DEMO_T0 - 3 * 24 * 60 * MIN,
-    updatedAt: DEMO_T0 - 90 * MIN,
-  },
-  {
+    body: emptyBody("pad"),
+    edits: [
+      {
+        edit: {
+          kind: "patch",
+          type: "pad",
+          baseVersion: 1 as ArtifactVersion,
+          patches: [
+            {
+              op: "upsert",
+              layer: "shape",
+              shape: { id: asPadElementId("s-inbox"), type: "box", x: 20, y: 30, w: 120, h: 80, z: 1, stroke: "#4a90d9" },
+            },
+            {
+              op: "upsert",
+              layer: "shape",
+              shape: { id: asPadElementId("s-feed"), type: "box", x: 180, y: 60, w: 120, h: 80, z: 2, stroke: "#4a90d9" },
+            },
+          ],
+        },
+        at: DEMO_T0 - 2 * 24 * 60 * MIN,
+        by: QUILL,
+      },
+      {
+        edit: {
+          kind: "patch",
+          type: "pad",
+          baseVersion: 2 as ArtifactVersion,
+          patches: [
+            {
+              op: "upsert",
+              layer: "edge",
+              edge: { id: asPadElementId("e-flow"), from: asPadElementId("s-inbox"), to: asPadElementId("s-feed") },
+            },
+            {
+              op: "upsert",
+              layer: "shape",
+              shape: {
+                id: asPadElementId("s-atlas"),
+                type: "card",
+                x: 180,
+                y: 150,
+                w: 120,
+                h: 48,
+                z: 3,
+                href: "junto://canvas/demo?node=atlas",
+                label: "Atlas",
+              },
+            },
+          ],
+        },
+        at: DEMO_T0 - 3 * 60 * MIN,
+      },
+      {
+        edit: {
+          kind: "patch",
+          type: "pad",
+          baseVersion: 3 as ArtifactVersion,
+          patches: [
+            {
+              op: "upsert",
+              layer: "ink",
+              ink: {
+                id: asPadElementId("i-check"),
+                z: 4,
+                color: "#e07b39",
+                width: 3,
+                points: [
+                  { x: 40, y: 130 },
+                  { x: 60, y: 145 },
+                  { x: 95, y: 115 },
+                ],
+              },
+            },
+          ],
+        },
+        at: DEMO_T0 - 90 * MIN,
+        by: QUILL,
+      },
+    ],
+    labels: ["review"],
+  }),
+  demoArtifact({
     id: DEMO_ARTIFACT_ROADMAP_DRAFT,
     nodeId: "art-notes",
     title: "Roadmap draft",
-    body: {
-      type: "document",
-      markdown: `# Roadmap draft\n\n- Launch pricing lands first\n- The inbox workflow follows\n- Automations pick up the weekly digest\n`,
-    },
-    labels: ["lbl-launch"],
-    version: 2,
+    createdBy: ATLAS,
     createdAt: DEMO_T0 - 4 * 24 * 60 * MIN,
-    updatedAt: DEMO_T0 - 5 * MIN,
-  },
-  {
+    body: { type: "document", markdown: `# Roadmap draft\n\n- Launch pricing lands first\n- The inbox workflow follows\n` },
+    edits: [
+      {
+        edit: {
+          kind: "replace",
+          baseVersion: 1 as ArtifactVersion,
+          body: {
+            type: "document",
+            markdown: `# Roadmap draft\n\n- Launch pricing lands first\n- The inbox workflow follows\n- Automations pick up the weekly digest\n`,
+          },
+        },
+        at: DEMO_T0 - 5 * MIN,
+      },
+    ],
+    labels: ["launch"],
+  }),
+  demoArtifact({
     id: DEMO_ARTIFACT_TIERS,
     nodeId: "art-launch",
     title: "Tier comparison",
-    body: {
-      type: "sheet",
-      text: "tier\tprice\tseats\nFree\t0\t1\nPro\t12\t5\nTeam\t24\t25\n",
-    },
-    labels: ["lbl-pricing"],
-    version: 6,
+    createdBy: OPERATOR,
     createdAt: DEMO_T0 - 5 * 24 * 60 * MIN,
-    updatedAt: DEMO_T0 - 2 * 60 * MIN,
-  },
-  {
+    body: emptyBody("sheet"),
+    edits: [
+      {
+        edit: {
+          kind: "patch",
+          type: "sheet",
+          baseVersion: 1 as ArtifactVersion,
+          patches: [
+            { op: "column.rename", columnId: "c1", name: "tier" },
+            { op: "column.rename", columnId: "c2", name: "price" },
+            { op: "column.add", columnId: "c3", name: "seats" },
+          ],
+        },
+        at: DEMO_T0 - 5 * 24 * 60 * MIN + MIN,
+      },
+      { edit: { kind: "patch", type: "sheet", baseVersion: 2 as ArtifactVersion, patches: [{ op: "cell", rowId: "r1", columnId: "c1", value: "Free" }, { op: "cell", rowId: "r1", columnId: "c2", value: "0" }, { op: "cell", rowId: "r1", columnId: "c3", value: "1" }] }, at: DEMO_T0 - 4 * 24 * 60 * MIN },
+      { edit: { kind: "patch", type: "sheet", baseVersion: 3 as ArtifactVersion, patches: [{ op: "row.add", rowId: "r2" }, { op: "cell", rowId: "r2", columnId: "c1", value: "Pro" }, { op: "cell", rowId: "r2", columnId: "c2", value: "12" }, { op: "cell", rowId: "r2", columnId: "c3", value: "5" }] }, at: DEMO_T0 - 3 * 24 * 60 * MIN },
+      { edit: { kind: "patch", type: "sheet", baseVersion: 4 as ArtifactVersion, patches: [{ op: "row.add", rowId: "r3" }, { op: "cell", rowId: "r3", columnId: "c1", value: "Team" }, { op: "cell", rowId: "r3", columnId: "c2", value: "24" }, { op: "cell", rowId: "r3", columnId: "c3", value: "25" }] }, at: DEMO_T0 - 2 * 60 * MIN },
+      { edit: { kind: "patch", type: "sheet", baseVersion: 5 as ArtifactVersion, patches: [{ op: "cell", rowId: "r2", columnId: "c2", value: "12" }] }, at: DEMO_T0 - 60 * MIN },
+    ],
+    labels: ["launch/pricing"],
+  }),
+  demoArtifact({
     id: DEMO_ARTIFACT_CHECKLIST,
     nodeId: "art-launch",
     title: "Launch checklist",
-    body: { type: "file", content: DEMO_CONTENT_CHECKLIST.ref },
-    labels: ["lbl-launch", "lbl-review"],
-    version: 1,
+    createdBy: OPERATOR,
     createdAt: DEMO_T0 - 26 * 60 * 1000,
-    updatedAt: DEMO_T0 - 26 * 60 * 1000,
-  },
-  {
+    body: { type: "file", content: DEMO_CONTENT_CHECKLIST.ref },
+    labels: ["launch", "review"],
+  }),
+  demoArtifact({
     id: DEMO_ARTIFACT_BRAINSTORM,
     nodeId: "art-notes",
     title: "Old brainstorm",
-    body: {
-      type: "document",
-      markdown: `# Old brainstorm\n\nIdeas that did not make the cut.\n`,
-    },
-    labels: [],
-    version: 1,
+    createdBy: ATLAS,
     createdAt: DEMO_T0 - 9 * 24 * 60 * MIN,
-    updatedAt: DEMO_T0 - 8 * 24 * 60 * MIN,
-    archivedAt: DEMO_T0 - 8 * 24 * 60 * MIN,
-  },
+    body: { type: "document", markdown: `# Old brainstorm\n\nIdeas that did not make the cut.\n` },
+    labels: [],
+    archived: true,
+  }),
 ];
 
 /** One post in a demo artifact thread: who wrote it and when. */
 export type DemoThreadPost = {
-  readonly from: { readonly kind: "operator" } | { readonly kind: "seat"; readonly nodeId: string; readonly name: string };
+  readonly postId: string;
+  readonly from:
+    | { readonly kind: "operator" }
+    | { readonly kind: "seat"; readonly seatId: ActorSeatId; readonly nodeId: string; readonly name: string };
   readonly at: number;
   readonly text: string;
 };
@@ -304,7 +502,6 @@ export type DemoArtifactThread = {
   readonly threadId: string;
   readonly artifactId: string;
   readonly anchor: { readonly kind: "text"; readonly quote: string };
-  readonly state: "open" | "resolved";
   readonly posts: ReadonlyArray<DemoThreadPost>;
 };
 
@@ -313,10 +510,9 @@ export const DEMO_ARTIFACT_THREADS: ReadonlyArray<DemoArtifactThread> = [
     threadId: demoItemId("THR", 1),
     artifactId: DEMO_ARTIFACT_PRICING_NOTES,
     anchor: { kind: "text", quote: "Annual billing saves two months." },
-    state: "open",
     posts: [
-      { from: { kind: "seat", nodeId: "quill", name: "Quill" }, at: DEMO_T0 - 33 * MIN, text: "Is the two months before or after the launch discount?" },
-      { from: { kind: "operator" }, at: DEMO_T0 - 31 * MIN, text: "After. It stacks on whatever the launch price is." },
+      { postId: demoItemId("THR", 2), from: { kind: "seat", seatId: demoSeatId(4), nodeId: "quill", name: "Quill" }, at: DEMO_T0 - 33 * MIN, text: "Is the two months before or after the launch discount?" },
+      { postId: demoItemId("THR", 3), from: { kind: "operator" }, at: DEMO_T0 - 31 * MIN, text: "After. It stacks on whatever the launch price is." },
     ],
   },
 ];
