@@ -4,7 +4,6 @@ import {
   SEAT_SOUL_MAX,
   normalizeSeatGuidance,
 } from "../src/shared/seat-guidance";
-import { makeSeatGuidanceIndex } from "../src/main/junto/seat-guidance/index-memory";
 
 describe("normalizeSeatGuidance", () => {
   it("keeps the two fields cleaned: CRLF to LF, no NUL, trimmed", () => {
@@ -30,17 +29,5 @@ describe("normalizeSeatGuidance", () => {
   it("refuses a non-object", () => {
     expect(normalizeSeatGuidance("soul").ok).toBe(false);
     expect(normalizeSeatGuidance([]).ok).toBe(false);
-  });
-});
-
-describe("seat guidance index", () => {
-  it("serves noted writes and never lets boot hydration undo one", () => {
-    const index = makeSeatGuidanceIndex();
-    index.note("a", { soul: "new" });
-    index.note("b", null);
-    index.hydrate({ a: { soul: "stale" }, b: { soul: "stale" }, c: { instructions: "loaded" } });
-    expect(index.get("a")).toEqual({ soul: "new" });
-    expect(index.get("b")).toBeUndefined();
-    expect(index.get("c")).toEqual({ instructions: "loaded" });
   });
 });

@@ -51,8 +51,6 @@ import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
 import { onAgentSignalChanged } from "./junto/signals/changes";
-import { SeatGuidanceRepository } from "./junto/seat-guidance/repository";
-import { seatGuidanceIndex } from "./junto/seat-guidance/index-memory";
 import {
   armMainThreadBudget,
   installMachineLog,
@@ -1702,13 +1700,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         Effect.flatMap(AgentSignalRepository, (signals) => signals.listRaisedHands),
       ).then(raisedHands.hydrate, (error: unknown) => {
         console.error("[signals] raised hands not loaded:", error);
-      });
-      // Seat souls and instructions the spawn doctrine compiles in; writes
-      // from here on are noted as they happen.
-      void AppRuntime.runPromise(
-        Effect.flatMap(SeatGuidanceRepository, (guidance) => guidance.list()),
-      ).then(seatGuidanceIndex.hydrate, (error: unknown) => {
-        console.error("[seat-guidance] not loaded:", error);
       });
       workControl = await startWorkControlServer({
         version: app.getVersion(),

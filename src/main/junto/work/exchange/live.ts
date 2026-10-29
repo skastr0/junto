@@ -30,7 +30,6 @@ import { onReferencesChanged } from "../../references/changes";
 import { ReferencesRepository } from "../../references/repository";
 import { StateTransactionOperation } from "../../state/service";
 import { onSeatGuidanceChanged } from "../../seat-guidance/changes";
-import { seatGuidanceIndex } from "../../seat-guidance/index-memory";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
 import { onAgentSignalChanged } from "../../signals/changes";
 import { raisedHands } from "../../signals/raised-hands";
@@ -284,7 +283,7 @@ export const makeLiveRowExchange = (
           const sent = sentGuidance.get(seat.id) ?? null;
           const held = yield* guidance.get(seat.id);
           if (held?.soul === sent?.soul && held?.instructions === sent?.instructions) continue;
-          seatGuidanceIndex.note(seat.id, yield* guidance.set(seat.id, sent));
+          yield* guidance.set(seat.id, sent);
         }
         if (copy.briefing !== undefined && (yield* references.briefingRead())?.body !== copy.briefing) {
           yield* references.briefingWrite(copy.briefing, "operator");

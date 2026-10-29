@@ -123,7 +123,6 @@ import {
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
 import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
-import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
@@ -901,8 +900,8 @@ export const registerJuntoIpc = (): void => {
 
   // Seat guidance: the operator's per-seat soul and instructions. An
   // install-local preference like portrait overrides (no canvas authoring), so
-  // it runs outside the main-authoring gate. The spawn plan reads the stored
-  // result from memory, so every write is noted there before it is broadcast.
+  // it runs outside the main-authoring gate. `junto onboard` reads the stored
+  // rows, so a write is broadcast as it is stored.
   privilegedIpc.handle(IPC_CHANNELS.seatGuidanceList, () =>
     AppRuntime.runPromise(Effect.flatMap(SeatGuidanceRepository, (repository) => repository.list())),
   );
@@ -916,7 +915,6 @@ export const registerJuntoIpc = (): void => {
         Result.fail({ message: error instanceof Error ? error.message : "seat guidance save failed" }),
       );
       if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
-      seatGuidanceIndex.note(seatId, result.success);
       broadcast(IPC_CHANNELS.seatGuidance, { seatId, guidance: result.success });
       return { ok: true, seatId, guidance: result.success };
     },

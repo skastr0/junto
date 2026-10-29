@@ -7,7 +7,7 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   resolveManagedLaunchPlan,
   type ManagedLaunchChoices,
@@ -24,7 +24,6 @@ import {
   planFreshManagedSpawnIntent,
   planManagedSpawn,
 } from "../src/main/junto/term/managed-spawn-plan";
-import { seatGuidanceIndex } from "../src/main/junto/seat-guidance/index-memory";
 
 const SESSION = "11111111-2222-4333-8444-555555555555";
 const REGION_BRIEFING = "REGION-BRIEFING-CANARY ship the region";
@@ -79,10 +78,6 @@ const expectNoDoctrine = (
 
 const provisioned = (harness: HarnessId): boolean =>
   templateFor(harness).capabilityBadges.sessionId === "provision";
-
-afterEach(() => {
-  seatGuidanceIndex.note("worker", null);
-});
 
 describe("a managed launch carries no Junto instructions", () => {
   it("covers every harness template", () => {
@@ -179,10 +174,6 @@ describe("a managed launch carries no Junto instructions", () => {
         ["unconnected", false],
       ] as const)("spawn planner, %s seat", (_label, connected) => {
         const input = (resume: boolean) => {
-          seatGuidanceIndex.note("worker", {
-            soul: SEAT_SOUL,
-            instructions: SEAT_INSTRUCTIONS,
-          });
           return {
 
             nodeId: "worker",
