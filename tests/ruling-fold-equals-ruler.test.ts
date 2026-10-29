@@ -50,6 +50,9 @@ import type { RecordRulingInput } from "../src/main/junto/work/repository";
 import type { ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
 import { artifacts, automations, seat } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvasRows } from "./support/seed-canvas";
+import { ModelDependents } from "../src/main/junto/model/dependents";
+import { ModelService } from "../src/main/junto/model/service";
+import { asCanvasName, type Node } from "../src/shared/model";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { OpId, ResourceActor, ResourceCommand, RulingContext } from "../src/shared/resource-command";
@@ -329,9 +332,8 @@ describe("the fold equals the ruler", () => {
         await foldOnReplica(replica, ruled);
         const held = tablesOf(direct);
         expect(tablesOf(judged)).toEqual(held);
-        // A replica holds no ruling rows of its own here: the exchange keeps those as facts. It seeds its own
-        // canvas rather than take a copy, so under all-on it lists itself where a copy would name the editor.
-        const resources = new Set(["resource_rulings", "installation", "canvas_authorities"]);
+        // A replica holds no ruling rows of its own here: the exchange keeps those as facts.
+        const resources = new Set(["resource_rulings", "installation"]);
         expect(tablesOf(replica, resources)).toEqual(tablesOf(direct, resources));
         for (const store of stores.splice(0)) {
           await store.runtime.dispose();
@@ -354,6 +356,21 @@ type EngineStore = {
 };
 const engines: Array<EngineStore> = [];
 const ARTS = asNodeId("arts");
+
+/**
+ * The canvas as each machine comes to hold it: the writer's machine creates
+ * and edits it, and a replica takes the writer's copy, as the exchange gives it.
+ */
+const holdCanvas = (installation: string, nodes: ReadonlyArray<Node>) =>
+  installation === WRITER
+    ? Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes }]]) });
+      yield* sql`UPDATE canvases SET editor_installation_id = ${WRITER} WHERE canvas_name = ${CANVAS}`;
+    })
+    : Effect.flatMap(ModelService, (model) =>
+      model.installCopy({ canvas: asCanvasName(CANVAS), canvasId: `test-${CANVAS}`, seq: 1, editor: WRITER, nodes: nodes.map((node, z) => ({ ...node, z })), wires: [] }),
+    ).pipe(Effect.asVoid, Effect.provide(ModelService.layer), Effect.provide(ModelDependents.empty));
 
 const makeEngineStore = async (installation: string): Promise<EngineStore> => {
   pinSetupClock();
@@ -382,9 +399,8 @@ const makeEngineStore = async (installation: string): Promise<EngineStore> => {
             yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${machine}, ${new Date(START).toISOString()})`;
           }
           yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${installation}, ${new Date(START).toISOString()})`;
-          yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [artifacts("arts")] }]]) });
           // The writer's machine edits the canvas on every store: a replica is a machine that does not.
-          yield* sql`UPDATE canvases SET editor_installation_id = ${WRITER} WHERE canvas_name = ${CANVAS}`;
+          yield* holdCanvas(installation, [artifacts("arts")]);
         }),
       );
     }),
@@ -544,8 +560,7 @@ describe("the fold equals the ruler, for artifacts", () => {
         const sameEverywhere = new Set(["installation", "known_installations"]);
         expect(await engineTablesOf(judged, sameEverywhere)).toEqual(await engineTablesOf(direct, sameEverywhere));
         // A replica holds the rulings as exchange rows, not as its own log.
-        // Seeding its own canvas, under all-on a replica lists itself where a copy would name the editor.
-        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvas_authorities"]);
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*"]);
         expect(await engineTablesOf(replica, resourcesOnly)).toEqual(byRefPending(await engineTablesOf(direct, resourcesOnly)));
         await closeEngines();
       }),
@@ -608,8 +623,7 @@ const makeAutomationStore = async (installation: string): Promise<AutomationStor
             yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES (${machine}, ${new Date(START).toISOString()})`;
           }
           yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${installation}, ${new Date(START).toISOString()})`;
-          yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [automations("routines"), seat("lead")] }]]) });
-          yield* sql`UPDATE canvases SET editor_installation_id = ${WRITER} WHERE canvas_name = ${CANVAS}`;
+          yield* holdCanvas(installation, [automations("routines"), seat("lead")]);
         }),
       );
     }),
@@ -725,9 +739,8 @@ describe("the fold equals the ruler, for automations", () => {
         const tablesOfStore = (store: AutomationStore, leaveOut: ReadonlySet<string>) => engineTablesOf(store as unknown as EngineStore, leaveOut);
         const sameEverywhere = new Set(["installation", "known_installations", "machine_configuration"]);
         expect(await tablesOfStore(judged, sameEverywhere)).toEqual(await tablesOfStore(direct, sameEverywhere));
-        // A replica holds the rulings as exchange rows, and takes the canvas count from the copy, never the fold;
-        // seeding its own canvas, under all-on it lists itself where a copy would name the editor.
-        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases", "canvas_authorities"]);
+        // A replica holds the rulings as exchange rows, and takes the canvas count from the copy, never the fold.
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases"]);
         expect(await tablesOfStore(replica, resourcesOnly)).toEqual(await tablesOfStore(direct, resourcesOnly));
         await closeAutomationStores();
       }),
