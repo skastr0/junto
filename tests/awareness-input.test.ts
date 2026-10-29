@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Awareness evidence projection — unit tests and real-corpus replay.
  *

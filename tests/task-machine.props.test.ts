@@ -1,3 +1,4 @@
+// vitest-lane: alone
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { emptyRuled, mintOpId, rule, type ResourceCommand } from "../src/shared/resource-command";

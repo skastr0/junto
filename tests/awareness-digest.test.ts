@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Awareness window digest — the coarse material screen revision.
  *

@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Window-size calibration against workstream A's real PTY corpus.
  *
