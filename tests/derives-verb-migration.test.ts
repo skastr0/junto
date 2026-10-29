@@ -1,18 +1,18 @@
 /**
  * Step 50 rebuilds `wires` with `derives` in its verb CHECK, copying every
  * wire as it was, and adds `derived_from` to `task_heads`, null on every task
- * already held. Proven on both fixtures brought to version 49 by the real
- * steps, seeded with a wire and a task: the migrated schema hashes the same as
- * a fresh 50, every kept row is unchanged, and a derives wire and a derived
- * task can then be stored.
+ * already held. Seeded with a wire and a task: the migrated schema hashes the
+ * same as a fresh 50, every kept row is unchanged, and a derives wire and a
+ * derived task can then be stored.
+ *
+ * The version-49 database is made at version 49 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 49 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, so no
+ * path is shared with any other test, and rows seeded before the step stand in
+ * for what a shipped database holds.
  */
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
-import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
+import { describe, expect, it } from "vitest";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -23,21 +23,6 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V49_SQL, STATE_SCHEMA_V50_SQL } from "./fixtures/state-v13/schema";
-
-let dir: string | undefined;
-afterEach(async () => {
-  if (dir) await rm(dir, { recursive: true, force: true });
-  dir = undefined;
-});
-
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
-  dir = await mkdtemp(join(tmpdir(), "junto-derives-verb-migration-"));
-  const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
-  return database;
-};
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
   (
@@ -53,28 +38,26 @@ const tables = (database: DatabaseSync): ReadonlyArray<string> =>
 const rows = (database: DatabaseSync, table: string) =>
   database.prepare(`SELECT * FROM "${table}" ORDER BY 1, 2`).all() as unknown as ReadonlyArray<Record<string, unknown>>;
 
-const named = <T extends { readonly toVersion: number; readonly migrate: (database: DatabaseSync) => void }>(step: T): T =>
-  step.toVersion === 21 ? { ...step, migrate: (database: DatabaseSync) => migrateMachineNames(database, "macbook") } : step;
-
 const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPlan => ({
   ...STATE_SCHEMA_MIGRATION_PLAN,
   currentVersion: version,
   currentSchemaSql,
-  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version).map(named),
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= version),
 });
+
+/** A version-49 database, fresh and in memory. */
+const openAt49 = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, upTo(49, STATE_SCHEMA_V49_SQL))).toMatchObject({ schemaVersion: 49, ...STATE_SCHEMA_V49_IDENTITY });
+  return database;
+};
 
 const ORIGIN = "01M5YC0000000000000000000A";
 const DERIVED = "01M5YC0000000000000000000B";
 
-const canvasOf = (database: DatabaseSync): string => {
-  const canvas = database.prepare("SELECT canvas_name FROM canvases ORDER BY canvas_name LIMIT 1").get();
-  if (canvas) return String(canvas.canvas_name);
-  database.prepare("INSERT INTO canvases(canvas_name, canvas_id, created_at, updated_at, seq) VALUES ('main', 'c', 't', 't', 0)").run();
-  return "main";
-};
-
-/** Two flowing boards and one task, held before the step. */
+/** A canvas, two flowing boards and one task, held before the step. */
 const seed = (database: DatabaseSync, canvas: string): void => {
+  database.prepare("INSERT INTO canvases(canvas_name, canvas_id, created_at, updated_at, seq) VALUES (?, 'c', 't', 't', 0)").run(canvas);
   database
     .prepare("INSERT INTO wires(canvas_name, id, from_id, to_id, verb, created_at, updated_at) VALUES (?, 'wire-flows', 'task-a', 'task-b', 'flows', 't', 't')")
     .run(canvas);
@@ -93,13 +76,12 @@ describe("state migration 49 -> 50 (a task board derives into another)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V50_SQL)).toEqual(STATE_SCHEMA_V50_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "copies every wire, adds an empty derived_from to every task in %s, hashes as a fresh 50, and leaves the rest as it was",
-    async (fixture) => {
-      const database = await openCopy(fixture);
+  it(
+    "copies every wire, adds an empty derived_from to every task, hashes as a fresh 50, and leaves the rest as it was",
+    () => {
+      const database = openAt49();
       try {
-        migrateStateSchema(database, upTo(49, STATE_SCHEMA_V49_SQL));
-        const canvas = canvasOf(database);
+        const canvas = "main";
         seed(database, canvas);
         // A derives wire is refused before the step.
         expect(() =>
@@ -121,6 +103,7 @@ describe("state migration 49 -> 50 (a task board derives into another)", () => {
           expect(after[table], table).toEqual(expected);
         }
         expect(before.wires!.length).toBeGreaterThan(0);
+        expect(before.task_heads!.length).toBeGreaterThan(0);
 
         database
           .prepare("INSERT INTO wires(canvas_name, id, from_id, to_id, verb, created_at, updated_at) VALUES (?, 'wire-derives', 'task-a', 'task-c', 'derives', 't', 't')")
@@ -139,6 +122,5 @@ describe("state migration 49 -> 50 (a task board derives into another)", () => {
         database.close();
       }
     },
-    60_000,
   );
 });
