@@ -89,17 +89,21 @@ it("step 5 keeps the last 40 lines and 4 KiB, scrubbing the whole window before 
  * times the input costs about eight times as long, and a quadratic about 64.
  * The rounds alternate sizes, so a pause of a loaded runner falls on both,
  * and the best of nine of each is its cost. No absolute bound: a loaded
- * machine stretches both sizes alike, and only the ratio is the claim.
+ * machine stretches both sizes alike, and only the ratio is the claim. A small
+ * size under the floor counts as the floor, so a near-zero time cannot make a
+ * linear scrub look quadratic.
  */
-const SMALL = 16 * 1024, LARGE = 128 * 1024;
+const SMALL = 16 * 1024, SCALE = 8;
 const LINEAR_BOUND = 24;
-const linearRatio = (scrub: (size: number) => void): number => {
-  const time = (size: number) => { const started = performance.now(); scrub(size); return performance.now() - started; };
-  time(SMALL); time(LARGE);
+const FLOOR_MS = 0.5;
+const elapsed = (run: (size: number) => void, size: number) => { const started = performance.now(); run(size); return performance.now() - started; };
+const linearRatio = (scrub: (size: number) => void, smallSize = SMALL, rounds = 9): number => {
+  const largeSize = smallSize * SCALE;
+  elapsed(scrub, smallSize); elapsed(scrub, largeSize);
   const small: number[] = [], large: number[] = [];
-  for (let round = 0; round < 9; round += 1) { small.push(time(SMALL)); large.push(time(LARGE)); }
+  for (let round = 0; round < rounds; round += 1) { small.push(elapsed(scrub, smallSize)); large.push(elapsed(scrub, largeSize)); }
   const best = { small: Math.min(...small), large: Math.min(...large) };
-  return best.large / Math.max(best.small, 0.5);
+  return best.large / Math.max(best.small, FLOOR_MS);
 };
 const expectLinear = (scrub: (size: number) => void) => {
   expect(linearRatio(scrub)).toBeLessThan(LINEAR_BOUND);
@@ -107,14 +111,19 @@ const expectLinear = (scrub: (size: number) => void) => {
 
 it("the linear bound fails a quadratic", () => {
   let sink = 0;
-  // Small enough to run in a fraction of a second, large enough that its small size clears the half-millisecond floor.
-  const quadratic = (size: number) => {
-    const n = size / 56;
-    for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) sink += i ^ j;
+  const quadratic = (n: number) => {
+    // Kept a small integer: past 2^31 the engine leaves its fast path mid-run, and the sizing would not measure what it times.
+    for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) sink = (sink + (i ^ j)) | 0;
   };
-  expect(linearRatio(quadratic)).toBeGreaterThanOrEqual(LINEAR_BOUND);
-  expect(sink).toBeGreaterThan(0);
-});
+  // Sized from the floor, not from this machine: the small size grows until even its fastest of three runs is four floors long,
+  // so the clamp never shortens the ratio, and a faster machine runs a larger n in the same time.
+  const fastest = (n: number) => Math.min(elapsed(quadratic, n), elapsed(quadratic, n), elapsed(quadratic, n));
+  let n = 64;
+  while (fastest(n) < 4 * FLOOR_MS) n = Math.ceil(n * 1.25);
+  expect(linearRatio(quadratic, n, 5)).toBeGreaterThanOrEqual(LINEAR_BOUND);
+  expect(Number.isInteger(sink)).toBe(true);
+  // Sized to under a second; a loaded runner may stretch it, and only the ratio is the claim.
+}, 15_000);
 
 it("a long run costs linear time, so a peer's message cannot stall the main thread", () => {
   expectLinear(size => scrubMessage("x".repeat(size), []));
