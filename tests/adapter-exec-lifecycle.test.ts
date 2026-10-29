@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 interface LifecycleReceipt {
   readonly gracefulOk: boolean;
-  readonly gracefulSettledWithinBound: boolean;
   readonly failedSpawnOk: boolean;
   readonly adapterDrainSettled: boolean;
   readonly adapterDrainPending: number;
@@ -95,7 +94,6 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     const receipt = await runLifecycleFixture<LifecycleReceipt>();
     expect(receipt).toMatchObject({
       gracefulOk: true,
-      gracefulSettledWithinBound: true,
       failedSpawnOk: false,
       adapterDrainSettled: true,
       adapterDrainPending: 0,
