@@ -26,11 +26,6 @@ export type SeatRaiseKind = typeof SeatRaiseKind.Type;
 export const isSeatRaiseKind = (kind: AgentSignalKind): kind is SeatRaiseKind =>
   (SEAT_RAISE_KINDS as ReadonlyArray<AgentSignalKind>).includes(kind);
 
-/** The kinds an automation may raise. */
-export const AUTOMATION_RAISE_KINDS = ["notice", "work"] as const;
-export const AutomationRaiseKind = Schema.Literals(AUTOMATION_RAISE_KINDS);
-export type AutomationRaiseKind = typeof AutomationRaiseKind.Type;
-
 export const AGENT_SIGNAL_STATES = ["open", "answered", "dismissed", "withdrawn"] as const;
 export const AgentSignalState = Schema.Literals(AGENT_SIGNAL_STATES);
 export type AgentSignalState = typeof AgentSignalState.Type;
@@ -237,8 +232,6 @@ export type AgentSignalAttachmentInput = typeof AgentSignalAttachmentInput.Type;
 
 // ── The operator's work (0.11/07) ─────────────────────────────────────────
 
-/** The most artifacts a signal may show: the reading for the day, a brief, a handful more. */
-export const SIGNAL_SHOWN_ARTIFACTS_MAX = 8;
 /** An artifact form's condition when the raise named none. */
 export const SIGNAL_DEFAULT_MIN_WORDS = 1;
 /** The longest artifact form condition. */
@@ -353,10 +346,6 @@ export const SignalForm = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("proof") }),
 ]);
 export type SignalForm = typeof SignalForm.Type;
-
-/** An artifact a signal shows; stored as the existing artifact attachment. */
-export const SignalShownArtifact = Schema.Struct({ nodeId: WireNodeId, artifactId: WireItemId });
-export type SignalShownArtifact = typeof SignalShownArtifact.Type;
 
 /** The document a reply made, and the condition it met. */
 export const SignalReplyArtifact = Schema.Struct({
