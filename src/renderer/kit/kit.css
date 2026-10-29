@@ -2,7 +2,7 @@
    - the theme tokens as generated (never copied, so a token change reaches
      the site by rebuild) and the layer tokens the pulse stacks on;
    - the seat card's motion and its ring's compositor layer (seat-card.css),
-     and the key cap (kbd.css);
+     the key cap (kbd.css) and a region's title bar (region-title.css);
    - Tailwind utilities for the kit's own modules only, listed below;
    - each view's own sheet, which comes in through its import.
    The ring atlas is written at runtime (activity-atlas.ts; mirrorMarkAtlas
@@ -14,6 +14,7 @@
 @import "../styles/layers.css";
 @import "../styles/seat-card.css";
 @import "../styles/kbd.css";
+@import "../styles/region-title.css";
 
 @source "../components/seat-view-source.tsx";
 @source "../components/ActivityMark.tsx";
