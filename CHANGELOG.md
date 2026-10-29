@@ -2,6 +2,73 @@
 
 ## Unreleased
 
+## 0.11.1 — 2026-10-29
+
+Opening the database with 0.11.1 moves it to version 64, and 0.11.0 then
+refuses it as newer than supported. To go back to 0.11.0, open the backup
+taken at the upgrade. The step adds one table, which keeps where each
+artifact has been; every node, wire, task and artifact is kept as it was.
+
+- Move an artifact to another Artifacts node: Move to in the artifact's
+  header and in a sidebar row's menu, or M on a focused row; select several
+  rows and they all move. The picker lists the canvas's Artifacts nodes by
+  name and region, and when the target sits in another region it says which
+  seats will no longer reach the artifact and which will. Only the node
+  changes: the artifact keeps its id, versions, comments, labels, tasks and
+  every link to it, and an archived one moves and stays archived. History
+  gets one line naming the two nodes and who moved it. A link finds its
+  artifact by id, so links in documents, comments, mail, briefings and
+  instructions still open after a move, and "Linked from" follows it. A
+  label shows in the new node's colour, or plain where that node has none.
+  An automation watching the old node stops seeing the artifact, one on the
+  new node sees it from then on, and a move fires nothing. In the CLI,
+  `junto overseer artifact move` takes one to 100 artifact ids and answers one
+  row per artifact, moved or refused with its reason; ordinary seats get no
+  move.
+- Automations can ask you. The signal action raises a signal in the
+  needs-you feed, and it is a notice (to read) or a question that waits on
+  you: escalate, blocked or feedback. A question can carry a text form, an
+  artifact you write in the editor, or proof. A form that asks for a secret
+  is refused when you save, since secrets wait for a later release. Each
+  firing raises its own signal; ten firings raise ten, and none is merged.
+  The card is named by the automation, answering it needs no seat, and Open
+  run opens the firing in the automation's history, which now reads each
+  signal with its state and answer: raised and open, answered with the
+  answer, with proof, or dismissed.
+- An answer can start the next step. "When answered" on a signal step makes a
+  new automation that fires when you answer it, and the two show as linked.
+  The answer's text, link, who and when reach it as values, with the signal's
+  title and kind, and with every value of the firing that raised it. An
+  answer can also go to a seat as a prompt, become a new document in an
+  Artifacts node, or be appended to an artifact as a dated section.
+- Values can be formatted: `{{fired.at|date:YYYY-MM-DD}}` writes a time in
+  a date pattern in the automation's time zone, and `slug`, `lower`, `upper`
+  and `trim` change text. They work wherever a value does, an artifact
+  title and an answer's document title included, and an unknown format is
+  refused at save with the list. The CLI's `junto overseer automation` takes
+  all of it.
+- Files: PDFs open in the installed app. In 0.11.0 the viewer showed "This PDF
+  could not be opened" in every installed build; it worked only from source.
+- Files: opening a file keeps the tree where you scrolled it; it used to jump
+  back to the top.
+- Files: New file and New folder in the filter row make the entry at the root,
+  and a row's menu (right-click, Shift+F10 or the Menu key) makes one beside
+  the row, moves it to a folder you pick or type, or moves it to the Trash
+  after asking. Delete or Cmd+Backspace on a row asks the same. After each,
+  the keyboard lands on the row it acted on, and a refused or unanswered
+  action says so and leaves the dialog free to try again.
+- Keys: Delete and Backspace in a modal no longer delete the card behind it,
+  and Escape no longer clears the canvas selection behind a working modal.
+  Escape sets a browser aside only while its own window is the top one.
+- Terminals that are hidden stop receiving output and catch up when shown
+  again, after two seconds out of sight, so a quick switch back costs nothing.
+  With ten hidden terminals, the window used to read eleven times the bytes.
+- A ring wholly hidden under the working panel stops turning, and starts
+  again the moment any part of it shows. Rings that show keep turning every
+  frame.
+- A dropdown's name is now its label and the value it holds, read together,
+  and a disabled one shows a not-allowed cursor instead of a busy one.
+
 ## 0.11.0 — 2026-10-29
 
 Opening the database with 0.11.0 moves it to version 63, and 0.10.3 then
