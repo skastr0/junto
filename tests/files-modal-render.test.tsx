@@ -130,6 +130,30 @@ describe("the Files modal", () => {
     expect(buttonNamed("Reveal in Finder")).toBeDefined();
   });
 
+  it("keeps the tree's scroll when a file far down a long tree is opened", async () => {
+    const many: Record<string, string> = {};
+    for (let index = 0; index < 200; index += 1) many[`f${String(index).padStart(3, "0")}.ts`] = String(index);
+    installFilesSource(makeLocalFiles(many));
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={parseFilePath("f000.ts")!} onClose={() => undefined} />));
+    await flush();
+    const shadow = (): ShadowRoot | null | undefined => document.querySelector("nav.files-tree-nav file-tree-container")?.shadowRoot;
+    const scroller = shadow()?.querySelector<HTMLElement>("[data-file-tree-virtualized-scroll]");
+    if (scroller == null) throw new Error("no tree scroller");
+    await act(async () => {
+      scroller.scrollTop = 4900;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    await flush();
+    await press(shadow()?.querySelector('[data-item-path="f180.ts"]'));
+    expect(document.querySelector(".files-head__name")?.textContent).toBe("f180.ts");
+    // The same scroller, where the operator left it: the tree did not remount.
+    expect(shadow()?.querySelector("[data-file-tree-virtualized-scroll]")).toBe(scroller);
+    expect(scroller.scrollTop).toBe(4900);
+    await press(shadow()?.querySelector('[data-item-path="f185.ts"]'));
+    expect(document.querySelector(".files-head__name")?.textContent).toBe("f185.ts");
+    expect(scroller.scrollTop).toBe(4900);
+  });
+
   it("names the tree, keeps no search box inside it, and filters from a labelled field above it", async () => {
     installFilesSource(makeLocalFiles({ "src/a.ts": "one", "b.md": "" }));
     await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} onClose={() => undefined} />));

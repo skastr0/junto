@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent, FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { CircleAlert, ExternalLink, Search, FileCode, FilePlus, FileQuestion, FileText, FolderInput, FolderPlus, FolderSearch, Image, Pencil, Trash2, type LucideIcon } from "lucide-react";
@@ -486,30 +487,54 @@ export function FilesNode({
       />
     ) : null;
 
+  /**
+   * One pane for every file: the open file is keyed and remounts on a pick,
+   * the sidebar is not, so the tree keeps its scroll and the picked row stays
+   * where it was on screen. The file's rail is drawn into the pane's rail.
+   */
+  const railOpen = useCommentsRailOpen();
+  const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
+  const railRef = useCallback((element: HTMLDivElement | null) => {
+    setRailHost(element);
+    const gone = commentsRailRef(element);
+    return () => {
+      gone?.();
+      setRailHost(null);
+    };
+  }, []);
+  const shown = empty === null && selected !== null && root.state === "ready" ? selected : null;
+
   return (
     <>
       <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose}>
         {quickOpen.palette}
         <div {...drop.surface} className="files-body">
-          {empty !== null || selected === null || root.state !== "ready" ? (
-            <TwoPane keptBy={{ canvas: ref.canvas, node: ref.node }} sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
-              {empty ?? <PaneEmpty title="Opening the folder" />}
-            </TwoPane>
-          ) : (
-            <SelectedFile
-              // A named page is jumped to once per mount: a new open naming one mounts the file afresh.
-              key={pageOnce === undefined || selected !== initialPath ? selected : `${selected}#${String(openKey ?? 0)}`}
-              canvasName={canvasName}
-              filesRef={ref}
-              path={selected}
-              {...(pageOnce !== undefined && selected === initialPath ? { initialPage: pageOnce } : {})}
-              sidebar={sidebar}
-              save={save}
-              onRename={() => startRename(treePathOf({ path: selected, dir: false }))}
-              onAct={(kind) => actOnRow({ path: selected, dir: false }, kind)}
-              onClose={onClose}
-            />
-          )}
+          <TwoPane
+            keptBy={{ canvas: ref.canvas, node: ref.node }}
+            sidebar={sidebar}
+            sidebarLabel="Files"
+            sidebarWidth="narrow"
+            mainLabel={shown === null ? "File" : baseName(shown)}
+            {...(shown === null ? {} : { rail: <div className="files-rail" ref={railRef} />, railLabel: "Comments", railCollapsed: !railOpen })}
+          >
+            {shown === null ? (
+              (empty ?? <PaneEmpty title="Opening the folder" />)
+            ) : (
+              <SelectedFile
+                // A named page is jumped to once per mount: a new open naming one mounts the file afresh.
+                key={pageOnce === undefined || shown !== initialPath ? shown : `${shown}#${String(openKey ?? 0)}`}
+                canvasName={canvasName}
+                filesRef={ref}
+                path={shown}
+                {...(pageOnce !== undefined && shown === initialPath ? { initialPage: pageOnce } : {})}
+                railHost={railHost}
+                save={save}
+                onRename={() => startRename(treePathOf({ path: shown, dir: false }))}
+                onAct={(kind) => actOnRow({ path: shown, dir: false }, kind)}
+                onClose={onClose}
+              />
+            )}
+          </TwoPane>
           <FilesDropHighlight drop={drop} />
         </div>
       </FocusSurface>
@@ -524,7 +549,7 @@ function SelectedFile({
   filesRef,
   path,
   initialPage,
-  sidebar,
+  railHost,
   save,
   onRename,
   onAct,
@@ -534,7 +559,8 @@ function SelectedFile({
   readonly filesRef: FilesNodeRef;
   readonly path: FilePath;
   readonly initialPage?: number;
-  readonly sidebar: React.ReactNode;
+  /** The pane's rail, which the file's comments are drawn into. */
+  readonly railHost: HTMLElement | null;
   readonly save: React.MutableRefObject<(() => void) | null>;
   /** The open file's rename, in its tree row; its move and trash, in their dialogs. */
   readonly onRename: () => void;
@@ -822,24 +848,13 @@ function SelectedFile({
   })();
 
   return (
-    <TwoPane keptBy={{ canvas: filesRef.canvas, node: filesRef.node }}
-      sidebar={sidebar}
-      sidebarLabel="Files"
-      sidebarWidth="narrow"
-      mainLabel={name}
-      rail={
-        <FileRail
-          context={commentContext}
-          threads={threads}
-          draftAnchor={draftAnchor}
-          open={railOpen}
-          onPosted={spent}
-          onClose={onClose}
-        />
-      }
-      railLabel="Comments"
-      railCollapsed={!railOpen}
-    >
+    <>
+      {railHost === null
+        ? null
+        : createPortal(
+            <FileRail context={commentContext} threads={threads} draftAnchor={draftAnchor} open={railOpen} onPosted={spent} onClose={onClose} />,
+            railHost,
+          )}
       <header className="files-head">
         <Glyph size={14} aria-hidden className="files-head__glyph" />
         <span className="files-head__path" title={path}>
@@ -914,7 +929,7 @@ function SelectedFile({
         </p>
       ) : null}
       <div className="files-main">{body}</div>
-    </TwoPane>
+    </>
   );
 }
 
@@ -975,22 +990,17 @@ function FileRail({
   readonly onPosted: () => void;
   readonly onClose: () => void;
 }) {
-  const ref = useCallback((element: HTMLDivElement | null) => commentsRailRef(element), []);
-  return (
-    <div className="files-rail" ref={ref}>
-      {open ? (
-        <FileCommentsRail
-          context={context}
-          threads={threads}
-          draft={draftAnchor}
-          onPosted={onPosted}
-          onCleared={onPosted}
-          onClose={() => setCommentsRailOpen(false)}
-        />
-      ) : (
-        <ArtifactCommentsEdge threads={threads} seatName={context.seatName} onOpen={() => setCommentsRailOpen(true)} />
-      )}
-    </div>
+  return open ? (
+    <FileCommentsRail
+      context={context}
+      threads={threads}
+      draft={draftAnchor}
+      onPosted={onPosted}
+      onCleared={onPosted}
+      onClose={() => setCommentsRailOpen(false)}
+    />
+  ) : (
+    <ArtifactCommentsEdge threads={threads} seatName={context.seatName} onOpen={() => setCommentsRailOpen(true)} />
   );
 }
 
