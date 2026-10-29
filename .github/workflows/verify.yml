@@ -8,60 +8,150 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: verify-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# `bun run verify`, split so a failure names its area and the parts run in
+# parallel. Each job queues on its own group: on main a newer push supersedes
+# only a run of the same job still waiting to start, and a started job always
+# finishes, so busy pushes still land results. Pull requests cancel stale runs.
+#
+# Not here from verify.ts: lints and typecheck run on Linux only, since they
+# read source text and give the same answer on macOS; the feature ship lane
+# runs on Linux only, since the gate tests read build profiles and nothing in
+# them branches on platform; `electron-vite build` and the overlay bundle check
+# run inside the source package job below on both systems.
+#
+# Unit lanes print tests/ci-quarantine.json: each test skipped in CI, with its
+# owner and reason.
 
 jobs:
-  verify-macos:
-    runs-on: macos-14
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          check-latest: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
-      - run: bun run verify
-
-  verify-linux:
+  lints:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
+    concurrency:
+      group: verify-lints-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: ./.github/actions/setup
+      # Every lint runs and reports, whichever fails first.
+      - run: bun run lint:product-name
+      - if: ${{ !cancelled() }}
+        run: bun run lint:no-canvas-document
+      - if: ${{ !cancelled() }}
+        run: bun run lint:no-middot
+      - if: ${{ !cancelled() }}
+        run: bun run lint:effect-runpromise
+      - if: ${{ !cancelled() }}
+        run: bun run lint:focus-law
+      - if: ${{ !cancelled() }}
+        run: bun run lint:overlay
+      - if: ${{ !cancelled() }}
+        run: bun run lint:layers
+      - if: ${{ !cancelled() }}
+        run: bun run lint:design-tokens
+      - if: ${{ !cancelled() }}
+        run: bun scripts/theme-build.ts --check
+
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: verify-typecheck-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: 24
-          check-latest: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # TypeScript 7 is the reference checker in CI.
+      - run: bun run typecheck:tsc
+
+  unit-shared:
+    name: Unit shared (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    concurrency:
+      group: verify-unit-shared-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
-      - run: bun run verify
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun scripts/run-unit-tests.ts --lane=shared --maxWorkers=2
+        env:
+          JUNTO_TEST_FEATURE_PROFILE: all-on
+
+  unit-isolated:
+    name: Unit isolated ${{ matrix.shard }}/2 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+        shard: [1, 2]
+    concurrency:
+      group: verify-unit-isolated-${{ matrix.shard }}-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun scripts/run-unit-tests.ts --lane=isolated --shard=${{ matrix.shard }}/2 --maxWorkers=2
+        env:
+          JUNTO_TEST_FEATURE_PROFILE: all-on
+
+  unit-alone:
+    name: Unit alone (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    concurrency:
+      group: verify-unit-alone-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun scripts/run-unit-tests.ts --lane=alone
+        env:
+          JUNTO_TEST_FEATURE_PROFILE: all-on
+
+  features-ship:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: verify-features-ship-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: bun run test:features:ship
 
   dependency-audit:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    concurrency:
+      group: verify-dependency-audit-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          check-latest: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: bun run audit:dependencies
 
   free-startup-e2e:
@@ -72,18 +162,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-14, ubuntu-24.04]
+    concurrency:
+      group: verify-free-startup-e2e-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          check-latest: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - if: runner.os == 'Linux'
         run: sudo node node_modules/playwright/cli.js install-deps chromium
       - run: bun run test:e2e:startup
@@ -96,19 +182,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-14, ubuntu-24.04]
+    concurrency:
+      group: verify-source-packages-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          check-latest: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - if: runner.os == 'Linux'
         run: sudo node node_modules/playwright/cli.js install-deps chromium
-      # These audit source artifacts without signing credentials or uploads.
+      # These audit source artifacts without signing credentials or uploads,
+      # and build with electron-vite and check the overlay bundle on the way.
       - run: bun run app:build:fast --ci-source-package
