@@ -9,6 +9,7 @@ import {
 import { titleOf, type Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
 import type { TaskId } from "@shared/task-model";
+import type { ItemId } from "@shared/work-ids";
 import { reaches, seatReachesTaskNode } from "@shared/region-reach";
 import { ModelService } from "../model/service";
 import { areConnected } from "../work/authz";
@@ -49,35 +50,45 @@ export const briefingMentionsOn = (
     const tasks = yield* Effect.serviceOption(TaskRepository);
     const self = reader.nodeId as NodeId;
     const mentions: BriefingMention[] = [];
+    // Each lookup: the item's title and the node it lives on, null when it is gone, undefined when it cannot be read here.
+    type Found = { readonly title: string; readonly nodeId: NodeId } | null | undefined;
+    const task = (id: ItemId): Effect.Effect<Found> =>
+      Option.isNone(tasks)
+        ? Effect.succeed(undefined)
+        : tasks.value.get(reader.canvasName, id as string as TaskId).pipe(
+            Effect.map((found): Found => (Option.isSome(found) ? { title: found.value.title, nodeId: found.value.current.node as NodeId } : null)),
+            Effect.orElseSucceed((): Found => undefined),
+          );
+    const artifact = (id: ItemId): Effect.Effect<Found> =>
+      Option.isNone(artifacts)
+        ? Effect.succeed(undefined)
+        : artifacts.value.head(reader.canvasName, id).pipe(
+            Effect.map((head): Found => (Option.isSome(head) ? { title: head.value.artifact.title, nodeId: head.value.artifact.nodeId as NodeId } : null)),
+            Effect.orElseSucceed((): Found => undefined),
+          );
     for (const link of links) {
       const node = canvas.nodes.get(link.target.nodeId);
-      const facts: BriefingLinkFacts = {
-        node: node === undefined ? undefined : { kind: node.kind, title: titleOf(node), reachable: canAct(canvas, self, node.id) },
-      };
       const itemKind = briefingItemKind(link.target, node?.kind);
       if (itemKind === undefined) {
+        const facts: BriefingLinkFacts = {
+          node: node === undefined ? undefined : { kind: node.kind, title: titleOf(node), reachable: canAct(canvas, self, node.id) },
+        };
         mentions.push(briefingMentionOf(link, facts));
         continue;
       }
       const id = link.target.item!;
-      const item = itemKind === "task"
-        ? Option.isNone(tasks)
-          ? undefined
-          : yield* Effect.option(tasks.value.get(reader.canvasName, id as string as TaskId).pipe(
-              Effect.map((task) => (Option.isSome(task) ? { title: task.value.title, nodeId: task.value.current.node as NodeId } : null)),
-            ))
-        : Option.isNone(artifacts)
-          ? undefined
-          : yield* Effect.option(artifacts.value.head(reader.canvasName, id).pipe(
-              Effect.map((head) => (Option.isSome(head) ? { title: head.value.artifact.title, nodeId: head.value.artifact.nodeId as NodeId } : null)),
-            ));
+      // A task board's item is its task; anything else, or a task the board does not hold, is an artifact by its id:
+      // artifacts move, so the node in the link is only a hint.
+      const asTask = itemKind === "task" ? yield* task(id) : null;
+      const kind = asTask === null ? "artifact" : "task";
+      const found = asTask === null ? yield* artifact(id) : asTask;
       // No store, or a read that failed: nothing here can say the item is gone.
-      if (item === undefined || Option.isNone(item)) return undefined;
+      if (found === undefined) return undefined;
       // Reach is judged where the item lives, as task and artifact control judge it, not where the link says.
-      const held = item.value === null ? undefined : canvas.nodes.get(item.value.nodeId);
+      const held = found === null ? undefined : canvas.nodes.get(found.nodeId);
       mentions.push(briefingMentionOf(link, {
-        node: held === undefined || node === undefined ? facts.node : { kind: node.kind, title: titleOf(node), reachable: canAct(canvas, self, held.id) },
-        item: item.value === null || held === undefined ? undefined : { title: item.value.title },
+        node: undefined,
+        item: found === null || held === undefined ? undefined : { kind, title: found.title, reachable: canAct(canvas, self, held.id) },
       }));
     }
     return mentions;

@@ -5,7 +5,7 @@
  */
 import { Effect, Layer, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { briefingLinksOf, briefingMentionOf, BriefingMentions } from "../src/shared/briefing-mentions";
+import { briefingItemKind, briefingLinksOf, briefingMentionOf, BriefingMentions } from "../src/shared/briefing-mentions";
 import { briefingMentionsOn } from "../src/main/junto/references/briefing-mentions";
 import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
 import { TaskRepository } from "../src/main/junto/work/task-repository";
@@ -53,18 +53,30 @@ describe("briefingMentionOf", () => {
     expect(briefingMentionOf(one!, { node: node("task") })).toMatchObject({ kind: "node", id: "n" });
   });
 
-  it("names a task or an artifact by the item's id and current title", () => {
-    expect(briefingMentionOf(withItem!, { node: node("task"), item: { title: "Fix tabs" } })).toEqual({
+  it("names a task or an artifact by the item's id, current title and reach where it lives, whatever node the link names", () => {
+    expect(briefingMentionOf(withItem!, { node: node("task"), item: { kind: "task", title: "Fix tabs", reachable: true } })).toEqual({
       label: "x", ref: `junto://canvas/factory?node=n&item=${TASK}`, kind: "task", id: TASK, title: "Fix tabs", reachable: true,
     });
-    expect(briefingMentionOf(withItem!, { node: node("artifacts"), item: { title: "Plan" } })).toMatchObject({ kind: "artifact", id: TASK, title: "Plan" });
+    expect(briefingMentionOf(withItem!, { node: node("artifacts"), item: { kind: "artifact", title: "Plan", reachable: false } }))
+      .toMatchObject({ kind: "artifact", id: TASK, title: "Plan", reachable: false });
+    // The node in the link is only a hint: gone, or of another kind, the item still resolves.
+    expect(briefingMentionOf(withItem!, { node: undefined, item: { kind: "artifact", title: "Plan", reachable: true } }))
+      .toMatchObject({ kind: "artifact", id: TASK, title: "Plan", reachable: true });
   });
 
-  it("calls a gone node, a gone item, or an item on a node that holds none missing, unreachable and untitled", () => {
+  it("calls a gone node, or an item found nowhere, missing, unreachable and untitled", () => {
     const gone = { label: "x", kind: "missing", reachable: false };
     expect(briefingMentionOf(one!, { node: undefined })).toEqual({ ...gone, ref: "junto://canvas/factory?node=n", id: "n" });
     expect(briefingMentionOf(withItem!, { node: node("task"), item: undefined })).toEqual({ ...gone, ref: `junto://canvas/factory?node=n&item=${TASK}`, id: TASK });
     expect(briefingMentionOf(withItem!, { node: node("agent") })).toMatchObject({ kind: "missing", id: TASK });
+  });
+
+  it("reads an item on a task board as a task, and on anything else as an artifact", () => {
+    expect(briefingItemKind(withItem!.target, "task")).toBe("task");
+    for (const kind of ["artifacts", "agent", "files", undefined] as const) {
+      expect(briefingItemKind(withItem!.target, kind)).toBe("artifact");
+    }
+    expect(briefingItemKind(one!.target, "task")).toBeUndefined();
   });
 });
 
@@ -138,6 +150,19 @@ describe("briefingMentionsOn", () => {
     expect(await read(link("Plan", "far-shelf", ARTIFACT))).toMatchObject([{ kind: "artifact", id: ARTIFACT, reachable: true }]);
     expect(await read(link("#2", "board", MOVED))).toMatchObject([{ kind: "task", id: MOVED, title: "Far task", reachable: false }]);
     expect(await read(link("#1", "far-board", TASK))).toMatchObject([{ kind: "task", id: TASK, reachable: true }]);
+  });
+
+  it("finds a moved artifact by its id: on the shelf it left, on a gone node, on any other node, or on a board without that task", async () => {
+    // MOVED left shelf for far-shelf; shelf still exists and no longer holds it.
+    expect(await read(link("Plan", "shelf", MOVED))).toMatchObject([{ kind: "artifact", id: MOVED, title: "Far plan", reachable: false }]);
+    for (const hint of ["deleted-node", "peer", "docs", "board"]) {
+      expect(await read(link("Plan", hint, ARTIFACT)), hint).toEqual([
+        { label: "Plan", ref: `junto://canvas/factory?node=${hint}&item=${ARTIFACT}`, kind: "artifact", id: ARTIFACT, title: "Plan", reachable: true },
+      ]);
+    }
+    // Found nowhere, as a task or an artifact, it is missing.
+    expect(await read(link("Old", "board", GONE))).toMatchObject([{ kind: "missing", id: GONE, reachable: false }]);
+    expect(await read(link("Old", "deleted-node", GONE))).toMatchObject([{ kind: "missing", id: GONE }]);
   });
 
   it("leaves the field out for a text with no links, and when an item cannot be read here", async () => {
