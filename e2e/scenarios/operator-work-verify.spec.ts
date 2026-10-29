@@ -222,6 +222,19 @@ test("operator work: a seat's and an automation's work hand in from the feed, a 
       const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(firedAt + 3_600_000);
       await expect(due).toContainText(hhmm);
     });
+    // 0.11.1 (62af46ca6): Open run on the card opens the Automations node with the raising firing marked.
+    const firingId = ((await firings())[0] as { firingId?: string } | undefined)?.firingId;
+    await check("automation work: Open run opens the Automations node with that firing marked", async () => {
+      await page.getByRole("button", { name: /^Open the run in /u }).first().click({ timeout: 10_000 });
+      const marked = page.locator(".automation-history__row[data-focused]");
+      await expect(marked).toHaveCount(1, { timeout: 10_000 });
+      await expect(marked).toHaveAttribute("data-firing", firingId ?? "(no firing id)");
+    });
+    await shoot(page, "4a-open-run-marked");
+    if ((await pane.count()) > 0) await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    if ((await pane.count()) > 0) await page.keyboard.press("Escape");
+    if ((await cards.count()) === 0) await openFeed();
     await workCard.click();
     await expect(writing).toBeVisible({ timeout: 10_000 });
     await shoot(page, "4-automation-work-card");
