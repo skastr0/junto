@@ -35,6 +35,9 @@ tasks, and every link to it and from it. Only its node changes.
   watch on the new node sees it from then on. A move is not an edit and
   fires nothing in 0.11.1.
 - **Archived artifacts** move too and stay archived.
+- **Label colours belong to the node.** A moved artifact keeps its labels
+  and shows them in the new node's colours, or plain where that node has
+  none.
 - **Sync.** A move is ruled where the canvas is ruled and reaches other
   machines as a rename does.
 - **CLI.** `junto overseer artifact move {artifactIds, to}` takes one to
