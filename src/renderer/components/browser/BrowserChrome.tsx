@@ -146,6 +146,22 @@ export function TabStrip({
     observer.observe(list);
     return () => observer.disconnect();
   }, [tabs.length]);
+  // A tab scrolled out of the strip is marked unseen, so its loading spinner
+  // stops (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8). Set on the DOM, never
+  // a render; a tab is seen until the observer says otherwise.
+  const tabIds = tabs.map((tab) => tab.id).join(" ");
+  useEffect(() => {
+    const list = listRef.current;
+    if (list === null || typeof IntersectionObserver !== "function") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) entry.target.toggleAttribute("data-unseen", !entry.isIntersecting);
+      },
+      { root: list },
+    );
+    for (const tab of list.querySelectorAll(".tab-strip__tab")) observer.observe(tab);
+    return () => observer.disconnect();
+  }, [tabIds]);
   // Manual activation (APG): arrows, Home and End move focus only, since
   // activating a tab swaps a live view; Enter and Space activate (the button's
   // own click). Delete closes the focused tab, never the last, and focus lands

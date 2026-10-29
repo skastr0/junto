@@ -186,6 +186,15 @@ describe("motion law: rings move on the compositor", () => {
     expect(feed).toMatch(/if \(!drawn \|\| wirePulseScheduler\.fire\(target, event\.kind\) !== "dropped"\)/);
   });
 
+  it("a browser tab scrolled out of the strip stops its spinner; a seen one spins", () => {
+    const chrome = read("src/renderer/components/browser/BrowserChrome.tsx");
+    expect(chrome).toMatch(/entry\.target\.toggleAttribute\("data-unseen", !entry\.isIntersecting\)/);
+    expect(chrome).toMatch(/\{ root: list \}/);
+    const css = read("src/renderer/components/browser/browser-chrome.css");
+    expect(css).toMatch(/\.tab-strip__loading \{[^}]*animation: tab-strip-spin 0\.9s linear infinite;/);
+    expect(css).toMatch(/\.tab-strip__tab\[data-unseen\] \.tab-strip__loading \{\s*animation: none;/);
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);

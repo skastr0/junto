@@ -233,6 +233,12 @@
   animation: tab-strip-spin 0.9s linear infinite;
 }
 
+/* A tab scrolled out of the strip is unseen (BrowserChrome.tsx), so its
+   spinner stops (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8). */
+.tab-strip__tab[data-unseen] .tab-strip__loading {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tab-strip__loading {
     animation: none;
