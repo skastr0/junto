@@ -8,6 +8,9 @@ import { WIRE_PULSE_MS } from "../../lib/wire-pulse";
 import { PulseHold, PulseStrips } from "../edges/WirePulseView";
 import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeatView";
 import { PreambleBubbleView } from "../nodes/PreambleBubbleView";
+// The wire verbs' colours (DemoWire strokes --wire-verb-messages), so a demo
+// wire draws outside the canvas too.
+import "../../styles/factory-grammar.css";
 
 // Live demos for the tour. Every piece here is the real component the canvas
 // draws, fed scripted props: nothing reads or writes the operator's
