@@ -20,6 +20,8 @@ import { submitAutomationCommand } from "../src/main/junto/automation/ruler";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import type { Message } from "../src/main/junto/fleet/consensus";
 import { loggedRuling, openCanvasAuthority, type CanvasAuthority, type LogData } from "../src/main/junto/fleet/driver";
+import type { CanvasAuthorities } from "../src/main/junto/fleet/authorities";
+import { makeCanvasAuthorities } from "../src/main/junto/fleet/host";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { PausePlaneLive } from "../src/main/junto/pause-plane";
@@ -752,5 +754,67 @@ describe("the fleet driver fills a replica's list", () => {
       }),
     );
     expect(home).toEqual({ list: [MACBOOK], terms: [1] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The host: one handle per canvas, opened as a batch first needs it.
+
+const hostOf = (store: Store) => store.runtime.runPromise(makeCanvasAuthorities as unknown as Effect.Effect<CanvasAuthorities["Service"], never, never>);
+const hostJudge = <A>(store: Store, host: CanvasAuthorities["Service"], batch: Effect.Effect<A, unknown, unknown>, canvas: string = CANVAS) =>
+  store.runtime.runPromiseExit(host.judge(canvas, batch) as unknown as Effect.Effect<{ value: A }, unknown, never>);
+
+describe("the authority host", () => {
+  it("opens a canvas as a batch first needs it, and judges the next batch on the same handle", async () => {
+    const store = await makeStore();
+    const host = await hostOf(store);
+    expect((await hostJudge(store, host, createArtifact))._tag).toBe("Success");
+    expect((await hostJudge(store, host, editArtifact("01M62AA0000000000000000002", 1, "the plan, longer")))._tag).toBe("Success");
+    expect(await held(store)).toMatchObject({ rulings: [ARTIFACT_OP, "01M62AA0000000000000000002"] });
+    // The canvas is held open: a second open beside the host is refused.
+    expect((await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })))._tag).toBe("Failure");
+  });
+
+  it("drops a broken handle and opens the canvas again", async () => {
+    const store = await makeStore();
+    const host = await hostOf(store);
+    // The judgment records; its apply is what fails, and breaks the handle.
+    const thenDown = Effect.tap(createArtifact, () => Effect.sync(() => { store.failing = true; }));
+    expect((await hostJudge(store, host, thenDown))._tag).toBe("Failure");
+    store.failing = false;
+    // The reopen applies the committed entry the crash left unapplied; the batch is then judged anew.
+    expect((await hostJudge(store, host, editArtifact("01M62AA0000000000000000002", 1, "the plan, longer")))._tag).toBe("Success");
+    expect(await held(store)).toMatchObject({ rulings: [ARTIFACT_OP, "01M62AA0000000000000000002"] });
+  });
+
+  it("closes a deleted canvas's authority: a canvas made again under its name opens as the new canvas", async () => {
+    const store = await makeStore();
+    const host = await hostOf(store);
+    expect((await hostJudge(store, host, createArtifact))._tag).toBe("Success");
+    await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        // Deleted, its consensus and log with it, then made again: another id, its own list.
+        yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [automations("routines"), artifacts("arts"), seat("lead")] }]]) });
+        yield* sql`UPDATE canvases SET canvas_id = 'test-factory-again', editor_installation_id = ${SELF} WHERE canvas_name = ${CANVAS}`;
+        yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = ${CANVAS}`;
+        yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index) VALUES (${CANVAS}, 1, 0, 0) ON CONFLICT DO NOTHING`;
+        yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${CANVAS}, 0, ${SELF})`;
+      }),
+    );
+    const again = await hostJudge(store, host, createArtifact);
+    expect(again._tag).toBe("Success");
+    expect(await logOf(store)).toMatchObject({ applied_index: 2, commit_index: 2 });
+  });
+
+  it("refuses inside a batch, before it opens anything", async () => {
+    const store = await makeStore();
+    const host = await hostOf(store);
+    const exit = await store.runtime.runPromiseExit(
+      (host.judge(CANVAS, Effect.andThen(createArtifact, host.judge("home", Effect.void))) as unknown as Effect.Effect<unknown, unknown, never>).pipe(Effect.timeout("2 seconds")),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/drives no authority itself/);
+    expect(await held(store)).toMatchObject({ rulings: [] });
   });
 });

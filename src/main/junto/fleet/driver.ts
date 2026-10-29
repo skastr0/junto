@@ -279,6 +279,9 @@ const PASSING: ReadonlySet<ProposalRefused["reason"]> = new Set(["not-leader", "
  */
 const Judging = Context.Reference<string | undefined>("@junto/FleetJudging", { defaultValue: () => undefined });
 
+/** The canvas whose batch this fiber is judging, if any: whatever would open or drive an authority refuses inside one. */
+export const judgingCanvas: Effect.Effect<string | undefined> = Effect.flatMap(Judging, Effect.succeed);
+
 /**
  * One consensus transaction at a time in this process. `synchronous` is the
  * connection's, set and reset around a transaction as separate statements:
@@ -345,6 +348,8 @@ export type CanvasAuthority = {
   readonly alone: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
   /** Drop this handle once its work in hand is done: it takes nothing more, and the canvas may be opened again. */
   readonly close: () => Effect.Effect<void, FleetDriverError>;
+  /** Whether this handle still takes work: not broken, not closed. A host drops one that is not and opens the canvas again. */
+  readonly usable: () => boolean;
 };
 
 /**
@@ -623,6 +628,7 @@ const openClaimed = (
       tick: () => drained(() => node.tick()),
       step: (message) => drained(() => node.step(message)),
       alone: () => drained(() => node.alone()),
+      usable: () => broken === undefined,
       close: () =>
         exclusive(Effect.sync(() => {
           if (closed) return;
