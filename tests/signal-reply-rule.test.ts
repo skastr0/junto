@@ -76,13 +76,7 @@ describe("a signal's reply is ruled by its form", () => {
   });
 
   it("a secret's reply is the vault's, and a text form takes words", () => {
-    const secret: SignalForm = {
-      kind: "secret",
-      name: "CLOUDFLARE_TOKEN",
-      requestId: "request-1",
-      regionId: "region-1",
-      machine: "macbook",
-    };
+    const secret: SignalForm = { kind: "secret", name: "CLOUDFLARE_TOKEN", regionId: "region-1", machine: "macbook" };
     expect(ruleSignalReply(secret, { kind: "proof", text: "set", links: [], replyId: "r12" })).toEqual({
       ok: false,
       message: "this signal asks for a secret, and the vault answers it, not a reply",

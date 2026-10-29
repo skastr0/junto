@@ -331,10 +331,8 @@ export const SignalForm = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("secret"),
     name: SignalSecretName,
-    /** The asking machine's own record of the request (its `agent_signal_secret_requests` row). */
-    requestId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    /** The region that declares the name, and the machine the value is for. The signal is the request. */
     regionId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-    /** The machine the value is for, by its real short name. */
     machine: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   }),
   Schema.Struct({ kind: Schema.Literal("proof") }),
