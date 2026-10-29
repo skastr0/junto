@@ -13,6 +13,11 @@ import { makeMachineCopy, type MachineCopyOptions } from "./junto/hosts/machine-
 import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/machine-owner";
 import { join } from "node:path";
 import { makeMachineLinkSetup } from "./junto/hosts/machine-link";
+import { homedir } from "node:os";
+import { VAULT_ENABLED } from "@shared/features";
+import { makeVaultSetup } from "./junto/vault/setup";
+import { runTool } from "./junto/region-env/tool";
+import { resolvedSpawnEnv } from "./junto/adapters/exec";
 import { machinePackageCliDir } from "./junto/term/templates/seat-env";
 import { automationRunnerLayer, makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
@@ -448,8 +453,13 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       const bin = machinePackageCliDir();
       return bin === undefined ? undefined : join(bin, "junto");
     } });
+    // Off in the ship build: no vault token is placed, recorded or listed.
+    const vaultSetup = VAULT_ENABLED ? yield* makeVaultSetup({
+      home: options.home, userHome: homedir(), run: runTool, path: async () => (await resolvedSpawnEnv()).PATH,
+    }) : undefined;
     const actions = yield* makeMachineOwnerActions({
       linkSetup,
+      ...(vaultSetup === undefined ? {} : { vaultSetup }),
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
       ownLogs: (query) => Effect.flatMap(machines.machineName, (name) => readMachineLog(options.home, name, query)),

@@ -48,7 +48,8 @@ export const vaultOfRef = (ref: string): string | undefined => {
  * only, for refusing a paste that is plainly not one; 1Password decides the rest.
  */
 export const VaultTokenSecret = Schema.String.pipe(
-  Schema.check(Schema.isMaxLength(4096)),
+  // Under the 4 KiB a stdin delivery may carry, with its JSON around it.
+  Schema.check(Schema.isMaxLength(3072)),
   Schema.check(Schema.isPattern(/^ops_[A-Za-z0-9+/=_.-]{20,}$/u)),
 );
 
@@ -63,3 +64,71 @@ export const VaultTokenRecord = Schema.Struct({
   setAtEpochMs: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type VaultTokenRecord = typeof VaultTokenRecord.Type;
+
+/**
+ * Can this machine's token reach the vault right now: `op vault get` on the
+ * one vault, a liveness check and never proof of scope.
+ */
+export const VaultLiveness = Schema.Literals(["ready", "token-refused", "vault-missing", "op-missing", "unreachable", "no-token"]);
+export type VaultLiveness = typeof VaultLiveness.Type;
+
+/** What the machine list and a placement show of one machine's token: names, never the token. */
+export const MachineVaultView = Schema.Struct({
+  vault: VaultName,
+  permissions: VaultPermissions,
+  origin: VaultTokenOrigin,
+  /** `verified` only for a token Junto minted with the fixed argv; a pasted one is the operator's word. */
+  scope: Schema.Literals(["verified", "unverified"]),
+  accountName: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))),
+  setAtEpochMs: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** Whole days since it was set: the operator revokes it in 1Password, Junto only shows its age. */
+  ageDays: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+export type MachineVaultView = typeof MachineVaultView.Type;
+
+export const vaultView = (record: VaultTokenRecord, nowMs: number): MachineVaultView => ({
+  vault: record.vault, permissions: record.permissions, origin: record.origin,
+  scope: record.origin === "minted" ? "verified" : "unverified",
+  ...(record.accountName === undefined ? {} : { accountName: record.accountName }),
+  setAtEpochMs: record.setAtEpochMs,
+  ageDays: Math.max(0, Math.floor((nowMs - record.setAtEpochMs) / 86_400_000)),
+});
+
+/**
+ * `junto machine vault-token <machine> --vault <V>`, on the window's machine:
+ * the token comes from the command's stdin and rides only the owner socket
+ * to this core, then that machine's SSH stdin. Never argv, an environment
+ * value, a row or a log.
+ */
+export const MachineVaultTokenInput = Schema.Struct({
+  name: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  vault: VaultName,
+  token: VaultTokenSecret,
+});
+export type MachineVaultTokenInput = typeof MachineVaultTokenInput.Type;
+
+/** What `vault-token-local` reads from its stdin on the receiving machine. */
+export const VaultTokenDelivery = Schema.Struct({ vault: VaultName, permissions: VaultPermissions, token: VaultTokenSecret });
+export type VaultTokenDelivery = typeof VaultTokenDelivery.Type;
+
+/**
+ * The receiving machine's own record, written through its core once
+ * `vault-token-local` has placed the token file. Names only.
+ */
+export const MachineVaultRecordInput = Schema.Struct({
+  vault: VaultName,
+  permissions: VaultPermissions,
+  origin: VaultTokenOrigin,
+  accountName: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)))),
+});
+export type MachineVaultRecordInput = typeof MachineVaultRecordInput.Type;
+
+/** A token placed: the machine's record, and whether the token reaches the vault from there. */
+export const MachineVaultTokenData = Schema.Struct({
+  machineName: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  token: MachineVaultView,
+  liveness: VaultLiveness,
+  /** Best effort, unverified for service accounts: `op vault list` showed more than this one vault. */
+  seesOtherVaults: Schema.optionalKey(Schema.Literal(true)),
+});
+export type MachineVaultTokenData = typeof MachineVaultTokenData.Type;

@@ -19,6 +19,7 @@ import { HostsService } from "./service";
 import { noteMachinesChanged } from "./machine-changes";
 import { HostRegistryRows } from "./registry";
 import type { MachineLinkSetup } from "./machine-link";
+import type { VaultSetup } from "../vault/setup";
 
 export interface MachineOwnerOptions {
   readonly ownStatus: Effect.Effect<MachineOwnStatus, unknown>;
@@ -39,6 +40,8 @@ export interface MachineOwnerOptions {
   readonly seatRead?: (input: MachineSeatReadInput) => Effect.Effect<Omit<MachineSeatRead, "canvas" | "seatId">, unknown>;
   /** Links bound to their opener's key (`junto machine link`). */
   readonly linkSetup?: MachineLinkSetup;
+  /** Vault tokens (`junto machine vault-token`), refused while VAULT_ENABLED is off. */
+  readonly vaultSetup?: VaultSetup;
 }
 export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
   message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
@@ -81,15 +84,18 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         const ownId = yield* machines.installationId;
         const ownBuild = yield* options.ownStatus.pipe(Effect.flatMap(status => Schema.decodeUnknownEffect(MachineBuild)(status.build)));
         const pending = options.linkSetup?.pending() ?? [];
+        const vaults = options.vaultSetup === undefined ? new Map() : yield* options.vaultSetup.views;
         return { machines: yield* Effect.forEach(listed, machine => Effect.gen(function* () {
           const pin = pins.find(row => row.machineName === machine.id);
           const reportedBuild = machine.isThisMachine || pin === undefined ? undefined : yield* options.peerBuild(machine.id);
           const peerBuild = reportedBuild === undefined ? undefined : yield* Schema.decodeUnknownEffect(MachineBuild)(reportedBuild);
           const held = pending.filter((row) => row.holder === machine.id).map((row) => row.machineName);
+          const vault = vaults.get(machine.id);
           return { machine, setUp: machine.isThisMachine || pin !== undefined, needsUpdate: peerBuild !== undefined && peerBuild !== ownBuild,
             ...(machine.isThisMachine ? { installationId: ownId } : pin === undefined ? {} : { installationId: pin.installationId }),
             ...(pin?.binding !== "key" || options.linkSetup === undefined ? {} : { linkKey: options.linkSetup.lineHeld(pin.installationId) ? "bound" as const : "line-missing" as const }),
-            ...(held.length === 0 ? {} : { holdsRevokedKeys: held }) };
+            ...(held.length === 0 ? {} : { holdsRevokedKeys: held }),
+            ...(vault === undefined ? {} : { vault }) };
         })) };
       }
       case "machine.add": {
@@ -168,6 +174,12 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         if (request.op === "machine.link-open") return yield* setup.open(request.args);
         return yield* setup.revoke(request.args);
       }
+      case "machine.vault-token":
+      case "machine.vault-record": {
+        const setup = options.vaultSetup;
+        if (setup === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "This Junto process places no vault tokens"));
+        return request.op === "machine.vault-token" ? yield* setup.place(request.args) : yield* setup.record(request.args);
+      }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
       case "machine.remove": {
@@ -187,6 +199,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           yield* options.linkSetup.forget(name, removed.installationId);
           yield* options.linkSetup.revokeEverywhere(removed).pipe(Effect.ignore);
         }
+        // The record of the token it was given goes with it; revoking that token is the operator's, in 1Password.
+        if (options.vaultSetup !== undefined) yield* options.vaultSetup.forget(name).pipe(Effect.ignore);
         yield* hosts.list;
         return { machineName: name, removed: true };
       }

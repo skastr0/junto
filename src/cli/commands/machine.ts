@@ -14,6 +14,9 @@ import { BoatAddInput, BoatMachineKeyDelivery } from "@shared/boat";
 import { MachineLinkAcceptInput, MachineLinkInput, MachineLinkKeyInput, MachineLinkOpenInput, MachineLinkRevokeInput } from "@shared/machine-link";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { writeBoatMachineSelf } from "../../main/junto/boat/files";
+import { writeVaultToken } from "../../main/junto/vault/token-file";
+import { VAULT_ENABLED } from "@shared/features";
+import { MachineVaultTokenInput, VaultName, VaultTokenDelivery, VaultTokenSecret } from "@shared/vault";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
 import { loadJsonInput } from "../core/json";
@@ -69,6 +72,54 @@ const boatKeyLocal = Command.make("boat-key-local", {}, () => executeJsonCommand
     catch: () => new BoatKeyNotPlaced({ message: "The machine key could not be written in this Junto home" }),
   })),
 ))).pipe(Command.withDescription("Write this Boat machine's key from stdin (run by the editing machine over SSH)"));
+
+/** Fixed words: a token that fails to decode never shows in the failure. */
+class VaultTokenNotPlaced extends Schema.TaggedError<VaultTokenNotPlaced>()("VaultTokenNotPlaced", { message: Schema.String }) {}
+
+const vaultOff = Effect.suspend(() => VAULT_ENABLED ? Effect.void : Effect.fail(new VaultTokenNotPlaced({ message: "The vault is not in this build" })));
+
+/** The whole of stdin, bounded; refused from a terminal, where a typed token would show and stay in the scrollback. */
+const readTokenStdin = Effect.suspend(() => process.stdin.isTTY
+  ? Effect.fail(new VaultTokenNotPlaced({ message: "Pipe the token in on stdin, for example from op read or pbpaste; it is never typed here" }))
+  : readStdin.pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "The vault token could not be read from stdin" }))));
+
+/**
+ * On the window's machine: one machine's 1Password service-account token,
+ * from stdin, to that machine (or this one). The window's machine gets the
+ * write token, every other machine a read-only one; a pasted token's scope
+ * is shown unverified.
+ */
+const vaultToken = Command.make("vault-token", {
+  name: Argument.string("name").pipe(Argument.withDescription("Machine name: this machine (the write token) or a set-up one (a read token)")),
+  vault: Flag.string("vault").pipe(Flag.withDescription("The 1Password vault the token is for")),
+}, ({ name, vault }) => executeJsonCommand("machine vault-token", Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  yield* vaultOff;
+  const text = (yield* readTokenStdin).trim();
+  const token = yield* Schema.decodeUnknownEffect(VaultTokenSecret)(text).pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "That is not a 1Password service account token" })));
+  const checkedVault = yield* Schema.decodeUnknownEffect(VaultName)(vault).pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "A vault name holds no : , / or control character" })));
+  const args = yield* Schema.decodeUnknownEffect(MachineVaultTokenInput)({ name, vault: checkedVault, token }).pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "The machine name is not one Junto knows" })));
+  const socket = yield* OperatorSocket;
+  return yield* socket.call("machine.vault-token", args, 2 * 60_000);
+}))).pipe(Command.withDescription("Give a machine its 1Password service-account token, read from stdin"));
+
+/**
+ * On the machine the token is for, over the window machine's SSH session:
+ * the token from stdin into this Junto home, 0600, then its names-only
+ * record through this machine's core. Its answer never carries the token.
+ */
+const vaultTokenLocal = Command.make("vault-token-local", {}, () => executeJsonCommand("machine vault-token-local", Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  yield* vaultOff;
+  const text = yield* readStdin.pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "The vault token could not be read from stdin" })));
+  const delivery = yield* Effect.try({
+    try: () => Schema.decodeUnknownSync(VaultTokenDelivery, { onExcessProperty: "error" })(JSON.parse(text)),
+    catch: () => new VaultTokenNotPlaced({ message: "The vault token did not match its shape" }),
+  });
+  yield* Effect.tryPromise({ try: () => writeVaultToken(resolveJuntoHome(), delivery.token), catch: () => new VaultTokenNotPlaced({ message: "The vault token could not be written in this Junto home" }) });
+  const socket = yield* OperatorSocket;
+  return yield* socket.call("machine.vault-record", { vault: delivery.vault, permissions: delivery.permissions, origin: "pasted" });
+}))).pipe(Command.withDescription("Write this machine's vault token from stdin (run by the window's machine over SSH)"));
 
 /** A send and a Boat machine made from nothing take minutes; a wake or a key, a few. */
 const LONG_OPS: ReadonlySet<string> = new Set(["machine.send", "machine.update", "machine.boat-add"]);
@@ -164,6 +215,6 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("link-accept", "machine.link-accept", MachineLinkAcceptInput),
     ownerCommand("link-open", "machine.link-open", MachineLinkOpenInput),
     ownerCommand("link-revoke", "machine.link-revoke", MachineLinkRevokeInput),
-    logs, seatStart, seatStop, seatRead, boatKeyLocal,
+    logs, seatStart, seatStop, seatRead, boatKeyLocal, vaultToken, vaultTokenLocal,
   ]),
 );

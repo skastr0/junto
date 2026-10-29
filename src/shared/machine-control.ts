@@ -14,6 +14,7 @@ import type {
   MachineLinkOpenInput, MachineLinkOpenData, MachineLinkRevokeInput, MachineLinkRevokeData,
 } from "./machine-link";
 import { MachineInstallResult as InstallResult } from "./machine-install";
+import { MachineVaultView, type MachineVaultRecordInput, type MachineVaultTokenData, type MachineVaultTokenInput } from "./vault";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
 export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
@@ -78,6 +79,8 @@ export const MachineListData = Schema.Struct({
     linkKey: Schema.optionalKey(Schema.Literals(["bound", "line-missing"])),
     /** Removed machines whose link key this one may still hold: it could not be reached to remove it. */
     holdsRevokedKeys: Schema.optionalKey(Schema.Array(MachineName).pipe(Schema.check(Schema.isMaxLength(32)))),
+    /** The machine's vault token, as this machine knows it: names, scope and age, never the token. */
+    vault: Schema.optionalKey(MachineVaultView),
   })).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type MachineListData = typeof MachineListData.Type;
@@ -107,6 +110,7 @@ export const MachineOpName = Schema.Literals([
   "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
   "machine.wake", "machine.sleep",
   "machine.link", "machine.link-key", "machine.link-accept", "machine.link-open", "machine.link-revoke",
+  "machine.vault-token", "machine.vault-record",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -136,6 +140,8 @@ export interface MachineArgsByOp {
   readonly "machine.link-accept": MachineLinkAcceptInput;
   readonly "machine.link-open": MachineLinkOpenInput;
   readonly "machine.link-revoke": MachineLinkRevokeInput;
+  readonly "machine.vault-token": MachineVaultTokenInput;
+  readonly "machine.vault-record": MachineVaultRecordInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -164,4 +170,6 @@ export interface MachineDataByOp {
   readonly "machine.link-accept": MachineLinkAcceptData;
   readonly "machine.link-open": MachineLinkOpenData;
   readonly "machine.link-revoke": MachineLinkRevokeData;
+  readonly "machine.vault-token": MachineVaultTokenData;
+  readonly "machine.vault-record": MachineVaultTokenData;
 }
