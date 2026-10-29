@@ -277,6 +277,9 @@
 .artifact-move__target {
   display: flex;
   min-width: 0;
+  /* The list is a grid sized by its rows' content: a long name must not widen it, so a row
+     takes the list's width and its name ellipsises inside. */
+  contain: inline-size;
   align-items: baseline;
   gap: 8px;
   padding: 4px 8px;
