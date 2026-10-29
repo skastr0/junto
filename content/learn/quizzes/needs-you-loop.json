@@ -1,0 +1,126 @@
+{
+  "id": "needs-you-loop",
+  "title": "The needs-you loop",
+  "questions": [
+    {
+      "id": "line-grants",
+      "concepts": [
+        "lines",
+        "mail"
+      ],
+      "reader": "both",
+      "prompt": "You draw a messages line between two seats. What can each agent now do to the other?",
+      "choices": [
+        {
+          "id": "mail",
+          "text": "List and send mail, prompt it, wait for it, and read its terminal",
+          "correct": true,
+          "why": "A messages line grants exactly those five: msg.list, msg.send, msg.prompt, seat.wait and terminal.read."
+        },
+        {
+          "id": "edit",
+          "text": "Edit the other seat's files and settings",
+          "why": "A line grants messaging and observation only; nothing in it reaches another seat's files or settings."
+        },
+        {
+          "id": "nothing",
+          "text": "Nothing until the operator approves each message",
+          "why": "There is no per-message approval: the line itself is the grant."
+        }
+      ],
+      "receipts": [
+        "src/shared/physics/verbs.ts:123-125@229e65625",
+        "src/main/junto/work/authz.ts:694@229e65625"
+      ]
+    },
+    {
+      "id": "no-line",
+      "concepts": [
+        "lines",
+        "reach"
+      ],
+      "reader": "agent",
+      "prompt": "An agent mails a seat it has no line to, outside its region. What happens?",
+      "choices": [
+        {
+          "id": "refused",
+          "text": "The call is refused: no edge and not region co-members",
+          "correct": true,
+          "why": "Without a line or a shared region the target is not visible to the caller, and the CLI says so."
+        },
+        {
+          "id": "queued",
+          "text": "The mail waits until the operator draws a line",
+          "why": "Nothing is queued: the refusal is immediate and names why."
+        },
+        {
+          "id": "delivered",
+          "text": "It is delivered, since both seats are on the same canvas",
+          "why": "Being on one canvas grants nothing; reach comes from lines and regions."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/work/authz.ts:503@229e65625"
+      ]
+    },
+    {
+      "id": "safe-moment",
+      "concepts": [
+        "mail"
+      ],
+      "reader": "you",
+      "prompt": "You are typing a draft into a seat's terminal when mail for it arrives. What does Junto do?",
+      "choices": [
+        {
+          "id": "hold",
+          "text": "Holds the mail until the input is free, then types it in",
+          "correct": true,
+          "why": "Mail is typed only into a composer the operator is not using, and held otherwise."
+        },
+        {
+          "id": "over",
+          "text": "Types it after your draft, so both go together",
+          "why": "Junto never types over or after your draft; it waits for the input to be free."
+        },
+        {
+          "id": "drop",
+          "text": "Drops the mail so your draft is not disturbed",
+          "why": "Held mail is delivered later, not dropped."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/term/drive/managed-terminal-drive.ts:10-16@229e65625"
+      ]
+    },
+    {
+      "id": "answer-mail",
+      "concepts": [
+        "signals",
+        "needs-you-feed"
+      ],
+      "reader": "both",
+      "prompt": "A seat ran `junto blocked`. You answer it from the feed with a quick reply. How does the agent hear it?",
+      "choices": [
+        {
+          "id": "mail",
+          "text": "The answer is typed into its terminal as operator mail",
+          "correct": true,
+          "why": "Answering types the response into the seat as operator mail, then records the signal answered."
+        },
+        {
+          "id": "poll",
+          "text": "It has to poll for the answer itself",
+          "why": "A reply is typed in as mail. Only a silent answer waits for the agent to read it with `junto signal list`."
+        },
+        {
+          "id": "nothing",
+          "text": "It is not told; the signal just closes",
+          "why": "That is what dismissing does. A reply is delivered."
+        }
+      ],
+      "receipts": [
+        "src/main/junto/signals/operator.ts:32-40@229e65625"
+      ]
+    }
+  ]
+}

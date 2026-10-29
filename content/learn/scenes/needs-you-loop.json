@@ -1,0 +1,152 @@
+{
+  "id": "needs-you-loop",
+  "label": "Two seats in a region joined by a line: juniper mails basil, basil raises a blocked signal and its ring turns red, the operator's answer arrives, and basil goes back to work",
+  "stage": {
+    "width": 640,
+    "height": 230
+  },
+  "regions": [
+    {
+      "id": "app",
+      "label": "App",
+      "x": 8,
+      "y": 8,
+      "width": 624,
+      "height": 214
+    }
+  ],
+  "seats": [
+    {
+      "id": "juniper",
+      "name": "juniper",
+      "harness": "codex",
+      "x": 40,
+      "y": 92
+    },
+    {
+      "id": "basil",
+      "name": "basil",
+      "harness": "codex",
+      "x": 360,
+      "y": 92
+    }
+  ],
+  "wires": [
+    {
+      "id": "juniper-basil",
+      "from": "juniper",
+      "to": "basil",
+      "verb": "messages"
+    }
+  ],
+  "beats": [
+    {
+      "at": 0,
+      "seat": {
+        "id": "juniper",
+        "terminal": {
+          "seatState": "working"
+        }
+      }
+    },
+    {
+      "at": 0,
+      "seat": {
+        "id": "basil",
+        "terminal": {
+          "seatState": "working"
+        }
+      }
+    },
+    {
+      "at": 900,
+      "pulse": {
+        "wire": "juniper-basil",
+        "kind": "notice"
+      }
+    },
+    {
+      "at": 1200,
+      "seat": {
+        "id": "basil",
+        "bubble": {
+          "text": "mail from juniper: the migration is ready",
+          "provenance": "agent",
+          "action": "mail-in",
+          "tone": "violet"
+        }
+      }
+    },
+    {
+      "at": 3400,
+      "seat": {
+        "id": "basil",
+        "bubble": null,
+        "terminal": {
+          "seatState": "idle"
+        },
+        "signal": {
+          "kind": "blocked",
+          "text": "Which database should the migration run against?"
+        }
+      }
+    },
+    {
+      "at": 6600,
+      "seat": {
+        "id": "basil",
+        "signal": null,
+        "bubble": {
+          "text": "answered: Staging",
+          "provenance": "operator",
+          "action": "signal-clear",
+          "tone": "green"
+        }
+      }
+    },
+    {
+      "at": 7200,
+      "seat": {
+        "id": "basil",
+        "terminal": {
+          "seatState": "working"
+        }
+      }
+    },
+    {
+      "at": 9000,
+      "seat": {
+        "id": "basil",
+        "bubble": null
+      }
+    },
+    {
+      "at": 9200,
+      "pulse": {
+        "wire": "juniper-basil",
+        "kind": "notice",
+        "reverse": true
+      }
+    },
+    {
+      "at": 9500,
+      "seat": {
+        "id": "juniper",
+        "bubble": {
+          "text": "mail from basil: staging is migrated",
+          "provenance": "agent",
+          "action": "mail-in",
+          "tone": "violet"
+        }
+      }
+    },
+    {
+      "at": 12000,
+      "seat": {
+        "id": "juniper",
+        "bubble": null
+      }
+    }
+  ],
+  "loop": true
+}
