@@ -343,8 +343,6 @@ const onSubject = (subject: ThreadResourceSubject) => (row: Message): boolean =>
   switch (subject.kind) {
     case "task":
       return on.kind === "task" && on.taskId === subject.taskId;
-    case "artifact":
-      return on.kind === "artifact" && on.artifactId === subject.artifactId;
     case "file":
       return on.kind === "file" && on.path === subject.path;
   }

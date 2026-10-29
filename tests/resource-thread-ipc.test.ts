@@ -165,7 +165,7 @@ describe("threads on an artifact", () => {
     const before = applied(await post(artifactSubject, { opId: EARLY, text: "written on A" }));
     // The artifact moved to B: its next comment is held there, and both read as its threads.
     const moved = { ...portsOf(work), artifacts: { ...portsOf(work).artifacts, moves: () => Effect.succeed([{ from: asNodeId("A"), to: asNodeId("B"), by: { kind: "operator" }, at: 1 }]) } } as ResourceIpcPorts;
-    await run(work.workSubjectRow("factory", "B", { messageId: LATE, subject: { kind: "artifact", nodeId: "B", artifactId: ART } } as never));
+    await run(work.workSubjectRow("factory", "B", { messageId: LATE, subject: { kind: "artifact", nodeId: "B", artifactId: ART } } as never, { kind: "operator" } as never));
     const threads = await run(listThreads(moved, "factory", { kind: "artifact", nodeId: asNodeId("B"), artifactId: ART }));
     expect(threads.map((thread) => thread.threadId)).toContain(before.threadId);
     // Another artifact's comment on the old node stays its own.
