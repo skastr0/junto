@@ -11,6 +11,7 @@ import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "./view-state";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
 import type { SignalReply } from "./signal-reply";
+import type { SignalSecretPutRequest, SignalSecretPutResult } from "./vault";
 import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type { PageShotPurged, PageShotPurgeRequest } from "./page-shot";
 import type {
@@ -219,6 +220,7 @@ export const IPC_CHANNELS = {
   agentSignalsList: "junto:agent-signals-list",
   agentSignalRespond: "junto:agent-signal-respond",
   agentSignalReply: "junto:agent-signal-reply",
+  signalSecretPut: "junto:signal-secret-put",
   agentSignalDismiss: "junto:agent-signal-dismiss",
   /** Previews of files an agent names in its text: one guarded read, and reveal. */
   previewRead: "junto:preview-read",
@@ -768,6 +770,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
    * anything is written.
    */
   readonly agentSignalReply: (signalId: string, reply: SignalReply) => Promise<AgentSignalOperatorResult>;
+  /**
+   * Set the value a secret form asks for (0.12, N5), in the vault its region
+   * declares, for the machine that reads it. The value goes to the vault and
+   * nowhere else: it is never echoed, logged or stored, and the field is
+   * cleared after the attempt.
+   */
+  readonly signalSecretPut: (request: SignalSecretPutRequest) => Promise<SignalSecretPutResult>;
   /** Close an open signal without mail. */
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
   /**

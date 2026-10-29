@@ -18,7 +18,12 @@ import { isThisMachine } from "@shared/machine-identity";
 import type { Canvas, Region } from "@shared/model";
 import type { EnvSource } from "@shared/model/region";
 import { asNodeId } from "@shared/physics/schema";
-import { isRefInVault, type VaultPermissions } from "@shared/vault";
+import {
+  isRefInVault,
+  type SignalSecretPutReason,
+  type SignalSecretPutResult,
+  type VaultPermissions,
+} from "@shared/vault";
 import type { AgentSignal } from "@shared/agent-signals";
 import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
 import { MachineRepository } from "../machines/repository";
@@ -31,15 +36,9 @@ import { WorkService } from "../work/service";
 import { makeVaultTokens } from "./repository";
 import { readVaultToken } from "./token-file";
 
-/** The closed reasons a put refuses for; each has its own sentence. */
-export type SecretPutReason =
-  | "off" | "not-open" | "not-declared" | "not-in-vault" | "other-machine-store"
-  | "no-vault-token" | "token-refused" | "rate-limited" | "op-missing" | "store-failed";
-
-export type SecretPutResult =
-  /** The value is set; `signal` is the answered signal, absent when the answer could not be recorded. */
-  | { readonly ok: true; readonly item: string; readonly signal?: AgentSignal; readonly messageId?: string }
-  | { readonly ok: false; readonly reason: SecretPutReason; readonly message: string };
+/** The closed reasons and the answer shape are the window's contract: `@shared/vault`. */
+export type SecretPutReason = SignalSecretPutReason;
+export type SecretPutResult = SignalSecretPutResult;
 
 /** Longer than any environment value a seat would read, under what one stdin write carries. */
 export const SIGNAL_SECRET_VALUE_MAX = 16_384;

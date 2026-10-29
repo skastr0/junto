@@ -14,6 +14,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.message-append",
   "ipc.work.signal-answer",
   "ipc.work.signal-reply",
+  "ipc.work.signal-secret-put",
   "ipc.work.signal-dismiss",
   "ipc.resource.task-apply",
   "ipc.resource.artifact-apply",

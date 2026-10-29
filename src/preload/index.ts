@@ -485,6 +485,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text, options),
   agentSignalReply: (signalId, reply) =>
     invoke(IPC_CHANNELS.agentSignalReply, IPC_TIMEOUT_MS, signalId, reply),
+  signalSecretPut: (request) => invoke(IPC_CHANNELS.signalSecretPut, IPC_TIMEOUT_MS, request),
   agentSignalDismiss: (signalId) =>
     invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
   previewRead: (request) => invoke(IPC_CHANNELS.previewRead, IPC_TIMEOUT_MS, request),

@@ -5,6 +5,7 @@
  * service-account token per machine.
  */
 import { Schema } from "effect";
+import type { AgentSignal } from "./agent-signals";
 
 /**
  * A 1Password vault name as Junto passes it. Never `:` or `,`, which would add
@@ -33,6 +34,42 @@ export const RegionVault = Schema.Struct({
   vault: VaultName,
 });
 export type RegionVault = typeof RegionVault.Type;
+
+/**
+ * The window hands a secret form's value to main (0.12, N5). The signal and
+ * the value are all it says: the region, the machine and the name come from
+ * the form the raise stored, never from the caller, so a value can only go
+ * where a region that seat reads declares it.
+ */
+export const SignalSecretPutRequest = Schema.Struct({
+  signalId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  /** The typed value: it goes to the vault and nowhere else. Never echoed, logged or stored here. */
+  value: Schema.String,
+});
+export type SignalSecretPutRequest = typeof SignalSecretPutRequest.Type;
+
+/** The closed reasons a secret's value was not set; each has its own sentence. */
+export const SIGNAL_SECRET_PUT_REASONS = [
+  "off",
+  "not-open",
+  "not-declared",
+  "not-in-vault",
+  "other-machine-store",
+  "no-vault-token",
+  "token-refused",
+  "rate-limited",
+  "op-missing",
+  "store-failed",
+] as const;
+export type SignalSecretPutReason = (typeof SIGNAL_SECRET_PUT_REASONS)[number];
+
+/**
+ * The answer, names only. `ok` with no signal means the value is set but the
+ * answer was not recorded, so the signal stays open and the pane says so.
+ */
+export type SignalSecretPutResult =
+  | { readonly ok: true; readonly item: string; readonly signal?: AgentSignal; readonly messageId?: string }
+  | { readonly ok: false; readonly reason: SignalSecretPutReason; readonly message: string };
 
 /** Does this `op://` reference point inside the vault, by its exact name. */
 export const isRefInVault = (ref: string, vault: string): boolean => ref.startsWith(`op://${vault}/`);

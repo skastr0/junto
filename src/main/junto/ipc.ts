@@ -22,6 +22,12 @@ import {
 } from "./work/operator-threads";
 import { OperatorAttachments, OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
+import { SignalSecretPutRequest } from "@shared/vault";
+import { putSignalSecret } from "./vault/secret-put";
+import { resolveJuntoHome } from "@shared/junto-home";
+import { homedir } from "node:os";
+import { resolvedSpawnEnv } from "./adapters/exec";
+import { runTool } from "./region-env/tool";
 import { putOperatorContent } from "./content/operator-attachments";
 import {
   IPC_CHANNELS,
@@ -664,6 +670,41 @@ export const registerJuntoIpc = (): void => {
         void messageDelivery
           .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
           .catch(() => undefined);
+      }
+      return result;
+    },
+  );
+  // The value a secret form asks for (0.12, N5): the window sends the signal
+  // and the value only; main reads the region, the machine and the name from
+  // the form the raise stored, writes through the vault's own port, and keeps
+  // nothing but names. The value is never echoed, logged or answered with.
+  privilegedIpc.handle(
+    IPC_CHANNELS.signalSecretPut,
+    async (_event, request: SignalSecretPutRequest) => {
+      const decoded = Schema.decodeUnknownResult(SignalSecretPutRequest)(request);
+      if (Result.isFailure(decoded)) return { ok: false as const, reason: "store-failed" as const, message: "The secret could not be read." };
+      const result = await runMainAuthoring("ipc.work.signal-secret-put", () =>
+        AppRuntime.runPromise(
+          putSignalSecret(decoded.success, {
+            home: resolveJuntoHome(),
+            userHome: homedir(),
+            run: runTool,
+            path: async () => (await resolvedSpawnEnv()).PATH,
+          }),
+        ),
+      ).catch((error: unknown) => ({
+        ok: false as const,
+        reason: "store-failed" as const,
+        message: error instanceof Error ? error.message : "the secret could not be set",
+      }));
+      if (result.ok && result.signal !== undefined) {
+        raisedHands.note(result.signal);
+        broadcast(IPC_CHANNELS.agentSignal, result.signal);
+        if (result.messageId !== undefined) {
+          void messageDelivery
+            .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
+            .catch(() => undefined);
+        }
       }
       return result;
     },
