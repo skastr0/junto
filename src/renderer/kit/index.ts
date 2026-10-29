@@ -9,6 +9,8 @@
  * the detail tier or saved portraits.
  */
 
+import "./kit.css";
+
 export {
   AgentSeatView,
   SeatName,

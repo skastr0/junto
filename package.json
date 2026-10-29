@@ -31,6 +31,7 @@
     "typecheck": "tsrs --noEmit --incremental --tsBuildInfoFile .tsrs.tsbuildinfo",
     "typecheck:tsc": "tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo",
     "theme:build": "bun scripts/theme-build.ts",
+    "kit:build": "bun scripts/kit-build.ts",
     "schema:identity": "bun scripts/schema-identity.ts",
     "lint:product-name": "bun scripts/lint-product-name.ts",
     "lint:no-middot": "bun scripts/lint-no-middot.ts",

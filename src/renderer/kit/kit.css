@@ -1,0 +1,5 @@
+/* The kit's one sheet: the app's own styles (tokens, Tailwind utilities, the
+   seat, ring and canvas rules), so a seat drawn on the site is the seat the
+   app draws. The kit build also writes every root and bright-theme selector
+   for :host, so the sheet works inside a shadow root (vite.kit.config.ts). */
+@import "../styles.css";
