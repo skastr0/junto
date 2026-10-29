@@ -352,6 +352,11 @@ The one interface three seats build against.
     version, model ids and permission mode names, and its harness settings
     read and written by closed key (Harness inventory, below). Nothing else,
     and nothing a caller chose to probe.
+  - `consensus`: Raft messages between the machines on a canvas's
+    authority list (plan 0.11/06), batched per machine pair
+    (`remote-core`). No handler is bound yet.
+  - `authority`: operator and overseer commands forwarded to a canvas's
+    authority (06 F4, `canvas-lead`). No handler is bound yet.
 - `rows` events are windowed by the sender. No more than 1 MiB and one byte,
   counted as the peer reads them, are out without the peer's `credit`, which
   it returns once their handlers finish. A send waits for credit before it
