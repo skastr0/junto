@@ -177,7 +177,8 @@
 }
 
 .operator-feed__search:focus-visible {
-  border-color: var(--color-cyan);
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
 }
 
 .operator-feed__chips {
@@ -208,10 +209,17 @@
   color: var(--color-ink);
 }
 
+/* Pressed: the amber mark on the border, the words in their text form, and a
+   check ahead of them so the state reads without colour. */
 .operator-feed__filter-chip[aria-pressed="true"] {
   border-color: var(--color-amber);
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   background: var(--color-overlay-2);
+}
+
+.operator-feed__filter-chip:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
 }
 
 .operator-feed__filter-count {

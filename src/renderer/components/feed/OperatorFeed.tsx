@@ -39,6 +39,7 @@ import {
   ArrowBigUpDash,
   ArrowUpRight,
   Bell,
+  Check,
   CirclePause,
   Inbox,
   MessageCircleQuestion,
@@ -939,6 +940,7 @@ export function OperatorFeed() {
                 aria-pressed={feedKinds.includes(chip.kind)}
                 onClick={() => toggleFeedKind(chip.kind)}
               >
+                {feedKinds.includes(chip.kind) ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
                 {chip.label}
                 <span className="operator-feed__filter-count" aria-hidden>
                   {chip.count}
@@ -957,6 +959,7 @@ export function OperatorFeed() {
                 aria-pressed={feedSeats.includes(chip.seatId)}
                 onClick={() => toggleFeedSeat(chip.seatId)}
               >
+                {feedSeats.includes(chip.seatId) ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
                 {chip.name}
                 <span className="operator-feed__filter-count" aria-hidden>
                   {chip.count}
