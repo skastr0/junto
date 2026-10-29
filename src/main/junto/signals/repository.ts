@@ -17,7 +17,7 @@ import {
   type WorkTiming,
 } from "@shared/agent-signals";
 import type { ContentRef } from "@shared/wire/content-ref";
-import type { SignalReplyArtifact } from "@shared/agent-signals";
+import { SignalReplySecret, type SignalReplyArtifact } from "@shared/agent-signals";
 import { StateTransactionOperation } from "../state/service";
 import { emitAgentSignalChanged } from "./changes";
 
@@ -221,7 +221,9 @@ const ANSWER_FILE_PART_KIND = "answer-file";
  */
 export type SignalReplyRecord =
   | { readonly kind: "artifact"; readonly nodeId: string; readonly artifactId: string; readonly title: string; readonly words: number }
-  | { readonly kind: "links"; readonly links: ReadonlyArray<string> };
+  | { readonly kind: "links"; readonly links: ReadonlyArray<string> }
+  /** A vault write's record: names only, never the value (0.12, N5). */
+  | ({ readonly kind: "secret" } & SignalReplySecret);
 
 const ANSWER_REPLY_PART_KIND = "answer-reply";
 
@@ -271,18 +273,29 @@ const COLUMNS = columnsOf("agent_signals");
 /** Written only by `answer` below, from refs main claimed. */
 const answerFilesOf = (json: string): ReadonlyArray<ContentRef> => JSON.parse(json) as ReadonlyArray<ContentRef>;
 
-/** The reply a work form's answer left: its document, or its proof's addresses. */
-const replyOf = (json: string | null): { readonly artifact?: SignalReplyArtifact; readonly links?: ReadonlyArray<string> } => {
+/**
+ * The reply a work form's answer left: its document, its proof's addresses, or
+ * the names a secret went to. A secret's value is never part of this record.
+ */
+const replyOf = (
+  json: string | null,
+): { readonly artifact?: SignalReplyArtifact; readonly links?: ReadonlyArray<string>; readonly secret?: SignalReplySecret } => {
   if (json === null) return {};
   const decoded = Schema.decodeUnknownOption(Schema.Union([
     Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: Schema.String, artifactId: Schema.String, title: Schema.String, words: Schema.Number }),
     Schema.Struct({ kind: Schema.Literal("links"), links: Schema.Array(Schema.String) }),
+    Schema.Struct({ kind: Schema.Literal("secret"), ...SignalReplySecret.fields }),
   ]))(JSON.parse(json));
   if (Option.isNone(decoded)) return {};
   const record = decoded.value;
-  return record.kind === "artifact"
-    ? { artifact: { nodeId: asNodeId(record.nodeId), artifactId: ItemId.make(record.artifactId), title: record.title, words: record.words } }
-    : { links: record.links };
+  switch (record.kind) {
+    case "artifact":
+      return { artifact: { nodeId: asNodeId(record.nodeId), artifactId: ItemId.make(record.artifactId), title: record.title, words: record.words } };
+    case "links":
+      return { links: record.links };
+    case "secret":
+      return { secret: { item: record.item, name: record.name, regionId: record.regionId, machine: record.machine, setAt: record.setAt } };
+  }
 };
 
 type PartJson = {

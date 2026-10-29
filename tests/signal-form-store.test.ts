@@ -63,6 +63,38 @@ describe("a signal's source, timing and form", () => {
     expect(raised.work).toBeUndefined();
   });
 
+  it("records a secret's names on the answer and never its value", async () => {
+    const raised = await run(
+      Effect.flatMap(AgentSignalRepository, (r) =>
+        r.raise({
+          ...seat,
+          kind: "blocked",
+          text: "Need the Cloudflare token.",
+          form: { kind: "secret", name: "CLOUDFLARE_TOKEN", regionId: "forge", machine: "studio" },
+        }),
+      ),
+    );
+    const answered = await run(
+      Effect.flatMap(AgentSignalRepository, (r) =>
+        r.answer(raised.signalId, "CLOUDFLARE_TOKEN is set.", [], {
+          kind: "secret",
+          item: "op://Junto/Cloudflare/token",
+          name: "CLOUDFLARE_TOKEN",
+          regionId: "forge",
+          machine: "studio",
+          setAt: 1_790_000_000_000,
+        }),
+      ),
+    );
+    expect(answered.response?.secret).toEqual({
+      item: "op://Junto/Cloudflare/token",
+      name: "CLOUDFLARE_TOKEN",
+      regionId: "forge",
+      machine: "studio",
+      setAt: 1_790_000_000_000,
+    });
+  });
+
   it("reads a seat's own signal with no source, and keeps its form", async () => {
     const plain = await run(Effect.flatMap(AgentSignalRepository, (r) => r.raise({ ...seat, kind: "blocked", text: "Need the key." })));
     expect(plain.source).toBeUndefined();
