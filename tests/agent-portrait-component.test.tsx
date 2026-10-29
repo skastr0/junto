@@ -8,6 +8,7 @@ vi.mock("../src/renderer/lib/theme-mode", async () => {
 
 const { AgentPortrait, agentPortraitSrc } = await import("../src/renderer/components/AgentPortrait");
 const { portraitOverrides$ } = await import("../src/renderer/lib/portrait-overrides-state");
+const { LiveSeatViewSource } = await import("../src/renderer/components/LiveSeatViewSource");
 const { seatPortraitMood } = await import("../src/renderer/lib/portrait-mood");
 
 describe("AgentPortrait", () => {
@@ -36,8 +37,11 @@ describe("AgentPortrait", () => {
 
   it("wears the seat's saved override and picks a face from its mood", () => {
     portraitOverrides$.set({ "node-9": { temperament: 1, shape: "toast" } });
+    // Saved overrides reach a portrait through the app's live source.
     const html = renderToStaticMarkup(
-      <AgentPortrait identity="node-9" size={36} frame="round" mood={{ activity: "work", health: "stuck" }} />,
+      <LiveSeatViewSource>
+        <AgentPortrait identity="node-9" size={36} frame="round" mood={{ activity: "work", health: "stuck" }} />
+      </LiveSeatViewSource>,
     );
     expect(html).toContain('data-expression="determined"');
     expect(html).toContain(

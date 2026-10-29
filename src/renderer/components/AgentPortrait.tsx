@@ -1,4 +1,3 @@
-import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import {
   portraitCharacter,
@@ -13,8 +12,7 @@ import { EXPRESSION_FACES, portraitExpression, type PortraitExpression } from "@
 import type { ThemeMode } from "@shared/theme";
 import type { PortraitMood } from "../lib/portrait-mood";
 import { bundledCosmeticsRevision } from "../lib/cosmetics";
-import { portraitOverrides$, startPortraitOverrides } from "../lib/portrait-overrides-state";
-import { themeMode$ } from "../lib/theme-mode";
+import { useSeatPortraitConfig, useSeatTheme } from "./seat-view-source";
 import { HarnessMark } from "./HarnessMark";
 import "./AgentPortrait.css";
 
@@ -61,10 +59,7 @@ export function agentPortraitSrc(
 }
 
 /** The operator's saved override for a seat (junto.db portrait_overrides), if any. */
-export const usePortraitConfig = (identity: string): PortraitConfig | undefined => {
-  startPortraitOverrides();
-  return use$(() => portraitOverrides$[identity].get()) as PortraitConfig | undefined;
-};
+export const usePortraitConfig = (identity: string): PortraitConfig | undefined => useSeatPortraitConfig(identity);
 
 const FADE_MS = 220;
 
@@ -111,7 +106,7 @@ export function AgentPortrait({
   mood,
   expression: expressionProp,
 }: AgentPortraitProps) {
-  const liveMode = use$(themeMode$);
+  const liveMode = useSeatTheme();
   const mode = theme ?? liveMode;
   const saved = usePortraitConfig(identity);
   const config = configProp ?? saved;

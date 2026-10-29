@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from "react";
-import { use$ } from "@legendapp/state/react";
 import type { AgentSignalKind } from "@shared/agent-signals";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import {
@@ -14,10 +13,8 @@ import {
 import { MARK_PHASE_MS } from "@shared/rings";
 import { ensureMarkAtlas, ringCells, type RingParts } from "../lib/activity-atlas";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
-import { canvasTier$ } from "../lib/canvas-tier";
 import { isCovered, onCoverChange, watchCoverable } from "../lib/mark-occlusion";
-import { surfaceMotionLive$ } from "../lib/surface-motion";
-import { themeMode$ } from "../lib/theme-mode";
+import { useSeatTheme, useSeatTier, type Readable } from "./seat-view-source";
 
 export type ActivityMarkProps = {
   readonly mode: ActivityMode;
@@ -112,6 +109,10 @@ const visible = new Set<HTMLElement>();
 let observer: IntersectionObserver | undefined;
 let unsubMotion: (() => void) | undefined;
 
+/** Whether the window's motion is on; the app sets its gate (setMarkMotionSource). */
+const ALWAYS_LIVE: Readable<boolean> = { get: () => true, subscribe: () => () => undefined };
+let motionSource: Readable<boolean> = ALWAYS_LIVE;
+
 /**
  * Every ring runs on one clock: a part starts its animation when it shows,
  * so its delay is set to where that clock stands. The clock is wall time,
@@ -123,7 +124,18 @@ const syncPhase = (el: HTMLElement): void => {
 
 /** Motion back on (window shown again): the parts restart, so resync them. */
 const onMotion = (): void => {
-  if (surfaceMotionLive$.peek()) for (const el of visible) syncPhase(el);
+  if (motionSource.get()) for (const el of visible) syncPhase(el);
+};
+
+/**
+ * The app's motion gate (surface-motion.ts), so the marks resync when motion
+ * comes back. Unset, motion is always on: nothing pauses it to resync after.
+ */
+export const setMarkMotionSource = (source: Readable<boolean> | undefined): void => {
+  unsubMotion?.();
+  unsubMotion = undefined;
+  motionSource = source ?? ALWAYS_LIVE;
+  if (visible.size > 0) unsubMotion = motionSource.subscribe(onMotion);
 };
 
 /**
@@ -141,7 +153,7 @@ const setVisible = (el: Element, on: boolean): void => {
     syncPhase(el);
     el.setAttribute("data-mark-visible", "");
     visible.add(el);
-    unsubMotion ??= surfaceMotionLive$.onChange(onMotion);
+    unsubMotion ??= motionSource.subscribe(onMotion);
   } else if (!on && visible.has(el)) {
     el.removeAttribute("data-mark-visible");
     visible.delete(el);
@@ -320,8 +332,8 @@ export function ActivityMark({
   unit,
   crest = false,
 }: ActivityMarkProps) {
-  const theme = use$(themeMode$);
-  const tier = use$(canvasTier$);
+  const theme = useSeatTheme();
+  const tier = useSeatTier();
   const ref = useRef<HTMLSpanElement>(null);
   const drawn = resolveActivityGlyph(mode, tone, glyph);
   const { core, band, ring } = ringCells({

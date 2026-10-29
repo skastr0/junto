@@ -13,6 +13,7 @@ import { startThemeMode } from "./lib/theme-mode";
 import { installIpcAutomationsSource } from "./lib/automations-ipc-source";
 import { installIpcBrowserChrome } from "./lib/browser-chrome-ipc";
 import { installFileDraftsUnloadGuard, settleFileDrafts } from "./lib/files-drafts-settle";
+import { LiveSeatViewSource } from "./components/LiveSeatViewSource";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -209,7 +210,9 @@ const mount = (createRoot: CreateRoot, reactBuild: ReactProfilerBuild): void => 
   startCanvasPerformanceHarness({ reactBuild });
   const tree = (
     <StrictMode>
-      <AppRoot />
+      <LiveSeatViewSource>
+        <AppRoot />
+      </LiveSeatViewSource>
     </StrictMode>
   );
   createRoot(root).render(
