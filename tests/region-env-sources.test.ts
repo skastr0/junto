@@ -13,6 +13,7 @@ import type { EnvSource } from "../src/shared/model/region";
 import {
   OP_TOKEN_NAME,
   expandHome,
+  liveVaultDeps,
   makeEnvSourceResolver,
   staticNamesOf,
   type SourceContext,
@@ -189,20 +190,20 @@ describe("onepassword", () => {
     expect(calls[0]!.command).toBe("op");
     expect(calls[0]!.args).toEqual(["read", "--no-newline", "op://Dev/GitHub/token"]);
     expect(calls[0]!.args.join(" ")).not.toContain(TOKEN);
-    expect(calls[0]!.env).toEqual({ PATH: "/usr/bin", HOME: home, [OP_TOKEN_NAME]: TOKEN });
+    expect(calls[0]!.env).toEqual({ PATH: "/usr/bin", [OP_TOKEN_NAME]: TOKEN });
     // The app's own environment never learns the token.
     expect(process.env[OP_TOKEN_NAME]).toBe("fake-ambient-service-account-token");
   });
 
-  it("an explicit tokenFrom closes op's environment to the token, PATH and HOME, without changing the base", async () => {
+  it("an explicit tokenFrom wins over inherited Connect credentials without changing the base", async () => {
     const base = {
-      PATH: "/usr/bin", OP_CONNECT_HOST: "https://connect.example.invalid", SECRET_LIKE: "not-for-op",
+      PATH: "/usr/bin", OP_CONNECT_HOST: "https://connect.example.invalid",
       OP_CONNECT_TOKEN: "fake-connect-token", [OP_TOKEN_NAME]: "fake-ambient-token",
     };
     await resolver(() => ({ kind: "ok", stdout: "v" }), {
       toolEnv: async () => base,
     }).resolve({ ...source, tokenFrom: "k" }, { resolved: () => ({ TEST_TOKEN: TOKEN }) });
-    expect(calls[0]!.env).toEqual({ PATH: "/usr/bin", HOME: home, [OP_TOKEN_NAME]: TOKEN });
+    expect(calls[0]!.env).toEqual({ PATH: "/usr/bin", [OP_TOKEN_NAME]: TOKEN });
     expect(base.OP_CONNECT_TOKEN).toBe("fake-connect-token");
     expect(base[OP_TOKEN_NAME]).toBe("fake-ambient-token");
   });
@@ -455,14 +456,14 @@ describe("the law for every kind", () => {
 describe("onepassword, a vault reference read with this machine's token (docs/machines.md, The vault)", () => {
   const VAULT_TOKEN = "ops_test-only-machine-vault-token-0123456789";
   const inVault = src({ id: "v", kind: "onepassword", name: "API_KEY", ref: "op://Junto/api/credential" });
-  const own = async () => ({ vault: "Junto", token: VAULT_TOKEN });
+  const vault = { ownToken: async () => ({ vault: "Junto", token: VAULT_TOKEN }) };
   const ambient = {
     PATH: "/opt/bin:/usr/bin", OP_CONNECT_HOST: "https://connect.example.invalid", OP_CONNECT_TOKEN: "fake-connect-token",
     [OP_TOKEN_NAME]: "fake-ambient-token", OP_SESSION_x: "fake-session", AWS_SECRET_ACCESS_KEY: "fake-aws",
   };
 
   it("runs op with exactly the token, PATH and HOME: no Connect variable, no session, nothing else", async () => {
-    const out = await resolver(() => ({ kind: "ok", stdout: "resolved-api-key" }), { toolEnv: async () => ambient, vaultToken: own }).resolve(inVault, nothing);
+    const out = await resolver(() => ({ kind: "ok", stdout: "resolved-api-key" }), { toolEnv: async () => ambient, vault }).resolve(inVault, nothing);
     expect(out).toEqual({ status: "ok", values: { API_KEY: "resolved-api-key" } });
     expect(calls[0]!.env).toEqual({ [OP_TOKEN_NAME]: VAULT_TOKEN, PATH: "/opt/bin:/usr/bin", HOME: home });
     expect(calls[0]!.args).toEqual(["read", "--no-newline", "op://Junto/api/credential"]);
@@ -470,29 +471,46 @@ describe("onepassword, a vault reference read with this machine's token (docs/ma
     expectNoSecret(out, VAULT_TOKEN);
   });
 
-  it("never sends this machine's token to a reference outside its vault", async () => {
-    await resolver(() => ({ kind: "ok", stdout: "v" }), { vaultToken: own }).resolve({ ...inVault, ref: "op://Personal/api/credential" }, nothing);
-    await resolver(() => ({ kind: "ok", stdout: "v" }), { vaultToken: own }).resolve({ ...inVault, ref: "op://Junto-other/api/credential" }, nothing);
-    for (const call of calls) expect(JSON.stringify(call.env)).not.toContain(VAULT_TOKEN);
-  });
-
-  it("an explicit tokenFrom wins over this machine's token", async () => {
-    await resolver(() => ({ kind: "ok", stdout: "v" }), { vaultToken: own }).resolve(
+  it("closes op's environment for an explicit tokenFrom too, and that token wins over this machine's", async () => {
+    await resolver(() => ({ kind: "ok", stdout: "v" }), { toolEnv: async () => ambient, vault }).resolve(
       { ...inVault, tokenFrom: "k" },
       { resolved: (id) => (id === "k" ? { [OP_TOKEN_NAME]: TOKEN } : undefined) },
     );
-    expect(calls[0]!.env).toEqual({ [OP_TOKEN_NAME]: TOKEN, PATH: "/usr/bin", HOME: home });
+    expect(calls[0]!.env).toEqual({ [OP_TOKEN_NAME]: TOKEN, PATH: "/opt/bin:/usr/bin", HOME: home });
+  });
+
+  it("never sends this machine's token to a reference outside its vault", async () => {
+    await resolver(() => ({ kind: "ok", stdout: "v" }), { vault }).resolve({ ...inVault, ref: "op://Personal/api/credential" }, nothing);
+    await resolver(() => ({ kind: "ok", stdout: "v" }), { vault }).resolve({ ...inVault, ref: "op://Junto-other/api/credential" }, nothing);
+    for (const call of calls) expect(JSON.stringify(call.env)).not.toContain(VAULT_TOKEN);
   });
 
   it("with no token on this machine, or one it cannot read, op goes to the desktop app as before", async () => {
-    await resolver(() => ({ kind: "ok", stdout: "v" }), { vaultToken: async () => undefined }).resolve(inVault, nothing);
-    await resolver(() => ({ kind: "ok", stdout: "v" }), { vaultToken: () => Promise.reject(new Error("unreadable")) }).resolve(inVault, nothing);
+    await resolver(() => ({ kind: "ok", stdout: "v" }), { vault: { ownToken: async () => undefined } }).resolve(inVault, nothing);
+    await resolver(() => ({ kind: "ok", stdout: "v" }), { vault: { ownToken: () => Promise.reject(new Error("unreadable")) } }).resolve(inVault, nothing);
     expect(calls.map((call) => call.env)).toEqual([{ PATH: "/usr/bin" }, { PATH: "/usr/bin" }]);
   });
 
   it("a refused token says so without the token", async () => {
-    const out = await resolver(() => ({ kind: "exit", code: 1, stdout: "", stderr: `[ERROR] invalid token ${VAULT_TOKEN}` }), { vaultToken: own }).resolve(inVault, nothing);
+    const out = await resolver(() => ({ kind: "exit", code: 1, stdout: "", stderr: `[ERROR] invalid token ${VAULT_TOKEN}` }), { vault }).resolve(inVault, nothing);
     expect(out).toEqual({ status: "error", names: ["API_KEY"], reason: "1Password refused the service account token." });
     expectNoSecret(out, VAULT_TOKEN);
+  });
+});
+
+describe("onepassword with the vault off (VAULT_ENABLED false, the ship build)", () => {
+  const inVault = src({ id: "v", kind: "onepassword", name: "API_KEY", ref: "op://Junto/api/credential" });
+
+  it("the live resolver gets no vault at all, so no vault token is ever read", () => {
+    expect(liveVaultDeps(false)).toEqual({});
+    expect(Object.keys(liveVaultDeps(true))).toEqual(["vault"]);
+  });
+
+  it("a source reads exactly as before the vault: the app's environment, less Connect, plus the tokenFrom token", async () => {
+    const base = { PATH: "/usr/bin", OP_CONNECT_HOST: "https://connect.example.invalid", OP_CONNECT_TOKEN: "fake-connect-token", OTHER: "kept" };
+    const off = resolver(() => ({ kind: "ok", stdout: "v" }), { toolEnv: async () => base, ...liveVaultDeps(false) });
+    await off.resolve(inVault, nothing);
+    await off.resolve({ ...inVault, tokenFrom: "k" }, { resolved: () => ({ [OP_TOKEN_NAME]: TOKEN }) });
+    expect(calls.map((call) => call.env)).toEqual([base, { PATH: "/usr/bin", OTHER: "kept", [OP_TOKEN_NAME]: TOKEN }]);
   });
 });

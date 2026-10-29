@@ -17,6 +17,7 @@ import { Effect } from "effect";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { EnvSource } from "@shared/model/region";
+import { VAULT_ENABLED } from "@shared/features";
 import { isRefInVault } from "@shared/vault";
 import type {
   EnvSourceResolver,
@@ -39,10 +40,15 @@ export type SourceDeps = {
   /** Environment external tools run with (the app's resolved PATH). */
   readonly toolEnv: () => Promise<Readonly<Record<string, string | undefined>>>;
   /**
-   * This machine's vault token and the vault it is for (docs/machines.md,
-   * The vault), or none. Read for a reference that names no `tokenFrom`.
+   * The vault (docs/machines.md, The vault), present only when VAULT_ENABLED.
+   * With it, op runs in a closed environment under a token, and a reference
+   * that names no `tokenFrom` may read with this machine's own token. Absent,
+   * a source reads exactly as it did before the vault.
    */
-  readonly vaultToken?: () => Promise<{ readonly vault: string; readonly token: string } | undefined>;
+  readonly vault?: {
+    /** This machine's token and the vault it is for, or none. */
+    readonly ownToken: () => Promise<{ readonly vault: string; readonly token: string } | undefined>;
+  };
   readonly timeouts?: Partial<typeof DEFAULT_TIMEOUTS>;
 };
 
@@ -60,7 +66,16 @@ export const DEFAULT_TIMEOUTS = {
 /** The 1Password CLI reads its service account token from this name. */
 export const OP_TOKEN_NAME = "OP_SERVICE_ACCOUNT_TOKEN";
 
-/** The whole environment `op` runs with under a service account token: nothing else. */
+/** Explicit tokenFrom selects a service account; Connect credentials take precedence in op, so they go. */
+const withTokenOverConnect = (base: Readonly<Record<string, string | undefined>>, token: string): Record<string, string | undefined> => {
+  const env = { ...base };
+  delete env.OP_CONNECT_HOST;
+  delete env.OP_CONNECT_TOKEN;
+  env[OP_TOKEN_NAME] = token;
+  return env;
+};
+
+/** The whole environment `op` runs with under a service account token, with the vault: nothing else. */
 export const opServiceAccountEnv = (token: string, path: string | undefined, home: string): Readonly<Record<string, string>> => ({
   [OP_TOKEN_NAME]: token,
   ...(path === undefined ? {} : { PATH: path }),
@@ -221,7 +236,7 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
     let token: string | undefined;
     if (source.tokenFrom === undefined) {
       // A reference into this machine's vault reads with this machine's own token.
-      const own = await deps.vaultToken?.().catch(() => undefined);
+      const own = await deps.vault?.ownToken().catch(() => undefined);
       if (own !== undefined && isRefInVault(source.ref, own.vault)) token = own.token;
     } else {
       const from = context.resolved(source.tokenFrom);
@@ -244,11 +259,14 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
       }
     }
     const base = await deps.toolEnv();
-    // With a service account token, op's environment is closed: the token,
+    // With the vault, op's environment under a token is closed: the token,
     // PATH and HOME. OP_CONNECT_HOST and OP_CONNECT_TOKEN would override the
     // token and redirect the read, and nothing else is op's to see. Without
-    // one, op talks to the desktop app in the app's own environment.
-    const env = token === undefined ? base : opServiceAccountEnv(token, base.PATH, deps.home);
+    // the vault, the token joins the app's environment less the Connect
+    // credentials, as before. Without a token, op talks to the desktop app.
+    const env = token === undefined ? base
+      : deps.vault !== undefined ? opServiceAccountEnv(token, base.PATH, deps.home)
+      : withTokenOverConnect(base, token);
     const result = await deps.run({
       command: "op",
       args: ["read", "--no-newline", source.ref],
@@ -396,6 +414,10 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
 
 let live: EnvSourceResolver | undefined;
 
+/** The vault's part of the live resolver: nothing at all when the vault is off. */
+export const liveVaultDeps = (enabled: boolean): Pick<SourceDeps, "vault"> =>
+  enabled ? { vault: { ownToken: ownVaultToken } } : {};
+
 /** This machine's own scope record and token file; the core runtime is imported lazily, as `./live.ts` does. */
 const ownVaultToken = async (): Promise<{ readonly vault: string; readonly token: string } | undefined> => {
   const [{ coreRunner }, { MachineRepository }, { makeVaultTokens }, { readVaultToken }, { resolveJuntoHome }] = await Promise.all([
@@ -434,7 +456,7 @@ export const resolveEnvSource = (
       read: (secretId) => regionSecrets().read(secretId),
     },
     toolEnv: () => resolvedSpawnEnv(),
-    vaultToken: ownVaultToken,
+    ...liveVaultDeps(VAULT_ENABLED),
   });
   return live.resolve(source, context);
 };
