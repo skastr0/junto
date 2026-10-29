@@ -151,6 +151,8 @@ export type SurfaceKeyId =
   | "inList.first"
   | "inList.last"
   | "inList.open"
+  | "inArtifacts.move"
+  | "inArtifacts.extend"
   | "inQuickOpen.move"
   | "inQuickOpen.open"
   | "inFeed.reply"
@@ -657,6 +659,25 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Open the row and put the keyboard in it",
     keys: ["Enter"],
     where: ["working", "operator"],
+  }),
+
+  // The Artifacts node's list adds its own (0.11.1, 10): move rows to another
+  // node, and pick more than one row to move together.
+  surfaceKey({
+    id: "inArtifacts.move",
+    area: "Inside an artifact",
+    name: "Move to another node",
+    does: "Move the focused artifact, or the picked ones, to another Artifacts node",
+    keys: ["M"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inArtifacts.extend",
+    area: "Inside an artifact",
+    name: "Pick more rows",
+    does: "Pick the next or previous artifact as well, to move them together",
+    keys: ["Shift+ArrowDown", "Shift+ArrowUp"],
+    where: ["working"],
   }),
 
   // Quick open is a field the operator types in, so its moves are the ones a

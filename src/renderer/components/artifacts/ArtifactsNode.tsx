@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, History, Plus, Search } from "lucide-react";
+import { Archive, ArchiveRestore, FolderInput, History, Plus, Search } from "lucide-react";
 import {
   ARTIFACT_TYPES,
   emptyBody,
@@ -28,6 +28,7 @@ import {
   useNodePendingWrites,
   type ArtifactPendingWrite,
   useArtifactHistory,
+  useArtifactMoves,
   useNodeArtifacts,
 } from "../../lib/artifacts-source";
 import { FocusSurface } from "../FocusSurface";
@@ -36,6 +37,8 @@ import { ArtifactComments, ArtifactCommentsEdge } from "./ArtifactComments";
 import { LinkedFromList, linkedFromCount, useLinkedFrom } from "./LinkedFrom";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactKeys } from "./ArtifactKeys";
+import { ArtifactMoveDialog, ArtifactRowMenu, type MovingArtifact } from "./ArtifactMove";
+import { moveEntryTitle, movedLine, moveSetOf, rangeOf } from "./artifact-move-model";
 import { ArtifactLabelChips, ArtifactLabelFilter } from "./ArtifactLabelChips";
 import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
@@ -68,7 +71,8 @@ import "./artifacts.css";
 import { claimFocus, claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { commentsRailRef, setCommentsRailOpen, useCommentsRailOpen } from "../../lib/artifact-comments-rail";
 import { paneEntryOf } from "../../lib/pane-focus";
-import { useListNav } from "../../lib/list-nav";
+import { LIST_ROW_ATTRIBUTE, useListNav } from "../../lib/list-nav";
+import { keyIs } from "../../lib/key-match";
 import { topModal } from "../../lib/modal-stack";
 import { useQuickOpen } from "../quick-open/use-quick-open";
 
@@ -134,6 +138,67 @@ export function ArtifactsNode({
   const selected = entries.find((entry) => entry.artifact.artifactId === selectedId) ?? visible[0] ?? null;
   const archivedCount = entries.filter((entry) => entry.artifact.archived).length;
 
+  /**
+   * More rows picked beside the open one, to move together (0.11.1, 10 M2):
+   * Cmd or Ctrl and a press adds or drops one, Shift and a press or Shift and
+   * an arrow picks the run from the open row. A plain pick clears them.
+   */
+  const [picks, setPicks] = useState<ReadonlySet<string>>(() => new Set());
+  const order: ReadonlyArray<string> = visible.map(({ artifact }) => artifact.artifactId);
+  const openId = selected?.artifact.artifactId ?? null;
+  const selection = new Set(order.filter((id) => id === openId || picks.has(id)));
+  /** The picker, open on these rows; and the row menu, at its row. */
+  const [moving, setMoving] = useState<ReadonlyArray<MovingArtifact> | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ readonly row: string; readonly anchor: HTMLElement } | null>(null);
+  /** What the last move did, said once its rows have gone from the list. */
+  const [moved, setMoved] = useState<string | null>(null);
+  const openMove = (row: string | null): void => {
+    const ids = moveSetOf(order, selection, row);
+    const rows = ids.flatMap((id) => entries.filter((entry) => entry.artifact.artifactId === id));
+    if (rows.length > 0) setMoving(rows.map(({ artifact }) => ({ artifactId: artifact.artifactId, title: artifact.title })));
+  };
+  const pickRow = (id: string, how: { readonly add: boolean; readonly run: boolean }): void => {
+    setMoved(null);
+    if (how.run) {
+      setPicks(new Set(rangeOf(order, openId, id)));
+      return;
+    }
+    if (how.add && id !== openId) {
+      setPicks((held) => {
+        const next = new Set(held);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      });
+      return;
+    }
+    setPicks(new Set());
+    setSelectedId(id);
+    setError(null);
+  };
+  /** A row's own keys: M moves, Shift and an arrow picks one more, Shift+F10 or Menu opens its menu. */
+  const rowKeys = (event: React.KeyboardEvent<HTMLElement>): void => {
+    const row = (event.target as Element).closest?.(`[${LIST_ROW_ATTRIBUTE}]`);
+    const id = row?.getAttribute(LIST_ROW_ATTRIBUTE);
+    if (row == null || id == null || !order.includes(id) || event.nativeEvent.isComposing) return;
+    if (keyIs(event.nativeEvent, "inArtifacts.move")) {
+      event.preventDefault();
+      openMove(id);
+    } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+      event.preventDefault();
+      setRowMenu({ row: id, anchor: row as HTMLElement });
+    } else if (keyIs(event.nativeEvent, "inArtifacts.extend")) {
+      const at = order.indexOf(id);
+      const next = order[event.key === "ArrowUp" ? at - 1 : at + 1];
+      if (next === undefined) return;
+      event.preventDefault();
+      pickRow(next, { add: false, run: true });
+      requestAnimationFrame(() => {
+        const scope = topModal()?.container() ?? document.body;
+        claimFocus(scope.querySelector<HTMLElement>(`[${LIST_ROW_ATTRIBUTE}="${CSS.escape(next)}"]`), "gesture", { preventScroll: false });
+      });
+    }
+  };
+
   /** Rule one op. An edit's refusal is the editor's to show; any other op's shows on the node. */
   const apply = async (itemId: ItemId, op: ArtifactOp): Promise<ArtifactRuling> => {
     const ruling = await applyArtifactOp(canvasName, nodeId, itemId, op);
@@ -166,11 +231,9 @@ export function ArtifactsNode({
   const listNav = useListNav({
     ids: visible.map(({ artifact }) => artifact.artifactId),
     selected: selected?.artifact.artifactId ?? null,
-    onSelect: (id) => {
-      setSelectedId(id);
-      setError(null);
-    },
+    onSelect: (id) => pickRow(id, { add: false, run: false }),
     onOpen: (id) => {
+      setPicks(new Set());
       setSelectedId(id);
       setError(null);
       // A new pick mounts a new pane: find its content once it shows.
@@ -265,7 +328,15 @@ export function ArtifactsNode({
       </div>
       {/* A list holds list items only: each row sits in one, and the empty line sits outside it, where the rows would be. */}
       {visible.length === 0 && entries.length > 0 ? <p className="artifacts-list__none">No artifact matches.</p> : null}
-      <div className="artifacts-list" role="list" aria-label="Artifacts" onKeyDown={listNav.onKeyDown}>
+      <div
+        className="artifacts-list"
+        role="list"
+        aria-label="Artifacts"
+        onKeyDown={(event) => {
+          rowKeys(event);
+          listNav.onKeyDown(event);
+        }}
+      >
         {archived
           ? null
           : pendingCreates.map((write) => (
@@ -278,23 +349,43 @@ export function ArtifactsNode({
                 />
               </div>
             ))}
-        {visible.map(({ artifact }) => (
-          <div role="listitem" key={artifact.artifactId}>
-            <ListRow
-              leading={<ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={12} />}
-              title={artifact.title}
-              meta={ageLabel(artifact.updatedAt, now)}
-              selected={artifact.artifactId === selected?.artifact.artifactId}
-              pending={pending.some((write) => write.artifactId === artifact.artifactId)}
-              {...listNav.rowProps(artifact.artifactId)}
-              onClick={() => {
-                setSelectedId(artifact.artifactId);
-                setError(null);
-              }}
-            />
-          </div>
-        ))}
+        {visible.map(({ artifact }) => {
+          // Picked with others to move together: marked, and said after the title.
+          const picked = selection.size > 1 && selection.has(artifact.artifactId);
+          return (
+            <div role="listitem" key={artifact.artifactId} className="artifacts-list__item" data-picked={picked ? "true" : undefined}>
+              <ListRow
+                leading={<ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={12} />}
+                title={
+                  <>
+                    {artifact.title}
+                    {picked ? <span className="sr-only">, picked</span> : null}
+                  </>
+                }
+                meta={ageLabel(artifact.updatedAt, now)}
+                selected={artifact.artifactId === selected?.artifact.artifactId}
+                pending={pending.some((write) => write.artifactId === artifact.artifactId)}
+                {...listNav.rowProps(artifact.artifactId)}
+                onClick={(event) => pickRow(artifact.artifactId, { add: event.metaKey || event.ctrlKey, run: event.shiftKey })}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setRowMenu({ row: artifact.artifactId, anchor: event.currentTarget });
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
+      {selection.size > 1 ? (
+        <p className="artifacts-picked" role="status">
+          {selection.size} picked. M or Move to moves them together.
+        </p>
+      ) : null}
+      {moved === null ? null : (
+        <p className="artifacts-moved" role="status">
+          {moved}
+        </p>
+      )}
       {archivedCount > 0 || archived ? (
         <Button size="xs" variant="subtle" className="artifacts-archived-toggle" aria-pressed={archived} onClick={() => setArchived(!archived)}>
           {archived ? "Back to live artifacts" : `Archived ${archivedCount}`}
@@ -306,6 +397,35 @@ export function ArtifactsNode({
   return (
     <FocusSurface measure="workspace" height="immersive" label="Artifacts" onClose={onClose}>
       {quickOpen.palette}
+      {rowMenu === null ? null : (
+        <ArtifactRowMenu
+          anchor={rowMenu.anchor}
+          count={moveSetOf(order, selection, rowMenu.row).length}
+          onMove={() => openMove(rowMenu.row)}
+          onClose={(refocus) => {
+            if (refocus && rowMenu.anchor.isConnected) claimFocus(rowMenu.anchor, "gesture");
+            setRowMenu(null);
+          }}
+        />
+      )}
+      {moving === null ? null : (
+        <ArtifactMoveDialog
+          canvasName={canvasName}
+          from={nodeId}
+          artifacts={moving}
+          onCancel={() => setMoving(null)}
+          onDone={(done) => {
+            setMoving(null);
+            setPicks(new Set());
+            setMoved(movedLine(done.titles, done.queued, done.to.title));
+            // The rows went with the move: the keyboard waits on the list, where the next one is.
+            requestAnimationFrame(() => {
+              const list = topModal()?.container()?.querySelector<HTMLElement>(".artifacts-list");
+              claimFocus(list?.querySelector<HTMLElement>(`[${LIST_ROW_ATTRIBUTE}]`) ?? null, "gesture");
+            });
+          }}
+        />
+      )}
       {selected === null ? (
         <TwoPane keptBy={{ canvas: canvasName, node: nodeId }} sidebar={sidebar} sidebarLabel="Artifacts" sidebarWidth="narrow" mainLabel="Artifact">
           <PaneEmpty
@@ -335,6 +455,8 @@ export function ArtifactsNode({
           usedLabels={used}
           labelColours={colours}
           apply={(op) => apply(selected.artifact.artifactId, op)}
+          moveCount={moveSetOf(order, selection, null).length || 1}
+          onMove={() => (order.includes(selected.artifact.artifactId) ? openMove(null) : openMove(selected.artifact.artifactId))}
           createLinked={createLinked}
           onClose={onClose}
         />
@@ -355,10 +477,15 @@ function SelectedArtifact({
   usedLabels,
   labelColours,
   apply,
+  moveCount,
+  onMove,
   createLinked,
   onClose,
 }: {
   readonly onClose: () => void;
+  /** How many artifacts the header's Move to takes: this one, or every one picked with it. */
+  readonly moveCount: number;
+  readonly onMove: () => void;
   /** Make a document by a `[[` title in this node: its mention, or null when it was refused. */
   readonly createLinked: (title: string) => Promise<MentionOf<"artifact"> | null>;
   readonly canvasName: string;
@@ -381,6 +508,7 @@ function SelectedArtifact({
   const [draftAnchor, setDraftAnchor] = useState<Anchor | undefined>(undefined);
   const [title, setTitle] = useState(artifact.title);
   const history = useArtifactHistory(canvasName, mode === "history" ? artifact.artifactId : null);
+  const moves = useArtifactMoves(canvasName, mode === "history" ? artifact.artifactId : null);
   const subject = useMemo(
     () => ({ kind: "artifact" as const, nodeId: artifact.nodeId, artifactId: artifact.artifactId }),
     [artifact.nodeId, artifact.artifactId],
@@ -697,6 +825,15 @@ function SelectedArtifact({
         >
           <History size={14} />
         </IconButton>
+        <IconButton
+          aria-label={moveCount > 1 ? `Move ${String(moveCount)} artifacts to\u2026` : "Move to\u2026"}
+          title={moveCount > 1 ? `Move ${String(moveCount)} artifacts to\u2026` : "Move to\u2026"}
+          aria-haspopup="dialog"
+          size="sm"
+          onClick={onMove}
+        >
+          <FolderInput size={14} />
+        </IconButton>
         {artifact.taskIds.length > 0 || !readOnly ? (
           <ArtifactTasks
             taskIds={artifact.taskIds}
@@ -734,6 +871,8 @@ function SelectedArtifact({
         {mode === "history" ? (
           <ArtifactHistory
             versions={history}
+            moves={moves}
+            moveTitle={(move) => moveEntryTitle((id) => nodeAt(canvasName, id), move.from, move.to)}
             head={artifact.version}
             now={now}
             onRestore={(record) => {
