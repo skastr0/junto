@@ -601,7 +601,7 @@ const playChapter: TourChapter = {
       </p>
     </>
   ),
-  tryIt: [{ keys: ["⌘K", "Tab"], text: <>for actions, then <strong>Play canvas</strong>, or press the switch at the top right.</> }],
+  tryIt: [{ keys: ["⌘K", "Tab"], text: <>for actions, then <strong>Play canvas</strong>, or press the play button at the top right.</> }],
   pip: "eager",
 };
 
