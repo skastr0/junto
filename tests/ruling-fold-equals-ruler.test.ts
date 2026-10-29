@@ -329,8 +329,9 @@ describe("the fold equals the ruler", () => {
         await foldOnReplica(replica, ruled);
         const held = tablesOf(direct);
         expect(tablesOf(judged)).toEqual(held);
-        // A replica holds no ruling rows of its own here: the exchange keeps those as facts.
-        const resources = new Set(["resource_rulings", "installation"]);
+        // A replica holds no ruling rows of its own here: the exchange keeps those as facts. It seeds its own
+        // canvas rather than take a copy, so under all-on it lists itself where a copy would name the editor.
+        const resources = new Set(["resource_rulings", "installation", "canvas_authorities"]);
         expect(tablesOf(replica, resources)).toEqual(tablesOf(direct, resources));
         for (const store of stores.splice(0)) {
           await store.runtime.dispose();
@@ -543,7 +544,8 @@ describe("the fold equals the ruler, for artifacts", () => {
         const sameEverywhere = new Set(["installation", "known_installations"]);
         expect(await engineTablesOf(judged, sameEverywhere)).toEqual(await engineTablesOf(direct, sameEverywhere));
         // A replica holds the rulings as exchange rows, not as its own log.
-        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*"]);
+        // Seeding its own canvas, under all-on a replica lists itself where a copy would name the editor.
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvas_authorities"]);
         expect(await engineTablesOf(replica, resourcesOnly)).toEqual(byRefPending(await engineTablesOf(direct, resourcesOnly)));
         await closeEngines();
       }),
@@ -723,8 +725,9 @@ describe("the fold equals the ruler, for automations", () => {
         const tablesOfStore = (store: AutomationStore, leaveOut: ReadonlySet<string>) => engineTablesOf(store as unknown as EngineStore, leaveOut);
         const sameEverywhere = new Set(["installation", "known_installations", "machine_configuration"]);
         expect(await tablesOfStore(judged, sameEverywhere)).toEqual(await tablesOfStore(direct, sameEverywhere));
-        // A replica holds the rulings as exchange rows, and takes the canvas count from the copy, never the fold.
-        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases"]);
+        // A replica holds the rulings as exchange rows, and takes the canvas count from the copy, never the fold;
+        // seeding its own canvas, under all-on it lists itself where a copy would name the editor.
+        const resourcesOnly = new Set([...sameEverywhere, "resource_rulings", "work_*", "canvases", "canvas_authorities"]);
         expect(await tablesOfStore(replica, resourcesOnly)).toEqual(await tablesOfStore(direct, resourcesOnly));
         await closeAutomationStores();
       }),

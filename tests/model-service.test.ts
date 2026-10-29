@@ -5,6 +5,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import { Changed, Command } from "../src/shared/model";
 import { nodeFromRow } from "../src/main/junto/model/rows";
+import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../src/main/junto/fleet/state-schema";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
@@ -53,6 +54,8 @@ const run = (
           (db) => Effect.sync(() => db.close()),
         );
         db.exec(MODEL_STATE_SCHEMA_SQL);
+        // Each canvas's authority rows, which creating a canvas writes under all-on (0.11/06 F6).
+        db.exec(FLEET_CONSENSUS_STATE_SCHEMA_SQL);
         db.exec(`CREATE TABLE installation(singleton INTEGER PRIMARY KEY,installation_id TEXT);
           CREATE TABLE machine_configuration(singleton INTEGER PRIMARY KEY,machine_name TEXT);
           CREATE TABLE machine_peers(machine_name TEXT,installation_id TEXT,retired_at TEXT);
