@@ -92,6 +92,24 @@ it("the mounted command bar finds native region paths and opens current note con
   expect(Object.values(dock$.noteById.peek()).find((note) => note.nodeId === "subject")).toMatchObject({ title: "After", draft: "After\nCurrent content" });
 });
 
+it("the command bar's clear control clears on a click, the activation a keyboard or a reader produces", async () => {
+  publish({ ...rect, kind: "note", text: "Before\nOriginal content" });
+  await act(async () => root.render(<CommandBar />));
+  const input = document.querySelector<HTMLInputElement>('[data-testid="command-bar-input"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "before");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(input.value).toBe("before");
+
+  const clear = document.querySelector<HTMLButtonElement>(".command-bar__clear")!;
+  // Enter, Space and a screen reader's invoke on a button all arrive as this.
+  await act(async () => clear.click());
+
+  expect(input.value).toBe("");
+  expect(document.activeElement).toBe(input);
+});
+
 it("the command bar's native seat ring and line follow binding facts", async () => {
   publish({ ...rect, kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`, harness: "codex", host: THIS_MACHINE, bindingId: "native-bar-seat", overseer: true });
   await act(async () => root.render(<CommandBar />));

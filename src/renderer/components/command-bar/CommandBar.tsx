@@ -362,8 +362,11 @@ export function CommandBar() {
               type="button"
               className="command-bar__clear"
               aria-label="Clear search"
-              onPointerDown={(event) => {
-                event.preventDefault();
+              // A press must not pull the caret out of the field; the click is
+              // the clear, and it is the one activation a pointer, Enter or
+              // Space on the button, and a screen reader's invoke all produce.
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={(event) => {
                 setQuery("");
                 claimFocus(inputRef.current, "gesture", { event });
               }}
