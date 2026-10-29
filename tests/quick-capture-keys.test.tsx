@@ -236,6 +236,16 @@ describe("quick capture's own keys", () => {
     expect(isOperatorModalOpen()).toBe(false);
   });
 
+  it("moves through the list with the keyboard on the list itself", async () => {
+    act(() => list().focus());
+    await press(list(), bare("ArrowDown"));
+    expect(activeTitle()).toBe("Plan");
+    await press(list(), bare("ArrowDown"));
+    expect(activeTitle()).toBe("Later");
+    await press(list(), bare("ArrowUp"));
+    expect(activeTitle()).toBe("Plan");
+  });
+
   it("moves the focused artifact with M from the list, where the keyboard can sit", async () => {
     await press(search(), bare("ArrowDown"));
     expect(activeTitle()).toBe("Plan");
