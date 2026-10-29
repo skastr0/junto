@@ -20,8 +20,9 @@ export {
 } from "../components/nodes/AgentSeatView";
 export { PreambleBubbleView } from "../components/nodes/PreambleBubbleView";
 export { PulseHold, PulseStrips } from "../components/edges/WirePulseView";
-export { ActivityMark, ActivityMarkFromSpec } from "../components/ActivityMark";
+export { ActivityMark, ActivityMarkFromSpec, setMarkMotionSource } from "../components/ActivityMark";
 export { AgentPortrait } from "../components/AgentPortrait";
+export { FeedCardView, FeedPortraitWell, type FeedCardViewProps } from "../components/feed/FeedCardView";
 export {
   FIXED_SEAT_VIEW_SOURCE,
   SeatViewSourceProvider,
@@ -41,4 +42,5 @@ export {
 export { terminalActivity, type ActivitySpec } from "../lib/activity";
 export { AGENT_NODE_SIZE } from "../lib/node-geometry";
 export type { PreambleItem, SeatBubble } from "../lib/preamble-feed";
+export type { FeedItem } from "@shared/operator-feed";
 export { WIRE_PULSE_MS } from "../lib/wire-pulse";

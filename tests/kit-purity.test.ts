@@ -14,7 +14,7 @@ const root = resolve(__dirname, "..");
 const FORBIDDEN_PACKAGES = [/^@legendapp\/state/, /^@xyflow\//, /^electron$/];
 const FORBIDDEN_MODULES = ["src/renderer/lib/state.ts", "src/renderer/lib/junto-api.ts"];
 /** What the kit may ask its host for; everything else is bundled in. */
-const PEERS = ["react", "react-dom", "react/jsx-runtime", "lucide-react", "effect"];
+const PEERS = ["react", "react-dom", "react/jsx-runtime", "lucide-react", "effect", "ulid"];
 
 const kitGraph = async (): Promise<Metafile> => {
   const result = await build({

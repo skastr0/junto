@@ -1,4 +1,10 @@
-/* The kit's one sheet: the app's own styles (tokens, Tailwind utilities, the
+/* TEMPORARY (product-typography, 2026-10-29): the whole app sheet ships here
+   only for a shadow root, and only to a site pinned to a kit version. It
+   becomes the theme tokens as generated, the seat, ring, portrait, bubble
+   and pulse rules, and the utilities the kit uses, once those rules leave
+   styles.css for a file of their own.
+
+   The kit's one sheet: the app's own styles (tokens, Tailwind utilities, the
    seat, ring and canvas rules), so a seat drawn on the site is the seat the
    app draws. The kit build also writes every root and bright-theme selector
    for :host, so the sheet works inside a shadow root (vite.kit.config.ts). */

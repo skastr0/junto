@@ -12,13 +12,19 @@ import { overlayAlias, resolveOverlay } from "./scripts/overlay";
 // Always the open-source overlay and the ship feature set: the site shows
 // what a downloaded app shows.
 
-const BRIGHT = /^html\[data-theme=(["']?)bright\1\]/;
+/** The document root with its attributes: html[data-theme=bright], :root[data-surface-motion=paused]. */
+const ROOT_WITH_ATTRIBUTES = /^(?:html|:root)((?:\[[^\]]+\])+)/;
 
-/** One selector's shadow-root twin, or none when it does not hang off the document root. */
+/**
+ * One selector's shadow-root twin, or none when it does not hang off the
+ * document root. The root's attributes (theme, motion gate, platform) move
+ * onto the host: the page sets them on the element the kit is mounted in.
+ */
 const hostTwin = (selector: string): string | undefined => {
   const trimmed = selector.trim();
-  if (trimmed.startsWith(":root")) return `:host${trimmed.slice(":root".length)}`;
-  if (BRIGHT.test(trimmed)) return trimmed.replace(BRIGHT, ':host([data-theme="bright"])');
+  const attributes = ROOT_WITH_ATTRIBUTES.exec(trimmed);
+  if (attributes) return `:host(${attributes[1]!})${trimmed.slice(attributes[0].length)}`;
+  if (/^:root(?![\w-])/.test(trimmed)) return `:host${trimmed.slice(":root".length)}`;
   return undefined;
 };
 
