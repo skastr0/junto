@@ -40,6 +40,7 @@ describe("wire module import closure", () => {
         "agent-signals.ts",
         "artifact.ts",
         "artifact-labels.ts",
+        "artifact-link.ts",
         "canvas-name.ts",
         "companion-protocol.ts",
         "content-ref.ts",

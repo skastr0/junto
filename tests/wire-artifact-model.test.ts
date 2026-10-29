@@ -10,6 +10,7 @@ import * as actorSeat from "../src/shared/actor-seat";
 import { Schema } from "effect";
 import * as artifact from "../src/shared/artifact";
 import * as labels from "../src/shared/artifact-labels";
+import * as artifactLink from "../src/shared/artifact-link";
 import * as mention from "../src/shared/mention";
 import * as modelSheet from "../src/shared/model/sheet";
 import * as pad from "../src/shared/pad";
@@ -22,6 +23,7 @@ import * as nodeRef from "../src/shared/node-ref";
 import * as ulid from "../src/shared/ulid";
 import * as workIds from "../src/shared/work-ids";
 import * as wireArtifact from "../src/shared/wire/artifact";
+import * as wireArtifactLink from "../src/shared/wire/artifact-link";
 import * as wireIds from "../src/shared/wire/ids";
 import * as wireLabels from "../src/shared/wire/artifact-labels";
 import * as wireCanvasName from "../src/shared/wire/canvas-name";
@@ -87,5 +89,9 @@ describe("the artifact model on the wire is the desktop's own", () => {
     same(artifact, wireArtifact, ["ruleArtifactEdit", "patchKeys", "admitsAnchor", "ANCHOR_KINDS", "emptyBody", "artifactText"]);
     same(artifact, wireArtifact, Object.keys(wireArtifact));
     expect(Object.keys(artifact).sort()).toEqual(Object.keys(wireArtifact).sort());
+  });
+
+  it("artifact links: the [[ ]] link, its label and its title reader are one definition", () => {
+    same(artifactLink, wireArtifactLink, Object.keys(wireArtifactLink));
   });
 });
