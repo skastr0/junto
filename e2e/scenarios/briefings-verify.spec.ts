@@ -96,8 +96,10 @@ test("briefings: region, app and reference texts are documents, onboard returns 
     // Region briefing.
     await page.getByRole("button", { name: "Fit all nodes" }).click();
     await page.waitForTimeout(500);
-    await page.locator('.react-flow__node[data-id="ops"]').click({ position: { x: 30, y: 12 } });
-    const region = page.locator('[aria-label="Region briefing"]').first();
+    await page.getByTestId("rf__node-ops").locator(".region-drag-handle").first().click();
+    await page.getByRole("button", { name: "Region briefing" }).click();
+    const regionDialog = page.getByRole("dialog", { name: "Briefing" });
+    const region = regionDialog.getByRole("textbox", { name: "Region briefing" });
     await expect(region).toBeVisible({ timeout: 15_000 });
     await writeDocument(page, region, "Launch week", [{ sigil: "#", name: "Spec sheet" }, { sigil: "@", name: "Ada" }]);
     await page.keyboard.insertText("\n\nOld: ");
@@ -106,6 +108,8 @@ test("briefings: region, app and reference texts are documents, onboard returns 
     await page.waitForTimeout(400);
     await shoot(page, "1-region-briefing");
     await page.keyboard.press("Escape");
+    if ((await regionDialog.count()) > 0) await page.keyboard.press("Escape");
+    await expect(regionDialog).toHaveCount(0, { timeout: 5_000 });
     await page.locator(".react-flow__pane").click({ position: { x: 1300, y: 700 } });
     await page.waitForTimeout(1_500);
 
