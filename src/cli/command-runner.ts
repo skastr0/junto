@@ -39,6 +39,10 @@ const commands: readonly Entry[] = [
     : [{ name: "browser", enabled: BROWSER_ENABLED, load: async () => (await import("./commands/browser")).browserCommand }]),
 ];
 
+/** Every root command this build registers, for checks that what is taught resolves. */
+export const rootCommandNames = (): ReadonlyArray<string> =>
+  commands.filter((entry) => entry.enabled !== false).map((entry) => entry.name);
+
 /** Full discovery for root help/errors; a known invocation loads only its family. */
 export const loadRootCommand = async (args: ReadonlyArray<string>) => {
   const enabled = commands.filter((entry) => entry.enabled !== false);

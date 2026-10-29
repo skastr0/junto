@@ -92,11 +92,6 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
         command: () => "junto task comment|finish|pause|resume #<n>",
         detail: "finish --note leaves a handoff note; reviewers stamp with junto task stamp #<n> approve|changes",
       },
-      {
-        intent: "task content",
-        command: () => "junto content path|stat|materialize",
-        detail: "ContentRefs attached to your tasks",
-      },
     ],
   },
   msg: {
