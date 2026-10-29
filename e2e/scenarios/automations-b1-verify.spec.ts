@@ -115,8 +115,8 @@ test("automations B1: the label watch reads as a sentence, and an edit appends, 
     await only.fill("publish");
     await check("note goes once the label is carried", () => expect(note).toHaveCount(0, { timeout: 5_000 }));
     await check("sentence: When an artifact labelled publish in Specs is edited", async () => {
-      // The rendered words: a Select names itself with hidden label text (bcbca4801), which textContent would read.
-      await expect.poll(() => sentence.first().innerText(), { timeout: 5_000 }).toMatch(/When\s*an artifact\s*labelled/u);
+      // The words in order: a Select names itself with hidden label text (bcbca4801), which sits between them.
+      await expect.poll(() => sentence.first().innerText(), { timeout: 5_000 }).toMatch(/When[\s\S]*an artifact[\s\S]*labelled/u);
       await expect(trigger.getByRole("button", { name: /^(Which artifacts|Watch scope)(,|$)/u })).toContainText("Specs");
       await expect(trigger.getByRole("button", { name: /^Is(,|$)/u })).toContainText("edited");
     });
