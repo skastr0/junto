@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SETTINGS_VERSION, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
+import { DEFAULT_QUICK_REPLIES, SETTINGS_VERSION, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
 
 vi.mock("../src/renderer/components/FocusSurface", () => ({
   FocusSurface: ({ label, children }: { readonly label: string; readonly children: ReactNode }) => (
@@ -207,6 +207,14 @@ describe("what the tour says", () => {
     expect(html).toContain('data-testid="hotbar-slot-1"');
     expect(html).toContain('class="junto-group__label"');
     expect(copy).toContain("⌘1");
+  });
+
+  it("offers only the quick-reply keys that send something", () => {
+    const html = chapterAt("feed");
+    const chips = [...html.matchAll(/<kbd[^>]*>([^<]*)<\/kbd>/g)].map((match) => match[1]);
+    expect(chips).toContain(String(DEFAULT_QUICK_REPLIES.length));
+    expect(chips).not.toContain("9");
+    expect(text(html)).toContain(`There are ${String(DEFAULT_QUICK_REPLIES.length)} to start`);
   });
 
   it("types chords as the platform does: Ctrl off macOS, ⌘ on it", () => {

@@ -5,6 +5,7 @@ import type { PortraitExpression } from "@shared/portrait-expression";
 import { JUNTO_MASCOT } from "@shared/brand-mascot";
 import type { AgentSignalKind } from "@shared/agent-signals";
 import { SEAT_AWARENESS_COMPILED } from "@shared/features";
+import { FEATURE_CATALOG } from "@shared/feature-catalog";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import { terminalActivity } from "../../lib/activity";
 import type { SeatHealth, SeatSignal } from "../nodes/AgentSeat";
@@ -33,6 +34,9 @@ import { squadsChapter } from "./tour-squads";
 import { shellChapter } from "./tour-shell";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
+
+/** The seat-awareness provider key, as Settings names it. */
+const SEAT_AWARENESS_KEY_ENV = FEATURE_CATALOG.seatAwareness.experimental.requirement.env;
 
 // The tour. Shown once on first launch and again on request (help map,
 // Settings, the command bar). Each chapter pairs a few plain sentences with
@@ -192,7 +196,9 @@ const statesChapter: TourChapter = {
           <strong>Experimental:</strong> an AI can also read how each session is
           going and bend the ring: backwards when stuck, a wave when it goes in
           circles, a halo when it goes well. It is advice, marked AI, and stays
-          off until you turn it on in Settings, under Experimental.
+          off until you turn it on in Settings, under Experimental. It also
+          needs a provider key in <code>{SEAT_AWARENESS_KEY_ENV}</code>, and it
+          sends terminal excerpts to that provider while it is on.
         </p>
       ) : null}
     </>
@@ -409,7 +415,10 @@ const feedChapter: TourChapter = {
   ),
   tryIt: [
     { keys: ["⌘I"], text: <>opens the feed; <strong>j</strong> and <strong>k</strong> move through it.</> },
-    { keys: ["1", "9"], text: <>send a quick reply to the selected card.</> },
+    {
+      keys: ["1", String(Math.min(DEFAULT_QUICK_REPLIES.length, 9))],
+      text: <>send that quick reply to the selected card. There are {DEFAULT_QUICK_REPLIES.length} to start; change them in Settings.</>,
+    },
     { keys: ["↵"], text: <>write your own reply, or <strong>o</strong> to open the seat.</> },
   ],
   pip: "concerned",
