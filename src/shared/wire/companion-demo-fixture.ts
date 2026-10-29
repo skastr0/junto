@@ -127,7 +127,7 @@ export const DEMO_CONTENT_AFTER = demoContent(
   "<h1>Pick the plan that fits your team</h1>\n<p>Pay monthly, or yearly and save two months.</p>\n",
 );
 export const DEMO_CONTENT_CHECKLIST = demoContent(
-  "6f4e0c2a9b1d47e8a2c5f19b0d3e6a8c7f2b1d4e5a6c8f0b2d4e6a8c1f3b5d7e", 168, "text/csv", "launch-checklist.csv",
+  "b1f8762ba9a9795b5af7b945a9263d82f7e0ec3dc97388087a8e42524f7ede9d", 128, "text/csv", "launch-checklist.csv",
   "item,owner,done\nTier table copy,atlas,yes\nAnnual toggle screenshot,quill,no\nFAQ anchors,prism,yes\nSupport macro update,forge,no\n",
 );
 export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEMO_CONTENT_BEFORE, DEMO_CONTENT_AFTER, DEMO_CONTENT_CHECKLIST];

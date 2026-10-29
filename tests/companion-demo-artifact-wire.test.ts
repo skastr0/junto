@@ -27,7 +27,7 @@ import {
   DEMO_TASK_PRICING,
 } from "../src/shared/wire/companion-demo-fixture";
 
-const decode = <A>(schema: Schema.Schema<A, any, any>, value: unknown, what: string): A => {
+const decode = <A>(schema: Schema.Codec<A>, value: unknown, what: string): A => {
   const result = Schema.decodeUnknownResult(schema)(value);
   if (!Result.isSuccess(result)) throw new Error(`${what}: ${JSON.stringify(result.failure.issue)}`);
   return result.success;
