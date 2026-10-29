@@ -29,7 +29,8 @@ task and artifact is kept as it was.
   predates this is sent none of it.
 - The phone reads threads a page at a time, those you wrote in first, and
   shows each seat's unread total and each thread's unread count, kept in step
-  with the desktop's.
+  with the desktop's. It pages and shows read state only on a Mac that offers
+  it, so a Mac on 0.11.0 shows its threads again.
 - The phone pairs only over real network ports (Ethernet and Wi-Fi). A VM
   bridge, a tunnel or AirDrop address is no longer offered, which was one
   cause of the phone showing Pair again after finding another machine's SSH
@@ -39,11 +40,24 @@ task and artifact is kept as it was.
   then ran its animation on the main thread and laid the whole board out again
   on every frame; on a 180-seat board with 40 seats streaming that was 53
   full layouts a second, and it is now under 2. Nothing you can see changes.
-- A ring or a flow track that sits just off screen no longer costs the board
-  a full layout on every frame. Rings and flow tracks now start moving when
-  they come on screen, not 48 pixels before, so one entering the screen can
-  show its resting pose for a single frame. A ring partly on screen turns
-  every frame as before.
+- Animations that are off screen or hidden stop, so the canvas does less
+  work. A ring or a flow track that sits just off screen no longer costs the
+  board a full layout on every frame: they start moving when they come on
+  screen, not 48 pixels before, so one entering the screen can show its
+  resting pose for a single frame, and a ring partly on screen turns every
+  frame as before. The spinners of a parked pane, the reach preview ring on
+  a card that is hidden or off screen, and the media spinner on a card whose
+  body is not drawn stop too, as does a loading browser tab scrolled out of
+  the tab strip, the top bar's opening and saving pulses when a narrow window
+  cuts them off, and the minimap's pings when a narrow window leaves it out of
+  sight. The pulse along a wire starts only at the closest zoom, the one that
+  draws it; the mail sound still plays.
+- The needs feed narrows. A search field ("Search needs") matches a need's
+  words, one chip per kind in the feed and one per seat narrow it further, and
+  each chip shows what pressing it would leave. Chips toggle on their own, so
+  taking one off keeps the others and the region pick; Clear takes them all
+  off, and when nothing matches the feed says so and offers Clear. A pressed
+  chip carries a check, so its state does not rest on colour.
 - The pulse that travels a wire when a message is delivered runs on the
   compositor with transform alone, as the other canvas motion does, instead
   of repainting the wire every frame. It looks the same.
