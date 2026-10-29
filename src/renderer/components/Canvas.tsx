@@ -42,8 +42,8 @@ import {
 import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { useMenuDismiss } from "../lib/menu-dismiss";
-import { useAnyModalOpen } from "../lib/modal-stack";
-import { canvasDeleteKeyCode } from "../lib/canvas-keys";
+import { topModal } from "../lib/modal-stack";
+import { CANVAS_DELETE_KEY_CODE, canvasKeyboardTaken } from "../lib/canvas-keys";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
@@ -674,6 +674,11 @@ function useCanvasInteractions(
   // Flow: it hands the request to the document, and the rebuild that follows
   // a real delete is what removes the card.
   const onBeforeDelete: OnBeforeDelete<FlowNode, FlowEdge> = useCallback(async ({ nodes: doomedNodes, edges: doomedEdges }) => {
+    // The chord reaches the canvas from under a focus surface or a modal, and
+    // the delete is refused here, while the key itself stays bound: xyflow
+    // never clears the keys it saw while a chord was bound, so unbinding it
+    // swallowed the first delete after the modal closed (11, Q6 walk).
+    if (canvasKeyboardTaken(dock$.registry.surfaces.peek().length > 0, topModal() !== undefined)) return false;
     // Deleting mid-drag would otherwise leave the rebuild latch stuck.
     if (dragInProgressRef.current) finishDrag(false);
     // A node takes its wires with it; wires alone are a wire delete.
@@ -1545,10 +1550,6 @@ function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode 
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
-  // Focus-view presence (any kind) and any modal on product-modals' stack:
-  // the canvas delete/Escape keys must not act through either.
-  const hasFocusSurfaces = use$(() => dock$.registry.surfaces.get().length > 0);
-  const modalOpen = useAnyModalOpen();
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
@@ -1855,9 +1856,11 @@ function CanvasGraph() {
         // xyflow binds Delete/Backspace at the document level, so the chord
         // reaches the canvas even while the operator works inside a focus
         // surface (browser page chrome, note draft chrome) or any modal
-        // (Files, Artifacts, a dialog). While either owns the keyboard the
-        // canvas has no delete key.
-        canvasDeleteKeyCode(hasFocusSurfaces, modalOpen)
+        // (Files, Artifacts, a dialog). It stays bound whatever is in front:
+        // unbinding leaves xyflow's pressed-key set holding the chords of the
+        // modal that opened, and the first delete after it came back matched
+        // nothing. The delete is refused in onBeforeDelete instead.
+        CANVAS_DELETE_KEY_CODE
       }
       elevateNodesOnSelect={false}
       // A wire never rises over a card, selected or not (convert.ts z bands).

@@ -2,9 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { canvasDeleteKeyCode } from "../src/renderer/lib/canvas-keys";
+import { CANVAS_DELETE_KEY_CODE, canvasKeyboardTaken } from "../src/renderer/lib/canvas-keys";
 import { dispatchKey, keySituation } from "../src/renderer/lib/key-dispatcher";
-import { pushModal, resetModalStack, useAnyModalOpen } from "../src/renderer/lib/modal-stack";
+import { pushModal, resetModalStack, topModal, useAnyModalOpen } from "../src/renderer/lib/modal-stack";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -49,11 +49,25 @@ describe("canvas keys stand down under a modal", () => {
     resetModalStack();
   });
 
-  it("turns React Flow's document delete chord off while a modal is open", () => {
-    expect(canvasDeleteKeyCode(false, false)).toEqual(["Backspace", "Delete"]);
-    expect(canvasDeleteKeyCode(true, false)).toBeNull();
-    expect(canvasDeleteKeyCode(false, true)).toBeNull();
-    expect(canvasDeleteKeyCode(true, true)).toBeNull();
+  it("keeps React Flow's delete chord bound whatever is in front, and refuses the delete there", () => {
+    // One array, never swapped: a new one re-registers xyflow's listener, and
+    // null unbinds it, which leaves xyflow's pressed-key set holding the keys
+    // of the modal that opened. That swallowed the first delete after it closed.
+    expect(CANVAS_DELETE_KEY_CODE).toEqual(["Backspace", "Delete"]);
+    expect(canvasKeyboardTaken(false, false)).toBe(false);
+    expect(canvasKeyboardTaken(true, false)).toBe(true);
+    expect(canvasKeyboardTaken(false, true)).toBe(true);
+    expect(canvasKeyboardTaken(true, true)).toBe(true);
+  });
+
+  it("refuses while a modal is on the stack, live", () => {
+    const leave = openModal().leave;
+    try {
+      expect(canvasKeyboardTaken(false, topModal() !== undefined)).toBe(true);
+    } finally {
+      leave();
+    }
+    expect(canvasKeyboardTaken(false, topModal() !== undefined)).toBe(false);
   });
 
   it("follows the stack live, so the canvas re-renders when a modal opens or closes", () => {
