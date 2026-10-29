@@ -5,11 +5,11 @@
  * The contract is N1's (`@shared/wire/agent-signals`, the feed item).
  */
 import type { FeedItem } from "@shared/operator-feed";
+import { ruleSignalReply, type SignalReply } from "@shared/signal-reply";
 import { admitLinkUrl, type SignalForm, type WorkTiming } from "@shared/wire/agent-signals";
 import { Level, levelOfSignal } from "@shared/wire/urgency";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { signalWordCount } from "@shared/word-count";
-import type { AgentSignalOperatorResult } from "@shared/ipc";
 import { upsertAgentSignal } from "./agent-signals-state";
 import type { SignalActionResult } from "./agent-signals-view";
 import { getJuntoApi } from "./junto-api";
@@ -60,16 +60,26 @@ export const wordProgressWords = ({ words, min }: WordProgress): string => {
   return min <= 1 ? counted : `${counted} of ${min}`;
 };
 
-/** What the operator hands in for a form: the document's markdown, or proof. */
-export type WorkReply =
-  | { readonly kind: "artifact"; readonly markdown: string; readonly replyId: string }
-  | {
-      readonly kind: "proof";
-      readonly text: string;
-      readonly links: ReadonlyArray<string>;
-      readonly files: ReadonlyArray<ContentRef>;
-      readonly replyId: string;
-    };
+/** What the operator hands in: N1's one reply shape, a document's markdown or proof. */
+export type WorkReply = SignalReply;
+
+/** A refusal of main's, as the pane says it: "the document holds 212 words of 500" reads as a sentence. */
+export const sentenceOf = (message: string): string => {
+  const text = message.trim();
+  if (text === "") return text;
+  const capital = text[0]!.toUpperCase() + text.slice(1);
+  return /[.!?]$/u.test(capital) ? capital : `${capital}.`;
+};
+
+/**
+ * Why a reply would be refused, by main's own rule (`ruleSignalReply`), as
+ * a sentence; nothing when it would be taken. The pane asks before Hand in
+ * goes, so it never offers what main turns down.
+ */
+export const replyRefusalOf = (form: SignalForm, reply: SignalReply): string | undefined => {
+  const ruling = ruleSignalReply(form, reply);
+  return ruling.ok ? undefined : sentenceOf(ruling.message);
+};
 
 /** The links a proof carries, one per line, admitted as the wire admits a link; the first line that is not, and why. */
 export const proofLinksOf = (
@@ -133,21 +143,13 @@ export const paneAnswerOf = ({ kind, form }: ItemWork): PaneAnswer => {
   }
 };
 
-/**
- * Hand in work through N1's one reply call. Until main has it the answer
- * is that it is not available, and nothing is lost: the writing stays.
- */
+/** Hand in work through N1's one reply call; a refusal comes back as a sentence, and the writing stays. */
 export const handInSignalWork = async (signalId: string, reply: WorkReply): Promise<SignalActionResult> => {
-  const api = getJuntoApi() as
-    | (ReturnType<typeof getJuntoApi> & {
-        readonly agentSignalReply?: (signalId: string, reply: WorkReply) => Promise<AgentSignalOperatorResult>;
-      })
-    | undefined;
+  const api = getJuntoApi();
   if (!api) return { ok: false, message: "Junto is not connected." };
-  if (api.agentSignalReply === undefined) return { ok: false, message: "Handing in work is not available yet." };
   return api.agentSignalReply(signalId, reply).then(
     (result) => {
-      if (!result.ok) return result;
+      if (!result.ok) return { ...result, message: sentenceOf(result.message) };
       upsertAgentSignal(result.signal);
       return { ok: true };
     },

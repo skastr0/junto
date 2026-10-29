@@ -7,6 +7,7 @@ import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { useAttachments } from "../../lib/operator-attachments";
 import {
   forgetWorkDrafts,
+  replyRefusalOf,
   keepWorkDraft,
   proofLinksOf,
   wordProgressOf,
@@ -23,6 +24,9 @@ import { useSignalAction } from "./SignalReply";
 import "./signal-work.css";
 
 type FormOf<K extends SignalForm["kind"]> = Extract<SignalForm, { readonly kind: K }>;
+
+/** A well-formed id for asking the rule ahead of a hand-in; the rule does not read it. */
+const RULING_PROBE = "00000000000000000000000000";
 
 /**
  * The operator's work, done in the signal (plan 0.11/07, N3). An artifact
@@ -144,6 +148,10 @@ function ArtifactWork({
   const short = progress.min - progress.words;
   const fill = Math.min(1, progress.words / progress.min);
   const countId = useId();
+  const refusalId = useId();
+  // Main's own rule, asked before Hand in goes: past the word count, a document too long is refused too.
+  const refusal = progress.met ? replyRefusalOf(form, { kind: "artifact", markdown, replyId: RULING_PROBE }) : undefined;
+  const ready = progress.met && refusal === undefined;
   return (
     <div className="signal-work" data-testid="signal-work-form" data-form="artifact">
       <p className="signal-work__where">
@@ -185,18 +193,27 @@ function ArtifactWork({
       <span className="sr-only" role="status">
         {progress.met && progress.min > 1 ? "Enough words to hand in." : ""}
       </span>
+      {refusal === undefined ? null : (
+        <p id={refusalId} className="signal-work__error">
+          {refusal}
+        </p>
+      )}
       {failure}
       <div className="signal-work__actions">
         {dismissal}
         <Button
           size="xs"
           variant="primary"
-          aria-disabled={!progress.met || busy}
-          // The shortfall is the count beside it: a reader hears it on the button.
-          aria-describedby={progress.met ? undefined : countId}
-          title={progress.met ? "Hand in: the writing becomes the document, and the work is done" : `${short} more ${short === 1 ? "word" : "words"} to hand in`}
+          aria-disabled={!ready || busy}
+          // Why it waits is beside it, the count or main's refusal: a reader hears it on the button.
+          aria-describedby={ready ? undefined : progress.met ? refusalId : countId}
+          title={
+            ready
+              ? "Hand in: the writing becomes the document, and the work is done"
+              : (refusal ?? `${short} more ${short === 1 ? "word" : "words"} to hand in`)
+          }
           onClick={() => {
-            if (progress.met && !busy) onHandIn(markdown);
+            if (ready && !busy) onHandIn(markdown);
           }}
         >
           Hand in
@@ -228,9 +245,10 @@ function ProofWork({
   const { links, problem } = proofLinksOf(typedLinks);
   const files = attachments.ready ?? [];
   const filesIn = attachments.ready !== undefined;
-  const something = text.trim() !== "" || links.length > 0 || files.length > 0;
-  const ready = something && problem === undefined && filesIn && !busy;
-  const why = problem ?? (!filesIn ? "Waiting for the files to attach" : something ? undefined : "Say what you did, or add a link or a file");
+  // Main's own rule: proof needs a sentence saying what it shows, with its links admitted.
+  const refusal = problem === undefined ? replyRefusalOf({ kind: "proof" }, { kind: "proof", text, links, replyId: RULING_PROBE }) : undefined;
+  const ready = problem === undefined && refusal === undefined && filesIn && !busy;
+  const why = problem ?? (!filesIn ? "Waiting for the files to attach" : refusal);
   return (
     <div className="signal-work" data-testid="signal-work-form" data-form="proof" {...attachments.dropTarget}>
       <Textarea

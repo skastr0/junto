@@ -168,8 +168,12 @@ describe("work done in the signal", () => {
 
   it("a proof form takes what was done and links, refuses a link that is not one, and hands in the rest", async () => {
     await draw({ kind: "proof" });
-    expect(button("Hand in").title).toBe("Say what you did, or add a link or a file");
-    expect(document.getElementById(button("Hand in").getAttribute("aria-describedby")!)?.textContent).toBe("Say what you did, or add a link or a file");
+    // Main's rule, asked before it goes: proof needs a sentence, a link alone is not enough.
+    expect(button("Hand in").title).toBe("Proof needs a sentence saying what it shows.");
+    expect(document.getElementById(button("Hand in").getAttribute("aria-describedby")!)?.textContent).toBe("Proof needs a sentence saying what it shows.");
+    typeInto("Links, one per line", "https://example.com/post/1");
+    expect(button("Hand in").getAttribute("aria-disabled")).toBe("true");
+    typeInto("Links, one per line", "");
     typeInto("What you did", "Posted the thread.");
     typeInto("Links, one per line", "https://example.com/post/1\nftp://nope");
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("ftp://nope: only http and https addresses can be attached.");
