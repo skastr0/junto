@@ -172,13 +172,13 @@ describe("artifact actions at save", () => {
   });
 });
 
-describe("a signal action (0.11/07 N2)", () => {
+describe("a signal action (0.11/07 N2, 0.11/09 H1)", () => {
   const read = { kind: "artifact", nodeId: SHELF, artifactId: DOC } as const;
-  const signal = { kind: "signal", signal: "work", title: "Write 500 words", detail: "Today, {{fired.at}}", show: [read] } as const;
+  const signal = { kind: "signal", signal: "escalate", title: "Write 500 words", detail: "Today, {{fired.at}}", show: [read] } as const;
 
-  it("decodes notice or work, with a title the feed's length, and shows at most eight artifacts", () => {
-    expect(Schema.is(Action)(signal)).toBe(true);
-    expect(Schema.is(Action)({ ...signal, signal: "escalate" })).toBe(false);
+  it("decodes a seat's kinds or a notice, with a title the feed's length, and shows at most eight artifacts", () => {
+    for (const kind of ["notice", "escalate", "blocked", "feedback"]) expect(Schema.is(Action)({ ...signal, signal: kind })).toBe(true);
+    expect(Schema.is(Action)({ ...signal, signal: "work" })).toBe(false);
     expect(Schema.is(Action)({ ...signal, title: "x".repeat(281) })).toBe(false);
     expect(Schema.is(Action)({ ...signal, show: Array.from({ length: 9 }, () => read) })).toBe(false);
   });
@@ -190,8 +190,8 @@ describe("a signal action (0.11/07 N2)", () => {
     expect(actionText(signal as never)).toBe("Write 500 words\nToday, {{fired.at}}");
   });
 
-  it("asks for one of N1's forms, its artifact node in reach, and falls due only as work", () => {
-    const write = { ...signal, form: { kind: "artifact", node: SHELF, title: "Words {{fired.at}}", labels: ["writing"], minWords: 500 }, work: { dueInMs: 86_400_000, urgent: false } };
+  it("asks for one of N1's forms, its artifact node in reach, only as escalate or blocked", () => {
+    const write = { ...signal, form: { kind: "artifact", node: SHELF, title: "Words {{fired.at}}", labels: ["writing"], minWords: 500 } };
     expect(Schema.is(Action)(write)).toBe(true);
     expect(Schema.is(Action)({ ...signal, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } })).toBe(true);
     expect(Schema.is(Action)({ ...signal, form: { kind: "secret", name: "not a name" } })).toBe(false);
@@ -200,8 +200,10 @@ describe("a signal action (0.11/07 N2)", () => {
     expect(targetNodeIds({ ...automation, then: [{ ...write, show: undefined } as never] })).toEqual([SHELF]);
     expect(actionText(write as never)).toBe("Write 500 words\nToday, {{fired.at}}\nWords {{fired.at}}");
     expect(actionRefusal(write as never)).toBeUndefined();
-    expect(actionRefusal({ ...write, signal: "notice", form: undefined } as never)).toMatchObject({ message: "only a work signal falls due" });
-    expect(actionRefusal({ ...write, signal: "notice", work: undefined } as never)).toMatchObject({ message: "only a work signal asks for an answer" });
+    expect(actionRefusal({ ...write, signal: "blocked" } as never)).toBeUndefined();
+    for (const kind of ["notice", "feedback"]) {
+      expect(actionRefusal({ ...write, signal: kind } as never)).toMatchObject({ message: "only an escalate or blocked signal asks for an answer in a form" });
+    }
     // The form's title becomes the document's, so an artifact title's length.
     expect(Schema.is(Action)({ ...signal, form: { kind: "artifact", node: SHELF, title: "x".repeat(200) } })).toBe(true);
     expect(Schema.is(Action)({ ...signal, form: { kind: "artifact", node: SHELF, title: "x".repeat(201) } })).toBe(false);

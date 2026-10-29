@@ -19,6 +19,7 @@
 import { Schema } from "effect";
 import {
   Automation,
+  stepIdRefusal,
   type AutomationAuthor,
   AutomationDefinition,
   CodeRuling,
@@ -124,7 +125,7 @@ const definitionRefusal = (
     const refused = actionKindRefusal(action.kind) ?? actionRefusal(action);
     if (refused !== undefined) return refused;
   }
-  const values = valueRefusal(automation) ?? firedTargetRefusal(automation);
+  const values = valueRefusal(automation) ?? firedTargetRefusal(automation) ?? stepIdRefusal(automation);
   if (values !== undefined) return values;
   const allowed = targetsOf(automation.nodeId, automation.author);
   const own = editor.kind === "seat" ? targetsOf(automation.nodeId, editor) : allowed;

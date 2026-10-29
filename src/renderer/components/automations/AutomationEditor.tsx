@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { ArrowDown, ArrowUp, Code, Plus, X } from "lucide-react";
-import { actionKindInBuild, automationValuesOf, type CodeLanguage } from "@shared/automation";
+import { actionKindInBuild, automationValuesOf, signalTakesForm, type CodeLanguage } from "@shared/automation";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
 import type { ArtifactLabel } from "@shared/artifact-labels";
@@ -46,7 +46,6 @@ import {
   type NameOf,
   type SignalFormDraft,
   type SignalRaise,
-  type SignalWorkDraft,
   type TargetRef,
   type TriggerDraft,
   type WatchDraft,
@@ -401,7 +400,7 @@ function WatchFields({
   // What the live region says, only once typing rests: never a letter at a time.
   const spoken = useSettled(labelNoteSpoken(note), NOTE_SETTLE_MS);
   /** A new task or artifact watch starts on the first node in reach, the common case, else on one item. */
-  const blank = (kind: WatchDraft["kind"]): WatchDraft => {
+  const blank = (kind: Exclude<WatchDraft["kind"], "answered">): WatchDraft => {
     const watch = blankWatch(kind);
     const board = pickers.boards[0];
     const artifacts = pickers.artifactNodes[0];
@@ -419,7 +418,7 @@ function WatchFields({
           value={watch.kind}
           options={kinds.map((kind) => ({ value: kind, label: WATCH_LABEL[kind] }))}
           onChange={(kind) => {
-            if (kind !== watch.kind) onChange(blank(kind as WatchDraft["kind"]));
+            if (kind !== watch.kind) onChange(blank(kind as Exclude<WatchDraft["kind"], "answered">));
           }}
         />
         {watch.kind === "seat" ? (
@@ -937,22 +936,13 @@ function ActionFields({
               onChange(show.length === 0 ? rest : { ...rest, show });
             }}
           />
-          {action.signal === "work" ? (
+          {signalTakesForm(action.signal) ? (
             <SignalFormFields
               form={action.form}
               pickers={pickers}
               onChange={(form) => {
                 const { form: _old, ...rest } = action;
                 onChange(form === undefined ? rest : { ...rest, form });
-              }}
-            />
-          ) : null}
-          {action.signal === "work" ? (
-            <SignalWorkFields
-              work={action.work}
-              onChange={(work) => {
-                const { work: _old, ...rest } = action;
-                onChange(work === undefined ? rest : { ...rest, work });
               }}
             />
           ) : null}
@@ -997,7 +987,9 @@ function ActionFields({
 
 const SIGNAL_RAISE_WORD: Readonly<Record<SignalRaise, string>> = {
   notice: "A notice, to read",
-  work: "Work, for you to do",
+  escalate: "An escalate, a question for you",
+  blocked: "Blocked, waiting on you",
+  feedback: "Feedback, for your review",
 };
 
 /**
@@ -1121,43 +1113,6 @@ function SignalFormFields({
         </>
       ) : null}
     </>
-  );
-}
-
-/** When work falls due after it is raised, in hours, and whether it is urgent from the start. */
-function SignalWorkFields({
-  work,
-  onChange,
-}: {
-  readonly work: SignalWorkDraft | undefined;
-  readonly onChange: (work: SignalWorkDraft | undefined) => void;
-}) {
-  const next = (change: SignalWorkDraft): void => {
-    const merged = { ...work, ...change };
-    const kept = {
-      ...(merged.dueHours === undefined || merged.dueHours === "" ? {} : { dueHours: merged.dueHours }),
-      ...(merged.urgent === true ? { urgent: true } : {}),
-    };
-    onChange(Object.keys(kept).length === 0 ? undefined : kept);
-  };
-  return (
-    <div className="automation-editor__row">
-      <FieldLabel>
-        Due after, in hours
-        <Input
-          dense
-          inputMode="decimal"
-          value={work?.dueHours ?? ""}
-          aria-label="Due after, in hours"
-          placeholder="No due time"
-          onChange={(event) => next({ dueHours: event.target.value })}
-        />
-      </FieldLabel>
-      <label className="automation-editor__enabled">
-        <span>Urgent</span>
-        <Switch checked={work?.urgent === true} aria-label="Urgent from the start" onCheckedChange={(urgent) => next({ urgent })} />
-      </label>
-    </div>
   );
 }
 

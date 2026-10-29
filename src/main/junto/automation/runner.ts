@@ -9,6 +9,10 @@
  * - `onChange`: a seat, task, artifact or signal change, already held and
  *   deduped upstream (pty's seat-state triggers, the fact stream).
  * - `onRun`: the `automation.run` fact of `junto automation run`.
+ * - `onAnswer`: the operator answered an automation's signal (0.11/09). The
+ *   raising automation delivers the answer where its step's `answerTo` says,
+ *   recorded as its own firing keyed by the signal, so it is delivered once.
+ *   Off or at its limits, it still delivers: the operator answered.
  *
  * Considering a firing rechecks reach against the canvas as it is now, the
  * `when` conditions and the limits (`decide`), then claims the firing in
@@ -65,6 +69,35 @@ export type RunnerPorts = {
   readonly runsHere: (canvasName: string, automation: Automation) => boolean;
 };
 
+/**
+ * The action that delivers an answer (0.11/09): a prompt to the seat, a new
+ * document, or a dated section. Its text names the answer's values, never
+ * the answer's words, so what the operator wrote is never read for values.
+ */
+export const answerDelivery = (
+  answerTo: NonNullable<Extract<Action, { readonly kind: "signal" }>["answerTo"]>,
+  hasLink: boolean,
+): Action => {
+  const said = `{{answer.text}}${hasLink ? "\n\n{{answer.link}}" : ""}`;
+  switch (answerTo.kind) {
+    case "seat":
+      return { kind: "prompt", to: answerTo.to, text: `The operator answered the {{signal.kind}} signal "{{signal.title}}":\n\n${said}` };
+    case "document":
+      return { kind: "create-artifact", node: answerTo.node, title: answerTo.title, body: said };
+    case "append":
+      return { kind: "append-artifact", to: answerTo.to, text: `## {{answer.at|date:YYYY-MM-DD HH:mm}}\n\n${said}` };
+    default:
+      return answerTo satisfies never;
+  }
+};
+
+/** An answered automation signal, as the raising automation's firing kept it. */
+export type AnswerHeard = {
+  readonly event: Extract<ChangeEvent, { readonly kind: "answered" }>;
+  /** The signal step's index when it raised. */
+  readonly index: number;
+};
+
 export type AutomationRunner = {
   readonly tick: (canvasName: string) => Effect.Effect<void, AutomationPersistenceError, AutomationRepository>;
   readonly onChange: (
@@ -74,6 +107,10 @@ export type AutomationRunner = {
   readonly onRun: (
     canvasName: string,
     automationId: AutomationId,
+  ) => Effect.Effect<Firing | undefined, AutomationPersistenceError, AutomationRepository>;
+  readonly onAnswer: (
+    canvasName: string,
+    heard: AnswerHeard,
   ) => Effect.Effect<Firing | undefined, AutomationPersistenceError, AutomationRepository>;
 };
 
@@ -200,5 +237,41 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     return yield* consider(canvasName, automation, { kind: "run" }, targetsOf(canvasName, automation));
   });
 
-  return { tick, onChange, onRun };
+  const onAnswer = Effect.fn("AutomationRunner.onAnswer")(function* (canvasName: string, heard: AnswerHeard) {
+    const { event } = heard;
+    const automation = (yield* live(canvasName)).find((candidate) => candidate.automationId === event.automationId);
+    if (automation === undefined) return undefined;
+    // The step by its id when it has one, so an edit that moved it still finds it; else where it stood.
+    const index = event.step === undefined
+      ? heard.index
+      : automation.then.findIndex((action) => action.kind === "signal" && action.id === event.step);
+    const step = automation.then[index];
+    if (step?.kind !== "signal" || step.answerTo === undefined) return undefined;
+    const response = event.signal.response;
+    const delivery = answerDelivery(step.answerTo, response?.artifact !== undefined || (response?.links ?? []).length > 0);
+    const targets = targetsOf(canvasName, automation);
+    const now = ports.now();
+    const inReach = targetNodeIds({ ...automation, then: [delivery] }).every((id) => targets.has(id));
+    const repository = yield* AutomationRepository;
+    const firing: Firing = {
+      firingId: ports.mintFiringId(),
+      automationId: automation.automationId,
+      at: now,
+      cause: { kind: "change", key: `answer:${event.signal.signalId}` },
+      outcome: inReach ? { kind: "claimed" } : { kind: "skipped", reason: "out_of_reach" },
+    };
+    const claim = yield* repository.claimFiring(canvasName, firing);
+    if (claim._tag === "Duplicate" || !inReach) return claim._tag === "Duplicate" ? undefined : firing;
+    const ruled = yield* ports.perform(canvasName, automation, delivery, index, firing.firingId, {
+      event,
+      at: now,
+      cause: "change",
+      delivering: true,
+    });
+    const outcome = { kind: "fired", actions: [ruled] } as const;
+    yield* repository.settleFiring(canvasName, firing, outcome);
+    return { ...firing, outcome };
+  });
+
+  return { tick, onChange, onRun, onAnswer };
 };

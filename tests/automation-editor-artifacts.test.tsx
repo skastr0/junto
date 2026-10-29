@@ -133,19 +133,20 @@ describe("artifact automations, the draft", () => {
     expect(actionProblem(draftWith(draft.trigger, [{ kind: "seat-control", op: "start", seat }]))).toBeUndefined();
   });
 
-  it("signal raises a notice or work, carries a title over as its title, and shows artifacts only", () => {
+  it("signal raises a notice or a seat's kind, carries a title over as its title, and shows artifacts only", () => {
     const draft = draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "create-task", title: "Write 500 words" }]);
     expect(editDraft(draft, { type: "action-kind", index: 0, kind: "signal" }).then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words" });
     expect(actionWords({ kind: "signal", signal: "notice", title: "x" }, nameOf)).toBe("raise a notice");
-    expect(actionWords({ kind: "signal", signal: "work", title: "x" }, nameOf)).toBe("raise work for you");
-    expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: " " }]))).toBe("Write the signal title.");
-    expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "work", title: "Write 500 words" }]))).toBeUndefined();
+    expect(actionWords({ kind: "signal", signal: "escalate", title: "x" }, nameOf)).toBe("raise an escalate");
+    expect(actionWords({ kind: "signal", signal: "blocked", title: "x" }, nameOf)).toBe("raise blocked");
+    expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "escalate", title: " " }]))).toBe("Write the signal title.");
+    expect(actionProblem(draftWith(draft.trigger, [{ kind: "signal", signal: "escalate", title: "Write 500 words" }]))).toBeUndefined();
   });
 
-  it("a signal's form and work timing, made elsewhere, survive a save from the editor", () => {
+  it("a signal's form, step id and answerTo, made elsewhere, survive a save from the editor", () => {
     const form = { kind: "artifact", node: shelf, title: "Morning pages", minWords: 500 } as const;
-    const work = { dueInMs: 5_400_000, urgent: true } as const;
-    const signal = { kind: "signal", signal: "work", title: "Write 500 words", form, work } as const;
+    const answerTo = { kind: "document", node: shelf, title: "Review {{answer.at|date:YYYY-MM-DD}}" } as const;
+    const signal = { kind: "signal", id: "pages", signal: "escalate", title: "Write 500 words", form, answerTo } as const;
     const stored: Automation = {
       automationId: draftWith(onArtifact("edited"), []).automationId,
       nodeId: home,
@@ -158,35 +159,27 @@ describe("artifact automations, the draft", () => {
       limits: DEFAULT_AUTOMATION_LIMITS,
     };
     const loaded = draftOf(stored);
-    expect(loaded.then[0]).toMatchObject({ form: { minWords: "500" }, work: { dueHours: "1.5", urgent: true } });
+    expect(loaded.then[0]).toMatchObject({ form: { minWords: "500" } });
     const finished = finishDraft(loaded);
     expect(finished.ok && finished.definition.then[0]).toEqual(signal);
-    // Any whole ms the contract takes reads as hours and finishes back unchanged.
-    for (const dueInMs of [1, 3, 59_999, 3_600_000, 31_622_400_000]) {
-      const tiny = draftOf({ ...stored, then: [{ ...signal, work: { dueInMs } }] });
-      const back = finishDraft(tiny);
-      expect(back.ok && back.definition.then[0]).toEqual({ ...signal, work: { dueInMs } });
-    }
-    expect(draftOf({ ...stored, then: [{ ...signal, work: { dueInMs: 3_600_000 } }] }).then[0]).toMatchObject({ work: { dueHours: "1" } });
-    // A notice is read and cleared: turned into one, the work's form and timing go.
+    // A notice is read and cleared: turned into one, its form and where its answer goes go.
     const notice = finishDraft({ ...loaded, then: [{ ...loaded.then[0]!, signal: "notice" } as ActionDraft] });
-    expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words" });
+    expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", id: "pages", signal: "notice", title: "Write 500 words" });
   });
 
-  it("a signal's form and timing say what is wrong with them", () => {
+  it("a signal's form says what is wrong with it", () => {
     const trigger: TriggerDraft = { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" };
-    const asking = (form: ActionDraft & { kind: "signal" } extends { form?: infer F } ? F : never, work?: { dueHours?: string; urgent?: boolean }) =>
-      actionProblem(draftWith(trigger, [{ kind: "signal", signal: "work", title: "Write", form, ...(work ? { work } : {}) }]));
+    const asking = (form: ActionDraft & { kind: "signal" } extends { form?: infer F } ? F : never) =>
+      actionProblem(draftWith(trigger, [{ kind: "signal", signal: "escalate", title: "Write", form }]));
     expect(asking({ kind: "artifact" })).toBe("Pick the Artifacts node the writing goes to.");
     expect(asking({ kind: "artifact", node: shelf, minWords: "0" })).toBe("Ask for 1 to 100,000 words.");
     // The title becomes the document's, so it takes the artifact's bound.
     expect(asking({ kind: "artifact", node: shelf, title: "t".repeat(201) })).toBe("The document title is longer than 200 characters.");
     expect(asking({ kind: "artifact", node: shelf, minWords: "500", labels: ["publish/"] })).toBe(ARTIFACT_LABEL_RULE);
-    expect(asking({ kind: "proof" }, { dueHours: "soon" })).toBe("Work falls due within 8784 hours of the firing.");
-    expect(asking({ kind: "artifact", node: shelf, minWords: "500" }, { dueHours: "0.5", urgent: true })).toBeUndefined();
-    const done = finishDraft(draftWith(trigger, [{ kind: "signal", signal: "work", title: "Write", form: { kind: "artifact", node: shelf, title: " ", labels: ["Daily"] }, work: { dueHours: "" } }]));
-    // An empty title and no timing are left out; labels fold.
-    expect(done.ok && done.definition.then[0]).toEqual({ kind: "signal", signal: "work", title: "Write", form: { kind: "artifact", node: shelf, labels: ["daily"] } });
+    expect(asking({ kind: "artifact", node: shelf, minWords: "500" })).toBeUndefined();
+    const done = finishDraft(draftWith(trigger, [{ kind: "signal", signal: "escalate", title: "Write", form: { kind: "artifact", node: shelf, title: " ", labels: ["Daily"] } }]));
+    // An empty title is left out; labels fold.
+    expect(done.ok && done.definition.then[0]).toEqual({ kind: "signal", signal: "escalate", title: "Write", form: { kind: "artifact", node: shelf, labels: ["daily"] } });
   });
 
   it("each artifact action says what it writes", () => {
@@ -280,9 +273,9 @@ describe("artifact automations, the form", () => {
     expect(spoken()).toBe("No artifact in Specs carries publsh yet.");
   });
 
-  it("a signal step asks notice or work, a title and detail with values, and grows one artifact picker at a time", async () => {
-    await render(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "signal", signal: "work", title: "Write 500 words" }]));
-    expect(host.querySelector('[aria-label="What the signal asks"]')?.textContent).toContain("Work, for you to do");
+  it("a signal step asks its kind, a title and detail with values, and grows one artifact picker at a time", async () => {
+    await render(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "signal", signal: "escalate", title: "Write 500 words" }]));
+    expect(host.querySelector('[aria-label="What the signal asks"]')?.textContent).toContain("An escalate, a question for you");
     expect(host.querySelector<HTMLTextAreaElement>('[aria-label="Signal title"]')?.value).toBe("Write 500 words");
     expect(host.querySelector('[aria-label="Signal detail, optional"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Artifact to show, optional"]')).not.toBeNull();
@@ -293,24 +286,21 @@ describe("artifact automations, the form", () => {
     expect(host.querySelector('[aria-label="Artifact to show, 2 of 2"]')).not.toBeNull();
   });
 
-  it("a work signal asks how you answer, where the writing goes, and when it is due; a notice has no due time", async () => {
+  it("an escalate asks how you answer and where the writing goes; a notice asks nothing back", async () => {
     const trigger: TriggerDraft = { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" };
     await render(
       draftWith(trigger, [
-        { kind: "signal", signal: "work", title: "Write", form: { kind: "artifact", node: shelf, minWords: "500" }, work: { dueHours: "2", urgent: true } },
+        { kind: "signal", signal: "escalate", title: "Write", form: { kind: "artifact", node: shelf, minWords: "500" } },
       ]),
     );
     expect(host.querySelector('[aria-label="How you answer"]')?.textContent).toContain("By writing a document");
     expect(host.querySelector('[aria-label="Artifacts node for the writing"]')?.textContent).toContain("Specs");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Words at least"]')?.value).toBe("500");
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Due after, in hours"]')?.value).toBe("2");
-    expect(host.querySelector<HTMLInputElement>('[aria-label="Urgent from the start"]')?.checked).toBe(true);
 
     await render(draftWith(trigger, [{ kind: "signal", signal: "notice", title: "Deploy finished" }]));
     // A notice asks nothing back: no form to choose.
     expect(host.querySelector('[aria-label="How you answer"]')).toBeNull();
     expect(host.querySelector('[aria-label="Artifacts node for the writing"]')).toBeNull();
-    expect(host.querySelector('[aria-label="Due after, in hours"]')).toBeNull();
   });
 
   it("create-artifact lists the Artifacts nodes in reach by name", async () => {

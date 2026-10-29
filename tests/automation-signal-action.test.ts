@@ -13,7 +13,7 @@ const SHELF = asNodeId("journal");
 const DOC = ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ51");
 const SIGNAL_ID = "01M62Q58WDSXMG4YBXNKR2RB91";
 const FIRING_ID = "01M62Q58WDA1B2C3D4E5F6G7H8";
-const FIRED_AT = 1_790_000_000_000;
+const VALUES = { "fired.at": "2026-09-22T09:00:00.000Z" };
 const canvas = {
   nodes: new Map([
     [SHELF, { kind: "artifacts", id: SHELF, title: "Journal", x: 0, y: 0, width: 10, height: 10, z: 0 }],
@@ -57,7 +57,7 @@ const perform = (signals: AgentSignalRepository["Service"], action: SignalAction
     automation,
     action,
     index: 0,
-    fired: { at: FIRED_AT },
+    values: VALUES,
     resolve: (text) => Effect.succeed(text.replaceAll("{{fired.at}}", "Tuesday")),
     firingId: FIRING_ID,
     signalId: SIGNAL_ID,
@@ -65,27 +65,27 @@ const perform = (signals: AgentSignalRepository["Service"], action: SignalAction
 
 const write: SignalAction = {
   kind: "signal",
-  signal: "work",
+  id: "pages",
+  signal: "escalate",
   title: "Write 500 words, {{fired.at}}",
   detail: "Morning pages",
   show: [{ kind: "artifact", nodeId: SHELF, artifactId: DOC }],
   form: { kind: "artifact", node: SHELF, labels: ["Daily"] as never, minWords: 500 },
-  work: { dueInMs: 3_600_000, urgent: true },
 };
+const RAISED = { index: 0, ruling: "raised", signalId: SIGNAL_ID, step: "pages", values: VALUES } as const;
 
-describe("an automation's signal step (0.11/07 N2)", () => {
-  it("raises work from the Automations node, with its values said, its form settled and its due time from the firing", async () => {
+describe("an automation's signal step (0.11/07 N2, 0.11/09 H1)", () => {
+  it("raises an escalate from the Automations node, with its values said and its form settled, and keeps the firing's values", async () => {
     const { raised, signals } = store();
-    expect(await perform(signals, write)).toEqual({ index: 0, ruling: "raised", signalId: SIGNAL_ID });
+    expect(await perform(signals, write)).toEqual(RAISED);
     expect(raised).toEqual([{
       canvasName: "factory",
       nodeId: NODE,
       signalId: SIGNAL_ID,
-      kind: "work",
+      kind: "escalate",
       text: "Write 500 words, Tuesday",
       detail: "Morning pages",
       source: { kind: "automation", automationId: automation.automationId, nodeId: NODE, firingId: FIRING_ID },
-      work: { dueAt: FIRED_AT + 3_600_000, urgent: true },
       // Titled from the signal when the form names none; labels fold as a seat raise folds them.
       form: { kind: "artifact", nodeId: SHELF, title: "Write 500 words, Tuesday", labels: ["daily"], minWords: 500 },
       attachments: [{ kind: "artifact", nodeId: SHELF, artifactId: DOC }],
@@ -95,8 +95,34 @@ describe("an automation's signal step (0.11/07 N2)", () => {
   it("raises once for a retried firing", async () => {
     const { raised, signals } = store();
     await perform(signals, write);
-    expect(await perform(signals, write)).toEqual({ index: 0, ruling: "raised", signalId: SIGNAL_ID });
+    expect(await perform(signals, write)).toEqual(RAISED);
     expect(raised).toHaveLength(1);
+  });
+
+  it("raises one signal per firing, never merged: ten firings raise ten", async () => {
+    const { raised, signals } = store();
+    const ids = Array.from({ length: 10 }, (_, k) => `01M62Q58WDSXMG4YBXNKR2RB${String(k).padStart(2, "0")}`);
+    for (const [k, signalId] of ids.entries()) {
+      await Effect.runPromise(performSignalAction(signals, {
+        canvas, canvasName: "factory", machine: "mini", automation, action: write, index: 0, values: VALUES,
+        resolve: Effect.succeed, firingId: `01M62Q58WDA1B2C3D4E5F6G7${String(k).padStart(2, "0")}`, signalId,
+      }));
+    }
+    expect(raised.map((one) => one.signalId)).toEqual(ids);
+  });
+
+  it("raises blocked and feedback as a seat would, and a notice with no form", async () => {
+    const { raised, signals } = store();
+    await perform(signals, { kind: "signal", signal: "blocked", title: "The deploy key expired", form: { kind: "text" } });
+    expect(raised[0]).toMatchObject({ kind: "blocked", form: { kind: "text" } });
+    const fresh = store();
+    await perform(fresh.signals, { kind: "signal", signal: "feedback", title: "Read this draft" });
+    expect(fresh.raised[0]).toMatchObject({ kind: "feedback", text: "Read this draft" });
+    // Feedback is answered in words: a stored one with a form is refused, raising nothing.
+    const formed = store();
+    expect(await perform(formed.signals, { kind: "signal", signal: "feedback", title: "Read this draft", form: { kind: "text" } }))
+      .toEqual({ index: 0, ruling: "refused", reason: "invalid_input" });
+    expect(formed.raised).toEqual([]);
   });
 
   it("raises a notice with no form and no timing", async () => {
@@ -109,7 +135,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
 
   it("names the document as the form says, defaults the condition, and asks for a reply or proof as is", async () => {
     const { raised, signals } = store();
-    await perform(signals, { ...write, form: { kind: "artifact", node: SHELF, title: "Pages, {{fired.at}}" }, work: undefined });
+    await perform(signals, { ...write, form: { kind: "artifact", node: SHELF, title: "Pages, {{fired.at}}" } });
     expect(raised[0]!.form).toEqual({ kind: "artifact", nodeId: SHELF, title: "Pages, Tuesday", labels: [], minWords: 1 });
     expect(raised[0]).not.toHaveProperty("work");
     await perform(signals, { ...write, form: { kind: "proof" } });
@@ -137,7 +163,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     expect(await perform(signals, secret)).toEqual({ index: 0, ruling: "refused", reason: VAULT_ENABLED ? "invalid_input" : "not_available" });
     expect(await Effect.runPromise(performSignalAction(signals, {
       canvas, canvasName: "factory", machine: undefined, automation, action: secret, index: 0,
-      fired: { at: FIRED_AT }, resolve: Effect.succeed, firingId: FIRING_ID, signalId: SIGNAL_ID,
+      values: VALUES, resolve: Effect.succeed, firingId: FIRING_ID, signalId: SIGNAL_ID,
     }))).toEqual({ index: 0, ruling: "refused", reason: "not_available" });
     expect(raised).toEqual([]);
   });
@@ -146,7 +172,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     const { raised, signals } = store();
     const long = (text: string) => Effect.succeed(text.replaceAll("{{fired.at}}", "x".repeat(400)));
     await Effect.runPromise(performSignalAction(signals, {
-      canvas, canvasName: "factory", machine: "mini", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, firingId: FIRING_ID, signalId: SIGNAL_ID,
+      canvas, canvasName: "factory", machine: "mini", automation, action: write, index: 0, values: VALUES, resolve: long, firingId: FIRING_ID, signalId: SIGNAL_ID,
     }));
     expect(raised[0]!.text.length).toBe(280);
     expect((raised[0]!.form as { title: string }).title.length).toBe(200);

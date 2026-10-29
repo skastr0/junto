@@ -1,16 +1,26 @@
 /**
- * An automation's `signal` step (0.11/07 N2): a notice or a work signal in the
- * operator's needs-you feed, raised from the Automations node, never a seat.
+ * An automation's `signal` step (0.11/07 N2, 0.11/09): a seat's kind of
+ * signal, or a notice, in the operator's needs-you feed, raised from the
+ * Automations node, never a seat. One signal per firing, never merged.
  *
  * The step was ruled in reach when the firing was admitted (`targetNodeIds`
  * names its shown artifacts and its form's Artifacts node), so its form is
  * settled by the seat raise's own rule against those targets: an
  * overseer-authored automation reaches what its author reaches. Its id is the
- * firing's, so a retried firing raises it once.
+ * firing's, so a retried firing raises it once. Its ruling keeps the firing's
+ * values, which `raised.<name>` says when the answer comes back.
  */
 import { Effect, Result } from "effect";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
-import { type Action, type ActionRuling, type Automation, targetNodeIds } from "@shared/automation";
+import {
+  type Action,
+  type ActionRuling,
+  AUTOMATION_CODE_VALUE_MAX_CHARS,
+  AUTOMATION_RAISED_VALUES_MAX,
+  type Automation,
+  signalTakesForm,
+  targetNodeIds,
+} from "@shared/automation";
 import type { Canvas } from "@shared/model";
 import {
   AGENT_SIGNAL_MAX_DETAIL_LENGTH,
@@ -18,11 +28,9 @@ import {
   normalizeSignalText,
   type AgentSignalArtifactAttachment,
   type SignalFormRequest,
-  type WorkTiming,
 } from "@shared/agent-signals";
 import { resolveSignalForm } from "../signals/form-rule";
 import type { AgentSignalRepository } from "../signals/repository";
-import type { Fired } from "./values";
 
 export type SignalAction = Extract<Action, { readonly kind: "signal" }>;
 
@@ -34,7 +42,8 @@ export type SignalActionInput = {
   readonly automation: Automation;
   readonly action: SignalAction;
   readonly index: number;
-  readonly fired: Fired;
+  /** The firing's values as its signal step says them, kept on the ruling. */
+  readonly values: Readonly<Record<string, string>>;
   /** The action's text with its values said. */
   readonly resolve: (text: string) => Effect.Effect<string>;
   /** The firing performing the step, named on the signal's source so the feed opens that run. */
@@ -66,16 +75,13 @@ const formRequestOf = (
     };
   });
 
-/** Work's timing from the firing: due this long after it fired, and urgent as marked. */
-const timingOf = (action: SignalAction, fired: Fired): WorkTiming | undefined => {
-  if (action.signal !== "work" || action.work === undefined) return undefined;
-  const { dueInMs, urgent } = action.work;
-  if (dueInMs === undefined && urgent === undefined) return undefined;
-  return {
-    ...(dueInMs === undefined ? {} : { dueAt: fired.at + dueInMs }),
-    ...(urgent === undefined ? {} : { urgent }),
-  };
-};
+/** The values a ruling keeps: each cut to a value's length, at most AUTOMATION_RAISED_VALUES_MAX. */
+const keptValues = (values: Readonly<Record<string, string>>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(values)
+      .slice(0, AUTOMATION_RAISED_VALUES_MAX)
+      .map(([name, value]) => [name, [...value].slice(0, AUTOMATION_CODE_VALUE_MAX_CHARS).join("")]),
+  );
 
 /** Raise the step's signal. Never fails: a refusal is a ruling. */
 export const performSignalAction = (
@@ -84,15 +90,22 @@ export const performSignalAction = (
 ): Effect.Effect<ActionRuling> =>
   Effect.gen(function* () {
     const { action, automation, index } = input;
+    const raisedRuling: ActionRuling = {
+      index,
+      ruling: "raised",
+      signalId: input.signalId,
+      ...(action.id === undefined ? {} : { step: action.id }),
+      values: keptValues(input.values),
+    };
     // Raised once: a retried firing finds its signal and is done.
     const existing = yield* signals.get(input.signalId).pipe(Effect.option);
-    if (existing._tag === "Some") return { index, ruling: "raised", signalId: input.signalId } as const;
+    if (existing._tag === "Some") return raisedRuling;
 
     const text = clip(normalizeSignalText(yield* input.resolve(action.title)), AGENT_SIGNAL_MAX_TEXT_LENGTH);
     if (text === "") return invalid(index);
     const detail = action.detail === undefined ? "" : clip(yield* input.resolve(action.detail), AGENT_SIGNAL_MAX_DETAIL_LENGTH);
-    // A notice is read and cleared (`actionRefusal`): a stored one with a form is wrong, and says so.
-    if (action.signal === "notice" && action.form !== undefined) return invalid(index);
+    // A notice or feedback takes no form (`actionRefusal`): a stored one with a form is wrong, and says so.
+    if (action.form !== undefined && !signalTakesForm(action.signal)) return invalid(index);
     let form;
     if (action.form !== undefined) {
       if (input.canvas === undefined) return notAvailable(index);
@@ -111,7 +124,6 @@ export const performSignalAction = (
       }
       form = settled.success;
     }
-    const work = timingOf(action, input.fired);
     const attachments = (action.show ?? []).flatMap((shown): ReadonlyArray<AgentSignalArtifactAttachment> =>
       shown.kind === "artifact" ? [{ kind: "artifact", nodeId: shown.nodeId, artifactId: shown.artifactId }] : []);
 
@@ -123,9 +135,8 @@ export const performSignalAction = (
       text,
       ...(detail === "" ? {} : { detail }),
       source: { kind: "automation", automationId: automation.automationId, nodeId: automation.nodeId, firingId: input.firingId },
-      ...(work === undefined ? {} : { work }),
       ...(form === undefined ? {} : { form }),
       ...(attachments.length === 0 ? {} : { attachments }),
     }).pipe(Effect.result);
-    return raised._tag === "Success" ? ({ index, ruling: "raised", signalId: input.signalId } as const) : notAvailable(index);
+    return raised._tag === "Success" ? raisedRuling : notAvailable(index);
   });

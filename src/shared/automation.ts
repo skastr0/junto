@@ -38,6 +38,8 @@ import { isValidCronExpression } from "./cron-expression";
 import { InstallationId } from "./installation-id";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "./artifact";
 import { ArtifactLabel, ArtifactLabels, artifactLabelsMatch } from "./artifact-labels";
+import { applyValueFormats, DATE_PATTERN_WORDS, parseValueFormats, VALUE_FORMATS } from "./automation-formats";
+export { VALUE_FORMATS } from "./automation-formats";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
 import { HostId } from "./remote-hosts";
@@ -95,8 +97,8 @@ export const AUTOMATION_STEPS_MAX = 16;
 export const AUTOMATION_SIGNAL_SHOWS_MAX = 8;
 /** The most words a signal's artifact reply may be asked for. */
 export const AUTOMATION_SIGNAL_MIN_WORDS_MAX = 100_000;
-/** How far after its firing a work signal may fall due: a year. */
-export const AUTOMATION_SIGNAL_DUE_MAX_MS = 366 * 24 * 60 * 60_000;
+/** The values a raised signal keeps of its firing, for the automation its answer fires (0.11/09). */
+export const AUTOMATION_RAISED_VALUES_MAX = 96;
 /** A region secret by the variable name it declares, as a process environment takes it. */
 const SecretName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)));
 
@@ -157,12 +159,27 @@ export type SeatBecomes = typeof SeatBecomes.Type;
 export const ArtifactEvent = Schema.Literals(["edited", "commented", "labelled"]);
 export type ArtifactEvent = typeof ArtifactEvent.Type;
 
-/** What an automation's signal asks of the operator (0.11/07): read it, or produce something. */
-export const SignalKind = Schema.Literals(["notice", "work"]);
+/**
+ * What an automation's signal says to the operator (0.11/09): the kinds a
+ * seat raises, and `notice`, only to read. `work` went: `escalate` with a
+ * form asks for the same (`upgradeStoredAutomation` reads a stored one so).
+ */
+export const SignalKind = Schema.Literals(["notice", "escalate", "blocked", "feedback"]);
 export type SignalKind = typeof SignalKind.Type;
 
+/** The kinds a seat raises, and so the kinds an answer comes back to. */
 export const WatchedSignal = Schema.Literals(["escalate", "blocked", "feedback"]);
 export type WatchedSignal = typeof WatchedSignal.Type;
+
+/** Whether a signal of this kind may ask for its answer in a form: the seat rule (`signalKindTakesForm`). */
+export const signalTakesForm = (kind: SignalKind): boolean => kind === "escalate" || kind === "blocked";
+
+/**
+ * A signal step's own name in its automation (0.11/09): what an answered
+ * watch names it by, so a reorder of steps never moves the watch.
+ */
+export const StepId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,31}$/)));
+export type StepId = typeof StepId.Type;
 
 export const AutomationLimits = Schema.Struct({
   minIntervalMs: Bounded(0, 24 * 60 * 60_000),
@@ -211,6 +228,17 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
      * sibling region's.
      */
     Schema.Struct({ kind: Schema.Literal("signal"), from: Schema.optionalKey(ref), signal: WatchedSignal }),
+    /**
+     * A signal the named automation raised was answered (0.11/09). `step`
+     * narrows to one signal step by its id, `signal` to one kind. Fired by
+     * the operator's act, so never an automation's own write.
+     */
+    Schema.Struct({
+      kind: Schema.Literal("answered"),
+      automation: Schema.Struct({ node, automationId: AutomationId }),
+      step: Schema.optionalKey(StepId),
+      signal: Schema.optionalKey(WatchedSignal),
+    }),
   ]);
 
   /** A state that must hold when the automation fires. Events only trigger: they leave no state to check. */
@@ -283,12 +311,14 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
      */
     Schema.Struct({ kind: Schema.Literal("seat-control"), seat: ref, op: Schema.Literals(["start", "stop"]) }),
     /**
-     * A signal in the needs-you feed, raised by the automation (0.11/07 N2):
-     * `notice` to read and clear, `work` for the operator to produce. Its
-     * title and detail may name values; `show` names artifacts it opens.
+     * A signal in the needs-you feed, raised by the automation (0.11/07 N2,
+     * 0.11/09): a seat's kinds, or `notice` to read and clear. Its title and
+     * detail may name values; `show` names artifacts it opens; `id` names
+     * the step for an answered watch.
      */
     Schema.Struct({
       kind: Schema.Literal("signal"),
+      id: Schema.optionalKey(StepId),
       signal: SignalKind,
       title: Text(AGENT_SIGNAL_MAX_TEXT_LENGTH),
       detail: Schema.optionalKey(Text(AGENT_SIGNAL_MAX_DETAIL_LENGTH)),
@@ -313,12 +343,18 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
           Schema.Struct({ kind: Schema.Literal("proof") }),
         ]),
       ),
-      /** Work only: due this long after the firing, and whether it is urgent. */
-      work: Schema.optionalKey(
-        Schema.Struct({
-          dueInMs: Schema.optionalKey(Bounded(1, AUTOMATION_SIGNAL_DUE_MAX_MS)),
-          urgent: Schema.optionalKey(Schema.Boolean),
-        }),
+      /**
+       * Where the answer goes once the operator gives it: a seat prompted
+       * with it, a new document in an Artifacts node under `title` (which
+       * may name the answer's values), or a dated section at the end of an
+       * artifact.
+       */
+      answerTo: Schema.optionalKey(
+        Schema.Union([
+          Schema.Struct({ kind: Schema.Literal("seat"), to: ref }),
+          Schema.Struct({ kind: Schema.Literal("document"), node, title: Text(ARTIFACT_MAX_TITLE_LENGTH) }),
+          Schema.Struct({ kind: Schema.Literal("append"), to: ref }),
+        ]),
       ),
     }),
   ]);
@@ -403,7 +439,27 @@ export const Automation = Schema.Struct({
 export type Automation = typeof Automation.Type;
 export type AutomationWire = typeof Automation.Encoded;
 
-export const decodeAutomation = Schema.decodeUnknownResult(Automation, { onExcessProperty: "error" });
+/**
+ * A stored automation as this version reads it: a signal step that says
+ * `work` (0.11/07, shipped gated off) is an `escalate`, and its due time and
+ * urgency go with the kind. Anything else passes as it is.
+ */
+export const upgradeStoredAutomation = (input: unknown): unknown => {
+  if (typeof input !== "object" || input === null || !Array.isArray((input as { then?: unknown }).then)) return input;
+  const then = (input as { then: ReadonlyArray<unknown> }).then;
+  if (!then.some((action) => typeof action === "object" && action !== null && (action as { kind?: unknown }).kind === "signal")) return input;
+  return {
+    ...input,
+    then: then.map((action) => {
+      if (typeof action !== "object" || action === null || (action as { kind?: unknown }).kind !== "signal") return action;
+      const { work: _work, ...rest } = action as { readonly signal?: unknown; readonly work?: unknown };
+      return rest.signal === "work" ? { ...rest, signal: "escalate" } : "work" in action ? rest : action;
+    }),
+  };
+};
+
+const decodeAutomationAsIs = Schema.decodeUnknownResult(Automation, { onExcessProperty: "error" });
+export const decodeAutomation = (input: unknown) => decodeAutomationAsIs(upgradeStoredAutomation(input));
 
 // ── Writes ─────────────────────────────────────────────────────────────────
 
@@ -470,6 +526,8 @@ const watchNodes = (watch: Watch | Condition): ReadonlyArray<NodeId> => {
       return ["kind" in watch.artifact ? watch.artifact.nodeId : watch.artifact.node];
     case "signal":
       return watch.from === undefined ? [] : [watch.from.nodeId];
+    case "answered":
+      return [watch.automation.node];
     default:
       return watch satisfies never;
   }
@@ -487,7 +545,11 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
     case "seat-control":
       return [action.seat.nodeId];
     case "signal":
-      return [...(action.show ?? []).map((shown) => shown.nodeId), ...(action.form?.kind === "artifact" ? [action.form.node] : [])];
+      return [
+        ...(action.show ?? []).map((shown) => shown.nodeId),
+        ...(action.form?.kind === "artifact" ? [action.form.node] : []),
+        ...(action.answerTo === undefined ? [] : [action.answerTo.kind === "document" ? action.answerTo.node : action.answerTo.to.nodeId]),
+      ];
     case "comment":
       return [action.on.nodeId];
     case "create-artifact":
@@ -560,13 +622,23 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
       if (!(action.show ?? []).every((shown) => shown.kind === "artifact")) {
         return { reason: "invalid_input", message: "a signal shows artifacts", next_step: "Name only artifacts for the signal to show" };
       }
-      if (action.signal === "work") return undefined;
-      // A notice is read and cleared: nothing answers a form, nothing falls due.
-      if (action.form !== undefined) {
-        return { reason: "invalid_input", message: "only a work signal asks for an answer", next_step: "Make it a work signal, or drop its form" };
+      // A notice is read and cleared, and feedback asks for a review in words: neither takes a form.
+      if (action.form !== undefined && !signalTakesForm(action.signal)) {
+        return {
+          reason: "invalid_input",
+          message: "only an escalate or blocked signal asks for an answer in a form",
+          next_step: "Make it escalate or blocked, or drop its form",
+        };
       }
-      return action.work !== undefined
-        ? { reason: "invalid_input", message: "only a work signal falls due", next_step: "Make it a work signal, or drop its due time" }
+      if (action.answerTo === undefined) return undefined;
+      if (action.signal === "notice") {
+        return { reason: "invalid_input", message: "a notice is read and cleared, so no answer comes back", next_step: "Make it escalate, blocked or feedback, or drop where its answer goes" };
+      }
+      if (action.answerTo.kind === "seat" && action.answerTo.to.kind !== "seat") {
+        return { reason: "invalid_input", message: "an answer goes to a seat as a prompt", next_step: "Name a seat for the answer" };
+      }
+      return action.answerTo.kind === "append" && action.answerTo.to.kind !== "artifact"
+        ? { reason: "invalid_input", message: "an answer is appended to an artifact", next_step: "Name an artifact for the answer" }
         : undefined;
     case "append-artifact":
     case "label-artifact": {
@@ -588,6 +660,23 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
       return undefined;
   }
 };
+
+/** Two signal steps of one automation never share an id: an answered watch names one. */
+export const stepIdRefusal = (definition: Pick<AutomationDefinition, "then">): Refusal | undefined => {
+  const seen = new Set<string>();
+  for (const action of definition.then) {
+    if (action.kind !== "signal" || action.id === undefined) continue;
+    if (seen.has(action.id)) {
+      return { reason: "invalid_input", message: `two signal steps are named ${action.id}`, next_step: "Give each signal step its own id" };
+    }
+    seen.add(action.id);
+  }
+  return undefined;
+};
+
+/** The time zone a date format writes in: its schedule's, or undefined for the machine's own. */
+export const automationTimeZone = (automation: Pick<AutomationDefinition, "trigger">): string | undefined =>
+  automation.trigger.kind === "schedule" ? automation.trigger.timezone : undefined;
 
 /** `{fired: true}` names the artifact whose change fired the automation, so only an artifact trigger carries one. */
 export const firedTargetRefusal = (definition: Pick<AutomationDefinition, "trigger" | "then">): Refusal | undefined => {
@@ -622,22 +711,38 @@ export const artifactWatchLabelMatches = (
  * `fired.at` every trigger, the rest a change trigger of that kind. Main
  * resolves them at firing time; a value is inserted as text and never read
  * again, so a title holding `{{x}}` stays `{{x}}`.
+ *
+ * An answered trigger (0.11/09) carries the answer and its signal, and
+ * `raised.<name>`: any value the raising firing carried when its signal
+ * step ran. A value may carry formats, `{{fired.at|date:YYYY-MM-DD}}`
+ * (automation-formats.ts).
  */
 export const AUTOMATION_VALUES = {
   task: ["task.title", "task.state", "task.link", "task.assignee", "board.title"],
   artifact: ["artifact.title", "artifact.link", "artifact.labels", "artifacts.title"],
   seat: ["seat.name", "seat.state"],
   signal: ["signal.kind", "signal.from", "signal.text"],
+  answered: ["answer.text", "answer.link", "answer.by", "answer.at", "signal.title", "signal.kind", "signal.link"],
   every: ["fired.at"],
 } as const;
 
 export const AutomationValue = Schema.Literals([
-  ...AUTOMATION_VALUES.task,
-  ...AUTOMATION_VALUES.artifact,
-  ...AUTOMATION_VALUES.seat,
-  ...AUTOMATION_VALUES.signal,
-  ...AUTOMATION_VALUES.every,
-]);
+  ...new Set([
+    ...AUTOMATION_VALUES.task,
+    ...AUTOMATION_VALUES.artifact,
+    ...AUTOMATION_VALUES.seat,
+    ...AUTOMATION_VALUES.signal,
+    ...AUTOMATION_VALUES.answered,
+    ...AUTOMATION_VALUES.every,
+  ]),
+] as ReadonlyArray<
+  | (typeof AUTOMATION_VALUES)["task"][number]
+  | (typeof AUTOMATION_VALUES)["artifact"][number]
+  | (typeof AUTOMATION_VALUES)["seat"][number]
+  | (typeof AUTOMATION_VALUES)["signal"][number]
+  | (typeof AUTOMATION_VALUES)["answered"][number]
+  | (typeof AUTOMATION_VALUES)["every"][number]
+>);
 export type AutomationValue = typeof AutomationValue.Type;
 
 /** What `automationValuesOf` reads of a trigger, so a stored trigger and an editor draft both pass. */
@@ -645,28 +750,77 @@ export type TriggerForValues =
   | { readonly kind: "change"; readonly on: { readonly kind: Watch["kind"] } }
   | { readonly kind: "schedule" | "poll" | "webhook" };
 
-/** The values a trigger carries, in the order an Insert value list shows them. */
+/** The values a trigger carries, in the order an Insert value list shows them. `raised.<name>` is the raising automation's to list. */
 export const automationValuesOf = <T extends TriggerForValues>(trigger: T): ReadonlyArray<AutomationValue> =>
   trigger.kind === "change" ? [...AUTOMATION_VALUES[trigger.on.kind], ...AUTOMATION_VALUES.every] : AUTOMATION_VALUES.every;
 
-/** `{{word.word}}`, or `{{code.<field>}}`, no spaces: anything else in braces is plain text. */
-const VALUE_TOKEN = /\{\{([a-z]+\.[a-z][a-z0-9_]*)\}\}/g;
+/**
+ * The values a signal step's `answerTo` title may name: the step's own
+ * (its trigger's), then the answer's and its signal's, said when the answer
+ * comes back.
+ */
+export const answerToValuesOf = <T extends TriggerForValues>(trigger: T): ReadonlyArray<AutomationValue> => {
+  const own = automationValuesOf(trigger);
+  return [...own, ...AUTOMATION_VALUES.answered.filter((name) => !own.includes(name))];
+};
+
+/**
+ * `{{name}}` or `{{name|format|...}}`, no spaces: a name is dotted words,
+ * `task.title`, `code.<field>` or `raised.task.title`; each format follows a
+ * `|`. Anything else in braces is plain text.
+ */
+const VALUE_TOKEN = /\{\{([a-z]+(?:\.[a-z][a-z0-9_]*)+)((?:\|[^|{}]+)*)\}\}/g;
 
 /** An earlier code step's output field, as an action's text names it. */
 export type CodeValueName = `code.${string}`;
 export const isCodeValueName = (name: string): name is CodeValueName =>
   name.startsWith("code.") && AUTOMATION_CODE_FIELD.test(name.slice("code.".length));
 
-/** Every name a value token may say: the trigger's values and the code steps' fields. */
-export type ValueName = AutomationValue | CodeValueName;
-const isValueName = (name: string): name is ValueName => Schema.is(AutomationValue)(name) || isCodeValueName(name);
+/** A value of the firing that raised the answered signal, `raised.<name>`. */
+export type RaisedValueName = `raised.${AutomationValue | CodeValueName}`;
+export const isRaisedValueName = (name: string): name is RaisedValueName => {
+  if (!name.startsWith("raised.")) return false;
+  const inner = name.slice("raised.".length);
+  return Schema.is(AutomationValue)(inner) || isCodeValueName(inner);
+};
 
-/** Each value name a text writes, in order, repeats kept. */
+/** Every name a value token may say: the trigger's values, the code steps' fields, and the raising firing's. */
+export type ValueName = AutomationValue | CodeValueName | RaisedValueName;
+const isValueName = (name: string): name is ValueName => Schema.is(AutomationValue)(name) || isCodeValueName(name) || isRaisedValueName(name);
+
+/** Each value name a text writes, in order, repeats kept, its formats left off. */
 export const valueNamesIn = (text: string): ReadonlyArray<string> => [...text.matchAll(VALUE_TOKEN)].map((match) => match[1]!);
 
-/** Each value token replaced by what `valueOf` says, in one pass, so a resolved value is never read again. */
-export const resolveValues = (text: string, valueOf: (name: ValueName) => string): string =>
-  text.replace(VALUE_TOKEN, (token, name: string) => (isValueName(name) ? valueOf(name) : token));
+/**
+ * Each value token replaced by what `valueOf` says, its formats applied in
+ * `timeZone` (the machine's own when absent), in one pass, so a resolved
+ * value is never read again. A value the firing does not carry stays as
+ * written, formats and all.
+ */
+export const resolveValues = (text: string, valueOf: (name: ValueName) => string | undefined, timeZone?: string): string =>
+  text.replace(VALUE_TOKEN, (token, name: string, written: string) => {
+    if (!isValueName(name)) return token;
+    const parsed = parseValueFormats(written);
+    if (!parsed.ok) return token;
+    const value = valueOf(name);
+    return value === undefined ? token : applyValueFormats(value, parsed.formats, timeZone);
+  });
+
+/**
+ * What is wrong with a text's formats, worded for whoever wrote it: the
+ * first format the set does not hold, or a date pattern it cannot write.
+ * The editor says it before the save; the save refuses with the same words.
+ */
+export const formatProblem = (text: string): Refusal | undefined => {
+  for (const match of text.matchAll(VALUE_TOKEN)) {
+    const parsed = parseValueFormats(match[2]!);
+    if (parsed.ok) continue;
+    return parsed.bad.startsWith("date:")
+      ? { reason: "invalid_input", message: `${match[0]} has a date pattern this cannot write`, next_step: `Write the pattern with ${DATE_PATTERN_WORDS}` }
+      : { reason: "invalid_input", message: `${match[0]} names an unknown format`, next_step: `Use one of: ${VALUE_FORMATS.join(", ")}` };
+  }
+  return undefined;
+};
 
 /** The text of an action that may name values, if it has one: a new task's title, or what it writes. */
 export const actionText = (action: Action): string | undefined => {
@@ -695,32 +849,47 @@ export const actionText = (action: Action): string | undefined => {
   }
 };
 
+/** A signal step's `answerTo` title, said when its answer comes back, so it also names the answer's values. */
+export const answerToText = (action: Action): string | undefined =>
+  action.kind === "signal" && action.answerTo?.kind === "document" ? action.answerTo.title : undefined;
+
 /**
- * A value an action names that its trigger does not carry, refused when the
- * automation is saved. `{{code.<field>}}` is carried after a code step: what
- * fields it answers is the program's, so a field it never answered stays as
- * written at firing time.
+ * A value an action names that its trigger does not carry, or a format the
+ * set does not hold, refused when the automation is saved.
+ * `{{code.<field>}}` is carried after a code step and `{{raised.<name>}}` by
+ * an answered trigger: what fields a program answers, and what the raising
+ * firing carried, are theirs, so one never carried stays as written.
  */
 export const valueRefusal = (definition: Pick<AutomationDefinition, "trigger" | "then">): Refusal | undefined => {
-  const carried: ReadonlyArray<string> = automationValuesOf(definition.trigger);
+  const answered = definition.trigger.kind === "change" && definition.trigger.on.kind === "answered";
   let afterCode = false;
   for (const action of definition.then) {
-    const missing = valueNamesIn(actionText(action) ?? "").find((name) => !carried.includes(name) && !(afterCode && isCodeValueName(name)));
+    const texts: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
+      [actionText(action) ?? "", automationValuesOf(definition.trigger)],
+      [answerToText(action) ?? "", answerToValuesOf(definition.trigger)],
+    ];
+    for (const [text, carried] of texts) {
+      const formats = formatProblem(text);
+      if (formats !== undefined) return formats;
+      const missing = valueNamesIn(text).find(
+        (name) => !carried.includes(name) && !(afterCode && isCodeValueName(name)) && !(answered && isRaisedValueName(name)),
+      );
+      if (missing !== undefined && isCodeValueName(missing)) {
+        return {
+          reason: "invalid_input",
+          message: `no code step before this one answers {{${missing}}}`,
+          next_step: "Put a code step before it, or name only the values its trigger carries",
+        };
+      }
+      if (missing !== undefined) {
+        return {
+          reason: "invalid_input",
+          message: `this trigger carries no {{${missing}}}`,
+          next_step: `Name only the values it carries: ${carried.map((name) => `{{${name}}}`).join(", ")}`,
+        };
+      }
+    }
     if (action.kind === "code") afterCode = true;
-    if (missing !== undefined && isCodeValueName(missing)) {
-      return {
-        reason: "invalid_input",
-        message: `no code step before this one answers {{${missing}}}`,
-        next_step: "Put a code step before it, or name only the values its trigger carries",
-      };
-    }
-    if (missing !== undefined) {
-      return {
-        reason: "invalid_input",
-        message: `this trigger carries no {{${missing}}}`,
-        next_step: `Name only the values it carries: ${carried.map((name) => `{{${name}}}`).join(", ")}`,
-      };
-    }
   }
   return undefined;
 };
@@ -767,7 +936,19 @@ export const ActionRuling = Schema.Union([
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("applied") }),
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("queued") }),
   /** A signal step raised its signal (0.11/07 N2); what became of it is the signal's own state, read by its id. */
-  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("raised"), signalId: Text(64) }),
+  Schema.Struct({
+    index: StepIndex,
+    ruling: Schema.Literal("raised"),
+    signalId: Text(64),
+    /** The step's id when it has one, so an answered watch knows the step after an edit moved it. */
+    step: Schema.optionalKey(StepId),
+    /** The firing's values as its signal step said them, kept for `raised.<name>` when the answer comes back (0.11/09). */
+    values: Schema.optionalKey(
+      Schema.Record(Text(64), Schema.String.pipe(Schema.check(Schema.isMaxLength(AUTOMATION_CODE_VALUE_MAX_CHARS)))).pipe(
+        Schema.check(Schema.makeFilter((values) => Object.keys(values).length <= AUTOMATION_RAISED_VALUES_MAX)),
+      ),
+    ),
+  }),
   Schema.Struct({
     index: StepIndex,
     ruling: Schema.Literal("refused"),

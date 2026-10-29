@@ -60,7 +60,7 @@ const signal = (over: Partial<AgentSignal>): AgentSignal => ({
 const definition: AutomationDefinition = {
   name: "Nightly check",
   trigger: { kind: "schedule", cron: "0 3 * * *", timezone: "UTC" },
-  then: [{ kind: "signal", signal: "work", title: "Write 500 words" }],
+  then: [{ kind: "signal", signal: "escalate", title: "Write 500 words" }],
   limits: DEFAULT_AUTOMATION_LIMITS,
 };
 

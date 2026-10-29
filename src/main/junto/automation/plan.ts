@@ -21,6 +21,7 @@ import type { NodeId } from "@shared/physics/schema";
 import type { TaskState } from "@shared/task-model";
 import type { ItemId } from "@shared/work-ids";
 import type { ArtifactLabel } from "@shared/artifact-labels";
+import type { AgentSignal } from "@shared/wire/agent-signals";
 import {
   type ArtifactEvent,
   artifactWatchLabelMatches,
@@ -29,6 +30,7 @@ import {
   limitSkip,
   type SeatBecomes,
   type SkipReason,
+  type StepId,
   type Trigger,
   triggerRefusal,
   type Watch,
@@ -166,7 +168,27 @@ export type ChangeEvent =
       readonly gained: ReadonlyArray<ArtifactLabel>;
       readonly byAutomation: boolean;
     }
-  | { readonly kind: "signal"; readonly key: string; readonly seat: NodeId; readonly signal: WatchedSignal; readonly text: string };
+  | { readonly kind: "signal"; readonly key: string; readonly seat: NodeId; readonly signal: WatchedSignal; readonly text: string }
+  /**
+   * An automation's signal answered by the operator (0.11/09): which
+   * automation and step raised it, and the signal as it now stands. Keyed
+   * by the signal, so it fires each watch once.
+   */
+  | {
+      readonly kind: "answered";
+      readonly key: string;
+      readonly automationId: ItemId;
+      readonly nodeId: NodeId;
+      readonly step: StepId | undefined;
+      readonly signal: AnsweredSignal;
+      /** The values its raising firing said, kept on that firing's ruling: what `raised.<name>` reads. Empty when this machine holds no such firing. */
+      readonly raised: Readonly<Record<string, string>>;
+    };
+
+/** An answered automation signal, as the answered watch and its values read it. */
+export type AnsweredSignal = Pick<AgentSignal, "signalId" | "canvasName" | "text" | "response" | "closedAt"> & {
+  readonly kind: WatchedSignal;
+};
 
 /** Whether a change fires a watch. `targets` are the automation's targets now. */
 export const changeMatches = (watch: Watch, event: ChangeEvent, targets: ReadonlySet<NodeId>): boolean => {
@@ -190,6 +212,14 @@ export const changeMatches = (watch: Watch, event: ChangeEvent, targets: Readonl
       );
     case "signal":
       return event.kind === "signal" && signalWatchMatches(watch, event, targets);
+    case "answered":
+      return (
+        event.kind === "answered" &&
+        watch.automation.automationId === event.automationId &&
+        watch.automation.node === event.nodeId &&
+        (watch.step === undefined || watch.step === event.step) &&
+        (watch.signal === undefined || watch.signal === event.signal.kind)
+      );
     default:
       return watch satisfies never;
   }

@@ -27,7 +27,7 @@ import { ulid } from "ulid";
 import type { Action, ActionRuling, Automation, AutomationId, Condition, Firing, SeatBecomes } from "@shared/automation";
 import { TASK_TITLE_MAX, type TaskId, type TaskState } from "@shared/task-model";
 import type { SeatTask } from "@shared/seat-task-index";
-import { actionKindInBuild, automationValuesOf, FiringId, resolveValues, valueNamesIn } from "@shared/automation";
+import { actionKindInBuild, automationTimeZone, automationValuesOf, FiringId, resolveValues, valueNamesIn } from "@shared/automation";
 import { mailExtensionMetadata } from "@shared/crew";
 import { automationActorRef, AutomationNodeId } from "@shared/mail-author";
 import { automationSenderStamp } from "@shared/mail-sender";
@@ -467,6 +467,11 @@ export class AutomationRunnerService extends Context.Service<
     readonly heard: (canvasName: string, event: ChangeEvent) => Effect.Effect<void, AutomationPersistenceError>;
     /** Fire the change triggers a runtime seat-state firing matches, on the canvas holding its seat. */
     readonly seatFired: (firing: SeatStateFiring) => Effect.Effect<void, AutomationPersistenceError>;
+    /**
+     * An automation's signal the operator answered (0.11/09): fire the
+     * answered watches it matches, and deliver it where its step says.
+     */
+    readonly answered: (canvasName: string, signal: AgentSignal) => Effect.Effect<void, AutomationPersistenceError>;
     /** Fire an applied `run` now; undefined when the automation is gone. */
     readonly onRun: (canvasName: string, automationId: AutomationId) => Effect.Effect<Firing | undefined, AutomationPersistenceError>;
   }
@@ -600,17 +605,22 @@ export const AutomationRunnerLive = Layer.effect(
         const state = yield* repository.loadState(canvasName).pipe(Effect.orElseSucceed(() => new Map()));
         return [...state.values()].some((entry) => !entry.archived && runsHere(canvasName, entry.automation));
       });
+    // Every value this firing says at a step: its trigger's, and what its code steps so far answered.
+    const firingValues = (canvasName: string, automation: Automation, fired: Fired, reads: FiredReads): Record<string, string> => {
+      const values: Record<string, string> = {};
+      for (const name of automationValuesOf(automation.trigger)) {
+        const value = firedValue(name, fired, reads, canvases.get(canvasName), canvasName);
+        if (value !== undefined) values[name] = value;
+      }
+      for (const [field, value] of Object.entries(fired.code ?? {})) values[`code.${field}`] = String(value);
+      return values;
+    };
     // A code step's run: its values as text, and the region's environment here.
     const performCode = (canvasName: string, automation: Automation, step: Extract<Action, { readonly kind: "code" }>, index: number, firingId: FiringId, fired: Fired) =>
       Effect.gen(function* () {
         const canvas = canvases.get(canvasName);
         const reads = yield* firedReads(canvasName, fired);
-        const values: Record<string, string> = {};
-        for (const name of automationValuesOf(automation.trigger)) {
-          const value = firedValue(name, fired, reads, canvas, canvasName);
-          if (value !== undefined) values[name] = value;
-        }
-        for (const [field, value] of Object.entries(fired.code ?? {})) values[`code.${field}`] = String(value);
+        const values = firingValues(canvasName, automation, fired, reads);
         const machine = here.get(canvasName)?.machine;
         if (canvas === undefined || machine === undefined) return notAvailable(index);
         const { resolveRegionEnvironment } = yield* Effect.promise(() => import("../region-env/live"));
@@ -754,12 +764,13 @@ export const AutomationRunnerLive = Layer.effect(
           ? ({ index, ruling: "queued" } as const)
           : ({ index, ruling: "refused", reason: "not_available" } as const);
       }).pipe(Effect.catchCause(() => Effect.succeed(notAvailable(index))));
-    // An action's text with its `{{name}}` values said as this firing says them; a value it lacks stays as written.
-    const resolveFor = (canvasName: string, fired: Fired) => (text: string): Effect.Effect<string> =>
+    // An action's text with its `{{name}}` values said as this firing says them, formatted in the
+    // automation's time zone; a value it lacks stays as written.
+    const resolveFor = (canvasName: string, automation: Automation, fired: Fired) => (text: string): Effect.Effect<string> =>
       valueNamesIn(text).length === 0
         ? Effect.succeed(text)
         : Effect.map(firedReads(canvasName, fired), (reads) =>
-            resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName) ?? `{{${name}}}`));
+            resolveValues(text, (name) => firedValue(name, fired, reads, canvases.get(canvasName), canvasName), automationTimeZone(automation)));
     const ports: RunnerPorts = {
       canvas: (canvasName) => canvases.get(canvasName),
       runsHere,
@@ -780,29 +791,29 @@ export const AutomationRunnerLive = Layer.effect(
             action,
             index,
             fired,
-            resolve: resolveFor(canvasName, fired),
+            resolve: resolveFor(canvasName, automation, fired),
             idOf: (part) => automationMailId(firingId, index, part),
             rules: here.get(canvasName)?.edits === true,
           })
         // A signal is raised here, from the Automations node, into the feed (0.11/07 N2).
         : action.kind === "signal" ? Option.match(agentSignals, {
             onNone: () => Effect.succeed(notAvailable(index)),
-            onSome: (signals) => performSignalAction(signals, {
+            onSome: (signals) => Effect.flatMap(firedReads(canvasName, fired), (reads) => performSignalAction(signals, {
               canvas: canvases.get(canvasName),
               canvasName,
               machine: here.get(canvasName)?.machine,
               automation,
               action,
               index,
-              fired,
-              resolve: resolveFor(canvasName, fired),
+              values: firingValues(canvasName, automation, fired, reads),
+              resolve: resolveFor(canvasName, automation, fired),
               firingId,
               signalId: automationMailId(firingId, index, "signal"),
-            }),
+            })),
           })
         // An automation acts from its own machine (S2): mail goes out from here, and a task write is
         // ruled here when this machine rules the canvas, or proposed to the machine that does.
-        : performAction(work, here.get(canvasName)?.edits === true ? tasks : Option.map(tasks, (task) => ({ ...task, queue: queueFor(canvasName) })), canvases.get(canvasName), canvasName, automation, action, index, firingId, resolveFor(canvasName, fired), here.get(canvasName)?.edits === true).pipe(
+        : performAction(work, here.get(canvasName)?.edits === true ? tasks : Option.map(tasks, (task) => ({ ...task, queue: queueFor(canvasName) })), canvases.get(canvasName), canvasName, automation, action, index, firingId, resolveFor(canvasName, automation, fired), here.get(canvasName)?.edits === true).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
         ),
       mintFiringId: () => FiringId.make(ulid()),
@@ -957,7 +968,27 @@ export const AutomationRunnerLive = Layer.effect(
         return yield* withRepository(runner.onRun(canvasName, automationId));
       }));
 
-    return AutomationRunnerService.of({ tickAll, wake, heard, seatFired, onRun });
+    const answered = (canvasName: string, signal: AgentSignal) =>
+      turn.withPermits(1)(Effect.gen(function* () {
+        const source = signal.source;
+        if (source?.kind !== "automation") return;
+        if (!(yield* runsAny(canvasName))) return;
+        // The firing that raised it, on the machine that ran it: its step, and the values it said.
+        const firing = source.firingId === undefined
+          ? undefined
+          : yield* repository.firing(canvasName, FiringId.make(source.firingId)).pipe(Effect.orElseSucceed(() => undefined));
+        const raised = firing?.outcome.kind === "fired"
+          ? firing.outcome.actions.find((ruling) => ruling.ruling === "raised" && ruling.signalId === signal.signalId)
+          : undefined;
+        const event = answeredChange(signal, raised?.ruling === "raised" ? raised : undefined);
+        if (event === undefined) return;
+        // The canvas as it is now, for reach; what moved meanwhile goes first.
+        yield* pass(canvasName);
+        yield* withRepository(runner.onChange(canvasName, event));
+        if (raised !== undefined) yield* withRepository(runner.onAnswer(canvasName, { event, index: raised.index }));
+      }));
+
+    return AutomationRunnerService.of({ tickAll, wake, heard, seatFired, onRun, answered });
   }),
 );
 
@@ -973,10 +1004,42 @@ export const signalChange = (
     ? { kind: "signal", key: `signal:${signal.signalId}`, seat: signal.nodeId as NodeId, signal: signal.kind, text: signal.text }
     : undefined;
 
-/** What wakes a pass between ticks: a task or artifact write, or a raised signal. */
+/**
+ * An automation's signal as an answered watch hears it (0.11/09): only once
+ * answered, keyed by its id. A notice is read, never answered; a stored
+ * `work` signal is an escalate, as an automation's `work` step now reads.
+ */
+export const answeredChange = (
+  signal: AgentSignal,
+  raised: Extract<ActionRuling, { readonly ruling: "raised" }> | undefined,
+): Extract<ChangeEvent, { readonly kind: "answered" }> | undefined => {
+  const source = signal.source;
+  if (signal.state !== "answered" || source?.kind !== "automation") return undefined;
+  const kind = signal.kind === "work" ? "escalate" : signal.kind;
+  if (!isSeatRaiseKind(kind)) return undefined;
+  return {
+    kind: "answered",
+    key: `answered:${signal.signalId}`,
+    automationId: source.automationId as ItemId,
+    nodeId: source.nodeId as NodeId,
+    step: raised?.step,
+    signal: {
+      signalId: signal.signalId,
+      canvasName: signal.canvasName,
+      kind,
+      text: signal.text,
+      ...(signal.response === undefined ? {} : { response: signal.response }),
+      ...(signal.closedAt === undefined ? {} : { closedAt: signal.closedAt }),
+    },
+    raised: raised?.values ?? {},
+  };
+};
+
+/** What wakes a pass between ticks: a task or artifact write, a raised signal, or an automation's signal answered. */
 type Wake =
   | { readonly kind: "write"; readonly canvasName: string }
-  | { readonly kind: "signal"; readonly canvasName: string; readonly event: Extract<ChangeEvent, { readonly kind: "signal" }> };
+  | { readonly kind: "signal"; readonly canvasName: string; readonly event: Extract<ChangeEvent, { readonly kind: "signal" }> }
+  | { readonly kind: "answered"; readonly canvasName: string; readonly signal: AgentSignal };
 
 /**
  * The loop: one pass every AUTOMATION_TICK while the app runs, a wake on
@@ -997,9 +1060,11 @@ export const AutomationRunnerLoopLive = Layer.effectDiscard(
       Queue.offerUnsafe(writes, { kind: "write", canvasName });
     });
     // A signal fires when it is raised, once: its id is the key a claim dedupes.
+    // An automation's signal fires its answered watches when answered, once by the same key.
     const unsubscribeSignals = onAgentSignalChanged((signal) => {
       const event = signalChange(signal);
       if (event !== undefined) Queue.offerUnsafe(writes, { kind: "signal", canvasName: signal.canvasName, event });
+      if (answeredChange(signal, undefined) !== undefined) Queue.offerUnsafe(writes, { kind: "answered", canvasName: signal.canvasName, signal });
     });
     yield* Effect.addFinalizer(() => Effect.sync(() => {
       unsubscribe();
@@ -1016,7 +1081,12 @@ export const AutomationRunnerLoopLive = Layer.effectDiscard(
       );
     }
     yield* Queue.take(writes).pipe(
-      Effect.flatMap((wake) => (wake.kind === "write" ? runner.wake(wake.canvasName) : runner.heard(wake.canvasName, wake.event))),
+      Effect.flatMap((wake) =>
+        wake.kind === "write"
+          ? runner.wake(wake.canvasName)
+          : wake.kind === "signal"
+            ? runner.heard(wake.canvasName, wake.event)
+            : runner.answered(wake.canvasName, wake.signal)),
       Effect.catchCause((cause) => Effect.logWarning("automation change pass failed", cause)),
       Effect.forever,
       Effect.forkScoped,

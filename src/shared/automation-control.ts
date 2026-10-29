@@ -369,6 +369,9 @@ export const resolveTargets = (
         const { from, ...rest } = w;
         return from === undefined ? rest : { ...rest, from: ref(from, "seat", `${at}.from`) };
       }
+      // The raising automation by its node and id (0.11/09).
+      case "answered":
+        return { ...w, automation: { ...w.automation, node: node(w.automation.node, `${at}.automation.node`) } };
     }
   };
 
@@ -400,9 +403,18 @@ export const resolveTargets = (
         return { ...a, seat: ref(a.seat, "seat", `${at}.seat`) };
       // A signal names only the artifacts it shows (0.11/07 N2).
       case "signal": {
-        const { show, form, ...rest } = a;
+        const { show, form, answerTo, ...rest } = a;
         return {
           ...rest,
+          ...(answerTo === undefined
+            ? {}
+            : {
+                answerTo: answerTo.kind === "document"
+                  ? { ...answerTo, node: node(answerTo.node, `${at}.answerTo.node`) }
+                  : answerTo.kind === "seat"
+                    ? { ...answerTo, to: ref(answerTo.to, "seat", `${at}.answerTo.to`) }
+                    : { ...answerTo, to: ref(answerTo.to, "artifact", `${at}.answerTo.to`) },
+              }),
           ...(show === undefined ? {} : { show: show.map((shown, k) => ref(shown, "artifact", `${at}.show[${k}]`)) }),
           ...(form === undefined ? {} : { form: form.kind === "artifact" ? { ...form, node: node(form.node, `${at}.form.node`) } : form }),
         };

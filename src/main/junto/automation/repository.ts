@@ -12,6 +12,7 @@ import {
   type FiringOutcome,
   type LastOutcome,
   lastOutcomeOf,
+  upgradeStoredAutomation,
 } from "@shared/automation";
 import {
   type AutomationFact,
@@ -194,7 +195,9 @@ export const restoreAutomationsOnNode = (sql: SqlClient.SqlClient, canvasName: s
 const countsAsFired = (outcome: FiringOutcome): boolean => outcome.kind !== "skipped";
 
 const encodeAutomation = Schema.encodeSync(Automation);
-const decodeAutomation = Schema.decodeUnknownSync(Automation);
+// A stored automation is read as this version says it: a `work` signal step is an escalate (0.11/09).
+const decodeStoredAutomation = Schema.decodeUnknownSync(Automation);
+const decodeAutomation = (input: unknown) => decodeStoredAutomation(upgradeStoredAutomation(input));
 const encodeFiring = Schema.encodeSync(Firing);
 const decodeFiring = Schema.decodeUnknownSync(Firing);
 

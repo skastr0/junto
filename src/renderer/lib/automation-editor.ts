@@ -18,7 +18,6 @@ import {
   AUTOMATION_NAME_MAX_CHARS,
   AUTOMATION_STEPS_MAX,
   AUTOMATION_TEXT_MAX_CHARS,
-  AUTOMATION_SIGNAL_DUE_MAX_MS,
   AUTOMATION_SIGNAL_MIN_WORDS_MAX,
   AUTOMATION_SIGNAL_SHOWS_MAX,
   DEFAULT_AUTOMATION_LIMITS,
@@ -28,6 +27,7 @@ import {
   AutomationDefinition,
   automationValuesOf,
   isCodeValueName,
+  signalTakesForm,
   valueNamesIn,
   type Action,
   type ActionRuling,
@@ -87,9 +87,6 @@ export type SignalFormDraft =
     }
   | Extract<StoredSignalForm, { readonly kind: "secret" }>
   | { readonly kind: "proof" };
-/** Work's timing as typed: due this many hours after the firing, and urgent. */
-export type SignalWorkDraft = { readonly dueHours?: string; readonly urgent?: boolean };
-const HOUR_MS = 3_600_000;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
 export type CommentTarget = CommentAction["on"];
 
@@ -98,7 +95,7 @@ export type WatchKind = Watch["kind"];
 export type ConditionKind = Condition["kind"];
 export type ActionKind = Action["kind"];
 export type SeatControlOp = Extract<Action, { readonly kind: "seat-control" }>["op"];
-/** What a raised signal asks of the operator: read it (`notice`) or produce something (`work`). */
+/** What a raised signal says to the operator: a seat's kinds, or a notice only to read (0.11/09). */
 export type SignalRaise = SignalKind;
 export const SIGNAL_RAISES: ReadonlyArray<SignalRaise> = SignalKind.literals;
 export const SIGNAL_SHOWS_MAX = AUTOMATION_SIGNAL_SHOWS_MAX;
@@ -124,7 +121,9 @@ export type WatchDraft =
        */
       readonly label?: string;
     }
-  | { readonly kind: "signal"; readonly from?: TargetRef; readonly signal: WatchedSignal };
+  | { readonly kind: "signal"; readonly from?: TargetRef; readonly signal: WatchedSignal }
+  /** An automation's signal answered (0.11/09): made by a signal step's "When answered…", never picked blank. */
+  | Extract<Watch, { readonly kind: "answered" }>;
 
 /** The node a task or artifact watch covers, or undefined for one item, picked or not. */
 export const watchedNode = (target: TaskTarget | ArtifactScope | undefined): NodeId | undefined =>
@@ -183,8 +182,10 @@ export type ActionDraft =
       readonly show?: ReadonlyArray<TargetRef>;
       /** What the operator answers in; none is a reply. */
       readonly form?: SignalFormDraft;
-      /** When work falls due and whether it is urgent; work only. */
-      readonly work?: SignalWorkDraft;
+      /** The step's id, for an answered watch; kept as loaded. */
+      readonly id?: SignalAction["id"];
+      /** Where its answer goes; kept as loaded. */
+      readonly answerTo?: SignalAction["answerTo"];
     }
   /** A seat started or stopped where it runs. Seat only; it writes no text. */
   | { readonly kind: "seat-control"; readonly seat?: TargetRef; readonly op: SeatControlOp }
@@ -235,7 +236,7 @@ export const localTimezone = (): string => {
   }
 };
 
-export const blankWatch = (kind: WatchKind): WatchDraft => {
+export const blankWatch = (kind: Exclude<WatchKind, "answered">): WatchDraft => {
   switch (kind) {
     case "seat":
       return { kind, becomes: "idle" };
@@ -361,7 +362,6 @@ const triggerDraftOf = (trigger: Trigger): TriggerDraft => {
  * Ms as hours to type: nine decimals hold any whole ms (an hour's ms over
  * 1e9 is under one), so it finishes back unchanged; trailing zeros go.
  */
-const hoursText = (ms: number): string => (ms / HOUR_MS).toFixed(9).replace(/\.?0+$/u, "");
 
 const signalFormDraftOf = (form: StoredSignalForm): SignalFormDraft => {
   if (form.kind !== "artifact") return form;
@@ -377,19 +377,8 @@ const signalFormDraftOf = (form: StoredSignalForm): SignalFormDraft => {
 const actionDraftOf = (action: Action): ActionDraft => {
   switch (action.kind) {
     case "signal": {
-      const { form, work, ...rest } = action;
-      return {
-        ...rest,
-        ...(form === undefined ? {} : { form: signalFormDraftOf(form) }),
-        ...(work === undefined
-          ? {}
-          : {
-              work: {
-                ...(work.dueInMs === undefined ? {} : { dueHours: hoursText(work.dueInMs) }),
-                ...(work.urgent === undefined ? {} : { urgent: work.urgent }),
-              },
-            }),
-      };
+      const { form, ...rest } = action;
+      return { ...rest, ...(form === undefined ? {} : { form: signalFormDraftOf(form) }) };
     }
     case "code":
       return {
@@ -606,6 +595,7 @@ const watchProblem = (watch: WatchDraft): string | undefined => {
       if (watch.artifact === undefined) return "Pick the artifact to watch.";
       return watch.label === undefined || watch.label.trim() === "" ? undefined : labelsProblem([watch.label]);
     case "signal":
+    case "answered":
       return undefined;
     default:
       return watch satisfies never;
@@ -657,14 +647,6 @@ const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
   artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
 
-/** Hours as typed, in ms: a positive number, fractions allowed ("1.5"). */
-const dueMsOf = (hours: string): number | undefined => {
-  const trimmed = hours.trim();
-  if (!/^\d+(?:\.\d+)?$/u.test(trimmed)) return undefined;
-  const ms = Math.round(Number(trimmed) * HOUR_MS);
-  return ms >= 1 && ms <= AUTOMATION_SIGNAL_DUE_MAX_MS ? ms : undefined;
-};
-
 const signalFormProblem = (form: SignalFormDraft | undefined): string | undefined => {
   if (form?.kind !== "artifact") return undefined;
   if (form.node === undefined) return "Pick the Artifacts node the writing goes to.";
@@ -678,13 +660,6 @@ const signalFormProblem = (form: SignalFormDraft | undefined): string | undefine
   if (typed !== "" && (words === undefined || words < 1 || words > AUTOMATION_SIGNAL_MIN_WORDS_MAX))
     return `Ask for 1 to ${AUTOMATION_SIGNAL_MIN_WORDS_MAX.toLocaleString("en-US")} words.`;
   return undefined;
-};
-
-const signalWorkProblem = (work: SignalWorkDraft | undefined): string | undefined => {
-  const typed = work?.dueHours?.trim() ?? "";
-  return typed === "" || dueMsOf(typed) !== undefined
-    ? undefined
-    : `Work falls due within ${AUTOMATION_SIGNAL_DUE_MAX_MS / HOUR_MS} hours of the firing.`;
 };
 
 /** A form whose problems are settled: an artifact form has its node by then. */
@@ -701,12 +676,6 @@ const signalFormOf = (form: SignalFormDraft): StoredSignalForm => {
     ...(labels.length === 0 ? {} : { labels }),
     ...(words === undefined ? {} : { minWords: words }),
   };
-};
-
-const signalWorkOf = (work: SignalWorkDraft | undefined): SignalAction["work"] | undefined => {
-  const dueInMs = dueMsOf(work?.dueHours ?? "");
-  const urgent = work?.urgent === true;
-  return dueInMs === undefined && !urgent ? undefined : { ...(dueInMs === undefined ? {} : { dueInMs }), ...(urgent ? { urgent } : {}) };
 };
 
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
@@ -779,8 +748,7 @@ const actionProblem = (
         (detail.trim().length > AGENT_SIGNAL_MAX_DETAIL_LENGTH ? `The detail is longer than ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters.` : undefined) ??
         valueProblem(detail, carried, afterCode) ??
         ((action.show ?? []).some((shown) => shown.kind !== "artifact") ? "A signal shows artifacts only." : undefined) ??
-        (action.signal === "work" ? signalFormProblem(action.form) : undefined) ??
-        (action.signal === "work" ? signalWorkProblem(action.work) : undefined)
+        (signalTakesForm(action.signal) ? signalFormProblem(action.form) : undefined)
       );
     }
     default:
@@ -879,16 +847,16 @@ const actionOf = (action: ActionDraft): unknown => {
     case "signal": {
       const detail = action.detail?.trim() ?? "";
       const show = action.show ?? [];
-      const work = action.signal === "work" ? signalWorkOf(action.work) : undefined;
       return {
         kind: action.kind,
+        ...(action.id === undefined ? {} : { id: action.id }),
         signal: action.signal,
         title: action.title.trim(),
         ...(detail === "" ? {} : { detail }),
         ...(show.length === 0 ? {} : { show }),
-        // A form and timing belong to work: a notice is read and cleared, so it drops both.
-        ...(action.form === undefined || action.signal !== "work" ? {} : { form: signalFormOf(action.form) }),
-        ...(work === undefined ? {} : { work }),
+        // A form belongs to escalate and blocked: a notice is read and cleared, feedback answered in words.
+        ...(action.form === undefined || !signalTakesForm(action.signal) ? {} : { form: signalFormOf(action.form) }),
+        ...(action.answerTo === undefined || action.signal === "notice" ? {} : { answerTo: action.answerTo }),
       };
     }
     case "label-artifact": {
@@ -976,6 +944,8 @@ export const watchWords = (watch: WatchDraft, nameOf: NameOf): string => {
     }
     case "signal":
       return `${watch.from ? nameOf(watch.from) : "any seat"} ${signalWords[watch.signal]}`;
+    case "answered":
+      return `${watch.signal === undefined ? "a signal" : `${watch.signal === "escalate" ? "an" : "a"} ${watch.signal} signal`} it raised is answered`;
     default:
       return watch satisfies never;
   }
@@ -1039,6 +1009,12 @@ export const VALUE_WORDS: Readonly<Record<AutomationValue, string>> = {
   "signal.from": "the seat that raised it",
   "signal.text": "what it says",
   "fired.at": "when it fired",
+  "answer.text": "what the answer says",
+  "answer.link": "the document or links it handed in",
+  "answer.by": "who answered",
+  "answer.at": "when it was answered",
+  "signal.title": "the signal's title",
+  "signal.link": "a link to the automation that raised it",
 };
 
 const artifactTargetWords = (to: ArtifactTarget | undefined, nameOf: NameOf): string =>
@@ -1067,7 +1043,7 @@ export const actionWords = (action: ActionDraft, nameOf: NameOf): string => {
     case "seat-control":
       return `${action.op} ${action.seat ? nameOf(action.seat) : "a seat"}`;
     case "signal":
-      return action.signal === "notice" ? "raise a notice" : "raise work for you";
+      return action.signal === "notice" ? "raise a notice" : `raise ${action.signal === "escalate" ? "an escalate" : action.signal}`;
     default:
       return action satisfies never;
   }
@@ -1099,6 +1075,7 @@ export const WATCH_LABEL: Readonly<Record<WatchKind, string>> = {
   task: "a task",
   artifact: "an artifact",
   signal: "a signal",
+  answered: "an automation's signal",
 };
 
 /**
