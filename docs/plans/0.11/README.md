@@ -200,6 +200,9 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 
 ## Carried to 0.12
 
+- Files over SSH: a Files node opened from another machine reaches its
+  folder over SSH, the way seats on other machines work (operator,
+  2026-10-28, answering the stub signal). 0.11 ships the stub only.
 - Fleet state F0 to F6 and the N5 vault (operator greenlit the 0.11.0 release
   with scope frozen, 2026-10-28). What is on main stays inert in ship.
 - Any of N2, K2, K4, K5 and A4 not verified in the real app by the cut,
