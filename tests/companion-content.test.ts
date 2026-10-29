@@ -110,6 +110,7 @@ describe("content.get through the request core", () => {
     mailSend: async () => outcomeFail("not-found"),
     comments: async () => outcomeFail("not-found"),
     comment: async () => outcomeFail("not-found"),
+    mentionCandidates: async () => outcomeFail("not-found"),
     quickReplies: async () => outcomeOk({ replies: [] }),
     stagePiece: async () => outcomeFail("invalid"),
     admitStage: async () => outcomeOk(undefined),

@@ -13,10 +13,17 @@
  * a node whose items are not given offers none.
  */
 import { useMemo } from "react";
-import type { Canvas, Node } from "@shared/model";
-import { titleOf } from "@shared/model/title";
-import type { MentionRef } from "@shared/mention";
+import type { Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
+import {
+  candidatesOfNodes,
+  type MentionCandidate,
+  type MentionItem,
+  type MentionItems,
+} from "@shared/mention-candidates";
+
+/** The rule lives in shared (`mention-candidates.ts`); the desktop re-exports it for its own callers. */
+export { candidatesOfNodes, type MentionCandidate, type MentionItem, type MentionItems };
 import { mentionableNodesFrom } from "@shared/mention-reach";
 import {
   automationTargets,
@@ -25,69 +32,14 @@ import {
   type ReachNode,
 } from "@shared/region-reach";
 import type { ItemId } from "@shared/work-ids";
-import type { MentionCandidate } from "./mention-draft";
 import { useSeatThreadMentionables, type SeatAddress } from "./seat-threads";
 import { useCanvas } from "./use-model";
-
-/** One task or artifact on its node, as a composer has read it. */
-export type MentionItem = {
-  readonly id: ItemId;
-  readonly title: string;
-  /** A task's per-canvas number (04), shown first: `#42 fix tabs`. */
-  readonly number?: number;
-  /** Its state in words, such as "done". */
-  readonly note?: string;
-};
-
-export type MentionItems = {
-  readonly tasksOf?: (nodeId: NodeId) => ReadonlyArray<MentionItem>;
-  readonly artifactsOf?: (nodeId: NodeId) => ReadonlyArray<MentionItem>;
-};
 
 const seatCandidate = (nodeId: NodeId, name: string): MentionCandidate => ({
   ref: { kind: "seat", nodeId },
   label: `@${name}`,
+  title: name,
 });
-
-const itemLabel = (item: MentionItem): string =>
-  item.number === undefined ? `#${item.title}` : `#${item.number} ${item.title}`;
-
-const withNote = (candidate: MentionCandidate, note: string | undefined): MentionCandidate =>
-  note === undefined ? candidate : { ...candidate, note };
-
-/**
- * The candidates the nodes make: an agent is a seat, a page is itself, a
- * task board or an Artifacts node offers its items. Anything else, a peer
- * row included (it acts from its own machine), offers nothing.
- */
-export const candidatesOfNodes = (
-  canvas: Pick<Canvas, "nodes">,
-  nodes: ReadonlyArray<Pick<ReachNode, "id" | "kind">>,
-  items: MentionItems = {},
-): ReadonlyArray<MentionCandidate> =>
-  nodes.flatMap((reach): ReadonlyArray<MentionCandidate> => {
-    const node: Node | undefined = canvas.nodes.get(reach.id);
-    if (node === undefined) return [];
-    switch (node.kind) {
-      case "agent":
-        return [seatCandidate(reach.id, titleOf(node))];
-      case "page":
-        return [{ ref: { kind: "page", nodeId: reach.id }, label: `@${titleOf(node)}` }];
-      case "task":
-        return (items.tasksOf?.(reach.id) ?? []).map((item) =>
-          withNote({ ref: { kind: "task", nodeId: reach.id, taskId: item.id } satisfies MentionRef, label: itemLabel(item) }, item.note),
-        );
-      case "artifacts":
-        return (items.artifactsOf?.(reach.id) ?? []).map((item) =>
-          withNote(
-            { ref: { kind: "artifact", nodeId: reach.id, artifactId: item.id } satisfies MentionRef, label: `#${item.title}` },
-            item.note,
-          ),
-        );
-      default:
-        return [];
-    }
-  });
 
 /**
  * Two candidates with one label read apart by a detail: the region path of

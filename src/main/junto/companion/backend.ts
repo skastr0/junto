@@ -68,6 +68,7 @@ import { readContentObjectRange } from "../content/store";
 import { companionMachineBackend } from "./machines";
 import { companionThreadBackend } from "./threads";
 import { companionCommentBackend } from "./comments";
+import { companionMentionBackend } from "./mentions";
 import { rasterizePortraitSvg } from "./portrait-png";
 import { companionConnected } from "@shared/companion-threads";
 import { mailThreadOf } from "@shared/crew";
@@ -541,5 +542,6 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   ...companionMachineBackend,
   ...companionThreadBackend,
   ...companionCommentBackend,
+  ...companionMentionBackend,
   ...companionStageBackend,
 });

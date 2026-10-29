@@ -145,6 +145,7 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `canvas.close` | `{ "canvasName": string }` (closed) | `{}` |
 | `comments.list` | `{ "canvasName": string, "subject": CommentSubject, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed; needs `features` to list `artifacts/1`) | `{ "threads": CommentThread[], "cut": boolean, "next"?: string }`, newest thread first, at most 200 |
 | `comment.post` | `{ "canvasName": string, "subject": CommentSubject, "opId": ULID, "text": string (1 to 8000), "anchor"?: ArtifactPlaceAnchor, "threadId"?: ULID }` (closed; counts as a write) | `{ "threadId": ULID, "messageId": ULID, "unlinked"?: { "token": string, "nearest": string[] }[] }` |
+| `mentions.candidates` | `{ "canvasName": string, "from": string, "trigger": "@" \| "#" \| "[[", "query"?: string (0 to 100), "limit"?: 1..50 }` (closed; needs `artifacts/1`) | `{ "candidates": MentionCandidate[] }` (at most 50) |
 
 Semantics:
 

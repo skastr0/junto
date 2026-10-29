@@ -30,8 +30,8 @@ describe("mention sources", () => {
   it("an agent is a seat @, a page an @ by its host, other nodes offer nothing", () => {
     const found = candidatesOfNodes(canvas, ["S", "P", "N", "Q"].map((id) => canvas.nodes.get(asNodeId(id))!));
     expect(found).toEqual([
-      { ref: { kind: "seat", nodeId: "S" }, label: "@product-feed" },
-      { ref: { kind: "page", nodeId: "P" }, label: "@example.com" },
+      { ref: { kind: "seat", nodeId: "S" }, label: "@product-feed", title: "product-feed" },
+      { ref: { kind: "page", nodeId: "P" }, label: "@example.com", title: "example.com" },
     ]);
   });
 
@@ -45,8 +45,8 @@ describe("mention sources", () => {
       },
     );
     expect(found).toEqual([
-      { ref: { kind: "task", nodeId: "T", taskId: ITEM }, label: "#42 fix tabs", note: "working" },
-      { ref: { kind: "artifact", nodeId: "R", artifactId: ITEM }, label: "#spec" },
+      { ref: { kind: "task", nodeId: "T", taskId: ITEM }, label: "#42 fix tabs", title: "fix tabs", note: "working" },
+      { ref: { kind: "artifact", nodeId: "R", artifactId: ITEM }, label: "#spec", title: "spec" },
     ]);
     expect(candidatesOfNodes(canvas, [canvas.nodes.get(asNodeId("T"))!])).toEqual([]);
   });

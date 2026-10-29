@@ -130,3 +130,44 @@ describe("the demo's comments", () => {
     expect(listed.ok ? "ok" : listed.error.code).toBe("not-found");
   });
 });
+
+describe("the demo's mention picker", () => {
+  const backend = makeDemoBackend("macbook");
+  const from = asNodeId("atlas");
+
+  it("offers seats and pages for @, from the node's own reach", async () => {
+    const found = await backend.mentionCandidates({ canvasName: DEMO_CANVAS, from, trigger: "@" });
+    expect(found.ok).toBe(true);
+    if (!found.ok) return;
+    const kinds = new Set(found.value.candidates.map((candidate) => candidate.kind));
+    expect(kinds.has("seat")).toBe(true);
+    expect(found.value.candidates.some((candidate) => candidate.ref.kind === "seat" && candidate.title === "Relay")).toBe(true);
+    expect(found.value.candidates.some((candidate) => candidate.ref.kind === "page")).toBe(true);
+    expect(found.value.candidates.every((candidate) => candidate.label.startsWith("@"))).toBe(true);
+    expect(found.value.candidates.every((candidate) => candidate.title.length > 0)).toBe(true);
+  });
+
+  it("offers the board's task and the node's artifacts for #, and artifacts alone for [[", async () => {
+    const hashed = await backend.mentionCandidates({ canvasName: DEMO_CANVAS, from: asNodeId("quill"), trigger: "#" });
+    const linked = await backend.mentionCandidates({ canvasName: DEMO_CANVAS, from: asNodeId("quill"), trigger: "[[" });
+    expect(hashed.ok && linked.ok).toBe(true);
+    if (!hashed.ok || !linked.ok) return;
+    expect(hashed.value.candidates.some((candidate) => candidate.ref.kind === "task")).toBe(true);
+    expect(hashed.value.candidates.some((candidate) => candidate.ref.kind === "artifact")).toBe(true);
+    expect(linked.value.candidates.every((candidate) => candidate.ref.kind === "artifact")).toBe(true);
+    expect(hashed.value.candidates.every((candidate) => candidate.label.startsWith("#"))).toBe(true);
+  });
+
+  it("narrows by the typed words, starts before contains", async () => {
+    const found = await backend.mentionCandidates({ canvasName: DEMO_CANVAS, from: asNodeId("quill"), trigger: "[[", query: "pric" });
+    expect(found.ok).toBe(true);
+    if (!found.ok) return;
+    expect(found.value.candidates.length).toBeGreaterThan(0);
+    expect(found.value.candidates[0]?.title.toLowerCase().startsWith("pric")).toBe(true);
+  });
+
+  it("answers not-found for a node the canvas does not hold", async () => {
+    const found = await backend.mentionCandidates({ canvasName: DEMO_CANVAS, from: asNodeId("nobody"), trigger: "@" });
+    expect(found.ok ? "ok" : found.error.code).toBe("not-found");
+  });
+});

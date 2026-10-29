@@ -26,8 +26,9 @@ import {
   type CompanionMailThread,
 } from "./companion-core";
 import { companionCommentsPage, type CommentPostView, type CommentThreadView } from "./companion-comments";
+import { candidatesOfNodes, connectedSeatCandidates, filterCandidates } from "./mention-candidates";
+import { mentionableNodesFrom } from "./mention-reach";
 import { companionConnected, companionThreadPage, companionThreadsPage } from "./companion-threads";
-import type { ActorSeatId } from "./wire/resource-actor";
 import { seatMailThreadMessages, seatMailThreads, type MailThreadsInput } from "./mail-threads";
 import { mentionedOnce, mentionsOf } from "./mention";
 import { makeAgentMessage, makeUserMessage } from "./task";
@@ -101,6 +102,7 @@ import {
   DEMO_SEATS,
   DEMO_SIGNALS,
   DEMO_STATION,
+  DEMO_TASK_PRICING,
   DEMO_T0,
   DEMO_TAILNET,
   DEMO_WIRES,
@@ -196,31 +198,22 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     nameOf: (nodeId) => SEATS.find((seat) => seat.id === nodeId)?.name,
   });
   // --- comments (0.11.3, the phone's artifacts) -----------------------------
-  /** A demo seat's actor id: stable across a process, shaped as the wire validates one. */
-  const demoSeatId = (nodeId: string): ActorSeatId => {
-    let hash = 0x811c9dc5;
-    for (const ch of nodeId) {
-      hash ^= ch.codePointAt(0) ?? 0;
-      hash = Math.imul(hash, 0x01000193) >>> 0;
-    }
-    return `seat_${hash.toString(16).padStart(8, "0").repeat(8)}` as ActorSeatId;
-  };
   const demoAuthor = (from: DemoThreadPost["from"]): CommentPostView["author"] =>
     from.kind === "operator"
       ? { kind: "operator", name: "operator" }
-      : { kind: "seat", seatId: demoSeatId(from.nodeId), nodeId: asNodeId(from.nodeId), name: from.name };
+      : { kind: "seat", seatId: from.seatId, nodeId: asNodeId(from.nodeId), name: from.name };
   /** The fixture's threads, mutable: a comment posted here lives for this process, as every demo write does. */
   const commentThreads: Array<{
     readonly threadId: string;
     readonly artifactId: string;
     readonly anchor?: CommentThreadView["anchor"];
     readonly posts: Array<CommentPostView>;
-  }> = DEMO_ARTIFACT_THREADS.map((thread: DemoArtifactThread, index: number) => ({
+  }> = DEMO_ARTIFACT_THREADS.map((thread: DemoArtifactThread) => ({
     threadId: thread.threadId,
     artifactId: thread.artifactId,
     anchor: thread.anchor,
-    posts: thread.posts.map((post, at) => ({
-      postId: demoMailId(post.at, "D3M0", 100 + index * 10 + at),
+    posts: thread.posts.map((post) => ({
+      postId: post.postId,
       author: demoAuthor(post.from),
       text: post.text,
       at: post.at,
@@ -502,6 +495,38 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const answer = { threadId, messageId: post.postId };
       commentOps.set(args.opId, answer);
       return outcomeOk(answer);
+    },
+    mentionCandidates: async (args) => {
+      if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
+      const from = asNodeId(args.from);
+      if (CANVAS.nodes.get(from) === undefined) return outcomeFail("not-found", "That node is not on this canvas.");
+      const wired = (DEMO_CONNECTED[args.from] ?? []).flatMap((nodeId) => {
+        const seat = SEATS.find((candidate) => candidate.id === nodeId);
+        return seat === undefined ? [] : [{ nodeId: seat.id, name: seat.name }];
+      });
+      const candidates = [
+        ...connectedSeatCandidates(wired),
+        ...candidatesOfNodes(CANVAS, mentionableNodesFrom(CANVAS, from), {
+          tasksOf: () => [{ id: DEMO_TASK_PRICING, title: "launch pricing", number: 1, note: "backlog" }],
+          artifactsOf: (nodeId) =>
+            DEMO_ARTIFACTS.filter((artifact) => artifact.head.nodeId === nodeId && !artifact.head.archived).map((artifact) => ({
+              id: artifact.head.artifactId,
+              title: artifact.head.title,
+            })),
+        }),
+      ];
+      const narrowed = filterCandidates(candidates, { trigger: args.trigger, query: args.query ?? "" });
+      const limit = Math.min(args.limit ?? 50, 50);
+      return outcomeOk({
+        candidates: narrowed.slice(0, limit).map((candidate) => ({
+          ref: candidate.ref,
+          kind: candidate.ref.kind,
+          label: candidate.label.slice(0, 320),
+          title: (candidate.title ?? candidate.label).slice(0, 320),
+          ...(candidate.detail === undefined ? {} : { subtitle: candidate.detail.slice(0, 320) }),
+          ...(candidate.note === undefined ? {} : { note: candidate.note.slice(0, 320) }),
+        })),
+      });
     },
     // The demo keeps no files: it does not advertise attachments, so a phone sends none.
     stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),

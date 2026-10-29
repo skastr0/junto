@@ -15,11 +15,11 @@ import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
 import { matchMention, mentionKey, mentionLink, mentionedOnce, mentionsOf, type MentionRef } from "@shared/mention";
 
-export type MentionTrigger = "@" | "#";
+import type { MentionCandidate, MentionTrigger } from "@shared/mention-candidates";
+import { filterCandidates, triggerOf } from "@shared/mention-candidates";
 
-/** The character a mention of this kind is typed with: @ names a seat or a page, # a task or an artifact. */
-export const triggerOf = (ref: MentionRef): MentionTrigger =>
-  matchMention<MentionTrigger>(ref, { seat: () => "@", page: () => "@", task: () => "#", artifact: () => "#" });
+export type { MentionCandidate, MentionTrigger };
+export { filterCandidates, triggerOf };
 
 export type DraftPiece =
   | { readonly kind: "text"; readonly text: string }
@@ -27,16 +27,6 @@ export type DraftPiece =
 
 export type MentionDraft = ReadonlyArray<DraftPiece>;
 
-/** Something a composer offers to mention: what it names and what its chip says. */
-export type MentionCandidate = {
-  readonly ref: MentionRef;
-  /** The chip's text, trigger included: `@product-feed`, `#42 fix tabs`. */
-  readonly label: string;
-  /** A second line of words, such as the region path when two names match. */
-  readonly detail?: string;
-  /** The candidate's state in words, such as "not running, mail wakes it". */
-  readonly note?: string;
-};
 
 export const candidateKey = (candidate: Pick<MentionCandidate, "ref">): string => mentionKey(candidate.ref);
 
@@ -164,23 +154,6 @@ export const mentionQueryAt = (draft: MentionDraft, caret: number): MentionQuery
   const start = caret - query.length - 1;
   if (mentionSpans(draft).some((span) => span.start < caret && start < span.end)) return undefined;
   return { trigger, start, query };
-};
-
-/**
- * The candidates for a query: those of its trigger whose label (after the
- * trigger) starts with what was typed, then those that contain it.
- */
-export const filterCandidates = (
-  candidates: ReadonlyArray<MentionCandidate>,
-  query: Pick<MentionQuery, "trigger" | "query">,
-): ReadonlyArray<MentionCandidate> => {
-  const typed = query.query.toLowerCase();
-  const own = candidates.filter((candidate) => triggerOf(candidate.ref) === query.trigger);
-  const name = (candidate: MentionCandidate): string =>
-    (candidate.label.startsWith(query.trigger) ? candidate.label.slice(1) : candidate.label).toLowerCase();
-  const starts = own.filter((candidate) => name(candidate).startsWith(typed));
-  const contains = own.filter((candidate) => !starts.includes(candidate) && name(candidate).includes(typed));
-  return [...starts, ...contains];
 };
 
 /** Put the chosen candidate in place of the query, followed by one space, and the caret after it. */

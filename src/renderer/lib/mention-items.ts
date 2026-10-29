@@ -10,7 +10,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactHead } from "@shared/resource-ipc";
-import type { NodeId } from "@shared/physics/schema";
 import type { TaskView } from "@shared/task-model";
 import { artifactsSource } from "./artifacts-source";
 import type { MentionItem, MentionItems } from "./mention-sources";
@@ -19,8 +18,8 @@ import { useCanvas } from "./use-model";
 
 const NONE: ReadonlyArray<never> = [];
 
-const grouped = <T>(entries: ReadonlyArray<T>, nodeOf: (entry: T) => NodeId, item: (entry: T) => MentionItem): ReadonlyMap<NodeId, ReadonlyArray<MentionItem>> => {
-  const byNode = new Map<NodeId, MentionItem[]>();
+const grouped = <T>(entries: ReadonlyArray<T>, nodeOf: (entry: T) => string, item: (entry: T) => MentionItem): ReadonlyMap<string, ReadonlyArray<MentionItem>> => {
+  const byNode = new Map<string, MentionItem[]>();
   for (const entry of entries) {
     const node = nodeOf(entry);
     const list = byNode.get(node);
@@ -34,7 +33,7 @@ const grouped = <T>(entries: ReadonlyArray<T>, nodeOf: (entry: T) => NodeId, ite
 export const mentionItemsOf = (tasks: ReadonlyArray<TaskView>, artifacts: ReadonlyArray<ArtifactHead>): MentionItems => {
   const taskItems = grouped(
     tasks.filter((task) => task.current.state !== "archived"),
-    (task) => task.current.node as NodeId,
+    (task) => task.current.node,
     (task): MentionItem => ({
       id: task.taskId,
       title: task.title,

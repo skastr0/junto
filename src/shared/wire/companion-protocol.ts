@@ -27,6 +27,8 @@ import {
   CompanionCommentsListData,
   CompanionCommentPostArgs,
   CompanionCommentPostData,
+  CompanionMentionCandidatesArgs,
+  CompanionMentionCandidatesData,
 } from "./companion-artifacts";
 import { ContentDisplayName, ContentMediaType, ContentRef, ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
@@ -527,6 +529,7 @@ export const COMPANION_OPS = [
   /** A subject's comments, read and written; comments.changed while a list is open on it. */
   "comments.list",
   "comment.post",
+  "mentions.candidates",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -653,6 +656,7 @@ export const CompanionArgs = {
   "canvas.close": Schema.Struct({ canvasName: CanvasName }),
   "comments.list": CompanionCommentsListArgs,
   "comment.post": CompanionCommentPostArgs,
+  "mentions.candidates": CompanionMentionCandidatesArgs,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 /**
@@ -670,6 +674,7 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "canvas.close",
   "comments.list",
   "comment.post",
+  "mentions.candidates",
 ]);
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
@@ -754,6 +759,7 @@ export const CompanionResults = {
   "canvas.close": Empty,
   "comments.list": CompanionCommentsListData,
   "comment.post": CompanionCommentPostData,
+  "mentions.candidates": CompanionMentionCandidatesData,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 export type CompanionResultByOp = { readonly [Op in CompanionOpName]: (typeof CompanionResults)[Op]["Type"] };

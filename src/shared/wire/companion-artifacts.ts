@@ -17,6 +17,7 @@ import { Schema } from "effect";
 import { ActorSeatId } from "./resource-actor";
 import { ContentRef } from "./content-ref";
 import { ItemId, NodeId, OpId } from "./ids";
+import { MentionRef } from "./mention";
 import { PlaceAnchor } from "./thread-subject";
 
 const bounded = (min: number, max: number) =>
@@ -146,3 +147,46 @@ export const CompanionCommentsChanged = Schema.Struct({
   subject: CompanionCommentSubject,
 });
 export type CompanionCommentsChanged = typeof CompanionCommentsChanged.Type;
+
+// --- mentions.candidates -----------------------------------------------------
+
+/** Candidates one answer carries at most. */
+export const COMPANION_MENTION_CANDIDATES_MAX = 50;
+/** What the composer is typing: `@` a seat or a page, `#` a task or an artifact, `[[` an artifact by title. */
+export const CompanionMentionTrigger = Schema.Literals(["@", "#", "[["]);
+export type CompanionMentionTrigger = typeof CompanionMentionTrigger.Type;
+
+const CandidateText = bounded(1, 320);
+
+/** One thing the phone may mention, as its picker shows it. */
+export const CompanionMentionCandidate = Schema.Struct({
+  ref: MentionRef,
+  /** The ref's kind, for a row's glyph. */
+  kind: Schema.Literals(["seat", "task", "artifact", "page"]),
+  /** The chip's text, trigger included: `@Atlas`, `#1 launch pricing`. */
+  label: CandidateText,
+  /** The bare name or title, without the trigger or a task's number. */
+  title: CandidateText,
+  /** Where it is, when the label alone would not say: a region path or the node. */
+  subtitle: Schema.optionalKey(CandidateText),
+  /** Its state in words, such as "not running, mail wakes it". */
+  note: Schema.optionalKey(CandidateText),
+});
+export type CompanionMentionCandidate = typeof CompanionMentionCandidate.Type;
+
+export const CompanionMentionCandidatesArgs = Schema.Struct({
+  canvasName: CanvasName,
+  /** The node the picker is opened from: the scope is its reach (`mentionableNodesFrom`). */
+  from: NodeId,
+  trigger: CompanionMentionTrigger,
+  query: Schema.optionalKey(bounded(0, 100)),
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: COMPANION_MENTION_CANDIDATES_MAX }))),
+});
+export type CompanionMentionCandidatesArgs = typeof CompanionMentionCandidatesArgs.Type;
+
+export const CompanionMentionCandidatesData = Schema.Struct({
+  candidates: Schema.Array(CompanionMentionCandidate).pipe(
+    Schema.check(Schema.isMaxLength(COMPANION_MENTION_CANDIDATES_MAX)),
+  ),
+});
+export type CompanionMentionCandidatesData = typeof CompanionMentionCandidatesData.Type;

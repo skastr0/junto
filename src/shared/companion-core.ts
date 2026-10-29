@@ -117,6 +117,10 @@ export type CompanionBackend = {
   readonly comment: (
     args: CompanionArgsByOp["comment.post"],
   ) => Promise<CompanionOutcome<CompanionResultByOp["comment.post"]>>;
+  /** What the phone may mention from a node, on the desktop's own scope and query rule. */
+  readonly mentionCandidates: (
+    args: CompanionArgsByOp["mentions.candidates"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["mentions.candidates"]>>;
   readonly quickReplies: () => Promise<CompanionOutcome<CompanionResultByOp["quickReplies.get"]>>;
   readonly portrait: (
     portraitIdentity: string,
@@ -496,6 +500,8 @@ export const handleCompanionRequest = async (
       return respond(id, backend.comments(frame.args), (value) => companionOk(id, "comments.list", value));
     case "comment.post":
       return respond(id, backend.comment(frame.args), (value) => companionOk(id, "comment.post", value));
+    case "mentions.candidates":
+      return respond(id, backend.mentionCandidates(frame.args), (value) => companionOk(id, "mentions.candidates", value));
     case "quickReplies.get":
       return respond(id, backend.quickReplies(), (value) => companionOk(id, "quickReplies.get", value));
     case "portrait.get": {
