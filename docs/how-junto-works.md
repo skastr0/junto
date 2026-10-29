@@ -79,7 +79,7 @@ A switch you flip on one seat. That agent may author the canvas and use every no
 ## What Junto changes in your setup
 
 - Junto never writes to `~/.claude`, `~/.codex`, `~/.grok`, `~/.hermes`, or any other harness config.
-- A seat runs the same binary you run by hand. Junto passes only the settings you chose on the seat plus its own instructions, through the harness's system-prompt flag or as the first typed message.
+- A seat runs the same binary you run by hand. Junto passes only the settings you chose on the seat and the session to resume. It adds no instructions of its own: the agent learns about Junto by running `junto onboard`, and the only prompt a launch carries is one you wrote.
 - Inside a seat's process, and only there, Junto puts the `junto` CLI first on `PATH` and sets a few `JUNTO_*` variables.
 - Delete the app and `~/.junto/` and Junto is gone.
 

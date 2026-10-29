@@ -330,7 +330,7 @@ function ParamsForm({ harness, stored, cwd, settingsFixed, lead, onDraft, footer
             ? fixedSettings
               ? `The session keeps its saved mode and startup flags; ${template.displayName} can change them inside it.`
               : "Junto sets the mode and startup flags when it creates the session."
-            : "Junto adds the seat's session and instructions when it starts the harness."}
+            : "Junto adds the seat's session when it starts the harness, and no instructions of its own."}
         </p>
       </div>
 
