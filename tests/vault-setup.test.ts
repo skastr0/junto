@@ -235,3 +235,12 @@ describe("--mint: Junto makes the token itself, so its scope is verified", () =>
     for (const name of ["Dev:write_items", "Dev,Other", "a/b", ""]) expect(mintArgv("junto-mini-read", name, "read_items"), name).toBeUndefined();
   });
 });
+
+it("the CLI waits out a mint's approval and its placement, under the operator socket's ceiling", async () => {
+  const { VAULT_MINT_CALL_MS } = await import("../src/cli/commands/machine");
+  const { MINT_MS } = await import("../src/main/junto/vault/setup");
+  const { OPERATOR_MAX_TIMEOUT_MS } = await import("../src/shared/operator-control");
+  // The mint's wait, the far placement's one-shot SSH (standard budget) and two op liveness calls.
+  expect(VAULT_MINT_CALL_MS).toBeGreaterThan(MINT_MS + 12_000 + 2 * 15_000);
+  expect(VAULT_MINT_CALL_MS).toBeLessThanOrEqual(OPERATOR_MAX_TIMEOUT_MS);
+});

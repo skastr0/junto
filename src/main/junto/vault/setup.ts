@@ -54,7 +54,7 @@ const WRITE: VaultPermissions = "read_items,write_items";
 const READ: VaultPermissions = "read_items";
 const VAULT_GET_MS = 15_000;
 /** A mint may wait on the operator approving it in the 1Password app. */
-const MINT_MS = 120_000;
+export const MINT_MS = 120_000;
 
 /**
  * The one create argv. The vault name is checked again here, since it goes

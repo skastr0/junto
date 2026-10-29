@@ -73,6 +73,9 @@ const boatKeyLocal = Command.make("boat-key-local", {}, () => executeJsonCommand
   })),
 ))).pipe(Command.withDescription("Write this Boat machine's key from stdin (run by the editing machine over SSH)"));
 
+/** Longer than the mint's approval wait plus its placement, under the operator socket's 15-minute ceiling. */
+export const VAULT_MINT_CALL_MS = 10 * 60_000;
+
 /** Fixed words: a token that fails to decode never shows in the failure. */
 class VaultTokenNotPlaced extends Schema.TaggedError<VaultTokenNotPlaced>()("VaultTokenNotPlaced", { message: Schema.String }) {}
 
@@ -104,7 +107,8 @@ const vaultToken = Command.make("vault-token", {
   const args = yield* Schema.decodeUnknownEffect(MachineVaultTokenInput)({ name, vault: checkedVault, ...(token === undefined ? { mint: true } : { token }) }).pipe(
     Effect.mapError(() => new VaultTokenNotPlaced({ message: "The machine name is not one Junto knows" })));
   const socket = yield* OperatorSocket;
-  return yield* socket.call("machine.vault-token", args, 2 * 60_000);
+  // A mint may wait minutes on the operator's approval, then places over SSH; the call outlives both, so the outcome is always seen.
+  return yield* socket.call("machine.vault-token", args, mint ? VAULT_MINT_CALL_MS : 2 * 60_000);
 }))).pipe(Command.withDescription("Give a machine its 1Password service-account token, read from stdin"));
 
 /**
