@@ -112,6 +112,7 @@ import { ContentService } from "../content/service";
 import { operatorAttachmentLines } from "../content/operator-attachments";
 import { handleContentStage } from "./content-stage";
 import { handleSeatReferences, onboardReferenceFields } from "../references/seat-reads";
+import { briefingMentionsOn, mentionsField } from "../references/briefing-mentions";
 import { noteSeatPreamble } from "./seat-preambles";
 import {
   claimSignalAttachments,
@@ -1352,6 +1353,9 @@ const dispatchOp = (
         guidance,
       );
       const { briefing, references } = yield* onboardReferenceFields({ canvasName: caller.canvasName, nodeId: caller.nodeId });
+      // Beside each text the operator wrote, what it links, parsed, never expanded into it (0.11/08 B2).
+      const briefingMentions = typeof briefing === "string" ? yield* briefingMentionsOn(board, caller, briefing) : undefined;
+      const regionMentions = region?.instruction === undefined ? undefined : yield* briefingMentionsOn(board, caller, region.instruction);
       // Most stable first: what changes only when the operator edits it, then
       // who and what this seat is, then what changed since its last session,
       // then the note its last session left.
@@ -1361,8 +1365,9 @@ const dispatchOp = (
         guidance,
         // The operator's app briefing, or why it could not be read.
         ...(briefing === undefined ? {} : { briefing }),
+        ...(briefingMentions === undefined ? {} : { briefing_mentions: briefingMentions }),
         // The innermost region, with every region's instruction outer to inner.
-        region: region ?? null,
+        region: region === undefined ? null : { ...region, ...mentionsField(regionMentions) },
         // The seat as the operator configured it: name, harness and launch
         // dials, look, and the operator-authored soul and standing
         // instructions. Onboard is their only carrier, the same for every
@@ -2297,7 +2302,8 @@ const dispatchOp = (
         const files = yield* Effect.forEach(sorted, filesOf);
         const result: SignalListResult = {
           signals: sorted.map((signal, index) => {
-            const level = levelOfSignal(signal.kind);
+            // A work signal's level is its timing's: due once urgent or past its time, todo before.
+            const level = levelOfSignal(signal.kind, signal.work, Date.now());
             return { ...signal, level, rank: rankOf(level), ...files[index] };
           }),
           open: listed.filter((signal) => signal.state === "open").length,
