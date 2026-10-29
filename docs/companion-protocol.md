@@ -87,7 +87,7 @@ The Mac sends a `hello` event first, before any request is read:
   "data": { "appVersion": "0.3.4", "deviceId": "dev_01J...", "deviceName": "Guilherme's iPhone",
             "station": "Guilherme's MacBook Pro", "serverTime": 1790000000000,
             "hosts": ["guilhermes-mbp.tail1234.ts.net", "100.101.102.103", "guilhermes-mbp.local"],
-            "features": ["artifacts/1"] } }
+            "features": ["artifacts/1", "threads/2"] } }
 ```
 
 `features` (optional, at most 16) names what this Mac serves beyond the base
@@ -95,7 +95,12 @@ ops, each `<name>/<n>`. The phone shows a surface only when its feature is
 listed, so a Mac that predates it is never sent an op it refuses; absent, the
 phone assumes none. A feature is named in the same change that adds its ops.
 `artifacts/1` is the artifacts surface (reads, writes and comments on
-artifacts, `content.get` for their bodies).
+artifacts, `content.get` for their bodies). `threads/2` is the threads a page
+at a time: `limit` and `after` on `threads.list`, `limit` and `before` on
+`thread.get`, `threads.read`, and the read state (`unread`, `readAt`,
+`thread.changed`). A Mac without it (0.11.0 to 0.11.2) refuses those keys as
+`invalid` and `threads.read` as an unknown operation, so the phone sends a
+bare `{ "canvasName", "nodeId" }` and shows no read state.
 
 `hosts` (optional, at most 8) is where this Mac answers now, in the pairing
 QR's order, MagicDNS name first. On every hello that carries it the phone

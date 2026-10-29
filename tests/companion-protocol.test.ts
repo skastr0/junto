@@ -124,6 +124,19 @@ describe("golden examples from docs/companion-protocol.md", () => {
     expect(decodes({ ...base, features: Array.from({ length: 17 }, (_, i) => `f/${String(i)}`) })).toBe(false);
   });
 
+  it("names threads/2 because it takes the threads a page at a time and their read marks", () => {
+    expect(COMPANION_FEATURES).toContain("threads/2");
+    const seat = { canvasName: "main", nodeId: "n1" };
+    const threadId = "01M63Q23MPCT6R59P358R4TWFF";
+    for (const [op, args] of [
+      ["threads.list", { ...seat, limit: 50, after: "c1" }],
+      ["thread.get", { ...seat, threadId, limit: 50, before: "c1" }],
+      ["threads.read", { ...seat, threadId, through: threadId }],
+    ] as const) {
+      expect(Result.isSuccess(decodeLine({ v: V, type: "request", id: "r1", op, args }))).toBe(true);
+    }
+  });
+
   it("encodes base64url without a platform encoder, including non-ASCII text", () => {
     for (const text of ["", "a", "ab", "abc", "Guilherme's MacBook Pro", "Jo\u00e3o \u2014 \ud83d\udcf1"]) {
       expect(base64UrlDecode(base64UrlEncode(text))).toBe(text);

@@ -509,8 +509,14 @@ export const isCompanionHost = (host: string): boolean => host.length <= 253 && 
  * What this Mac answers beyond the base ops, named `<feature>/<n>`. The phone
  * shows a surface only when its feature is here, so an older Mac is never sent
  * an op it refuses. A feature's ops are added in the same change that names it.
+ *
+ * `threads/2` is the threads a page at a time: `limit` and `after` on
+ * `threads.list`, `limit` and `before` on `thread.get`, `threads.read`, and
+ * the read state (`unread`, `readAt`, `thread.changed`). A 0.11.0 Mac refuses
+ * a page's keys as invalid and `threads.read` as unknown, so without it the
+ * phone sends the bare `{canvasName, nodeId}`.
  */
-export const COMPANION_FEATURES = ["artifacts/1"] as const;
+export const COMPANION_FEATURES = ["artifacts/1", "threads/2"] as const;
 export const COMPANION_FEATURES_MAX = 16;
 
 export const CompanionHello = Schema.Struct({
