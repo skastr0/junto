@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./styles/theme.generated.css";
 @import "./styles/layers.css";
+@import "./styles/seat-card.css";
 
 /* ============================================================================
    JUNTO DESIGN TOKENS come from one source: src/shared/theme/ (authored in
@@ -1118,24 +1119,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 .junto-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid var(--color-amber) !important; border-radius: 2px !important; background: var(--color-inset) !important; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
 .junto-resize-line { border-color: color-mix(in oklab, var(--color-main) 50%, transparent) !important; }
-/* Cards drag from anywhere; keep motion quiet and physical. */
-.junto-node { transition: border-color .18s ease, box-shadow .18s ease, transform .16s ease; }
-.react-flow__node:hover .junto-node { transform: translateY(-1px); }
-.react-flow__node:hover .junto-node--bare { transform: none; }
-.react-flow__node.dragging .junto-node { transform: none; }
-/* A card with a turning ring is its own compositor layer. Every pan frame
-   is a main frame, every main frame ticks every running ring, and cc then
-   re-layerizes the whole board, at a cost that grows with the ring layers
-   under the uncomposited camera. With each card holding its ring, the cost
-   halves: at fit-all on the 101-seat board, layerization went from 11.6 to
-   5.2 ms per frame. A static 3D translate composites without pinning raster
-   scale (will-change pinned 24 layers zoomed out; this pins none). The
-   hover lift keeps the 3D form so the layer holds while hovered. Only
-   on-screen rings, as their parts show only on screen. */
-html:not([data-surface-motion="paused"]) .junto-node:has(.junto-mark[data-mark-visible] > .junto-mark__part) { transform: translateZ(0); }
-html:not([data-surface-motion="paused"]) .react-flow__node:hover .junto-node:has(.junto-mark[data-mark-visible] > .junto-mark__part) { transform: translate3d(0, -1px, 0); }
-html:not([data-surface-motion="paused"]) .react-flow__node.dragging .junto-node:has(.junto-mark[data-mark-visible] > .junto-mark__part) { transform: translateZ(0); }
-.junto-node--bare .junto-node__body { overflow: visible; }
 
 .junto-dot--pulse { opacity: 1; }
 
