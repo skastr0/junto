@@ -1,6 +1,7 @@
 import { BellOff, Sparkle } from "lucide-react";
-import { answerLabel, mergedQuickReplies } from "../../lib/quick-replies";
-import { Button, Kbd } from "../ui";
+import { answerLabel, mergedQuickReplies } from "../../lib/quick-reply-rules";
+import { Button } from "../ui/Button";
+import { Kbd } from "../ui/Kbd";
 import "./quick-replies.css";
 
 /**

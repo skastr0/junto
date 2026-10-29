@@ -32,7 +32,6 @@ import {
   type ThreadHealthTone,
   type ThreadHealthValue,
 } from "@shared/thread-health";
-import type { StatusTone } from "../components/ui/StatusDot";
 import { formatSeatAwarenessAge, seatAwareness$ } from "./seat-awareness";
 
 export type ThreadHealthFreshness = "current" | "stale";
@@ -71,16 +70,8 @@ export const threadHealthLabel = (
     : base;
 };
 
-/** The three hues health may use; a subset of both the StatusDot and Chip tones. */
-export type ThreadHealthHue = Extract<StatusTone, "amber" | "steel" | "green">;
-
-/** Glance colour per tone. Never crimson: that hue belongs to declared blockers. */
-export const THREAD_HEALTH_STATUS_TONE: Readonly<Record<ThreadHealthTone, ThreadHealthHue>> = {
-  trouble: "amber",
-  waiting: "amber",
-  steady: "steel",
-  good: "green",
-};
+export { THREAD_HEALTH_STATUS_TONE, type ThreadHealthHue } from "./thread-health-tone";
+import { THREAD_HEALTH_STATUS_TONE, type ThreadHealthHue } from "./thread-health-tone";
 
 /** What the seat's ring and label line draw for health. */
 export type ThreadHealthMark = {
