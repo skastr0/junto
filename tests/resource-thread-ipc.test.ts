@@ -192,6 +192,13 @@ describe("threads on an artifact", () => {
     expect(reply.threadId).toBe(root.threadId);
     const written = boxes.get("B")!.find((row) => row.messageId === reply.messageId)!;
     expect(threadSubjectOf(written)).toEqual({ kind: "artifact", nodeId: "B", artifactId: ART });
+    // A comment that names the node the artifact left goes where it is now.
+    const late = await run(postSubjectComment(
+      { subject: artifactSubject, text: "named the old node", actor: { kind: "seat", seatId: S_SEAT, nodeId: asNodeId("S") }, opId: LATE },
+      { canvas: movedBoard, canvasName: "factory", people: [] },
+    ).pipe(Effect.provideService(ArtifactRepository, moves as unknown as ArtifactRepository["Service"])));
+    expect(boxes.get("B")!.map((row) => row.messageId)).toContain(late.messageId);
+    expect(boxes.get("A")!.map((row) => row.messageId)).not.toContain(late.messageId);
   });
 
   it("answers a replayed opId as its first post, and writes no second row", async () => {

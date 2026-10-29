@@ -119,17 +119,25 @@ const releaseShot = (owner: ContentOwner): Effect.Effect<void> =>
 const isPageBox = Schema.is(PageBoxAnchor);
 
 /**
- * The mailboxes a subject's comments are held in: its node's, and for an
- * artifact that has moved, every node it has been on (0.11.1, 10). Without
- * the artifact store in this process, its node's alone.
+ * Where a subject's comments go and are held (0.11.1, 10). A comment goes to
+ * the subject's node; an artifact named on a node it has since left goes to
+ * the node its last move took it to. Its thread is read from every node it
+ * has been on. Without the artifact store in this process, the named node
+ * alone.
  */
-const commentNodesOf = (canvasName: string, subject: SubjectCommentInput["subject"]): Effect.Effect<ReadonlyArray<NodeId>, WorkErrorBody> =>
+const commentNodesOf = (
+  canvasName: string,
+  subject: SubjectCommentInput["subject"],
+): Effect.Effect<{ readonly now: NodeId; readonly held: ReadonlyArray<NodeId> }, WorkErrorBody> =>
   Effect.gen(function* () {
-    if (subject.kind !== "artifact") return [subject.nodeId];
+    const named = { now: subject.nodeId, held: [subject.nodeId] };
+    if (subject.kind !== "artifact") return named;
     const artifacts = yield* Effect.serviceOption(ArtifactRepository);
-    if (Option.isNone(artifacts)) return [subject.nodeId];
+    if (Option.isNone(artifacts)) return named;
     const moves = yield* artifacts.value.moves(canvasName, subject.artifactId).pipe(Effect.mapError((error) => runtimeDown(error.message)));
-    return [...new Set([subject.nodeId, ...moves.flatMap((move) => [move.from, move.to])])];
+    const past = moves.some((move) => move.from === subject.nodeId);
+    const now = past ? moves.at(-1)!.to : subject.nodeId;
+    return { now, held: [...new Set([now, ...moves.flatMap((move) => [move.from, move.to])])] };
   });
 
 /**
@@ -162,6 +170,19 @@ const holdShot = (
 export const postSubjectComment = (
   input: SubjectCommentInput,
   context: SubjectCommentContext,
+): Effect.Effect<SubjectCommented, WorkErrorBody> =>
+  Effect.flatMap(commentNodesOf(context.canvasName, input.subject), (nodes) =>
+    postSubjectCommentOn(
+      nodes.now === input.subject.nodeId ? input : ({ ...input, subject: { ...input.subject, nodeId: nodes.now } } as SubjectCommentInput),
+      context,
+      nodes.held,
+    ));
+
+/** A comment on a subject named on its node now, its thread read from `held`. */
+const postSubjectCommentOn = (
+  input: SubjectCommentInput,
+  context: SubjectCommentContext,
+  held: ReadonlyArray<NodeId>,
 ): Effect.Effect<SubjectCommented, WorkErrorBody> =>
   Effect.gen(function* () {
     const { canvas, canvasName } = context;
@@ -243,9 +264,9 @@ export const postSubjectComment = (
     // thread's own subject, anchor and all; a thread on another resource is refused.
     // A moved artifact's thread may have begun on a node it was on before
     // (0.11.1, 10): those nodes are read too, and the reply names where it is now.
-    const held = (yield* Effect.forEach(yield* commentNodesOf(canvasName, input.subject), (on) =>
+    const rows = (yield* Effect.forEach(held, (on) =>
       work.value.readMailbox(canvasName, on).pipe(Effect.mapError((error) => runtimeDown(error.message))))).flat();
-    const thread = held.filter((row) => mailThreadOf(row) === threadId);
+    const thread = rows.filter((row) => mailThreadOf(row) === threadId);
     const found = thread.map(threadSubjectOf).find((on) => on !== undefined);
     const rooted = found?.kind === "artifact" && input.subject.kind === "artifact" && found.artifactId === input.subject.artifactId
       ? { ...found, nodeId }
@@ -284,7 +305,7 @@ export const postSubjectComment = (
           details: { path: "anchor", retryable: false },
         });
       }
-      const again = held.find((row) => row.messageId === messageId);
+      const again = rows.find((row) => row.messageId === messageId);
       const before = again === undefined ? undefined : threadSubjectOf(again);
       if (before?.kind === "page" && before.anchor !== undefined) {
         // The same write again: its row holds its shot already.
