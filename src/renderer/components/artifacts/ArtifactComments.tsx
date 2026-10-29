@@ -12,7 +12,7 @@ import { PostText } from "../tasks/TaskThread";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel, ageLabel, anchorLabel } from "./artifacts-pane-model";
 import { commentCount, commentSeats } from "./comments-rail-model";
-import { isMac } from "../../lib/platform";
+import { keyAria, keyIs } from "../../lib/key-match";
 import "./artifact-comments.css";
 
 /** Faces the collapsed edge stacks before it says "+N". */
@@ -39,8 +39,6 @@ export const ARTIFACT_RAIL_WORDS: CommentsRailWords = {
 };
 
 /** The rail toggle's chord, as assistive tech names it here (`comments.toggle`). */
-const RAIL_KEYS = (): string => (isMac() ? "Meta+Shift+M" : "Control+Shift+M");
-
 /**
  * The comments rail collapsed: a thin edge that says whether the artifact has
  * comments, how many, and which seats took part, by their portraits. The
@@ -70,7 +68,7 @@ export function ArtifactCommentsEdge({
       data-has-comments={count > 0 || linkedFrom !== undefined ? "true" : undefined}
       aria-label={`${count > 0 ? `Comments, ${String(count)}` : "Comments"}${linkedFrom === undefined ? "" : `, linked from ${linkedFrom}`}`}
       aria-expanded={false}
-      aria-keyshortcuts={RAIL_KEYS()}
+      aria-keyshortcuts={keyAria("comments.toggle")}
       title={names.length > 0 ? `Open comments, from ${names.join(", ")}` : "Open comments"}
       onClick={onOpen}
     >
@@ -171,7 +169,7 @@ export function ArtifactComments({
               data-comments-toggle=""
               aria-label="Comments"
               aria-expanded
-              aria-keyshortcuts={RAIL_KEYS()}
+              aria-keyshortcuts={keyAria("comments.toggle")}
               title="Collapse comments"
               size="sm"
               onClick={onCollapse}
@@ -203,9 +201,10 @@ export function ArtifactComments({
           candidates={mentionable}
           listLabel={() => `Seats in reach of ${words.reach}`}
           noun={{ one: "seat", other: "seats" }}
-          aria-keyshortcuts="Meta+Enter Control+Enter"
+          aria-keyshortcuts={keyAria("message.send")}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            // The table's send: Command and Enter on macOS, Control elsewhere.
+            if (keyIs(event.nativeEvent, "message.send")) {
               event.preventDefault();
               void start();
             }
@@ -332,9 +331,9 @@ function ThreadView({
             candidates={mentionable}
             listLabel={() => `Seats in reach of ${words.reach}`}
             noun={{ one: "seat", other: "seats" }}
-            aria-keyshortcuts="Meta+Enter Control+Enter"
+            aria-keyshortcuts={keyAria("message.send")}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              if (keyIs(event.nativeEvent, "message.send")) {
                 event.preventDefault();
                 void send();
               }

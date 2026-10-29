@@ -70,6 +70,34 @@ describe("artifact comments rail", () => {
     expect(field.value).toBe("");
   });
 
+  it("sends on the platform's chord from the table, and never on Control on macOS", async () => {
+    const platform = Object.getOwnPropertyDescriptor(navigator, "platform");
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+    try {
+      const onStart = vi.fn(async () => null);
+      render([], onStart);
+      const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="New comment"]')!;
+      act(() => {
+        const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+        set.call(field, "looks good");
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(field.getAttribute("aria-keyshortcuts")).toBe("Meta+Enter");
+      // Control belongs to the shell on macOS: it is not this comment's chord.
+      await act(async () => {
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }));
+      });
+      expect(onStart).not.toHaveBeenCalled();
+      await act(async () => {
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, cancelable: true }));
+      });
+      expect(onStart).toHaveBeenCalledWith("looks good", undefined);
+    } finally {
+      if (platform) Object.defineProperty(navigator, "platform", platform);
+      else delete (navigator as { platform?: string }).platform;
+    }
+  });
+
   it("keeps a refused comment in its composer and says why", async () => {
     render([], async () => "Ghost cannot be mentioned here");
     const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="New comment"]')!;
