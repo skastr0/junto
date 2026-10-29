@@ -131,7 +131,7 @@
     "@xterm/xterm": "6.1.0-beta.302",
     "@xyflow/react": "12.11.2",
     "effect": "4.0.0-rc.112",
-    "electron": "43.5.0",
+    "electron": "43.8.4",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "jsdom": "26.1.0",
@@ -153,7 +153,7 @@
     "typescript": "^7.0.2",
     "typescript-api": "npm:typescript@5.9.3",
     "ulid": "^3.0.2",
-    "vite": "7.3.5",
+    "vite": "7.3.7",
     "vitest": "4.1.11"
   },
   "build": {
