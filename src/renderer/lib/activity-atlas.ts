@@ -415,6 +415,19 @@ const imageRules = (): string => {
   return out.join("\n");
 };
 
+/**
+ * The sheet as a shadow root reads it: a selector there cannot reach the
+ * page's <html>, so the root's theme and motion gate are read off the host.
+ */
+const forShadowRoot = (css: string): string =>
+  css
+    .replaceAll('html:not([data-surface-motion="paused"])', ':host(:not([data-surface-motion="paused"]))')
+    .replaceAll('html[data-theme="bright"]', ':host([data-theme="bright"])')
+    .replaceAll("html [data-mark-theme", ":host [data-mark-theme");
+
+/** Shadow roots that draw marks (the website's kit), each with its own copy of the sheet. */
+const shadowSheets = new Set<HTMLStyleElement>();
+
 const writeSheet = (): void => {
   if (typeof document === "undefined" || !document.head) return;
   let el = document.getElementById(STYLE_ID);
@@ -423,7 +436,25 @@ const writeSheet = (): void => {
     el.id = STYLE_ID;
     document.head.appendChild(el);
   }
-  el.textContent = `${markAtlasCss()}\n${imageRules()}`;
+  const css = `${markAtlasCss()}\n${imageRules()}`;
+  el.textContent = css;
+  for (const shadow of shadowSheets) shadow.textContent = forShadowRoot(css);
+};
+
+/**
+ * Keep the atlas sheet inside a shadow root too, rewritten for its host, and
+ * in step as each theme's atlas is painted. Returns the undo.
+ */
+export const mirrorMarkAtlas = (root: ShadowRoot): (() => void) => {
+  const el = document.createElement("style");
+  el.dataset.juntoMarkAtlas = "";
+  root.appendChild(el);
+  shadowSheets.add(el);
+  writeSheet();
+  return () => {
+    shadowSheets.delete(el);
+    el.remove();
+  };
 };
 
 /**
