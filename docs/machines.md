@@ -1079,8 +1079,10 @@ needed, so it costs nothing while idle. The trust rules are in
   service, and the keeper opens the link.
 - **Removing.** `machine remove` revokes the machine key and leaves the
   sandbox asleep; `machine boat-delete` also deletes the sandbox.
-- **Not in v1.** Ports opened on a sandbox, joining the tailnet, a key given
-  on stdin instead of the CLI, and the Machines window's add flow.
+- **The window.** The Machines window connects Boat and adds a Boat machine
+  through the same calls (de01d2633, shipped since 0.9.1, no feature gate).
+- **Not in v1.** Ports opened on a sandbox, joining the tailnet, and a key
+  given on stdin instead of the CLI.
 
 ## Test machines
 
