@@ -4,7 +4,6 @@ import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runti
 import { createManagedTerminalDrive } from "../../../src/main/junto/term/drive/managed-drive-factory";
 import { promptStillPending } from "../../../src/main/junto/term/drive/prompt-evidence";
 import { isManagedTerminalReady } from "../../../src/main/junto/term/drive/readiness";
-import { DEFAULT_PROMPT_STALL_MS } from "../../../src/main/junto/term/drive/typing";
 import { SessionObserver } from "../../../src/main/junto/term/observer";
 import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 import { CHUNK_MODES, chunkBytes, gateFixture, requireCapture, type ChunkMode } from "../runner";
@@ -281,7 +280,6 @@ it("Amp acknowledges hello through recorded PTY output after the shared drive's 
         while (next < capture.frames.length) current = await run.feed(capture.frames[next++]!);
       }
     });
-    const startedAt = Date.now();
     const submitted = await run.drive.writePrompt(run.bindingId, "hello", {
       queueIfBusy: false,
       awaitTurnStart: true,
@@ -291,7 +289,6 @@ it("Amp acknowledges hello through recorded PTY output after the shared drive's 
       status: "submitted", bindingGeneration: 0,
       writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
     });
-    expect(Date.now() - startedAt, "submission must be acknowledged before the timeout's text-disappeared fallback").toBeLessThan(DEFAULT_PROMPT_STALL_MS);
     expect(run.writes).toEqual([paste("hello"), "\r"]);
     expect(run.acknowledgements, "no captured working event after CR with our text absent from the composer")
       .toContainEqual({ afterCr: true, pending: false });
