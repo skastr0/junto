@@ -58,6 +58,7 @@ const thread = (over: Partial<SeatThreadSummary> & { threadId: string }): SeatTh
   lastAt: at(1, 12),
   messageCount: 2,
   canReply: true,
+  unread: 0,
   ...over,
 });
 
@@ -77,6 +78,8 @@ const reader = thread({
 
 const fake = () => {
   const listeners = new Set<(change: { canvasName: string; seatId?: string }) => void>();
+  const readListeners = new Set<(change: { canvasName: string; seatIds: ReadonlyArray<string> }) => void>();
+  const marks: Array<{ readonly canvasName: string; readonly seatId: string; readonly threadId: string }> = [];
   const state = {
     threads: [notes, banner, reader] as SeatThreadSummary[],
     messages: {
@@ -98,9 +101,25 @@ const fake = () => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    // As main rules it: a mark moves the point, and marking a read thread writes nothing.
+    markRead: async ({ canvasName, seatId, threadId }) => {
+      marks.push({ canvasName, seatId, threadId });
+      state.threads = state.threads.map((item) =>
+        item.threadId === threadId && item.unread > 0 ? { ...item, unread: 0, readAt: at(2, 0) } : item,
+      );
+    },
+    onReadChanged: (listener) => {
+      readListeners.add(listener);
+      return () => readListeners.delete(listener);
+    },
   };
   const change = (seatId?: string) => listeners.forEach((listener) => listener({ canvasName: "factory", seatId }));
-  return { state, source, change, listeners };
+  /** The operator read on another device: the counts move, and the notice names the seats. */
+  const readElsewhere = (threadId: string, seatIds: ReadonlyArray<string> = ["seat-1"]) => {
+    state.threads = state.threads.map((item) => (item.threadId === threadId ? { ...item, unread: 0, readAt: at(2, 0) } : item));
+    readListeners.forEach((listener) => listener({ canvasName: "factory", seatIds }));
+  };
+  return { state, source, change, listeners, marks, readListeners, readElsewhere };
 };
 
 let host: HTMLDivElement;
@@ -169,14 +188,66 @@ describe("the seat's threads, in words", () => {
 });
 
 describe("the Threads button", () => {
-  it("is plain, with no count and no new mark", async () => {
-    const { source } = fake();
-    setSeatThreadsSource(source);
+  it("counts what the operator has not read in a seat, and each row says its own", async () => {
+    const fixture = fake();
+    fixture.state.threads = [
+      thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) }),
+      thread({ threadId: "banner", title: "Cache banner", lastAt: at(0, 58), unread: 2 }),
+      thread({ threadId: "reader", title: "Reader switch", participants: ["cli-lead", "pty-lead"], lastAt: at(0, 44), canReply: false, unread: 1 }),
+    ];
+    setSeatThreadsSource(fixture.source);
     await render();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads");
+    expect(q("seat-threads-button")?.textContent).toBe("Threads3");
+    expect(q("seat-threads-button")?.getAttribute("title")).toBe("Threads, 3 unread");
+
     await click(q("seat-threads-button"));
-    // The mention field's chip mirror is aria-hidden and styled too; it is no mark.
-    expect(document.querySelector("[data-testid=seat-threads] [aria-hidden][style]:not(.mention-combobox__mirror)")).toBeNull();
+    const row = (threadId: string) => document.querySelector(`[data-thread-id="${threadId}"]`);
+    expect(row("banner")?.querySelector('[data-testid="seat-threads-row-unread"]')?.textContent).toBe("2");
+    expect(row("reader")?.querySelector('[data-testid="seat-threads-row-unread"]')?.textContent).toBe("1");
+    // The thread the popup opened on has nothing unread, so its row says nothing.
+    expect(row("notes")?.querySelector('[data-testid="seat-threads-row-unread"]')).toBeNull();
+  });
+
+  it("marks the thread it shows as read, and the count goes with it", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    expect(q("seat-threads-button")?.textContent).toBe("Threads2");
+
+    await click(q("seat-threads-button"));
+    expect(fixture.marks).toEqual([{ canvasName: "factory", seatId: "seat-1", threadId: "notes" }]);
+    expect(q("seat-threads-row-unread")).toBeNull();
+    expect(q("seat-threads-button")?.textContent).toBe("Threads");
+  });
+
+  it("clears a thread the operator read on the phone", async () => {
+    const fixture = fake();
+    fixture.state.threads = [
+      thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) }),
+      thread({ threadId: "banner", title: "Cache banner", lastAt: at(0, 58), unread: 4 }),
+    ];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    expect(q("seat-threads-row-unread")?.textContent).toBe("4");
+
+    act(() => fixture.readElsewhere("banner"));
+    await flush();
+    expect(q("seat-threads-row-unread")).toBeNull();
+    expect(q("seat-threads-button")?.textContent).toBe("Threads");
+  });
+
+  it("reads a change for another seat as nothing to do", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "banner", title: "Cache banner", unread: 4 })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    const reads = fixture.state.lists;
+    act(() => fixture.readElsewhere("banner", ["seat-9"]));
+    await flush();
+    expect(fixture.state.lists).toBe(reads);
   });
 });
 
@@ -194,9 +265,10 @@ describe("main's threads IPC as the source", () => {
     };
     const summary: MailThreadSummary = {
       threadId: "t1", title: "Move them.", participants: [operator, ptyLead], startedAt: at(1, 2), lastAt: at(1, 2),
-      last: first, messageCount: 1, canReply: true, owned: true,
+      last: first, messageCount: 1, canReply: true, owned: true, unread: 0,
     };
     const mail = new Set<(event: { canvasName: string; nodeId: string }) => void>();
+    const readChanges = new Set<(change: { canvasName: string; threadId: string; seats: ReadonlyArray<string> }) => void>();
     const seatThreadsList = vi.fn(async () => ({ threads: [summary] }));
     (window as { junto?: unknown }).junto = {
       seatThreadsList,
@@ -204,6 +276,11 @@ describe("main's threads IPC as the source", () => {
       onWorkMailChanged: (listener: (event: { canvasName: string; nodeId: string }) => void) => {
         mail.add(listener);
         return () => mail.delete(listener);
+      },
+      seatThreadMarkRead: vi.fn(async () => ({ through: "m1", at: at(1, 3) })),
+      onSeatThreadReadChanged: (listener: (change: { canvasName: string; threadId: string; seats: ReadonlyArray<string> }) => void) => {
+        readChanges.add(listener);
+        return () => readChanges.delete(listener);
       },
     };
     await render();
@@ -706,6 +783,12 @@ describe("paging in the popup", () => {
 
   const TOTAL = 130;
   const threadAt = (n: number) => thread({ threadId: `t${String(n).padStart(3, "0")}`, lastAt: at(0, 0) + (TOTAL - n) * 1000 });
+  /**
+   * The page asks a source saw: a cursor, never the head. The head is read again
+   * as the button counts and as the popup marks the thread it shows read (0.11.3),
+   * so only a cursor says an older page was asked for.
+   */
+  const pageAsks = (calls: ReadonlyArray<string | undefined>) => calls.filter((after): after is string => after !== undefined);
   const pagedSource = () => {
     const calls: Array<string | undefined> = [];
     const everything = Array.from({ length: TOTAL }, (_, n) => threadAt(n));
@@ -719,6 +802,8 @@ describe("paging in the popup", () => {
       },
       messages: async () => ({ messages: [] }),
       onChanged: () => () => undefined,
+      markRead: async () => undefined,
+      onReadChanged: () => () => undefined,
     };
     return { source, calls, everything };
   };
@@ -729,20 +814,20 @@ describe("paging in the popup", () => {
     await render();
     await click(q("seat-threads-button"));
     expect(all("seat-threads-row")).toHaveLength(50);
-    expect(calls).toEqual([undefined]);
+    expect(pageAsks(calls)).toEqual([]);
 
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
     // Far from the end: nothing more is asked for.
     list.scrollTop = 0;
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
-    expect(calls).toHaveLength(1);
+    expect(pageAsks(calls)).toEqual([]);
 
     // Near the end: the next page, from the last thread read.
     list.scrollTop = list.scrollHeight - VIEW - 100;
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
-    expect(calls).toEqual([undefined, "t049"]);
+    expect(pageAsks(calls)).toEqual(["t049"]);
     expect(all("seat-threads-row")).toHaveLength(100);
   });
 
@@ -761,13 +846,13 @@ describe("paging in the popup", () => {
     act(() => list.dispatchEvent(new Event("scroll")));
     act(() => resized.forEach((fire) => fire()));
     await flush();
-    expect(calls).toEqual([undefined]);
+    expect(pageAsks(calls)).toEqual([]);
 
     // Folded, the toggle that shows is the strip's.
     await click(document.querySelector('.two-pane__strip [aria-label="Sidebar"]'));
     act(() => resized.forEach((fire) => fire()));
     await flush();
-    expect(calls).toEqual([undefined, "t049"]);
+    expect(pageAsks(calls)).toEqual(["t049"]);
   });
 
   it("keeps the older pages when the head is read again after new mail", async () => {
@@ -862,6 +947,8 @@ describe("paging in the popup", () => {
         return { messages, ...(end - 50 > 0 ? { older: messages[0]!.messageId } : {}) };
       },
       onChanged: () => () => undefined,
+      markRead: async () => undefined,
+      onReadChanged: () => () => undefined,
     };
     setSeatThreadsSource(source);
     await render();

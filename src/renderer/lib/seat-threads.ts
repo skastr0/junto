@@ -38,6 +38,10 @@ export type SeatThreadSummary = {
   readonly messageCount: number;
   /** The operator is in it and may write in it. */
   readonly canReply: boolean;
+  /** When the operator last read it, on this Mac's clock; absent when never read. */
+  readonly readAt?: number;
+  /** Mail the operator did not write, past the read point, or all of it when never read. */
+  readonly unread: number;
   /** A comment thread's task, artifact or page; absent for a mailbox thread. */
   readonly subject?: ResourceSubject;
 };
@@ -77,6 +81,12 @@ export type SeatThreadsSource = {
   ) => Promise<SeatThreadMessagesPage>;
   /** Something changed in this canvas's threads; no seat means any. */
   readonly onChanged: (listener: (change: { readonly canvasName: string; readonly seatId?: string }) => void) => () => void;
+  /** The operator read a thread: their shared point moves, on every device. It never rejects. */
+  readonly markRead: (seat: SeatAddress & { readonly threadId: string }) => Promise<void>;
+  /** The operator's read state moved, here or on the phone; the seats whose counts changed. */
+  readonly onReadChanged: (
+    listener: (change: { readonly canvasName: string; readonly seatIds: ReadonlyArray<string> }) => void,
+  ) => () => void;
 };
 
 /** A party by name, as the popup says it: the operator is "you". */
@@ -88,7 +98,17 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
   const list = api?.seatThreadsList;
   const messages = api?.seatThreadMessages;
   const onMail = api?.onWorkMailChanged;
-  if (typeof list !== "function" || typeof messages !== "function" || typeof onMail !== "function") return undefined;
+  const markRead = api?.seatThreadMarkRead;
+  const onRead = api?.onSeatThreadReadChanged;
+  if (
+    typeof list !== "function" ||
+    typeof messages !== "function" ||
+    typeof onMail !== "function" ||
+    typeof markRead !== "function" ||
+    typeof onRead !== "function"
+  ) {
+    return undefined;
+  }
   return {
     list: async ({ canvasName, seatId, after }) => {
       const page = await list({
@@ -106,6 +126,8 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
           lastAt: thread.lastAt,
           messageCount: thread.messageCount,
           canReply: thread.canReply,
+          ...(thread.readAt === undefined ? {} : { readAt: thread.readAt }),
+          unread: thread.unread,
           ...(thread.subject === undefined ? {} : { subject: thread.subject }),
         })),
         ...(page.next === undefined ? {} : { next: page.next }),
@@ -133,6 +155,12 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
     },
     // Any mailbox can change a seat's threads: the canvas alone decides.
     onChanged: (listener) => onMail((event) => listener({ canvasName: event.canvasName })),
+    markRead: async ({ canvasName, seatId, threadId }) => {
+      // Main answers the point or undefined, and never rejects; the list is read again either way.
+      await markRead({ canvasName, nodeId: seatId, threadId });
+    },
+    onReadChanged: (listener) =>
+      onRead((change) => listener({ canvasName: change.canvasName, seatIds: change.seats })),
   };
 };
 
@@ -146,6 +174,8 @@ const activeSource = (): SeatThreadsSource | undefined => installed ?? (bridged 
 export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void => {
   offChanged?.();
   offChanged = undefined;
+  offRead?.();
+  offRead = undefined;
   installed = next;
   if (retained.size > 0) listenForChanges();
   for (const key of retained.keys()) void refreshSeat(key);
@@ -361,11 +391,12 @@ const retained = new Map<string, number>();
 /** Threads open, and by how many users. */
 const openThreads = new Map<string, number>();
 let offChanged: (() => void) | undefined;
+let offRead: (() => void) | undefined;
 
 const listenForChanges = (): void => {
   const read = activeSource();
-  if (offChanged || !read) return;
-  offChanged = read.onChanged((change) => {
+  if ((offChanged && offRead) || !read) return;
+  offChanged ??= read.onChanged((change) => {
     for (const key of retained.keys()) {
       const seat = seatOfKey(key);
       if (seat.canvasName !== change.canvasName) continue;
@@ -379,12 +410,34 @@ const listenForChanges = (): void => {
       void refreshThread(key);
     }
   });
+  // The operator read on the other device: the counts here follow (0.11.3).
+  offRead ??= read.onReadChanged((change) => {
+    for (const key of retained.keys()) {
+      const seat = seatOfKey(key);
+      if (seat.canvasName !== change.canvasName || !change.seatIds.includes(seat.seatId)) continue;
+      void refreshSeat(key);
+    }
+  });
 };
 
 const stopListeningIfIdle = (): void => {
   if (retained.size > 0 || openThreads.size > 0) return;
   offChanged?.();
   offChanged = undefined;
+  offRead?.();
+  offRead = undefined;
+};
+
+/**
+ * The operator read a thread here: their shared point moves, and the seat's
+ * list is read again so the row stops saying what it has not read. Main never
+ * rejects a mark, so this cannot fail the surface.
+ */
+export const markSeatThreadRead = async (seat: SeatAddress, threadId: string): Promise<void> => {
+  const read = activeSource();
+  if (!read) return;
+  await read.markRead({ ...seat, threadId });
+  await refreshSeat(seatKey(seat));
 };
 
 /** Read a retained seat's threads again now, as after the operator sent in them. */

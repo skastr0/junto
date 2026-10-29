@@ -29,6 +29,7 @@ import {
   seatMailThreadMessagesPage,
   seatMailThreads,
   seatMailThreadsPage,
+  type MailReadPoint,
   type MailThreadsInput,
   type MentionableSeat,
   type OperatorThreadSendDecoded,
@@ -98,9 +99,29 @@ export const seatThreads = (canvasName: string, nodeId: string) =>
 export const seatThreadMessages = (canvasName: string, nodeId: string, threadId: string) =>
   Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadMessages(input, nodeId, threadId));
 
-/** One page of the seat's threads: the desktop's list, never the whole of it. */
-export const seatThreadsPage = (canvasName: string, nodeId: string, page: { limit?: number; after?: string }) =>
-  Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadsPage(input, nodeId, page));
+/**
+ * The threads input with the operator's read points joined in by thread id, so
+ * every summary says when it was last read and what came after (0.11.3).
+ */
+export const withReadPoints = (
+  input: MailThreadsInput,
+  points: ReadonlyMap<string, MailReadPoint>,
+): MailThreadsInput => ({ ...input, readPointOf: (threadId) => points.get(threadId) });
+
+/**
+ * One page of the seat's threads: the desktop's list, never the whole of it.
+ * `readPoints`, the operator's by thread id, make each summary say when it was
+ * last read and what came after it; with none given, nothing is.
+ */
+export const seatThreadsPage = (
+  canvasName: string,
+  nodeId: string,
+  page: { limit?: number; after?: string },
+  readPoints?: ReadonlyMap<string, MailReadPoint>,
+) =>
+  Effect.map(threadsInput(canvasName), ({ input }) =>
+    seatMailThreadsPage(readPoints === undefined ? input : withReadPoints(input, readPoints), nodeId, page),
+  );
 
 /** One page of a thread's messages, the newest unless a cursor says otherwise. */
 export const seatThreadMessagesPage = (

@@ -7,6 +7,7 @@ import {
   groupSeatThreads,
   loadMoreSeatThreads,
   loadOlderMessages,
+  markSeatThreadRead,
   participantsLine,
   previewText,
   threadTime,
@@ -30,22 +31,31 @@ import { ThreadComposer } from "./ThreadComposer";
 import "./seat-threads.css";
 
 /**
- * The Threads button in a seat's header, left of Params. Plain: mail has no
- * operator read state, so it counts nothing.
+ * The Threads button in a seat's header, left of Params. It carries the
+ * operator's unread count for that seat, on every device: reading a thread in
+ * the popup, or on the phone, clears it.
  */
 export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; readonly name: string }) {
   const [open, setOpen] = useState(false);
+  const { threads } = useSeatThreads(seat);
+  const unread = threads.reduce((sum, thread) => sum + thread.unread, 0);
   return (
     <>
       <Button
         size="xs"
         variant="chrome"
-        title="Threads"
+        title={unread === 0 ? "Threads" : `Threads, ${String(unread)} unread`}
         aria-haspopup="dialog"
         data-testid="seat-threads-button"
+        data-unread={unread > 0 ? "true" : undefined}
         onClick={() => setOpen(true)}
       >
         Threads
+        {unread > 0 ? (
+          <span className="seat-threads__unread-count" data-testid="seat-threads-button-unread" aria-label={`${String(unread)} unread`}>
+            {unread > 99 ? "99+" : unread}
+          </span>
+        ) : null}
       </Button>
       {open ? <SeatThreadsPopup seat={seat} name={name} onClose={() => setOpen(false)} /> : null}
     </>
@@ -126,6 +136,16 @@ export function SeatThreadsPopup({
         })();
   const thread = shown?.kind === "thread" ? threads.find((candidate) => candidate.threadId === shown.threadId) : undefined;
 
+  // A thread on screen is read, on this device and every other: the modal opens
+  // on one, and every pick shows one. Main writes nothing when the point has
+  // not moved, so re-marking on each render costs nothing (0.11.3).
+  const shownThreadId = shown?.kind === "thread" ? shown.threadId : undefined;
+  const { canvasName, seatId } = seat;
+  useEffect(() => {
+    if (shownThreadId === undefined) return;
+    void markSeatThreadRead({ canvasName, seatId }, shownThreadId);
+  }, [canvasName, seatId, shownThreadId]);
+
   const row = (item: SeatThreadSummary) => (
     <li key={item.threadId}>
       <button
@@ -143,6 +163,16 @@ export function SeatThreadsPopup({
         </span>
         <span className="seat-threads__row-meta">
           <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
+          {item.unread > 0 ? (
+            <span
+              className="seat-threads__row-unread"
+              data-testid="seat-threads-row-unread"
+              title={`${String(item.unread)} unread`}
+              aria-label={`${String(item.unread)} unread`}
+            >
+              {item.unread > 99 ? "99+" : item.unread}
+            </span>
+          ) : null}
           <span className="seat-threads__row-time">{threadTime(item.lastAt)}</span>
         </span>
       </button>

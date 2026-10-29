@@ -112,6 +112,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* What the operator has not read: the same amber pill as the needs-you count. */
+.seat-threads__row-unread,
+.seat-threads__unread-count {
+  flex: none;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-amber);
+  color: var(--color-ground);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.seat-threads__unread-count {
+  margin-inline-start: 6px;
+}
+
 .seat-threads__chat {
   display: flex;
   flex: 1 1 0;

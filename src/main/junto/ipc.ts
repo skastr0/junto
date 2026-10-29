@@ -543,7 +543,9 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.seatThreadsList, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(SeatThreadsPageQuery, { onExcessProperty: "error" })(input);
-      return yield* seatThreadsPage(query.canvasName, query.nodeId, { limit: query.limit, after: query.after });
+      // The operator's read points ride the list, so a row knows what it has not read yet (0.11.3).
+      const points = yield* readPoints(query.canvasName, query.nodeId);
+      return yield* seatThreadsPage(query.canvasName, query.nodeId, { limit: query.limit, after: query.after }, points);
     })),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMessages, (_event, input: unknown) =>
