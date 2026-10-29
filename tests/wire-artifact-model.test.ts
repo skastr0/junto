@@ -7,11 +7,13 @@
  */
 import { describe, expect, it } from "vitest";
 import * as actorSeat from "../src/shared/actor-seat";
+import * as labels from "../src/shared/artifact-labels";
 import * as physics from "../src/shared/physics/schema";
 import * as resourceCommand from "../src/shared/resource-command";
 import { ULID_PATTERN } from "../src/shared/ulid";
 import * as workIds from "../src/shared/work-ids";
 import * as wireIds from "../src/shared/wire/ids";
+import * as wireLabels from "../src/shared/wire/artifact-labels";
 import * as wireActor from "../src/shared/wire/resource-actor";
 
 /** Each name is the same object on the desktop path as on the wire. */
@@ -33,5 +35,10 @@ describe("the artifact model on the wire is the desktop's own", () => {
   it("the writer: ResourceActor and ActorSeatId are one definition", () => {
     same(resourceCommand, wireActor, ["ResourceActor"]);
     same(actorSeat, wireActor, ["ActorSeatId"]);
+  });
+
+  it("labels: the label rule, its schemas and the colours are one definition", () => {
+    same(labels, wireLabels, Object.keys(wireLabels));
+    expect(Object.keys(labels).sort()).toEqual(Object.keys(wireLabels).sort());
   });
 });

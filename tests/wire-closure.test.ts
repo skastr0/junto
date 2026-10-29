@@ -38,6 +38,7 @@ describe("wire module import closure", () => {
     expect(new Set(wireFiles)).toEqual(
       new Set([
         "agent-signals.ts",
+        "artifact-labels.ts",
         "companion-protocol.ts",
         "content-ref.ts",
         "ids.ts",
