@@ -81,17 +81,10 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
     // The old artifacts the captures will look like.
     await create("research", "Roadmap pricing tiers", "# Roadmap pricing tiers\n\nQuarterly roadmap pricing tiers for the launch review.");
     await create("errands", "Errands for the week", "# Errands for the week\n\nMilk, eggs, bread and the shopping errands before Friday.");
-    // In the editor the first Escape stops writing (LiveMarkdownField) and the next closes the surface.
-    // A miss is recorded, and Cmd+T closes it so the walk goes on.
+    // One Escape closes the surface, the writing saved (237d89c8e). A miss is recorded, and Cmd+T closes it so the walk goes on.
     const close = async (where: string): Promise<void> => {
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(200);
-      await check(`${where}: the first Escape stops writing and keeps the surface`, async () => {
-        await expect(entry(page)).not.toBeFocused();
-        await expect(surface(page)).toBeVisible();
-      });
-      await page.keyboard.press("Escape");
-      await check(`${where}: the second Escape closes the surface`, () => expect(surface(page)).toBeHidden({ timeout: 3_000 }));
+      await check(`${where}: one Escape closes the surface`, () => expect(surface(page)).toBeHidden({ timeout: 3_000 }));
       if (await surface(page).isVisible()) await page.keyboard.press("Meta+t");
       await expect(surface(page)).toBeHidden({ timeout: 5_000 });
     };
@@ -214,6 +207,22 @@ test("quick capture Q6: ask once, Cmd+T anywhere writes at once, Inbox first, ty
       await check(`${theme}: every Move to row ends within the list, and the list does not scroll sideways`, () => {
         expect(fit.list.scroll, "no sideways scroll").toBeLessThanOrEqual(fit.list.client);
         for (const one of fit.rows) expect(one.right, `${one.name ?? ""} ends inside the list`).toBeLessThanOrEqual(fit.list.right + 0.5);
+      });
+      const tall = await dialog.evaluate((box) => {
+        const list = box.querySelector<HTMLElement>('[role="listbox"]')!;
+        const within = list.getBoundingClientRect();
+        const frame = box.getBoundingClientRect();
+        return {
+          list: { top: within.top, bottom: within.bottom, scroll: list.scrollHeight, client: list.clientHeight },
+          frame: { bottom: frame.bottom },
+          rows: [...list.querySelectorAll<HTMLElement>(".artifact-move__target")].map((row) => ({ name: row.querySelector(".artifact-move__name")?.textContent, bottom: row.getBoundingClientRect().bottom, height: row.getBoundingClientRect().height })),
+        };
+      });
+      console.log(`Q6-TALL-${theme}`, JSON.stringify(tall));
+      await check(`${theme}: the long-named row does not run off the bottom of the list or the dialog`, () => {
+        expect(tall.list.bottom, "the list inside the dialog").toBeLessThanOrEqual(tall.frame.bottom);
+        expect(tall.list.scroll, "two rows need no vertical scroll").toBeLessThanOrEqual(tall.list.client + 1);
+        for (const one of tall.rows) expect(one.bottom, `${one.name ?? ""} ends inside the list`).toBeLessThanOrEqual(tall.list.bottom + 0.5);
       });
       await check(`${theme}: No region reads whole on the suggested row and on Errands`, () => {
         expect(fit.rows.length).toBeGreaterThanOrEqual(2);
