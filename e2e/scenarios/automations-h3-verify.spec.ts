@@ -31,7 +31,9 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 
 /** A design-system Select: open its trigger by name, then pick the option. */
 const choose = async (page: Page, scope: Locator, label: string, option: string | RegExp): Promise<void> => {
-  await scope.getByRole("button", { name: label, exact: true }).click();
+  // A Select is named "<label>, <value>" once a value is chosen (bcbca4801): match the label as the prefix.
+  const name = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(,|$)`, "u");
+  await scope.getByRole("button", { name }).click();
   await page.getByRole("option", { name: option, exact: typeof option === "string" }).first().click();
 };
 
@@ -94,7 +96,7 @@ test("automations H3: an escalate step answers back, When answered… saves and 
     await action(1).getByRole("textbox", { name: "Signal title", exact: true }).fill(STEP);
 
     await check("an escalate step shows Where the answer goes and When answered…", async () => {
-      await expect(action(1).getByLabel("Where the answer goes", { exact: true })).toBeVisible({ timeout: 5_000 });
+      await expect(action(1).getByLabel(/^Where the answer goes(,|$)/u)).toBeVisible({ timeout: 5_000 });
       await expect(action(1).getByRole("button", { name: "When answered…", exact: true })).toBeVisible({ timeout: 5_000 });
     });
     await shoot(page, "1-escalate-shows-answer-controls");
@@ -111,7 +113,7 @@ test("automations H3: an escalate step answers back, When answered… saves and 
 
     await check("a notice shows neither Where the answer goes nor When answered…", async () => {
       await choose(page, action(1), "What the signal asks", "Notice, only to read");
-      await expect(action(1).getByLabel("Where the answer goes", { exact: true })).toHaveCount(0, { timeout: 5_000 });
+      await expect(action(1).getByLabel(/^Where the answer goes(,|$)/u)).toHaveCount(0, { timeout: 5_000 });
       await expect(action(1).getByRole("button", { name: "When answered…", exact: true })).toHaveCount(0, { timeout: 5_000 });
       await expect(action(1).getByRole("group", { name: "When answered", exact: true })).toHaveCount(0, { timeout: 5_000 });
     });
@@ -123,8 +125,8 @@ test("automations H3: an escalate step answers back, When answered… saves and 
     await check("When answered… opens a new automation named for the step", () => expect(name).toHaveValue(ANSWERING, { timeout: 20_000 }));
     await check("the new automation's trigger reads from the raiser, the step, is answered", async () => {
       await expect(sentence.first()).toContainText("from");
-      await expect(trigger.getByRole("button", { name: "Automation that raises it", exact: true })).toContainText(RAISER);
-      await expect(trigger.getByRole("button", { name: "Which of its signals", exact: true })).toContainText(`the step "${STEP}"`);
+      await expect(trigger.getByRole("button", { name: /^Automation that raises it(,|$)/u })).toContainText(RAISER);
+      await expect(trigger.getByRole("button", { name: /^Which of its signals(,|$)/u })).toContainText(`the step "${STEP}"`);
       await expect(trigger.getByText("is answered", { exact: true })).toBeVisible();
     });
     await shoot(page, "4-answering-draft");

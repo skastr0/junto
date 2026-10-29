@@ -29,10 +29,11 @@ import { modelFixture, modelNode, modelRegion, modelSeat } from "../harness/mode
 const CANVAS = "automations-a1";
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/automations-a1-verify";
 
-const SCOPE_TASKS = /^(Which tasks|Watch scope)$/u;
-const SCOPE_ARTIFACTS = /^(Which artifacts|Watch scope)$/u;
-const BECOMES = /^(Becomes|State it becomes)$/u;
-const TASK_PICKER = /^(Task|Task to watch)$/u;
+// A Select is named "<label>, <value>" once a value is chosen (bcbca4801): each label is the prefix.
+const SCOPE_TASKS = /^(Which tasks|Watch scope)(,|$)/u;
+const SCOPE_ARTIFACTS = /^(Which artifacts|Watch scope)(,|$)/u;
+const BECOMES = /^(Becomes|State it becomes)(,|$)/u;
+const TASK_PICKER = /^(Task|Task to watch)(,|$)/u;
 
 const shoot = async (page: Page, name: string): Promise<void> => {
   for (const theme of ["dark", "bright"] as const) {
@@ -46,7 +47,9 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 
 /** A design-system Select: open its trigger by name, pick the option. */
 const choose = async (page: Page, scope: Locator, label: string | RegExp, option: string | RegExp): Promise<void> => {
-  const trigger = scope.getByRole("button", { name: label, exact: typeof label === "string" ? true : undefined });
+  // A Select is named "<label>, <value>" once a value is chosen (bcbca4801): match the label as the prefix.
+  const name = typeof label === "string" ? new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(,|$)`, "u") : label;
+  const trigger = scope.getByRole("button", { name });
   await trigger.click();
   await page.getByRole("option", { name: option, exact: typeof option === "string" ? true : undefined }).first().click();
 };
