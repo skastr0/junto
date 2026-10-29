@@ -67,6 +67,8 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     dismissSignal: none,
     mailList: none,
     mailSend: none,
+    comments: none,
+    comment: none,
     quickReplies: async () => outcomeOk({ replies: ["Yes"] }),
     stagePiece: none,
     admitStage: none,

@@ -41,6 +41,7 @@ import {
   type CompanionResponseFrame,
   type CompanionSeat,
 } from "./companion-protocol";
+import type { CompanionCommentSubject } from "./wire/companion-artifacts";
 import type { OperatorFeed } from "./operator-feed";
 
 export type CompanionChange = {
@@ -139,6 +140,10 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   const sentSeats = new Map<string, string>();
   let focus: { readonly canvasName: string; readonly nodeId: string; readonly preambles: Set<string> } | undefined;
   let mailFocus: { readonly canvasName: string; readonly nodeId: string; readonly sent: Map<string, string> } | undefined;
+  /** The comments list this connection has open: its subject, and the answer it last sent. */
+  let commentsFocus:
+    | { readonly canvasName: string; readonly subject: CompanionCommentSubject; readonly sent: string }
+    | undefined;
   // The open canvas, as last sent: each node and wire by id. Its seq counts
   // per connection, so the phone reads any number but the next as a gap.
   let canvasSeq = 0;
@@ -282,6 +287,19 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         canvasFocus = undefined;
       }
     }
+    if (commentsFocus) {
+      const { canvasName, subject, sent } = commentsFocus;
+      const response = await io.host.call(internal("comments.list", { canvasName, subject }));
+      if (response.ok && "threads" in response.result) {
+        const key = JSON.stringify(response.result);
+        if (key !== sent && commentsFocus?.canvasName === canvasName) {
+          commentsFocus = { canvasName, subject, sent: key };
+          emit("comments.changed", { canvasName, subject });
+        }
+      } else if (!response.ok && response.error.code === "not-found" && commentsFocus?.canvasName === canvasName) {
+        commentsFocus = undefined;
+      }
+    }
     if (mailFocus) {
       const { canvasName, nodeId, sent } = mailFocus;
       const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
@@ -303,6 +321,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     seatCanvases.size > 0 ||
     focus !== undefined ||
     mailFocus !== undefined ||
+    commentsFocus !== undefined ||
     canvasFocus !== undefined;
 
   const runEvents = async (): Promise<void> => {
@@ -376,6 +395,8 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         response = { ...response, result: { ...scene, seq: canvasSeq } };
       } else if (frame.op === "canvas.close" && canvasFocus?.canvasName === frame.args.canvasName) {
         canvasFocus = undefined;
+      } else if (frame.op === "comments.list" && "threads" in response.result) {
+        commentsFocus = { canvasName: frame.args.canvasName, subject: frame.args.subject, sent: JSON.stringify(response.result) };
       }
     }
     write(encodeCompanionFrame(response));

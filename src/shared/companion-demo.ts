@@ -25,7 +25,9 @@ import {
   type CompanionBackend,
   type CompanionMailThread,
 } from "./companion-core";
+import { companionCommentsPage, type CommentPostView, type CommentThreadView } from "./companion-comments";
 import { companionConnected, companionThreadPage, companionThreadsPage } from "./companion-threads";
+import type { ActorSeatId } from "./wire/resource-actor";
 import { seatMailThreadMessages, seatMailThreads, type MailThreadsInput } from "./mail-threads";
 import { mentionedOnce, mentionsOf } from "./mention";
 import { makeAgentMessage, makeUserMessage } from "./task";
@@ -75,6 +77,8 @@ import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type
 import {
   DEMO_ACTIVITY,
   DEMO_ACTIVITY_AT,
+  DEMO_ARTIFACTS,
+  DEMO_ARTIFACT_THREADS,
   DEMO_BRIEFINGS,
   DEMO_CANVAS,
   DEMO_CANVAS_TITLE,
@@ -88,6 +92,7 @@ import {
   DEMO_MAIL,
   DEMO_THREAD_MAIL,
   demoMailId,
+  demoItemId,
   DEMO_PREAMBLES,
   DEMO_QUICK_REPLIES,
   DEMO_QUIET_NOTES,
@@ -100,10 +105,12 @@ import {
   DEMO_TAILNET,
   DEMO_WIRES,
   demoSeatPosition,
+  type DemoArtifactThread,
   type DemoMail,
   type DemoRegion,
   type DemoResourceNode,
   type DemoSeat,
+  type DemoThreadPost,
 } from "./wire/companion-demo-fixture";
 
 export { DEMO_CANVAS, DEMO_DEVICE_ID, DEMO_T0 } from "./wire/companion-demo-fixture";
@@ -188,6 +195,41 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     })),
     nameOf: (nodeId) => SEATS.find((seat) => seat.id === nodeId)?.name,
   });
+  // --- comments (0.11.3, the phone's artifacts) -----------------------------
+  /** A demo seat's actor id: stable across a process, shaped as the wire validates one. */
+  const demoSeatId = (nodeId: string): ActorSeatId => {
+    let hash = 0x811c9dc5;
+    for (const ch of nodeId) {
+      hash ^= ch.codePointAt(0) ?? 0;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return `seat_${hash.toString(16).padStart(8, "0").repeat(8)}` as ActorSeatId;
+  };
+  const demoAuthor = (from: DemoThreadPost["from"]): CommentPostView["author"] =>
+    from.kind === "operator"
+      ? { kind: "operator", name: "operator" }
+      : { kind: "seat", seatId: demoSeatId(from.nodeId), nodeId: asNodeId(from.nodeId), name: from.name };
+  /** The fixture's threads, mutable: a comment posted here lives for this process, as every demo write does. */
+  const commentThreads: Array<{
+    readonly threadId: string;
+    readonly artifactId: string;
+    readonly anchor?: CommentThreadView["anchor"];
+    readonly posts: Array<CommentPostView>;
+  }> = DEMO_ARTIFACT_THREADS.map((thread: DemoArtifactThread, index: number) => ({
+    threadId: thread.threadId,
+    artifactId: thread.artifactId,
+    anchor: thread.anchor,
+    posts: thread.posts.map((post, at) => ({
+      postId: demoMailId(post.at, "D3M0", 100 + index * 10 + at),
+      author: demoAuthor(post.from),
+      text: post.text,
+      at: post.at,
+    })),
+  }));
+  let commentSeq = 0;
+  // A replayed opId answers as the first one did, never a second comment.
+  const commentOps = new Map<string, { readonly threadId: string; readonly messageId: string }>();
+
   const now = (): number => clock;
   const tick = (): number => {
     clock += 1_000;
@@ -413,6 +455,53 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const thread = companionThreadPage(threadsInput(), nodeId, threadId, page);
       if (thread === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
       return outcomeOk(thread);
+    },
+    comments: async (args) => {
+      if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
+      if (!DEMO_ARTIFACTS.some((artifact) => artifact.id === args.subject.artifactId)) {
+        return outcomeFail("not-found", "That artifact is not on this canvas.");
+      }
+      const held = commentThreads.filter((thread) => thread.artifactId === args.subject.artifactId);
+      return outcomeOk(
+        companionCommentsPage(held, {
+          ...(args.limit === undefined ? {} : { limit: args.limit }),
+          ...(args.before === undefined ? {} : { before: args.before }),
+        }),
+      );
+    },
+    comment: async (args) => {
+      if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
+      if (!DEMO_ARTIFACTS.some((artifact) => artifact.id === args.subject.artifactId)) {
+        return outcomeFail("not-found", "That artifact is not on this canvas.");
+      }
+      const replayed = commentOps.get(args.opId);
+      if (replayed !== undefined) return outcomeOk(replayed);
+      const at = tick();
+      commentSeq += 1;
+      const post: CommentPostView = {
+        postId: demoMailId(at, "SENT", commentSeq),
+        author: { kind: "operator", name: "operator" },
+        text: args.text,
+        at,
+      };
+      if (args.threadId !== undefined) {
+        const thread = commentThreads.find((held) => held.threadId === args.threadId && held.artifactId === args.subject.artifactId);
+        if (thread === undefined) return outcomeFail("not-found", "That thread is not on this artifact.");
+        thread.posts.push(post);
+        const answer = { threadId: thread.threadId, messageId: post.postId };
+        commentOps.set(args.opId, answer);
+        return outcomeOk(answer);
+      }
+      const threadId = demoItemId("THR", 100 + commentThreads.length);
+      commentThreads.push({
+        threadId,
+        artifactId: args.subject.artifactId,
+        ...(args.anchor === undefined ? {} : { anchor: args.anchor }),
+        posts: [post],
+      });
+      const answer = { threadId, messageId: post.postId };
+      commentOps.set(args.opId, answer);
+      return outcomeOk(answer);
     },
     // The demo keeps no files: it does not advertise attachments, so a phone sends none.
     stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),

@@ -143,6 +143,8 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed) | `{ "messages": ThreadMessage[], "older"?: string, "cut": boolean }` oldest first, at most 200 |
 | `canvas.open` | `{ "canvasName": string }` (closed) | `{ "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[] }`, then `canvas.changed` events |
 | `canvas.close` | `{ "canvasName": string }` (closed) | `{}` |
+| `comments.list` | `{ "canvasName": string, "subject": CommentSubject, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed; needs `features` to list `artifacts/1`) | `{ "threads": CommentThread[], "cut": boolean, "next"?: string }`, newest thread first, at most 200 |
+| `comment.post` | `{ "canvasName": string, "subject": CommentSubject, "opId": ULID, "text": string (1 to 8000), "anchor"?: ArtifactPlaceAnchor, "threadId"?: ULID }` (closed; counts as a write) | `{ "threadId": ULID, "messageId": ULID, "unlinked"?: { "token": string, "nearest": string[] }[] }` |
 
 Semantics:
 
@@ -316,6 +318,7 @@ Events:
 | `machines.changed` | `{ "machines": Machine[] }`: the whole list, replacing the previous one, after a `machines.list` in this connection (a machine added, removed, set up, sent or updated, a link learning its build, or a newer check). A check's age growing is not a change |
 | `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
 | `canvas.changed` | `{ "canvasName": string, "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[], "removedNodes": string[], "removedWires": string[] }`: whole nodes and wires added or changed since `seq - 1`, and the ids gone, for the canvas of the last `canvas.open` until `canvas.close` |
+| `comments.changed` | `{ "canvasName": string, "subject": CommentSubject }`: a comment landed on the subject of the last `comments.list`, by anyone; list it again |
 
 Event origin: `signal.changed`, `feed.changed` and `seat.changed` fire for
 every change no matter who made it: the phone, the desktop, or the agent

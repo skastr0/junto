@@ -184,6 +184,14 @@ describe("request decoding", () => {
     "thread.get": { canvasName: "main", nodeId: "planner", threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" },
     "canvas.open": { canvasName: "main" },
     "canvas.close": { canvasName: "main" },
+    "comments.list": { canvasName: "main", subject: { kind: "artifact", nodeId: "art-notes", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" } },
+    "comment.post": {
+      canvasName: "main",
+      subject: { kind: "artifact", nodeId: "art-notes", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" },
+      opId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D6",
+      text: "Is the discount before or after launch?",
+      threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5",
+    },
   };
 
   it("accepts every op with valid arguments", () => {

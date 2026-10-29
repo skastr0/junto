@@ -21,6 +21,13 @@
 
 import { Result, Schema } from "effect";
 import { AgentSignal, AgentSignalKind, type SignalSource } from "./agent-signals";
+import {
+  CompanionCommentsChanged,
+  CompanionCommentsListArgs,
+  CompanionCommentsListData,
+  CompanionCommentPostArgs,
+  CompanionCommentPostData,
+} from "./companion-artifacts";
 import { ContentDisplayName, ContentMediaType, ContentRef, ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 import { RingState } from "./rings";
@@ -517,6 +524,9 @@ export const COMPANION_OPS = [
   "thread.get",
   "canvas.open",
   "canvas.close",
+  /** A subject's comments, read and written; comments.changed while a list is open on it. */
+  "comments.list",
+  "comment.post",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -526,6 +536,7 @@ export const COMPANION_WRITE_OPS: ReadonlySet<CompanionOpName> = new Set([
   "signal.answer",
   "signal.dismiss",
   "mail.send",
+  "comment.post",
 ]);
 
 const Empty = Schema.Struct({});
@@ -640,6 +651,8 @@ export const CompanionArgs = {
   /** The scene, and canvas.changed for it from then on; replaces any canvas this connection had open. */
   "canvas.open": Schema.Struct({ canvasName: CanvasName }),
   "canvas.close": Schema.Struct({ canvasName: CanvasName }),
+  "comments.list": CompanionCommentsListArgs,
+  "comment.post": CompanionCommentPostArgs,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 /**
@@ -655,6 +668,8 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "thread.get",
   "canvas.open",
   "canvas.close",
+  "comments.list",
+  "comment.post",
 ]);
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
@@ -737,6 +752,8 @@ export const CompanionResults = {
   }),
   "canvas.open": CompanionCanvasScene,
   "canvas.close": Empty,
+  "comments.list": CompanionCommentsListData,
+  "comment.post": CompanionCommentPostData,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 export type CompanionResultByOp = { readonly [Op in CompanionOpName]: (typeof CompanionResults)[Op]["Type"] };
@@ -790,6 +807,8 @@ export const CompanionEvents = {
     removedNodes: Schema.Array(NodeId),
     removedWires: Schema.Array(bounded(1, 256)),
   }),
+  /** A comment landed on a subject this phone has a `comments.list` open on: list it again. */
+  "comments.changed": CompanionCommentsChanged,
 } as const;
 export type CompanionEventName = keyof typeof CompanionEvents;
 export type CompanionEventDataByName = {

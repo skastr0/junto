@@ -109,6 +109,14 @@ export type CompanionBackend = {
     threadId: string,
     page?: { readonly limit?: number; readonly before?: string },
   ) => Promise<CompanionOutcome<CompanionResultByOp["thread.get"]>>;
+  /** A subject's comments, newest thread first, fitted to one frame. */
+  readonly comments: (
+    args: CompanionArgsByOp["comments.list"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["comments.list"]>>;
+  /** One comment, through the desktop's own post path; a replayed opId answers as the first did. */
+  readonly comment: (
+    args: CompanionArgsByOp["comment.post"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["comment.post"]>>;
   readonly quickReplies: () => Promise<CompanionOutcome<CompanionResultByOp["quickReplies.get"]>>;
   readonly portrait: (
     portraitIdentity: string,
@@ -484,6 +492,10 @@ export const handleCompanionRequest = async (
       return respond(id, backend.thread(frame.args.canvasName, frame.args.nodeId, frame.args.threadId, pageOf(frame.args)), (value) =>
         companionOk(id, "thread.get", value),
       );
+    case "comments.list":
+      return respond(id, backend.comments(frame.args), (value) => companionOk(id, "comments.list", value));
+    case "comment.post":
+      return respond(id, backend.comment(frame.args), (value) => companionOk(id, "comment.post", value));
     case "quickReplies.get":
       return respond(id, backend.quickReplies(), (value) => companionOk(id, "quickReplies.get", value));
     case "portrait.get": {
