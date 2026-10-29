@@ -12,6 +12,8 @@ import {
   useLabelColours,
 } from "../src/renderer/lib/artifact-label-colours";
 import { makeLocalArtifactsSource, setArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { resetOperatorGesture } from "../src/renderer/lib/focus-ownership";
+import { resetModalStack } from "../src/renderer/lib/modal-stack";
 import type { ArtifactLabelColours } from "../src/shared/artifact-labels";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ResourceApplyOutcome } from "../src/shared/resource-ipc";
@@ -31,6 +33,11 @@ const render = (node: React.ReactNode) => act(() => root.render(node));
 const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
 
 beforeEach(() => {
+  // The full run shares a worker between files: a pointer press another file
+  // left under a second ago would make these opens read as the mouse's, and
+  // a modal it left open would fence every claim. These opens are the keyboard's.
+  resetOperatorGesture();
+  resetModalStack();
   HTMLElement.prototype.scrollIntoView = () => {};
   globalThis.ResizeObserver ??= class {
     observe() {}
