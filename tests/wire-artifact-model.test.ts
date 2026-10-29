@@ -8,13 +8,16 @@
 import { describe, expect, it } from "vitest";
 import * as actorSeat from "../src/shared/actor-seat";
 import * as labels from "../src/shared/artifact-labels";
+import * as modelSheet from "../src/shared/model/sheet";
 import * as physics from "../src/shared/physics/schema";
 import * as resourceCommand from "../src/shared/resource-command";
+import * as sheet from "../src/shared/sheet";
 import { ULID_PATTERN } from "../src/shared/ulid";
 import * as workIds from "../src/shared/work-ids";
 import * as wireIds from "../src/shared/wire/ids";
 import * as wireLabels from "../src/shared/wire/artifact-labels";
 import * as wireActor from "../src/shared/wire/resource-actor";
+import * as wireSheet from "../src/shared/wire/sheet";
 
 /** Each name is the same object on the desktop path as on the wire. */
 const same = (desktop: Record<string, unknown>, wire: Record<string, unknown>, names: ReadonlyArray<string>): void => {
@@ -40,5 +43,10 @@ describe("the artifact model on the wire is the desktop's own", () => {
   it("labels: the label rule, its schemas and the colours are one definition", () => {
     same(labels, wireLabels, Object.keys(wireLabels));
     expect(Object.keys(labels).sort()).toEqual(Object.keys(wireLabels).sort());
+  });
+
+  it("sheets: the grid, its rows and columns and every sheet rule are one definition", () => {
+    same(sheet, wireSheet, Object.keys(wireSheet));
+    same(modelSheet, wireSheet, ["SheetGrid"]);
   });
 });

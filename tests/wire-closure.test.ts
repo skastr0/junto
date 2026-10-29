@@ -49,6 +49,7 @@ describe("wire module import closure", () => {
         "seat-activity.ts",
         "seat-level.ts",
         "seat-ring.ts",
+        "sheet.ts",
         "thread-health.ts",
         "thread-subject.ts",
         "urgency.ts",
