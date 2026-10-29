@@ -27,6 +27,7 @@ import {
   summarizeOffboardRun,
   type OffboardRules,
 } from "../src/shared/seat-offboard";
+import { summarizeArtifactMoveRun, type ArtifactMoveRun } from "../src/shared/artifact-move";
 import { InstallationId } from "../src/shared/installation-id";
 import { seat } from "./support/model-nodes";
 import { NoTasksLive } from "./support/no-tasks";
@@ -250,6 +251,47 @@ describe("integrated overseer dispatcher", () => {
       .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
     expect(rules.cacheWindowMinutes).toBe(30);
 
+    expect(adapters.native).not.toHaveBeenCalled();
+  });
+
+  it("moves artifacts through the operator's entry point, as the overseer seat, once granted", async () => {
+    const { toggle, adapters } = await boot();
+    const A = "01M5ESMQ2ZT55QZ073EWPH10SG";
+    const GONE = "01M5ESMQ2ZT55QZ073EWPH10SJ";
+    const artifactMove = vi.fn<ArtifactMoveRun>(async ({ artifactIds, toNode }) => ({
+      ok: true,
+      ...summarizeArtifactMoveRun(artifactIds.map((artifactId) =>
+        artifactId === A
+          ? { artifactId, title: "Plan", ok: true as const, outcome: "moved" as const, from: asNodeId("specs"), to: toNode }
+          : { artifactId, ok: false as const, code: "not-found" as const, reason: "Junto could not find that artifact on this canvas." })),
+    }));
+    const run_ = (request: Parameters<typeof executeOverseer>[1]) =>
+      runtime.runPromise(executeOverseer(caller, request, { ...adapters, artifactMove }));
+
+    expect(await run_({ operation: "artifact.move", args: { artifactIds: [A], to: "release" } }))
+      .toMatchObject({ ok: false, error: { type: "Forbidden" } });
+    expect(artifactMove).not.toHaveBeenCalled();
+    await toggle(true);
+
+    expect(await run_({ operation: "artifact.move", args: { artifactIds: [A, GONE], to: "release" } })).toEqual({
+      ok: true,
+      operation: "artifact.move",
+      data: {
+        results: [
+          { artifactId: A, title: "Plan", ok: true, outcome: "moved", from: "specs", to: "release" },
+          { artifactId: GONE, ok: false, code: "not-found", reason: "Junto could not find that artifact on this canvas." },
+        ],
+        moved: 1,
+        refused: 1,
+      },
+    });
+    expect(artifactMove).toHaveBeenLastCalledWith(
+      { canvasName: "origin", artifactIds: [A, GONE], toNode: "release" },
+      { kind: "seat", seatId: expect.any(String), nodeId: "boss" },
+    );
+    expect(await run_({ operation: "artifact.move", args: { artifactIds: [A, A], to: "release" } }))
+      .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+    expect(artifactMove).toHaveBeenCalledTimes(1);
     expect(adapters.native).not.toHaveBeenCalled();
   });
 
