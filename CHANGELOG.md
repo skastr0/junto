@@ -9,8 +9,14 @@ deleted at the bump.
 Opening the database with 0.11.0 moves it to version <HEAD>, and 0.10.3 then
 refuses it as newer than supported. To go back to 0.10.3, open the backup
 taken at the upgrade. The steps add the Files node kind, a table that
-records which artifacts link to which, and artifact labels (and, if approved, rebuild stubs so other
-machines show a Files stub); every node, wire and task is kept as it was.
+records which artifacts link to which, artifact labels and their colours,
+the tables that keep your view state, the record of where each automation
+was, which canvases this machine runs code for, a peer's link key, a seat
+control applied at most once, and a signal an automation raises with its form
+and due time (and, if approved, rebuild stubs so other machines show a Files
+stub); every node, wire and task is kept as it was. Two steps are groundwork
+for a later release and nothing in 0.11.0 reads them: a canvas's authority
+tables (seeded) and the scope record of each vault token (empty).
 (<HEAD> is read from `CURRENT_STATE_SCHEMA_VERSION` at the cut. If the stub
 step is not approved, add that the Files stub on other machines comes later.)
 
