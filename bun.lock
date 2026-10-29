@@ -54,6 +54,7 @@
         "electron": "43.8.4",
         "electron-builder": "26.15.3",
         "electron-vite": "5.0.0",
+        "esbuild": "0.25.12",
         "jsdom": "26.1.0",
         "lucide-react": "^0.468.0",
         "motion": "12.38.0",
