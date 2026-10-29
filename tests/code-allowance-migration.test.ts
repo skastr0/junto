@@ -1,17 +1,18 @@
 /**
  * Step 57 adds the machine code allowance (0.11, 05, Code steps, check 4):
- * which canvases this machine runs code steps for, machine-local. Proven on
- * both shipped fixtures brought to version 56 by the real steps: the step's
+ * which canvases this machine runs code steps for, machine-local: the step's
  * schema hashes the same as the witness, every row already held survives as
  * it was, and the new tables start empty, so a machine from before the step
  * runs no code.
+ *
+ * The version-56 database is made at version 56 (a fresh database takes the
+ * witness schema whole), not by replaying 13 -> 56 over a shipped fixture:
+ * that replay ran seconds under a loaded full run. It lives in memory, so no
+ * path is shared with any other test, and rows seeded before the step stand in
+ * for what a shipped database holds.
  */
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -24,19 +25,22 @@ import { expectedStateSchemaIdentity, readRecordedStateSchemaIdentity } from "..
 import { STATE_SCHEMA_V56_SQL, STATE_SCHEMA_V57_SQL } from "./fixtures/state-v13/schema";
 import { MACHINE_CODE_ALLOWANCE_TABLES } from "../src/main/junto/automation/code-allowance-schema";
 
-let dir: string | undefined;
-afterEach(async () => {
-  if (dir) await rm(dir, { recursive: true, force: true });
-  dir = undefined;
-});
-
-const openCopy = async (fixture: string): Promise<DatabaseSync> => {
-  dir = await mkdtemp(join(tmpdir(), "junto-code-allowance-migration-"));
-  const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
-  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
-  database.exec("PRAGMA foreign_keys = ON");
+/** A version-56 database, fresh and in memory. */
+const openAt56 = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:", { allowExtension: false, enableForeignKeyConstraints: true });
+  expect(migrateStateSchema(database, upTo(56, STATE_SCHEMA_V56_SQL))).toMatchObject({ schemaVersion: 56, ...STATE_SCHEMA_V56_IDENTITY });
   return database;
+};
+
+/** What a machine from before the step holds: itself, a canvas, and a seat on it. */
+const seed = (database: DatabaseSync): void => {
+  database.exec(`
+    INSERT INTO host_registry (id, label, is_this_machine, sort_order) VALUES ('macbook', 'MacBook', 1, 0);
+    INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('factory', 'canvas-1', 'now', 'now');
+    INSERT INTO seats (canvas_name, id, x, y, width, height, z_index, created_at, updated_at,
+      agent_key, label, binding_id, harness, overseer)
+    VALUES ('factory', 'agent-1', 0, 0, 100, 100, 0, 'now', 'now', 'key-1', 'Agent', 'binding-1', 'claude', 0);
+  `);
 };
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
@@ -68,13 +72,14 @@ describe("state migration 56 -> 57 (the machine code allowance)", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V57_SQL)).toEqual(STATE_SCHEMA_V57_IDENTITY);
   });
 
-  it.each(["command-center-v13.db", "remote-v13.db"])(
-    "adds the empty allowance tables to %s, hashes as a fresh 57, and leaves every row as it was",
-    async (fixture) => {
-      const database = await openCopy(fixture);
+  it(
+    "adds the empty allowance tables, hashes as a fresh 57, and leaves every row as it was",
+    () => {
+      const database = openAt56();
       try {
-        migrateStateSchema(database, upTo(56, STATE_SCHEMA_V56_SQL));
+        seed(database);
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
+        expect(before["seats"]).toHaveLength(1);
         for (const table of TABLES) expect(Object.keys(before)).not.toContain(table);
 
         const result = migrateStateSchema(database, upTo(57, STATE_SCHEMA_V57_SQL));
@@ -93,8 +98,8 @@ describe("state migration 56 -> 57 (the machine code allowance)", () => {
     60_000,
   );
 
-  it("holds a closed scope, an installation per row, and goes with its canvas", async () => {
-    const database = await openCopy("command-center-v13.db");
+  it("holds a closed scope, an installation per row, and goes with its canvas", () => {
+    const database = openAt56();
     try {
       migrateStateSchema(database, upTo(57, STATE_SCHEMA_V57_SQL));
       database
