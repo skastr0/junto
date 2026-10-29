@@ -81,9 +81,6 @@ step is not approved, add that the Files stub on other machines comes later.)
   gains a label or when one carrying a label is edited, and can create an
   artifact in a node, append to one, or set and remove labels on the artifact
   that fired. A write an automation made never fires another.
-- Code steps: edit an automation's code in its modal with the same code editor
-  as Files. Unsaved code survives Escape, Revert asks first, and the editor
-  works from the keyboard.
 - Comments on a file follow it when you rename or move it in Junto, in the
   same step as the change on disk: the thread's path and a line comment's file
   move with it, and a box comment keeps its page. A move that would leave the

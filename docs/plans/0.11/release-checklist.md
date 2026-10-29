@@ -172,6 +172,15 @@ Head 62 then; step 63 (the stub) is not in this run. Results per line:
       the cut hash, and the signed form of the audit (no `--source`), which
       only the real `app:build:ship` runs.
 
+- [ ] Ship gates `codeSteps` (K2 runtime, K3 editor, K4 CLI) and
+      `automationSignals` (N2, an automation raising a notice or work) are OFF
+      in ship (c2f4df48b); seat raises with forms (N1, N3, N4) are not under
+      them. The notes' Code steps bullet is out while codeSteps is off. If
+      product-lead flips a gate after its real-app walk (automation-lead mails
+      the hash), put the bullet back for codeSteps: edit an automation's code in
+      its modal with the Files code editor, unsaved code survives Escape,
+      Revert asks first; and word N2 for automationSignals, checked against the
+      code.
 - [ ] Cut floor (product-lead): the cut hash is at or after a1308dd3a, which
       gates the region source's vault token read behind VAULT_ENABLED (210a7506e
       let it read in ship). tech-lead's section 3 receipts ran at 210a7506e and
