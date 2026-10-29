@@ -31,6 +31,7 @@ import { companionCommentsPage, type CommentPostView, type CommentThreadView } f
 import type { ItemId } from "./wire/ids";
 import { artifactFirstLines } from "./artifact-lines";
 import { candidatesOfNodes, connectedSeatCandidates, filterCandidates } from "./mention-candidates";
+import type { CompanionArtifactChanged } from "./wire/companion-artifacts";
 import { parseMentionHref } from "./wire/mention";
 import { mentionableNodesFrom } from "./mention-reach";
 import { companionConnected, companionThreadPage, companionThreadRead, companionThreadsPage } from "./companion-threads";
@@ -197,12 +198,15 @@ export type DemoPortraitPng = (svg: string, size: number) => Promise<Uint8Array>
 export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitPng): CompanionBackend & {
   readonly revision: () => number;
   readonly takeSignalChanges: (since: number) => { readonly signals: ReadonlyArray<AgentSignal>; readonly seq: number };
+  /** Artifact writes made in this demo since a cursor, for a connection that subscribed. */
+  readonly takeArtifactChanges: (since: number) => { readonly artifacts: ReadonlyArray<CompanionArtifactChanged>; readonly seq: number };
 } => {
   let CANVAS = demoCanvas(machineName);
   let clock = DEMO_T0;
   let revision = 0;
   const signals = new Map(DEMO_SIGNALS.map((signal) => [signal.signalId, signal] as const));
   const signalLog: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
+  const artifactLog: Array<{ readonly seq: number; readonly change: CompanionArtifactChanged }> = [];
   const mail: DemoMail[] = [...DEMO_MAIL];
   const activity = new Map(Object.entries(DEMO_ACTIVITY).map(([nodeId, lines]) => [nodeId, [...lines]] as const));
   const noteActivity = (nodeId: string, line: CompanionActivity): void => {
@@ -387,6 +391,10 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     revision: () => revision,
     takeSignalChanges: (since) => ({
       signals: signalLog.filter((entry) => entry.seq > since).map((entry) => entry.signal),
+      seq: revision,
+    }),
+    takeArtifactChanges: (since) => ({
+      artifacts: artifactLog.filter((entry) => entry.seq > since).map((entry) => entry.change),
       seq: revision,
     }),
     pairComplete: async () => outcomeFail("invalid", "The demo is already paired."),
@@ -723,12 +731,36 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const keep = async (result: CompanionResultByOp["artifact.apply"], artifactId?: ItemId): Promise<CompanionOutcome<CompanionResultByOp["artifact.apply"]>> => {
         applyOps.set(args.opId, result);
         // The reads serve a bodyRef for each new version; keep its bytes so content.get answers them.
-        if (result.disposition === "applied" && artifactId !== undefined) {
-          const served = await demoArtifactReads.artifactGet({ canvasName: DEMO_CANVAS, artifactId });
-          const held = mutableArtifacts.find((candidate) => candidate.head.artifactId === artifactId);
+        if (result.disposition === "applied" && result.artifact !== undefined) {
+          const servedArtifact = result.artifact;
+          const served = await demoArtifactReads.artifactGet({ canvasName: DEMO_CANVAS, artifactId: servedArtifact.artifactId });
+          const held = mutableArtifacts.find((candidate) => candidate.head.artifactId === servedArtifact.artifactId);
+          const bodyRef = served.ok ? served.value.bodyRef : undefined;
           if (served.ok && held !== undefined) {
             appliedBytes.set(served.value.bodyRef.sha256, new TextEncoder().encode(JSON.stringify(held.body)));
           }
+          // The change a subscribed phone hears, as the Mac's own event reads.
+          revision += 1;
+          artifactLog.push({
+            seq: revision,
+            change: {
+              canvasName: DEMO_CANVAS,
+              artifact: {
+                artifactId: servedArtifact.artifactId,
+                nodeId: servedArtifact.nodeId,
+                type: servedArtifact.type,
+                title: servedArtifact.title,
+                version: servedArtifact.version,
+                updatedAt: servedArtifact.updatedAt,
+                archived: servedArtifact.archived,
+                labels: servedArtifact.labels,
+              },
+              author: { kind: "operator" },
+              at: clock,
+              ...(op.op === "edit" ? { edit: op.edit } : {}),
+              ...(bodyRef === undefined ? {} : { bodyRef }),
+            },
+          });
         }
         return outcomeOk(result);
       };
@@ -891,10 +923,12 @@ export const makeDemoHost = (options: {
         });
       }
       const changes = backend.takeSignalChanges(since);
+      const artifacts = backend.takeArtifactChanges(since);
       return {
         cursor: cursorOf(changes.seq),
         changed: changes.seq !== since,
         signals: changes.signals,
+        artifacts: artifacts.artifacts,
         reset: false,
       };
     },

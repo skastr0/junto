@@ -18,7 +18,7 @@ import { onRemoteSeatState } from "../term/remote-seat-state";
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { messageDelivery } from "../work/message-delivery";
 import { forgetSeatUnread, noteMailFailure } from "./backend";
-import { noteArtifactChanged } from "./artifact-changes";
+import { noteArtifactCanvasChanged, noteArtifactChanged } from "./artifact-changes";
 import type { CompanionChanges } from "./changes";
 import { onDesktopReport } from "./desktop-report";
 import { onResourceChanged } from "../work/resource-changes";
@@ -50,7 +50,10 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     onDesktopReport(() => changes.bump()),
     // A write through this machine names its artifact and its edit; a replicated row does not.
     onResourceChanged((domain, canvasName, change) => {
-      if (domain === "artifact") noteArtifactChanged(changes, canvasName, change);
+      if (domain !== "artifact") return;
+      // A write ruled here names its artifact and edit; a replicated ruling only says the canvas moved.
+      if (change === undefined) noteArtifactCanvasChanged(changes, canvasName);
+      else noteArtifactChanged(changes, canvasName, change);
     }),
     onReadChanged(({ canvasName }) => {
       forgetSeatUnread(canvasName);

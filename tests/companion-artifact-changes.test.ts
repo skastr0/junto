@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { makeCompanionChanges } from "../src/main/junto/companion/changes";
+import { noteArtifactCanvasChanged, type ScannedHead } from "../src/main/junto/companion/artifact-changes";
 import { COMPANION_PROTOCOL, decodeCompanionRequestLine } from "../src/shared/wire/companion-protocol";
 import type { CompanionArtifactChanged } from "../src/shared/wire/companion-artifacts";
 import { runCompanionSession, type CompanionChange } from "../src/shared/companion-session";
@@ -134,5 +135,75 @@ describe("a subscribed connection", () => {
     expect(io.events.filter((frame) => frame.event === "artifact.changed")).toHaveLength(1);
     const changed = io.events.find((frame) => frame.event === "artifact.changed");
     expect((changed?.data as CompanionArtifactChanged).canvasName).toBe("demo");
+  });
+});
+
+describe("a replicated ruling", () => {
+  it("names the artifact it moved, with no edit", async () => {
+    const changes = makeCompanionChanges();
+    const first = await changes.wait(undefined, 0);
+    let heads: ScannedHead[] = [{ ...change("demo").artifact, version: 1 as never, artifactId: ARTIFACT } as unknown as ScannedHead];
+    const scan = async () => heads;
+    // The first look is the baseline: nothing is new yet.
+    noteArtifactCanvasChanged(changes, "demo", scan);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await changes.wait(first.cursor, 0)).artifacts).toEqual([]);
+    heads = [{ ...heads[0]!, version: 2 as never }];
+    noteArtifactCanvasChanged(changes, "demo", scan);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const poll = await changes.wait(first.cursor, 0);
+    expect(poll.artifacts).toHaveLength(1);
+    expect(poll.artifacts?.[0]?.artifact.version).toBe(2);
+    expect(poll.artifacts?.[0]?.edit).toBeUndefined();
+  });
+});
+
+describe("the demo's writes", () => {
+  it("emits artifact.changed for a write made in the demo", async () => {
+    const { makeDemoHost, DEMO_CANVAS } = await import("../src/shared/companion-demo");
+    const { DEMO_ARTIFACT_PRICING_NOTES } = await import("../src/shared/wire/companion-demo-fixture");
+    const host = makeDemoHost({ machineName: "macbook" });
+    const io = harness();
+    let release: (() => void) | undefined;
+    const poll = async (): Promise<CompanionChange> => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return host.waitChange("demo:0", 0);
+    };
+    const running = runCompanionSession({
+      lines: io.lines,
+      write: (line) => {
+        const frame = JSON.parse(line);
+        if (frame.type === "event") io.events.push({ event: frame.event, data: frame.data });
+      },
+      host: { hello: host.hello, call: host.call, waitChange: poll },
+      idleCloseMs: 5_000,
+      waitMs: 0,
+    });
+    const settle = async (times = 6): Promise<void> => {
+      for (let at = 0; at < times; at += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    };
+    io.push(JSON.stringify({ v: COMPANION_PROTOCOL, type: "request", id: "s1", op: "artifacts.subscribe", args: { canvasName: DEMO_CANVAS } }));
+    await settle();
+    const applied = await host.call({
+      v: COMPANION_PROTOCOL,
+      type: "request",
+      id: "w1",
+      op: "artifact.apply",
+      args: {
+        canvasName: DEMO_CANVAS,
+        nodeId: "art-inbox",
+        artifactId: DEMO_ARTIFACT_PRICING_NOTES,
+        opId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D7",
+        op: { op: "retitle", title: "Pricing notes, second look" },
+      },
+    } as CompanionRequestFrame);
+    expect(applied.ok).toBe(true);
+    release?.();
+    await settle(8);
+    io.end();
+    await running;
+    const changed = io.events.filter((frame) => frame.event === "artifact.changed");
+    expect(changed).toHaveLength(1);
+    expect((changed[0]?.data as CompanionArtifactChanged).artifact.title).toBe("Pricing notes, second look");
   });
 });
