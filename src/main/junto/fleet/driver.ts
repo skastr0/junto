@@ -342,11 +342,40 @@ export type CanvasAuthority = {
   readonly step: (message: Message) => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
   /** `junto authority alone`: the operator says the pair's other machine is dead; this one becomes sole voter. */
   readonly alone: () => Effect.Effect<ReadonlyArray<Message>, FleetDriverError>;
+  /** Drop this handle once its work in hand is done: it takes nothing more, and the canvas may be opened again. */
+  readonly close: () => Effect.Effect<void, FleetDriverError>;
 };
+
+/**
+ * The canvases open in this process, per store. Each handle is one core and
+ * one lock over a canvas's tables: a second handle would race the first
+ * unseen, so a canvas opens once until its handle is closed.
+ */
+const opened = new WeakMap<SqlClient.SqlClient, Set<string>>();
 
 /** Open a canvas's group on this machine: load it, apply what was committed and not applied, and settle a lone authority. */
 export const openCanvasAuthority = (
   options: CanvasAuthorityOptions,
+): Effect.Effect<CanvasAuthority, FleetDriverError, SqlClient.SqlClient | RulingRecorder> =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const held = opened.get(sql) ?? new Set<string>();
+    opened.set(sql, held);
+    if (held.has(options.canvasName)) {
+      return yield* Effect.fail(new FleetDriverError({
+        message: `${options.canvasName} is already open here: close its handle before opening it again`,
+        cause: options.canvasName,
+      }));
+    }
+    held.add(options.canvasName);
+    return yield* openClaimed(options, () => held.delete(options.canvasName)).pipe(
+      Effect.onError(() => Effect.sync(() => held.delete(options.canvasName))),
+    );
+  });
+
+const openClaimed = (
+  options: CanvasAuthorityOptions,
+  release: () => void,
 ): Effect.Effect<CanvasAuthority, FleetDriverError, SqlClient.SqlClient | RulingRecorder> =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -391,6 +420,7 @@ export const openCanvasAuthority = (
     const hardState: HardState = { term: consensus.current_term, votedFor: consensus.voted_for, commit: consensus.commit_index };
     const node = new ConsensusNode({ id: self, electionTicks, heartbeatTicks: options.heartbeatTicks ?? 1, hardState, log });
     let broken: FleetDriverError | undefined;
+    let closed = false;
     /**
      * One holder of this canvas's core at a time: mutate, take ready, persist
      * and apply as one step. A ready taken outside it can be stale by the time
@@ -574,5 +604,12 @@ export const openCanvasAuthority = (
       tick: () => drained(() => node.tick()),
       step: (message) => drained(() => node.step(message)),
       alone: () => drained(() => node.alone()),
+      close: () =>
+        exclusive(Effect.sync(() => {
+          if (closed) return;
+          closed = true;
+          broken ??= new FleetDriverError({ message: `the authority of ${canvasName} was closed`, cause: canvasName });
+          release();
+        })),
     } satisfies CanvasAuthority;
   });

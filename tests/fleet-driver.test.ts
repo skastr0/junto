@@ -188,6 +188,12 @@ const judge = <A, E, R>(store: Store, submit: Effect.Effect<A, E, R>) =>
 const open = (store: Store, self: InstallationId = SELF) =>
   store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self, electionTicks: 3 }));
 
+/** Drop a handle, as the host does once it broke, and open the canvas again. */
+const reopen = async (store: Store, previous: CanvasAuthority) => {
+  await store.runtime.runPromise(previous.close());
+  return open(store);
+};
+
 /** What a doubled apply would show: content refs per artifact version, the canvas count, ruling rows, and where the log stands. */
 const held = (store: Store) =>
   store.runtime.runPromise(
@@ -236,13 +242,13 @@ describe("the fleet driver", () => {
     expect((await store.runtime.runPromiseExit(first.propose(rulings[1]!)))._tag).toBe("Failure");
 
     store.failing = false;
-    const second = await open(store);
+    const second = await reopen(store, first);
     const back = await held(store);
     expect(back).toMatchObject({ refs: before.refs + 1, seq: before.seq, rulings: [ARTIFACT_OP] });
     expect(back.applied_index).toBe(back.commit_index);
 
     await store.runtime.runPromise(second.propose(rulings[1]!));
-    await open(store);
+    await reopen(store, second);
     const settled = await held(store);
     // One ref and one count move, however many times the canvas is opened.
     expect(settled).toMatchObject({ refs: before.refs + 1, seq: before.seq + 1, automations: 1, rulings: [ARTIFACT_OP, AUTOMATION_OP] });
@@ -258,8 +264,7 @@ describe("the fleet driver", () => {
     expect((await store.runtime.runPromiseExit(first.propose(placement!)))._tag).toBe("Failure");
     expect(await held(store)).toMatchObject({ seq: before.seq, automations: 0 });
     store.failing = false;
-    await open(store);
-    await open(store);
+    await reopen(store, await reopen(store, first));
     expect(await held(store)).toMatchObject({ seq: before.seq + 1, automations: 1, rulings: [AUTOMATION_OP] });
   });
 });
@@ -641,5 +646,37 @@ describe("the fleet driver, from inside a judged batch", () => {
     // The refusal broke nothing.
     await store.runtime.runPromise(authority.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
     expect(await held(store)).toMatchObject({ rulings: [ARTIFACT_OP] });
+  });
+});
+
+describe("the fleet driver opens a canvas once per process", () => {
+  it("refuses a second handle while one is live, and opens again once it is closed", async () => {
+    const store = await makeStore();
+    const first = await open(store);
+    const twice = await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
+    expect(twice._tag).toBe("Failure");
+    expect(String(twice._tag === "Failure" ? twice.cause : "")).toMatch(/already open here/);
+    // The refused open touched nothing of the live handle.
+    await store.runtime.runPromise(first.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
+
+    // A broken handle still holds the canvas until it is dropped.
+    store.failing = true;
+    const edit = first.judge(editArtifact("01M62AA0000000000000000002", 1, "the plan, longer")) as unknown as Effect.Effect<unknown, unknown, never>;
+    expect((await store.runtime.runPromiseExit(edit))._tag).toBe("Failure");
+    store.failing = false;
+    expect((await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })))._tag).toBe("Failure");
+
+    const second = await reopen(store, first);
+    expect((await store.runtime.runPromiseExit(first.tick()))._tag).toBe("Failure");
+    await store.runtime.runPromise(second.tick());
+    // Closing a dropped handle again releases nothing of the new one.
+    await store.runtime.runPromise(first.close());
+    expect((await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })))._tag).toBe("Failure");
+  });
+
+  it("releases the canvas when its open fails", async () => {
+    const store = await makeStore(SELF, []);
+    expect((await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })))._tag).toBe("Failure");
+    expect(String(await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })).then((exit) => exit._tag === "Failure" ? exit.cause : ""))).toMatch(/no authority list/);
   });
 });
