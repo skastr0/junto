@@ -396,7 +396,15 @@ export const openCanvasAuthority = (
      * process-wide FULL lock nests inside, never the other way.
      */
     const canvasLock = Semaphore.makeUnsafe(1);
-    const exclusive = canvasLock.withPermits(1);
+    // Inside a judged batch every entry point would wait on a lock its judge holds: its canvas's, or the FULL lock.
+    const exclusive = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | FleetDriverError, R> =>
+      Effect.flatMap(Judging, (outer): Effect.Effect<A, E | FleetDriverError, R> =>
+        outer === undefined
+          ? canvasLock.withPermits(1)(effect)
+          : Effect.fail(new FleetDriverError({
+            message: `a batch for ${outer} reached the authority of ${canvasName}: a batch is judged by one canvas, and drives no authority itself`,
+            cause: { outer, canvasName },
+          })));
 
     /** The core refused before changing anything: not leader, a list pending, and the like; the caller sends again. */
     const refusal = (cause: unknown) =>
@@ -460,12 +468,6 @@ export const openCanvasAuthority = (
     });
 
     const judge = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
-      Effect.flatMap(Judging, (outer) => outer === undefined ? judgeAlone(batch) : Effect.fail(new FleetDriverError({
-        message: `a batch for ${outer} reached the authority of ${canvasName}: a batch is judged by one canvas, and judges nothing itself`,
-        cause: { outer, canvasName },
-      })));
-
-    const judgeAlone = <A, E, R>(batch: Effect.Effect<A, E, R>): Effect.Effect<Judgment<A>, E | FleetDriverError, R> =>
       exclusive(Effect.suspend(() => {
         if (broken !== undefined) return Effect.fail(broken);
         const status = node.status();

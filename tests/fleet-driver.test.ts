@@ -592,7 +592,7 @@ describe("the fleet driver judges one canvas's batch", () => {
       (factory.judge(nested) as unknown as Effect.Effect<unknown, unknown, never>).pipe(Effect.timeout("2 seconds")),
     );
     expect(exit._tag).toBe("Failure");
-    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/judges nothing itself/);
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/drives no authority itself/);
     expect(await held(store)).toMatchObject({ rulings: [] });
     // Each judges on its own afterwards.
     await store.runtime.runPromise(home.judge(Effect.void));
@@ -609,5 +609,26 @@ describe("the fleet driver logs only the rulings that stand", () => {
     const judged = await store.runtime.runPromise(authority.judge(undone) as unknown as Effect.Effect<{ entries: ReadonlyArray<unknown> }, unknown, never>);
     expect(judged.entries).toEqual([]);
     expect(await held(store)).toMatchObject({ rulings: [] });
+  });
+});
+
+describe("the fleet driver, from inside a judged batch", () => {
+  it.each([
+    ["propose", (authority: CanvasAuthority) => authority.propose({ kind: "structure.changed", seq: 1 })],
+    ["tick", (authority: CanvasAuthority) => authority.tick()],
+    ["step", (authority: CanvasAuthority) => authority.step({ type: "append-reply", from: MACBOOK, to: SELF, term: 1, success: false, index: 0 } as Message)],
+    ["alone", (authority: CanvasAuthority) => authority.alone()],
+  ] as const)("refuses %s rather than wait on the lock its judge holds", async (_name, reach) => {
+    const store = await makeStore();
+    const authority = await open(store);
+    const exit = await store.runtime.runPromiseExit(
+      (authority.judge(Effect.andThen(createArtifact, reach(authority) as Effect.Effect<unknown, unknown, never>)) as unknown as Effect.Effect<unknown, unknown, never>).pipe(Effect.timeout("2 seconds")),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/drives no authority itself/);
+    expect(await held(store)).toMatchObject({ rulings: [] });
+    // The refusal broke nothing.
+    await store.runtime.runPromise(authority.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
+    expect(await held(store)).toMatchObject({ rulings: [ARTIFACT_OP] });
   });
 });
