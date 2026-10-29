@@ -284,6 +284,11 @@
   gap: 6px;
 }
 
+/* What When answered does beyond its name, on its own line under the control. */
+.automation-editor__answered > .automation-editor__note {
+  flex: 1 1 100%;
+}
+
 /* ── A code step (plan 0.11/05, Code steps) ───────────────────────────────── */
 
 .automation-code {

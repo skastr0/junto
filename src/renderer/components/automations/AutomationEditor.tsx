@@ -1269,9 +1269,10 @@ function WhenAnswered({ linked, onOpen, onWhenAnswered }: WhenAnsweredLinks) {
             <Plus size={12} aria-hidden />
             {linked.length === 0 ? "When answered…" : "Another when answered…"}
           </Button>
-          <span id={hintId} className="sr-only">
-            Saves this automation, then opens a new one that runs when this signal is answered.
-          </span>
+          {/* Said to everyone, clean or not: the press saves, and a minted step id is a new version too. */}
+          <p id={hintId} className="automation-editor__note">
+            Saves this automation before opening the new one.
+          </p>
         </>
       )}
     </div>
