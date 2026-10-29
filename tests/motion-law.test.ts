@@ -129,8 +129,10 @@ describe("motion law: rings move on the compositor", () => {
     expect(source).toMatch(/\{attached \? null : \(\s*<ActivityMark/);
   });
 
-  it("the motion law names its three exceptions", () => {
+  it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
+    expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);
+    expect(law).toMatch(/off\s+screen\s+or\s+clipped\s+to\s+nothing/);
     expect(law).toMatch(/hidden\s+window/);
     expect(law).toMatch(/reduced\s+motion/);
     expect(law).toMatch(/wholly\s+under\s+an\s+opaque\s+surface/);

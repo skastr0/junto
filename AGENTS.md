@@ -296,12 +296,16 @@ everywhere. No agent slows, steps, throttles, stills or swaps a moving
 animation for a static one to save frames, GPU or power, whatever a profile
 seems to show. Find the architectural cost instead. Only the operator
 changes motion, and says so in the commit. `tests/motion-law.test.ts` is
-the lock: weakening, skipping or deleting it is a defect. There are three
-exceptions and no others: pausing in a hidden window, honouring reduced
-motion, and stopping a ring wholly under an opaque surface, which no one can
-see (`src/renderer/lib/mark-occlusion.ts`, operator signal
-01M630R3Y59C42SSY754K3ADZZ). A ring partly covered, or over the surface,
-keeps turning every frame, and a ring shown again rejoins the shared clock.
+the lock: weakening, skipping or deleting it is a defect. The law guards
+motion the operator can see; motion no one can see may stop (operator
+signal 01M63W6RQY1YT2Q65MCM0N3YQ8: never force motion nobody can see at
+the cost of performance or bugs). That covers a hidden window, reduced
+motion, a ring wholly under an opaque surface
+(`src/renderer/lib/mark-occlusion.ts`, operator signal
+01M630R3Y59C42SSY754K3ADZZ), and a ring off screen or clipped to nothing.
+A ring coming onto the screen may show its rest pose for one frame. A ring
+partly covered, or partly on screen, keeps turning every frame, and a ring
+shown again rejoins the shared clock.
 
 ## Automations
 
