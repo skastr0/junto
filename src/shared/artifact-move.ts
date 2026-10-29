@@ -14,6 +14,14 @@ import type { NodeId } from "./physics/schema";
 import type { ResourceActor } from "./resource-command";
 import type { ItemId, OpId } from "./work-ids";
 
+/** One move in an artifact's history, as the window reads it: oldest first. */
+export type ArtifactMoveRecord = {
+  readonly from: NodeId;
+  readonly to: NodeId;
+  readonly by: ResourceActor;
+  readonly at: number;
+};
+
 /** Most artifacts one call may name. */
 export const ARTIFACT_MOVE_MAX = 100;
 

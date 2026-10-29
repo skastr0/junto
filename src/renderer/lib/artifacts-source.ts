@@ -161,6 +161,8 @@ export const makeLocalArtifactsSource = (
     list: async (canvasName, nodeId) =>
       artifactsOnNode(ruledOf(canvasName).state, nodeId).map(({ artifact, body, bodyRef }) => ({ artifact, body, bodyRef })),
     history: async (_canvasName, artifactId) => (versions.get(artifactId) ?? []).slice(0, ARTIFACT_HISTORY_PAGE),
+    // Nothing in memory has moved yet: a move here is ruled, but its history is main's (artifact_moves).
+    moves: async () => [],
     body: async (_canvasName, artifactId, version) =>
       versions.get(artifactId)?.find((record) => record.version === version)?.body ?? null,
     apply: async (canvasName, nodeId, itemId, opId, op) => {

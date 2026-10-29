@@ -680,6 +680,7 @@ const artifactResourceApi: ResourceIpcApi["artifact"] = {
   list: (canvasName, nodeId) => invoke(RESOURCE_IPC_CHANNELS.artifact.list, IPC_TIMEOUT_MS, { canvasName, nodeId }),
   history: (canvasName, artifactId) =>
     invoke(RESOURCE_IPC_CHANNELS.artifact.history, IPC_TIMEOUT_MS, { canvasName, artifactId }),
+  moves: (canvasName, artifactId) => invoke(RESOURCE_IPC_CHANNELS.artifact.moves, IPC_TIMEOUT_MS, { canvasName, artifactId }),
   body: (canvasName, artifactId, version) =>
     invoke(RESOURCE_IPC_CHANNELS.artifact.body, IPC_TIMEOUT_MS, { canvasName, artifactId, version }),
   apply: (canvasName, nodeId, artifactId, opId, op) =>

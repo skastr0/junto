@@ -28,6 +28,7 @@ import {
   ArtifactApplyInput,
   ArtifactBodyInput,
   ArtifactHistoryInput,
+  ArtifactMovesInput,
   ArtifactListInput,
   ArtifactPendingInput,
   ArtifactColourInput,
@@ -226,6 +227,10 @@ export const listArtifacts = (ports: ResourceIpcPorts, canvasName: string, nodeI
   });
 
 /** The last page of versions, newest first, each with its body; a version whose body the store lacks is left out. */
+/** Every move of an artifact, oldest first; none from a store that keeps no moves. */
+export const artifactMoves = (ports: ResourceIpcPorts, canvasName: string, artifactId: ItemId) =>
+  ports.artifacts.moves === undefined ? Effect.succeed([]) : ports.artifacts.moves(canvasName, artifactId);
+
 export const artifactHistory = (ports: ResourceIpcPorts, canvasName: string, artifactId: ItemId) =>
   Effect.gen(function* () {
     const { versions } = yield* ports.artifacts.history(canvasName, artifactId, { limit: ARTIFACT_HISTORY_PAGE });
@@ -631,6 +636,7 @@ export const registerResourceIpc = (
   if (live.artifact) {
     on(artifact.list, ArtifactListInput, (input) => listArtifacts(ports, input.canvasName, input.nodeId));
     on(artifact.history, ArtifactHistoryInput, (input) => artifactHistory(ports, input.canvasName, input.artifactId));
+    on(artifact.moves, ArtifactMovesInput, (input) => artifactMoves(ports, input.canvasName, input.artifactId));
     on(artifact.body, ArtifactBodyInput, (input) => artifactBody(ports, input.canvasName, input.artifactId, input.version));
     on(artifact.apply, ArtifactApplyInput, (input) =>
       applyArtifact(ports, input.canvasName, input.nodeId, input.artifactId, input.opId, input.op), authoring.artifact);

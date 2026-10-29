@@ -19,6 +19,7 @@ import type { ActorSeatId } from "./actor-seat";
 import { ArtifactOp, ArtifactVersion, type ArtifactBody, type ArtifactVersionRecord } from "./artifact";
 import { MailMessageId } from "./crew";
 import type { ArtifactEntry, ArtifactFact } from "./artifact-domain";
+import type { ArtifactMoveRecord } from "./artifact-move";
 import { ArtifactLabelColour, type ArtifactLabelColours } from "./artifact-labels";
 import type { OpOverlay } from "./op-control";
 import { NodeId } from "./physics/schema";
@@ -164,6 +165,7 @@ export const taskCanvasFactsOf = (
 export const ArtifactListInput = TaskListInput;
 export const ArtifactPendingInput = TaskListInput;
 export const ArtifactHistoryInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId }).annotate(strict);
+export const ArtifactMovesInput = Schema.Struct({ canvasName: CanvasNameInput, artifactId: ItemId }).annotate(strict);
 /** One version's body, for an entry whose body is not loaded. */
 export const ArtifactBodyInput = Schema.Struct({
   canvasName: CanvasNameInput,
@@ -297,6 +299,8 @@ export type ArtifactResourceApi = {
   readonly list: (canvasName: string, nodeId: NodeId) => Promise<ReadonlyArray<ArtifactHead>>;
   /** The last `ARTIFACT_HISTORY_PAGE` versions, newest first, each with its body. */
   readonly history: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactVersionRecord>>;
+  /** Every move of the artifact, oldest first (0.11.1, 10); none for one that never moved. */
+  readonly moves: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactMoveRecord>>;
   /** One version's body; null when the store does not hold it. */
   readonly body: (canvasName: string, artifactId: ItemId, version: ArtifactVersion) => Promise<ArtifactBody | null>;
   /** Rule one op; on create the caller mints `artifactId`. */

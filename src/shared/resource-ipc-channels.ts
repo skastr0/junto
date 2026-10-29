@@ -15,6 +15,7 @@ export const RESOURCE_IPC_CHANNELS = {
   artifact: {
     list: "junto:resource-artifact-list",
     history: "junto:resource-artifact-history",
+    moves: "junto:resource-artifact-moves",
     body: "junto:resource-artifact-body",
     apply: "junto:resource-artifact-apply",
     pending: "junto:resource-artifact-pending",
