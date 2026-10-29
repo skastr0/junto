@@ -7,9 +7,9 @@ import { ALL_FEATURES, SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "../src/shared/features";
 
 describe("code steps and the automation signal action (0.11 gates)", () => {
-  it("ship off until their real-app walks pass, and all-on carries them", () => {
+  it("code steps ship off until their walk passes, signals ship on, and all-on carries them", () => {
     expect(SHIP_FEATURES.codeSteps).toBe(false);
-    expect(SHIP_FEATURES.automationSignals).toBe(false);
+    expect(SHIP_FEATURES.automationSignals).toBe(true);
     expect(ALL_FEATURES.codeSteps).toBe(true);
     expect(ALL_FEATURES.automationSignals).toBe(true);
     expect(actionKindInBuild("code")).toBe(CODE_STEPS_ENABLED);
