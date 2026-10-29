@@ -2,8 +2,9 @@
  * Real app, release checklist F2, the Files modal: the tree lists the root,
  * a row opens its file, F2 renames a file by keyboard (on disk, the open file
  * following), and the watch picks up a file made and a file deleted outside
- * Junto. Create and trash are probed in the row's context menu and reported
- * as found or not. Dark and bright; each check is reported on its own.
+ * Junto; create, move and trash by pointer, from the row's context menu and
+ * the header buttons (product-shell's files-actions.spec.ts walks the keyboard).
+ * The system Trash is stood in for, as files-actions does. Dark and bright; each check is reported on its own.
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/files-modal-verify.spec.ts
  */
 import { existsSync, mkdirSync } from "node:fs";
@@ -29,7 +30,7 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 
 type Result = { row: string; pass: boolean; detail?: string };
 
-test("files modal: tree, open, rename by keyboard, the watch sees outside changes; create and trash probed", async () => {
+test("files modal: tree, open, rename by keyboard, the watch sees outside changes; create, move and trash by pointer", async () => {
   test.setTimeout(240_000);
   const stage = await stageFiles();
   const root = stage.fixture.root;
@@ -80,15 +81,61 @@ test("files modal: tree, open, rename by keyboard, the watch sees outside change
     await rm(join(root, "outside-made.txt"));
     await check("the watch drops a file deleted outside Junto", () => expect(treeRow(modal, "outside-made.txt")).toHaveCount(0, { timeout: 15_000 }));
 
-    // Create and trash: whatever the row's context menu offers.
+    // Create, move and trash, by pointer: the row's context menu and the header buttons.
+    const trashed = join(stage.parent, "trash-stand-in");
+    await junto.app.evaluate(({ shell }, into) => {
+      const fs = process.getBuiltinModule("node:fs");
+      const path = process.getBuiltinModule("node:path");
+      shell.trashItem = async (absolute: string) => {
+        fs.mkdirSync(into, { recursive: true });
+        fs.renameSync(absolute, path.join(into, path.basename(absolute)));
+      };
+    }, trashed);
     await treeRow(modal, "GUIDE.md").click({ button: "right" });
-    await page.waitForTimeout(500);
-    const menu = (await page.getByRole("menuitem").allTextContents()).map((t) => t.trim()).filter(Boolean);
-    const buttons = (await modal.getByRole("button").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") ?? el.textContent ?? ""))).map((t) => t.trim());
-    console.log("F2MENU", JSON.stringify({ menu, buttons }));
+    const menu = page.getByRole("menu", { name: "Actions for GUIDE.md" });
+    await check("right-click opens the row menu: New file, New folder, Rename, Move to, Move to Trash", async () => {
+      await expect(menu).toBeVisible({ timeout: 5_000 });
+      await expect(menu.getByRole("menuitem")).toHaveText(["New file", "New folder", "Rename", "Move to", "Move to Trash"]);
+    });
     await shoot(page, "4-row-menu");
-    await check("create is offered in the modal", () => expect([...menu, ...buttons].some((t) => /new file|new folder|create/iu.test(t)), JSON.stringify({ menu, buttons })).toBe(true));
-    await check("trash is offered in the modal", () => expect([...menu, ...buttons].some((t) => /trash|delete/iu.test(t)), JSON.stringify({ menu, buttons })).toBe(true));
+    await check("New folder from the row menu makes the folder on disk", async () => {
+      await menu.getByRole("menuitem", { name: "New folder", exact: true }).click();
+      await page.getByRole("textbox", { name: "Name of the new folder" }).fill("drafts");
+      await page.keyboard.press("Enter");
+      await expect.poll(() => existsSync(join(root, "drafts")), { timeout: 10_000 }).toBe(true);
+      await expect(treeRow(modal, "drafts")).toBeVisible({ timeout: 10_000 });
+    });
+    await check("New file from the sidebar header makes the file on disk and lists it", async () => {
+      await modal.getByRole("button", { name: "New file", exact: true }).first().click();
+      await page.getByRole("textbox", { name: "Name of the new file" }).fill("notes-new.md");
+      await page.keyboard.press("Enter");
+      await expect.poll(() => existsSync(join(root, "notes-new.md")), { timeout: 10_000 }).toBe(true);
+      await expect(treeRow(modal, "notes-new.md")).toBeVisible({ timeout: 10_000 });
+    });
+    await shoot(page, "5-created");
+    await check("Move to from the open file's header moves it into drafts", async () => {
+      await openInTree(modal, "GUIDE.md");
+      await modal.getByRole("button", { name: "Move to", exact: true }).first().click();
+      const folder = page.getByRole("combobox", { name: "Folder to move GUIDE.md into" });
+      await folder.fill("drafts");
+      await page.getByRole("option", { name: "drafts" }).first().click({ timeout: 10_000 });
+      const confirm = page.getByRole("dialog", { name: "Move GUIDE.md" }).getByRole("button", { name: /^Move/u });
+      if ((await confirm.count()) > 0 && (await page.getByRole("dialog", { name: "Move GUIDE.md" }).count()) > 0) await confirm.first().click();
+      await expect.poll(() => existsSync(join(root, "drafts", "GUIDE.md")), { timeout: 10_000 }).toBe(true);
+      expect(existsSync(join(root, "GUIDE.md"))).toBe(false);
+    });
+    await check("Move to Trash from the open file's header asks, names it, and trashes it", async () => {
+      await openInTree(modal, "notes-new.md");
+      await modal.getByRole("button", { name: "Move to Trash", exact: true }).first().click();
+      const ask = page.getByRole("alertdialog", { name: "Move notes-new.md to the Trash?" });
+      await expect(ask).toBeVisible({ timeout: 5_000 });
+      await shoot(page, "6-trash-ask");
+      await ask.getByRole("button", { name: "Move to Trash" }).click();
+      await expect.poll(() => existsSync(join(trashed, "notes-new.md")), { timeout: 10_000 }).toBe(true);
+      expect(existsSync(join(root, "notes-new.md"))).toBe(false);
+      await expect(treeRow(modal, "notes-new.md")).toHaveCount(0, { timeout: 10_000 });
+    });
+    await shoot(page, "7-trashed");
   } finally {
     console.log("F2", JSON.stringify(results));
     await junto.close();
