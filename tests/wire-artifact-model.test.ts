@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 import * as actorSeat from "../src/shared/actor-seat";
+import { Schema } from "effect";
+import * as artifact from "../src/shared/artifact";
 import * as labels from "../src/shared/artifact-labels";
 import * as mention from "../src/shared/mention";
 import * as modelSheet from "../src/shared/model/sheet";
@@ -19,6 +21,7 @@ import * as canvasName from "../src/shared/canvas-name";
 import * as nodeRef from "../src/shared/node-ref";
 import * as ulid from "../src/shared/ulid";
 import * as workIds from "../src/shared/work-ids";
+import * as wireArtifact from "../src/shared/wire/artifact";
 import * as wireIds from "../src/shared/wire/ids";
 import * as wireLabels from "../src/shared/wire/artifact-labels";
 import * as wireCanvasName from "../src/shared/wire/canvas-name";
@@ -73,5 +76,16 @@ describe("the artifact model on the wire is the desktop's own", () => {
     same(pad, wirePad, Object.keys(wirePad));
     expect(Object.keys(pad).sort()).toEqual(Object.keys(wirePad).sort());
     same(padProject, wirePad, ["padToDigest"]);
+  });
+
+  it("artifacts: the schemas the phone decodes with and the rule it rules with are the desktop's", () => {
+    // The companion decodes with these three; one schema object, so one decode.
+    for (const name of ["Artifact", "ArtifactOp", "ArtifactEdit"] as const) {
+      expect(artifact[name], name).toBe(wireArtifact[name]);
+      expect(Schema.isSchema(wireArtifact[name]), name).toBe(true);
+    }
+    same(artifact, wireArtifact, ["ruleArtifactEdit", "patchKeys", "admitsAnchor", "ANCHOR_KINDS", "emptyBody", "artifactText"]);
+    same(artifact, wireArtifact, Object.keys(wireArtifact));
+    expect(Object.keys(artifact).sort()).toEqual(Object.keys(wireArtifact).sort());
   });
 });
