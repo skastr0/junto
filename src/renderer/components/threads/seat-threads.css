@@ -125,7 +125,11 @@
   font-family: var(--font-mono);
   font-size: var(--text-label);
   font-weight: 600;
-  line-height: 15px;
+  /* Centred in its 15px box by flex, so the line height stays a token. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: var(--leading-compact);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
