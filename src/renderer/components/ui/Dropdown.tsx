@@ -363,7 +363,7 @@ export function Dropdown({
         className={[
           "inline-flex h-full min-w-0 items-center gap-1.5 text-left text-ink outline-none",
           FOCUS_RING_INSET,
-          "disabled:cursor-wait disabled:opacity-60",
+          "disabled:cursor-not-allowed disabled:opacity-60",
           triggerClassName ?? "",
         ]
           .filter(Boolean)
