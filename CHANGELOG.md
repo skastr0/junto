@@ -39,6 +39,11 @@ task and artifact is kept as it was.
   then ran its animation on the main thread and laid the whole board out again
   on every frame; on a 180-seat board with 40 seats streaming that was 53
   full layouts a second, and it is now under 2. Nothing you can see changes.
+- A ring or a flow track that sits just off screen no longer costs the board
+  a full layout on every frame. Rings and flow tracks now start moving when
+  they come on screen, not 48 pixels before, so one entering the screen can
+  show its resting pose for a single frame. A ring partly on screen turns
+  every frame as before.
 - The pulse that travels a wire when a message is delivered runs on the
   compositor with transform alone, as the other canvas motion does, instead
   of repainting the wire every frame. It looks the same.
