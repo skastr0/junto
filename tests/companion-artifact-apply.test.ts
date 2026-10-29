@@ -6,7 +6,7 @@
  * 5). The demo stands in for the Mac: same rulings, no machine.
  */
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { makeDemoBackend, demoRequest } from "../src/shared/companion-demo";
 import {
   handleCompanionRequest,
@@ -15,14 +15,15 @@ import {
   outcomeOk,
   type CompanionBackend,
 } from "../src/shared/companion-core";
-import { decodeCompanionRequestLine, type CompanionRequestFrame } from "../src/shared/companion-protocol";
+import { decodeCompanionRequestLine, type CompanionOpName, type CompanionRequestFrame } from "../src/shared/companion-protocol";
+import type { ItemId, NodeId } from "../src/shared/wire/ids";
 import { COMPANION_ARTIFACT_WRITE_LIMIT } from "../src/shared/wire/companion-artifact-writes";
 import { CompanionResults } from "../src/shared/wire/companion-protocol";
 import { DEMO_ARTIFACTS, DEMO_CANVAS } from "../src/shared/wire/companion-demo-fixture";
 
-const frame = (op: string, args: object, id = "a1"): CompanionRequestFrame => {
+const frame = (op: CompanionOpName, args: object, id = "a1"): CompanionRequestFrame => {
   const decoded = decodeCompanionRequestLine(demoRequest(id, op, args));
-  if (!decoded.success) throw new Error(`the test's own frame did not decode: ${op}`);
+  if (!Result.isSuccess(decoded)) throw new Error(`the test's own frame did not decode: ${op}`);
   return decoded.success;
 };
 
@@ -62,7 +63,7 @@ describe("artifact.apply through the demo", () => {
     const moved = await apply({ ...target, opId: opId(), op: { op: "move", to: "art-launch" } });
     expect(moved).toMatchObject({ ok: true, result: { disposition: "applied", artifact: { nodeId: "art-launch" } } });
     // A move moves the target: the next op names where it now is.
-    target.nodeId = "art-launch";
+    target.nodeId = "art-launch" as NodeId;
 
     const docVersion = doc.head.version;
     const edited = await apply({
@@ -79,7 +80,8 @@ describe("artifact.apply through the demo", () => {
 
     const coloured = await apply({ canvasName: DEMO_CANVAS, nodeId: "art-launch", opId: opId(), op: { op: "labelColour", label: "launch", colour: "pink" } });
     expect(coloured).toMatchObject({ ok: true, result: { disposition: "applied" } });
-    expect((coloured.result as { artifact?: unknown }).artifact).toBeUndefined();
+    if (!coloured.ok) expect.unreachable();
+    expect("artifact" in coloured.result).toBe(false);
 
     const created = await apply({
       canvasName: DEMO_CANVAS,
@@ -90,7 +92,7 @@ describe("artifact.apply through the demo", () => {
     });
     expect(created).toMatchObject({ ok: true, result: { disposition: "applied", artifact: { artifactId: "01J9DEM0ART000000000000099", version: 1, labels: ["launch"] }, version: 1 } });
     // The reads see the write: the same world the phone lists and gets.
-    const got = await backend.artifactGet({ canvasName: DEMO_CANVAS, artifactId: "01J9DEM0ART000000000000099" });
+    const got = await backend.artifactGet({ canvasName: DEMO_CANVAS, artifactId: "01J9DEM0ART000000000000099" as ItemId });
     expect(got.ok && got.value.artifact.title).toBe("Phone note");
   });
 
