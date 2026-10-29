@@ -1,0 +1,54 @@
+/*
+ * A briefing written as a document: a sheet with a reading measure, the
+ * live markdown field inside it. The sheet scrolls; the words keep a
+ * comfortable line length whatever the width of the page around it.
+ */
+.briefing-document {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+  transition: border-color 0.18s ease;
+}
+
+.briefing-document[data-size="page"] {
+  height: 62vh;
+  min-height: 320px;
+}
+
+.briefing-document[data-size="panel"] {
+  min-height: 280px;
+  max-height: 56vh;
+}
+
+.briefing-document:focus-within {
+  border-color: var(--color-stroke-hi);
+}
+
+.briefing-document[data-readonly="true"] {
+  background: var(--color-inset);
+}
+
+.briefing-document__field {
+  flex: 1;
+}
+
+/* The ring sits on the sheet's edge, not inside the words. */
+.briefing-document .briefing-document__field:focus-visible,
+.briefing-document .briefing-document__field:has(.cm-content:focus-visible) {
+  outline-offset: -1px;
+  border-radius: var(--radius-lg);
+}
+
+.briefing-document .live-markdown .cm-content {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 24px 28px 20vh;
+}
+
+.briefing-document[data-size="panel"] .live-markdown .cm-content {
+  padding: 16px 18px 48px;
+}
