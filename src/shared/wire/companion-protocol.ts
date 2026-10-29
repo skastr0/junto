@@ -208,6 +208,11 @@ export const CompanionSeat = Schema.Struct({
   level: Schema.optionalKey(UrgencyLevel),
   /** When the seat took that level, ms on the Mac's clock: the palette's tie rule within a group. */
   levelSince: Schema.optionalKey(Schema.Number),
+  /**
+   * What the operator has not read in the seat's threads, the desktop badge's
+   * number. Absent when the Mac could not read it, and from an older Mac.
+   */
+  unread: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type CompanionSeat = typeof CompanionSeat.Type;
 

@@ -26,7 +26,8 @@ import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import { markRead, unreadTotal } from "../src/main/junto/work/mail-reads";
+import { markRead, onReadChanged, unreadTotal, unreadTotals } from "../src/main/junto/work/mail-reads";
+import { makeSeatUnread } from "../src/main/junto/companion/seat-unread";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "unread-total";
@@ -145,5 +146,44 @@ describe("the operator's unread total for a seat", () => {
     // The peer's own mailbox holds the mail it sent, which the operator wrote none of.
     expect(await total("peer")).toBeGreaterThanOrEqual(0);
     expect(await total("agent")).toBe(1);
+  });
+});
+
+describe("the phone's seat unread", () => {
+  it("moves for both seats of a shared thread when the desktop reads it, read once per change however many phones ask", async () => {
+    let reads = 0;
+    const seats = makeSeatUnread((canvasName, nodeIds) => {
+      reads += 1;
+      return runtime.runPromise(unreadTotals(canvasName, nodeIds));
+    });
+    // As the companion wiring does: a moved read point forgets the canvas.
+    const off = onReadChanged(({ canvasName }) => seats.forget(canvasName));
+    try {
+      const opened = await call("peer", "msg.send", { target: "agent", text: "a thread between the two" });
+      const threadId = opened.data.messageId as string;
+      seats.forget(CANVAS); // new mail, as the work change does
+      const phones = await Promise.all([seats.totals(CANVAS, ["agent", "peer"]), seats.totals(CANVAS, ["agent", "peer"])]);
+      expect(reads).toBe(1);
+      expect(phones[0]).toBe(phones[1]);
+      expect(Object.fromEntries(phones[0])).toEqual({ agent: 1, peer: 1 });
+      expect(await total("agent")).toBe(1);
+
+      // The desktop reads it under one seat (its IPC calls this markRead); the point is the thread's.
+      expect(await runtime.runPromise(markRead(CANVAS, "agent", threadId))).toBeDefined();
+      expect(Object.fromEntries(await seats.totals(CANVAS, ["agent", "peer"]))).toEqual({ agent: 0, peer: 0 });
+      expect(reads).toBe(2);
+      // A mark that moves nothing tells no one, so the count is not read again.
+      await runtime.runPromise(markRead(CANVAS, "peer", threadId));
+      await seats.totals(CANVAS, ["agent"]);
+      expect(reads).toBe(2);
+    } finally {
+      off();
+    }
+  });
+
+  it("leaves a seat's count out when the counts cannot be read, and reads again next time", async () => {
+    const seats = makeSeatUnread((canvasName, nodeIds) => runtime.runPromise(unreadTotals(canvasName, nodeIds)));
+    expect((await seats.totals("nowhere", ["agent"])).has("agent")).toBe(false);
+    expect(await runtime.runPromise(unreadTotals("nowhere", ["agent"]))).toBeUndefined();
   });
 });

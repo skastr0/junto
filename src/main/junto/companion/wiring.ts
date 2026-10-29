@@ -17,7 +17,7 @@ import { onMachinesChanged } from "../hosts/machine-changes";
 import { onRemoteSeatState } from "../term/remote-seat-state";
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { messageDelivery } from "../work/message-delivery";
-import { noteMailFailure } from "./backend";
+import { forgetSeatUnread, noteMailFailure } from "./backend";
 import { noteArtifactChanged } from "./artifact-changes";
 import type { CompanionChanges } from "./changes";
 import { onDesktopReport } from "./desktop-report";
@@ -33,7 +33,10 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
   const offs = [
     model.subscribeChanges(() => changes.bump()),
     model.subscribeCanvasesChanges(() => changes.bump()),
-    work.subscribeChanges(() => changes.bump()),
+    work.subscribeChanges((canvasName, _nodeId, kind) => {
+      if (kind === "mail") forgetSeatUnread(canvasName);
+      changes.bump();
+    }),
     pause.subscribe(() => changes.bump()),
     seatStateRuntime.subscribe(() => changes.bump()),
     onRemoteSeatState(() => changes.bump()),
@@ -49,7 +52,10 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     onResourceChanged((domain, canvasName, change) => {
       if (domain === "artifact") noteArtifactChanged(changes, canvasName, change);
     }),
-    onReadChanged(() => changes.bump()),
+    onReadChanged(({ canvasName }) => {
+      forgetSeatUnread(canvasName);
+      changes.bump();
+    }),
   ];
   return () => {
     for (const off of offs) off();

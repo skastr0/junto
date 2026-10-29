@@ -23,6 +23,8 @@ export { companionSeatRing, type CompanionSeatRingInput } from "./wire/seat-ring
 export type CompanionSeatInput = CompanionSeatRingInput & {
   readonly seat: FeedSeat;
   readonly region: FeedRegion;
+  /** What the operator has not read in the seat's threads (`unreadTotals`); absent when it could not be read. */
+  readonly unread?: number;
 };
 
 const SIGNAL_STATE: Readonly<Record<AgentSignalKind, readonly [CompanionSeatState, string]>> = {
@@ -67,6 +69,7 @@ export const companionSeat = (input: CompanionSeatInput): CompanionSeat => {
     line,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.health ? { health: input.health } : {}),
+    ...(input.unread === undefined ? {} : { unread: input.unread }),
     ...(input.control ? { lastActivityAt: input.control.at } : {}),
     ...(input.ring ? { ring: companionSeatRing(input), ...(since === undefined ? {} : { stateStartedAt: since }) } : {}),
     ...(level ? { level: level.level, levelSince: level.since } : {}),

@@ -83,19 +83,32 @@ export const readPoints = (canvasName: string, nodeId: string, threadIds?: Reado
  * one rather than claim nothing is unread.
  */
 export const unreadTotal = (canvasName: string, nodeId: string) =>
+  Effect.map(unreadTotals(canvasName, [nodeId]), (totals) => totals?.get(nodeId));
+
+/**
+ * `unreadTotal` for several seats of a canvas at once: the threads and the
+ * points are read once, however many seats count. Undefined when the counts
+ * cannot be read.
+ */
+export const unreadTotals = (canvasName: string, nodeIds: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const threads = seatMailThreadEntries(yield* seatThreadsInput(canvasName), nodeId);
-    // A seat with no threads has nothing unread, and needs no points read.
-    if (threads.size === 0) return 0;
-    const points = yield* canvasPoints(sql, canvasName);
-    let total = 0;
-    for (const [threadId, entries] of threads) total += unreadPast(entries, points.get(threadId));
-    return total;
+    const input = yield* seatThreadsInput(canvasName);
+    const totals = new Map<string, number>();
+    let points: ReadonlyMap<string, MailReadPoint> | undefined;
+    for (const nodeId of nodeIds) {
+      const threads = seatMailThreadEntries(input, nodeId);
+      // A seat with no threads has nothing unread, and needs no points read.
+      if (threads.size > 0) points ??= yield* canvasPoints(sql, canvasName);
+      let total = 0;
+      for (const [threadId, entries] of threads) total += unreadPast(entries, points?.get(threadId));
+      totals.set(nodeId, total);
+    }
+    return totals as ReadonlyMap<string, number> | undefined;
   }).pipe(
     Effect.catch((error) =>
       Effect.sync(() => {
-        console.error(`[mail-reads] ${canvasName}/${nodeId} unread total could not be read:`, error);
+        console.error(`[mail-reads] ${canvasName} unread totals could not be read:`, error);
         return undefined;
       }),
     ),

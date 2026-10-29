@@ -63,6 +63,8 @@ import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, THREAD_HEALTH_TTL_MS, type Thr
 import { mailboxRows, recentOpAtMs, recentOpLabel } from "@renderer/lib/actor-ledger";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { AppRuntime } from "../../runtime";
+import { unreadTotals } from "../work/mail-reads";
+import { makeSeatUnread } from "./seat-unread";
 import { ContentService } from "../content/service";
 import { readContentObjectRange } from "../content/store";
 import { companionMachineBackend } from "./machines";
@@ -226,7 +228,20 @@ const processOf = (binding: string | undefined): "running" | "starting" | "stopp
   return "stopped";
 };
 
-const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyArray<CompanionSeat> => {
+/** Each seat's unread total, the desktop badge's count, read once per canvas and change for every phone. */
+const seatUnread = makeSeatUnread((canvasName, nodeIds) => AppRuntime.runPromise(unreadTotals(canvasName, nodeIds)));
+/** New mail or a moved read point on the canvas: its seats' unread totals are read again. */
+export const forgetSeatUnread = seatUnread.forget;
+
+const agentSeatIds = (view: CanvasView): ReadonlyArray<string> =>
+  [...view.canvas.nodes.values()].filter(isAgentSeat).map((node) => node.id as string);
+
+const seatsFor = (
+  canvasName: string,
+  view: CanvasView,
+  now: number,
+  unread: ReadonlyMap<string, number> = new Map(),
+): ReadonlyArray<CompanionSeat> => {
   const controls = controlByBinding();
   const blocked = new Set(getExecutionByCanvas().get(canvasName)?.blocked ?? []);
   const health = healthByBinding();
@@ -248,6 +263,7 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
       ...(desktopDoneUnread(canvasName, entry.seat.nodeId) ? { doneUnread: true } : {}),
       ...(rollup ? { signal: { kind: rollup.kind, signalId: rollup.signal.signalId, openCount: rollup.openCount } } : {}),
       ...(reading ? { health: feedHealthOf(reading, now) } : {}),
+      ...(unread.has(entry.seat.nodeId) ? { unread: unread.get(entry.seat.nodeId)! } : {}),
       ring: {
         ...(blocked.has(entry.seat.nodeId) ? { graphBlocked: true } : {}),
         ...(exitReason ? { exitReason } : {}),
@@ -462,13 +478,15 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   seats: async (canvasName) => {
     const view = await readView(canvasName, false);
-    return view ? outcomeOk(seatsFor(canvasName, view, Date.now())) : outcomeFail("not-found", "No such canvas.");
+    if (!view) return outcomeFail("not-found", "No such canvas.");
+    return outcomeOk(seatsFor(canvasName, view, Date.now(), await seatUnread.totals(canvasName, agentSeatIds(view))));
   },
 
   seatDetail: async (canvasName, nodeId) => {
     const view = await readView(canvasName, false);
     if (!view) return outcomeFail("not-found", "No such canvas.");
-    const seat = seatsFor(canvasName, view, Date.now()).find((candidate) => candidate.nodeId === nodeId);
+    const unread = await seatUnread.totals(canvasName, agentSeatIds(view));
+    const seat = seatsFor(canvasName, view, Date.now(), unread).find((candidate) => candidate.nodeId === nodeId);
     if (!seat) return outcomeFail("not-found", "No such seat.");
     const signals = await AppRuntime.runPromise(
       Effect.flatMap(AgentSignalRepository, (repository) => repository.listSeat({ canvasName, nodeId })).pipe(

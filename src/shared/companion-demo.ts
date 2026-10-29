@@ -40,6 +40,7 @@ import {
   seatMailThreadEntries,
   seatMailThreadMessages,
   seatMailThreads,
+  unreadPast,
   type MailReadPoint,
   type MailThreadsInput,
 } from "./mail-threads";
@@ -322,9 +323,17 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         ...(seat.doneUnread ? { doneUnread: true } : {}),
         ...(rollup ? { signal: { kind: rollup.kind, signalId: rollup.signal.signalId, openCount: rollup.openCount } } : {}),
         ...(health ? { health: health.feed } : {}),
+        unread: unreadOf(entry.seat.nodeId),
         ring: { since: DEMO_ACTIVITY_AT },
       });
     });
+  };
+
+  /** What the operator has not read in a seat's threads, counted as the Mac counts its badge. */
+  const unreadOf = (nodeId: string): number => {
+    let total = 0;
+    for (const [threadId, entries] of seatMailThreadEntries(threadsInput(), nodeId)) total += unreadPast(entries, readPoints.get(threadId));
+    return total;
   };
 
   const known = (canvasName: string) => canvasName === DEMO_CANVAS;

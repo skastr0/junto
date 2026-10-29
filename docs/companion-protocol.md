@@ -479,6 +479,8 @@ type Seat = {
   level?: "blocked" | "stopped" | "waiting" | "escalated" | "review" | "done"
         | "degraded" | "working" | "resting" | "offline";
   levelSince?: number;         // when the seat took that level, Mac clock; the palette's order within a group
+  unread?: number;             // what the operator has not read in the seat's threads, the desktop badge's number;
+                               // absent when the Mac could not read it, and from an older Mac. seat.changed when it moves
 };
 
 // Loops turn on the shared clock: phase = (now + Mac offset) % MARK_PHASE_MS.

@@ -227,6 +227,34 @@ describe("demo transcript", () => {
     await other.end();
   });
 
+  it("moves a listed seat's unread with seat.changed when a thread it shares is read on another surface", async () => {
+    const host = makeDemoHost({ appVersion: "test", machineName: THIS_MACHINE });
+    const phone = connect({ host });
+    const desk = connect({ host });
+    await phone.next();
+    await desk.next();
+    phone.send(demoRequest("s1", "seats.list", { canvasName: DEMO_CANVAS }));
+    const listed = await phone.until(response("s1"));
+    const unreadOf = (seats: Array<{ nodeId: string; unread?: number }>, nodeId: string) => seats.find((seat) => seat.nodeId === nodeId)?.unread;
+    expect(unreadOf(listed.result.seats, "atlas")).toBe(2);
+    expect(unreadOf(listed.result.seats, "relay")).toBe(2);
+    phone.send(demoRequest("g1", "seat.get", { canvasName: DEMO_CANVAS, nodeId: "quill" }));
+    expect((await phone.until(response("g1"))).result.seat.unread).toBe(1);
+
+    desk.send(demoRequest("t1", "threads.list", { canvasName: DEMO_CANVAS, nodeId: "atlas" }));
+    const shared = (await desk.until(response("t1"))).result.threads[0].threadId;
+    desk.send(demoRequest("r1", "threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: shared }));
+    await desk.until(response("r1"));
+    const moved = new Map<string, number>();
+    while (moved.size < 2) {
+      const changed = await phone.until((f) => f.type === "event" && f.event === "seat.changed");
+      if (changed.data.seat.nodeId === "atlas" || changed.data.seat.nodeId === "relay") moved.set(changed.data.seat.nodeId, changed.data.seat.unread);
+    }
+    expect(Object.fromEntries(moved)).toEqual({ atlas: 0, relay: 0 });
+    await phone.end();
+    await desk.end();
+  });
+
   it("is reproducible: two runs answer the same requests identically", async () => {
     const run = async () => {
       const c = connect();
