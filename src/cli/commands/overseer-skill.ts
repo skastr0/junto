@@ -133,7 +133,7 @@ No operation returns a secret value. Do not put one in an argument, a \`value\` 
 
 - \`references list {canvas?, regionId?}\`, \`references read {name, canvas?, regionId?}\`, \`references delete {name, canvas?, regionId?}\`.
 - \`references write {name, description?, canvas?, regionId?}\` creates or replaces one. **Give the prose with \`--body <text | @file | ->\`** so it is never JSON-escaped: \`junto overseer references write '{"name":"style"}' --body @style.md\`. \`"body"\` in the argument also works; both at once is refused. A name is lower-cased, 1 to 80 characters of letters, digits, dot, underscore and dash. An empty body is refused: delete instead.
-- \`briefing read\`, \`briefing write --body <text | @file | ->\`.
+- \`briefing read\`, \`briefing write --body <text | @file | ->\`. A read returns the body as written and, beside it, \`mentions\`: each junto:// link it makes, once, resolved from your seat, a gone one as \`kind: missing\`.
 
 A seat inside a region sees that region's reference in place of an outer or app-wide one of the same name.
 

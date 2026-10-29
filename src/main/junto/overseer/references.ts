@@ -16,6 +16,7 @@ import {
   type StoredReference,
 } from "@shared/references";
 import { ModelService } from "../model/service";
+import { briefingMentions, mentionsField } from "../references/briefing-mentions";
 import { ReferencesRepository, type ReferencesRepositoryError } from "../references/repository";
 
 /**
@@ -98,11 +99,14 @@ export const executeOverseerReferences = (
     ) => effect.pipe(Effect.map(data), Effect.catch((error) => Effect.succeed(storeFailure(error))));
 
     switch (request.operation) {
-      case "briefing.read":
-        return yield* answer(store.briefingRead(), (briefing) => ({
-          ok: true,
-          data: briefing === null ? { body: null } : { body: briefing.body, updatedAt: briefing.updatedAt },
-        }));
+      case "briefing.read": {
+        const read = yield* Effect.result(store.briefingRead());
+        if (read._tag === "Failure") return storeFailure(read.failure);
+        const briefing = read.success;
+        if (briefing === null) return { ok: true, data: { body: null } };
+        const mentions = mentionsField(yield* briefingMentions(caller, briefing.body));
+        return { ok: true, data: { body: briefing.body, updatedAt: briefing.updatedAt, ...mentions } };
+      }
       case "briefing.write": {
         const { body } = request.args as OverseerArgsFor<"briefing.write">;
         if (body.trim().length === 0) {

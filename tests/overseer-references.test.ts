@@ -246,5 +246,18 @@ describe("overseer references and briefing", () => {
     expect(stored?.body).toBe("# House rules\nCommit by path.");
   });
 
+  it("reads the briefing as written, with the mentions it links beside it", async () => {
+    const { run } = await boot();
+    const body = "Ask [@Boss](junto://canvas/origin?node=boss); [old](junto://canvas/origin?node=gone) is gone.";
+    await run({ operation: "briefing.write", args: { body } });
+    expect((await run({ operation: "briefing.read" })).data).toMatchObject({
+      body,
+      mentions: [
+        { label: "@Boss", ref: "junto://canvas/origin?node=boss", kind: "seat", id: "boss", title: "Boss", reachable: true },
+        { label: "old", ref: "junto://canvas/origin?node=gone", kind: "missing", id: "gone", reachable: false },
+      ],
+    });
+  });
+
 
 });

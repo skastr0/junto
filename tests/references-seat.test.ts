@@ -85,7 +85,7 @@ let runtime: ReturnType<typeof makeRuntime>;
 let server: WorkControlServer;
 let token = "";
 
-const start = async (withStore = true) => {
+const start = async (withStore = true, onCanvas = nodes) => {
   runtime = makeRuntime(root, withStore);
   await runtime.runPromise(nameThisMachine);
   server = await startWorkControlServer({
@@ -96,7 +96,7 @@ const start = async (withStore = true) => {
     authoringGate: createMainAuthoringGate(),
   });
   token = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
-  await runtime.runPromise(seedCanvas(CANVAS, nodes));
+  await runtime.runPromise(seedCanvas(CANVAS, onCanvas));
 };
 
 beforeEach(async () => {
@@ -264,6 +264,29 @@ describe("what a seat reads of the operator's texts", () => {
     expect(await names(region("inner", "other"))).toEqual(["other-canvas"]);
     expect(await names(APP_REFERENCE_PLACE)).toEqual(["release", "style"]);
     expect((await store((r) => r.briefingRead()))?.body).toContain("House rules");
+  });
+
+  it("returns each text as written, and beside it the mentions it links, parsed and never expanded", async () => {
+    const self = "[@agent](junto://canvas/factory?node=agent)";
+    const gone = "[the old shelf](junto://canvas/factory?node=shelf-gone)";
+    const instruction = `Report to ${self}. See ${gone}.`;
+    await start(true, nodes.map((node) => (node.id === "inner" ? { ...node, instruction } : node)) as typeof nodes);
+    const briefing = `# House rules\n\nAsk ${self}, then ${self} again. [docs](https://example.com) is a plain link.`;
+    await store((r) => r.briefingWrite(briefing, "operator"));
+    await store((r) => r.write(APP_REFERENCE_PLACE, { name: "map", body: `The map: ${gone}.` }, "operator"));
+    const mentionOfSelf = { label: "@agent", ref: "junto://canvas/factory?node=agent", kind: "seat", id: "agent", title: "agent", reachable: true };
+    const mentionOfGone = { label: "the old shelf", ref: "junto://canvas/factory?node=shelf-gone", kind: "missing", id: "shelf-gone", reachable: false };
+
+    const { data } = await call("onboard");
+    expect(data.briefing).toBe(briefing);
+    expect(data.briefing_mentions).toEqual([mentionOfSelf]);
+    expect(data.region).toMatchObject({ id: "inner", instruction, mentions: [mentionOfSelf, mentionOfGone] });
+
+    const map = await call("references.read", { name: "map" });
+    expect(map.data).toMatchObject({ body: `The map: ${gone}.`, mentions: [mentionOfGone] });
+    // A text that links nothing carries no mentions field.
+    await store((r) => r.write(APP_REFERENCE_PLACE, { name: "plain", body: "No links." }, "operator"));
+    expect((await call("references.read", { name: "plain" })).data).not.toHaveProperty("mentions");
   });
 
   it("a runtime without the store still onboards, and the reads say they are not available", async () => {

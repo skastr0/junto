@@ -27,7 +27,7 @@ const timeoutOption = Flag.integer("timeout").pipe(
 const LIST_DESCRIPTION =
   "The references this seat can read: name, description, where each comes from, size and when it changed. Never a body.";
 const READ_DESCRIPTION =
-  "Read one reference by name. When a region and the app both have the name, the innermost region's is returned.";
+  "Read one reference by name. When a region and the app both have the name, the innermost region's is returned. The body is as written; beside it, mentions lists each junto:// link it makes, once, in order: {label, ref, kind (seat, task, artifact, page, node or missing), id, title?, reachable}.";
 
 const call = (op: WorkOpName, args: unknown, timeout: Option.Option<number>) =>
   Effect.gen(function* () {

@@ -12,6 +12,7 @@ import {
 } from "@shared/references";
 import { ReferencesListArgs, ReferencesReadArgs, type WorkErrorBody } from "@shared/work-control";
 import { ModelService } from "../model/service";
+import { briefingMentions, mentionsField } from "./briefing-mentions";
 import { ReferencesRepository, type ReferencesRepositoryError } from "./repository";
 
 /**
@@ -157,5 +158,5 @@ export const handleSeatReferences = (
         },
       });
     }
-    return toReferenceReadResult(found);
+    return { ...toReferenceReadResult(found), ...mentionsField(yield* briefingMentions(seat, found.body)) };
   });
