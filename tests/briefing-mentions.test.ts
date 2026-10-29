@@ -80,6 +80,7 @@ describe("briefingMentionsOn", () => {
     artifacts("shelf", { x: 400, y: 0, width: 100, height: 40 }),
     files("far", { x: 5000, y: 5000, width: 100, height: 40 }),
     artifacts("far-shelf", { x: 5200, y: 5000, width: 100, height: 40 }),
+    taskBoard("far-board", { x: 5400, y: 5000, width: 100, height: 40 }),
     page("docs", { x: 200, y: 200, width: 100, height: 40, label: "Docs" }),
   ];
   const canvas = {
@@ -89,7 +90,12 @@ describe("briefingMentionsOn", () => {
 
   const stores = Layer.mergeAll(
     Layer.succeed(TaskRepository, {
-      get: (_canvas: string, id: string) => Effect.succeed(id === TASK ? Option.some({ title: "Fix tabs", current: { node: "board" } }) : Option.none()),
+      get: (_canvas: string, id: string) =>
+        Effect.succeed(
+          id === TASK ? Option.some({ title: "Fix tabs", current: { node: "board" } })
+            : id === MOVED ? Option.some({ title: "Far task", current: { node: "far-board" } })
+              : Option.none(),
+        ),
     } as never),
     Layer.succeed(ArtifactRepository, {
       head: (_canvas: string, id: string) =>
@@ -130,6 +136,8 @@ describe("briefingMentionsOn", () => {
     // MOVED lives on far-shelf, in a sibling region; the link puts it on shelf, which the reader reaches.
     expect(await read(link("Plan", "shelf", MOVED))).toMatchObject([{ kind: "artifact", id: MOVED, title: "Far plan", reachable: false }]);
     expect(await read(link("Plan", "far-shelf", ARTIFACT))).toMatchObject([{ kind: "artifact", id: ARTIFACT, reachable: true }]);
+    expect(await read(link("#2", "board", MOVED))).toMatchObject([{ kind: "task", id: MOVED, title: "Far task", reachable: false }]);
+    expect(await read(link("#1", "far-board", TASK))).toMatchObject([{ kind: "task", id: TASK, reachable: true }]);
   });
 
   it("leaves the field out for a text with no links, and when an item cannot be read here", async () => {
