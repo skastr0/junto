@@ -5,6 +5,7 @@ import {
   AgentSignalSuggestions,
   type AgentSignalKind,
   type SeatRaiseKind,
+  SignalFormRequest,
 } from "../../shared/agent-signals";
 import type { SignalRaiseArgs } from "../../shared/work-control";
 import {
@@ -17,7 +18,7 @@ import {
   stdinUses,
 } from "./signal-attach";
 import { InputError } from "./errors";
-import { type FormFlags, foldFormInput, planFormFlags, SignalFormRequest } from "./signal-form";
+import { type FormFlags, foldFormInput, planFormFlags } from "./signal-form";
 import { decodeJsonText } from "./json";
 
 /**
@@ -136,7 +137,7 @@ export const SignalRaiseCliInput = Schema.Struct({
    * the card.
    */
   suggest: Schema.optionalKey(AgentSignalSuggestions),
-  /** The reply form the operator answers in (`signal-form.ts`); blocked and escalate only. */
+  /** The reply form the operator answers in (N1's `SignalFormRequest`); blocked and escalate only. */
   form: Schema.optionalKey(SignalFormRequest),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
@@ -242,7 +243,7 @@ export const loadSignalRaiseArgs = (
             ...(timeoutMs === undefined ? {} : { timeoutMs }),
           })
         : [];
-    const args: SignalRaiseArgs & { readonly form?: SignalFormRequest } = {
+    const args: SignalRaiseArgs = {
       kind,
       text: payload.text,
       ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),

@@ -86,7 +86,7 @@ const formOptions = {
   askSecret: Flag.string("ask-secret").pipe(
     Flag.optional,
     Flag.withDescription(
-      "Ask the operator for a secret by the environment variable you read: --ask-secret CLOUDFLARE_API_TOKEN. Your region must declare it as a secret; the value goes where your region keeps it, never into the signal, mail or a log. Read it from your environment once the answer says it is set",
+      "Ask the operator for a secret by the environment variable you read: --ask-secret CLOUDFLARE_API_TOKEN. Your region must declare it as a secret; the value goes where your region keeps it, never into the signal, mail or a log. Read it from your environment once the answer says it is set. Main refuses it until the vault lands (0.11, N5): ask in words until then",
     ),
   ),
   askArtifact: Flag.string("ask-artifact").pipe(
@@ -104,6 +104,7 @@ const formOptions = {
     Flag.withDescription("With --ask-artifact: a label for the document. Repeat for each; labels fold to lowercase"),
   ),
   askProof: Flag.boolean("ask-proof").pipe(
+    Flag.withDefault(false),
     Flag.withDescription("Ask the operator for proof of work: text with links or files"),
   ),
 };
@@ -147,12 +148,12 @@ const raiseWithFormCommand = (kind: SeatRaiseKind, description: string) =>
 
 export const escalateCommand = raiseWithFormCommand(
   "escalate",
-  "Needs the operator's attention; you keep working. Any time. Ask for what they must produce with --ask-secret, --ask-artifact or --ask-proof.",
+  "Needs the operator's attention; you keep working. Any time. Ask for what they must produce with --ask-artifact or --ask-proof; --ask-secret waits for the vault.",
 );
 
 export const blockedCommand = raiseWithFormCommand(
   "blocked",
-  "Work is entirely blocked on the operator; stop and wait for the answer. Ask for what they must produce with --ask-secret, --ask-artifact or --ask-proof.",
+  "Work is entirely blocked on the operator; stop and wait for the answer. Ask for what they must produce with --ask-artifact or --ask-proof; --ask-secret waits for the vault.",
 );
 
 export const feedbackCommand = raiseCommand(

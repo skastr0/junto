@@ -1,47 +1,17 @@
-import { Schema } from "effect";
-import { ARTIFACT_LABELS_MAX, foldArtifactLabels, type ArtifactLabel } from "../../shared/artifact-labels";
-import { AGENT_SIGNAL_MAX_TEXT_LENGTH, type AgentSignalKind } from "../../shared/agent-signals";
-import { AUTOMATION_SIGNAL_MIN_WORDS_MAX } from "../../shared/automation";
+import { foldArtifactLabels, type ArtifactLabel } from "../../shared/artifact-labels";
+import { SIGNAL_MAX_MIN_WORDS, type AgentSignalKind, type SignalFormRequest } from "../../shared/agent-signals";
 import { InputError } from "./errors";
 
 /**
  * The reply form a seat asks for when it raises a signal (0.11/07, N4): what
  * the operator produces right in the signal. One per signal; text, today's
- * reply, is the default and needs none.
- *
- * Stand-in of N1's `SignalFormRequest` (product-feed's names): switch to the
- * shared schema when it lands. Until then main's strict `SignalRaiseArgs`
- * refuses `form`, so a form flag is refused there, plainly.
+ * reply, is the default and needs none. The shape is N1's
+ * `SignalFormRequest`; main resolves the node in the seat's reach and
+ * refuses a secret until the vault (N5).
  */
 
 /** The environment variable the seat reads, as region env sources name it (model/region.ts EnvName). */
 export const SIGNAL_SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
-/** The bound the automation signal form has too (automation.ts SecretName). */
-const SIGNAL_SECRET_NAME_MAX = 128;
-/** The most words an artifact form can ask for, as the automation signal form bounds it. */
-export const SIGNAL_FORM_MIN_WORDS_MAX = AUTOMATION_SIGNAL_MIN_WORDS_MAX;
-
-export const SignalSecretName = Schema.String.check(
-  Schema.isPattern(SIGNAL_SECRET_NAME_PATTERN),
-  Schema.isMaxLength(SIGNAL_SECRET_NAME_MAX),
-);
-
-const NodeText = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256));
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
-
-export const SignalFormRequest = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("text") }).annotate(strict),
-  Schema.Struct({
-    kind: Schema.Literal("artifact"),
-    node: NodeText,
-    title: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(AGENT_SIGNAL_MAX_TEXT_LENGTH))),
-    labels: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(ARTIFACT_LABELS_MAX))),
-    minWords: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SIGNAL_FORM_MIN_WORDS_MAX }))),
-  }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("secret"), name: SignalSecretName }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("proof") }).annotate(strict),
-]);
-export type SignalFormRequest = typeof SignalFormRequest.Type;
 
 /** The kinds that can ask for a form; feedback asks the operator to review, nothing more. */
 export const FORM_SIGNAL_KINDS: ReadonlySet<AgentSignalKind> = new Set(["blocked", "escalate"]);
@@ -92,7 +62,7 @@ export const planFormFlags = (kind: AgentSignalKind, flags: FormFlags): Planned 
   if (flags.askSecret !== undefined) {
     if (flags.minWords !== undefined || label.length > 0) return refuse("--min-words and --label go with --ask-artifact", flags.minWords !== undefined ? "--min-words" : "--label");
     const name = flags.askSecret.trim();
-    if (!SIGNAL_SECRET_NAME_PATTERN.test(name) || name.length > SIGNAL_SECRET_NAME_MAX) {
+    if (!SIGNAL_SECRET_NAME_PATTERN.test(name)) {
       return refuse(`${JSON.stringify(flags.askSecret)} is not a secret name: the environment variable you read, letters, digits and _, not starting with a digit`, "--ask-secret", 'junto blocked "Need the Cloudflare token." --ask-secret CLOUDFLARE_API_TOKEN');
     }
     return { ok: true, form: { kind: "secret", name } };
@@ -103,8 +73,8 @@ export const planFormFlags = (kind: AgentSignalKind, flags: FormFlags): Planned 
   }
   const node = flags.askArtifact!.trim();
   if (node === "") return refuse("--ask-artifact names the Artifacts node the reply is written into", "--ask-artifact");
-  if (flags.minWords !== undefined && (!Number.isInteger(flags.minWords) || flags.minWords < 1 || flags.minWords > SIGNAL_FORM_MIN_WORDS_MAX)) {
-    return refuse(`--min-words is 1 to ${SIGNAL_FORM_MIN_WORDS_MAX}`, "--min-words");
+  if (flags.minWords !== undefined && (!Number.isInteger(flags.minWords) || flags.minWords < 1 || flags.minWords > SIGNAL_MAX_MIN_WORDS)) {
+    return refuse(`--min-words is 1 to ${SIGNAL_MAX_MIN_WORDS}`, "--min-words");
   }
   const folded = foldLabels(label, (index) => `--label[${index}]`);
   if (!folded.ok) return folded;

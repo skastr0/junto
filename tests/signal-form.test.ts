@@ -63,6 +63,9 @@ describe("a seat asks for a reply form", () => {
     const onFeedback = await load("feedback", '{"text":"x","form":{"kind":"proof"}}', undefined);
     expect(onFeedback).toMatchObject({ _tag: "Failure", failure: { path: "form" } });
 
+    const stray = await load("blocked", '{"text":"x","form":{"kind":"proof","links":[]}}', undefined);
+    expect(stray).toMatchObject({ _tag: "Failure" });
+
     const plain = await load("blocked", "Need a decision.", undefined);
     expect(plain).toMatchObject({ _tag: "Success" });
     if (plain._tag === "Success") expect("form" in plain.success).toBe(false);
