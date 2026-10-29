@@ -272,12 +272,6 @@ export const SignalSource = Schema.Union([
 ]);
 export type SignalSource = typeof SignalSource.Type;
 
-/** Who raised a signal: its own source, or the seat its `nodeId` names. */
-export const sourceOf = (signal: {
-  readonly nodeId: string;
-  readonly source?: SignalSource | undefined;
-}): SignalSource => signal.source ?? { kind: "seat", nodeId: signal.nodeId };
-
 /** When work is due, and whether whoever raised it marked it urgent (a work signal only). */
 export const WorkTiming = Schema.Struct({
   /** Epoch ms. */
