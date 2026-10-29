@@ -22,6 +22,8 @@ const MIME_TYPES = new Map<string, string>([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".map", "application/json; charset=utf-8"],
+  // pdf.js ships its worker as an ES module file (`pdf.worker.min.mjs?url`).
+  [".mjs", "text/javascript; charset=utf-8"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
   [".ttf", "font/ttf"],
@@ -31,6 +33,14 @@ const MIME_TYPES = new Map<string, string>([
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],
 ]);
+
+/**
+ * The type the protocol serves a renderer file as, or undefined when it
+ * refuses the file (415). The packaged-app audit holds every file in
+ * `out/renderer` to this, so a build that emits an unserved kind fails there.
+ */
+export const trustedRendererMimeType = (relativePath: string): string | undefined =>
+  MIME_TYPES.get(extname(relativePath).toLowerCase());
 
 const ENCODED_SEPARATOR = /%(?:2f|5c)/iu;
 const RECURSIVE_ENCODING = /%[0-9a-f]{2}/iu;
@@ -169,7 +179,7 @@ export const createTrustedRendererHandler = async (
     const relativePath = requestPath(request.url);
     if (relativePath === undefined) return fixedError(400, request.method);
 
-    const mimeType = MIME_TYPES.get(extname(relativePath).toLowerCase());
+    const mimeType = trustedRendererMimeType(relativePath);
     if (mimeType === undefined) return fixedError(415, request.method);
 
     const lexicalPath = resolve(canonicalRoot, relativePath);
