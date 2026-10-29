@@ -128,6 +128,7 @@ const ALLOWED: readonly Allowed[] = [
 
   // Vocabularies.
   { file: "src/shared/wire/companion-protocol.ts", name: "COMPANION_SEAT_STATES", rule: "names", reason: VOCAB },
+  { file: "src/shared/wire/companion-artifacts.ts", name: "COMPANION_FACE_SEAT_STATES", rule: "names", reason: `${VOCAB}; held equal to COMPANION_SEAT_STATES by companion-protocol.test.ts` },
   { file: "src/shared/terminal.ts", name: "TerminalHarnessState", rule: "names", reason: VOCAB },
   { file: "src/shared/occupancy/derive.ts", name: "OccupancyHarnessState", rule: "names", reason: VOCAB },
   { file: "src/main/junto/term/program-status.ts", name: "PROGRAM_STATES", rule: "names", reason: VOCAB },
