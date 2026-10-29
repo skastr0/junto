@@ -110,7 +110,13 @@ export function ArtifactMoveDialog({
       }}
       actions={
         <>
-          <Button variant="chrome" onClick={onCancel}>
+          <Button
+            variant="chrome"
+            aria-disabled={busy}
+            onClick={() => {
+              if (!busy) onCancel();
+            }}
+          >
             Cancel
           </Button>
           <Button variant="primary" aria-disabled={busy || (picked === undefined && shown.length !== 1)} onClick={() => commit(picked)}>
