@@ -9,6 +9,7 @@
  * something to point a seat at.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { NodeId } from "@shared/physics/schema";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { TaskView } from "@shared/task-model";
 import { artifactsSource } from "./artifacts-source";
@@ -18,8 +19,8 @@ import { useCanvas } from "./use-model";
 
 const NONE: ReadonlyArray<never> = [];
 
-const grouped = <T>(entries: ReadonlyArray<T>, nodeOf: (entry: T) => string, item: (entry: T) => MentionItem): ReadonlyMap<string, ReadonlyArray<MentionItem>> => {
-  const byNode = new Map<string, MentionItem[]>();
+const grouped = <T>(entries: ReadonlyArray<T>, nodeOf: (entry: T) => NodeId, item: (entry: T) => MentionItem): ReadonlyMap<NodeId, ReadonlyArray<MentionItem>> => {
+  const byNode = new Map<NodeId, MentionItem[]>();
   for (const entry of entries) {
     const node = nodeOf(entry);
     const list = byNode.get(node);
@@ -33,7 +34,7 @@ const grouped = <T>(entries: ReadonlyArray<T>, nodeOf: (entry: T) => string, ite
 export const mentionItemsOf = (tasks: ReadonlyArray<TaskView>, artifacts: ReadonlyArray<ArtifactHead>): MentionItems => {
   const taskItems = grouped(
     tasks.filter((task) => task.current.state !== "archived"),
-    (task) => task.current.node,
+    (task) => task.current.node as NodeId,
     (task): MentionItem => ({
       id: task.taskId,
       title: task.title,

@@ -9,6 +9,7 @@
 import { Effect, Result } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { asNodeId, type Canvas } from "@shared/model";
+import type { NodeId } from "@shared/physics/schema";
 import { outcomeFail, outcomeOk, type CompanionBackend } from "@shared/companion-core";
 import {
   candidatesOfNodes,
@@ -25,12 +26,13 @@ import { withSqlRead } from "../state/sql-read";
 import { ArtifactRepository } from "../work/artifact-repository";
 import { readTasksByNode } from "../work/seat-task-read";
 import { mentionableSeats } from "../work/operator-threads";
+import type { TaskView } from "@shared/task-model";
 import { TaskRepository } from "../work/task-repository";
 
 type CanvasItems = {
   readonly canvas: Canvas;
-  readonly tasksOf: ReadonlyMap<string, ReadonlyArray<MentionItem>>;
-  readonly artifactsOf: ReadonlyMap<string, ReadonlyArray<MentionItem>>;
+  readonly tasksOf: ReadonlyMap<NodeId, ReadonlyArray<MentionItem>>;
+  readonly artifactsOf: ReadonlyMap<NodeId, ReadonlyArray<MentionItem>>;
 };
 
 /** The canvas and the items its task boards and Artifacts nodes hold; undefined when there is no such canvas. */
@@ -42,14 +44,14 @@ const canvasItems = (canvasName: string): Promise<CanvasItems | undefined> =>
       const artifacts = yield* ArtifactRepository;
       const sql = yield* SqlClient.SqlClient;
       const read = yield* withSqlRead(sql, model.canvas(canvasName));
-      const tasksOf = new Map<string, ReadonlyArray<MentionItem>>();
-      const artifactsOf = new Map<string, ReadonlyArray<MentionItem>>();
+      const tasksOf = new Map<NodeId, ReadonlyArray<MentionItem>>();
+      const artifactsOf = new Map<NodeId, ReadonlyArray<MentionItem>>();
       const byNode = yield* withSqlRead(sql, readTasksByNode(tasks, read)).pipe(
-        Effect.catch(() => Effect.succeed(new Map<string, ReadonlyArray<{ taskId: string; title: string; number?: number; current: { state: string } }>>())),
+        Effect.catch(() => Effect.succeed(new Map<NodeId, ReadonlyArray<TaskView>>())),
       );
       for (const [nodeId, held] of byNode) {
         tasksOf.set(
-          nodeId,
+          asNodeId(nodeId),
           held.map((task) => ({
             id: task.taskId,
             title: task.title,

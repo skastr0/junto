@@ -11,6 +11,7 @@ import type { Node } from "./model";
 import type { NodeKind } from "./model/kinds";
 import { titleOf } from "./model/title";
 import type { MentionRef } from "./mention";
+import type { ItemId, NodeId } from "./wire/ids";
 import type { ReachNode } from "./region-reach";
 
 /** The characters a mention is typed with: `@` names a seat or a page, `#` a task or an artifact, `[[` links an artifact by title. */
@@ -38,7 +39,7 @@ export type NamedMentionCandidate = MentionCandidate & { readonly title: string 
 
 /** One task or artifact on its node, as a composer has read it. */
 export type MentionItem = {
-  readonly id: string;
+  readonly id: ItemId;
   readonly title: string;
   /** A task's per-canvas number (04), shown first: `#42 fix tabs`. */
   readonly number?: number;
@@ -47,11 +48,11 @@ export type MentionItem = {
 };
 
 export type MentionItems = {
-  readonly tasksOf?: (nodeId: string) => ReadonlyArray<MentionItem>;
-  readonly artifactsOf?: (nodeId: string) => ReadonlyArray<MentionItem>;
+  readonly tasksOf?: (nodeId: NodeId) => ReadonlyArray<MentionItem>;
+  readonly artifactsOf?: (nodeId: NodeId) => ReadonlyArray<MentionItem>;
 };
 
-const seatCandidate = (nodeId: MentionRef["nodeId"], name: string): NamedMentionCandidate => ({
+const seatCandidate = (nodeId: NodeId, name: string): NamedMentionCandidate => ({
   ref: { kind: "seat", nodeId },
   label: `@${name}`,
   title: name,
@@ -85,7 +86,7 @@ export const candidatesOfNodes = (
         return (items.tasksOf?.(reach.id) ?? []).map((item) =>
           withNote(
             {
-              ref: { kind: "task", nodeId: reach.id, taskId: item.id as Extract<MentionRef, { kind: "task" }>["taskId"] },
+              ref: { kind: "task", nodeId: reach.id, taskId: item.id },
               label: itemLabel(item),
               title: item.title,
             },
@@ -96,7 +97,7 @@ export const candidatesOfNodes = (
         return (items.artifactsOf?.(reach.id) ?? []).map((item) =>
           withNote(
             {
-              ref: { kind: "artifact", nodeId: reach.id, artifactId: item.id as Extract<MentionRef, { kind: "artifact" }>["artifactId"] },
+              ref: { kind: "artifact", nodeId: reach.id, artifactId: item.id },
               label: `#${item.title}`,
               title: item.title,
             },
@@ -113,7 +114,7 @@ export const connectedSeatCandidates = (
   seats: ReadonlyArray<{ readonly nodeId: string; readonly name: string }>,
 ): ReadonlyArray<NamedMentionCandidate> =>
   seats.map((seat) => ({
-    ref: { kind: "seat", nodeId: seat.nodeId as MentionRef["nodeId"] },
+    ref: { kind: "seat", nodeId: seat.nodeId as NodeId },
     label: `@${seat.name}`,
     title: seat.name,
   }));

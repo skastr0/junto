@@ -26,6 +26,7 @@ import {
   type CompanionMailThread,
 } from "./companion-core";
 import { companionCommentsPage, type CommentPostView, type CommentThreadView } from "./companion-comments";
+import type { ItemId } from "./wire/ids";
 import { candidatesOfNodes, connectedSeatCandidates, filterCandidates } from "./mention-candidates";
 import { mentionableNodesFrom } from "./mention-reach";
 import { companionConnected, companionThreadPage, companionThreadsPage } from "./companion-threads";
@@ -508,7 +509,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const candidates = [
         ...connectedSeatCandidates(wired),
         ...candidatesOfNodes(CANVAS, mentionableNodesFrom(CANVAS, from), {
-          tasksOf: () => [{ id: DEMO_TASK_PRICING, title: "launch pricing", number: 1, note: "backlog" }],
+          tasksOf: () => [{ id: DEMO_TASK_PRICING as ItemId, title: "launch pricing", number: 1, note: "backlog" }],
           artifactsOf: (nodeId) =>
             DEMO_ARTIFACTS.filter((artifact) => artifact.head.nodeId === nodeId && !artifact.head.archived).map((artifact) => ({
               id: artifact.head.artifactId,
