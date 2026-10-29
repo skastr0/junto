@@ -14,8 +14,9 @@ export function SoulSection({ seat }: AgentEditorSectionProps) {
       max={SEAT_SOUL_MAX}
       placeholder="A careful reviewer. Speaks plainly, asks before guessing, and cares more about a green test run than a clever diff."
     >
-      Who {seat.name} is: personality, voice, values. Markdown. It reaches the agent at its next start and
-      every time it runs <code>junto onboard</code>, whatever the harness. The Junto rules still come first.
+      Who {seat.name} is: personality, voice, values. Markdown. It reaches the agent only through
+      <code>junto onboard</code>, whatever the harness, and the agent reads it each time it runs that. The Junto
+      rules still come first.
     </GuidanceField>
   );
 }
