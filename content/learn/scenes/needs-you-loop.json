@@ -1,6 +1,6 @@
 {
   "id": "needs-you-loop",
-  "label": "Two seats in a region joined by a line: juniper mails basil, basil raises a blocked signal and its ring turns red, the operator's answer arrives, and basil goes back to work",
+  "label": "Two seats in a region joined by a line: juniper mails basil, basil raises a blocked signal and its ring turns red, the question waits in the needs-you feed for your answer, the answer arrives, and basil goes back to work",
   "stage": {
     "width": 640,
     "height": 230
@@ -92,6 +92,49 @@
       }
     },
     {
+      "at": 3800,
+      "feed": {
+        "item": "database",
+        "seat": "basil",
+        "kind": "blocked",
+        "text": "Which database should the migration run against?",
+        "suggest": [
+          "Staging",
+          "A fresh copy"
+        ],
+        "phase": "shown"
+      }
+    },
+    {
+      "at": 4800,
+      "feed": {
+        "item": "database",
+        "seat": "basil",
+        "kind": "blocked",
+        "text": "Which database should the migration run against?",
+        "suggest": [
+          "Staging",
+          "A fresh copy"
+        ],
+        "phase": "selected"
+      }
+    },
+    {
+      "at": 5800,
+      "feed": {
+        "item": "database",
+        "seat": "basil",
+        "kind": "blocked",
+        "text": "Which database should the migration run against?",
+        "suggest": [
+          "Staging",
+          "A fresh copy"
+        ],
+        "phase": "sending",
+        "reply": 0
+      }
+    },
+    {
       "at": 6600,
       "seat": {
         "id": "basil",
@@ -102,6 +145,18 @@
           "action": "signal-clear",
           "tone": "green"
         }
+      },
+      "feed": {
+        "item": "database",
+        "seat": "basil",
+        "kind": "blocked",
+        "text": "Which database should the migration run against?",
+        "suggest": [
+          "Staging",
+          "A fresh copy"
+        ],
+        "phase": "leaving",
+        "reply": 0
       }
     },
     {
@@ -133,7 +188,7 @@
       "seat": {
         "id": "juniper",
         "bubble": {
-          "text": "mail from basil: staging is migrated",
+          "text": "mail from basil: the migration ran",
           "provenance": "agent",
           "action": "mail-in",
           "tone": "violet"
