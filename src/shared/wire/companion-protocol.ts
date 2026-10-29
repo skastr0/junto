@@ -24,6 +24,7 @@ import { AgentSignal, AgentSignalKind, type SignalSource } from "./agent-signals
 import { ContentDisplayName, ContentMediaType, ContentRef, ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 import { RingState } from "./rings";
+import { ResourceSubject } from "./thread-subject";
 import { UrgencyLevel } from "./urgency";
 
 export const COMPANION_PROTOCOL = "junto-companion/1" as const;
@@ -238,10 +239,13 @@ export type CompanionMail = typeof CompanionMail.Type;
 // phone. Bodies, titles and names are the operator's content: plain text on
 // the phone, never scrubbed and never rendered as anything else.
 
-/** Threads one `threads.list` carries at most, newest activity first. */
+/** Threads one `threads.list` carries at most: the operator's own first, then the rest, newest activity first in each. */
 export const COMPANION_THREADS_MAX = 200;
 /** Messages one `thread.get` carries at most, newest kept. */
 export const COMPANION_THREAD_MESSAGES_MAX = 200;
+/** A page cursor, opaque to the phone: it hands back what the Mac gave it. */
+const ThreadCursor = bounded(1, 256);
+const ThreadPageLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: COMPANION_THREADS_MAX }));
 /** A summary's last mail is a preview this long. */
 export const COMPANION_THREAD_PREVIEW_MAX = 280;
 /** One mail's text, cut to this for the phone. */
@@ -267,6 +271,8 @@ export const CompanionThreadMessage = Schema.Struct({
   at: Schema.Number,
   /** Files the mail carries; `content.get` serves their bytes. */
   attachments: Schema.optionalKey(Schema.Array(ContentRef)),
+  /** The resource the thread is about; absent for a seat's mailbox thread. */
+  subject: Schema.optionalKey(ResourceSubject),
 });
 export type CompanionThreadMessage = typeof CompanionThreadMessage.Type;
 
@@ -281,6 +287,10 @@ export const CompanionThreadSummary = Schema.Struct({
   messageCount: Schema.Number,
   /** The operator wrote in it, or mail in it is addressed to the operator. */
   canReply: Schema.Boolean,
+  /** The operator wrote at least one mail in it. This Mac always sends it; an older one does not. */
+  owned: Schema.optionalKey(Schema.Boolean),
+  /** The resource the thread is about; absent for a seat's mailbox thread. */
+  subject: Schema.optionalKey(ResourceSubject),
 });
 export type CompanionThreadSummary = typeof CompanionThreadSummary.Type;
 
@@ -612,8 +622,21 @@ export const CompanionArgs = {
   /** `minLevel`: only log rows at or above it, so noise never pushes an error off the page. */
   "machine.get": Schema.Struct({ name: bounded(1, 64), minLevel: Schema.optionalKey(CompanionMachineLogLevel) }),
   "tailnet.peers": Empty,
-  "threads.list": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId }),
-  "thread.get": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId, threadId: MailId }),
+  /** `after` is the `next` of the page before; absent, the list starts at the top. */
+  "threads.list": Schema.Struct({
+    canvasName: CanvasName,
+    nodeId: NodeId,
+    limit: Schema.optionalKey(ThreadPageLimit),
+    after: Schema.optionalKey(ThreadCursor),
+  }),
+  /** `before` is the `older` of the page after; absent, the newest page. */
+  "thread.get": Schema.Struct({
+    canvasName: CanvasName,
+    nodeId: NodeId,
+    threadId: MailId,
+    limit: Schema.optionalKey(ThreadPageLimit),
+    before: Schema.optionalKey(ThreadCursor),
+  }),
   /** The scene, and canvas.changed for it from then on; replaces any canvas this connection had open. */
   "canvas.open": Schema.Struct({ canvasName: CanvasName }),
   "canvas.close": Schema.Struct({ canvasName: CanvasName }),
@@ -699,12 +722,17 @@ export const CompanionResults = {
   }),
   "threads.list": Schema.Struct({
     threads: Schema.Array(CompanionThreadSummary).pipe(Schema.check(Schema.isMaxLength(COMPANION_THREADS_MAX))),
-    /** Older threads were left out to fit. */
+    /** The cursor for the page that follows; absent at the end. */
+    next: Schema.optionalKey(ThreadCursor),
+    /** Threads the page would have held were left out to fit; `next` resumes after the last one sent. */
     cut: Schema.Boolean,
   }),
   "thread.get": Schema.Struct({
     /** Oldest first; the oldest are left out first to fit. */
     messages: Schema.Array(CompanionThreadMessage).pipe(Schema.check(Schema.isMaxLength(COMPANION_THREAD_MESSAGES_MAX))),
+    /** The cursor for the page above, older mail; absent at the thread's start. */
+    older: Schema.optionalKey(ThreadCursor),
+    /** Older messages the page would have held were left out to fit; `older` resumes above the first one sent. */
     cut: Schema.Boolean,
   }),
   "canvas.open": CompanionCanvasScene,

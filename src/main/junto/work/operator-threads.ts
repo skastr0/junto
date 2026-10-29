@@ -89,6 +89,9 @@ const threadsInput = (canvasName: string) =>
     return { canvas, input };
   });
 
+/** What the thread reads take for a canvas, for a reader that pages them itself (the phone's). */
+export const seatThreadsInput = (canvasName: string) => Effect.map(threadsInput(canvasName), ({ input }) => input);
+
 export const seatThreads = (canvasName: string, nodeId: string) =>
   Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreads(input, nodeId));
 

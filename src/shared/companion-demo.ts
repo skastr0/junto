@@ -25,7 +25,7 @@ import {
   type CompanionBackend,
   type CompanionMailThread,
 } from "./companion-core";
-import { companionConnected, companionThreadMessages, companionThreads } from "./companion-threads";
+import { companionConnected, companionThreadPage, companionThreadsPage } from "./companion-threads";
 import { seatMailThreadMessages, seatMailThreads, type MailThreadsInput } from "./mail-threads";
 import { mentionedOnce, mentionsOf } from "./mention";
 import { makeAgentMessage, makeUserMessage } from "./task";
@@ -384,15 +384,15 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         }),
       );
     },
-    threads: async (canvasName, nodeId) => {
+    threads: async (canvasName, nodeId, page) => {
       if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
-      return outcomeOk(companionThreads(seatMailThreads(threadsInput(), nodeId)));
+      return outcomeOk(companionThreadsPage(threadsInput(), nodeId, page));
     },
-    thread: async (canvasName, nodeId, threadId) => {
+    thread: async (canvasName, nodeId, threadId, page) => {
       if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
-      const messages = seatMailThreadMessages(threadsInput(), nodeId, threadId);
-      if (messages.length === 0) return outcomeFail("not-found", "That thread is not one of this seat's.");
-      return outcomeOk(companionThreadMessages(messages));
+      const thread = companionThreadPage(threadsInput(), nodeId, threadId, page);
+      if (thread === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
+      return outcomeOk(thread);
     },
     // The demo keeps no files: it does not advertise attachments, so a phone sends none.
     stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),

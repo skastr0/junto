@@ -96,13 +96,18 @@ export type CompanionBackend = {
     text: string,
     thread?: CompanionMailThread,
   ) => Promise<CompanionOutcome<CompanionMail>>;
-  /** A seat's threads, fitted to one frame. */
-  readonly threads: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionResultByOp["threads.list"]>>;
-  /** One of a seat's threads, fitted to one frame; not-found when the seat is not in it. */
+  /** A page of a seat's threads, the operator's own first, fitted to one frame. */
+  readonly threads: (
+    canvasName: string,
+    nodeId: string,
+    page?: { readonly limit?: number; readonly after?: string },
+  ) => Promise<CompanionOutcome<CompanionResultByOp["threads.list"]>>;
+  /** A page of one of a seat's threads, fitted to one frame; not-found when the seat is not in it. */
   readonly thread: (
     canvasName: string,
     nodeId: string,
     threadId: string,
+    page?: { readonly limit?: number; readonly before?: string },
   ) => Promise<CompanionOutcome<CompanionResultByOp["thread.get"]>>;
   readonly quickReplies: () => Promise<CompanionOutcome<CompanionResultByOp["quickReplies.get"]>>;
   readonly portrait: (
@@ -382,6 +387,13 @@ export const makeWriteLimiter = (
   };
 };
 
+/** A thread op's page arguments, only those the phone sent. */
+const pageOf = (args: { readonly limit?: number; readonly after?: string; readonly before?: string }) => ({
+  ...(args.limit === undefined ? {} : { limit: args.limit }),
+  ...(args.after === undefined ? {} : { after: args.after }),
+  ...(args.before === undefined ? {} : { before: args.before }),
+});
+
 const respond = async <A>(
   id: string,
   outcome: Promise<CompanionOutcome<A>>,
@@ -465,11 +477,11 @@ export const handleCompanionRequest = async (
       );
     }
     case "threads.list":
-      return respond(id, backend.threads(frame.args.canvasName, frame.args.nodeId), (value) =>
+      return respond(id, backend.threads(frame.args.canvasName, frame.args.nodeId, pageOf(frame.args)), (value) =>
         companionOk(id, "threads.list", value),
       );
     case "thread.get":
-      return respond(id, backend.thread(frame.args.canvasName, frame.args.nodeId, frame.args.threadId), (value) =>
+      return respond(id, backend.thread(frame.args.canvasName, frame.args.nodeId, frame.args.threadId, pageOf(frame.args)), (value) =>
         companionOk(id, "thread.get", value),
       );
     case "quickReplies.get":

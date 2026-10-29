@@ -139,8 +139,8 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `machines.list` | `{}` | `{ "machines": Machine[] }` (at most 32) |
 | `machine.get` | `{ "name": string, "minLevel"?: "trace" \| "debug" \| "info" \| "warn" \| "error" \| "fatal" }` | `{ "machine": Machine, "status": MachineStatus, "logs": MachineLogs }` |
 | `tailnet.peers` | `{}` | `{ "available": boolean, "peers": TailnetPeer[] }` (at most 128) |
-| `threads.list` | `{ "canvasName": string, "nodeId": string }` (closed) | `{ "threads": ThreadSummary[], "cut": boolean }` newest activity first, at most 200 |
-| `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID }` (closed) | `{ "messages": ThreadMessage[], "cut": boolean }` oldest first, at most 200 |
+| `threads.list` | `{ "canvasName": string, "nodeId": string, "limit"?: 1..200, "after"?: string (1 to 256) }` (closed) | `{ "threads": ThreadSummary[], "next"?: string, "cut": boolean }` the operator's own first, then the rest, newest activity first in each, at most 200 |
+| `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed) | `{ "messages": ThreadMessage[], "older"?: string, "cut": boolean }` oldest first, at most 200 |
 | `canvas.open` | `{ "canvasName": string }` (closed) | `{ "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[] }`, then `canvas.changed` events |
 | `canvas.close` | `{ "canvasName": string }` (closed) | `{}` |
 
@@ -171,8 +171,17 @@ Semantics:
   hangs off one root, between the operator and a seat or between seats, and a
   seat's replies to the operator. A summary's `last.text` is a preview of at
   most 280 characters (`textCut: true` when cut); one mail's text is cut at
-  32,000. An answer that would not fit one frame leaves out the oldest
-  threads or messages and says `cut: true`. Bodies, titles and names are the
+  32,000. Both read a page at a time: `threads.list` lists the threads the
+  operator wrote in (`owned`) first, then the rest, each group newest
+  activity first, the thread id descending breaking a tie; `thread.get`
+  gives the newest page of a thread, oldest first within it. A page's `next`
+  (or `older`) is an opaque cursor: send it back as `after` (or `before`) for
+  the page that follows, and stop when it is absent. A cursor names a place in
+  the order, so mail arriving meanwhile never repeats or skips what the phone
+  has yet to see; one the Mac cannot read starts at the top. With no `limit`
+  a page holds up to 200, what a phone before paging always got. A page that
+  would not fit one frame leaves out its oldest threads or messages, says
+  `cut: true`, and its cursor resumes just past the last one sent. Bodies, titles and names are the
   operator's and the seats' own words, sent as stored: show them as plain
   text, never as markup or links that act. There is no read state for
   threads.
@@ -406,6 +415,7 @@ type Mail = {
   attachments?: ContentRef[];                 // files the mail carries; content.get serves them
 };
 
+// ResourceSubject is exactly src/shared/wire/thread-subject.ts: a task, artifact, file or page.
 type ThreadParty = { kind: "operator" } | { kind: "seat"; nodeId: string; name: string };
 type ThreadMessage = {
   messageId: string; threadId: string; inReplyTo?: string;
@@ -413,6 +423,7 @@ type ThreadMessage = {
   mine: boolean;                              // the operator wrote it
   text: string; textCut?: true; at: number;
   attachments?: ContentRef[];                 // files the mail carries; content.get serves them
+  subject?: ResourceSubject;                  // what the thread is about; absent for a mailbox thread
 };
 type ThreadSummary = {
   threadId: string;
@@ -422,6 +433,8 @@ type ThreadSummary = {
   last: ThreadMessage;                        // its text a preview, at most 280 characters
   messageCount: number;
   canReply: boolean;                          // the operator wrote in it, or mail in it is to the operator
+  owned?: boolean;                            // the operator wrote at least one mail in it; absent from an older Mac
+  subject?: ResourceSubject;                  // what the thread is about; absent for a mailbox thread
 };
 ```
 

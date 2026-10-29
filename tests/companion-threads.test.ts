@@ -62,7 +62,7 @@ describe("the phone's cut of a thread", () => {
   it("leaves out a mail whose ids do not fit the wire, not the whole answer", () => {
     const long = { ...worstMessage(1), messageId: "m".repeat(200) };
     expect(companionThreadMessage(long)).toBeUndefined();
-    expect(companionThreadMessages([long, worstMessage(2)]).messages.map((message) => message.messageId)).toEqual([ULID(2)]);
+    expect(companionThreadMessages({ messages: [long, worstMessage(2)] }).messages.map((message) => message.messageId)).toEqual([ULID(2)]);
   });
 
   it("fits a worst-case threads.list and thread.get in one frame, newest kept", () => {
@@ -75,20 +75,37 @@ describe("the phone's cut of a thread", () => {
       last: worstMessage(n),
       messageCount: 1_000,
       canReply: true,
+      owned: false,
     }));
-    const threads = companionThreads(summaries);
+    const threads = companionThreads({ threads: summaries });
     expect(threads.cut).toBe(true);
     expect(threads.threads[0]!.threadId).toBe(ULID(0));
+    // Cut, the next page resumes after the last thread sent.
+    const lastSent = summaries[threads.threads.length - 1]!;
+    expect(threads.next).toBe(`${lastSent.lastAt}.${lastSent.threadId}`);
     const listFrame = companionOk("t1", "threads.list", threads);
     expect(listFrame.ok).toBe(true);
     expect(bytes(listFrame)).toBeLessThan(COMPANION_MAX_OUTBOUND_BYTES);
 
-    const messages = companionThreadMessages(Array.from({ length: 500 }, (_, n) => worstMessage(n)));
+    const messages = companionThreadMessages({ messages: Array.from({ length: 500 }, (_, n) => worstMessage(n)) });
     expect(messages.cut).toBe(true);
     expect(messages.messages.at(-1)!.messageId).toBe(ULID(499));
+    const firstSent = 500 - messages.messages.length;
+    expect(messages.older).toBe(`${firstSent}.${ULID(firstSent)}`);
     const getFrame = companionOk("t2", "thread.get", messages);
     expect(getFrame.ok).toBe(true);
     expect(bytes(getFrame)).toBeLessThan(COMPANION_MAX_OUTBOUND_BYTES);
+  });
+
+  it("carries a thread's subject on its messages and its summary", () => {
+    const subject = { kind: "task" as const, nodeId: asNodeId("board"), taskId: "01KAZ3Q8X4V6W2N5R7T9000042" as never };
+    const message = { ...worstMessage(1), text: "x", from: { kind: "operator" as const }, to: [], subject };
+    expect(companionThreadMessage(message)!.subject).toEqual(subject);
+    const listed = companionThreads({
+      threads: [{ threadId: ULID(1), title: "#42", participants: [], startedAt: 1, lastAt: 1, last: message, messageCount: 1, canReply: true, owned: true, subject }],
+    });
+    expect(listed.threads[0]).toMatchObject({ owned: true, subject, last: { subject } });
+    expect(companionOk("s", "threads.list", listed).ok).toBe(true);
   });
 
   it("answers a send's refusal in fixed words, never a seat's name or the store's", () => {
@@ -124,6 +141,25 @@ describe("threads against the demo", () => {
     });
     const seat = await host.call(frame("seat.get", { canvasName: DEMO_CANVAS, nodeId: "atlas" }));
     expect(seat).toMatchObject({ ok: true, result: { seat: { connected: [{ nodeId: "relay", name: "Relay" }] } } });
+  });
+
+  it("pages a seat's threads and a thread's messages by the cursors it hands out, and refuses an open arg", async () => {
+    const host = makeDemoHost({ appVersion: "test", machineName: "test-mac" });
+    const whole = await host.call(frame("threads.list", { canvasName: DEMO_CANVAS, nodeId: "atlas" }));
+    const one = await host.call(frame("threads.list", { canvasName: DEMO_CANVAS, nodeId: "atlas", limit: 1 }));
+    expect(whole).toMatchObject({ ok: true, result: { threads: [{ owned: true }] } });
+    expect(one).toMatchObject({ ok: true, result: { cut: false, threads: { length: 1 } } });
+    const newest = await host.call(frame("thread.get", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, limit: 1 }));
+    if (!newest.ok) throw new Error("thread.get failed");
+    const page = newest.result as { messages: Array<{ messageId: string }>; older?: string };
+    expect(page.messages).toHaveLength(1);
+    expect(page.older).toBeDefined();
+    const above = await host.call(frame("thread.get", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, limit: 2, before: page.older }));
+    expect(above).toMatchObject({ ok: true, result: { messages: [{ messageId: root.messageId }, { messageId: atlasReply.messageId }] } });
+    expect((above as { result: { older?: string } }).result.older).toBeUndefined();
+    for (const args of [{ limit: 0 }, { limit: 201 }, { after: "" }, { after: "x".repeat(257) }]) {
+      expect(Result.isFailure(decodeCompanionRequestLine(demoRequest("t", "threads.list", { canvasName: DEMO_CANVAS, nodeId: "atlas", ...args })))).toBe(true);
+    }
   });
 
   it("replies in a thread to the browsed seat alone, a mention as a link in the text, and starts a new one", async () => {

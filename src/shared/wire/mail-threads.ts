@@ -46,12 +46,14 @@ export const MailThreadSummary = Schema.Struct({
   messageCount: Schema.Number,
   /** The operator sent mail in it, or mail in it is addressed to the operator. */
   canReply: Schema.Boolean,
+  /** The operator wrote at least one mail in it. */
+  owned: Schema.Boolean,
   /** The resource the thread is about, as its mail names it; absent for a mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
 });
 export type MailThreadSummary = typeof MailThreadSummary.Type;
 
-/** One page of a seat's threads, newest activity first. `next` is the cursor for the page after it; absent at the end. */
+/** One page of a seat's threads, newest activity first (or the operator's own first). `next` is the cursor for the page after it; absent at the end. */
 export type MailThreadsPage = {
   readonly threads: ReadonlyArray<MailThreadSummary>;
   readonly next?: string;

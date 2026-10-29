@@ -194,7 +194,7 @@ describe("main's threads IPC as the source", () => {
     };
     const summary: MailThreadSummary = {
       threadId: "t1", title: "Move them.", participants: [operator, ptyLead], startedAt: at(1, 2), lastAt: at(1, 2),
-      last: first, messageCount: 1, canReply: true,
+      last: first, messageCount: 1, canReply: true, owned: true,
     };
     const mail = new Set<(event: { canvasName: string; nodeId: string }) => void>();
     const seatThreadsList = vi.fn(async () => ({ threads: [summary] }));

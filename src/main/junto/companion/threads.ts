@@ -9,14 +9,14 @@
  */
 import { Effect, Result, Schema } from "effect";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
-import { companionSendRefusal, companionThreadMessages, companionThreads } from "@shared/companion-threads";
+import { companionSendRefusal, companionThreadPage, companionThreadsPage } from "@shared/companion-threads";
 import { OperatorThreadSend } from "@shared/mail-threads";
 import { messageIdTimeMs } from "@shared/message-delivery";
 import { asNodeId } from "@shared/model";
 import { AppRuntime } from "../../runtime";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { ModelService } from "../model/service";
-import { deliverOperatorThreadMail, seatThreadMessages, seatThreads, sendOperatorThreadMail } from "../work/operator-threads";
+import { deliverOperatorThreadMail, seatThreadsInput, sendOperatorThreadMail } from "../work/operator-threads";
 
 /** Undefined when the canvas holds this agent seat; otherwise the refusal. */
 const seatMissing = (canvasName: string, nodeId: string): Promise<CompanionOutcome<never> | undefined> =>
@@ -30,18 +30,18 @@ const seatMissing = (canvasName: string, nodeId: string): Promise<CompanionOutco
   );
 
 export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread" | "mailSend"> = {
-  threads: async (canvasName, nodeId) => {
+  threads: async (canvasName, nodeId, page) => {
     const missing = await seatMissing(canvasName, nodeId);
     if (missing !== undefined) return missing;
-    return outcomeOk(companionThreads(await AppRuntime.runPromise(seatThreads(canvasName, nodeId))));
+    return outcomeOk(companionThreadsPage(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId, page));
   },
 
-  thread: async (canvasName, nodeId, threadId) => {
+  thread: async (canvasName, nodeId, threadId, page) => {
     const missing = await seatMissing(canvasName, nodeId);
     if (missing !== undefined) return missing;
-    const messages = await AppRuntime.runPromise(seatThreadMessages(canvasName, nodeId, threadId));
-    if (messages.length === 0) return outcomeFail("not-found", "That thread is not one of this seat's.");
-    return outcomeOk(companionThreadMessages(messages));
+    const thread = companionThreadPage(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId, threadId, page);
+    if (thread === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
+    return outcomeOk(thread);
   },
 
   mailSend: async (canvasName, nodeId, text, thread = {}) => {

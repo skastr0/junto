@@ -9,7 +9,15 @@
  * are fixed sentences: a send's refusal never carries a seat's name or the
  * mail's text.
  */
-import type { MailParty, MailThreadMessage, MailThreadSummary } from "./wire/mail-threads";
+import {
+  messagesCursorBefore,
+  seatMailThreadEntries,
+  seatMailThreadMessagesPage,
+  seatMailThreadsPage,
+  threadsCursorAfter,
+  type MailThreadsInput,
+} from "./mail-threads";
+import type { MailParty, MailThreadMessage, MailThreadMessagesPage, MailThreadSummary, MailThreadsPage } from "./wire/mail-threads";
 import {
   COMPANION_MAX_OUTBOUND_BYTES,
   COMPANION_THREAD_MESSAGES_MAX,
@@ -29,6 +37,7 @@ const ID_MAX = 128;
 const NAME_MAX = 256;
 const PARTICIPANTS_MAX = 64;
 const RECIPIENTS_MAX = 32;
+const CURSOR_MAX = 256;
 
 const encoder = new TextEncoder();
 const bytesOf = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
@@ -72,6 +81,7 @@ export const companionThreadMessage = (
     ...(text.cut ? { textCut: true as const } : {}),
     at: Number.isFinite(message.at) ? message.at : 0,
     ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
+    ...(message.subject === undefined ? {} : { subject: message.subject }),
   };
 };
 
@@ -87,15 +97,25 @@ const companionThreadSummary = (summary: MailThreadSummary): CompanionThreadSumm
     last,
     messageCount: summary.messageCount,
     canReply: summary.canReply,
+    owned: summary.owned,
+    ...(summary.subject === undefined ? {} : { subject: summary.subject }),
   };
 };
 
-/** A seat's threads, newest activity first, as many as fit; `cut` when older ones were left out. */
-export const companionThreads = (summaries: ReadonlyArray<MailThreadSummary>): CompanionResultByOp["threads.list"] => {
+/** A cursor the wire carries, or none: a page then ends where it was cut, never on a cursor the phone could not send back. */
+const wireCursor = (cursor: string | undefined): { readonly cursor?: string } =>
+  cursor !== undefined && cursor.length > 0 && cursor.length <= CURSOR_MAX ? { cursor } : {};
+
+/**
+ * One page of a seat's threads, in the page's own order, as many as fit. When
+ * some were left out, `cut` says so and `next` resumes after the last one sent.
+ */
+export const companionThreads = (page: MailThreadsPage, ownedFirst = false): CompanionResultByOp["threads.list"] => {
   const threads: CompanionThreadSummary[] = [];
   let bytes = 0;
   let cut = false;
-  for (const summary of summaries) {
+  let lastSent: MailThreadSummary | undefined;
+  for (const summary of page.threads) {
     const thread = companionThreadSummary(summary);
     if (thread === undefined) continue;
     const size = bytesOf(thread) + 1;
@@ -104,20 +124,25 @@ export const companionThreads = (summaries: ReadonlyArray<MailThreadSummary>): C
       break;
     }
     threads.push(thread);
+    lastSent = summary;
     bytes += size;
   }
-  return { threads, cut };
+  const next = cut ? (lastSent === undefined ? undefined : threadsCursorAfter(lastSent, ownedFirst)) : page.next;
+  const { cursor } = wireCursor(next);
+  return { threads, ...(cursor === undefined ? {} : { next: cursor }), cut };
 };
 
-/** One thread oldest first, the newest kept that fit; `cut` when older ones were left out. */
-export const companionThreadMessages = (
-  messages: ReadonlyArray<MailThreadMessage>,
-): CompanionResultByOp["thread.get"] => {
+/**
+ * One page of a thread oldest first, the newest kept that fit. When older ones
+ * were left out, `cut` says so and `older` resumes above the first one sent.
+ */
+export const companionThreadMessages = (page: MailThreadMessagesPage): CompanionResultByOp["thread.get"] => {
   const kept: CompanionThreadMessage[] = [];
   let bytes = 0;
   let cut = false;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = companionThreadMessage(messages[i]!);
+  let firstSent: MailThreadMessage | undefined;
+  for (let i = page.messages.length - 1; i >= 0; i -= 1) {
+    const message = companionThreadMessage(page.messages[i]!);
     if (message === undefined) continue;
     const size = bytesOf(message) + 1;
     if (kept.length >= COMPANION_THREAD_MESSAGES_MAX || bytes + size > COMPANION_THREADS_BUDGET_BYTES) {
@@ -125,9 +150,42 @@ export const companionThreadMessages = (
       break;
     }
     kept.push(message);
+    firstSent = page.messages[i];
     bytes += size;
   }
-  return { messages: kept.reverse(), cut };
+  const older = cut ? (firstSent === undefined ? undefined : messagesCursorBefore(firstSent)) : page.older;
+  const { cursor } = wireCursor(older);
+  return { messages: kept.reverse(), ...(cursor === undefined ? {} : { older: cursor }), cut };
+};
+
+/** A page as the phone asks for it: no limit is the most a page holds, which is what a phone before paging always got. */
+type PhonePage = { readonly limit?: number; readonly after?: string; readonly before?: string };
+
+/** `threads.list`: the operator's own threads first, then the rest, a page at a time. */
+export const companionThreadsPage = (input: MailThreadsInput, nodeId: string, page: PhonePage = {}): CompanionResultByOp["threads.list"] =>
+  companionThreads(
+    seatMailThreadsPage(input, nodeId, {
+      limit: page.limit ?? COMPANION_THREADS_MAX,
+      ...(page.after === undefined ? {} : { after: page.after }),
+      ownedFirst: true,
+    }),
+    true,
+  );
+
+/** `thread.get`: a page of one thread, the newest unless `before` says otherwise; undefined when the thread is not the seat's. */
+export const companionThreadPage = (
+  input: MailThreadsInput,
+  nodeId: string,
+  threadId: string,
+  page: PhonePage = {},
+): CompanionResultByOp["thread.get"] | undefined => {
+  if (!seatMailThreadEntries(input, nodeId).has(threadId)) return undefined;
+  return companionThreadMessages(
+    seatMailThreadMessagesPage(input, nodeId, threadId, {
+      limit: page.limit ?? COMPANION_THREAD_MESSAGES_MAX,
+      ...(page.before === undefined ? {} : { before: page.before }),
+    }),
+  );
 };
 
 /** The seats a mail may mention, within `seat.get`'s bounds. */

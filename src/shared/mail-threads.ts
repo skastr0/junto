@@ -195,6 +195,7 @@ const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyA
     last,
     messageCount: entries.length,
     canReply: entries.some((entry) => entry.mine || entry.to.some((party) => party.kind === "operator")),
+    owned: entries.some((entry) => entry.mine),
     ...(subject === undefined ? {} : { subject }),
   };
 };
@@ -218,6 +219,11 @@ export const seatMailThreadEntries = (input: MailThreadsInput, nodeId: string): 
 /** Newest activity first; the thread id breaks a tie. */
 const byActivity = (a: { lastAt: number; threadId: string }, b: { lastAt: number; threadId: string }): number =>
   b.lastAt - a.lastAt || compareId(b.threadId, a.threadId);
+
+type ActivityKey = { readonly lastAt: number; readonly threadId: string; readonly owned: boolean };
+
+/** The threads the operator wrote in first, then the rest, each group newest activity first. */
+const byOwnedActivity = (a: ActivityKey, b: ActivityKey): number => Number(b.owned) - Number(a.owned) || byActivity(a, b);
 
 /** The threads a seat wrote or was written to in, newest activity first. */
 export const seatMailThreads = (input: MailThreadsInput, nodeId: string): ReadonlyArray<MailThreadSummary> =>
@@ -257,28 +263,49 @@ const readCursor = (cursor: string | undefined): { readonly at: number; readonly
   return dot > 0 && Number.isFinite(at) ? { at, id: cursor.slice(dot + 1) } : undefined;
 };
 
+/** In the owned-first order a cursor also names its group: `o.` or `r.` before the sort key. */
+const ownedCursorOf = (owned: boolean, at: number, id: string): string => `${owned ? "o" : "r"}.${cursorOf(at, id)}`;
+
+const readOwnedCursor = (cursor: string | undefined): { readonly owned: boolean; readonly at: number; readonly id: string } | undefined => {
+  if (cursor === undefined || (!cursor.startsWith("o.") && !cursor.startsWith("r."))) return undefined;
+  const key = readCursor(cursor.slice(2));
+  return key === undefined ? undefined : { owned: cursor.startsWith("o."), ...key };
+};
+
+/** The cursor that asks for the threads after this one, in the order its page was read in. */
+export const threadsCursorAfter = (thread: Pick<MailThreadSummary, "owned" | "lastAt" | "threadId">, ownedFirst = false): string =>
+  ownedFirst ? ownedCursorOf(thread.owned, thread.lastAt, thread.threadId) : cursorOf(thread.lastAt, thread.threadId);
+
+/** The cursor that asks for the messages before this one. */
+export const messagesCursorBefore = (message: Pick<MailThreadMessage, "at" | "messageId">): string => cursorOf(message.at, message.messageId);
+
 /**
  * One page of a seat's threads, newest activity first: the `limit` that come
  * after `after` in that order, and `next` to ask for the page that follows,
- * absent at the end. Only the page's threads are summarised.
+ * absent at the end. Only the page's threads are summarised. `ownedFirst`
+ * puts the threads the operator wrote in ahead of the rest, across pages; its
+ * cursors are its own.
  */
 export const seatMailThreadsPage = (
   input: MailThreadsInput,
   nodeId: string,
-  page: { readonly limit?: number; readonly after?: string } = {},
+  page: { readonly limit?: number; readonly after?: string; readonly ownedFirst?: boolean } = {},
 ): MailThreadsPage => {
   const limit = pageSize(page.limit, THREADS_PAGE_DEFAULT);
-  const after = readCursor(page.after);
+  const ownedFirst = page.ownedFirst === true;
+  const order = ownedFirst ? byOwnedActivity : byActivity;
+  const plain = readCursor(page.after);
+  const after = ownedFirst ? readOwnedCursor(page.after) : plain === undefined ? undefined : { ...plain, owned: false };
   const keyed = [...threadsTouching(input, nodeId)]
-    .map(([threadId, entries]) => ({ threadId, entries, lastAt: entries[entries.length - 1]!.at }))
-    .sort(byActivity);
-  const start = after === undefined ? 0 : keyed.findIndex((item) => byActivity(item, { lastAt: after.at, threadId: after.id }) > 0);
+    .map(([threadId, entries]) => ({ threadId, entries, lastAt: entries[entries.length - 1]!.at, owned: entries.some((entry) => entry.mine) }))
+    .sort(order);
+  const start = after === undefined ? 0 : keyed.findIndex((item) => order(item, { lastAt: after.at, threadId: after.id, owned: after.owned }) > 0);
   const rest = start < 0 ? [] : keyed.slice(start);
   const held = rest.slice(0, limit);
   const last = held[held.length - 1];
   return {
     threads: held.map((item) => summaryOf(input, item.threadId, item.entries)),
-    ...(rest.length > limit && last !== undefined ? { next: cursorOf(last.lastAt, last.threadId) } : {}),
+    ...(rest.length > limit && last !== undefined ? { next: threadsCursorAfter(last, ownedFirst) } : {}),
   };
 };
 

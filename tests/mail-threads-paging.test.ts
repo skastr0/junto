@@ -17,6 +17,7 @@ import {
 } from "../src/shared/mail-threads";
 import { makeUserMessage } from "../src/shared/task";
 import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
+import { ActorSeatId } from "../src/shared/wire/resource-actor";
 import type { Message } from "../src/shared/work-model";
 
 const SEAT = "seat-1";
@@ -40,6 +41,25 @@ const operatorMail = (at: number, text: string, threadId?: string): Message =>
         senderHarness: "unknown",
       }),
       ...(threadId === undefined ? {} : { threadId }),
+    },
+  });
+
+/** Mail from another seat into SEAT: a thread the operator did not write in. */
+const peerMail = (at: number, text: string): Message =>
+  makeUserMessage({
+    messageId: ulid(at),
+    text,
+    contextId: "factory",
+    metadata: {
+      factoryMail: true,
+      ...mailExtensionMetadata({
+        mailKind: "prompt",
+        fromSeat: ActorSeatId.make(`seat_${"a".repeat(64)}`),
+        senderNodeId: "seat-2",
+        senderName: "peer",
+        senderGeneration: "peer",
+        senderHarness: "unknown",
+      }),
     },
   });
 
@@ -126,6 +146,51 @@ describe("a seat's threads, a page at a time", () => {
     const input = inputOf(roots(12));
     const full = seatMailThreads(input, SEAT);
     expect(seatMailThreadsPage(input, SEAT, { limit: 4 }).threads).toEqual(full.slice(0, 4));
+  });
+});
+
+describe("the operator's own threads first", () => {
+  /** Twelve threads a minute apart, every third one a peer's, the first the oldest. */
+  const mixed = (): Message[] =>
+    Array.from({ length: 12 }, (_, n) => (n % 3 === 0 ? peerMail(minute(n), `peer ${n}`) : operatorMail(minute(n), `own ${n}`)));
+
+  const walkOwned = (input: MailThreadsInput, limit: number): string[] => {
+    const seen: string[] = [];
+    let after: string | undefined;
+    do {
+      const page = seatMailThreadsPage(input, SEAT, { limit, ownedFirst: true, ...(after === undefined ? {} : { after }) });
+      seen.push(...ids(page));
+      after = page.next;
+    } while (after !== undefined);
+    return seen;
+  };
+
+  it("lists the threads the operator wrote in, then the rest, each newest first, across pages", () => {
+    const input = inputOf(mixed());
+    const full = seatMailThreads(input, SEAT);
+    const owned = full.filter((thread) => thread.owned).map((thread) => thread.threadId);
+    const rest = full.filter((thread) => !thread.owned).map((thread) => thread.threadId);
+    expect(owned).toHaveLength(8);
+    expect(walkOwned(input, 3)).toEqual([...owned, ...rest]);
+    expect(seatMailThreadsPage(input, SEAT, { limit: 12 }).threads.map((thread) => thread.threadId)).toEqual(full.map((thread) => thread.threadId));
+  });
+
+  it("keeps its place when a reply makes a peer's thread the operator's own", () => {
+    const held = mixed();
+    const input = inputOf(held);
+    const page1 = seatMailThreadsPage(input, SEAT, { limit: 4, ownedFirst: true });
+    const peerThread = held[0]!.messageId;
+    const after = inputOf([...held, operatorMail(minute(50), "now mine", peerThread)]);
+    const page2 = seatMailThreadsPage(after, SEAT, { limit: 4, ownedFirst: true, after: page1.next });
+    expect(ids(page2).filter((id) => ids(page1).includes(id))).toEqual([]);
+    expect(ids(page2)).not.toContain(peerThread);
+  });
+
+  it("starts at the top for a cursor of the other order", () => {
+    const input = inputOf(mixed());
+    const plain = seatMailThreadsPage(input, SEAT, { limit: 2 });
+    expect(ids(seatMailThreadsPage(input, SEAT, { limit: 2, ownedFirst: true, after: plain.next! })))
+      .toEqual(ids(seatMailThreadsPage(input, SEAT, { limit: 2, ownedFirst: true })));
   });
 });
 
