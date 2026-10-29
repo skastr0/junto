@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { asPadElementId, emptyPad, type Pad, type PadShape } from "../src/shared/pad";
 import { connectEdge, portAt, portOf, shapePorts, snapTarget } from "../src/renderer/components/pad/pad-connect";
+import { routeEdge } from "../src/shared/pad-geom";
 
 const shape = (id: string, x: number, y: number, z = 0): PadShape =>
   ({ id: asPadElementId(id), type: "box", x, y, w: 100, h: 60, z }) as PadShape;
@@ -52,7 +53,6 @@ describe("pad connectors", () => {
 
 describe("pad edge routes", () => {
   test("an edge leaves the side facing its target and lands on the target's facing side", async () => {
-    const { routeEdge } = await import("../src/shared/pad-geom");
     const right = routeEdge(shape("a", 0, 0), shape("b", 300, 0));
     expect(right[0]).toEqual({ x: 100, y: 30 });
     expect(right.at(-1)).toEqual({ x: 300, y: 30 });

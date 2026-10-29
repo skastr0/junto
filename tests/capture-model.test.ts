@@ -8,7 +8,8 @@ import { decodeArtifactBody, type ArtifactBody } from "../src/shared/artifact";
 import { mentionHref } from "../src/shared/mention";
 import type { NodeId } from "../src/shared/physics/schema";
 import type { ItemId } from "../src/shared/work-ids";
-import { captureTitleOf, convertCapture, isEmptyCapture, UNTITLED_CAPTURE } from "../src/renderer/components/capture/capture-model";
+import { captureTitleOf, convertCapture, isEmptyCapture, moveSuggestionsFor, UNTITLED_CAPTURE } from "../src/renderer/components/capture/capture-model";
+import { artifacts, canvasOf } from "./support/model-nodes";
 
 const doc = (markdown: string): ArtifactBody => ({ type: "document", markdown });
 const valid = (body: ArtifactBody): ArtifactBody => {
@@ -57,8 +58,6 @@ describe("a type switch", () => {
 
 describe("Move to's suggestions for an artifact", () => {
   it("say why each node is offered, from the words the editor holds", async () => {
-    const { moveSuggestionsFor } = await import("../src/renderer/components/capture/capture-model");
-    const { artifacts, canvasOf } = await import("./support/model-nodes");
     const canvas = canvasOf([artifacts("inbox"), artifacts("ops", { x: 400 })]);
     const head = (id: string, nodeId: string, title: string, markdown: string) =>
       ({

@@ -36,6 +36,7 @@ import { StateEngine } from "../src/main/junto/state/service";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
+import { occupiedSeat, seatAdmission } from "../src/shared/terminal-seat-occupancy";
 
 
 const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
@@ -500,9 +501,6 @@ describe("overseer native adapters", () => {
   });
 
   it("wakes an already-occupied seat through occupy (activate path), never a second occupy-vacant", async () => {
-    const { occupiedSeat, seatAdmission } = await import(
-      "../src/shared/terminal-seat-occupancy"
-    );
     const occupied = occupiedSeat("bind-a1", "live-epoch", "local");
     const admission = seatAdmission(occupied);
     expect(admission._tag).toBe("ActivateOccupiedSeat");

@@ -12,6 +12,7 @@ import { COMPANION_PROTOCOL } from "../src/shared/companion-protocol";
 import { runCompanionSession } from "../src/shared/companion-session";
 import { parseCompanionStdioArgs } from "../src/cli/companion-stdio";
 import { THIS_MACHINE } from "./support/machines";
+import { rasterizePortraitSvg } from "../src/main/junto/companion/portrait-png";
 
 type Frame = Record<string, any>;
 
@@ -349,7 +350,6 @@ describe("demo canvas", () => {
 
 describe("demo portraits as PNG", () => {
   it("draws a portrait with the rasterizer it is given", async () => {
-    const { rasterizePortraitSvg } = await import("../src/main/junto/companion/portrait-png");
     const host = makeDemoHost({ machineName: THIS_MACHINE, portraitPng: rasterizePortraitSvg });
     const reply = await host.call(JSON.parse(demoRequest("p1", "portrait.get", { portraitIdentity: "atlas", size: 64, theme: "dark", format: "png" })));
     expect(reply.ok).toBe(true);

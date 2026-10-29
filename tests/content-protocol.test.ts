@@ -16,7 +16,10 @@ import {
   contentObjectUrl,
   parseContentObjectUrl,
 } from "../src/shared/content-url";
-import { createContentProtocolHandler } from "../src/main/junto/content/protocol";
+import {
+  CONTENT_PROTOCOL_SCHEME_REGISTRATION,
+  createContentProtocolHandler,
+} from "../src/main/junto/content/protocol";
 import { parseByteRangeHeader } from "../src/main/junto/content/range";
 import { contentObjectPath, contentStoreRoot } from "../src/main/junto/content/paths";
 import { ensureContentLayout } from "../src/main/junto/content/store";
@@ -232,9 +235,6 @@ describe("content protocol handler", () => {
 
 describe("content protocol scheme privileges", () => {
   it("enables CORS for the content scheme (cross-origin renderer)", async () => {
-    const { CONTENT_PROTOCOL_SCHEME_REGISTRATION } = await import(
-      "../src/main/junto/content/protocol"
-    );
     expect(CONTENT_PROTOCOL_SCHEME_REGISTRATION.privileges.corsEnabled).toBe(
       true,
     );

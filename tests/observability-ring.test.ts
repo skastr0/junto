@@ -12,7 +12,7 @@ import {
   defaultSettings,
 } from "../src/shared/settings";
 import { Schema, Result } from "effect";
-import { makeObservabilityRing } from "../src/main/junto/observability/ring";
+import { makeObservabilityRing, observabilityRing } from "../src/main/junto/observability/ring";
 import { ObservabilityEffectLogger } from "../src/main/junto/observability/logger";
 
 const entry = (
@@ -153,9 +153,6 @@ describe("Effect logger sink", () => {
   it("captures Effect.log* Info+ into the process ring via replace default", async () => {
     // Use a private ring by temporarily logging through the logger factory
     // against the singleton — clear first so the suite is isolated.
-    const { observabilityRing } = await import(
-      "../src/main/junto/observability/ring"
-    );
     observabilityRing.clear();
 
     const runtime = ManagedRuntime.make(

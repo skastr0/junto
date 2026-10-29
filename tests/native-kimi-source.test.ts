@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   buildKimiSnapshot,
@@ -9,6 +10,7 @@ import {
   detailValue,
   extractKimiCodeAccessToken,
   kimiCodeCredentialFresh,
+  kimiSource,
   parseCodeApiUsage,
   parseSubscriptionStats,
   parseWebUsage,
@@ -316,9 +318,7 @@ describe("redaction", () => {
     globalThis.fetch = (async () => new Response("unauthorized", { status: 401 })) as unknown as typeof globalThis.fetch;
     process.env.KIMI_AUTH_TOKEN = secret;
     try {
-      const { Effect } = await import("effect");
-      const mod = await import("../src/main/junto/usage/kimi-source");
-      const snapshot = await Effect.runPromise(mod.kimiSource.fetch);
+      const snapshot = await Effect.runPromise(kimiSource.fetch);
       expect(snapshot.ok).toBe(false);
       // The whole serialized envelope - error copy included - stays clean.
       expect(JSON.stringify(snapshot)).not.toContain(secret);
@@ -335,9 +335,7 @@ describe("redaction", () => {
       Response.json(WEB_USAGE_FIXTURE, { status: 200 })) as unknown as typeof globalThis.fetch;
     process.env.KIMI_AUTH_TOKEN = secret;
     try {
-      const { Effect } = await import("effect");
-      const mod = await import("../src/main/junto/usage/kimi-source");
-      const snapshot = await Effect.runPromise(mod.kimiSource.fetch);
+      const snapshot = await Effect.runPromise(kimiSource.fetch);
       expect(snapshot.ok).toBe(true);
       expect(JSON.stringify(snapshot)).not.toContain(secret);
     } finally {

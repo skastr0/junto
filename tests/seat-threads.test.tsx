@@ -16,6 +16,7 @@ import {
   betweenLine,
   groupSeatThreads,
   participantsLine,
+  refreshSeatThreads,
   resetSeatThreads,
   setSeatThreadsSource,
   type SeatThreadMessage,
@@ -785,7 +786,6 @@ describe("paging in the popup", () => {
     everything.splice(75, 1);
     everything.unshift({ ...lifted, lastAt: at(5, 0) });
     await act(async () => {
-      const { refreshSeatThreads } = await import("../src/renderer/lib/seat-threads");
       refreshSeatThreads(SEAT);
     });
     await flush();
@@ -836,7 +836,6 @@ describe("paging in the popup", () => {
     await flush();
     const gone = everything.splice(10, 1)[0]!;
     await act(async () => {
-      const { refreshSeatThreads } = await import("../src/renderer/lib/seat-threads");
       refreshSeatThreads(SEAT);
     });
     await flush();

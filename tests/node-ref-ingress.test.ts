@@ -7,6 +7,7 @@ import {
   makeNodeRefIngress,
   type NodeRefIngressTarget,
 } from "../src/main/junto/node-ref-ingress";
+import * as nodeRefIngress from "../src/main/junto/node-ref-ingress";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -149,7 +150,6 @@ describe("owner-memory open-url selection", () => {
   });
 
   it("has no filesystem relay exports, paths, artifacts, or watcher", async () => {
-    const module = await import("../src/main/junto/node-ref-ingress");
     const [ingressSource, indexSource] = await Promise.all([
       readFile(
         new URL("../src/main/junto/node-ref-ingress.ts", import.meta.url),
@@ -165,7 +165,7 @@ describe("owner-memory open-url selection", () => {
       ["publishNodeRef", "OpenUrl"].join(""),
     ];
     for (const name of retiredExports) {
-      expect(name in module).toBe(false);
+      expect(name in nodeRefIngress).toBe(false);
       expect(productSource).not.toContain(name);
     }
     for (const signature of [

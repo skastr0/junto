@@ -15,6 +15,10 @@ import {
 } from "../src/shared/seat-launch-params";
 import { applySettingsPatch, defaultSettings, harnessPrefsFor } from "../src/shared/settings";
 import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
+import { profileBodyOfSeat, seatFromProfile } from "../src/renderer/lib/agent-profiles";
+import { decodeProfileBody } from "../src/shared/agent-profiles";
+import { decodeSquadBody } from "../src/shared/squads";
+import { Result } from "effect";
 
 const seat = (
   harness: "claude" | "codex" | "hermes" | "devin" | "amp",
@@ -236,7 +240,6 @@ describe("harness settings: default extra arguments", () => {
 
 describe("profiles and squads carry the start parameters", () => {
   it("captures a seat's parameters into a profile and seats them again", async () => {
-    const { profileBodyOfSeat, seatFromProfile } = await import("../src/renderer/lib/agent-profiles");
     const node = seat("claude", {
       model: "opus",
       permissionMode: "bypassPermissions",
@@ -259,9 +262,6 @@ describe("profiles and squads carry the start parameters", () => {
   });
 
   it("decodes stored extra arguments leniently and keeps them on squad members", async () => {
-    const { decodeProfileBody } = await import("../src/shared/agent-profiles");
-    const { decodeSquadBody } = await import("../src/shared/squads");
-    const { Result } = await import("effect");
     expect(
       decodeProfileBody({ name: "a", harness: "claude", extraArgs: ["--verbose", 7, "  ", " --x "] })?.extraArgs,
     ).toEqual(["--verbose", "--x"]);

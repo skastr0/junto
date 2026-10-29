@@ -6,11 +6,17 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { NodeOf } from "../src/shared/model";
-import type { SeatSessionRepository as SeatSessions } from "../src/main/junto/seat-sessions/repository";
 import {
+  SeatSessionRepository,
+  type SeatSessionRepository as SeatSessions,
+} from "../src/main/junto/seat-sessions/repository";
+import {
+  CACHE_QUESTION_GONE,
   SeatStatusClock,
+  coldSessionStartsFresh,
   makeOperatorOffboard,
   parseSeatClockRecord,
+  setOperatorOffboard,
   waitsOnOperator,
   type OffboardSeat,
   type OperatorOffboardPorts,
@@ -27,6 +33,7 @@ import {
   seatCacheDueForWindow,
 } from "../src/main/junto/seat-sessions/operator-offboard-ipc";
 import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/operator-holds";
+import { seatLaunchState } from "../src/main/junto/term/seat-launch-state";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { initialSnapshot, type SeatSnapshot, type SeatStatus } from "../src/shared/harness-domain";
 import type { BindingId } from "../src/shared/terminal-session-domain";
@@ -716,9 +723,6 @@ describe("the seat's next turn: the same test as the cut", () => {
 
 describe("the seat against its cache window, as its card reads it", () => {
   it("tells a still seat that picks up where it was how far past its harness's window it is, by this machine's clock and rules", async () => {
-    const { setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
-    const { SeatSessionRepository } = await import("../src/main/junto/seat-sessions/repository");
-    const { seatLaunchState } = await import("../src/main/junto/term/seat-launch-state");
     const w = world([seat("a", { harness: "amp" })], {
       rules: { ...defaultOffboardRules(), cacheMode: "hybrid", harness: { amp: { cacheWindowMinutes: 5 } } },
     });
@@ -1064,7 +1068,6 @@ describe("the clock across a restart", () => {
 
 describe("the renderer's two calls", () => {
   it("check what arrives off IPC and never throw", async () => {
-    const { setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
     const w = world([seat("a"), seat("b", { state: "working" })]);
     setOperatorOffboard(w.offboard);
     try {
@@ -1111,9 +1114,6 @@ describe("the renderer's two calls", () => {
 
 describe("the start decision, as every start asks it", () => {
   it("judges each start by why it starts, and resumes when nothing is installed or the decision fails", async () => {
-    const { coldSessionStartsFresh, setOperatorOffboard } = await import(
-      "../src/main/junto/seat-sessions/operator-offboard"
-    );
     const cold = { canvasName: CANVAS, seatId: "cold" };
     const warm = { canvasName: CANVAS, seatId: "warm" };
     expect(await coldSessionStartsFresh(cold, "operator")).toBe(false);
@@ -1349,7 +1349,6 @@ describe("the cache mode, case by case", () => {
   });
 
   it("the window's answer is decoded closed, names the open question, and never throws", async () => {
-    const { CACHE_QUESTION_GONE, setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
     const good = { canvasName: CANVAS, seatId: "a", question: qid(1), answer: "keep" };
     expect(await handleSeatCacheDueAnswer(good)).toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
     const w = world([seat("a")], { rules: inMode("auto") });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { PadShape } from "../src/shared/pad";
 import { PAD_LOOK, padArrowHead, padEdgeMid, padTextLayout } from "../src/shared/pad-project";
+import { FIT_ZOOM_MIN, fitCamera } from "../src/renderer/components/pad/pad-editor-model";
 
 const box = (w: number, h: number, type: PadShape["type"] = "box"): PadShape =>
   ({ id: "s", type, x: 0, y: 0, w, h, z: 0 }) as PadShape;
@@ -45,7 +46,6 @@ describe("pad look", () => {
 
 describe("pad fit", () => {
   test("fitting a wide pad stops at the floor and opens at its top left", async () => {
-    const { FIT_ZOOM_MIN, fitCamera } = await import("../src/renderer/components/pad/pad-editor-model");
     const camera = fitCamera({ x: 100, y: 50, w: 4000, h: 300 }, { w: 800, h: 600 });
     expect(camera.zoom).toBe(FIT_ZOOM_MIN);
     expect(camera.x).toBeCloseTo(100 - 48 / FIT_ZOOM_MIN);
@@ -53,7 +53,6 @@ describe("pad fit", () => {
   });
 
   test("a pad that fits is centred as before", async () => {
-    const { fitCamera } = await import("../src/renderer/components/pad/pad-editor-model");
     const camera = fitCamera({ x: 0, y: 0, w: 400, h: 300 }, { w: 800, h: 600 });
     expect(camera.zoom).toBeCloseTo(Math.min(704 / 400, 504 / 300));
   });

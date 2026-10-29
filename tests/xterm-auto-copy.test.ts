@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  attachXtermAutoCopy,
   selectionTextForCopy,
   shouldAutoCopySelection,
   type XtermSelectionApi,
@@ -68,9 +69,6 @@ describe("attachXtermAutoCopy", () => {
   };
 
   it("writes clipboard on mouseup when selection is present", async () => {
-    const { attachXtermAutoCopy } = await import(
-      "../src/renderer/lib/xterm-auto-copy"
-    );
     const host = mockHost();
     const write = vi.fn(async () => undefined);
     const dispose = attachXtermAutoCopy(host.el, term("picked text"), write);
@@ -82,9 +80,6 @@ describe("attachXtermAutoCopy", () => {
   });
 
   it("does not write when selection is empty", async () => {
-    const { attachXtermAutoCopy } = await import(
-      "../src/renderer/lib/xterm-auto-copy"
-    );
     const host = mockHost();
     const write = vi.fn(async () => undefined);
     const dispose = attachXtermAutoCopy(host.el, term("   "), write);
@@ -95,9 +90,6 @@ describe("attachXtermAutoCopy", () => {
   });
 
   it("does not touch the clipboard while copy-on-select is disabled", async () => {
-    const { attachXtermAutoCopy } = await import(
-      "../src/renderer/lib/xterm-auto-copy"
-    );
     const host = mockHost();
     const write = vi.fn(async () => undefined);
     const dispose = attachXtermAutoCopy(
