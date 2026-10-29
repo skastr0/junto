@@ -60,11 +60,13 @@ const NOT_TYPING: ReadonlyArray<KeyContext> = ["canvas", "working", "operator"];
 export type ShortcutArea =
   | "Anywhere"
   | "Search and feed"
+  | "Quick capture"
   | "Canvas"
   | "Agent and terminal"
   | "Inside a node"
   | "Inside quick open"
   | "Inside search"
+  | "Inside quick capture"
   | "Inside the needs-you feed"
   | "Inside a list"
   | "Inside a preview"
@@ -79,11 +81,13 @@ export type ShortcutArea =
 export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Anywhere",
   "Search and feed",
+  "Quick capture",
   "Canvas",
   "Agent and terminal",
   "Inside a node",
   "Inside quick open",
   "Inside search",
+  "Inside quick capture",
   "Inside the needs-you feed",
   "Inside a list",
   "Inside a preview",
@@ -100,6 +104,7 @@ export type ShortcutId =
   | "search.open"
   | "search.slash"
   | "feed.open"
+  | "capture.open"
   | "groups.assign"
   | "groups.recall"
   | "groups.jump"
@@ -146,6 +151,12 @@ export type SurfaceKeyId =
   | "inSearch.mode"
   | "inSearch.go"
   | "inSearch.open"
+  | "inCapture.move"
+  | "inCapture.open"
+  | "inCapture.node"
+  | "inCapture.new"
+  | "inCapture.search"
+  | "inCapture.route"
   | "inList.next"
   | "inList.previous"
   | "inList.first"
@@ -252,6 +263,17 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     mac: ["Cmd+I"],
     other: ["Ctrl+I"],
     where: OVER_DIALOGS,
+    whereOther: ["canvas", "field", "working", "operator", "dialog"],
+  },
+  {
+    id: "capture.open",
+    name: "Start a capture",
+    area: "Quick capture",
+    does: "Open quick capture with the caret in a new document, or close it when it is open",
+    mac: ["Cmd+T"],
+    other: ["Ctrl+T"],
+    where: OVER_DIALOGS,
+    // Ctrl+T transposes two characters in a shell.
     whereOther: ["canvas", "field", "working", "operator", "dialog"],
   },
   {
@@ -616,6 +638,62 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Open the search result, wherever search was opened from",
     keys: ["Cmd+Enter"],
     keysOther: ["Ctrl+Enter"],
+    where: ["operator"],
+  }),
+
+  // Quick capture is an operator modal too: the list and its preview on the
+  // left, the editor on the right. The keys act on the row in focus, never
+  // while the caret is in the editor, where they are the editor's own.
+  surfaceKey({
+    id: "inCapture.move",
+    area: "Inside quick capture",
+    name: "Move through the list",
+    does: "Move through the captures; the preview follows the row",
+    keys: ["ArrowDown", "ArrowUp"],
+    shown: [["Arrow keys"]],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.open",
+    area: "Inside quick capture",
+    name: "Edit the capture",
+    does: "Edit the focused capture in place",
+    keys: ["Enter"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.node",
+    area: "Inside quick capture",
+    name: "Open it in its node",
+    does: "Open the focused capture in its own node",
+    keys: ["Cmd+Enter"],
+    keysOther: ["Ctrl+Enter"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.new",
+    area: "Inside quick capture",
+    name: "Start another capture",
+    does: "Start another capture; the one in front stays saved",
+    keys: ["Cmd+N"],
+    keysOther: ["Ctrl+N"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.search",
+    area: "Inside quick capture",
+    name: "Go to the search field",
+    does: "Put the keyboard in the search field",
+    keys: ["Cmd+L"],
+    keysOther: ["Ctrl+L"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inCapture.route",
+    area: "Inside quick capture",
+    name: "Move it to another node",
+    does: "Move the focused capture to another Artifacts node",
+    keys: ["M"],
     where: ["operator"],
   }),
 

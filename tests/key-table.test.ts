@@ -282,6 +282,53 @@ describe("the key table on macOS", () => {
   });
 });
 
+describe("quick capture", () => {
+  it("opens with Cmd+T from everywhere search does, terminals and dialogs included", () => {
+    for (const context of [...APP, "dialog"] as const) {
+      expect(resolveKey(key({ key: "t", metaKey: true }), at(context))).toEqual({ id: "capture.open" });
+    }
+    // The switcher is up while Cmd is held: its own rows decide.
+    expect(resolveKey(key({ key: "t", metaKey: true }), at("switcher"))).toBeNull();
+    expect(resolveKey(key({ key: "T", metaKey: true, shiftKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "t", metaKey: true, altKey: true }), at("canvas"))).toBeNull();
+  });
+
+  it("opens with Ctrl+T elsewhere, never from a terminal", () => {
+    for (const context of ["canvas", "field", "working", "operator", "dialog"] as const) {
+      expect(resolveKey(key({ key: "t", ctrlKey: true }), at(context, false))).toEqual({ id: "capture.open" });
+    }
+    // Ctrl+T transposes two characters in a shell.
+    expect(resolveKey(key({ key: "t", ctrlKey: true }), at("terminal", false))).toBeNull();
+    expect(resolveKey(key({ key: "t", metaKey: true }), at("canvas", false))).toBeNull();
+  });
+
+  it("moves through the list and preview with arrows, edit, open and route on the surface's own keys", () => {
+    const row = (id: string) => KEY_TABLE.find((def) => def.id === id)!;
+    const keys = (id: string, mac = true) => chordsFor(row(id), mac);
+    expect(keys("inCapture.move")).toEqual(["ArrowDown", "ArrowUp"]);
+    expect(keys("inCapture.open")).toEqual(["Enter"]);
+    expect(keys("inCapture.node")).toEqual(["Cmd+Enter"]);
+    expect(keys("inCapture.node", false)).toEqual(["Ctrl+Enter"]);
+    expect(keys("inCapture.new")).toEqual(["Cmd+N"]);
+    expect(keys("inCapture.new", false)).toEqual(["Ctrl+N"]);
+    expect(keys("inCapture.search")).toEqual(["Cmd+L"]);
+    expect(keys("inCapture.search", false)).toEqual(["Ctrl+L"]);
+    expect(keys("inCapture.route")).toEqual(["M"]);
+    for (const id of [
+      "inCapture.move",
+      "inCapture.open",
+      "inCapture.node",
+      "inCapture.new",
+      "inCapture.search",
+      "inCapture.route",
+    ]) {
+      expect(row(id).surface, id).toBe(true);
+      expect(row(id).area, id).toBe("Inside quick capture");
+      expect(row(id).where, id).toEqual(["operator"]);
+    }
+  });
+});
+
 describe("the key table off macOS", () => {
   it("keeps Ctrl+K and Ctrl+I, anywhere but a terminal", () => {
     for (const context of ["canvas", "field", "working", "operator"] as const) {
@@ -453,7 +500,7 @@ describe("the agent view and the canvas", () => {
 });
 
 describe("under a dialog", () => {
-  it("answers only search, the feed and closing what is in front", () => {
+  it("answers only search, the feed, quick capture and closing what is in front", () => {
     const live = new Set<string>();
     for (const def of KEY_TABLE) {
       if (def.surface) continue;
@@ -462,7 +509,7 @@ describe("under a dialog", () => {
         if (hit) live.add(hit.id);
       }
     }
-    expect([...live].sort()).toEqual(["feed.open", "front.close", "search.open"]);
+    expect([...live].sort()).toEqual(["capture.open", "feed.open", "front.close", "search.open"]);
   });
 
   it("does not jump to another agent, undo, or cycle alerts from under a dialog", () => {
