@@ -9,6 +9,7 @@ const { QuickCaptureButton } = await import("../src/renderer/components/QuickCap
 const { closeOperatorModal, operatorModal$ } = await import("../src/renderer/lib/operator-modal");
 const { keyAria, keyCaps } = await import("../src/renderer/lib/key-match");
 const { isMac } = await import("../src/renderer/lib/platform");
+const { focusSwitcher$ } = await import("../src/renderer/lib/focus-switcher");
 
 let root: Root;
 let host: HTMLDivElement;
@@ -51,5 +52,13 @@ describe("the quick capture button", () => {
     await act(async () => button().click());
     expect(operatorModal$.open.peek()).toBeNull();
     expect(button().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes a focus switcher held open under the press, as Cmd+T does", async () => {
+    await act(async () => root.render(<QuickCaptureButton />));
+    focusSwitcher$.session.set({ entries: [], selectedIndex: 0 } as never);
+    await act(async () => button().click());
+    expect(focusSwitcher$.session.peek()).toBeNull();
+    expect(operatorModal$.open.peek()).toBe("capture");
   });
 });
