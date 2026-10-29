@@ -23,9 +23,6 @@ describe("what a node is called", () => {
       { kind: "git", ...at, cwd: "/Users/me/Projects/junto" },
     ];
     expect(nodes.map(titleOf)).toEqual([
-      "requests",
-      "requests",
-      "board",
       "untitled",
       "first",
       "unnamed region",
