@@ -54,6 +54,14 @@ const choose = async (page: Page, scope: Locator, label: string | RegExp, option
   await page.getByRole("option", { name: option, exact: typeof option === "string" ? true : undefined }).first().click();
 };
 
+/** A sentence as a reader hears it: the hidden label words a Select carries (sr-only, bcbca4801) are left out. */
+const spokenSentence = (sentence: Locator): Promise<string> =>
+  sentence.evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll(".sr-only").forEach((node) => node.remove());
+    return copy.textContent ?? "";
+  });
+
 const pickSeat = async (page: Page, field: Locator, name: string): Promise<void> => {
   await field.click();
   await field.pressSequentially(`@${name}`);
@@ -126,7 +134,7 @@ test("automations A1 to A3: the operator's example fires, pickers, an artifact w
     await choose(page, trigger, "What it watches", "a task");
     await expect(trigger.getByRole("button", { name: SCOPE_TASKS })).toContainText("Release");
     await choose(page, trigger, BECOMES, "done");
-    await expect(trigger.locator(".automation-editor__sentence")).toContainText(/When\s*a task\s*in\s*Release\s*becomes\s*done/u);
+    await expect.poll(() => spokenSentence(trigger.locator(".automation-editor__sentence"))).toMatch(/When\s*a task\s*in\s*Release\s*becomes\s*done/u);
 
     // (2a) One task: a #task picker that lists the board's tasks.
     await choose(page, trigger, SCOPE_TASKS, /^(one task|named)$/u);
