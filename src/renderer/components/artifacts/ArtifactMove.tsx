@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { FolderInput } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import type { ItemId } from "@shared/resource-command";
@@ -48,6 +48,12 @@ export function ArtifactMoveDialog({
   const targets = useMemo(() => suggestedFirst(moveTargets(canvas, from), suggestions), [canvas, from, suggestions]);
   const [typed, setTyped] = useState("");
   const [active, setActive] = useState<string | undefined>(() => targets.find((target) => target.suggested !== undefined)?.id);
+  // Suggestions read after the picker opened still pick their first, unless the operator already picked or typed.
+  const firstSuggested = targets.find((target) => target.suggested !== undefined)?.id;
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!touched.current && firstSuggested !== undefined) setActive(firstSuggested);
+  }, [firstSuggested]);
   /** Still to move: a retry after a refusal names only these. */
   const [left, setLeft] = useState(artifacts);
   const [moved, setMoved] = useState<{ readonly titles: ReadonlyArray<string>; readonly queued: number }>({ titles: [], queued: 0 });
@@ -136,6 +142,7 @@ export function ArtifactMoveDialog({
           placeholder="Type a node or a region, or pick one"
           value={typed}
           onValueChange={(value) => {
+            touched.current = true;
             setTyped(value);
             setError(null);
           }}
@@ -150,9 +157,15 @@ export function ArtifactMoveDialog({
             </span>
           )}
           activeKey={active}
-          onActiveKeyChange={setActive}
+          onActiveKeyChange={(key) => {
+            touched.current = true;
+            setActive(key);
+          }}
           onCommit={(target) => commit(target)}
-          onOptionClick={(target) => setActive(target.id)}
+          onOptionClick={(target) => {
+            touched.current = true;
+            setActive(target.id);
+          }}
           onOptionDoubleClick={doublePress}
           empty={
             <p className="artifact-move__none">
