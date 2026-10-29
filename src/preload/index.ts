@@ -96,6 +96,13 @@ const USAGE_REFRESH_TIMEOUT_MS = 120_000;
 // a real agent turn; give it headroom above the default 45s ceiling.
 const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
 
+/**
+ * Setting a secret's value can take up to three `op` calls in main (list, get,
+ * edit), each with a 30 s deadline, and then the answer: past them all, so
+ * only a main that never answers trips this.
+ */
+const SIGNAL_SECRET_PUT_TIMEOUT_MS = 120_000;
+
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -485,7 +492,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text, options),
   agentSignalReply: (signalId, reply) =>
     invoke(IPC_CHANNELS.agentSignalReply, IPC_TIMEOUT_MS, signalId, reply),
-  signalSecretPut: (request) => invoke(IPC_CHANNELS.signalSecretPut, IPC_TIMEOUT_MS, request),
+  signalSecretPut: (request) => invoke(IPC_CHANNELS.signalSecretPut, SIGNAL_SECRET_PUT_TIMEOUT_MS, request),
   agentSignalDismiss: (signalId) =>
     invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
   previewRead: (request) => invoke(IPC_CHANNELS.previewRead, IPC_TIMEOUT_MS, request),
