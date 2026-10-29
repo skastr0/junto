@@ -142,9 +142,11 @@ export function ArtifactMoveDialog({
           options={shown}
           optionKey={(target) => target.id}
           renderOption={(target) => (
-            <span className="artifact-move__target">
+            <span className={target.suggested === undefined ? "artifact-move__target" : "artifact-move__target artifact-move__target--suggested"}>
               <span className="artifact-move__name">{target.title}</span>
-              <span className="artifact-move__place">{target.suggested === undefined ? target.place : `${target.place}. Suggested: ${target.suggested}`}</span>
+              <span className="artifact-move__place">{target.place}</span>
+              {/* Its own line under the name, never clipped by the place's width. */}
+              {target.suggested === undefined ? null : <span className="artifact-move__why">Suggested: {target.suggested}</span>}
             </span>
           )}
           activeKey={active}

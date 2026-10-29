@@ -300,6 +300,19 @@
   white-space: nowrap;
 }
 
+/* A suggested node (11 Q5): its reason wraps onto a line of its own. */
+.artifact-move__target--suggested {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.artifact-move__why {
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
 .artifact-move__none {
   margin: 0;
   padding: 8px;
