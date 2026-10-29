@@ -17,6 +17,7 @@ import {
   type SignalForm,
   type WorkReply,
 } from "../../lib/signal-work";
+import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
 import { LiveMarkdownField } from "../artifacts/lazy-editors";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
@@ -172,7 +173,8 @@ function SecretWork({
   useEffect(() => {
     if (!refocus.current) return;
     refocus.current = false;
-    field.current?.focus();
+    // The operator's Enter licenses it: refocus is set only when the field held focus as it sent.
+    claimFocus(field.current, "gesture");
   }, [attempt]);
   const canvas = useCanvas(canvasName);
   const region = canvas.nodes.get(form.regionId as NodeId);

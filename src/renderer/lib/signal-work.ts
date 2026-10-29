@@ -5,6 +5,7 @@
  * The contract is N1's (`@shared/wire/agent-signals`, the feed item).
  */
 import type { FeedItem } from "@shared/operator-feed";
+import { IPC_NO_ANSWER_PREFIX } from "@shared/ipc";
 import { ruleSignalReply, type SignalReply } from "@shared/signal-reply";
 import { admitLinkUrl, type SignalForm, type WorkTiming } from "@shared/wire/agent-signals";
 import { Level, levelOfSignal } from "@shared/wire/urgency";
@@ -195,9 +196,5 @@ export const putSignalSecret = async (signalId: string, value: string): Promise<
 /** The field was emptied before the send, so after a refusal or a failure the value has to be given again. Said here once, not by main. */
 const PASTE_AGAIN = "Paste it again.";
 
-/**
- * The preload's own words when main does not answer within the call's wait
- * (`invoke` in src/preload/index.ts): its prefix only, never the rest.
- */
-const BACKEND_TIMEOUT_PREFIX = "junto: backend did not respond";
-const isBackendTimeout = (error: unknown): boolean => error instanceof Error && error.message.startsWith(BACKEND_TIMEOUT_PREFIX);
+/** The preload's own words when main does not answer within the call's wait: its prefix only, never the rest. */
+const isBackendTimeout = (error: unknown): boolean => error instanceof Error && error.message.startsWith(IPC_NO_ANSWER_PREFIX);

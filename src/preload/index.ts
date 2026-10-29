@@ -38,6 +38,7 @@ import {
   type ObservabilityQuery,
   type ObservabilitySnapshot,
   type ViewStateApplyResult,
+  ipcNoAnswerMessage,
 } from "@shared/ipc";
 import type { ViewStateEvent, ViewStateSnapshot, ViewStateWrite } from "@shared/view-state";
 import type { AutomationsChanged } from "@shared/automation";
@@ -106,7 +107,7 @@ const SIGNAL_SECRET_PUT_TIMEOUT_MS = 120_000;
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`junto: backend did not respond (${channel}). Try restarting the app.`));
+      reject(new Error(ipcNoAnswerMessage(channel)));
     }, timeoutMs);
     ipcRenderer.invoke(channel, ...args).then(
       (value) => {

@@ -3,6 +3,7 @@ import { signalWordCount as wordCountOf } from "../src/shared/word-count";
 import { afterEach, vi } from "vitest";
 import { dueWords, handInSignalWork, putSignalSecret, replyRefusalOf, sentenceOf, wordProgressOf, wordProgressWords, workIsDue } from "../src/renderer/lib/signal-work";
 import { artifactLabelsOf } from "../src/shared/artifact-labels";
+import { IPC_CHANNELS, ipcNoAnswerMessage } from "../src/shared/ipc";
 
 describe("word count", () => {
   it("counts what a reader reads: markdown's own marks are not words", () => {
@@ -93,7 +94,7 @@ describe("a secret's value, through the vault", () => {
     expect(await putSignalSecret("s1", "the-value")).toEqual({ ok: false, message: "The secret was not set. Paste it again." });
     // A wait that ran out says the value may be set, not that it was not.
     vi.stubGlobal("window", {
-      junto: { signalSecretPut: async () => Promise.reject(new Error("junto: backend did not respond (junto:signal-secret-put). Try restarting the app.")) },
+      junto: { signalSecretPut: async () => Promise.reject(new Error(ipcNoAnswerMessage(IPC_CHANNELS.signalSecretPut))) },
     });
     expect(await putSignalSecret("s1", "the-value")).toEqual({
       ok: false,

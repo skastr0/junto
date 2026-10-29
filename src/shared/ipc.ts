@@ -184,6 +184,14 @@ export type AgentSignalAnswerOptions = {
   readonly attachments?: ReadonlyArray<ContentRef>;
 };
 
+/**
+ * How the preload words a call main did not answer within its wait: this
+ * prefix, then the channel. The window tells a wait that ran out from a
+ * failure by it (a secret put that timed out may still have set the value).
+ */
+export const IPC_NO_ANSWER_PREFIX = "junto: backend did not respond";
+export const ipcNoAnswerMessage = (channel: string): string => `${IPC_NO_ANSWER_PREFIX} (${channel}). Try restarting the app.`;
+
 export const IPC_CHANNELS = {
   liveStart: "junto:live-start",
   liveEnd: "junto:live-end",
