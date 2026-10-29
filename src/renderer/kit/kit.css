@@ -22,6 +22,7 @@
 @source "../components/edges/WirePulseView.tsx";
 @source "../components/ui/Button.tsx";
 @source "../components/ui/Kbd.tsx";
+@source "../components/ui/ResourceChip.tsx";
 @source "../components/ui/StatusDot.tsx";
 @source "../components/signals/QuickReplies.tsx";
 @source "../components/feed/FeedCardView.tsx";
