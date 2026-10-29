@@ -6,7 +6,7 @@ import { applyArtifactOp } from "../../lib/artifacts-source";
 import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
 import { Button, Combobox, Dialog, Popover } from "../ui";
-import { matchTargets, moveTargets, reachChange, reachLine, type MoveTarget } from "./artifact-move-model";
+import { matchTargets, moveTargets, reachChange, reachLine, suggestedFirst, type MoveSuggestion, type MoveTarget } from "./artifact-move-model";
 
 /** What the picker moves: each artifact by id, with the title its lines name it by. */
 export type MovingArtifact = { readonly artifactId: ItemId; readonly title: string };
@@ -14,6 +14,7 @@ export type MovingArtifact = { readonly artifactId: ItemId; readonly title: stri
 /** What a move that left nothing behind says to the node. */
 export type MoveDone = { readonly titles: ReadonlyArray<string>; readonly queued: number; readonly to: MoveTarget };
 
+const NO_SUGGESTIONS: ReadonlyArray<MoveSuggestion> = [];
 const NO_ANSWER = "Junto got no answer for that move. Try again.";
 
 /**
@@ -30,6 +31,7 @@ export function ArtifactMoveDialog({
   canvasName,
   from,
   artifacts,
+  suggestions = NO_SUGGESTIONS,
   onDone,
   onCancel,
 }: {
@@ -37,13 +39,15 @@ export function ArtifactMoveDialog({
   /** The node they are on: left out of the list. */
   readonly from: NodeId;
   readonly artifacts: ReadonlyArray<MovingArtifact>;
+  /** Nodes offered first, the first already picked (11 Q5); a capture's routes. */
+  readonly suggestions?: ReadonlyArray<MoveSuggestion>;
   readonly onDone: (done: MoveDone) => void;
   readonly onCancel: () => void;
 }) {
   const canvas = useCanvas(canvasName);
-  const targets = useMemo(() => moveTargets(canvas, from), [canvas, from]);
+  const targets = useMemo(() => suggestedFirst(moveTargets(canvas, from), suggestions), [canvas, from, suggestions]);
   const [typed, setTyped] = useState("");
-  const [active, setActive] = useState<string | undefined>(undefined);
+  const [active, setActive] = useState<string | undefined>(() => targets.find((target) => target.suggested !== undefined)?.id);
   /** Still to move: a retry after a refusal names only these. */
   const [left, setLeft] = useState(artifacts);
   const [moved, setMoved] = useState<{ readonly titles: ReadonlyArray<string>; readonly queued: number }>({ titles: [], queued: 0 });
@@ -140,7 +144,7 @@ export function ArtifactMoveDialog({
           renderOption={(target) => (
             <span className="artifact-move__target">
               <span className="artifact-move__name">{target.title}</span>
-              <span className="artifact-move__place">{target.place}</span>
+              <span className="artifact-move__place">{target.suggested === undefined ? target.place : `${target.place}. Suggested: ${target.suggested}`}</span>
             </span>
           )}
           activeKey={active}

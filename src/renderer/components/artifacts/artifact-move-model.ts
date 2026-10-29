@@ -17,7 +17,12 @@ export type MoveTarget = {
   readonly title: string;
   /** The innermost regions holding it, by name; "No region" at the root. */
   readonly place: string;
+  /** Why it is suggested (11 Q5), when it is. */
+  readonly suggested?: string;
 };
+
+/** A node offered first, and why (11 Q5). */
+export type MoveSuggestion = { readonly nodeId: NodeId; readonly why: string };
 
 export const NO_REGION = "No region";
 
@@ -42,6 +47,18 @@ export const moveTargets = (canvas: Canvas, from: NodeId): ReadonlyArray<MoveTar
     .filter((node) => node.kind === "artifacts" && node.id !== from)
     .map((node) => ({ id: node.id as NodeId, title: titleOf(node), place: placeOf(canvas, node.id as NodeId) }))
     .sort(byName);
+
+/**
+ * The targets with the suggested ones first, in the order suggested, each
+ * saying why; a suggestion that is not a target is dropped.
+ */
+export const suggestedFirst = (targets: ReadonlyArray<MoveTarget>, suggestions: ReadonlyArray<MoveSuggestion>): ReadonlyArray<MoveTarget> => {
+  const first = suggestions.flatMap(({ nodeId, why }) => {
+    const target = targets.find((one) => one.id === nodeId);
+    return target === undefined ? [] : [{ ...target, suggested: why }];
+  });
+  return [...first, ...targets.filter((target) => !first.some((one) => one.id === target.id))];
+};
 
 /** The targets whose name or region holds what is typed, case blind. */
 export const matchTargets = (targets: ReadonlyArray<MoveTarget>, typed: string): ReadonlyArray<MoveTarget> => {
