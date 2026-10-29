@@ -51,4 +51,12 @@ describe("kit purity", () => {
     expect(reached.filter((line) => !PEERS.some((peer) => peerOf(line) === peer || peerOf(line).startsWith(`${peer}/`)))).toEqual([]);
     expect(modules.filter((path) => readFileSync(resolve(root, path), "utf8").includes("window.junto"))).toEqual([]);
   });
+
+  it("builds utilities for every kit module: kit.css names each one as a Tailwind source", async () => {
+    const graph = await kitGraph();
+    const sheet = readFileSync(resolve(root, "src/renderer/kit/kit.css"), "utf8");
+    const sources = new Set([...sheet.matchAll(/@source "\.\.\/([^"]+)";/g)].map((match) => `src/renderer/${match[1]!}`));
+    const views = Object.keys(graph.inputs).filter((path) => path.endsWith(".tsx"));
+    expect(views.filter((path) => !sources.has(path))).toEqual([]);
+  });
 });

@@ -1,11 +1,28 @@
-/* TEMPORARY (product-typography, 2026-10-29): the whole app sheet ships here
-   only for a shadow root, and only to a site pinned to a kit version. It
-   becomes the theme tokens as generated, the seat, ring, portrait, bubble
-   and pulse rules, and the utilities the kit uses, once those rules leave
-   styles.css for a file of their own.
+/* The kit's one sheet, the narrow surface product-typography approved:
+   - the theme tokens as generated (never copied, so a token change reaches
+     the site by rebuild) and the layer tokens the pulse stacks on;
+   - the seat card's motion and its ring's compositor layer (seat-card.css);
+   - Tailwind utilities for the kit's own modules only, listed below;
+   - each view's own sheet, which comes in through its import.
+   The ring atlas is written at runtime (activity-atlas.ts; mirrorMarkAtlas
+   for a shadow root). The kit build twins every :root and html[...] rule
+   onto :host, so the sheet works inside a shadow root (vite.kit.config.ts).
+   tests/kit-purity.test.ts fails when a kit module is missing from the list. */
+@import "tailwindcss" source(none);
+@import "../styles/theme.generated.css";
+@import "../styles/layers.css";
+@import "../styles/seat-card.css";
 
-   The kit's one sheet: the app's own styles (tokens, Tailwind utilities, the
-   seat, ring and canvas rules), so a seat drawn on the site is the seat the
-   app draws. The kit build also writes every root and bright-theme selector
-   for :host, so the sheet works inside a shadow root (vite.kit.config.ts). */
-@import "../styles.css";
+@source "../components/seat-view-source.tsx";
+@source "../components/ActivityMark.tsx";
+@source "../components/HarnessMark.tsx";
+@source "../components/AgentPortrait.tsx";
+@source "../components/nodes/AgentSeatView.tsx";
+@source "../components/nodes/PreambleBubbleView.tsx";
+@source "../components/edges/WirePulseView.tsx";
+@source "../components/ui/Button.tsx";
+@source "../components/ui/Kbd.tsx";
+@source "../components/ui/StatusDot.tsx";
+@source "../components/signals/QuickReplies.tsx";
+@source "../components/feed/FeedCardView.tsx";
+@source "../components/onboarding/tour-demo.tsx";
