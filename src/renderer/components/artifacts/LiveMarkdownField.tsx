@@ -49,7 +49,12 @@ const REST_MS = 800;
 /** Marks a change that came from the host, not from the operator's typing. */
 const fromHost = Annotation.define<boolean>();
 
-const editable = (readOnly: boolean) => [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
+const editable = (readOnly: boolean) => [
+  EditorState.readOnly.of(readOnly),
+  EditorView.editable.of(!readOnly),
+  // A text that cannot be written says so, not only by refusing keys.
+  EditorView.contentAttributes.of({ "aria-readonly": readOnly ? "true" : "false" }),
+];
 
 const keys = new WeakMap<HTMLElement, string>();
 let nextKey = 0;
