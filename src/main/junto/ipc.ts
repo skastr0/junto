@@ -64,6 +64,7 @@ import { registerViewStateIpc } from "./view-state/ipc";
 import { shellEnvironment } from "./shell-environment";
 import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
+import { installArtifactMove, moveArtifacts } from "./work/artifact-move";
 import { liveResourceIpcPorts, registerResourceIpc } from "./work/resource-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
@@ -313,28 +314,29 @@ export const registerJuntoIpc = (): void => {
   registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   registerViewStateIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   // The renderer's tasks and artifacts: main's stores, main's ruler (resource-ipc.ts).
+  const resourcePorts = liveResourceIpcPorts((canvasName) =>
+    Effect.tryPromise({
+      try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+      catch: () => ({
+        type: "InternalError" as const,
+        message: `canvas ${canvasName} could not be read`,
+        details: { retryable: true },
+      }),
+    }).pipe(Effect.map((read) => read.canvas)),
+    // A task's or an artifact's comments, held at its node: read only.
+    (canvasName, nodeId) =>
+      Effect.tryPromise({
+        try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
+        catch: () => ({
+          type: "InternalError" as const,
+          message: `the comments on ${nodeId} could not be read`,
+          details: { retryable: true },
+        }),
+      }));
   registerResourceIpc(
     privilegedIpc,
     (effect) => AppRuntime.runPromise(effect),
-    liveResourceIpcPorts((canvasName) =>
-      Effect.tryPromise({
-        try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
-        catch: () => ({
-          type: "InternalError" as const,
-          message: `canvas ${canvasName} could not be read`,
-          details: { retryable: true },
-        }),
-      }).pipe(Effect.map((read) => read.canvas)),
-      // A task's or an artifact's comments, held at its node: read only.
-      (canvasName, nodeId) =>
-        Effect.tryPromise({
-          try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
-          catch: () => ({
-            type: "InternalError" as const,
-            message: `the comments on ${nodeId} could not be read`,
-            details: { retryable: true },
-          }),
-        })),
+    resourcePorts,
     broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED, file: productNodeKindEnabled("files") },
     {
@@ -343,6 +345,8 @@ export const registerJuntoIpc = (): void => {
       thread: (operation) => runMainAuthoring("ipc.resource.thread-post", operation),
     },
   );
+  // Moving artifacts (0.11.1, 10): the overseer and the window run the same move, each under its caller's authoring label.
+  installArtifactMove((input, by) => AppRuntime.runPromise(moveArtifacts(resourcePorts, input, by)));
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
   registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {

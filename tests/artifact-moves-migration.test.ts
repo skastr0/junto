@@ -35,7 +35,7 @@ const openCopy = async (fixture: string): Promise<DatabaseSync> => {
 };
 
 const tables = (database: DatabaseSync): ReadonlyArray<string> =>
-  (database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as ReadonlyArray<{ name: string }>).map(
+  (database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as unknown as ReadonlyArray<{ name: string }>).map(
     (row) => row.name,
   );
 

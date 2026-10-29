@@ -40,8 +40,12 @@ export type ArtifactMoveRunRow =
       readonly artifactId: ItemId;
       readonly title: string;
       readonly ok: true;
-      /** `unchanged`: it was already on `toNode`, so a retried move is no refusal. */
-      readonly outcome: "moved" | "unchanged";
+      /**
+       * `unchanged`: it was already on `toNode`, so a retried move is no
+       * refusal. `queued`: another machine edits this canvas and has not
+       * ruled the move yet; `junto op show` reads what became of it.
+       */
+      readonly outcome: "moved" | "unchanged" | "queued";
       readonly from: NodeId;
       readonly to: NodeId;
     }
@@ -77,7 +81,7 @@ export const ARTIFACT_MOVE_REFUSAL_REASON: Readonly<Record<ArtifactMoveRefusalCo
   failed: "The artifact could not be moved. Nothing about it changed.",
 };
 
-/** Count the rows of a run. `unchanged` counts as neither moved nor refused. */
+/** Count the rows of a run. `unchanged` and `queued` count as neither moved nor refused. */
 export const summarizeArtifactMoveRun = (results: ReadonlyArray<ArtifactMoveRunRow>): ArtifactMoveRunResult => ({
   results,
   moved: results.filter((row) => row.ok && row.outcome === "moved").length,
