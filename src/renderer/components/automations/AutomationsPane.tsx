@@ -373,10 +373,10 @@ export function AutomationsPane({
   const save = async (
     base: AutomationVersion | undefined = editing?.base,
     draft: AutomationDraft | undefined = editing?.draft,
-  ): Promise<void> => {
-    if (!editing || draft === undefined) return;
+  ): Promise<boolean> => {
+    if (!editing || draft === undefined) return false;
     const finished = finishDraft(draft);
-    if (!finished.ok) return;
+    if (!finished.ok) return false;
     const automationId = draft.automationId;
     const { definition } = finished;
     const result = await send(
@@ -392,6 +392,7 @@ export function AutomationsPane({
     );
     if (result.kind === "applied" && result.automation)
       open(editingOf(result.automation));
+    return result.kind === "applied";
   };
 
   const codeAction = codeStep === undefined ? undefined : editing?.draft.then[codeStep];
@@ -506,7 +507,8 @@ export function AutomationsPane({
     setBusy(false);
     const draft = editDraft(editing.draft, { type: "action", index, action: { ...action, source: put.ref } });
     setEditing({ ...editing, draft });
-    await save(editing.base, draft);
+    // The buffer is what the head holds once the save lands: Back then has nothing to ask about.
+    if (await save(editing.base, draft)) setCodeHeld((prior) => (prior === undefined ? prior : { ...prior, loaded: text }));
   };
 
   // A loaded automation turns on and off at once, keeping any edits in the draft.
