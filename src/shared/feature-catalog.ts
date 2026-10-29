@@ -169,8 +169,9 @@ export const FEATURE_CATALOG = {
   /**
    * The signal action in automations (0.11/07, N2): an automation raising a
    * signal in the needs-you feed, and answers back into automations (0.11/09).
-   * On in ship from 0.11.1, after its real-app walks. Off, a save refuses the action, the editor and the CLI do not
-   * offer it, and a stored one is ruled not_available unraised. Seat raises
+   * On in ship from 0.11.1, after its real-app walks. Off, a save refuses
+   * the action, the editor and the CLI do not offer it, and a stored one is
+   * ruled not_available unraised. Seat raises
    * and their forms (N1, N3, N4) are not under it.
    */
   automationSignals: {
@@ -254,7 +255,8 @@ export const SHIP_FEATURES: FeatureSet = {
   vault: false,
   // Unverified in the real app at the freeze: flips on when its walk passes (0.11 release checklist).
   codeSteps: false,
-  // On in 0.11.1: N2 and H5 walked in the real app, dark and bright (operator-work-verify 25/25, human-loop-h5-verify 12/12).
+  // On from 0.11.1: N2 and H5 walked in the real app, dark and bright
+  // (operator-work-verify 25/25, human-loop-h5-verify 12/12).
   automationSignals: true,
   harnessHermes: true,
   harnessKimi: true,

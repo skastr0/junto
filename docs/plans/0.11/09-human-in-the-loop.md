@@ -24,10 +24,11 @@ name the automation formats.
   for a review). Each lands in the feed section a seat's would, from the
   automation's name. `notice` stays for something only to read. `work` goes,
   because `escalate` with N1's forms (text, artifact, secret, proof) covers
-  it. N2 shipped gated off (`automationSignals`), so no stored automation
-  should hold `work`. automation-lead confirms that on a copy of the
-  operator's database and maps any stored `work` to `escalate` when it is
-  read. The gate turns on in ship after the walk.
+  it. N2 shipped gated off in 0.11.0 (`automationSignals`), so no stored
+  automation held `work` (the operator's database had none); any stored
+  `work` is read as `escalate`. The gate is on in ship from 0.11.1, after
+  the walks (15c9e388e). The secret form waits for the vault (0.12): until
+  then a signal step asking for a secret is refused at save (6d22439c8).
 - **3. An answer starts an automation.** There is a new change watch,
   "When a signal raised by [automation] is answered". It can narrow to one
   signal step or kind. Its values are:
