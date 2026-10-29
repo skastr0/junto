@@ -384,3 +384,9 @@ export const STATE_SCHEMA_V65_SQL = stepped(
   STATE_SCHEMA_V64_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 65)!.migrate,
 );
+
+/** Step 66 adds `operator_mail_reads`, the operator's read point in each mail thread (0.11.3). */
+export const STATE_SCHEMA_V66_SQL = stepped(
+  STATE_SCHEMA_V65_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 66)!.migrate,
+);

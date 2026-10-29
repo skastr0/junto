@@ -78,6 +78,7 @@ import {
 } from "./migrate-board-requests";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import { VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
+import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -824,7 +825,16 @@ export const STATE_SCHEMA_V65_IDENTITY = {
     "aefea4547b37028b6d112aa8fe56efa1d8024b9ea2347ea405f9b6e9e33e8850",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 65;
+/**
+ * Version 66 keeps the operator's read point in each mail thread (0.11.3):
+ * `operator_mail_reads`, one row per thread of a canvas. Expand only.
+ */
+export const STATE_SCHEMA_V66_IDENTITY = {
+  actualSchemaSha256:
+    "964fd315da714095a3f049d96f87cfa5b7b622573d2304537dfe79eb2e5499fd",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 66;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -832,7 +842,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 65;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V65_IDENTITY;
+  STATE_SCHEMA_V66_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1348,6 +1358,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V64_IDENTITY,
     migrate: (database) => database.exec(VIEW_CAPTURE_INBOX_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 65,
+    toVersion: 66,
+    name: "keep the operator's mail read points",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V65_IDENTITY,
+    migrate: (database) => database.exec(OPERATOR_MAIL_READS_SCHEMA_SQL),
   },
 ];
 
