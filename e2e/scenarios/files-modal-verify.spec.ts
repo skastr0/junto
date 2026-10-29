@@ -35,7 +35,7 @@ test("files modal: tree, open, rename by keyboard, the watch sees outside change
   const root = stage.fixture.root;
   const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [CANVAS]: modelFixture([filesNode(root)]) } });
   const results: Result[] = [];
-  const check = async (row: string, run: () => Promise<void>): Promise<void> => {
+  const check = async (row: string, run: () => void | Promise<void>): Promise<void> => {
     try {
       await run();
       results.push({ row, pass: true });
