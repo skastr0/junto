@@ -4,6 +4,7 @@ import type { WorkItemsOf } from "./execution-graph";
 import { earliestStateSince, type ExecutionGraph } from "./execution-graph";
 import { rankStoppageSeeds } from "./impact";
 import { attentionText, feedRegionForCanvas, type FeedCanvasNeed } from "./operator-feed";
+import type { TaskView } from "./task-model";
 
 /**
  * What the canvas knows that no seat said, as needs for the operator feed:
@@ -22,6 +23,31 @@ const holdsUp = (count: number): string =>
 
 const earlier = (a: number | undefined, b: number | undefined): number | undefined =>
   a === undefined ? b : b === undefined ? a : Math.min(a, b);
+
+/** How much of a task's title a card's sentence carries before it is cut. */
+const TASK_TITLE_MAX = 60;
+
+/** "#42 fix tabs", or undefined while a create still waits for its number. */
+const taskNamed = (task: TaskView): string | undefined => {
+  if (task.number === undefined) return undefined;
+  const title = task.title.trim().replace(/\s+/gu, " ");
+  const short = title.length > TASK_TITLE_MAX ? `${title.slice(0, TASK_TITLE_MAX - 1).trimEnd()}…` : title;
+  return short === "" ? `#${task.number}` : `#${task.number} ${short}`;
+};
+
+/**
+ * "wants your input", naming the task that has waited longest: its number is
+ * what the feed reads as a chip that opens it (task 378). The words stay
+ * plain, so a surface that cannot open a task still reads a sentence, and a
+ * task still waiting for its number leaves the sentence as it was.
+ */
+const inputText = (waiting: ReadonlyArray<TaskView>): string => {
+  const first = [...waiting].sort((a, b) => a.stateSince - b.stateSince)[0];
+  const named = first === undefined ? undefined : taskNamed(first);
+  if (named === undefined) return attentionText("");
+  const more = waiting.length - 1;
+  return more === 0 ? `${named} wants your input` : `${named} and ${more} more want your input`;
+};
 
 export const feedCanvasModelNeeds = (input: {
   readonly canvasName: string;
@@ -77,7 +103,7 @@ export const feedCanvasModelNeeds = (input: {
   }
   for (const node of nodes) {
     const waiting = (node.kind === "task" ? itemsOf(node.id) : []).filter((task) => task.current.state === "input-required");
-    if (waiting.length > 0) add(node.id, "input", "attention", attentionText(""), earliestStateSince(waiting));
+    if (waiting.length > 0) add(node.id, "input", "attention", inputText(waiting), earliestStateSince(waiting));
   }
   for (const [nodeId, since] of input.wantsInput ?? []) add(nodeId, "input", "attention", attentionText(""), since);
   return [...out.values()];

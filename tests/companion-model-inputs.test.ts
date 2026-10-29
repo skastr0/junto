@@ -5,6 +5,7 @@ import { ActorSeatId } from "../src/shared/actor-seat";
 import { feedSeatsFromCanvas, feedRegionForCanvas } from "../src/shared/operator-feed";
 import { feedCanvasModelNeeds } from "../src/shared/canvas-needs";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
+import type { TaskNumber } from "../src/shared/task-model";
 import { mailboxRows } from "../src/renderer/lib/actor-ledger";
 import { THIS_MACHINE } from "./support/machines";
 import { heldTask, taskView } from "./support/seat-tasks";
@@ -35,6 +36,24 @@ it("companion canvas needs use separately queried Work waits and their real star
   const needs = feedCanvasModelNeeds({ canvasName: "factory", canvas, graph, itemsOf });
   expect(needs.find((need) => need.seat.nodeId === task.id)).toMatchObject({ seat: { name: "Queue" }, region: { label: "Ops" }, since: Date.parse("2026-10-07T10:00:00.000Z") });
   expect(needs.find((need) => need.seat.nodeId === seat.id)?.kind).toBe("blocked");
+});
+
+it("a board that wants input names the task that has waited longest", () => {
+  const older = {
+    ...taskView(task.id, { title: "pick the release name", stateSince: 100, current: { state: "input-required" } }),
+    number: 42 as TaskNumber,
+  };
+  const newer = {
+    ...taskView(task.id, { title: "rename the tabs", stateSince: 200, current: { state: "input-required" } }),
+    number: 43 as TaskNumber,
+  };
+  const items = [newer, older];
+  const itemsOf = (nodeId: string) => (nodeId === task.id ? items : []);
+  const graph = deriveExecutionGraph(canvas, { canvasName: "factory", heldBy: {}, resolveActorRef: () => undefined });
+  const needs = feedCanvasModelNeeds({ canvasName: "factory", canvas, graph, itemsOf });
+  expect(needs.find((need) => need.seat.nodeId === task.id)?.text).toBe(
+    "#42 pick the release name and 1 more want your input",
+  );
 });
 
 it("model mailbox rows retain sender labels and delivered/read receipt state", () => {
