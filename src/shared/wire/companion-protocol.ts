@@ -20,7 +20,7 @@
  */
 
 import { Result, Schema } from "effect";
-import { AgentSignal, AgentSignalKind } from "./agent-signals";
+import { AgentSignal, AgentSignalKind, type SignalSource } from "./agent-signals";
 import { ContentDisplayName, ContentMediaType, ContentRef, ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 import { RingState } from "./rings";
@@ -853,6 +853,42 @@ export type CompanionOutboundFrame = typeof CompanionOutboundFrame.Type;
 // --- builders ----------------------------------------------------------------
 
 /**
+ * A signal, or a feed item, as it leaves on this wire: an automation's step
+ * stays on the Mac. Its raised values alone run to 32 KB, so a seat's fifty
+ * signals would overrun one frame, and the phone reads nothing in it. The
+ * whole step goes, since `raised` is required inside it.
+ */
+export const companionSignal = <S extends { readonly source?: SignalSource }>(signal: S): S => {
+  const source = signal.source;
+  if (source?.kind !== "automation" || source.step === undefined) return signal;
+  const { step: _step, ...rest } = source;
+  return { ...signal, source: rest };
+};
+
+const companionFeed = (feed: OperatorFeed): OperatorFeed => ({
+  ...feed,
+  sections: feed.sections.map((section) => ({ ...section, items: section.items.map(companionSignal) })),
+});
+
+/** Every result that carries a signal or a feed, through companionSignal. */
+const leavingResult = (op: CompanionOpName, result: unknown): unknown => {
+  switch (op) {
+    case "seat.get": {
+      const { seat } = result as CompanionResultByOp["seat.get"];
+      return { seat: { ...seat, signals: seat.signals.map(companionSignal) } };
+    }
+    case "signal.answer":
+    case "signal.dismiss":
+      return { signal: companionSignal((result as CompanionResultByOp["signal.answer"]).signal) };
+    case "feed.get":
+    case "feed.subscribe":
+      return { feeds: (result as CompanionResultByOp["feed.get"]).feeds.map(companionFeed) };
+    default:
+      return result;
+  }
+};
+
+/**
  * A success response, checked against its op's own result schema. The wire
  * frame does not name its op, so only here can a result be held to the right
  * shape; a mismatch becomes an `internal` error for the same request.
@@ -862,7 +898,7 @@ export const companionOk = <Op extends CompanionOpName>(
   op: Op,
   result: CompanionResultByOp[Op],
 ): CompanionResponseFrame => {
-  const encoded = Schema.encodeUnknownResult(CompanionResults[op] as unknown as Schema.Codec<unknown>)(result);
+  const encoded = Schema.encodeUnknownResult(CompanionResults[op] as unknown as Schema.Codec<unknown>)(leavingResult(op, result));
   if (Result.isFailure(encoded)) return companionFail(id, companionError("internal", COMPANION_ERROR_COPY.internal));
   return { v: COMPANION_PROTOCOL, type: "response", id, ok: true, result: encoded.success } as CompanionResponseFrame;
 };
@@ -879,12 +915,24 @@ export const companionError = (
   code: CompanionErrorCode,
   message: string,
   signal?: AgentSignal,
-): CompanionError => ({ code, message, ...(signal ? { signal } : {}) });
+): CompanionError => ({ code, message, ...(signal ? { signal: companionSignal(signal) } : {}) });
+
+const leavingEvent = (event: CompanionEventName, data: unknown): unknown => {
+  switch (event) {
+    case "signal.changed":
+      return { signal: companionSignal((data as CompanionEventDataByName["signal.changed"]).signal) };
+    case "feed.changed":
+      return { feed: companionFeed((data as CompanionEventDataByName["feed.changed"]).feed) };
+    default:
+      return data;
+  }
+};
 
 export const companionEvent = <E extends CompanionEventName>(
   event: E,
   data: CompanionEventDataByName[E],
-): CompanionEventFrame => ({ v: COMPANION_PROTOCOL, type: "event", event, data }) as CompanionEventFrame;
+): CompanionEventFrame =>
+  ({ v: COMPANION_PROTOCOL, type: "event", event, data: leavingEvent(event, data) }) as CompanionEventFrame;
 
 /** Plain messages for errors raised by the protocol itself. */
 export const COMPANION_ERROR_COPY: Readonly<Record<CompanionErrorCode, string>> = {

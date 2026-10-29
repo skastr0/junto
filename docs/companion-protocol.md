@@ -309,8 +309,9 @@ subscribed phone never needs to poll.
 
 `OperatorFeed`, `FeedSection`, `FeedItem`, `FeedSeat`, `FeedRegion` and
 `FeedHealth` are exactly the desktop shapes in `src/shared/operator-feed.ts`
-(`version: 3`). `AgentSignal` is exactly `src/shared/agent-signals.ts`.
-Summarised:
+(`version: 3`). `AgentSignal` is exactly `src/shared/agent-signals.ts`, with
+one cut: an automation source's `step` never leaves the Mac, on any frame
+(`companionSignal`), since its raised values alone run to 32 KB. Summarised:
 
 ```ts
 type OperatorFeed = { version: 3; canvasName: string; generatedAt: number; count: number; sections: FeedSection[] };

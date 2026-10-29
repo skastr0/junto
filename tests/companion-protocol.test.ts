@@ -30,7 +30,11 @@ import {
   encodeCompanionFrame,
   type CompanionOutboundFrame,
 } from "../src/shared/companion-protocol";
-import type { AgentSignal } from "../src/shared/agent-signals";
+import {
+  SIGNAL_RAISED_VALUE_MAX_LENGTH,
+  SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH,
+  type AgentSignal,
+} from "../src/shared/agent-signals";
 import { feedItemRank, type OperatorFeed } from "../src/shared/operator-feed";
 
 const V = COMPANION_PROTOCOL;
@@ -312,6 +316,62 @@ describe("outbound frames", () => {
     const line = encodeCompanionFrame(huge);
     expect(new TextEncoder().encode(line).byteLength).toBeLessThan(COMPANION_MAX_OUTBOUND_BYTES);
     expect(JSON.parse(line)).toMatchObject({ id: "8", ok: false, error: { code: "internal" } });
+  });
+
+  it("drops an automation signal's step from every frame, so a seat of 50 at the largest still opens", () => {
+    // 32,000 characters that JSON escapes to six bytes each: the largest step a signal can carry.
+    const raised = Object.fromEntries(
+      Array.from({ length: SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH / SIGNAL_RAISED_VALUE_MAX_LENGTH }, (_, i) => [
+        `v${String(i)}`,
+        "\u0001".repeat(SIGNAL_RAISED_VALUE_MAX_LENGTH),
+      ]),
+    );
+    const source = { kind: "automation", automationId: "01M62Q58WDSXMG4YBXNKR2RB92", nodeId: "daily", firingId: "01M62Q58WDSXMG4YBXNKR2RB93" } as const;
+    const raisedSignal = (i: number): AgentSignal => ({
+      ...signal,
+      signalId: `sig_${String(i)}`,
+      source: { ...source, step: { index: 63, id: "pages", raised } },
+    });
+    const signals = Array.from({ length: 50 }, (_, i) => raisedSignal(i));
+    expect(new TextEncoder().encode(JSON.stringify(signals.slice(0, 3))).byteLength).toBeGreaterThan(COMPANION_MAX_OUTBOUND_BYTES);
+
+    const seat = {
+      nodeId: "planner",
+      name: "Planner",
+      portraitIdentity: "planner",
+      region: { regionId: "r1", label: "Backend", path: ["Backend"], color: "4" },
+      state: "blocked",
+      line: "Waiting",
+      preambles: [],
+      signals,
+      activity: [],
+    } as const;
+    const line = encodeCompanionFrame(companionOk("9", "seat.get", { seat }));
+    expect(new TextEncoder().encode(line).byteLength).toBeLessThanOrEqual(COMPANION_MAX_OUTBOUND_BYTES);
+    const opened = decodeCompanionOutboundLine(line);
+    expect(Result.isSuccess(opened) && opened.success).toMatchObject({ id: "9", ok: true });
+    const sent = (JSON.parse(line) as { result: { seat: { signals: AgentSignal[] } } }).result.seat.signals;
+    expect(sent).toHaveLength(50);
+    expect(sent.every((s) => JSON.stringify(s.source) === JSON.stringify(source))).toBe(true);
+
+    const stepless = (frame: CompanionOutboundFrame) => {
+      const text = encodeCompanionFrame(frame);
+      expect(JSON.parse(text)).not.toMatchObject({ ok: false, error: { code: "internal" } });
+      expect(text).not.toContain('"step"');
+      expect(text).toContain(source.firingId);
+    };
+    const item = feed.sections[0]!.items[0]!;
+    const raisedFeed: OperatorFeed = {
+      ...feed,
+      sections: [{ ...feed.sections[0]!, items: [{ ...item, source: raisedSignal(0).source }] }],
+    };
+    stepless(companionOk("10", "feed.get", { feeds: [raisedFeed] }));
+    stepless(companionOk("11", "feed.subscribe", { feeds: [raisedFeed] }));
+    stepless(companionOk("12", "signal.answer", { signal: raisedSignal(1) }));
+    stepless(companionOk("13", "signal.dismiss", { signal: raisedSignal(2) }));
+    stepless(companionFail("14", companionError("conflict", "That changed on the Mac.", raisedSignal(3))));
+    stepless(companionEvent("signal.changed", { signal: raisedSignal(4) }));
+    stepless(companionEvent("feed.changed", { feed: raisedFeed }));
   });
 
   it("writes connection errors with an empty id", () => {
