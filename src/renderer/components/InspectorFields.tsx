@@ -391,19 +391,8 @@ const commitRegionInstruction = (regionId: string, instruction: string): void =>
   commitCommands((canvas) => regionEdited(canvas, regionId, { instruction: trimmed === "" ? null : trimmed }));
 };
 
-/**
- * Region briefing — context agents receive on onboard, written as a document
- * (plan 0.11, 08): headings, lists, and mentions of what the region reaches.
- * Builds with the Tasks feature also author the region's rules and pinned
- * rulings beneath it: rules are statements a closing task must answer, so
- * they live with the briefing. Single copy line; CLI refs use first-class
- * amber mono.
- *
- * Typing is saved when it rests or the field is left. A briefing changed
- * elsewhere (an overseer, another machine) is taken in only while nothing
- * typed is unsaved.
- */
-export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: string }) {
+/** One region's briefing document: its draft, what it last saved, and what it takes in from elsewhere. */
+function RegionBriefingDocument({ regionId }: { readonly regionId: string }) {
   const canvasName = use$(state$.canvasName);
   const instructionValue = useNodeOf(canvasName, regionId, "region")?.instruction ?? "";
   // What the field holds; what was last saved or received, as stored (trimmed).
@@ -428,26 +417,46 @@ export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: st
   };
 
   return (
+    <BriefingDocument
+      canvasName={canvasName}
+      regionId={asModelNodeId(regionId)}
+      size="panel"
+      canvasDraft
+      value={shown}
+      label="Region briefing"
+      surfaceLabel="Region briefing, document"
+      placeholder="What should agents inside this region know?"
+      onChange={(text) => {
+        draft.current = text;
+        setShown(text);
+      }}
+      onRest={save}
+    />
+  );
+}
+
+/**
+ * Region briefing — context agents receive on onboard, written as a document
+ * (plan 0.11, 08): headings, lists, and mentions of what the region reaches.
+ * Builds with the Tasks feature also author the region's rules and pinned
+ * rulings beneath it: rules are statements a closing task must answer, so
+ * they live with the briefing. Single copy line; CLI refs use first-class
+ * amber mono.
+ *
+ * Typing is saved when it rests or the field is left. A briefing changed
+ * elsewhere (an overseer, another machine) is taken in only while nothing
+ * typed is unsaved.
+ */
+export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: string }) {
+  return (
     <div className="region-briefing">
       <p className="region-briefing__hint">
         Agents receive this from the{" "}
         <span className="cli-cmd">onboard</span>
         {" "}command inside the region. @ names a seat, # a task or an artifact the region reaches.
       </p>
-      <BriefingDocument
-        canvasName={canvasName}
-        regionId={asModelNodeId(regionId)}
-        size="panel"
-        value={shown}
-        label="Region briefing"
-        surfaceLabel="Region briefing, document"
-        placeholder="What should agents inside this region know?"
-        onChange={(text) => {
-          draft.current = text;
-          setShown(text);
-        }}
-        onRest={save}
-      />
+      {/* One region's draft never carries into the next. */}
+      <RegionBriefingDocument key={regionId} regionId={regionId} />
       {/* Region rules ride the Tasks gate: a tasks-off build has none. */}
       {TASKS_ENABLED ? <RegionRules regionId={regionId} /> : null}
     </div>
