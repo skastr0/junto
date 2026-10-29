@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { vitestFileLanes } from "./vitest-file-lanes";
 import { unitTestEnvironment } from "./unit-test-environment";
-import { formatQuarantine, readQuarantine } from "./ci-quarantine";
+import { formatDisabled, readDisabled } from "./disabled-tests";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VITEST = join(ROOT, "node_modules", ".bin", "vitest");
@@ -30,21 +30,18 @@ if (only !== undefined && !LANES.includes(only as LaneName)) {
 const selected = (lane: LaneName): boolean => only === undefined || only === lane;
 const lanes = vitestFileLanes();
 
-const quarantine = readQuarantine();
-const report = formatQuarantine(quarantine);
+const disabled = readDisabled();
+const report = formatDisabled(disabled);
 console.error(report);
-const inCi = process.env.CI === "true";
-if (inCi && process.env.GITHUB_STEP_SUMMARY) {
+if (process.env.CI === "true" && process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\`\`\`\n${report}\n\`\`\`\n`);
 }
-// Whole files leave the lane; single tests are skipped by
-// tests/vitest-setup-ci-quarantine.ts.
-const quarantinedFiles = new Set(
-  inCi ? quarantine.filter((entry) => entry.test === "*").map((entry) => entry.file) : [],
-);
-const quarantinedTests = inCi ? quarantine.filter((entry) => entry.test !== "*") : [];
+// Every lane run, local or CI: whole files leave the lane; single tests are
+// skipped by tests/vitest-setup-disabled-tests.ts.
+const disabledFiles = new Set(disabled.filter((entry) => entry.test === "*").map((entry) => entry.file));
+const disabledTests = disabled.filter((entry) => entry.test !== "*");
 const laneFiles = (files: readonly string[]): readonly string[] =>
-  files.filter((file) => !quarantinedFiles.has(file));
+  files.filter((file) => !disabledFiles.has(file));
 
 // Electron's package downloads its binary synchronously on first require.
 // Cold parallel workers otherwise race while unpacking the same directory.
@@ -71,8 +68,8 @@ const run = (
       stdio: "inherit",
       env: {
         ...unitTestEnvironment(process.env),
-        ...(quarantinedTests.length > 0
-          ? { JUNTO_CI_QUARANTINE: JSON.stringify(quarantinedTests) }
+        ...(disabledTests.length > 0
+          ? { JUNTO_DISABLED_TESTS: JSON.stringify(disabledTests) }
           : {}),
       },
     },

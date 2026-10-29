@@ -36,8 +36,8 @@ export default defineConfig({
     // the operator's ~/.junto production tree during unit tests.
     setupFiles: [
       resolve(__dirname, "tests/vitest-setup-junto-home.ts"),
-      // No-op unless the lane runner hands over the CI quarantine.
-      resolve(__dirname, "tests/vitest-setup-ci-quarantine.ts"),
+      // No-op unless the lane runner hands over the disabled tests.
+      resolve(__dirname, "tests/vitest-setup-disabled-tests.ts"),
     ],
   },
   resolve: {

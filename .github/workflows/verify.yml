@@ -19,8 +19,8 @@ permissions:
 # them branches on platform; `electron-vite build` and the overlay bundle check
 # run inside the source package job below on both systems.
 #
-# Unit lanes print tests/ci-quarantine.json: each test skipped in CI, with its
-# owner and reason.
+# Unit lanes print tests/disabled-tests.json: each test skipped in every lane
+# run, local and CI, with its owner and reason.
 
 jobs:
   lints:

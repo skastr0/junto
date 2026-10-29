@@ -1,0 +1,121 @@
+[
+  {
+    "file": "tests/awareness-digest.test.ts",
+    "test": "awareness window digest over real corpus cuts > amp/working-turn: cuts differing only by volatile chrome share a digest",
+    "owner": "tech-lead",
+    "reason": "real corpus cut sweep: 1.5 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-digest.test.ts",
+    "test": "awareness window digest over real corpus cuts > devin/working-turn: cuts differing only by volatile chrome share a digest",
+    "owner": "tech-lead",
+    "reason": "real corpus cut sweep: 0.7 s idle locally of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-digest.test.ts",
+    "test": "awareness window digest over real corpus cuts > grok/working-turn: cuts differing only by volatile chrome share a digest",
+    "owner": "tech-lead",
+    "reason": "real corpus cut sweep: 1.1 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-digest.test.ts",
+    "test": "awareness window digest over real corpus cuts > muse/paste-chip: cuts differing only by volatile chrome share a digest",
+    "owner": "tech-lead",
+    "reason": "real corpus cut sweep: 0.6 s idle locally of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-digest.test.ts",
+    "test": "awareness window digest over real corpus cuts > omp/working-turn: cuts differing only by volatile chrome share a digest",
+    "owner": "tech-lead",
+    "reason": "real corpus cut sweep: 4.8 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-input.test.ts",
+    "test": "awareness evidence projection over real corpus windows > never certifies a temporal pair on any real corpus capture",
+    "owner": "tech-lead",
+    "reason": "replays every corpus capture: 2.3 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-window-calibration.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "real corpus sweep: 2.9 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/one-machine-log-migration.test.ts",
+    "test": "state migration 14 -> 15 (the work log of one machine) > opens command-center-v13.db through the engine and reads its facts",
+    "owner": "tech-lead",
+    "reason": "replays the shipped v13 database through every step to head: 1.2 s idle locally, timed out in 0.11.2 release runs",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/jev/authority.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "jev trace sweep over the corpus: 3.3 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/jev/checkpoints.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "rebuilds the jev manifest from the whole corpus: 97 s on an idle CI runner, 202 s at load 42",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/jev/replay.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "corpus replay: 3 cases timed out in 0.11.2 release runs at load 40 to 56",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/scenarios/composer-readiness.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "PTY corpus sweep: 5.5 s of its 15 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/scenarios/composer-verdict.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "PTY corpus sweep: up to 5.9 s a case on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/scenarios/drain-rekey.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "PTY corpus sweep: 177 s of its 300 s budget on an idle CI runner, 233 s alone locally",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/scenarios/harness-classification.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "PTY corpus sweep: HC-working codex 3 s of its 5 s budget, timed out in every loaded 0.11.2 run",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/pty-e2e/scenarios/mail-composer-availability.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "PTY corpus sweep: timed out in 0.11.2 release runs under load",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/task-machine.props.test.ts",
+    "test": "*",
+    "owner": "tech-lead",
+    "reason": "seeded random step sweep: 2.9 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  }
+]
