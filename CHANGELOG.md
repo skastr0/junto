@@ -2,11 +2,9 @@
 
 ## Unreleased
 
-Draft for 0.11.0, worded from `docs/plans/0.11/README.md` before the tracks
-land. Every bullet is checked against the code at the cut, and this line is
-deleted at the bump.
+## 0.11.0 — 2026-10-29
 
-Opening the database with 0.11.0 moves it to version <HEAD>, and 0.10.3 then
+Opening the database with 0.11.0 moves it to version 63, and 0.10.3 then
 refuses it as newer than supported. To go back to 0.10.3, open the backup
 taken at the upgrade. The steps add the Files node kind, a table that
 records which artifacts link to which, artifact labels and their colours,
@@ -17,7 +15,6 @@ and due time, and one that rebuilds the stubs so other machines show a Files
 node; every node, wire and task is kept as it was. Two steps are groundwork
 for a later release and nothing in 0.11.0 reads them: a canvas's authority
 tables (seeded) and the scope record of each vault token (empty).
-(<HEAD> is read from `CURRENT_STATE_SCHEMA_VERSION` at the cut, 63 on c403df836.)
 
 - Files: a node that opens a folder on this machine as a file tree and opens
   a file in the main pane, laid out like Artifacts. The node keeps the folder
