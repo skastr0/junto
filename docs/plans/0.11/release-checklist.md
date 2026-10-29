@@ -112,8 +112,12 @@ in the packaged app: a PDF opening and scrolling, Shiki highlighting, and a
 live byte-range fetch. Those are real-app runs (section 5, product-verify) and
 I run them at the cut hash if asked.
 
-- [ ] Linux and machine builds: a Files node on a machine host works, or the
-      machine bundle is confirmed not to need the service (remote-lead).
+- [x] Linux and machine builds: closed as not needed (remote-lead via
+      remote-verify at 9c210bd6e, per product-lead, relayed): a real
+      darwin-arm64 machine build has no files service code in `core/junto.cjs`
+      or `bin/junto`; only the Electron entry imports `src/main/junto/files`;
+      canvas-copy kept a Files node home until step 63, after which the stub
+      needs no service.
 
 ## 3. Security (the cut is blocked on these)
 
