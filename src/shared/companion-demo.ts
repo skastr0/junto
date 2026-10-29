@@ -35,6 +35,7 @@ import { companionPortraitSvg } from "./companion-portrait";
 import type { CompanionChange, CompanionHost } from "./companion-session";
 import { companionSeat } from "./companion-seats";
 import {
+  COMPANION_FEATURES,
   COMPANION_PROTOCOL,
   COMPANION_SEAT_HISTORY_LIMIT,
   type CompanionActivity,
@@ -455,6 +456,7 @@ export const makeDemoHost = (options: {
         deviceId: DEMO_DEVICE_ID,
         deviceName: DEMO_DEVICE_NAME,
         station: DEMO_STATION,
+        features: COMPANION_FEATURES,
         serverTime: backend.now(),
       },
     }),

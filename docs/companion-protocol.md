@@ -86,8 +86,16 @@ The Mac sends a `hello` event first, before any request is read:
 { "v": "junto-companion/1", "type": "event", "event": "hello",
   "data": { "appVersion": "0.3.4", "deviceId": "dev_01J...", "deviceName": "Guilherme's iPhone",
             "station": "Guilherme's MacBook Pro", "serverTime": 1790000000000,
-            "hosts": ["guilhermes-mbp.tail1234.ts.net", "100.101.102.103", "guilhermes-mbp.local"] } }
+            "hosts": ["guilhermes-mbp.tail1234.ts.net", "100.101.102.103", "guilhermes-mbp.local"],
+            "features": ["artifacts/1"] } }
 ```
+
+`features` (optional, at most 16) names what this Mac serves beyond the base
+ops, each `<name>/<n>`. The phone shows a surface only when its feature is
+listed, so a Mac that predates it is never sent an op it refuses; absent, the
+phone assumes none. A feature is named in the same change that adds its ops.
+`artifacts/1` is the artifacts surface (reads, writes and comments on
+artifacts, `content.get` for their bodies).
 
 `hosts` (optional, at most 8) is where this Mac answers now, in the pairing
 QR's order, MagicDNS name first. On every hello that carries it the phone

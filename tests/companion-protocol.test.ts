@@ -6,6 +6,7 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  COMPANION_FEATURES,
   COMPANION_MAX_INBOUND_BYTES,
   COMPANION_MAX_REQUEST_BYTES,
   COMPANION_STAGE_CHUNK_MAX,
@@ -110,6 +111,15 @@ describe("golden examples from docs/companion-protocol.md", () => {
     const line = encodeCompanionFrame(companionEvent("hello", hello));
     const decoded = decodeCompanionOutboundLine(line);
     expect(Result.isSuccess(decoded) && decoded.success.type === "event" && decoded.success.event).toBe("hello");
+  });
+
+  it("decodes the hello's features and refuses a malformed one", () => {
+    const base = { appVersion: "t", deviceId: "d", deviceName: "p", station: "s", serverTime: 1 };
+    const decodes = (hello: unknown) => Result.isSuccess(Schema.decodeUnknownResult(CompanionHello)(hello));
+    expect(decodes({ ...base, features: COMPANION_FEATURES })).toBe(true);
+    expect(COMPANION_FEATURES).toContain("artifacts/1");
+    expect(decodes({ ...base, features: ["artifacts"] })).toBe(false);
+    expect(decodes({ ...base, features: Array.from({ length: 17 }, (_, i) => `f/${String(i)}`) })).toBe(false);
   });
 
   it("encodes base64url without a platform encoder, including non-ASCII text", () => {

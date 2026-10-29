@@ -99,7 +99,7 @@ describe("demo transcript", () => {
       v: COMPANION_PROTOCOL,
       type: "event",
       event: "hello",
-      data: { appVersion: "test", deviceId: "dev_00000000000000000000DEM000", deviceName: "Demo phone", station: "Junto demo", serverTime: DEMO_T0 },
+      data: { appVersion: "test", deviceId: "dev_00000000000000000000DEM000", deviceName: "Demo phone", station: "Junto demo", features: ["artifacts/1"], serverTime: DEMO_T0 },
     });
 
     c.send(demoRequest("c1", "canvases.list"));

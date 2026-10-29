@@ -38,6 +38,7 @@ import {
 } from "@shared/companion-core";
 import type { CompanionDeviceRecord, CompanionKeyFailure, CompanionKeyRestore } from "@shared/companion-devices";
 import {
+  COMPANION_FEATURES,
   COMPANION_HELLO_HOSTS_MAX,
   COMPANION_PAIRING_TTL_MS,
   isCompanionHost,
@@ -377,6 +378,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
           deviceName: device.name,
           station: stationName ?? "Junto",
           ...(hosts.length === 0 ? {} : { hosts }),
+          features: COMPANION_FEATURES,
           serverTime: Date.now(),
         },
       });

@@ -447,6 +447,14 @@ export const COMPANION_HELLO_HOSTS_MAX = 8;
 export const COMPANION_HOST_PATTERN = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|[0-9A-Fa-f:]+(?:%[A-Za-z0-9]+)?)$/u;
 export const isCompanionHost = (host: string): boolean => host.length <= 253 && COMPANION_HOST_PATTERN.test(host);
 
+/**
+ * What this Mac answers beyond the base ops, named `<feature>/<n>`. The phone
+ * shows a surface only when its feature is here, so an older Mac is never sent
+ * an op it refuses. A feature's ops are added in the same change that names it.
+ */
+export const COMPANION_FEATURES = ["artifacts/1"] as const;
+export const COMPANION_FEATURES_MAX = 16;
+
 export const CompanionHello = Schema.Struct({
   appVersion: Schema.String,
   deviceId: Schema.String,
@@ -462,6 +470,12 @@ export const CompanionHello = Schema.Struct({
   hosts: Schema.optionalKey(
     Schema.Array(bounded(1, 253).pipe(Schema.check(Schema.isPattern(COMPANION_HOST_PATTERN)))).pipe(
       Schema.check(Schema.isMaxLength(COMPANION_HELLO_HOSTS_MAX)),
+    ),
+  ),
+  /** The features this Mac serves (`COMPANION_FEATURES`); absent on a Mac that predates them. */
+  features: Schema.optionalKey(
+    Schema.Array(bounded(1, 32).pipe(Schema.check(Schema.isPattern(/^[a-z][a-z0-9-]*\/[0-9]+$/)))).pipe(
+      Schema.check(Schema.isMaxLength(COMPANION_FEATURES_MAX)),
     ),
   ),
 });
