@@ -6,7 +6,14 @@
  * form.
  */
 import { Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const flags = vi.hoisted(() => ({ vault: true }));
+vi.mock("@shared/features", async (original) => ({
+  ...(await original<typeof import("../src/shared/features")>()),
+  get VAULT_ENABLED() { return flags.vault; },
+}));
+
 import { resolveSignalForm, signalKindTakesForm } from "../src/main/junto/signals/form-rule";
 import { artifacts, canvasOf, region, seat, taskBoard } from "./support/model-nodes";
 import { resourcesSeatReaches } from "../src/shared/region-reach";
@@ -48,6 +55,10 @@ const failure = (result: ReturnType<typeof resolve>) => {
 };
 
 describe("the reply form a raise asks for", () => {
+  afterEach(() => {
+    flags.vault = true;
+  });
+
   it("text and proof need nothing", () => {
     expect(resolve({ kind: "text" })).toEqual(Result.succeed({ kind: "text" }));
     expect(resolve({ kind: "proof" })).toEqual(Result.succeed({ kind: "proof" }));
@@ -103,6 +114,14 @@ describe("the reply form a raise asks for", () => {
     expect(refused.details?.reason).toBe("not_declared");
     expect(refused.message).toContain("STRIPE_KEY");
     expect(refused.message).toContain(THIS_MACHINE);
+  });
+
+  it("with VAULT_ENABLED off, refuses the secret form as not available, even for a declared secret", () => {
+    flags.vault = false;
+    const refused = failure(resolve({ kind: "secret", name: "CLOUDFLARE_TOKEN" }));
+    expect(refused.type).toBe("InvalidTransition");
+    expect(refused.details?.reason).toBe("not_available");
+    expect(refused.details?.next_step).toContain("CLOUDFLARE_TOKEN");
   });
 
   it("only a kind that asks the operator to produce something carries one", () => {
