@@ -80,7 +80,7 @@ import { commentOnTask, liveTaskPorts, taskCanvasEnv, taskRulingContext, type Ta
 export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   readonly tasks: Pick<TaskPorts, "list" | "submit" | "find" | "comment">;
-  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull" | "comment" | "labelColours" | "colourLabel">;
+  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "moves" | "submit" | "pull" | "comment" | "labelColours" | "colourLabel">;
   /** The rows a node's mailbox holds: a task's or an artifact's comments are held at its node. */
   readonly mailbox: (canvasName: string, nodeId: NodeId) => Effect.Effect<ReadonlyArray<Message>, WorkErrorBody>;
   /** This machine's unruled queue with its overlays: `op list`'s own read (`queuedOverlays`). */
@@ -331,7 +331,10 @@ export const colourArtifactLabel = (
 
 const onSubject = (subject: ThreadResourceSubject) => (row: Message): boolean => {
   const on = threadSubjectOf(row);
-  if (on === undefined || on.nodeId !== subject.nodeId) return false;
+  if (on === undefined) return false;
+  // An artifact is its id wherever it sits: a comment written before a move still names the node it was on.
+  if (subject.kind === "artifact") return on.kind === "artifact" && on.artifactId === subject.artifactId;
+  if (on.nodeId !== subject.nodeId) return false;
   switch (subject.kind) {
     case "task":
       return on.kind === "task" && on.taskId === subject.taskId;
@@ -395,6 +398,22 @@ const productOff = (kind: ThreadResourceSubject["kind"]): WorkErrorBody => ({
  * this subject, grouped by thread, each oldest post first, threads by their
  * first post. The operator reads every resource.
  */
+/**
+ * Where a subject's comments are held: its node's mailbox, and for an
+ * artifact that has moved, every node it has been on too (0.11.1, 10), so a
+ * move leaves no comment behind. New comments go to where it is now.
+ */
+const mailboxesOf = (
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  subject: ThreadResourceSubject,
+): Effect.Effect<ReadonlyArray<NodeId>, WorkErrorBody> =>
+  subject.kind !== "artifact" || ports.artifacts.moves === undefined
+    ? Effect.succeed([subject.nodeId])
+    : Effect.map(ports.artifacts.moves(canvasName, subject.artifactId), (moves) => [
+        ...new Set([subject.nodeId, ...moves.flatMap((move) => [move.from, move.to])]),
+      ]);
+
 export const listThreads = (
   ports: ResourceIpcPorts,
   canvasName: string,
@@ -402,7 +421,9 @@ export const listThreads = (
 ): Effect.Effect<ReadonlyArray<SubjectThreadView>, WorkErrorBody> =>
   Effect.gen(function* () {
     const canvas = yield* ports.topology(canvasName);
-    const rows = (yield* ports.mailbox(canvasName, subject.nodeId)).filter(onSubject(subject));
+    const rows = (yield* Effect.forEach(yield* mailboxesOf(ports, canvasName, subject), (nodeId) => ports.mailbox(canvasName, nodeId)))
+      .flat()
+      .filter(onSubject(subject));
     const threads = new Map<string, { anchor?: SubjectThreadView["anchor"]; posts: ThreadPost[] }>();
     for (const row of rows) {
       const post = postOf(canvas, row);

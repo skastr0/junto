@@ -160,6 +160,19 @@ describe("threads on an artifact", () => {
     ]);
   });
 
+  it("keeps a moved artifact's comments: those held where it was list with those where it is (0.11.1, 10)", async () => {
+    const { post, run, work } = harness();
+    const before = applied(await post(artifactSubject, { opId: EARLY, text: "written on A" }));
+    // The artifact moved to B: its next comment is held there, and both read as its threads.
+    const moved = { ...portsOf(work), artifacts: { ...portsOf(work).artifacts, moves: () => Effect.succeed([{ from: asNodeId("A"), to: asNodeId("B"), by: { kind: "operator" }, at: 1 }]) } } as ResourceIpcPorts;
+    await run(work.workSubjectRow("factory", "B", { messageId: LATE, subject: { kind: "artifact", nodeId: "B", artifactId: ART } } as never));
+    const threads = await run(listThreads(moved, "factory", { kind: "artifact", nodeId: asNodeId("B"), artifactId: ART }));
+    expect(threads.map((thread) => thread.threadId)).toContain(before.threadId);
+    // Another artifact's comment on the old node stays its own.
+    await post({ ...artifactSubject, artifactId: OTHER }, { opId: SEAT_OP, text: "another artifact's" });
+    expect((await run(listThreads(moved, "factory", { kind: "artifact", nodeId: asNodeId("B"), artifactId: ART }))).map((t) => t.posts[0]!.text)).not.toContain("another artifact's");
+  });
+
   it("answers a replayed opId as its first post, and writes no second row", async () => {
     const { post, boxes } = harness();
     const first = await post(artifactSubject, { opId: EARLY, text: "once" });

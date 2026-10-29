@@ -71,6 +71,7 @@ import { localQueue, precheckInput, queuedArtifactCommands } from "./queued-comm
 import type {
   ArtifactHeadRead,
   ArtifactListQuery,
+  ArtifactMoveRead,
   ArtifactSubmitOutcome,
   ArtifactVersionRead,
 } from "./artifact-repository";
@@ -108,6 +109,8 @@ export type ArtifactPorts = {
    * and return at once. One pull per object; on the editing machine, none.
    */
   readonly pull: (input: { readonly ref: ContentRef; readonly owner: PulledOwner; readonly reached: ResourceReached }) => Effect.Effect<void>;
+  /** Every move of an artifact, oldest first (0.11.1, 10). Absent: a store that keeps none, so nothing has moved. */
+  readonly moves?: (canvasName: string, artifactId: ItemId) => Effect.Effect<ReadonlyArray<ArtifactMoveRead>, WorkErrorBody>;
   readonly history: (
     canvasName: string,
     artifactId: ItemId,
@@ -244,6 +247,7 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
     head: (canvasName, id) => withRepo((repo) => repo.head(canvasName, id)),
     body: (canvasName, id, version) => withRepo((repo) => repo.body(canvasName, id, version)),
     history: (canvasName, id, page) => withRepo((repo) => repo.history(canvasName, id, page)),
+    moves: (canvasName, id) => withRepo((repo) => repo.moves(canvasName, id)),
     submit: (command, context) =>
       withRepo((repo) =>
         Effect.gen(function* () {
