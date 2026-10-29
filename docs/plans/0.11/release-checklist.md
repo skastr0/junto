@@ -102,6 +102,16 @@ the live file. They rerun everything at the cut hash. Results per line:
 - [ ] Packaged app, not the dev tree: the PDF worker loads under the CSP
       (`worker-src 'self' blob:`), a PDF opens and scrolls, Shiki highlights.
 - [ ] `junto-file:` protocol serves byte ranges in the packaged app.
+Packaged ship export at main 01bc0c581 (2026-10-29, clean `git archive`,
+`build-app.sh --target mac --fast`, Linux payload from the Orb builder, exit 0;
+`audit-packaged-app.ts --source` rc 0; renderer main chunk 5,954,865 bytes).
+Read from the packed `app.asar`, not run: `pdf.worker.min-CjEcRF4W.mjs` is in
+`out/renderer/assets`, `index.html` carries `worker-src 'self' blob:`, and the
+main bundle holds the `junto-file` scheme with `Content-Range`. Not yet done
+in the packaged app: a PDF opening and scrolling, Shiki highlighting, and a
+live byte-range fetch. Those are real-app runs (section 5, product-verify) and
+I run them at the cut hash if asked.
+
 - [ ] Linux and machine builds: a Files node on a machine host works, or the
       machine bundle is confirmed not to need the service (remote-lead).
 
