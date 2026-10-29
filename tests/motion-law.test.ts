@@ -211,6 +211,13 @@ describe("motion law: rings move on the compositor", () => {
     expect(read("src/renderer/components/factory-minimap.css")).toContain(".react-flow__minimap[data-unseen] .junto-minimap-ping { animation: none; }");
   });
 
+  it("a reach preview ring on a card off screen does not breathe", () => {
+    const lib = read("src/renderer/lib/reach-preview.ts");
+    expect(lib).toMatch(/el\.setAttribute\(MARK, change\);\s*if \(!unwatchers\.has\(el\)\) unwatchers\.set\(el, watchUnseen\(el\)\);/);
+    expect(lib).not.toMatch(/el\.setAttribute\(MARK, change\);\s*\}/);
+    expect(read("src/renderer/styles/reach-preview.css")).toContain(".react-flow__node[data-reach-preview][data-unseen]::before { animation: none; }");
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);

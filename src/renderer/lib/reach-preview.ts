@@ -18,6 +18,7 @@ import {
 } from "@shared/reach-preview";
 import type { ReachCanvas, ReachNode } from "@shared/region-reach";
 import type { SeatTask } from "@shared/seat-task-index";
+import { watchUnseen } from "./unseen";
 
 type Point = { readonly x: number; readonly y: number };
 
@@ -38,8 +39,26 @@ let preview: Preview | null = null;
 const elementsOf = (root: ParentNode, id: string): ReadonlyArray<Element> =>
   [...root.querySelectorAll(`.react-flow__node[data-id="${CSS.escape(id)}"]`)];
 
+/**
+ * A marked card is watched for as long as it carries the mark: off screen
+ * its ring is not seen, so it does not breathe (reach-preview.css, operator
+ * signal 01M63W6RQY1YT2Q65MCM0N3YQ8).
+ */
+const unwatchers = new WeakMap<Element, () => void>();
+
+const mark = (el: Element, change: NodeReachChange): void => {
+  el.setAttribute(MARK, change);
+  if (!unwatchers.has(el)) unwatchers.set(el, watchUnseen(el));
+};
+
+const unmark = (el: Element): void => {
+  el.removeAttribute(MARK);
+  unwatchers.get(el)?.();
+  unwatchers.delete(el);
+};
+
 const clearMarks = (current: Preview): void => {
-  for (const id of current.marks.keys()) for (const el of elementsOf(current.root, id)) el.removeAttribute(MARK);
+  for (const id of current.marks.keys()) for (const el of elementsOf(current.root, id)) unmark(el);
   if (current.summaryOn !== undefined) {
     for (const el of elementsOf(current.root, current.summaryOn)) el.removeAttribute(SUMMARY);
   }
@@ -73,11 +92,11 @@ export const updateReachPreview = (positions: ReadonlyMap<string, Point>, grabbe
 
   for (const [id] of current.marks) {
     if (marks.has(id)) continue;
-    for (const el of elementsOf(current.root, id)) el.removeAttribute(MARK);
+    for (const el of elementsOf(current.root, id)) unmark(el);
   }
   for (const [id, change] of marks) {
     if (current.marks.get(id) === change) continue;
-    for (const el of elementsOf(current.root, id)) el.setAttribute(MARK, change);
+    for (const el of elementsOf(current.root, id)) mark(el, change);
   }
   current.marks = marks;
 
