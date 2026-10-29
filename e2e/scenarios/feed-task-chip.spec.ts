@@ -32,6 +32,7 @@ const fixture = () =>
     [
       modelRegion({ id: "build", label: "Build", x: 0, y: 0, width: 1200, height: 700, z: 0 }),
       modelSeat({ id: "atlas", key: "local:e2e-task-chip-atlas", label: "Atlas", harness: "claude", x: 60, y: 120 }),
+      modelSeat({ id: "bravo", key: "local:e2e-task-chip-bravo", label: "Bravo", harness: "claude", x: 60, y: 320 }),
       decode({ kind: "task", id: "board", name: "Board", x: 520, y: 120, width: 320, height: 220, z: 0 }),
     ],
     [],
@@ -46,6 +47,16 @@ const SIGNALS: ReadonlyArray<AgentSignal> = [
     kind: "feedback",
     text: `#1 ${TITLE} is ready for you`,
     createdAt: Date.now() - 5 * 60_000,
+    state: "open",
+  },
+  // The selected card's answer keys must not reach a chip on another card.
+  {
+    signalId: "task-chip-other",
+    canvasName: CANVAS,
+    nodeId: "bravo",
+    kind: "escalate",
+    text: "Which name do we ship?",
+    createdAt: Date.now() - 4 * 60_000,
     state: "open",
   },
 ];
@@ -82,7 +93,8 @@ test("a task named in a card's words is a chip that opens it", async () => {
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
 
-    const card = feed.getByTestId("operator-feed-card").first();
+    // Bravo's escalation sorts first; the task is named on Atlas's card.
+    const card = feed.getByTestId("operator-feed-card").filter({ hasText: "Atlas" });
     await expect(card).toBeVisible({ timeout: 10_000 });
     const chip = card.locator('.operator-feed__text .resource-chip[data-kind="task"]');
     await expect(chip).toHaveCount(1);
@@ -102,13 +114,16 @@ test("a task named in a card's words is a chip that opens it", async () => {
     await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 10_000 });
 
     // Enter, the key an operator reaches for first, opens the task rather than
-    // answering the need: the feed's answer keys stand down inside a chip.
+    // answering the need: the feed's answer keys stand down inside a chip, even
+    // with another card selected, which is whose keys they would otherwise be.
     await page.keyboard.press("Meta+I");
     await expect(feed).toBeVisible({ timeout: 10_000 });
+    await feed.getByTestId("operator-feed-card").filter({ hasText: "Bravo" }).click();
     await chip.focus();
     await page.keyboard.press("Enter");
     await expect(feed).toBeHidden({ timeout: 10_000 });
     await expect(page.getByTestId("signal-reply")).toHaveCount(0);
+    await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 10_000 });
     await expect(feed).toBeHidden({ timeout: 10_000 });
     await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 10_000 });
   } finally {
