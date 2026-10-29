@@ -442,10 +442,10 @@ const openClaimed = (
         const landed = due.filter((held) => entries.some((entry) => entry.index === held.index && entry.term === held.term));
         return runCallbacks(landed.flatMap((held) => held.callbacks));
       });
-    /** A ready that truncates the log takes every batch held at or above the cut with it. */
+    /** A ready that cuts the log takes every batch held at or above the cut with it: the cut writeReady makes. */
     const truncated = (ready: Ready) => {
-      if (ready.truncateFrom === undefined) return;
-      const from = ready.truncateFrom;
+      const from = cutOf(ready);
+      if (!Number.isFinite(from)) return;
       awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.index < from));
     };
 
@@ -517,6 +517,9 @@ const openClaimed = (
         ...(cause instanceof ProposalRefused && PASSING.has(cause.reason) ? { retryable: true } : {}),
       });
 
+    /** Where a ready cuts the log: its truncation, or the first entry it writes over. */
+    const cutOf = (ready: Ready) => Math.min(ready.truncateFrom ?? Number.POSITIVE_INFINITY, ...ready.entries.map((entry) => entry.index));
+
     const isEmpty = (ready: Ready) => ready.hardState === undefined && ready.truncateFrom === undefined && ready.entries.length === 0;
 
     /** What `ready()` says to persist, inside the caller's transaction. */
@@ -527,7 +530,7 @@ const openClaimed = (
             SET current_term = ${ready.hardState.term}, voted_for = ${ready.hardState.votedFor}, commit_index = ${ready.hardState.commit}
             WHERE canvas_name = ${canvasName}`;
         }
-        const from = Math.min(ready.truncateFrom ?? Number.POSITIVE_INFINITY, ...ready.entries.map((entry) => entry.index));
+        const from = cutOf(ready);
         if (Number.isFinite(from)) yield* sql`DELETE FROM canvas_log WHERE canvas_name = ${canvasName} AND log_index >= ${from}`;
         for (const entry of ready.entries) yield* writeEntry(sql, canvasName, entry);
       });
