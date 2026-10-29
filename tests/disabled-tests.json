@@ -42,10 +42,45 @@
     "date": "2026-10-29"
   },
   {
+    "file": "tests/awareness-runtime.test.ts",
+    "test": "measured observer callback overhead > arms one flush timer per burst, not one per snapshot",
+    "owner": "tech-checks",
+    "reason": "ns-per-burst benchmark; its only assertion is a timing bound",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/awareness-runtime.test.ts",
+    "test": "measured observer callback overhead > costs a map store and a flag check per emitted snapshot",
+    "owner": "tech-checks",
+    "reason": "ns-per-snapshot benchmark; its only assertion is a timing bound",
+    "date": "2026-10-29"
+  },
+  {
     "file": "tests/awareness-window-calibration.test.ts",
     "test": "*",
     "owner": "tech-lead",
     "reason": "real corpus sweep: 2.9 s of its 5 s budget on an idle CI runner",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/credentials-scrub.test.ts",
+    "test": "a long run costs linear time, so a peer's message cannot stall the main thread",
+    "owner": "tech-checks",
+    "reason": "wall-clock linearity ratio; timing is all it checks",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/credentials-scrub.test.ts",
+    "test": "judges one 64 KiB path token in linear time",
+    "owner": "tech-checks",
+    "reason": "wall-clock linearity ratio; timing is all it checks",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/credentials-scrub.test.ts",
+    "test": "the linear bound fails a quadratic",
+    "owner": "tech-checks",
+    "reason": "wall-clock ratio sweep; timing is all it checks",
     "date": "2026-10-29"
   },
   {
@@ -109,6 +144,13 @@
     "test": "*",
     "owner": "tech-lead",
     "reason": "PTY corpus sweep: timed out in 0.11.2 release runs under load",
+    "date": "2026-10-29"
+  },
+  {
+    "file": "tests/ssh-process-spawner.test.ts",
+    "test": "ProcessSpawnerLive > terminates a responsive owned process without waiting through the grace period",
+    "owner": "tech-checks",
+    "reason": "its only assertion is a 1.5 s wall-clock bound",
     "date": "2026-10-29"
   },
   {
