@@ -34,7 +34,7 @@ tables (seeded) and the scope record of each vault token (empty).
 - Drop files from Finder on a Files card, on its window, or on a folder in the
   tree, and they are copied into that folder. A name that exists gets " 2",
   " 3" and so on; nothing is moved or overwritten. Dragging inside the tree
-  renames. Delete moves a file to the Trash.
+  renames.
 - PDFs and images preview in the main pane. Any other file offers Open in its
   default app and Reveal in Finder.
 - Comment anywhere in a file: on lines of code, on a box on an image, or on a
@@ -90,6 +90,20 @@ tables (seeded) and the scope record of each vault token (empty).
   again once a path matches. And two Files nodes that open the same folder each
   keep their own threads, so a rename through one node carries only its own;
   the other's stay at the old path, as in the outside case.
+- The needs-you feed holds work the operator produces. A seat that raises
+  `junto blocked` or `junto escalate` can ask for a document with
+  `--ask-artifact` or for proof with `--ask-proof`; you write the document in
+  the editor inside the signal, or attach text and links as proof, and the
+  signal stays open until your reply meets its condition (a document, for
+  instance, of at least so many words). A document you write becomes an
+  artifact in the Artifacts node the seat named. Asking for a secret waits for a later release.
+- Briefings are written as documents: the app briefing, the references and a
+  region's instruction open in the same live Markdown editor as artifacts,
+  with [[ and @ mentions of artifacts, seats, tasks and the nodes a region
+  reaches. A seat running `junto onboard` gets the text as written and, beside
+  it, each mention as a reference it can act on, with its current title and
+  whether the seat can reach it; a mention that no longer resolves is listed as
+  missing.
 - Security: Junto's git commands no longer run anything a folder's own git
   config names. A repository you open in the git node or a Files node, a
   downloaded one included, cannot run a file system monitor, a filter driver,
