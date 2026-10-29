@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent, FileTreeRowDecorationRenderer } from "@pierre/trees";
-import { CircleAlert, ExternalLink, Search, FileCode, FileQuestion, FileText, FolderSearch, Image, type LucideIcon } from "lucide-react";
+import { CircleAlert, ExternalLink, Search, FileCode, FilePlus, FileQuestion, FileText, FolderInput, FolderPlus, FolderSearch, Image, Pencil, Trash2, type LucideIcon } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
@@ -35,6 +35,8 @@ import { useFilesNodeView } from "../../lib/node-view-state";
 import { expandedAfter, fileOfSelection, filePathOfTree, movedPath, treePathOf, useFolderTree } from "./files-tree";
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop, type FilesMoved } from "./useFilesDrop";
+import { folderLabel, FilesCreateDialog, FilesMoveDialog, FilesRowMenu, FilesTrashDialog } from "./FilesActions";
+import { focusRowWhenShown, folderOfRow, isWithin, rowOf, type FilesAction } from "./files-actions";
 import { registerFileEditorSave } from "../../lib/file-editor-keys";
 import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
@@ -132,6 +134,10 @@ export function FilesNode({
   const [filter, setFilter] = useState("");
   /** A rename or move the folder refused, said under the filter. */
   const [treeError, setTreeError] = useState<string | null>(null);
+  /** What the last create, move or trash did, said under the filter. */
+  const [treeNote, setTreeNote] = useState<string | null>(null);
+  /** The dialog a row's menu, a header button or a key opened, and the row the keyboard goes back to on Cancel. */
+  const [acting, setActing] = useState<{ readonly action: FilesAction; readonly back: { readonly path: FilePath; readonly dir: boolean } | null } | null>(null);
   /** The tree's model, for the rename callback the tree is built with. */
   const modelRef = useRef<FileTreeModel | null>(null);
   const rename = async (event: FileTreeRenameEvent): Promise<void> => {
@@ -237,6 +243,131 @@ export function FilesNode({
     model.setComposition(model.getComposition());
   }, [model, draftsVersion]);
 
+  /** Open a create, move or trash dialog; the keyboard comes back to `back`'s row if it is cancelled. */
+  const act = (action: FilesAction, back: { readonly path: FilePath; readonly dir: boolean } | null): void => {
+    setTreeError(null);
+    setTreeNote(null);
+    setActing({ action, back });
+  };
+  /** The focused row, else the open file: what a header button acts on. */
+  const focusedRow = (): { readonly path: FilePath; readonly dir: boolean } | null =>
+    rowOf(model.getFocusedPath()) ?? (selectedRef.current === null ? null : { path: selectedRef.current, dir: false });
+  const startCreate = (dir: boolean): void => {
+    const row = focusedRow();
+    act({ kind: "create", dir, into: row === null ? ROOT_PATH : folderOfRow(row.path, row.dir) }, row);
+  };
+  const startRename = (treePath: string): void => {
+    if (!model.startRenaming(treePath)) setTreeError("That row cannot be renamed now.");
+  };
+  const actOnRow = (row: { readonly path: FilePath; readonly dir: boolean }, kind: "move" | "trash"): void => act({ kind, ...row }, row);
+  /** Delete or Cmd+Backspace on a focused row asks to move it to the Trash, as the menu does. */
+  const treeKeys = (event: React.KeyboardEvent<HTMLElement>): void => {
+    const trash = event.key === "Delete" || (event.key === "Backspace" && event.metaKey);
+    if (!trash || event.altKey || event.ctrlKey || event.shiftKey) return;
+    const origin = event.nativeEvent.composedPath()[0];
+    if (!(origin instanceof HTMLElement) || origin.getAttribute("role") !== "treeitem") return;
+    const row = rowOf(origin.dataset.itemPath);
+    if (row === undefined) return;
+    event.preventDefault();
+    // The canvas binds Delete on the document and would ask to delete the card under the modal.
+    event.stopPropagation();
+    actOnRow(row, "trash");
+  };
+  /**
+   * The tree takes what the folder did at once, as a drag's move does; the
+   * watch's re-list after finds it already so.
+   */
+  const shownNow = (op: () => void): void => {
+    try {
+      op();
+    } catch {
+      // Already so.
+    }
+  };
+  /** The row the keyboard goes to once the dialog is gone; undefined while there is none to land. */
+  const landOn = useRef<{ readonly path: FilePath; readonly dir: boolean } | null | undefined>(undefined);
+  const settle = (focus: { readonly path: FilePath; readonly dir: boolean } | null, note: string | null): void => {
+    landOn.current = focus;
+    setActing(null);
+    setTreeNote(note);
+  };
+  // After the dialog unmounted: its own cleanup gives focus back to its opener, and this comes after it.
+  useEffect(() => {
+    if (acting !== null || landOn.current === undefined) return;
+    const focus = landOn.current;
+    landOn.current = undefined;
+    return focusRowWhenShown(model, focus);
+  }, [acting, model]);
+  /** The row after `path` that a trash leaves, else the one before: where the keyboard goes. */
+  const rowAfterTrash = (path: FilePath): { readonly path: FilePath; readonly dir: boolean } | null => {
+    const rows = model.getVisibleRows(0, model.getVisibleCount());
+    const at = rows.findIndex((row) => rowOf(row.path)?.path === path);
+    const outside = (row: (typeof rows)[number] | undefined) => {
+      const entry = rowOf(row?.path);
+      return entry !== undefined && !isWithin(entry.path, path) ? entry : undefined;
+    };
+    for (let next = at + 1; at >= 0 && next < rows.length; next += 1) {
+      const entry = outside(rows[next]);
+      if (entry !== undefined) return entry;
+    }
+    for (let back = at - 1; back >= 0; back -= 1) {
+      const entry = outside(rows[back]);
+      if (entry !== undefined) return entry;
+    }
+    return null;
+  };
+  const dialog = (() => {
+    if (acting === null) return null;
+    const { action, back } = acting;
+    const cancel = (): void => settle(back, null);
+    switch (action.kind) {
+      case "create":
+        return (
+          <FilesCreateDialog
+            filesRef={ref}
+            action={action}
+            rootName={folderName}
+            onCancel={cancel}
+            onDone={(made) => {
+              shownNow(() => model.add(treePathOf(made)));
+              if (!made.dir) setSelected(made.path);
+              settle(made, `Made ${baseName(made.path)} in ${folderLabel(action.into, folderName)}.`);
+            }}
+          />
+        );
+      case "move":
+        return (
+          <FilesMoveDialog
+            filesRef={ref}
+            action={action}
+            rootName={folderName}
+            onCancel={cancel}
+            onDone={(moved) => {
+              shownNow(() => model.move(treePathOf({ path: moved.from, dir: moved.dir }), treePathOf({ path: moved.to, dir: moved.dir })));
+              follow([{ from: moved.from, to: moved.to }]);
+              settle({ path: moved.to, dir: moved.dir }, `Moved ${baseName(moved.to)} to ${folderLabel(parentOf(moved.to), folderName)}.`);
+            }}
+          />
+        );
+      case "trash":
+        return (
+          <FilesTrashDialog
+            filesRef={ref}
+            action={action}
+            onCancel={cancel}
+            onDone={(gone) => {
+              // Asked and confirmed: unsaved text under it goes with it.
+              for (const path of dirtyPaths(nodeId)) if (isWithin(path, gone.path)) setFileDraft(nodeId, path, undefined);
+              if (selectedRef.current !== null && isWithin(selectedRef.current, gone.path)) setSelected(null);
+              const next = rowAfterTrash(gone.path);
+              shownNow(() => model.remove(treePathOf(gone), { recursive: gone.dir }));
+              settle(next, `${baseName(gone.path)} is in the Trash.`);
+            }}
+          />
+        );
+    }
+  })();
+
   /** A pick in the palette opens that file in the main pane and brings its row into view. */
   const quickOpen = useQuickOpen({
     nodeId,
@@ -262,7 +393,17 @@ export function FilesNode({
     <>
       <PaneHeader
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
-        actions={quickOpen.trigger}
+        actions={
+          <>
+            <IconButton aria-label="New file" title="New file" size="sm" onClick={() => startCreate(false)}>
+              <FilePlus size={14} />
+            </IconButton>
+            <IconButton aria-label="New folder" title="New folder" size="sm" onClick={() => startCreate(true)}>
+              <FolderPlus size={14} />
+            </IconButton>
+            {quickOpen.trigger}
+          </>
+        }
       />
       <label className="files-filter">
         <Search size={12} aria-hidden />
@@ -282,8 +423,19 @@ export function FilesNode({
           <CircleAlert size={14} aria-hidden />
           {treeError}
         </p>
+      ) : treeNote ? (
+        <p className="files-note" role="status">
+          {treeNote}
+        </p>
       ) : null}
-      <FilesTree model={model} label={`Files in ${folderName}`} />
+      <FilesTree
+        model={model}
+        label={`Files in ${folderName}`}
+        onKeyDown={treeKeys}
+        renderContextMenu={(item, context) => (
+          <FilesRowMenu item={item} context={context} onAction={(action) => act(action, rowOf(item.path) ?? null)} onRename={startRename} />
+        )}
+      />
     </>
   );
 
@@ -319,29 +471,35 @@ export function FilesNode({
     ) : null;
 
   return (
-    <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose}>
-      {quickOpen.palette}
-      <div {...drop.surface} className="files-body">
-        {empty !== null || selected === null || root.state !== "ready" ? (
-          <TwoPane keptBy={{ canvas: ref.canvas, node: ref.node }} sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
-            {empty ?? <PaneEmpty title="Opening the folder" />}
-          </TwoPane>
-        ) : (
-          <SelectedFile
-            // A named page is jumped to once per mount: a new open naming one mounts the file afresh.
-            key={pageOnce === undefined || selected !== initialPath ? selected : `${selected}#${String(openKey ?? 0)}`}
-            canvasName={canvasName}
-            filesRef={ref}
-            path={selected}
-            {...(pageOnce !== undefined && selected === initialPath ? { initialPage: pageOnce } : {})}
-            sidebar={sidebar}
-            save={save}
-            onClose={onClose}
-          />
-        )}
-        <FilesDropHighlight drop={drop} />
-      </div>
-    </FocusSurface>
+    <>
+      <FocusSurface measure="workspace" height="immersive" label="Files" onClose={onClose}>
+        {quickOpen.palette}
+        <div {...drop.surface} className="files-body">
+          {empty !== null || selected === null || root.state !== "ready" ? (
+            <TwoPane keptBy={{ canvas: ref.canvas, node: ref.node }} sidebar={sidebar} sidebarLabel="Files" sidebarWidth="narrow" mainLabel="File">
+              {empty ?? <PaneEmpty title="Opening the folder" />}
+            </TwoPane>
+          ) : (
+            <SelectedFile
+              // A named page is jumped to once per mount: a new open naming one mounts the file afresh.
+              key={pageOnce === undefined || selected !== initialPath ? selected : `${selected}#${String(openKey ?? 0)}`}
+              canvasName={canvasName}
+              filesRef={ref}
+              path={selected}
+              {...(pageOnce !== undefined && selected === initialPath ? { initialPage: pageOnce } : {})}
+              sidebar={sidebar}
+              save={save}
+              onRename={() => startRename(treePathOf({ path: selected, dir: false }))}
+              onAct={(kind) => actOnRow({ path: selected, dir: false }, kind)}
+              onClose={onClose}
+            />
+          )}
+          <FilesDropHighlight drop={drop} />
+        </div>
+      </FocusSurface>
+      {/* Outside the surface's React tree: a key in a dialog bubbles to its React parents, and Escape there would close the modal too. */}
+      {dialog}
+    </>
   );
 }
 
@@ -352,6 +510,8 @@ function SelectedFile({
   initialPage,
   sidebar,
   save,
+  onRename,
+  onAct,
   onClose,
 }: {
   readonly canvasName: string;
@@ -360,6 +520,9 @@ function SelectedFile({
   readonly initialPage?: number;
   readonly sidebar: React.ReactNode;
   readonly save: React.MutableRefObject<(() => void) | null>;
+  /** The open file's rename, in its tree row; its move and trash, in their dialogs. */
+  readonly onRename: () => void;
+  readonly onAct: (kind: "move" | "trash") => void;
   readonly onClose: () => void;
 }) {
   const nodeId = filesRef.node;
@@ -684,6 +847,15 @@ function SelectedFile({
             {saving ? "Saving" : "Save"}
           </Button>
         ) : null}
+        <IconButton aria-label="Rename" title="Rename" size="sm" onClick={onRename}>
+          <Pencil size={14} />
+        </IconButton>
+        <IconButton aria-label="Move to" title="Move to" size="sm" onClick={() => onAct("move")}>
+          <FolderInput size={14} />
+        </IconButton>
+        <IconButton aria-label="Move to Trash" title="Move to Trash" size="sm" onClick={() => onAct("trash")}>
+          <Trash2 size={14} />
+        </IconButton>
         <IconButton aria-label="Open in default app" title="Open in default app" size="sm" onClick={() => void outside("openInDefaultApp")}>
           <ExternalLink size={14} />
         </IconButton>
@@ -736,7 +908,17 @@ function SelectedFile({
  * the name is set on the inner tree once it renders (a workaround, for
  * product-accessibility's review), and the nav names the region around it.
  */
-function FilesTree({ model, label }: { readonly model: FileTreeModel; readonly label: string }) {
+function FilesTree({
+  model,
+  label,
+  onKeyDown,
+  renderContextMenu,
+}: {
+  readonly model: FileTreeModel;
+  readonly label: string;
+  readonly onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+  readonly renderContextMenu: NonNullable<React.ComponentProps<typeof FileTree>["renderContextMenu"]>;
+}) {
   const wrap = useRef<HTMLElement>(null);
   useEffect(() => {
     const host = wrap.current?.querySelector("file-tree-container");
@@ -752,8 +934,8 @@ function FilesTree({ model, label }: { readonly model: FileTreeModel; readonly l
     return () => observer.disconnect();
   }, [label]);
   return (
-    <nav ref={wrap} className="files-tree-nav" aria-label={label}>
-      <FileTree model={model} className="files-tree" />
+    <nav ref={wrap} className="files-tree-nav" aria-label={label} onKeyDown={onKeyDown}>
+      <FileTree model={model} className="files-tree" renderContextMenu={renderContextMenu} />
     </nav>
   );
 }
