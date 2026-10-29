@@ -373,6 +373,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         readonly wires: ReadonlyArray<Wire>;
       }) {
         const at = new Date().toISOString();
+        const before = yield* sql<{ canvas_id: string }>`SELECT canvas_id FROM canvases WHERE canvas_name=${input.canvas}`;
         yield* sql`DELETE FROM wires WHERE canvas_name=${input.canvas}`;
         for (const table of Object.values(KIND_TABLES))
           yield* sql.unsafe(`DELETE FROM ${table} WHERE canvas_name=?`, [input.canvas]);
@@ -380,6 +381,20 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           VALUES (${input.canvas},${input.canvasId},${at},${at},${input.seq},${input.editor})
           ON CONFLICT(canvas_name) DO UPDATE SET seq=excluded.seq, updated_at=excluded.updated_at,
             canvas_id=excluded.canvas_id, editor_installation_id=excluded.editor_installation_id`;
+        if (AUTHORITY_ENABLED) {
+          // A canvas new here, or one this copy takes over, begins as step 61 seeds it: its editor alone, at
+          // term 1; its log, if any, goes with the consensus row. A newer copy of the same canvas only fills
+          // what is missing, and never lowers a term, clears a vote or replaces a list.
+          if (before[0]?.canvas_id !== input.canvasId) {
+            yield* sql`DELETE FROM canvas_authorities WHERE canvas_name=${input.canvas}`;
+            yield* sql`DELETE FROM canvas_consensus WHERE canvas_name=${input.canvas}`;
+          }
+          yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, voted_for, commit_index, applied_index)
+            VALUES (${input.canvas}, 1, NULL, 0, 0) ON CONFLICT (canvas_name) DO NOTHING`;
+          if ((yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM canvas_authorities WHERE canvas_name=${input.canvas}`)[0]!.n === 0) {
+            yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${input.canvas}, 0, ${input.editor})`;
+          }
+        }
         for (const node of input.nodes)
           yield* insert(KIND_TABLES[node.kind], { ...nodeToRow(input.canvas, node), created_at: at, updated_at: at });
         for (const wire of input.wires)
