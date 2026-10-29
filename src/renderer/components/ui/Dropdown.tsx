@@ -71,6 +71,8 @@ export function Dropdown({
   readonly align?: "start" | "end";
 }) {
   const listId = useId();
+  const labelId = `${listId}-label`;
+  const valueId = `${listId}-value`;
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -336,11 +338,23 @@ export function Dropdown({
 
   return (
     <div ref={rootRef} className={["relative inline-flex min-w-0", className ?? ""].filter(Boolean).join(" ")}>
+      {/*
+        The trigger's name is its label and the value it holds, so a reader
+        says "Machine, Mini" on focus and never "Machine" alone with the choice
+        silent. It is built with aria-labelledby rather than folded into
+        aria-label, which stays the caller's plain label: tests and specs read
+        that attribute. The label sits outside the button so the button's own
+        text is still only its value.
+      */}
+      <span id={labelId} className="sr-only">
+        {ariaLabel},
+      </span>
       <button
         ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-label={ariaLabel}
+        aria-labelledby={selected === undefined ? undefined : `${labelId} ${valueId}`}
         aria-busy={ariaBusy}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -361,7 +375,7 @@ export function Dropdown({
         onKeyDown={onTriggerKeyDown}
       >
         {selected?.leading ? <span className="flex shrink-0 items-center" aria-hidden>{selected.leading}</span> : null}
-        <span className={`min-w-0 flex-1 truncate text-body font-medium ${caseClass}`}>{labelText}</span>
+        <span id={valueId} className={`min-w-0 flex-1 truncate text-body font-medium ${caseClass}`}>{labelText}</span>
         <ChevronDown
           size={12}
           strokeWidth={2.2}
