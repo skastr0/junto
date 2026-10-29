@@ -1,4 +1,10 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
 import {
   claimFocus,
   closestComposed,
@@ -85,6 +91,28 @@ export const closeFrontModal = (): boolean => {
 /** True while any modal of this layer is open. */
 export const isModalLayerOpen = (layer: ModalLayer): boolean =>
   stack.some((entry) => entry.layer === layer);
+
+const stackListeners = new Set<() => void>();
+
+const announceStack = (): void => {
+  for (const listener of stackListeners) listener();
+};
+
+const subscribeStack = (listener: () => void): (() => void) => {
+  stackListeners.add(listener);
+  return () => {
+    stackListeners.delete(listener);
+  };
+};
+
+const stackIsOpen = (): boolean => stack.length > 0;
+
+/**
+ * Whether any modal is on the stack, live. The canvas uses it to stand its
+ * own document-level keys down while a modal owns the keyboard.
+ */
+export const useModalOpen = (): boolean =>
+  useSyncExternalStore(subscribeStack, stackIsOpen, stackIsOpen);
 
 /**
  * What counts as a tab stop, for every shell and floating panel. An element
@@ -348,11 +376,13 @@ export const pushModal = (
   const stacked: Stacked = { ...entry, seq: nextSeq++ };
   stack.push(stacked);
   syncInert();
+  announceStack();
   return {
     leave: () => {
       const index = stack.indexOf(stacked);
       if (index >= 0) stack.splice(index, 1);
       syncInert();
+      announceStack();
     },
     isTop: () => topOf(stack) === stacked,
   };
@@ -362,6 +392,7 @@ export const pushModal = (
 export const resetModalStack = (): void => {
   stack.length = 0;
   syncInert();
+  announceStack();
 };
 
 /**

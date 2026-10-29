@@ -92,6 +92,7 @@ import { openWorkDetail } from "./lib/work-detail-open";
 import { isResourceKind } from "@shared/region-reach";
 import type { NodeId } from "@shared/model";
 import { isOperatorTyping } from "./lib/focus-ownership";
+import { topModal } from "./lib/modal-stack";
 
 const setError = (error: unknown) =>
   state$.error.set(error instanceof Error ? error.message : String(error));
@@ -551,6 +552,9 @@ export function App() {
         closeFocusModalSurface(front.id);
         return;
       }
+      // A modal owns the keyboard: Escape is its own or nobody's, never the
+      // canvas selection's, even when the modal leaves Escape unclaimed.
+      if (topModal() !== undefined) return;
       if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
         event.preventDefault();
         clearSelection();

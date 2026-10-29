@@ -42,6 +42,8 @@ import {
 import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { useMenuDismiss } from "../lib/menu-dismiss";
+import { useModalOpen } from "../lib/modal-stack";
+import { canvasDeleteKeyCode } from "../lib/canvas-keys";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
@@ -1543,9 +1545,10 @@ function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode 
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
-  // Focus-view presence (any kind) — the canvas delete/Escape keys must not
-  // act through an open focus surface.
+  // Focus-view presence (any kind) and any modal on product-modals' stack:
+  // the canvas delete/Escape keys must not act through either.
   const hasFocusSurfaces = use$(() => dock$.registry.surfaces.get().length > 0);
+  const modalOpen = useModalOpen();
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
@@ -1851,9 +1854,10 @@ function CanvasGraph() {
       deleteKeyCode={
         // xyflow binds Delete/Backspace at the document level, so the chord
         // reaches the canvas even while the operator works inside a focus
-        // surface (browser page chrome, note draft chrome). While a focus
-        // surface exists the canvas has no delete key.
-        hasFocusSurfaces ? null : ["Backspace", "Delete"]
+        // surface (browser page chrome, note draft chrome) or any modal
+        // (Files, Artifacts, a dialog). While either owns the keyboard the
+        // canvas has no delete key.
+        canvasDeleteKeyCode(hasFocusSurfaces, modalOpen)
       }
       elevateNodesOnSelect={false}
       // A wire never rises over a card, selected or not (convert.ts z bands).
