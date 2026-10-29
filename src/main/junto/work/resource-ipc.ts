@@ -265,7 +265,8 @@ export const applyArtifact = (
 ): Effect.Effect<ArtifactApplyOutcome> =>
   Effect.gen(function* () {
     const canvas = yield* ports.topology(canvasName);
-    const wrongTarget = targetRefusal(canvas, nodeId, "artifacts");
+    // A move goes to an Artifacts node too (0.11.1, 10).
+    const wrongTarget = targetRefusal(canvas, nodeId, "artifacts") ?? (op.op === "move" ? targetRefusal(canvas, op.to, "artifacts") : undefined);
     if (wrongTarget !== undefined) return { kind: "refused" as const, opId, error: wrongTarget };
     const command = commandOf(canvasName, "artifact", nodeId, artifactId, opId, op);
     // The operator writes no automation, so no automation author is known.

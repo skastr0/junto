@@ -800,7 +800,13 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
           return ref;
         },
       });
-      const ruled = rule(domain, { state, rulings }, writer, command, context);
+      // A move must reach where it goes as well as where it is (0.11.1, 10).
+      const op = command.op;
+      const reach: RulingContext =
+        op.op === "move"
+          ? { inReach: (actor, target) => context.inReach(actor, target) && context.inReach(actor, { ...target, nodeId: op.to }) }
+          : context;
+      const ruled = rule(domain, { state, rulings }, writer, command, reach);
       const ruling = ruled.ruling;
       if (ruling.kind === "applied") {
         // The domain refuses a command with no target item, so an applied one always names it.

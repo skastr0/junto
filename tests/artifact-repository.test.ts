@@ -321,4 +321,11 @@ describe("ArtifactRepository", () => {
     expect(reason(await submit(command({ op: "edit", edit: sheetCell(2, "c1", "after") }, id, { nodeId: "artifacts-release" })))).toBe("applied");
     expect(reason(await submit(command({ op: "edit", edit: sheetCell(3, "c1", "stale node") }, id)))).toBe("unknown_target");
   });
+
+  it("refuses a move into a node its writer does not reach, though it reaches where the artifact is", async () => {
+    const id = await createSheet("Stays");
+    const onlyHere: RulingContext = { inReach: (_actor, target) => target.nodeId === node };
+    expect(reason(await submit(command({ op: "move", to: asNodeId("artifacts-far") }, id), onlyHere))).toBe("not_in_reach");
+    expect(Option.getOrThrow(await withRepo((repo) => repo.head(canvas, id))).artifact.nodeId).toBe(node);
+  });
 });
