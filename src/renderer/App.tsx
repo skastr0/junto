@@ -93,6 +93,7 @@ import { isResourceKind } from "@shared/region-reach";
 import type { NodeId } from "@shared/model";
 import { isOperatorTyping } from "./lib/focus-ownership";
 import { topModal } from "./lib/modal-stack";
+import { warmDetachOnEscape } from "./lib/browser-escape";
 
 const setError = (error: unknown) =>
   state$.error.set(error instanceof Error ? error.message : String(error));
@@ -544,17 +545,20 @@ export function App() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || isOperatorTyping(event.target)) return;
+      const top = topModal();
       const front = frontBrowserSurface();
-      if (front) {
-        // Dismiss the page surface, keep the canvas selection intact — the
-        // operator was leaving the page, not deselecting their node.
+      // Dismiss the page surface only while it is the topmost thing; a modal
+      // above it keeps Escape, even when that modal declines it.
+      if (front && warmDetachOnEscape(front.id, top)) {
+        // Keep the canvas selection intact — the operator was leaving the page,
+        // not deselecting their node.
         event.preventDefault();
         closeFocusModalSurface(front.id);
         return;
       }
       // A modal owns the keyboard: Escape is its own or nobody's, never the
       // canvas selection's, even when the modal leaves Escape unclaimed.
-      if (topModal() !== undefined) return;
+      if (top !== undefined) return;
       if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
         event.preventDefault();
         clearSelection();
