@@ -458,7 +458,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     comments: async (args) => {
       if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
-      if (!DEMO_ARTIFACTS.some((artifact) => artifact.id === args.subject.artifactId)) {
+      if (!DEMO_ARTIFACTS.some((artifact) => artifact.head.artifactId === args.subject.artifactId)) {
         return outcomeFail("not-found", "That artifact is not on this canvas.");
       }
       const held = commentThreads.filter((thread) => thread.artifactId === args.subject.artifactId);
@@ -471,7 +471,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     comment: async (args) => {
       if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
-      if (!DEMO_ARTIFACTS.some((artifact) => artifact.id === args.subject.artifactId)) {
+      if (!DEMO_ARTIFACTS.some((artifact) => artifact.head.artifactId === args.subject.artifactId)) {
         return outcomeFail("not-found", "That artifact is not on this canvas.");
       }
       const replayed = commentOps.get(args.opId);

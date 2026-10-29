@@ -77,7 +77,7 @@ describe("the demo's comments", () => {
   };
 
   it("serves the fixture's text-anchored thread", async () => {
-    expect(DEMO_ARTIFACTS.some((artifact) => artifact.id === DEMO_ARTIFACT_PRICING_NOTES)).toBe(true);
+    expect(DEMO_ARTIFACTS.some((artifact) => artifact.head.artifactId === DEMO_ARTIFACT_PRICING_NOTES)).toBe(true);
     const listed = await backend.comments({ canvasName: DEMO_CANVAS, subject });
     expect(listed.ok).toBe(true);
     if (!listed.ok) return;
