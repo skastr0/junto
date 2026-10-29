@@ -663,7 +663,8 @@ export function AutomationsPane({
     if (refocus === undefined) return;
     setRefocus(undefined);
     if (refocus === "name") {
-      claimFocus(nameField.current, "gesture");
+      // The name is prefilled, "New automation" or the signal it answers: selected, so typing replaces it.
+      claimFocus(nameField.current, "gesture", { select: true });
       return;
     }
     const lost =

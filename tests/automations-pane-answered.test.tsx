@@ -78,6 +78,9 @@ describe.runIf(AUTOMATION_SIGNALS_ENABLED)("automations pane, answered back (0.1
     // The new one is open, not saved yet, and its name is where the keyboard is.
     expect(nameShown()).toBe('When "Review the plan" is answered');
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Automation name");
+    // Selected whole, so the first key typed replaces the suggested name.
+    const name = document.activeElement as HTMLInputElement;
+    expect([name.selectionStart, name.selectionEnd]).toEqual([0, name.value.length]);
     expect(document.body.textContent).toContain('When "Review the plan" is answered, not saved');
     expect(document.body.querySelector('[aria-label="Automation that raises it"]')?.textContent).toContain("Morning standup");
     expect(document.body.querySelector('[aria-label="Which of its signals"]')?.textContent).toContain('the step "Review the plan"');

@@ -200,8 +200,16 @@ type Pickers = {
   readonly labelsOf: (node: NodeId) => ReadonlyArray<ArtifactLabel>;
 };
 
-/** A word of the sentence between its fields. Read in order with them, so it is not hidden from a screen reader. */
-const Word = ({ children }: { readonly children: string }) => <span className="automation-editor__word">{children}</span>;
+/**
+ * A word of the sentence between its fields. Read in order with them, so it
+ * is not hidden from a screen reader; the space after it keeps the sentence's
+ * text in words, and a flex row draws no whitespace-only item.
+ */
+const Word = ({ children }: { readonly children: string }) => (
+  <>
+    <span className="automation-editor__word">{children}</span>{" "}
+  </>
+);
 
 const ONE = "one";
 const nodeValue = (node: NodeId): string => `node:${node}`;
@@ -470,7 +478,7 @@ function AnsweredFields({
         options={[
           { value: ANY, label: "any of its signals" },
           ...steps.map((step) => ({ value: step.id, label: `the step "${stepTitle(step.title)}"` })),
-          ...(stepLost ? [{ value: watch.step!, label: `the step ${watch.step}, no longer in it` }] : []),
+          ...(stepLost ? [{ value: watch.step!, label: "a step no longer in it" }] : []),
         ]}
         onChange={(value) => {
           const { step: _old, ...rest } = watch;
@@ -1257,7 +1265,14 @@ function WhenAnswered({ linked, onOpen, onWhenAnswered }: WhenAnsweredLinks) {
         onOpen === undefined ? (
           <Word key={automation.automationId}>{automation.name}</Word>
         ) : (
-          <Button key={automation.automationId} size="xs" variant="chrome" onClick={() => onOpen(automation.automationId)}>
+          <Button
+            key={automation.automationId}
+            size="xs"
+            variant="chrome"
+            // A verb in a controls list, as the trigger's Open names it; the visible name stays in it.
+            aria-label={`Open ${automation.name}`}
+            onClick={() => onOpen(automation.automationId)}
+          >
             <ArrowUpRight size={12} aria-hidden />
             {automation.name}
           </Button>

@@ -301,6 +301,7 @@ describe("answered back, the form", () => {
 
     await render(raising, { automations: all, onOpenAutomation, onWhenAnswered: () => undefined });
     expect(host.querySelector('[aria-label="When answered"]')?.textContent).toContain("When answered, runs");
+    expect(button("File the review")?.getAttribute("aria-label")).toBe("Open File the review");
     await act(async () => button("File the review")!.click());
     expect(onOpenAutomation).toHaveBeenCalledWith(answeringId);
     expect(button("Another when answered…")).not.toBeUndefined();
