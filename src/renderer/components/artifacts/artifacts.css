@@ -206,6 +206,117 @@
   margin: 0 8px 8px;
 }
 
+/* Rows picked to move together (0.11.1, 10): a cyan edge on each, the open
+   one keeping its own fill, and one line under the list that counts them. */
+.artifacts-list__item[data-picked="true"] > button {
+  background: var(--color-overlay-1);
+  box-shadow: inset 2px 0 0 var(--color-cyan);
+}
+
+.artifacts-list__item[data-picked="true"] > button[data-selected="true"] {
+  background: var(--color-overlay-2);
+}
+
+.artifacts-picked,
+.artifacts-moved {
+  margin: 0 8px 8px;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+}
+
+/* A row's menu: Move to, as the swatch menu draws its items. */
+.artifact-row-menu {
+  padding: 4px;
+}
+
+.artifact-row-menu__item {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+  text-align: start;
+}
+
+.artifact-row-menu__item > svg {
+  flex: none;
+  color: var(--color-dim);
+}
+
+.artifact-row-menu__item:hover,
+.artifact-row-menu__item:focus-visible {
+  background: var(--color-overlay-2);
+}
+
+.artifact-row-menu__item:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
+/* Move to: the nodes by name with their region after, the reach line, a refusal. */
+.artifact-move {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.artifact-move__target {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.artifact-move__name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-move__place {
+  margin-left: auto;
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-move__none {
+  margin: 0;
+  padding: 8px;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
+.artifact-move__reach {
+  min-height: 1lh;
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
+}
+
+.artifact-move__error {
+  margin: 0;
+  color: var(--color-crimson-fg);
+  font-size: var(--text-label);
+}
+
 /* Main pane */
 
 .artifact-head {
