@@ -80,9 +80,21 @@ the live file. They rerun everything at the cut hash. Results per line:
       Run 1: still v63, still 1 backup, 126 tables row-identical except
       `state_schema_identity.verified_at`.
 - [ ] Built app launches a fresh v50 home made by the 0.10.3 engine and
-      migrates it (the 7b run of 0.10.3). Run 1: pending, queued for load under
-      40 and the app-run lock. `~/.junto-preview-gate63` is seeded at v50 with
-      file, git and page stubs so the packaged app runs the step 63 row copy.
+      migrates it (the 7b run of 0.10.3). Run 1 (canvas-verifier, relayed, main
+      31ae22a6f, same state files as f714cc002; f714cc002 itself does not
+      build): passes. Ship profile, files=1, unsigned, `build-app.sh --target
+      mac --fast` from a `git archive`, app-run lock held. Home
+      `~/.junto-preview-gate63` made at v50 by the 0.10.3 engine (6051eddef),
+      seeded with a region, 3 task boards, 2 flows wires, a note and 3 stubs
+      (a labelled file, a git, a page on mac-mini). Launch 1: v50 to v63,
+      identity 83d7611b, quick_check ok, foreign_key_check 0 rows, wires and all
+      3 stubs kept with label and host, `stub_of` admits files; backup
+      junto-backup-c09ef75e written before the v63 stamp, v50, holds the stubs
+      and wires; no errors, exit 0. Launch 2: still v63, 1 backup, 126 tables
+      row-identical except `verified_at` and `onboardingSeen`, which they set;
+      the renderer drew the canvas and the stubs. Unverified: a frontmost
+      on-screen capture. The screen was locked, so captures came from CDP of
+      the app's own renderer, not the screen.
 - [ ] Body backlinks backfill (dfedca97d): runs once at boot, marker
       `artifact-links.v1` in `install-ops.db`. Gate, both required:
       product-feed's shipped-install proof (fa93d0ba9, landed; a 0.10.3 install
