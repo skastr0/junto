@@ -268,6 +268,8 @@ export const SignalSource = Schema.Union([
     kind: Schema.Literal("automation"),
     automationId: WireItemId,
     nodeId: WireNodeId,
+    /** The firing that raised it, so the feed opens that run; absent on a signal raised before it was named. */
+    firingId: Schema.optionalKey(WireItemId),
   }),
 ]);
 export type SignalSource = typeof SignalSource.Type;

@@ -12,6 +12,7 @@ const NODE = asNodeId("automations-1");
 const SHELF = asNodeId("journal");
 const DOC = ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ51");
 const SIGNAL_ID = "01M62Q58WDSXMG4YBXNKR2RB91";
+const FIRING_ID = "01M62Q58WDA1B2C3D4E5F6G7H8";
 const FIRED_AT = 1_790_000_000_000;
 const canvas = {
   nodes: new Map([
@@ -58,6 +59,7 @@ const perform = (signals: AgentSignalRepository["Service"], action: SignalAction
     index: 0,
     fired: { at: FIRED_AT },
     resolve: (text) => Effect.succeed(text.replaceAll("{{fired.at}}", "Tuesday")),
+    firingId: FIRING_ID,
     signalId: SIGNAL_ID,
   }));
 
@@ -74,7 +76,7 @@ const write: SignalAction = {
 describe("an automation's signal step (0.11/07 N2)", () => {
   it("raises work from the Automations node, with its values said, its form settled and its due time from the firing", async () => {
     const { raised, signals } = store();
-    expect(await perform(signals, write)).toEqual({ index: 0, ruling: "applied" });
+    expect(await perform(signals, write)).toEqual({ index: 0, ruling: "raised", signalId: SIGNAL_ID });
     expect(raised).toEqual([{
       canvasName: "factory",
       nodeId: NODE,
@@ -82,7 +84,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
       kind: "work",
       text: "Write 500 words, Tuesday",
       detail: "Morning pages",
-      source: { kind: "automation", automationId: automation.automationId, nodeId: NODE },
+      source: { kind: "automation", automationId: automation.automationId, nodeId: NODE, firingId: FIRING_ID },
       work: { dueAt: FIRED_AT + 3_600_000, urgent: true },
       // Titled from the signal when the form names none; labels fold as a seat raise folds them.
       form: { kind: "artifact", nodeId: SHELF, title: "Write 500 words, Tuesday", labels: ["daily"], minWords: 500 },
@@ -93,7 +95,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
   it("raises once for a retried firing", async () => {
     const { raised, signals } = store();
     await perform(signals, write);
-    expect(await perform(signals, write)).toEqual({ index: 0, ruling: "applied" });
+    expect(await perform(signals, write)).toEqual({ index: 0, ruling: "raised", signalId: SIGNAL_ID });
     expect(raised).toHaveLength(1);
   });
 
@@ -135,7 +137,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     expect(await perform(signals, secret)).toEqual({ index: 0, ruling: "refused", reason: VAULT_ENABLED ? "invalid_input" : "not_available" });
     expect(await Effect.runPromise(performSignalAction(signals, {
       canvas, canvasName: "factory", machine: undefined, automation, action: secret, index: 0,
-      fired: { at: FIRED_AT }, resolve: Effect.succeed, signalId: SIGNAL_ID,
+      fired: { at: FIRED_AT }, resolve: Effect.succeed, firingId: FIRING_ID, signalId: SIGNAL_ID,
     }))).toEqual({ index: 0, ruling: "refused", reason: "not_available" });
     expect(raised).toEqual([]);
   });
@@ -144,7 +146,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     const { raised, signals } = store();
     const long = (text: string) => Effect.succeed(text.replaceAll("{{fired.at}}", "x".repeat(400)));
     await Effect.runPromise(performSignalAction(signals, {
-      canvas, canvasName: "factory", machine: "mini", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, signalId: SIGNAL_ID,
+      canvas, canvasName: "factory", machine: "mini", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, firingId: FIRING_ID, signalId: SIGNAL_ID,
     }));
     expect(raised[0]!.text.length).toBe(280);
     expect((raised[0]!.form as { title: string }).title.length).toBe(200);

@@ -37,6 +37,8 @@ export type SignalActionInput = {
   readonly fired: Fired;
   /** The action's text with its values said. */
   readonly resolve: (text: string) => Effect.Effect<string>;
+  /** The firing performing the step, named on the signal's source so the feed opens that run. */
+  readonly firingId: string;
   /** The signal's id: stable for this firing's step. */
   readonly signalId: string;
 };
@@ -84,7 +86,7 @@ export const performSignalAction = (
     const { action, automation, index } = input;
     // Raised once: a retried firing finds its signal and is done.
     const existing = yield* signals.get(input.signalId).pipe(Effect.option);
-    if (existing._tag === "Some") return { index, ruling: "applied" } as const;
+    if (existing._tag === "Some") return { index, ruling: "raised", signalId: input.signalId } as const;
 
     const text = clip(normalizeSignalText(yield* input.resolve(action.title)), AGENT_SIGNAL_MAX_TEXT_LENGTH);
     if (text === "") return invalid(index);
@@ -120,10 +122,10 @@ export const performSignalAction = (
       kind: action.signal,
       text,
       ...(detail === "" ? {} : { detail }),
-      source: { kind: "automation", automationId: automation.automationId, nodeId: automation.nodeId },
+      source: { kind: "automation", automationId: automation.automationId, nodeId: automation.nodeId, firingId: input.firingId },
       ...(work === undefined ? {} : { work }),
       ...(form === undefined ? {} : { form }),
       ...(attachments.length === 0 ? {} : { attachments }),
     }).pipe(Effect.result);
-    return raised._tag === "Success" ? ({ index, ruling: "applied" } as const) : notAvailable(index);
+    return raised._tag === "Success" ? ({ index, ruling: "raised", signalId: input.signalId } as const) : notAvailable(index);
   });

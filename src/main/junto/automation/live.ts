@@ -796,6 +796,7 @@ export const AutomationRunnerLive = Layer.effect(
               index,
               fired,
               resolve: resolveFor(canvasName, fired),
+              firingId,
               signalId: automationMailId(firingId, index, "signal"),
             }),
           })

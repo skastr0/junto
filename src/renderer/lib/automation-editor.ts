@@ -1177,6 +1177,7 @@ export const codeRulingWords = (ruling: ActionRuling): string | undefined => {
       return `failed: ${ruling.message}${ruling.exitCode === undefined ? "" : ` (exit ${ruling.exitCode})`}`;
     case "applied":
     case "queued":
+    case "raised":
     case "refused":
       return undefined;
     default:

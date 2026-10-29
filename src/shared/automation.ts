@@ -757,7 +757,7 @@ const StepIndex = Bounded(0, AUTOMATION_STEPS_MAX - 1);
 
 /**
  * One action's ruling, by its index in `then`. `queued` waits on the editing
- * machine (02). A code step that ran is `continued` with its output,
+ * machine (02). A signal step that raised its signal is `raised`, naming it. A code step that ran is `continued` with its output,
  * `stopped`, or `failed`: `timeout`, `too_large`, `output_carries_secret`
  * or the program's own words. On a failure `logTail` is the end of what it
  * wrote, stdout and stderr together, scrubbed of secrets. A code step
@@ -766,6 +766,8 @@ const StepIndex = Bounded(0, AUTOMATION_STEPS_MAX - 1);
 export const ActionRuling = Schema.Union([
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("applied") }),
   Schema.Struct({ index: StepIndex, ruling: Schema.Literal("queued") }),
+  /** A signal step raised its signal (0.11/07 N2); what became of it is the signal's own state, read by its id. */
+  Schema.Struct({ index: StepIndex, ruling: Schema.Literal("raised"), signalId: Text(64) }),
   Schema.Struct({
     index: StepIndex,
     ruling: Schema.Literal("refused"),
