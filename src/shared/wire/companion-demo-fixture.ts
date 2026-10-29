@@ -109,7 +109,217 @@ export const DEMO_CONTENT_AFTER = demoContent(
   "2914dcdc5a8d893f0f463606bdef5204127ebc7a9b418e1ac627347b70d18a4d", 94, "text/html", "pricing.html",
   "<h1>Pick the plan that fits your team</h1>\n<p>Pay monthly, or yearly and save two months.</p>\n",
 );
-export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEMO_CONTENT_BEFORE, DEMO_CONTENT_AFTER];
+export const DEMO_CONTENT_CHECKLIST = demoContent(
+  "6f4e0c2a9b1d47e8a2c5f19b0d3e6a8c7f2b1d4e5a6c8f0b2d4e6a8c1f3b5d7e9", 168, "text/csv", "launch-checklist.csv",
+  "item,owner,done\nTier table copy,atlas,yes\nAnnual toggle screenshot,quill,no\nFAQ anchors,prism,yes\nSupport macro update,forge,no\n",
+);
+export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEMO_CONTENT_BEFORE, DEMO_CONTENT_AFTER, DEMO_CONTENT_CHECKLIST];
+
+/** A real ULID for a demo resource row: fixed time prefix, a kind tag, a sequence tail. */
+export const demoItemId = (tag: "ART" | "TSK" | "THR", seq: number): string =>
+  `01J9DEM0${tag}${String(seq).padStart(15, "0")}`;
+
+/**
+ * The resource nodes the demo canvas carries for the artifact ops (03/8):
+ * the Inbox and two more Artifacts nodes, a task board and a page, so every
+ * mention kind in a document resolves against a real node.
+ */
+export type DemoResourceNode = {
+  readonly id: string;
+  readonly kind: "artifacts" | "task" | "page";
+  readonly label: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  /** A page node's address; only `kind: "page"` carries one. */
+  readonly url?: string;
+};
+
+export const DEMO_RESOURCE_NODES: ReadonlyArray<DemoResourceNode> = [
+  { id: "art-notes", kind: "artifacts", label: "Working notes", x: 40, y: 420, width: 280, height: 180 },
+  { id: "page-docs", kind: "page", label: "Pricing docs", url: "https://example.com/pricing", x: 360, y: 420, width: 280, height: 180 },
+  { id: "art-inbox", kind: "artifacts", label: "Inbox", x: 1040, y: 420, width: 280, height: 180 },
+  { id: "task-roadmap", kind: "task", label: "Roadmap", x: 1360, y: 420, width: 240, height: 180 },
+  { id: "art-launch", kind: "artifacts", label: "Launch", x: 2040, y: 420, width: 280, height: 180 },
+];
+
+/** An artifact label as the demo holds it: name, palette colour, and the label it nests under. */
+export type DemoArtifactLabel = {
+  readonly id: string;
+  readonly name: string;
+  readonly color: string;
+  readonly folder?: string;
+};
+
+export const DEMO_ARTIFACT_LABELS: ReadonlyArray<DemoArtifactLabel> = [
+  { id: "lbl-launch", name: "launch", color: "4" },
+  { id: "lbl-pricing", name: "pricing", color: "2", folder: "launch" },
+  { id: "lbl-review", name: "review", color: "6" },
+];
+
+export type DemoArtifactBody =
+  | { readonly type: "document"; readonly markdown: string }
+  | { readonly type: "link"; readonly url: string; readonly name: string }
+  | { readonly type: "pad"; readonly svg: string }
+  | { readonly type: "sheet"; readonly text: string }
+  | { readonly type: "file"; readonly content: ContentRef };
+
+/** A stored artifact: header fields plus the body an `artifact.get` serves. */
+export type DemoArtifact = {
+  readonly id: string;
+  /** The Artifacts node it sits on. */
+  readonly nodeId: string;
+  readonly title: string;
+  readonly body: DemoArtifactBody;
+  /** Label ids in `DEMO_ARTIFACT_LABELS`, in the order they were added. */
+  readonly labels: ReadonlyArray<string>;
+  /** Head version; every committed edit adds one. */
+  readonly version: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  /** Epoch ms when it was archived; absent while it is live. */
+  readonly archivedAt?: number;
+};
+
+export const DEMO_ARTIFACT_PRICING_NOTES = demoItemId("ART", 1);
+export const DEMO_ARTIFACT_COMPETITOR = demoItemId("ART", 2);
+export const DEMO_ARTIFACT_SKETCH = demoItemId("ART", 3);
+export const DEMO_ARTIFACT_ROADMAP_DRAFT = demoItemId("ART", 4);
+export const DEMO_ARTIFACT_TIERS = demoItemId("ART", 5);
+export const DEMO_ARTIFACT_CHECKLIST = demoItemId("ART", 6);
+export const DEMO_ARTIFACT_BRAINSTORM = demoItemId("ART", 7);
+export const DEMO_TASK_PRICING = demoItemId("TSK", 1);
+
+/**
+ * One of each type, spread over the three nodes: an Inbox document that
+ * mentions a seat, a task, an artifact and a page; a link; a pad; a second
+ * document; a sheet; a file; and one archived document for the archive
+ * filter.
+ */
+export const DEMO_ARTIFACTS: ReadonlyArray<DemoArtifact> = [
+  {
+    id: DEMO_ARTIFACT_PRICING_NOTES,
+    nodeId: "art-inbox",
+    title: "Pricing notes",
+    body: {
+      type: "document",
+      markdown:
+        `# Pricing notes\n\n` +
+        `[@Atlas](junto://canvas/demo?node=atlas) ran the numbers on staging.\n\n` +
+        `- Compare against [#1 launch pricing](junto://canvas/demo?node=task-roadmap&item=${DEMO_TASK_PRICING})\n` +
+        `- Keep it in step with [Roadmap draft](junto://canvas/demo?node=art-notes&item=${DEMO_ARTIFACT_ROADMAP_DRAFT})\n` +
+        `- Screenshots live on [Pricing docs](junto://canvas/demo?node=page-docs)\n\n` +
+        `Annual billing saves two months. The FAQ sits below the table.\n`,
+    },
+    labels: ["lbl-launch", "lbl-pricing"],
+    version: 3,
+    createdAt: DEMO_T0 - 2 * 24 * 60 * MIN,
+    updatedAt: DEMO_T0 - 35 * MIN,
+  },
+  {
+    id: DEMO_ARTIFACT_COMPETITOR,
+    nodeId: "art-inbox",
+    title: "Competitor pricing",
+    body: { type: "link", url: "https://example.com/pricing", name: "Competitor pricing page" },
+    labels: ["lbl-pricing"],
+    version: 1,
+    createdAt: DEMO_T0 - 30 * 60 * 1000,
+    updatedAt: DEMO_T0 - 30 * 60 * 1000,
+  },
+  {
+    id: DEMO_ARTIFACT_SKETCH,
+    nodeId: "art-notes",
+    title: "Onboarding sketch",
+    body: {
+      type: "pad",
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200"><rect x="20" y="30" width="120" height="80" rx="8" fill="none" stroke="currentColor" stroke-width="2"/><rect x="180" y="60" width="120" height="80" rx="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M140 70 L180 100" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+    },
+    labels: ["lbl-review"],
+    version: 4,
+    createdAt: DEMO_T0 - 3 * 24 * 60 * MIN,
+    updatedAt: DEMO_T0 - 90 * MIN,
+  },
+  {
+    id: DEMO_ARTIFACT_ROADMAP_DRAFT,
+    nodeId: "art-notes",
+    title: "Roadmap draft",
+    body: {
+      type: "document",
+      markdown: `# Roadmap draft\n\n- Launch pricing lands first\n- The inbox workflow follows\n- Automations pick up the weekly digest\n`,
+    },
+    labels: ["lbl-launch"],
+    version: 2,
+    createdAt: DEMO_T0 - 4 * 24 * 60 * MIN,
+    updatedAt: DEMO_T0 - 5 * MIN,
+  },
+  {
+    id: DEMO_ARTIFACT_TIERS,
+    nodeId: "art-launch",
+    title: "Tier comparison",
+    body: {
+      type: "sheet",
+      text: "tier\tprice\tseats\nFree\t0\t1\nPro\t12\t5\nTeam\t24\t25\n",
+    },
+    labels: ["lbl-pricing"],
+    version: 6,
+    createdAt: DEMO_T0 - 5 * 24 * 60 * MIN,
+    updatedAt: DEMO_T0 - 2 * 60 * MIN,
+  },
+  {
+    id: DEMO_ARTIFACT_CHECKLIST,
+    nodeId: "art-launch",
+    title: "Launch checklist",
+    body: { type: "file", content: DEMO_CONTENT_CHECKLIST.ref },
+    labels: ["lbl-launch", "lbl-review"],
+    version: 1,
+    createdAt: DEMO_T0 - 26 * 60 * 1000,
+    updatedAt: DEMO_T0 - 26 * 60 * 1000,
+  },
+  {
+    id: DEMO_ARTIFACT_BRAINSTORM,
+    nodeId: "art-notes",
+    title: "Old brainstorm",
+    body: {
+      type: "document",
+      markdown: `# Old brainstorm\n\nIdeas that did not make the cut.\n`,
+    },
+    labels: [],
+    version: 1,
+    createdAt: DEMO_T0 - 9 * 24 * 60 * MIN,
+    updatedAt: DEMO_T0 - 8 * 24 * 60 * MIN,
+    archivedAt: DEMO_T0 - 8 * 24 * 60 * MIN,
+  },
+];
+
+/** One post in a demo artifact thread: who wrote it and when. */
+export type DemoThreadPost = {
+  readonly from: { readonly kind: "operator" } | { readonly kind: "seat"; readonly nodeId: string; readonly name: string };
+  readonly at: number;
+  readonly text: string;
+};
+
+/** A comment thread on an artifact, with the anchor it hangs on. */
+export type DemoArtifactThread = {
+  readonly threadId: string;
+  readonly artifactId: string;
+  readonly anchor: { readonly kind: "text"; readonly quote: string };
+  readonly state: "open" | "resolved";
+  readonly posts: ReadonlyArray<DemoThreadPost>;
+};
+
+export const DEMO_ARTIFACT_THREADS: ReadonlyArray<DemoArtifactThread> = [
+  {
+    threadId: demoItemId("THR", 1),
+    artifactId: DEMO_ARTIFACT_PRICING_NOTES,
+    anchor: { kind: "text", quote: "Annual billing saves two months." },
+    state: "open",
+    posts: [
+      { from: { kind: "seat", nodeId: "quill", name: "Quill" }, at: DEMO_T0 - 33 * MIN, text: "Is the two months before or after the launch discount?" },
+      { from: { kind: "operator" }, at: DEMO_T0 - 31 * MIN, text: "After. It stacks on whatever the launch price is." },
+    ],
+  },
+];
 
 /** One demo machine: what `machines.list` lists, and what `machine.get` reads from it. */
 export type DemoMachine = {
@@ -211,6 +421,17 @@ export const DEMO_SIGNALS: ReadonlyArray<AgentSignal> = [
       { kind: "compare", before: DEMO_CONTENT_BEFORE.ref, after: DEMO_CONTENT_AFTER.ref, name: "pricing.html" },
     ],
     createdAt: DEMO_T0 - 3 * MIN,
+    state: "open",
+  },
+  {
+    signalId: "sig_demo_writeup",
+    canvasName: DEMO_CANVAS,
+    nodeId: "sage",
+    kind: "work",
+    text: "Write the launch pricing rationale.",
+    detail: "One page: who pays, what it replaces, the risk of a two-tier launch.",
+    form: { kind: "artifact", nodeId: "art-inbox", title: "Launch pricing rationale", labels: ["launch"], minWords: 40 },
+    createdAt: DEMO_T0 - 6 * MIN,
     state: "open",
   },
 ];

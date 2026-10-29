@@ -12,7 +12,7 @@
  * shapes a real Mac sends.
  */
 
-import { asCanvasName, asNodeId, asWireId, canvasFromOpened, type BindingId, type Canvas, type NodeOf } from "./model";
+import { asCanvasName, asNodeId, asWireId, canvasFromOpened, type BindingId, type Canvas, type Node, type NodeOf } from "./model";
 import { companionCanvasDrawn } from "./companion-canvas";
 import type { AgentSignal } from "./agent-signals";
 import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, rollupSeatSignals } from "./agent-signals";
@@ -92,6 +92,7 @@ import {
   DEMO_QUICK_REPLIES,
   DEMO_QUIET_NOTES,
   DEMO_REGIONS,
+  DEMO_RESOURCE_NODES,
   DEMO_SEATS,
   DEMO_SIGNALS,
   DEMO_STATION,
@@ -101,6 +102,7 @@ import {
   demoSeatPosition,
   type DemoMail,
   type DemoRegion,
+  type DemoResourceNode,
   type DemoSeat,
 } from "./wire/companion-demo-fixture";
 
@@ -117,10 +119,28 @@ const seatNode = (seat: DemoSeat, z: number, machineName: string): NodeOf<"agent
 });
 
 const SEATS = DEMO_SEATS;
+
+/** A fixture resource node as its canvas kind: an Artifacts node, a task board, or a page. */
+const resourceNode = (node: DemoResourceNode, z: number): Node => {
+  const placement = { id: asNodeId(node.id), x: node.x, y: node.y, width: node.width, height: node.height, z };
+  switch (node.kind) {
+    case "artifacts":
+      return { ...placement, kind: "artifacts", label: node.label };
+    case "task":
+      return { ...placement, kind: "task", name: node.label };
+    case "page":
+      return { ...placement, kind: "page", url: node.url ?? "https://example.com/", profile: "demo", onRemove: "detach", label: node.label };
+  }
+};
+
 /** The demo canvas, its seats on the machine the demo runs on. */
 const demoCanvas = (machineName: string) => canvasFromOpened({
   canvas: asCanvasName(DEMO_CANVAS), seq: 0,
-  nodes: [...DEMO_REGIONS.map(region), ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index, machineName))],
+  nodes: [
+    ...DEMO_REGIONS.map(region),
+    ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index, machineName)),
+    ...DEMO_RESOURCE_NODES.map((node, index) => resourceNode(node, DEMO_REGIONS.length + SEATS.length + index)),
+  ],
   wires: DEMO_WIRES.map((wire) => ({ ...wire, id: asWireId(wire.id), from: asNodeId(wire.from), to: asNodeId(wire.to) })),
 });
 
