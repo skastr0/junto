@@ -71,6 +71,8 @@ describe("main authoring architecture", () => {
       // mail to that seat's mailbox.
       "ipc.work.collaboration-ask",
       "ipc.work.message-append",
+      // The operator's secret form value goes to the region's vault.
+      "ipc.work.signal-secret-put",
       // Mail threads: the operator writes in a seat's thread, mentions included.
       "ipc.work.thread-send",
       // The operator removes a page box comment's shot on every machine.
@@ -120,6 +122,10 @@ describe("main authoring architecture", () => {
       // An operator's signal answer is mail, reached only through the
       // classified ipc.work.signal-answer handler in ipc.ts.
       "src/main/junto/signals/operator.ts",
+      // A secret form's value is put where its region declares it, reached
+      // only through the classified ipc.work.signal-secret-put handler in
+      // ipc.ts; it reads the canvas topology and writes no work.
+      "src/main/junto/vault/secret-put.ts",
       "src/main/junto/work/control.ts",
       // Canvas topology changes emit exactly one compact edge map-change
       // notice per seat; this is the classified authoring listener, not a
