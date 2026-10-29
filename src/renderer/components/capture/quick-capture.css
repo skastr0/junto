@@ -152,3 +152,37 @@
   align-items: center;
   gap: 5px;
 }
+
+/* A focused row, large: title and type above whatever its body reads as. */
+.quick-capture__preview--row {
+  justify-content: flex-start;
+  overflow: auto;
+}
+
+.quick-capture__preview-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding-top: 8px;
+}
+
+.quick-capture__preview-doc,
+.quick-capture__preview-pad {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.quick-capture__sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-label);
+}
+
+.quick-capture__sheet td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-stroke);
+  color: var(--color-ink);
+  vertical-align: top;
+}

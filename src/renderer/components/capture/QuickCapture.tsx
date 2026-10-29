@@ -20,6 +20,7 @@ import {
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { Kbd } from "../ui";
 import { CaptureEditor } from "./CaptureEditor";
+import { CapturePreview } from "./CapturePreview";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
 import { captureRowsOf, type CaptureRow } from "./capture-list";
 import "./quick-capture.css";
@@ -236,14 +237,20 @@ export function QuickCapture() {
             />
           ) : null}
           {edit.kind === "preview" ? (
-            <div className="quick-capture__preview">
-              <p className="quick-capture__preview-title">
-                {edit.row === undefined ? "Start writing" : rowLabel(edit.row)}
-              </p>
-              <p className="quick-capture__preview-detail">
-                {edit.row === undefined ? "What you write here stays." : edit.row.detail}
-              </p>
-            </div>
+            edit.row === undefined ? (
+              <div className="quick-capture__preview">
+                <p className="quick-capture__preview-title">Start writing</p>
+                <p className="quick-capture__preview-detail">What you write here stays.</p>
+              </div>
+            ) : (
+              <div className="quick-capture__preview quick-capture__preview--row">
+                <p className="quick-capture__preview-title">{rowLabel(edit.row)}</p>
+                <p className="quick-capture__preview-detail">{edit.row.detail}</p>
+                <div className="quick-capture__preview-body">
+                  <CapturePreview row={edit.row} canvasName={canvasName} />
+                </div>
+              </div>
+            )
           ) : null}
         </div>
       </div>
