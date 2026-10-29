@@ -88,12 +88,12 @@ describe("a signal's reply is ruled by its form", () => {
       message: "this signal asks for a secret, and the vault answers it, not a reply",
     });
     expect(ruleSignalReply({ kind: "text" }, { kind: "proof", text: "here it is", links: [], replyId: "r13" })).toEqual({
-      ok: true,
-      words: 3,
-    });
-    expect(ruleSignalReply({ kind: "text" }, { kind: "proof", text: "  ", links: [], replyId: "r14" })).toEqual({
       ok: false,
-      message: "write a reply first",
+      message: "this signal asks for a reply, not a document or proof: answer it in words",
+    });
+    expect(ruleSignalReply({ kind: "text" }, { kind: "artifact", markdown: "done", replyId: "r14" })).toEqual({
+      ok: false,
+      message: "this signal asks for a reply, not a document or proof: answer it in words",
     });
   });
 });

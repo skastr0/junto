@@ -89,10 +89,8 @@ export const ruleSignalReply = (form: SignalForm, reply: SignalReply): SignalRep
     case "secret":
       // The vault (N5) rules a secret's reply: a value never rides here.
       return refused("this signal asks for a secret, and the vault answers it, not a reply");
-    case "text": {
-      if (reply.kind === "artifact") return refused("this signal asks for a reply, not a document");
-      const text = reply.text.trim();
-      return text === "" ? refused("write a reply first") : { ok: true, words: signalWordCount(text) };
-    }
+    case "text":
+      // A plain reply is the ordinary answer, not a hand-in: it has no WorkReply shape.
+      return refused("this signal asks for a reply, not a document or proof: answer it in words");
   }
 };

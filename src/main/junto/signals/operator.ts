@@ -172,7 +172,8 @@ export const replyAgentSignal = (signalId: string, reply: SignalReply, ports: Si
     const ruled = ruleSignalReply(form, reply);
     if (!ruled.ok) return refused(ruled.message);
 
-    if (form.kind === "artifact" && reply.kind === "artifact") {
+    if (form.kind === "artifact") {
+      if (reply.kind !== "artifact") return refused("this signal asks for a document; write it in the signal");
       const canvas = yield* Effect.result(ports.topology(signal.canvasName));
       if (canvas._tag === "Failure") return refused(canvas.failure.message);
       const shelf = canvas.success.nodes.get(asNodeId(form.nodeId));
@@ -205,14 +206,15 @@ export const replyAgentSignal = (signalId: string, reply: SignalReply, ports: Si
       return yield* answerAgentSignal(signalId, `${form.title} is written, ${ruled.words} ${ruled.words === 1 ? "word" : "words"}.`, { reply: record });
     }
 
-    if (reply.kind === "proof") {
+    if (form.kind === "proof") {
+      if (reply.kind !== "proof") return refused("this signal asks for proof: its words with links or files");
       const record: SignalReplyRecord = { kind: "links", links: [...reply.links] };
       return yield* answerAgentSignal(signalId, reply.text, {
         attachments: (reply.files ?? []) as ReadonlyArray<ContentRef>,
         reply: record,
       });
     }
-    return refused("this signal asks for something else");
+    return refused("this signal asks for a reply, not a document or proof: answer it in words");
   });
 
 export const dismissAgentSignal = (signalId: string) =>
