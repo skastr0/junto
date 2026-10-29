@@ -43,7 +43,9 @@ import {
   type DraftProblem,
   type EditableTriggerKind,
   type NameOf,
+  type SignalFormDraft,
   type SignalRaise,
+  type SignalWorkDraft,
   type TargetRef,
   type TriggerDraft,
   type WatchDraft,
@@ -907,6 +909,23 @@ function ActionFields({
               onChange(show.length === 0 ? rest : { ...rest, show });
             }}
           />
+          <SignalFormFields
+            form={action.form}
+            pickers={pickers}
+            onChange={(form) => {
+              const { form: _old, ...rest } = action;
+              onChange(form === undefined ? rest : { ...rest, form });
+            }}
+          />
+          {action.signal === "work" ? (
+            <SignalWorkFields
+              work={action.work}
+              onChange={(work) => {
+                const { work: _old, ...rest } = action;
+                onChange(work === undefined ? rest : { ...rest, work });
+              }}
+            />
+          ) : null}
         </>
       );
     case "label-artifact":
@@ -986,6 +1005,128 @@ function ShownArtifacts({
         />
       ))}
     </>
+  );
+}
+
+const REPLY = "reply";
+const FORM_WORD: Readonly<Record<string, string>> = {
+  [REPLY]: "By replying",
+  artifact: "By writing a document",
+  proof: "With proof of what was done",
+  secret: "With a secret (comes with the vault)",
+};
+
+/**
+ * How the operator answers the signal: a reply, a document written in the
+ * signal, or proof. A secret form made elsewhere is kept and shown, not
+ * offered: it comes with the vault (N5).
+ */
+function SignalFormFields({
+  form,
+  pickers,
+  onChange,
+}: {
+  readonly form: SignalFormDraft | undefined;
+  readonly pickers: Pickers;
+  readonly onChange: (form: SignalFormDraft | undefined) => void;
+}) {
+  const chosen = form === undefined || form.kind === "text" ? REPLY : form.kind;
+  const offered = [REPLY, "artifact", "proof", ...(chosen === "secret" ? ["secret"] : [])];
+  return (
+    <>
+      <Select
+        aria-label="How you answer"
+        value={chosen}
+        options={offered.map((kind) => ({ value: kind, label: FORM_WORD[kind]! }))}
+        onChange={(kind) => {
+          if (kind === chosen) return;
+          onChange(kind === REPLY ? undefined : kind === "artifact" ? { kind: "artifact" } : kind === "proof" ? { kind: "proof" } : form);
+        }}
+      />
+      {form?.kind === "artifact" ? (
+        <>
+          <Select
+            aria-label="Artifacts node for the writing"
+            placeholder="Pick an Artifacts node"
+            value={form.node ?? ""}
+            options={pickers.artifactNodes.map((node) => ({ value: node.id, label: node.title }))}
+            onChange={(node) => onChange({ ...form, node: node as NodeId })}
+          />
+          <FieldLabel>
+            Document title, optional
+            <Input
+              dense
+              value={form.title ?? ""}
+              aria-label="Document title, optional"
+              placeholder="The signal's title"
+              onChange={(event) => {
+                const { title: _old, ...rest } = form;
+                onChange(event.target.value === "" ? rest : { ...rest, title: event.target.value });
+              }}
+            />
+          </FieldLabel>
+          <LabelsField
+            label="Document labels"
+            value={form.labels}
+            onChange={(labels) => {
+              const { labels: _old, ...rest } = form;
+              onChange(labels === undefined ? rest : { ...rest, labels });
+            }}
+          />
+          <FieldLabel>
+            Words at least
+            <Input
+              dense
+              inputMode="numeric"
+              value={form.minWords ?? ""}
+              aria-label="Words at least"
+              placeholder="1"
+              onChange={(event) => {
+                const { minWords: _old, ...rest } = form;
+                onChange(event.target.value === "" ? rest : { ...rest, minWords: event.target.value });
+              }}
+            />
+          </FieldLabel>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** When work falls due after it is raised, in hours, and whether it is urgent from the start. */
+function SignalWorkFields({
+  work,
+  onChange,
+}: {
+  readonly work: SignalWorkDraft | undefined;
+  readonly onChange: (work: SignalWorkDraft | undefined) => void;
+}) {
+  const next = (change: SignalWorkDraft): void => {
+    const merged = { ...work, ...change };
+    const kept = {
+      ...(merged.dueHours === undefined || merged.dueHours === "" ? {} : { dueHours: merged.dueHours }),
+      ...(merged.urgent === true ? { urgent: true } : {}),
+    };
+    onChange(Object.keys(kept).length === 0 ? undefined : kept);
+  };
+  return (
+    <div className="automation-editor__row">
+      <FieldLabel>
+        Due after, in hours
+        <Input
+          dense
+          inputMode="decimal"
+          value={work?.dueHours ?? ""}
+          aria-label="Due after, in hours"
+          placeholder="No due time"
+          onChange={(event) => next({ dueHours: event.target.value })}
+        />
+      </FieldLabel>
+      <label className="automation-editor__enabled">
+        <span>Urgent</span>
+        <Switch checked={work?.urgent === true} aria-label="Urgent from the start" onCheckedChange={(urgent) => next({ urgent })} />
+      </label>
+    </div>
   );
 }
 

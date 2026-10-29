@@ -18,6 +18,8 @@ import {
   AUTOMATION_NAME_MAX_CHARS,
   AUTOMATION_STEPS_MAX,
   AUTOMATION_TEXT_MAX_CHARS,
+  AUTOMATION_SIGNAL_DUE_MAX_MS,
+  AUTOMATION_SIGNAL_MIN_WORDS_MAX,
   AUTOMATION_SIGNAL_SHOWS_MAX,
   DEFAULT_AUTOMATION_LIMITS,
   SignalKind,
@@ -69,6 +71,23 @@ export type ArtifactEvent = ArtifactWatch["event"];
 export type ArtifactTarget = SharedArtifactTarget;
 type CommentAction = Extract<Action, { readonly kind: "comment" }>;
 type SignalAction = Extract<Action, { readonly kind: "signal" }>;
+type StoredSignalForm = NonNullable<SignalAction["form"]>;
+/** A signal's form as the editor holds it: labels and the word minimum as typed. A secret is kept as loaded. */
+export type SignalFormDraft =
+  | { readonly kind: "text" }
+  | {
+      readonly kind: "artifact";
+      readonly node?: NodeId;
+      /** The document's title; the signal's title when empty. */
+      readonly title?: string;
+      readonly labels?: ReadonlyArray<string>;
+      readonly minWords?: string;
+    }
+  | Extract<StoredSignalForm, { readonly kind: "secret" }>
+  | { readonly kind: "proof" };
+/** Work's timing as typed: due this many hours after the firing, and urgent. */
+export type SignalWorkDraft = { readonly dueHours?: string; readonly urgent?: boolean };
+const HOUR_MS = 3_600_000;
 /** What a comment may be on: a task, an artifact or a page, never a seat. */
 export type CommentTarget = CommentAction["on"];
 
@@ -160,10 +179,10 @@ export type ActionDraft =
       readonly title: string;
       readonly detail?: string;
       readonly show?: ReadonlyArray<TargetRef>;
-      /** What the operator answers in, kept as loaded. */
-      readonly form?: SignalAction["form"];
-      /** When work falls due and whether it is urgent; work only, kept as loaded. */
-      readonly work?: SignalAction["work"];
+      /** What the operator answers in; none is a reply. */
+      readonly form?: SignalFormDraft;
+      /** When work falls due and whether it is urgent; work only. */
+      readonly work?: SignalWorkDraft;
     }
   /** A seat started or stopped where it runs. Seat only; it writes no text. */
   | { readonly kind: "seat-control"; readonly seat?: TargetRef; readonly op: SeatControlOp }
@@ -333,8 +352,34 @@ const triggerDraftOf = (trigger: Trigger): TriggerDraft => {
 };
 
 /** A stored action as the draft holds it: a code step's code is staged content, named by its ref. */
+const signalFormDraftOf = (form: StoredSignalForm): SignalFormDraft => {
+  if (form.kind !== "artifact") return form;
+  return {
+    kind: "artifact",
+    node: form.node,
+    ...(form.title === undefined ? {} : { title: form.title }),
+    ...(form.labels === undefined ? {} : { labels: form.labels }),
+    ...(form.minWords === undefined ? {} : { minWords: String(form.minWords) }),
+  };
+};
+
 const actionDraftOf = (action: Action): ActionDraft => {
   switch (action.kind) {
+    case "signal": {
+      const { form, work, ...rest } = action;
+      return {
+        ...rest,
+        ...(form === undefined ? {} : { form: signalFormDraftOf(form) }),
+        ...(work === undefined
+          ? {}
+          : {
+              work: {
+                ...(work.dueInMs === undefined ? {} : { dueHours: String(work.dueInMs / HOUR_MS) }),
+                ...(work.urgent === undefined ? {} : { urgent: work.urgent }),
+              },
+            }),
+      };
+    }
     case "code":
       return {
         kind: "code",
@@ -601,6 +646,55 @@ const labelsProblem = (labels: ReadonlyArray<string>): string | undefined =>
 const foldedLabels = (labels: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
   artifactLabelsOf((labels ?? []).filter((label) => label.trim() !== "")) ?? [];
 
+/** Hours as typed, in ms: a positive number, fractions allowed ("1.5"). */
+const dueMsOf = (hours: string): number | undefined => {
+  const trimmed = hours.trim();
+  if (!/^\d+(?:\.\d+)?$/u.test(trimmed)) return undefined;
+  const ms = Math.round(Number(trimmed) * HOUR_MS);
+  return ms >= 1 && ms <= AUTOMATION_SIGNAL_DUE_MAX_MS ? ms : undefined;
+};
+
+const signalFormProblem = (form: SignalFormDraft | undefined): string | undefined => {
+  if (form?.kind !== "artifact") return undefined;
+  if (form.node === undefined) return "Pick the Artifacts node the writing goes to.";
+  const title = form.title?.trim() ?? "";
+  if (title.length > AGENT_SIGNAL_MAX_TEXT_LENGTH) return `The document title is longer than ${AGENT_SIGNAL_MAX_TEXT_LENGTH} characters.`;
+  const labels = labelsProblem((form.labels ?? []).filter((label) => label.trim() !== ""));
+  if (labels) return labels;
+  const typed = form.minWords?.trim() ?? "";
+  const words = wholeNumber(typed);
+  if (typed !== "" && (words === undefined || words < 1 || words > AUTOMATION_SIGNAL_MIN_WORDS_MAX))
+    return `Ask for 1 to ${AUTOMATION_SIGNAL_MIN_WORDS_MAX.toLocaleString("en-US")} words.`;
+  return undefined;
+};
+
+const signalWorkProblem = (work: SignalWorkDraft | undefined): string | undefined => {
+  const typed = work?.dueHours?.trim() ?? "";
+  return typed === "" || dueMsOf(typed) !== undefined
+    ? undefined
+    : `Work falls due within ${AUTOMATION_SIGNAL_DUE_MAX_MS / HOUR_MS} hours of the firing.`;
+};
+
+const signalFormOf = (form: SignalFormDraft): StoredSignalForm | Record<string, unknown> => {
+  if (form.kind !== "artifact") return form;
+  const title = form.title?.trim() ?? "";
+  const labels = foldedLabels(form.labels);
+  const words = wholeNumber(form.minWords ?? "");
+  return {
+    kind: "artifact",
+    node: form.node,
+    ...(title === "" ? {} : { title }),
+    ...(labels.length === 0 ? {} : { labels }),
+    ...(words === undefined ? {} : { minWords: words }),
+  };
+};
+
+const signalWorkOf = (work: SignalWorkDraft | undefined): SignalAction["work"] | undefined => {
+  const dueInMs = dueMsOf(work?.dueHours ?? "");
+  const urgent = work?.urgent === true;
+  return dueInMs === undefined && !urgent ? undefined : { ...(dueInMs === undefined ? {} : { dueInMs }), ...(urgent ? { urgent } : {}) };
+};
+
 const FIRED_NEEDS_ARTIFACT = "Only an artifact trigger has an artifact that fired. Pick one artifact.";
 
 const actionProblem = (
@@ -670,7 +764,9 @@ const actionProblem = (
         valueProblem(action.title, carried, afterCode) ??
         (detail.trim().length > AGENT_SIGNAL_MAX_DETAIL_LENGTH ? `The detail is longer than ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters.` : undefined) ??
         valueProblem(detail, carried, afterCode) ??
-        ((action.show ?? []).some((shown) => shown.kind !== "artifact") ? "A signal shows artifacts only." : undefined)
+        ((action.show ?? []).some((shown) => shown.kind !== "artifact") ? "A signal shows artifacts only." : undefined) ??
+        signalFormProblem(action.form) ??
+        (action.signal === "work" ? signalWorkProblem(action.work) : undefined)
       );
     }
     default:
@@ -769,15 +865,16 @@ const actionOf = (action: ActionDraft): unknown => {
     case "signal": {
       const detail = action.detail?.trim() ?? "";
       const show = action.show ?? [];
+      const work = action.signal === "work" ? signalWorkOf(action.work) : undefined;
       return {
         kind: action.kind,
         signal: action.signal,
         title: action.title.trim(),
         ...(detail === "" ? {} : { detail }),
         ...(show.length === 0 ? {} : { show }),
-        ...(action.form === undefined ? {} : { form: action.form }),
+        ...(action.form === undefined ? {} : { form: signalFormOf(action.form) }),
         // Timing belongs to work: a notice drops it.
-        ...(action.work === undefined || action.signal !== "work" ? {} : { work: action.work }),
+        ...(work === undefined ? {} : { work }),
       };
     }
     case "label-artifact": {

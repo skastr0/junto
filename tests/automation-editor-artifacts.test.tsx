@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARTIFACT_LABEL_RULE, type ArtifactLabel } from "../src/shared/artifact-labels";
 import { asCanvasName } from "../src/shared/model";
+import { AutomationVersion, DEFAULT_AUTOMATION_LIMITS } from "../src/shared/automation";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
@@ -11,6 +12,7 @@ import {
   APPEND_HEADING,
   actionWords,
   draftProblems,
+  draftOf,
   editDraft,
   finishDraft,
   labelNote,
@@ -142,13 +144,39 @@ describe("artifact automations, the draft", () => {
 
   it("a signal's form and work timing, made elsewhere, survive a save from the editor", () => {
     const form = { kind: "artifact", node: shelf, title: "Morning pages", minWords: 500 } as const;
-    const work = { dueInMs: 3_600_000, urgent: true } as const;
+    const work = { dueInMs: 5_400_000, urgent: true } as const;
     const signal = { kind: "signal", signal: "work", title: "Write 500 words", form, work } as const;
-    const finished = finishDraft(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [signal]));
+    const loaded = draftOf({
+      automationId: draftWith(onArtifact("edited"), []).automationId,
+      nodeId: home,
+      author: { kind: "operator" },
+      version: AutomationVersion.make(1),
+      enabled: true,
+      name: "Morning pages",
+      trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+      then: [signal],
+      limits: DEFAULT_AUTOMATION_LIMITS,
+    });
+    expect(loaded.then[0]).toMatchObject({ form: { minWords: "500" }, work: { dueHours: "1.5", urgent: true } });
+    const finished = finishDraft(loaded);
     expect(finished.ok && finished.definition.then[0]).toEqual(signal);
     // A notice carries no timing: turned into one, the work's timing goes and the form stays.
-    const notice = finishDraft(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ ...signal, signal: "notice" }]));
+    const notice = finishDraft({ ...loaded, then: [{ ...loaded.then[0]!, signal: "notice" } as ActionDraft] });
     expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words", form });
+  });
+
+  it("a signal's form and timing say what is wrong with them", () => {
+    const trigger: TriggerDraft = { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" };
+    const asking = (form: ActionDraft & { kind: "signal" } extends { form?: infer F } ? F : never, work?: { dueHours?: string; urgent?: boolean }) =>
+      actionProblem(draftWith(trigger, [{ kind: "signal", signal: "work", title: "Write", form, ...(work ? { work } : {}) }]));
+    expect(asking({ kind: "artifact" })).toBe("Pick the Artifacts node the writing goes to.");
+    expect(asking({ kind: "artifact", node: shelf, minWords: "0" })).toBe("Ask for 1 to 100,000 words.");
+    expect(asking({ kind: "artifact", node: shelf, minWords: "500", labels: ["publish/"] })).toBe(ARTIFACT_LABEL_RULE);
+    expect(asking({ kind: "proof" }, { dueHours: "soon" })).toBe("Work falls due within 8784 hours of the firing.");
+    expect(asking({ kind: "artifact", node: shelf, minWords: "500" }, { dueHours: "0.5", urgent: true })).toBeUndefined();
+    const done = finishDraft(draftWith(trigger, [{ kind: "signal", signal: "work", title: "Write", form: { kind: "artifact", node: shelf, title: " ", labels: ["Daily"] }, work: { dueHours: "" } }]));
+    // An empty title and no timing are left out; labels fold.
+    expect(done.ok && done.definition.then[0]).toEqual({ kind: "signal", signal: "work", title: "Write", form: { kind: "artifact", node: shelf, labels: ["daily"] } });
   });
 
   it("each artifact action says what it writes", () => {
@@ -242,6 +270,25 @@ describe("artifact automations, the form", () => {
     await render(draftWith({ kind: "schedule", cron: "0 9 * * *", timezone: "UTC" }, [{ kind: "signal", signal: "notice", title: "Read", show: [reading] }]));
     expect(host.querySelector('[aria-label="Artifact to show, 1 of 2"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Artifact to show, 2 of 2"]')).not.toBeNull();
+  });
+
+  it("a work signal asks how you answer, where the writing goes, and when it is due; a notice has no due time", async () => {
+    const trigger: TriggerDraft = { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" };
+    await render(
+      draftWith(trigger, [
+        { kind: "signal", signal: "work", title: "Write", form: { kind: "artifact", node: shelf, minWords: "500" }, work: { dueHours: "2", urgent: true } },
+      ]),
+    );
+    expect(host.querySelector('[aria-label="How you answer"]')?.textContent).toContain("By writing a document");
+    expect(host.querySelector('[aria-label="Artifacts node for the writing"]')?.textContent).toContain("Specs");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Words at least"]')?.value).toBe("500");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Due after, in hours"]')?.value).toBe("2");
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Urgent from the start"]')?.checked).toBe(true);
+
+    await render(draftWith(trigger, [{ kind: "signal", signal: "notice", title: "Deploy finished" }]));
+    expect(host.querySelector('[aria-label="How you answer"]')?.textContent).toContain("By replying");
+    expect(host.querySelector('[aria-label="Artifacts node for the writing"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Due after, in hours"]')).toBeNull();
   });
 
   it("create-artifact lists the Artifacts nodes in reach by name", async () => {
