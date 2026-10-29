@@ -12,6 +12,8 @@
  *   seats.list      seat.changed per seat that differs; seat.removed
  *   seat.get        that seat: seat.changed, preamble, signal.changed, mail.changed
  *   mail.list       mail.changed for that seat (new mail, delivery changes)
+ *   threads.list    thread.changed per thread of that seat that differs: new
+ *   thread.get        mail, a read from any surface, a new title
  *   canvas.open     canvas.changed for that canvas, numbered on from the open's seq
  *
  * A channel silent for two minutes is closed.
@@ -40,6 +42,7 @@ import {
   type CompanionRequestFrame,
   type CompanionResponseFrame,
   type CompanionSeat,
+  type CompanionThreadSummary,
 } from "./companion-protocol";
 import type { CompanionCommentSubject } from "./wire/companion-artifacts";
 import type { OperatorFeed } from "./operator-feed";
@@ -102,6 +105,9 @@ const machinesDiffer = (sent: ReadonlyArray<CompanionMachine>, next: ReadonlyArr
   });
 };
 
+/** Seats whose threads one connection follows at once; following one more drops the oldest. */
+const THREAD_FOCUS_MAX = 8;
+
 type Next = { readonly kind: "line"; readonly line: string } | { readonly kind: "end" } | { readonly kind: "idle" };
 
 export const runCompanionSession = async (io: CompanionSessionIo): Promise<void> => {
@@ -140,6 +146,8 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   const sentSeats = new Map<string, string>();
   let focus: { readonly canvasName: string; readonly nodeId: string; readonly preambles: Set<string> } | undefined;
   let mailFocus: { readonly canvasName: string; readonly nodeId: string; readonly sent: Map<string, string> } | undefined;
+  /** Seats whose threads this connection listed or opened, by seat ref: each thread summary as last sent. The newest few. */
+  const threadFocus = new Map<string, { readonly canvasName: string; readonly nodeId: string; readonly sent: Map<string, string> }>();
   /** The comments list this connection has open: its subject, and the answer it last sent. */
   let commentsFocus:
     | { readonly canvasName: string; readonly subject: CompanionCommentSubject; readonly sent: string }
@@ -191,6 +199,44 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     }
     // Only a seeded focus is followed, so a refresh never replays the history.
     mailFocus = { canvasName, nodeId, sent };
+  };
+
+  /** A seat's newest page of threads; "gone" when the seat is, undefined when the host could not say. */
+  const seatThreads = async (
+    canvasName: string,
+    nodeId: string,
+  ): Promise<ReadonlyArray<CompanionThreadSummary> | "gone" | undefined> => {
+    const response = await io.host.call(internal("threads.list", { canvasName, nodeId }));
+    if (!response.ok) return response.error.code === "not-found" ? "gone" : undefined;
+    // The answer to a threads.list frame is a threads.list result.
+    return "threads" in response.result ? (response.result.threads as ReadonlyArray<CompanionThreadSummary>) : undefined;
+  };
+
+  /**
+   * Follow a seat's threads from what the phone was just answered. Its newest
+   * page is read again at once: a thread the phone holds that changed since
+   * goes out now, one it was never sent is only noted. Following another seat
+   * drops the oldest past the cap.
+   */
+  const followThreads = async (canvasName: string, nodeId: string, answered: ReadonlyArray<CompanionThreadSummary>): Promise<void> => {
+    const ref = seatRef(canvasName, nodeId);
+    const followed = threadFocus.get(ref);
+    if (followed !== undefined) {
+      for (const thread of answered) followed.sent.set(thread.threadId, JSON.stringify(thread));
+      return;
+    }
+    const sent = keyed(answered, (thread) => thread.threadId);
+    threadFocus.set(ref, { canvasName, nodeId, sent });
+    for (const held of [...threadFocus.keys()].slice(0, Math.max(0, threadFocus.size - THREAD_FOCUS_MAX))) threadFocus.delete(held);
+    const threads = await seatThreads(canvasName, nodeId);
+    if (threads === undefined || threads === "gone") return;
+    for (const thread of threads) {
+      const key = JSON.stringify(thread);
+      const held = sent.get(thread.threadId);
+      if (held === key) continue;
+      sent.set(thread.threadId, key);
+      if (held !== undefined) emit("thread.changed", { canvasName, nodeId, thread });
+    }
   };
 
   const refresh = async (signals: ReadonlyArray<AgentSignal>): Promise<void> => {
@@ -300,6 +346,21 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         commentsFocus = undefined;
       }
     }
+    for (const [ref, { canvasName, nodeId, sent }] of threadFocus) {
+      const threads = await seatThreads(canvasName, nodeId);
+      if (threads === "gone") {
+        threadFocus.delete(ref);
+        continue;
+      }
+      if (threads !== undefined) {
+        for (const thread of [...threads].reverse()) {
+          const key = JSON.stringify(thread);
+          if (sent.get(thread.threadId) === key) continue;
+          sent.set(thread.threadId, key);
+          emit("thread.changed", { canvasName, nodeId, thread });
+        }
+      }
+    }
     if (mailFocus) {
       const { canvasName, nodeId, sent } = mailFocus;
       const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
@@ -321,6 +382,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     seatCanvases.size > 0 ||
     focus !== undefined ||
     mailFocus !== undefined ||
+    threadFocus.size > 0 ||
     commentsFocus !== undefined ||
     canvasFocus !== undefined;
 
@@ -337,8 +399,9 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       if (!open) return;
       const first = cursor === undefined;
       cursor = change.cursor;
-      if (first && !change.reset) continue;
-      if (change.changed || change.reset || change.signals.length > 0) {
+      // The first cursor may already count a change made while the phone's
+      // answer was on its way: read once against what was sent, then wait.
+      if (first || change.changed || change.reset || change.signals.length > 0) {
         await refresh(change.signals).catch(() => undefined);
       }
     }
@@ -395,6 +458,9 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         response = { ...response, result: { ...scene, seq: canvasSeq } };
       } else if (frame.op === "canvas.close" && canvasFocus?.canvasName === frame.args.canvasName) {
         canvasFocus = undefined;
+      } else if (frame.op === "threads.read" && "thread" in response.result) {
+        // The phone has the thread as its read left it: no echo of its own read.
+        threadFocus.get(seatRef(frame.args.canvasName, frame.args.nodeId))?.sent.set(response.result.thread.threadId, JSON.stringify(response.result.thread));
       } else if (frame.op === "comments.list" && "threads" in response.result) {
         commentsFocus = { canvasName: frame.args.canvasName, subject: frame.args.subject, sent: JSON.stringify(response.result) };
       }
@@ -404,6 +470,11 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     // an older message is never mistaken for a new one.
     if (response.ok && (frame.op === "seat.get" || frame.op === "mail.list")) {
       await followMail(frame.args.canvasName, frame.args.nodeId).catch(() => undefined);
+    }
+    if (response.ok && (frame.op === "threads.list" || frame.op === "thread.get")) {
+      // The answer to a threads.list frame is a threads.list result.
+      const answered = frame.op === "threads.list" && "threads" in response.result ? (response.result.threads as ReadonlyArray<CompanionThreadSummary>) : [];
+      await followThreads(frame.args.canvasName, frame.args.nodeId, answered).catch(() => undefined);
     }
     ensureEvents();
   };

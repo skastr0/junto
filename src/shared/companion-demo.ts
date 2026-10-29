@@ -29,8 +29,16 @@ import { companionCommentsPage, type CommentPostView, type CommentThreadView } f
 import type { ItemId } from "./wire/ids";
 import { candidatesOfNodes, connectedSeatCandidates, filterCandidates } from "./mention-candidates";
 import { mentionableNodesFrom } from "./mention-reach";
-import { companionConnected, companionThreadPage, companionThreadsPage } from "./companion-threads";
-import { seatMailThreadMessages, seatMailThreads, type MailThreadsInput } from "./mail-threads";
+import { companionConnected, companionThreadPage, companionThreadRead, companionThreadsPage } from "./companion-threads";
+import {
+  mailAfter,
+  readPointKey,
+  seatMailThreadEntries,
+  seatMailThreadMessages,
+  seatMailThreads,
+  type MailReadPoint,
+  type MailThreadsInput,
+} from "./mail-threads";
 import { mentionedOnce, mentionsOf } from "./mention";
 import { makeAgentMessage, makeUserMessage } from "./task";
 import type { Message } from "./work-model";
@@ -198,7 +206,10 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       messages: threadRows.filter((entry) => entry.nodeId === seat.id).map((entry) => entry.row),
     })),
     nameOf: (nodeId) => SEATS.find((seat) => seat.id === nodeId)?.name,
+    readPointOf: (threadId) => readPoints.get(threadId),
   });
+  /** The operator's read point per thread, as the Mac keeps one per canvas thread. */
+  const readPoints = new Map<string, MailReadPoint>();
   // --- comments (0.11.3, the phone's artifacts) -----------------------------
   const demoAuthor = (from: DemoThreadPost["from"]): CommentPostView["author"] =>
     from.kind === "operator"
@@ -450,6 +461,17 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       const thread = companionThreadPage(threadsInput(), nodeId, threadId, page);
       if (thread === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
       return outcomeOk(thread);
+    },
+    threadRead: async (canvasName, nodeId, threadId, through) => {
+      if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
+      const messages = seatMailThreadEntries(threadsInput(), nodeId).get(threadId);
+      if (messages === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
+      const target = through === undefined ? messages.at(-1) : messages.find((message) => message.messageId === through);
+      if (target === undefined) return outcomeFail("invalid", "That mail is not in this thread.");
+      const held = readPoints.get(threadId);
+      if (held === undefined || mailAfter(target, readPointKey(held))) readPoints.set(threadId, { through: target.messageId, at: tick() });
+      const read = companionThreadRead(threadsInput(), nodeId, threadId);
+      return read === undefined ? outcomeFail("not-found", "That thread is not one of this seat's.") : outcomeOk(read);
     },
     comments: async (args) => {
       if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");

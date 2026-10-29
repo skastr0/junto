@@ -21,6 +21,7 @@ import { noteMailFailure } from "./backend";
 import type { CompanionChanges } from "./changes";
 import { onDesktopReport } from "./desktop-report";
 import { notePreamble } from "./preambles";
+import { onReadChanged } from "../work/mail-reads";
 
 let changesRef: CompanionChanges | undefined;
 
@@ -42,6 +43,7 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
       changes.bump();
     }),
     onDesktopReport(() => changes.bump()),
+    onReadChanged(() => changes.bump()),
   ];
   return () => {
     for (const off of offs) off();

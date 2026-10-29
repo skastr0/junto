@@ -182,6 +182,7 @@ describe("request decoding", () => {
     "tailnet.peers": {},
     "threads.list": { canvasName: "main", nodeId: "planner" },
     "thread.get": { canvasName: "main", nodeId: "planner", threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" },
+    "threads.read": { canvasName: "main", nodeId: "planner", threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5", through: "01KAZ3Q8X4V6W2N5R7T9Y1B3D6" },
     "canvas.open": { canvasName: "main" },
     "canvas.close": { canvasName: "main" },
     "artifacts.nodes": { canvasName: "main" },

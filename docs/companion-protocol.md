@@ -141,6 +141,7 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `tailnet.peers` | `{}` | `{ "available": boolean, "peers": TailnetPeer[] }` (at most 128) |
 | `threads.list` | `{ "canvasName": string, "nodeId": string, "limit"?: 1..200, "after"?: string (1 to 256) }` (closed) | `{ "threads": ThreadSummary[], "next"?: string, "cut": boolean }` the operator's own first, then the rest, newest activity first in each, at most 200 |
 | `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed) | `{ "messages": ThreadMessage[], "older"?: string, "cut": boolean }` oldest first, at most 200 |
+| `threads.read` | `{ "canvasName": string, "nodeId": string, "threadId": ULID, "through"?: ULID }` (closed) | `{ "thread": ThreadSummary }` as it reads after the mark |
 | `canvas.open` | `{ "canvasName": string }` (closed) | `{ "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[] }`, then `canvas.changed` events |
 | `canvas.close` | `{ "canvasName": string }` (closed) | `{}` |
 | `artifacts.nodes` | `{ "canvasName": string }` (closed; needs `features` to list `artifacts/1`) | `{ "nodes": ArtifactNode[], "inboxNodeId"?: string }` every Artifacts node of the canvas (at most 200) |
@@ -244,8 +245,23 @@ Semantics:
   would not fit one frame leaves out its oldest threads or messages, says
   `cut: true`, and its cursor resumes just past the last one sent. Bodies, titles and names are the
   operator's and the seats' own words, sent as stored: show them as plain
-  text, never as markup or links that act. There is no read state for
-  threads.
+  text, never as markup or links that act.
+- A thread has one read point, the operator's, kept on the Mac and shared
+  with the desktop: a thread between two seats read under either reads under
+  both. `threads.read` marks it through `through`, or through the newest mail
+  when absent; the point only moves forward, so a read of older mail, or the
+  same read twice, changes nothing and answers the thread as it stands.
+  `not-found` for a thread that is not the seat's, `invalid` for a `through`
+  not in the thread. A summary's `unread` counts the mail the operator did
+  not write past the point, all of it when never read; `readAt` is when it was
+  last read, on the Mac's clock, absent when never read.
+- After a `threads.list` or `thread.get` for a seat, the phone receives
+  `thread.changed` for that seat's newest 200 threads whenever one changes:
+  new mail, a read on any surface (the desktop, another phone, this one
+  through another seat), a new title or subject. It is an upsert by
+  `threadId`. The phone's own `threads.read` answers in its response and is
+  not repeated as an event. Threads are followed for the 8 seats listed or
+  opened most recently on the connection.
 - `portrait.get` returns the seat's portrait as the desktop draws it,
   including any customisation, as a self-contained SVG. Cache it by
   `(portraitIdentity, size, theme)`; it changes only when the operator edits
@@ -376,6 +392,7 @@ Events:
 | `seat.removed` | `{ "canvasName": string, "nodeId": string }` (same subscription rule as `seat.changed`; the seat was deleted or stopped being an agent seat) |
 | `canvases.changed` | `{ "canvases": Canvas[] }`: the whole list, replacing the previous one, after a `canvases.list` in this connection (a canvas added, renamed, removed, or its `playing`/`needsYou`/`active` changed). A canvas missing from the list is gone: drop its feed and seats |
 | `mail.changed` | `{ "canvasName": string, "nodeId": string, "message": Mail }` (upsert by `messageId`; new mail either direction and delivery changes, only for the seat of the last `mail.list` or `seat.get`) |
+| `thread.changed` | `{ "canvasName": string, "nodeId": string, "thread": ThreadSummary }` (upsert by `threadId`; new mail, a read from any surface, a title or subject change, for a seat this connection listed or opened threads of) |
 | `machines.changed` | `{ "machines": Machine[] }`: the whole list, replacing the previous one, after a `machines.list` in this connection (a machine added, removed, set up, sent or updated, a link learning its build, or a newer check). A check's age growing is not a change |
 | `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
 | `canvas.changed` | `{ "canvasName": string, "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[], "removedNodes": string[], "removedWires": string[] }`: whole nodes and wires added or changed since `seq - 1`, and the ids gone, for the canvas of the last `canvas.open` until `canvas.close` |
@@ -498,6 +515,8 @@ type ThreadSummary = {
   messageCount: number;
   canReply: boolean;                          // the operator wrote in it, or mail in it is to the operator
   owned?: boolean;                            // the operator wrote at least one mail in it; absent from an older Mac
+  readAt?: number;                            // when the operator last read it, Mac clock; absent when never read
+  unread?: number;                            // mail the operator did not write past the read point; absent from an older Mac
   subject?: ResourceSubject;                  // what the thread is about; absent for a mailbox thread
 };
 ```

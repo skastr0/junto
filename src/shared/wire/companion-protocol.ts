@@ -314,6 +314,10 @@ export const CompanionThreadSummary = Schema.Struct({
   canReply: Schema.Boolean,
   /** The operator wrote at least one mail in it. This Mac always sends it; an older one does not. */
   owned: Schema.optionalKey(Schema.Boolean),
+  /** When the operator last read it, on the Mac's clock; absent when never read, and from an older Mac. */
+  readAt: Schema.optionalKey(Schema.Number),
+  /** Mail the operator did not write past the read point, all of it when never read. This Mac always sends it. */
+  unread: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   /** The resource the thread is about; absent for a seat's mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
 });
@@ -547,6 +551,7 @@ export const COMPANION_OPS = [
   "inbox.set",
   "threads.list",
   "thread.get",
+  "threads.read",
   "canvas.open",
   "canvas.close",
   /** A subject's comments, read and written; comments.changed while a list is open on it. */
@@ -675,6 +680,12 @@ export const CompanionArgs = {
     limit: Schema.optionalKey(ThreadPageLimit),
     before: Schema.optionalKey(ThreadCursor),
   }),
+  /**
+   * The operator read a seat's thread through `through`, or through its
+   * newest mail: one read point per thread, shared with the desktop and
+   * every seat the thread is between. Only moves forward; idempotent.
+   */
+  "threads.read": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId, threadId: MailId, through: Schema.optionalKey(MailId) }),
   /** The scene, and canvas.changed for it from then on; replaces any canvas this connection had open. */
   "canvas.open": Schema.Struct({ canvasName: CanvasName }),
   "canvas.close": Schema.Struct({ canvasName: CanvasName }),
@@ -708,6 +719,7 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "artifacts.nodes",
   "inbox.set",
   "thread.get",
+  "threads.read",
   "canvas.open",
   "canvas.close",
   "comments.list",
@@ -793,6 +805,8 @@ export const CompanionResults = {
     /** Older messages the page would have held were left out to fit; `older` resumes above the first one sent. */
     cut: Schema.Boolean,
   }),
+  /** The thread as it stands after the read. */
+  "threads.read": Schema.Struct({ thread: CompanionThreadSummary }),
   "canvas.open": CompanionCanvasScene,
   "canvas.close": Empty,
   "artifact.history": CompanionArtifactHistoryResult,
@@ -845,6 +859,8 @@ export const CompanionEvents = {
   "seat.changed": Schema.Struct({ canvasName: Schema.String, seat: CompanionSeat }),
   "signal.changed": Schema.Struct({ signal: AgentSignal }),
   "mail.changed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String, message: CompanionMail }),
+  /** A thread of a seat whose threads this connection listed or opened: new mail, a read from any surface, a new title. An upsert by threadId. */
+  "thread.changed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String, thread: CompanionThreadSummary }),
   preamble: Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String, preamble: CompanionPreamble }),
   "seat.removed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String }),
   "canvases.changed": Schema.Struct({ canvases: Schema.Array(CompanionCanvas) }),

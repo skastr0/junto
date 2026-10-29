@@ -48,6 +48,10 @@ export const MailThreadSummary = Schema.Struct({
   canReply: Schema.Boolean,
   /** The operator wrote at least one mail in it. */
   owned: Schema.Boolean,
+  /** When the operator last read it, on the Mac's clock; absent when never read. */
+  readAt: Schema.optionalKey(Schema.Number),
+  /** Mail the operator did not write, past the read point, or all of it when never read. */
+  unread: Schema.Number,
   /** The resource the thread is about, as its mail names it; absent for a mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
 });

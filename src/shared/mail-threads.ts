@@ -259,6 +259,12 @@ const byOwnedActivity = (a: ActivityKey, b: ActivityKey): number => Number(b.own
 export const seatMailThreads = (input: MailThreadsInput, nodeId: string): ReadonlyArray<MailThreadSummary> =>
   [...threadsTouching(input, nodeId)].map(([threadId, entries]) => summaryOf(input, threadId, entries)).sort(byActivity);
 
+/** One of a seat's threads, summarised as the list does; undefined when the seat is not in it. */
+export const seatMailThreadSummary = (input: MailThreadsInput, nodeId: string, threadId: string): MailThreadSummary | undefined => {
+  const entries = threadsTouching(input, nodeId).get(threadId);
+  return entries === undefined ? undefined : summaryOf(input, threadId, entries);
+};
+
 /** One of a seat's threads, oldest first; empty when the seat is not in it. */
 export const seatMailThreadMessages = (
   input: MailThreadsInput,

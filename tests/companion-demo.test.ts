@@ -17,7 +17,7 @@ import { rasterizePortraitSvg } from "../src/main/junto/companion/portrait-png";
 type Frame = Record<string, any>;
 
 /** A connection driven one line at a time. */
-const connect = (options: { idleCloseMs?: number } = {}) => {
+const connect = (options: { idleCloseMs?: number; host?: ReturnType<typeof makeDemoHost> } = {}) => {
   const queue: string[] = [];
   let wakeReader: (() => void) | undefined;
   let ended = false;
@@ -40,7 +40,7 @@ const connect = (options: { idleCloseMs?: number } = {}) => {
       out.push(JSON.parse(line));
       wakeWriter?.();
     },
-    host: makeDemoHost({ appVersion: "test", machineName: THIS_MACHINE }),
+    host: options.host ?? makeDemoHost({ appVersion: "test", machineName: THIS_MACHINE }),
     waitMs: 40,
     ...(options.idleCloseMs !== undefined ? { idleCloseMs: options.idleCloseMs } : {}),
   });
@@ -196,6 +196,35 @@ describe("demo transcript", () => {
     c.send(demoRequest("z1", "ping"));
     expect((await c.until(response("z1"))).result.serverTime).toBeGreaterThan(DEMO_T0);
     await c.end();
+  });
+
+  it("sends thread.changed to a connection that listed a seat's threads when another reads one, never an echo of its own read", async () => {
+    const host = makeDemoHost({ appVersion: "test", machineName: THIS_MACHINE });
+    const phone = connect({ host });
+    const other = connect({ host });
+    await phone.next();
+    await other.next();
+    phone.send(demoRequest("l1", "threads.list", { canvasName: DEMO_CANVAS, nodeId: "relay" }));
+    const listed = await phone.until(response("l1"));
+    const thread = listed.result.threads[0];
+    expect(thread.unread).toBe(2);
+
+    other.send(demoRequest("r1", "threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: thread.threadId }));
+    expect(await other.until(response("r1"))).toMatchObject({ ok: true, result: { thread: { unread: 0 } } });
+    const changed = await phone.until((f) => f.type === "event" && f.event === "thread.changed");
+    expect(changed.data).toMatchObject({ canvasName: DEMO_CANVAS, nodeId: "relay", thread: { threadId: thread.threadId, unread: 0, readAt: expect.any(Number) } });
+
+    // The phone's own read answers in its response; the event stream does not repeat it.
+    phone.send(demoRequest("r2", "threads.read", { canvasName: DEMO_CANVAS, nodeId: "relay", threadId: thread.threadId }));
+    await phone.until(response("r2"));
+    phone.send(demoRequest("m1", "mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text: "Go.", inReplyTo: thread.threadId }));
+    const sent = await phone.until(response("m1"));
+    expect(sent.ok).toBe(true);
+    const after = await phone.until((f) => f.type === "event" && f.event === "thread.changed");
+    expect(after.data.thread).toMatchObject({ threadId: thread.threadId, messageCount: 4, unread: 0, owned: true });
+    expect(phone.out.filter((f) => f.type === "event" && f.event === "thread.changed")).toHaveLength(2);
+    await phone.end();
+    await other.end();
   });
 
   it("is reproducible: two runs answer the same requests identically", async () => {

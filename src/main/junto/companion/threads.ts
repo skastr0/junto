@@ -1,6 +1,8 @@
 /**
- * The phone's mail threads: `threads.list`, `thread.get` and `mail.send`, on
- * the desktop's own thread reads and operator send (work/operator-threads.ts).
+ * The phone's mail threads: `threads.list`, `thread.get`, `threads.read` and
+ * `mail.send`, on the desktop's own thread reads, read points and operator
+ * send (work/operator-threads.ts, work/mail-reads.ts). One read point per
+ * thread, shared with the desktop: a thread read on either reads on both.
  *
  * A phone's mail goes to the seat it is written to and no one else; a
  * mention is the link in its text. The send runs under the main authoring gate as
@@ -9,13 +11,14 @@
  */
 import { Effect, Result, Schema } from "effect";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
-import { companionSendRefusal, companionThreadPage, companionThreadsPage } from "@shared/companion-threads";
-import { OperatorThreadSend } from "@shared/mail-threads";
+import { companionSendRefusal, companionThreadPage, companionThreadRead, companionThreadsPage } from "@shared/companion-threads";
+import { OperatorThreadSend, seatMailThreadEntries, type MailThreadsInput } from "@shared/mail-threads";
 import { messageIdTimeMs } from "@shared/message-delivery";
 import { asNodeId } from "@shared/model";
 import { AppRuntime } from "../../runtime";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { ModelService } from "../model/service";
+import { markRead, readPoints } from "../work/mail-reads";
 import { deliverOperatorThreadMail, seatThreadsInput, sendOperatorThreadMail } from "../work/operator-threads";
 
 /** Undefined when the canvas holds this agent seat; otherwise the refusal. */
@@ -29,11 +32,21 @@ const seatMissing = (canvasName: string, nodeId: string): Promise<CompanionOutco
     }),
   );
 
-export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread" | "mailSend"> = {
+/** A seat's threads with the operator's read points in them, so each summary counts its unread. */
+const readThreadsInput = (canvasName: string, nodeId: string): Promise<MailThreadsInput> =>
+  AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const input = yield* seatThreadsInput(canvasName);
+      const points = yield* readPoints(canvasName, nodeId);
+      return { ...input, readPointOf: (threadId: string) => points.get(threadId) };
+    }),
+  );
+
+export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread" | "threadRead" | "mailSend"> = {
   threads: async (canvasName, nodeId, page) => {
     const missing = await seatMissing(canvasName, nodeId);
     if (missing !== undefined) return missing;
-    return outcomeOk(companionThreadsPage(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId, page));
+    return outcomeOk(companionThreadsPage(await readThreadsInput(canvasName, nodeId), nodeId, page));
   },
 
   thread: async (canvasName, nodeId, threadId, page) => {
@@ -42,6 +55,20 @@ export const companionThreadBackend: Pick<CompanionBackend, "threads" | "thread"
     const thread = companionThreadPage(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId, threadId, page);
     if (thread === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
     return outcomeOk(thread);
+  },
+
+  threadRead: async (canvasName, nodeId, threadId, through) => {
+    const missing = await seatMissing(canvasName, nodeId);
+    if (missing !== undefined) return missing;
+    const messages = seatMailThreadEntries(await AppRuntime.runPromise(seatThreadsInput(canvasName)), nodeId).get(threadId);
+    if (messages === undefined) return outcomeFail("not-found", "That thread is not one of this seat's.");
+    if (through !== undefined && !messages.some((message) => message.messageId === through)) {
+      return outcomeFail("invalid", "That mail is not in this thread.");
+    }
+    const point = await AppRuntime.runPromise(markRead(canvasName, nodeId, threadId, through));
+    if (point === undefined) return outcomeFail("internal", "The thread could not be marked read.");
+    const read = companionThreadRead(await readThreadsInput(canvasName, nodeId), nodeId, threadId);
+    return read === undefined ? outcomeFail("not-found", "That thread is not one of this seat's.") : outcomeOk(read);
   },
 
   mailSend: async (canvasName, nodeId, text, thread = {}) => {

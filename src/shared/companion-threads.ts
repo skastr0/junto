@@ -13,6 +13,7 @@ import {
   messagesCursorBefore,
   seatMailThreadEntries,
   seatMailThreadMessagesPage,
+  seatMailThreadSummary,
   seatMailThreadsPage,
   threadsCursorAfter,
   type MailThreadsInput,
@@ -98,6 +99,8 @@ const companionThreadSummary = (summary: MailThreadSummary): CompanionThreadSumm
     messageCount: summary.messageCount,
     canReply: summary.canReply,
     owned: summary.owned,
+    ...(summary.readAt === undefined ? {} : { readAt: summary.readAt }),
+    unread: summary.unread,
     ...(summary.subject === undefined ? {} : { subject: summary.subject }),
   };
 };
@@ -186,6 +189,17 @@ export const companionThreadPage = (
       ...(page.before === undefined ? {} : { before: page.before }),
     }),
   );
+};
+
+/** `threads.read`'s answer: the thread as it now reads; undefined when it is not the seat's, or its ids do not fit the wire. */
+export const companionThreadRead = (
+  input: MailThreadsInput,
+  nodeId: string,
+  threadId: string,
+): CompanionResultByOp["threads.read"] | undefined => {
+  const summary = seatMailThreadSummary(input, nodeId, threadId);
+  const thread = summary === undefined ? undefined : companionThreadSummary(summary);
+  return thread === undefined ? undefined : { thread };
 };
 
 /** The seats a mail may mention, within `seat.get`'s bounds. */

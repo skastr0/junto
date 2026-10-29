@@ -76,6 +76,7 @@ describe("the phone's cut of a thread", () => {
       messageCount: 1_000,
       canReply: true,
       owned: false,
+      unread: 0,
     }));
     const threads = companionThreads({ threads: summaries });
     expect(threads.cut).toBe(true);
@@ -102,7 +103,7 @@ describe("the phone's cut of a thread", () => {
     const message = { ...worstMessage(1), text: "x", from: { kind: "operator" as const }, to: [], subject };
     expect(companionThreadMessage(message)!.subject).toEqual(subject);
     const listed = companionThreads({
-      threads: [{ threadId: ULID(1), title: "#42", participants: [], startedAt: 1, lastAt: 1, last: message, messageCount: 1, canReply: true, owned: true, subject }],
+      threads: [{ threadId: ULID(1), title: "#42", participants: [], startedAt: 1, lastAt: 1, last: message, messageCount: 1, canReply: true, owned: true, unread: 0, subject }],
     });
     expect(listed.threads[0]).toMatchObject({ owned: true, subject, last: { subject } });
     expect(companionOk("s", "threads.list", listed).ok).toBe(true);
@@ -184,6 +185,42 @@ describe("threads against the demo", () => {
       ok: true,
       result: { messages: [{ text: "New topic." }] },
     });
+  });
+
+  it("reads a thread through its newest mail or a named one, forward only, and counts what came after, under every seat in it", async () => {
+    const host = makeDemoHost({ appVersion: "test", machineName: "test-mac" });
+    const summary = async (nodeId = "atlas") => {
+      const list = await host.call(frame("threads.list", { canvasName: DEMO_CANVAS, nodeId }));
+      if (!list.ok || !("threads" in list.result)) throw new Error("threads.list failed");
+      return (list.result.threads as ReadonlyArray<{ threadId: string; unread?: number; readAt?: number }>).find((thread) => thread.threadId === root.threadId)!;
+    };
+    const never = await summary();
+    expect(never.readAt).toBeUndefined();
+    const theirs = DEMO_THREAD_MAIL.filter((mail) => mail.threadId === root.threadId && !mail.mine).length;
+    expect(theirs).toBe(2);
+    expect(never.unread).toBe(theirs);
+
+    const first = await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, through: atlasReply.messageId }));
+    expect(first).toMatchObject({ ok: true, result: { thread: { threadId: root.threadId, unread: theirs - 1 } } });
+    const all = await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId }));
+    expect(all).toMatchObject({ ok: true, result: { thread: { unread: 0, readAt: expect.any(Number) } } });
+    // An older mail does not move the point back; the same read twice answers the same.
+    const back = await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, through: root.messageId }));
+    expect(back).toEqual({ ...all, id: back.id });
+    expect(await summary()).toMatchObject({ unread: 0 });
+    // The thread is between Atlas and Relay: one read point, read under either.
+    expect(await summary("relay")).toMatchObject({ unread: 0, readAt: (all as { result: { thread: { readAt: number } } }).result.thread.readAt });
+
+    expect(await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "quill", threadId: root.threadId }))).toMatchObject({
+      ok: false,
+      error: { code: "not-found" },
+    });
+    expect(await host.call(frame("threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, through: ULID(1) }))).toMatchObject({
+      ok: false,
+      error: { code: "invalid" },
+    });
+    expect(Result.isFailure(decodeCompanionRequestLine(demoRequest("t", "threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId, extra: 1 })))).toBe(true);
+    expect(Result.isFailure(decodeCompanionRequestLine(demoRequest("t", "threads.read", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: "nope" })))).toBe(true);
   });
 
   it("refuses a mention of a seat not wired here, and mail into another seat's thread, in fixed words", async () => {

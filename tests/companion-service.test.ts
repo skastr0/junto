@@ -83,6 +83,7 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     tailnetPeers: none,
     threads: none,
     thread: none,
+    threadRead: none,
     canvasScene: none,
     artifactNodes: none,
     artifactList: none,

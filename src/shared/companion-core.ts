@@ -109,6 +109,13 @@ export type CompanionBackend = {
     threadId: string,
     page?: { readonly limit?: number; readonly before?: string },
   ) => Promise<CompanionOutcome<CompanionResultByOp["thread.get"]>>;
+  /** Read a seat's thread through `through`, or its newest mail; not-found when the thread is not the seat's. */
+  readonly threadRead: (
+    canvasName: string,
+    nodeId: string,
+    threadId: string,
+    through?: string,
+  ) => Promise<CompanionOutcome<CompanionResultByOp["threads.read"]>>;
   /** A subject's comments, newest thread first, fitted to one frame. */
   readonly comments: (
     args: CompanionArgsByOp["comments.list"],
@@ -526,6 +533,12 @@ export const handleCompanionRequest = async (
       return respond(id, backend.thread(frame.args.canvasName, frame.args.nodeId, frame.args.threadId, pageOf(frame.args)), (value) =>
         companionOk(id, "thread.get", value),
       );
+    case "threads.read": {
+      const { canvasName, nodeId, threadId, through } = frame.args;
+      return respond(id, backend.threadRead(canvasName, nodeId, threadId, through), (value) =>
+        companionOk(id, "threads.read", value),
+      );
+    }
     case "comments.list":
       return respond(id, backend.comments(frame.args), (value) => companionOk(id, "comments.list", value));
     case "comment.post":

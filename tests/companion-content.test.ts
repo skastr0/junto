@@ -124,6 +124,7 @@ describe("content.get through the request core", () => {
     tailnetPeers: async () => outcomeOk({ available: false, peers: [] }),
     threads: async () => outcomeOk({ threads: [], cut: false }),
     thread: async () => outcomeFail("not-found"),
+    threadRead: async () => outcomeFail("not-found"),
     canvasScene: async () => outcomeFail("not-found"),
     artifactNodes: async () => outcomeFail("not-found"),
     artifactList: async () => outcomeFail("not-found"),
