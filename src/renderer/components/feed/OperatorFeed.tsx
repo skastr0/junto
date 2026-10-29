@@ -59,6 +59,7 @@ import {
   type FeedSortOrder,
 } from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
+import { openWorkDetail } from "../../lib/work-detail-open";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
 import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
@@ -135,7 +136,7 @@ function LiveSeatRing({ seat }: { readonly seat: Seat }) {
   return <SeatRingView node={seat} px={46} glance={useSeatGlanceOf(seat)} />;
 }
 
-const openSeat = (item: FeedItem, node: Node | undefined): void => {
+export const openSeat = (item: FeedItem, node: Node | undefined): void => {
   // Fixed in System Settings; the feed stays open where it was.
   if (isThisMacItem(item)) {
     openRemoteLoginSettings();
@@ -143,9 +144,25 @@ const openSeat = (item: FeedItem, node: Node | undefined): void => {
   }
   if (!node) return;
   closeOperatorFeed();
+  // An automation's signal opens the run that raised it: the Automations node
+  // with that firing marked in its history (0.11.1). A signal from before a
+  // firing was named opens the automation without one.
+  const source = item.source;
+  if (source?.kind === "automation") {
+    activateNodeSurface(node.id);
+    openWorkDetail(node.id, {
+      automationId: source.automationId,
+      ...(source.firingId === undefined ? {} : { firingId: source.firingId }),
+    });
+    return;
+  }
   if (item.signalId) requestSectionReveal(node.id, SIGNALS_SECTION);
   activateNodeSurface(node.id);
 };
+
+/** What an automation card's action says: the run it opens, never a seat. */
+const automationSourceOf = (item: FeedItem): Extract<FeedItem["source"], { readonly kind: "automation" }> | undefined =>
+  item.source?.kind === "automation" ? item.source : undefined;
 
 function FeedPortrait({ item, node }: { readonly item: FeedItem; readonly node: Node | undefined }) {
   const KindIcon = KIND_ICON[item.kind];
@@ -512,10 +529,16 @@ function FeedDetail({
                   size="xs"
                   variant="subtle"
                   disabled={!node}
-                  aria-label={`${isSeat ? "Open seat" : "Open"} ${item.seat.name}`}
+                  aria-label={
+                    isSeat
+                      ? `Open seat ${item.seat.name}`
+                      : automationSourceOf(item) === undefined
+                        ? `Open ${item.seat.name}`
+                        : `Open the run in ${item.seat.name}`
+                  }
                   onClick={() => openSeat(item, node)}
                 >
-                  {isSeat ? "Open seat" : "Open"}
+                  {isSeat ? "Open seat" : automationSourceOf(item) === undefined ? "Open" : "Open run"}
                   <ArrowUpRight size={11} aria-hidden />
                 </Button>
               )}
