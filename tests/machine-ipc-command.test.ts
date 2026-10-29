@@ -49,3 +49,13 @@ it("forwards copy progress without using up the five installation receipts", asy
   expect(seen.at(-1)?.event).toMatchObject({ event: "machine-install", step: "verified" });
   expect(seen.every(progress => progress.id === "copy-one")).toBe(true);
 });
+
+it("refuses a window's vault receive before dispatch: a token and its record arrive only over SSH", async () => {
+  let calls = 0;
+  const actions = { dispatch: () => { calls++; return Effect.die("should not dispatch"); } };
+  const response = await Effect.runPromise(dispatchMachineIpcCommand(actions, { protocol: OPERATOR_PROTOCOL_VERSION, id: "rx", op: "machine.vault-receive",
+    args: { vault: "Junto", permissions: "read_items", token: "ops_test-only-window-forged-token-0123456789", accountName: "junto-mini-read" } }, () => {}));
+  expect(response).toMatchObject({ ok: false, error: { type: "forbidden" } });
+  expect(JSON.stringify(response)).not.toContain("ops_");
+  expect(calls).toBe(0);
+});

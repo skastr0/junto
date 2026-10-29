@@ -24,7 +24,7 @@ import {
   MachineLinkInput, MachineLinkData, MachineLinkKeyInput, MachineLinkKeyData, MachineLinkAcceptInput, MachineLinkAcceptData,
   MachineLinkOpenInput, MachineLinkOpenData, MachineLinkRevokeInput, MachineLinkRevokeData,
 } from "./machine-link";
-import { MachineVaultRecordInput, MachineVaultTokenData, MachineVaultTokenInput } from "./vault";
+import { MachineVaultTokenData, MachineVaultTokenInput, VaultTokenDelivery } from "./vault";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
 
@@ -161,7 +161,7 @@ export const OperatorMachineLinkAcceptRequest = request("machine.link-accept", M
 export const OperatorMachineLinkOpenRequest = request("machine.link-open", MachineLinkOpenInput);
 export const OperatorMachineLinkRevokeRequest = request("machine.link-revoke", MachineLinkRevokeInput);
 export const OperatorMachineVaultTokenRequest = request("machine.vault-token", MachineVaultTokenInput);
-export const OperatorMachineVaultRecordRequest = request("machine.vault-record", MachineVaultRecordInput);
+export const OperatorMachineVaultReceiveRequest = request("machine.vault-receive", VaultTokenDelivery);
 
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
@@ -193,7 +193,7 @@ OperatorMachineLinkAcceptRequest,
 OperatorMachineLinkOpenRequest,
 OperatorMachineLinkRevokeRequest,
 OperatorMachineVaultTokenRequest,
-OperatorMachineVaultRecordRequest,
+OperatorMachineVaultReceiveRequest,
 ]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -243,7 +243,7 @@ export const OperatorMachineLinkAcceptResponse = response("machine.link-accept",
 export const OperatorMachineLinkOpenResponse = response("machine.link-open", MachineLinkOpenData);
 export const OperatorMachineLinkRevokeResponse = response("machine.link-revoke", MachineLinkRevokeData);
 export const OperatorMachineVaultTokenResponse = response("machine.vault-token", MachineVaultTokenData);
-export const OperatorMachineVaultRecordResponse = response("machine.vault-record", MachineVaultTokenData);
+export const OperatorMachineVaultReceiveResponse = response("machine.vault-receive", MachineVaultTokenData);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -311,7 +311,7 @@ OperatorMachineLinkAcceptResponse,
 OperatorMachineLinkOpenResponse,
 OperatorMachineLinkRevokeResponse,
 OperatorMachineVaultTokenResponse,
-OperatorMachineVaultRecordResponse,
+OperatorMachineVaultReceiveResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 

@@ -24,7 +24,7 @@ import { OperatorErrorBody } from "@shared/operator-control";
 import { RemoteHostsError } from "@shared/remote-hosts";
 import {
   MachineVaultTokenData, VaultName, VaultTokenSecret, vaultView,
-  type MachineVaultRecordInput, type MachineVaultTokenInput, type VaultLiveness, type VaultPermissions, type VaultTokenOrigin,
+  type MachineVaultTokenInput, type VaultTokenDelivery, type VaultLiveness, type VaultPermissions, type VaultTokenOrigin,
 } from "@shared/vault";
 import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
 import { MachineRepository } from "../machines/repository";
@@ -191,12 +191,22 @@ export const makeVaultSetup = (options: VaultSetupOptions) => Effect.gen(functio
     }).pipe(Effect.ensuring(Effect.sync(() => releaseKnownSecrets(owner))));
   });
 
-  /** On the machine the token is for: its own record, once `vault-token-local` placed the file. */
-  const record = Effect.fn("VaultSetup.record")(function* (input: MachineVaultRecordInput) {
+  /**
+   * On the machine the token is for, from `vault-token-local`'s stdin: the
+   * token and its record in one act, so a record always describes the token
+   * placed with it and no caller names an origin. A minted token carries the
+   * account the window machine's mint made; that machine's owner session is
+   * the one that vouches for it, as it does for the token itself.
+   */
+  const receive = Effect.fn("VaultSetup.receive")(function* (delivery: VaultTokenDelivery) {
     if (!VAULT_ENABLED) return yield* Effect.fail(off());
-    const held = yield* Effect.tryPromise({ try: () => readVaultToken(options.home), catch: () => refused("This machine's vault token could not be read") });
-    if (held === undefined) return yield* Effect.fail(refused("No vault token is placed on this machine"));
-    return yield* recordHere(input);
+    const owner = "vault-token-receive";
+    registerKnownSecrets(owner, [delivery.token]);
+    return yield* Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => writeVaultToken(options.home, delivery.token), catch: () => refused("The vault token could not be written in this Junto home") });
+      return yield* recordHere({ vault: delivery.vault, permissions: delivery.permissions,
+        ...(delivery.accountName === undefined ? { origin: "pasted" as const } : { origin: "minted" as const, accountName: delivery.accountName }) });
+    }).pipe(Effect.ensuring(Effect.sync(() => releaseKnownSecrets(owner))));
   });
 
   /** The machine list's view of each token this machine knows of. */
@@ -206,7 +216,7 @@ export const makeVaultSetup = (options: VaultSetupOptions) => Effect.gen(functio
     return new Map((yield* tokens.list).map((row) => [row.machineName, vaultView(row, at)] as const));
   });
 
-  return { place, record, views, forget: (name: string) => VAULT_ENABLED ? tokens.remove(name) : Effect.void };
+  return { place, receive, views, forget: (name: string) => VAULT_ENABLED ? tokens.remove(name) : Effect.void };
 });
 
 export type VaultSetup = Effect.Success<ReturnType<typeof makeVaultSetup>>;

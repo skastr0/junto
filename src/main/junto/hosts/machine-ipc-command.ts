@@ -15,6 +15,11 @@ export const dispatchMachineIpcCommand = (
     error: { type: "validation", message: "invalid machine command", details: { retryable: false } },
   });
   const request = decoded.success;
+  // A machine takes its vault token only from the window machine's SSH session, through vault-token-local.
+  if (request.op === "machine.vault-receive") return Effect.succeed({
+    protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
+    error: { type: "forbidden", message: "A vault token is received only over the window machine's SSH session", details: { retryable: false } },
+  });
   const transitions: Extract<MachineCommandProgress["event"], { event: "machine-install" }>[] = [];
   let active = true;
   const observer = (event: MachineCommandProgress["event"]) => {

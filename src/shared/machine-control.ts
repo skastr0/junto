@@ -14,7 +14,7 @@ import type {
   MachineLinkOpenInput, MachineLinkOpenData, MachineLinkRevokeInput, MachineLinkRevokeData,
 } from "./machine-link";
 import { MachineInstallResult as InstallResult } from "./machine-install";
-import { MachineVaultView, type MachineVaultRecordInput, type MachineVaultTokenData, type MachineVaultTokenInput } from "./vault";
+import { MachineVaultView, type MachineVaultTokenData, type MachineVaultTokenInput, type VaultTokenDelivery } from "./vault";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
 export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
@@ -110,7 +110,7 @@ export const MachineOpName = Schema.Literals([
   "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
   "machine.wake", "machine.sleep",
   "machine.link", "machine.link-key", "machine.link-accept", "machine.link-open", "machine.link-revoke",
-  "machine.vault-token", "machine.vault-record",
+  "machine.vault-token", "machine.vault-receive",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -141,7 +141,7 @@ export interface MachineArgsByOp {
   readonly "machine.link-open": MachineLinkOpenInput;
   readonly "machine.link-revoke": MachineLinkRevokeInput;
   readonly "machine.vault-token": MachineVaultTokenInput;
-  readonly "machine.vault-record": MachineVaultRecordInput;
+  readonly "machine.vault-receive": VaultTokenDelivery;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -171,5 +171,5 @@ export interface MachineDataByOp {
   readonly "machine.link-open": MachineLinkOpenData;
   readonly "machine.link-revoke": MachineLinkRevokeData;
   readonly "machine.vault-token": MachineVaultTokenData;
-  readonly "machine.vault-record": MachineVaultTokenData;
+  readonly "machine.vault-receive": MachineVaultTokenData;
 }

@@ -14,7 +14,6 @@ import { BoatAddInput, BoatMachineKeyDelivery } from "@shared/boat";
 import { MachineLinkAcceptInput, MachineLinkInput, MachineLinkKeyInput, MachineLinkOpenInput, MachineLinkRevokeInput } from "@shared/machine-link";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { writeBoatMachineSelf } from "../../main/junto/boat/files";
-import { writeVaultToken } from "../../main/junto/vault/token-file";
 import { VAULT_ENABLED } from "@shared/features";
 import { MachineVaultTokenInput, VaultName, VaultTokenDelivery, VaultTokenSecret } from "@shared/vault";
 import { installMachine } from "../../main/junto/hosts/install";
@@ -113,8 +112,8 @@ const vaultToken = Command.make("vault-token", {
 
 /**
  * On the machine the token is for, over the window machine's SSH session:
- * the token from stdin into this Junto home, 0600, then its names-only
- * record through this machine's core. Its answer never carries the token.
+ * the token from stdin to this machine's core, which writes it 0600 and its
+ * names-only record in one act. Its answer never carries the token.
  */
 const vaultTokenLocal = Command.make("vault-token-local", {}, () => executeJsonCommand("machine vault-token-local", Effect.gen(function* () {
   yield* requireOwnerCommand;
@@ -124,10 +123,8 @@ const vaultTokenLocal = Command.make("vault-token-local", {}, () => executeJsonC
     try: () => Schema.decodeUnknownSync(VaultTokenDelivery, { onExcessProperty: "error" })(JSON.parse(text)),
     catch: () => new VaultTokenNotPlaced({ message: "The vault token did not match its shape" }),
   });
-  yield* Effect.tryPromise({ try: () => writeVaultToken(resolveJuntoHome(), delivery.token), catch: () => new VaultTokenNotPlaced({ message: "The vault token could not be written in this Junto home" }) });
   const socket = yield* OperatorSocket;
-  return yield* socket.call("machine.vault-record", { vault: delivery.vault, permissions: delivery.permissions,
-    ...(delivery.accountName === undefined ? { origin: "pasted" as const } : { origin: "minted" as const, accountName: delivery.accountName }) });
+  return yield* socket.call("machine.vault-receive", delivery);
 }))).pipe(Command.withDescription("Write this machine's vault token from stdin (run by the window's machine over SSH)"));
 
 /** A send and a Boat machine made from nothing take minutes; a wake or a key, a few. */

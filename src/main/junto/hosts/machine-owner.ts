@@ -175,10 +175,10 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         return yield* setup.revoke(request.args);
       }
       case "machine.vault-token":
-      case "machine.vault-record": {
+      case "machine.vault-receive": {
         const setup = options.vaultSetup;
         if (setup === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "This Junto process places no vault tokens"));
-        return request.op === "machine.vault-token" ? yield* setup.place(request.args) : yield* setup.record(request.args);
+        return request.op === "machine.vault-token" ? yield* setup.place(request.args) : yield* setup.receive(request.args);
       }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);

@@ -119,17 +119,6 @@ export const VaultTokenDelivery = Schema.Struct({
 });
 export type VaultTokenDelivery = typeof VaultTokenDelivery.Type;
 
-/**
- * The receiving machine's own record, written through its core once
- * `vault-token-local` has placed the token file. Names only.
- */
-export const MachineVaultRecordInput = Schema.Struct({
-  vault: VaultName,
-  permissions: VaultPermissions,
-  origin: VaultTokenOrigin,
-  accountName: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)))),
-});
-export type MachineVaultRecordInput = typeof MachineVaultRecordInput.Type;
 
 /** A token placed: the machine's record, and whether the token reaches the vault from there. */
 export const MachineVaultTokenData = Schema.Struct({

@@ -142,10 +142,21 @@ it("names the far machine's own refusal, and never repeats the token from what i
   expect(await records()).toEqual([]);
 });
 
-it("refuses a machine it has not set up, and a far record with no token placed", async () => {
+it("refuses a machine it has not set up", async () => {
   const { runtime, vault } = await setup();
   await expect(runtime.runPromise(vault.place({ name: "vps", vault: "Junto", token: TOKEN }))).rejects.toThrow("Set up vps from this machine");
-  await expect(runtime.runPromise(vault.record({ vault: "Junto", permissions: "read_items", origin: "pasted" }))).rejects.toThrow("No vault token is placed on this machine");
+});
+
+it("receives a token and its record in one act: the origin comes from what was delivered, never a caller", async () => {
+  const { runtime, vault, records } = await setup();
+  const pasted = await runtime.runPromise(vault.receive({ vault: "Junto", permissions: "read_items", token: TOKEN }));
+  expect(pasted.token).toMatchObject({ origin: "pasted", scope: "unverified" });
+  expect(await readVaultToken(home)).toBe(TOKEN);
+  const minted = await runtime.runPromise(vault.receive({ vault: "Junto", permissions: "read_items", token: MINTED, accountName: "junto-macbook-read" }));
+  expect(minted.token).toMatchObject({ origin: "minted", scope: "verified", accountName: "junto-macbook-read" });
+  expect(await readVaultToken(home)).toBe(MINTED);
+  expect(await records()).toEqual([expect.objectContaining({ machineName: "macbook", origin: "minted", accountName: "junto-macbook-read" })]);
+  expect(JSON.stringify([pasted, minted])).not.toContain("ops_");
 });
 
 it("classifies liveness from op's stderr without returning it", async () => {
@@ -169,7 +180,7 @@ it("with VAULT_ENABLED off, places, records and lists nothing, and runs and dial
   flags.vault = false;
   await expect(runtime.runPromise(vault.place({ name: "macbook", vault: "Junto", token: TOKEN }))).rejects.toThrow("The vault is not in this build");
   await expect(runtime.runPromise(vault.place({ name: "mini", vault: "Junto", token: TOKEN }))).rejects.toThrow("The vault is not in this build");
-  await expect(runtime.runPromise(vault.record({ vault: "Junto", permissions: "read_items", origin: "pasted" }))).rejects.toThrow("The vault is not in this build");
+  await expect(runtime.runPromise(vault.receive({ vault: "Junto", permissions: "read_items", token: TOKEN }))).rejects.toThrow("The vault is not in this build");
   expect((await runtime.runPromise(vault.views)).size).toBe(0);
   await expect(readFile(join(vaultDir(home), "op-token"))).rejects.toMatchObject({ code: "ENOENT" });
   expect(calls).toEqual([]);
