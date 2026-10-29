@@ -14,7 +14,7 @@
  * delete and every release land, or none do. Closed tasks keep their
  * assignee as history.
  */
-import { Effect, Layer, Option, Result } from "effect";
+import { Effect, Layer, Option, Result, Semaphore } from "effect";
 import { AUTHORITY_ENABLED } from "@shared/features";
 import { SqlClient } from "effect/unstable/sql";
 import { nodesOf } from "@shared/model/canvas";
@@ -199,11 +199,31 @@ export type SeatReleaseHealed = { readonly released: number; readonly given: num
  * left for the next release or boot; one the authority could not judge
  * stays owed the same way. Each is tried once a heal, so a heal ends.
  *
- * An unassign of a task on a gone seat is refused only when the task is no
- * longer open, or it or its node is gone, between the read and the
- * judgment: then nothing is owed, and the next heal finds nothing.
+ * A seat is gone when no node of that id is left on the canvas: an operator
+ * may assign a task to any node, and only a removal lets it go. An unassign
+ * of a task on a gone seat is refused only when the task is no longer open,
+ * or it or its node is gone, between the read and the judgment: then nothing
+ * is owed, and the next heal finds nothing.
+ *
+ * A crash after an unassign applies and before its release row is written
+ * loses that task's give-back: it stays in the backlog when the seat comes
+ * back, the safe way to be wrong. One heal runs on a canvas at a time, so
+ * the boot heal, a release and an overseer's heal never judge a task twice.
  */
 export const healSeatReleases = (canvasName: string) =>
+  Effect.flatMap(SqlClient.SqlClient, (sql) => healPermit(sql, canvasName).withPermits(1)(healUnheld(canvasName)));
+
+/** One heal at a time per canvas, per store. */
+const healing = new WeakMap<SqlClient.SqlClient, Map<string, Semaphore.Semaphore>>();
+const healPermit = (sql: SqlClient.SqlClient, canvasName: string): Semaphore.Semaphore => {
+  const permits = healing.get(sql) ?? new Map<string, Semaphore.Semaphore>();
+  healing.set(sql, permits);
+  const permit = permits.get(canvasName) ?? Semaphore.makeUnsafe(1);
+  permits.set(canvasName, permit);
+  return permit;
+};
+
+const healUnheld = (canvasName: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const model = yield* ModelService;
@@ -212,6 +232,7 @@ export const healSeatReleases = (canvasName: string) =>
     const services = yield* Effect.context<never>();
     const canvas = yield* model.canvas(canvasName);
     const seats = agentIds(canvas);
+    const nodes: ReadonlySet<string> = new Set(canvas === undefined ? [] : [...canvas.nodes.keys()]);
     const writer = yield* machines.installationId;
     const env = taskCanvasEnv(canvas);
     const context = taskRulingContext(canvas);
@@ -231,12 +252,12 @@ export const healSeatReleases = (canvasName: string) =>
         Effect.map((outcome) => Result.isSuccess(outcome) && outcome.success.kind === "applied"),
       );
 
-    // Owed unassigns: each open task held by a seat no longer on the canvas.
+    // Owed unassigns: each open task held by a seat with no node left on the canvas.
     const released: Released[] = [];
     const { tasks: open } = yield* tasks.list(canvasName, { nodeIds: taskNodeIds(canvas), states: OPEN_TASK_STATES, limit: SCAN_LIMIT });
     for (const task of open) {
       const seat = task.current.assignee;
-      if (seat === undefined || seats.has(seat)) continue;
+      if (seat === undefined || nodes.has(seat)) continue;
       if (!(yield* judged(task.taskId, taskCommand(canvasName, task.current.node, task.taskId, { kind: "unassign" })))) continue;
       // Written once the unassign applied, from the head it left: the give-back reads it.
       yield* sql`
@@ -286,11 +307,23 @@ export const healSeatReleases = (canvasName: string) =>
     return { released: released.length, given, kept } satisfies SeatReleaseHealed;
   });
 
-/** At boot, behind the authority: heal every canvas, since a canvas nothing judges would keep tasks on a gone seat. */
+/**
+ * At boot, behind the authority: heal every canvas this machine is an
+ * authority of, since a canvas nothing judges would keep tasks on a gone
+ * seat. A replica's heal is its authority's: here every judgment would fail.
+ * A canvas with no list yet is this machine's when it edits it, as the
+ * list's fill (fleet/state-schema.ts) will seed it.
+ */
 export const healEverySeatRelease = Effect.gen(function* () {
   if (!AUTHORITY_ENABLED) return;
   const sql = yield* SqlClient.SqlClient;
-  const names = yield* sql<{ readonly canvas_name: string }>`SELECT canvas_name FROM canvases ORDER BY canvas_name`;
+  const self = yield* (yield* MachineRepository).installationId;
+  const names = yield* sql<{ readonly canvas_name: string }>`
+    SELECT canvas_name FROM canvases c
+    WHERE EXISTS (SELECT 1 FROM canvas_authorities a WHERE a.canvas_name = c.canvas_name AND a.installation_id = ${self})
+      OR (NOT EXISTS (SELECT 1 FROM canvas_authorities a WHERE a.canvas_name = c.canvas_name)
+        AND (c.editor_installation_id IS NULL OR c.editor_installation_id = ${self}))
+    ORDER BY canvas_name`;
   for (const { canvas_name } of names) {
     yield* healSeatReleases(canvas_name).pipe(Effect.catchCause((cause) => Effect.logWarning(`the seat releases of ${canvas_name} were not healed`, cause)));
   }

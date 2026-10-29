@@ -31,7 +31,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
-import { commandReleasingSeats, healSeatReleases } from "../src/main/junto/work/seat-release";
+import { commandReleasingSeats, healEverySeatRelease, healSeatReleases } from "../src/main/junto/work/seat-release";
 import { WorkLive } from "../src/main/junto/work/service";
 import { taskCanvasEnv, taskRulingContext } from "../src/main/junto/work/task-control";
 import { TaskPersistenceError, TaskRepository, TaskRepositoryLive } from "../src/main/junto/work/task-repository";
@@ -226,6 +226,67 @@ describe("a seat release, behind the authority", () => {
     expect(count("SELECT COUNT(*) AS n FROM task_seat_releases WHERE task_id = ?", taskId)).toBe(1);
     expect(await rt.runPromise(healSeatReleases(NAME))).toMatchObject({ given: 1 });
     expect(await current()).toMatchObject({ state: "assigned", assignee: ada });
+    expect(count("SELECT COUNT(*) AS n FROM task_seat_releases WHERE task_id = ?", taskId)).toBe(0);
+  });
+
+  it("releases a task on a removed seat, and keeps one assigned to a node that is not an agent", async () => {
+    const rt = await boot(true);
+    const { current } = await assignedTask(rt);
+    const onBoard = mintItemId();
+    await rule(rt, { kind: "create", taskId: onBoard, title: "sort the board" });
+    await rule(rt, { kind: "assign", seat: seatNodeId(asNodeId("board")) }, onBoard);
+    await run(rt, removeAda);
+    expect(await current()).toMatchObject({ state: "backlog" });
+    const board = await rt.runPromise(Effect.map(Effect.flatMap(TaskRepository, (repo) => repo.get(NAME, onBoard)), (view) => Option.getOrThrow(view).current));
+    expect(board).toMatchObject({ state: "assigned", assignee: "board" });
+    expect(await rt.runPromise(healSeatReleases(NAME))).toEqual({ released: 0, given: 0, kept: 0 });
+  });
+
+  it("at boot, skips a canvas whose authority list does not hold this machine", async () => {
+    const rt = await boot(true);
+    const { current } = await assignedTask(rt);
+    await rt.runPromise(Effect.flatMap(withSubmit("fails"), (failing) =>
+      commandReleasingSeats(removeAda, "operator").pipe(Effect.provideService(TaskRepository, failing))));
+    const relist = (installation: string) => rt.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => Effect.andThen(
+      sql`DELETE FROM canvas_authorities WHERE canvas_name = ${NAME}`,
+      sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${NAME}, 0, ${installation})`,
+    )));
+    const self = await rt.runPromise(Effect.flatMap(MachineRepository, (machines) => machines.installationId));
+    const judged = vi.fn();
+    const counting = Effect.flatMap(TaskRepository, (repo) => Effect.succeed(TaskRepository.of({
+      ...repo,
+      submit: (...args) => { judged(); return repo.submit(...args); },
+    })));
+    const heal = () => rt.runPromise(Effect.flatMap(counting, (spy) => healEverySeatRelease.pipe(Effect.provideService(TaskRepository, spy))));
+    await relist("macbook-installation");
+    await heal();
+    expect(judged).not.toHaveBeenCalled();
+    expect(await current()).toMatchObject({ state: "assigned", assignee: ada });
+    await relist(self);
+    await heal();
+    expect(await current()).toMatchObject({ state: "backlog" });
+  });
+
+  it("runs one heal per canvas at a time, so two at once release a task once", async () => {
+    const rt = await boot(true);
+    const { taskId, current } = await assignedTask(rt);
+    await rt.runPromise(Effect.flatMap(withSubmit("fails"), (failing) =>
+      commandReleasingSeats(removeAda, "operator").pipe(Effect.provideService(TaskRepository, failing))));
+    const unassigns = vi.fn();
+    const counting = Effect.flatMap(TaskRepository, (repo) => Effect.succeed(TaskRepository.of({
+      ...repo,
+      submit: (writer, command, context, env) => {
+        if (command.op.kind === "unassign") unassigns();
+        // A judgment that takes a while, so a second heal would read the task while the first rules on it.
+        return Effect.andThen(Effect.sleep("20 millis"), repo.submit(writer, command, context, env));
+      },
+    })));
+    const both = await rt.runPromise(Effect.flatMap(counting, (spy) =>
+      Effect.all([healSeatReleases(NAME), healSeatReleases(NAME)], { concurrency: "unbounded" }).pipe(Effect.provideService(TaskRepository, spy))));
+    expect(both.reduce((sum, healed) => sum + healed.released, 0)).toBe(1);
+    expect(unassigns).toHaveBeenCalledTimes(1);
+    expect(await current()).toMatchObject({ state: "backlog" });
+    await run(rt, restoreAda);
     expect(count("SELECT COUNT(*) AS n FROM task_seat_releases WHERE task_id = ?", taskId)).toBe(0);
   });
 });
