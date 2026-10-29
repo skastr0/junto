@@ -15,6 +15,7 @@ import {
   type OverseerCatalogEntry,
   type OverseerOperation,
 } from "../../shared/overseer-control";
+import { ARTIFACT_MOVE_MAX } from "../../shared/artifact-move";
 import { SEAT_FIELDS_MAIN_WORKS_OUT } from "../../shared/model/drafts";
 import type { WorkOpName } from "../../shared/work-control";
 import { overseerOperationEnabled } from "../../shared/features";
@@ -237,6 +238,7 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   references: "The operator's named references, app-wide or one region's: list, read, write (body from --body), delete",
   briefing: "The app briefing every seat gets at onboard: read, write (body from --body)",
   automation: "Automations, written by the operator and overseers only: create, edit, enable, disable, archive, run",
+  artifact: "Artifacts, as the operator moves them: move",
 };
 
 const describeEntry = (entry: OverseerCatalogEntry): string =>
@@ -287,10 +289,18 @@ export const offboardRefusedAny = (data: unknown): boolean =>
   (data as { refused: number }).refused > 0;
 
 /**
- * `agent offboard` answers per seat. A refused seat is not a command error,
- * so the result prints as a success and the exit code is non-zero.
+ * `agent offboard` answers per seat, and `artifact move` per artifact. A
+ * refused row is not a command error, so the result prints as a success and
+ * the exit code is non-zero.
  */
-const makeOffboardCommand = (entry: OverseerCatalogEntry) =>
+const ROW_VERDICT_DESCRIPTIONS: Partial<Record<OverseerOperation, string>> = {
+  "agent.offboard":
+    "Ask seats to offboard, or end idle sessions now. One result per seat; exits non-zero when any seat was refused",
+  "artifact.move":
+    `Move 1 to ${ARTIFACT_MOVE_MAX} artifacts to another Artifacts node: {artifactIds, to, canvas?}. Each keeps its id, versions, history, comments, labels, tasks and links. One row per artifact, moved, unchanged (already there) or refused with its reason; exits non-zero when any was refused`,
+};
+
+const makeRowVerdictCommand = (entry: OverseerCatalogEntry, description: string) =>
   Command.make(
     entry.verb,
     { input: optionalJsonInputArg, timeout: timeoutOption },
@@ -303,11 +313,7 @@ const makeOffboardCommand = (entry: OverseerCatalogEntry) =>
         }),
         offboardRefusedAny,
       ),
-  ).pipe(
-    Command.withDescription(
-      "Ask seats to offboard, or end idle sessions now. One result per seat; exits non-zero when any seat was refused",
-    ),
-  );
+  ).pipe(Command.withDescription(description));
 
 const secretPutInputArg = Argument.string("input").pipe(
   Argument.withDescription("JSON object {} or {secretId}, inline or @file. The value is read from stdin"),
@@ -422,8 +428,8 @@ const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
     ? makeSecretPutCommand(entry)
     : entry.operation === "env.doctor"
       ? makeDoctorCommand(entry)
-      : entry.operation === "agent.offboard"
-        ? makeOffboardCommand(entry)
+      : ROW_VERDICT_DESCRIPTIONS[entry.operation] !== undefined
+        ? makeRowVerdictCommand(entry, ROW_VERDICT_DESCRIPTIONS[entry.operation]!)
         : makeVerbCommand(entry);
 
 const familyEntries = new Map<string, OverseerCatalogEntry[]>();
@@ -1040,6 +1046,14 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "read the app briefing",
     args: ["overseer", "briefing", "read"],
     input: {},
+  },
+  {
+    command_id: commandIdFor("artifact.move"),
+    command: "overseer artifact move",
+    name: "move artifacts to another Artifacts node",
+    description: `Only the node changes: links and backlinks hold, and history says who moved each and from where. ids come from junto artifact list; to is the Artifacts node's id. One row per artifact in the order asked: moved, unchanged when it was already there, or refused (not-found, failed) with its reason, and the command exits non-zero. A to that is not an Artifacts node fails the whole call and nothing moves. 1 to ${ARTIFACT_MOVE_MAX} ids, each once.`,
+    args: ["overseer", "artifact", "move"],
+    input: { artifactIds: ["01M5ESMQ2ZT55QZ073EWPH10SG", "01M5ESMQ2ZT55QZ073EWPH10SH"], to: "artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0" },
   },
   {
     command_id: commandIdFor("briefing.write"),

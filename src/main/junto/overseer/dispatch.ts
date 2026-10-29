@@ -18,7 +18,10 @@ import type { WorkErrorBody } from "@shared/work-control";
 import { scrubMessage } from "../credentials/scrub";
 import { admitOverseer, watchOverseerRevocation } from "./admission";
 import { asNodeId } from "@shared/model";
+import type { ArtifactMoveRun } from "@shared/artifact-move";
 import { modelCanvas, type OverseerStores } from "./portfolio";
+import { executeOverseerArtifactMove } from "./artifact-move";
+import { overseerArtifactMove } from "./artifact-move-seam";
 import { executeOverseerAutomation } from "./automation";
 import { executeOverseerCanvas } from "./canvas";
 import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
@@ -40,6 +43,8 @@ export interface OverseerRuntime {
   readonly envReport?: OverseerEnvReport;
   /** The operator's offboard entry point. Defaults to the product one. */
   readonly offboard?: OverseerOffboard;
+  /** The operator's artifact move. Defaults to the product one. */
+  readonly artifactMove?: ArtifactMoveRun;
 }
 
 const ENV_DOCTOR_MISSING =
@@ -218,6 +223,19 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
         ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)
         : ({ ok: false, operation, error: outcome.error } satisfies OverseerResult);
     }
+    if (operation === "artifact.move") {
+      const outcome = yield* Effect.promise(() =>
+        executeOverseerArtifactMove(
+          caller,
+          decoded.success as OverseerArgsFor<"artifact.move">,
+          authority.actor,
+          runtime.artifactMove ?? overseerArtifactMove,
+        ),
+      );
+      return outcome.ok
+        ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)
+        : ({ ok: false, operation, error: outcome.error } satisfies OverseerResult);
+    }
     if (operation.startsWith("references.") || operation.startsWith("briefing.")) {
       const outcome = yield* executeOverseerReferences(caller, { operation, args: decoded.success });
       return outcome.ok
@@ -271,7 +289,7 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
     watchOverseerRevocation(caller, authority.actor, sourceInstallationId),
     run,
   ).pipe(Effect.catch((error) => Effect.succeed(failed(request, error))));
-  // The secret, offboard and references families answer their own refusals.
+  // The secret, offboard, artifact move and references families answer their own refusals.
   const result: OverseerResult = answered.ok ? answered : { ...answered, error: scrubbedError(answered.error) };
   const bytes = yield* Effect.try({
     try: () => Buffer.byteLength(JSON.stringify(result), "utf8"),

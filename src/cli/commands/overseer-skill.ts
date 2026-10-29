@@ -106,6 +106,12 @@ Junto also cuts a session without anyone asking, always: once a seat has sat sti
 
 \`agent offboard-rules\` reads \`{rules, effective}\`: the installation's window with any \`harness\` overrides, and the window each harness runs on. \`agent offboard-configure\` takes \`{cacheWindowMinutes?, harness?}\`, changes only what is given, and answers in the same form. \`harness: {<id>: {cacheWindowMinutes}}\` sets one harness's window; \`harness: {<id>: null}\` removes it. Minutes are whole numbers. A window out of range is refused with the reason and nothing is saved.
 
+## Moving artifacts
+
+\`artifact move {artifactIds, to, canvas?}\` moves 1 to 100 artifacts, each named once, to another Artifacts node, as the operator's "Move to…" does. Only the node changes: the id, versions, history, comments, labels, tasks and every link to and from it stay, and an archived artifact moves and stays archived. History gets one entry naming the two nodes and your seat. Seats in the old node's reach stop seeing it, and seats in the new one's start. An automation watch on the old node stops seeing it; a move is not an edit and fires nothing. Ordinary seats have no move.
+
+The answer is one row per artifact, in the order asked: \`{artifactId, title, ok: true, outcome, from, to}\` with outcome \`moved\`, or \`unchanged\` when it was already on \`to\` (a retry is not a refusal), or \`{artifactId, title?, ok: false, code, reason}\`, plus the counts \`moved\` and \`refused\`. Codes: \`not-found\`, \`failed\`; \`reason\` is the sentence to show. A refused artifact does not fail the command: the result prints whole and the exit code is non-zero when \`refused\` is above zero. A \`to\` that is missing or not an Artifacts node fails the whole call, and nothing moves.
+
 ## Region environment and secrets
 
 A region (group node) may carry an \`environment\`: ordered sources that name where a variable comes from on the machine, extra folders, and a sealed switch. A seat is launched with what every region containing it provides, outermost first; an inner region overrides an outer one by variable name, and within a region a later source overrides an earlier one. A change applies when the seat restarts.

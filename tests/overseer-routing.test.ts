@@ -47,9 +47,10 @@ describe("overseer operation routing", () => {
       if (!answers(source, operation)) unanswered.push(`${operation} -> ${route}`);
     }
     // Answered before routing, in the dispatcher itself: status, the
-    // environment report, secrets, references, briefings, and offboard.
+    // environment report, secrets, references, briefings, offboard, and the
+    // artifact move.
     const answeredEarlier = (entry: string): boolean =>
-      /^(status|env\.doctor|env\.report|secret\.|references\.|briefing\.|agent\.offboard)/u.test(entry);
+      /^(status|env\.doctor|env\.report|secret\.|references\.|briefing\.|agent\.offboard|artifact\.move)/u.test(entry);
     expect(unanswered.filter((entry) => !answeredEarlier(entry))).toEqual([]);
   });
 

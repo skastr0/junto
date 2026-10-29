@@ -9,6 +9,8 @@ import { NodeDraft, SeatDraft, WireDraft } from "./model/drafts";
 import { Seq } from "./model/events";
 import { OverseerLiveCorrelation } from "./overseer-host-control";
 import { SECRET_ID_PATTERN, secretValueProblem } from "./region-secrets";
+import { ARTIFACT_MOVE_MAX } from "./artifact-move";
+import { ItemId } from "./work-ids";
 import {
   OffboardRulesPatch,
   SEAT_OFFBOARD_ACTIONS,
@@ -122,6 +124,8 @@ export const OVERSEER_OPERATION_NAMES = [
   "automation.move",
   "automation.archive",
   "automation.run",
+  // The operator's move, for an overseer (0.11/10 M3); ordinary seats get none.
+  "artifact.move",
 ] as const;
 
 /**
@@ -403,6 +407,23 @@ const AgentOffboard = Schema.Struct({
 );
 const AgentOffboardStatus = Schema.Struct({ ...CanvasOptional, nodeIds: OffboardSeats });
 
+// Artifact move -------------------------------------------------------------
+// The run, its rows and their sentences are the operation's own
+// (`artifact-move.ts`): the window and this command go through one entry point.
+
+const ArtifactMove = Schema.Struct({
+  ...CanvasOptional,
+  /** The artifacts to move, each once; one row comes back for each, in this order. */
+  artifactIds: Schema.Array(ItemId).pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(ARTIFACT_MOVE_MAX)),
+    Schema.check(Schema.makeFilter((ids) =>
+      new Set(ids).size === ids.length || "name each artifact once")),
+  ),
+  /** The Artifacts node they move to. */
+  to: Id,
+});
+
 // Region environment --------------------------------------------------------
 
 /**
@@ -593,6 +614,7 @@ export const OverseerArgsSchemas = {
   "automation.move": AutomationMoveArgs,
   "automation.archive": AutomationOneArgs,
   "automation.run": AutomationOneArgs,
+  "artifact.move": ArtifactMove,
 } as const satisfies Record<OverseerOperation, Schema.Top>;
 
 export type OverseerArgsFor<Operation extends OverseerOperation> =
