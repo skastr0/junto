@@ -5,6 +5,12 @@
  * Default Vitest forks once per file. Most files are pure Effect/schema/UI
  * assertions and can share a worker. Files that mock modules, mutate env,
  * spawn children, or own SQLite/PTY hosts stay isolated.
+ *
+ * A third lane runs its files one at a time, after the other two, with nothing
+ * beside them. It is for corpus sweeps whose cost is thousands of real grid
+ * writes, each a parse plus a timer turn: they pass alone, and in a loaded
+ * parallel lane they outlast their budget. A file opts in with the line
+ * `// vitest-lane: alone`.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -36,6 +42,8 @@ const ISOLATE_HINTS = [
   /from ["'].*renderer\/lib\/(state|mutations|dock-state)/,
 ] as const;
 
+const ALONE_MARKER = /^\/\/ vitest-lane: alone$/m;
+
 const walk = (directory: string): string[] =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const full = join(directory, entry.name);
@@ -55,22 +63,27 @@ const isolate = (path: string, source: string): boolean => {
 export const vitestFileLanes = (): {
   readonly shared: readonly string[];
   readonly isolated: readonly string[];
+  readonly alone: readonly string[];
 } => {
   const shared: string[] = [];
   const isolated: string[] = [];
+  const alone: string[] = [];
   for (const path of walk(TESTS)) {
     const source = readFileSync(path, "utf8");
     const rel = relative(ROOT, path);
-    if (isolate(path, source)) isolated.push(rel);
+    if (ALONE_MARKER.test(source)) alone.push(rel);
+    else if (isolate(path, source)) isolated.push(rel);
     else shared.push(rel);
   }
   shared.sort();
   isolated.sort();
-  return { shared, isolated };
+  alone.sort();
+  return { shared, isolated, alone };
 };
 
 if (import.meta.main) {
   const lanes = vitestFileLanes();
   console.log(`shared ${lanes.shared.length}`);
   console.log(`isolated ${lanes.isolated.length}`);
+  console.log(`alone ${lanes.alone.length}`);
 }

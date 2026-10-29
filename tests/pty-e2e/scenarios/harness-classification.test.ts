@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Per-harness classification against REAL captures.
  *

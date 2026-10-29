@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Full unit suite: reusable workers for state-free files, isolated forks for
- * mocks/env/spawn/SQLite/PTY. Targeted `vitest run <file>` still uses the
+ * mocks/env/spawn/SQLite/PTY, then the files marked to run alone, one at a
+ * time. Targeted `vitest run <file>` still uses the
  * default isolated config.
  */
 import { spawnSync } from "node:child_process";
@@ -28,11 +29,13 @@ const run = (
   label: string,
   isolate: boolean,
   files: readonly string[],
+  flags: readonly string[] = [],
 ): void => {
+  if (files.length === 0) return;
   const started = Date.now();
   const result = spawnSync(
     VITEST,
-    ["run", isolate ? "--isolate" : "--no-isolate", ...files, ...extra],
+    ["run", isolate ? "--isolate" : "--no-isolate", ...flags, ...files, ...extra],
     {
       cwd: ROOT,
       stdio: "inherit",
@@ -49,3 +52,4 @@ const run = (
 
 run("shared", false, lanes.shared);
 run("isolated", true, lanes.isolated);
+run("alone", true, lanes.alone, ["--no-file-parallelism"]);
