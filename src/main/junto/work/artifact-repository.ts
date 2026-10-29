@@ -88,6 +88,14 @@ export type ArtifactHeadRead = {
   readonly bodyRef: ContentRef;
 };
 
+/** One move in an artifact's history. */
+export type ArtifactMoveRead = {
+  readonly from: NodeId;
+  readonly to: NodeId;
+  readonly by: ResourceActor;
+  readonly at: number;
+};
+
 export type ArtifactVersionRead = {
   readonly version: ArtifactVersion;
   readonly author: ArtifactActor;
@@ -159,6 +167,8 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
       artifactId: ItemId,
       page: { readonly limit: number; readonly before?: ArtifactVersion },
     ) => Effect.Effect<{ readonly versions: ReadonlyArray<ArtifactVersionRead>; readonly more: boolean }, ArtifactPersistenceError>;
+    /** Every move of an artifact, oldest first: where it was, where it went, who moved it (0.11.1, 10). */
+    readonly moves: (canvasName: string, artifactId: ItemId) => Effect.Effect<ReadonlyArray<ArtifactMoveRead>, ArtifactPersistenceError>;
     /** This machine's installation id: the writer of commands made here. */
     readonly localWriter: () => Effect.Effect<Option.Option<InstallationId>, ArtifactPersistenceError>;
     /**
@@ -230,6 +240,8 @@ const VersionRow = Schema.Struct({
   edit_json: Schema.NullOr(Schema.String),
 });
 type VersionRow = typeof VersionRow.Type;
+
+const MoveRow = Schema.Struct({ from_node_id: Schema.String, to_node_id: Schema.String, by_json: Schema.String, at: Schema.Number });
 
 const BodyRow = Schema.Struct({ body_ref_json: Schema.String, inline_body_json: Schema.NullOr(Schema.String) });
 type BodyRow = typeof BodyRow.Type;
@@ -491,6 +503,15 @@ export const projectArtifactFacts = (
             UPDATE artifact_heads SET task_ids_json = ${JSON.stringify(fact.taskIds)}, updated_at = ${fact.at}
             WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
           break;
+        case "artifact.moved":
+          // Only the node changes: no version, no body, not even when it last changed.
+          yield* sql`
+            UPDATE artifact_heads SET node_id = ${fact.to}
+            WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
+          yield* sql`
+            INSERT OR IGNORE INTO artifact_moves (canvas_name, artifact_id, op_id, from_node_id, to_node_id, by_json, at)
+            VALUES (${canvas}, ${fact.artifactId}, ${opId}, ${fact.from}, ${fact.to}, ${actorJson(fact.by)}, ${fact.at})`;
+          break;
         case "artifact.label.coloured":
           // The node's (node, label) row is the colour, or there is none: a
           // fact applied twice leaves the same row, and no head moves.
@@ -716,6 +737,24 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       return { versions, more: rows.length > page.limit };
     }, Effect.mapError(persistence("history")));
 
+    const moves = Effect.fn("artifacts.moves")(function* (canvasName: string, artifactId: ItemId) {
+      const rows = yield* SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: MoveRow,
+        execute: () => sql`
+          SELECT from_node_id, to_node_id, by_json, at FROM artifact_moves
+          WHERE canvas_name = ${canvasName} AND artifact_id = ${artifactId}
+          ORDER BY at, op_id`,
+      })(undefined);
+      const read: ArtifactMoveRead[] = [];
+      for (const row of rows) {
+        const by = decodeActor(parse(row.by_json));
+        if (Result.isFailure(by)) return yield* unreadable("moves", `a move of artifact ${artifactId}`);
+        read.push({ from: row.from_node_id as NodeId, to: row.to_node_id as NodeId, by: by.success, at: row.at });
+      }
+      return read;
+    }, Effect.mapError(persistence("moves")));
+
     const submit = Effect.fn("artifacts.submit")(function* (
       writer: InstallationId,
       command: ResourceCommand<ArtifactOp>,
@@ -921,6 +960,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       head,
       body,
       history,
+      moves,
       localWriter,
       submit,
       submitNode,

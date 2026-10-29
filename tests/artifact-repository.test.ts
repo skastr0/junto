@@ -299,4 +299,26 @@ describe("ArtifactRepository", () => {
     const arrived = await withRepo((repo) => repo.body(canvas, id, v(2)));
     expect(Option.getOrThrow(arrived)).toEqual({ body: { type: "document", markdown: "from afar" }, bodyRef });
   });
+
+  it("moves an artifact: only its node changes, and its history says from where, to where and by whom", async () => {
+    const id = await createSheet("Moving");
+    await submit(command({ op: "edit", edit: sheetCell(1, "c1", "kept") }, id));
+    await submit(command({ op: "labels", labels: ["spec"] }, id));
+    const before = Option.getOrThrow(await withRepo((repo) => repo.head(canvas, id)));
+    const release = asNodeId("artifacts-release");
+    const moved = await submit(command({ op: "move", to: release }, id));
+    expect(reason(moved)).toBe("applied");
+    const after = Option.getOrThrow(await withRepo((repo) => repo.head(canvas, id)));
+    expect(after.artifact).toEqual({ ...before.artifact, nodeId: release });
+    expect(after.body).toEqual(before.body);
+    const history = await withRepo((repo) => repo.history(canvas, id, { limit: 10 }));
+    expect(history.versions.map((version) => version.version)).toEqual([2, 1]);
+    expect(await withRepo((repo) => repo.moves(canvas, id))).toEqual([{ from: node, to: release, by: operator, at: expect.any(Number) }]);
+    const listed = (nodeId: string) => withRepo((repo) => repo.list(canvas, { nodeIds: [asNodeId(nodeId)], archived: false, limit: 50 }));
+    expect((await listed("artifacts-release")).artifacts.map((artifact) => artifact.artifactId)).toContain(id);
+    expect((await listed("artifacts-1")).artifacts.map((artifact) => artifact.artifactId)).not.toContain(id);
+    // Edits now name the node it is on.
+    expect(reason(await submit(command({ op: "edit", edit: sheetCell(2, "c1", "after") }, id, { nodeId: "artifacts-release" })))).toBe("applied");
+    expect(reason(await submit(command({ op: "edit", edit: sheetCell(3, "c1", "stale node") }, id)))).toBe("unknown_target");
+  });
 });
