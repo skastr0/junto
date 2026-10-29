@@ -119,10 +119,13 @@ function CaptureWriter({
   const currentRef = useRef(current);
   /** The body this window last made, shown until its head is listed, so the editor never remounts on a create. */
   const [madeBody, setMadeBody] = useState<ArtifactBody | null>(null);
-  const setCurrent = (next: CaptureRef | null, made: ArtifactBody | null = null): void => {
+  /** Its title, shown until the head lists, so the field never blanks after a switch. */
+  const [madeTitle, setMadeTitle] = useState<string | null>(null);
+  const setCurrent = (next: CaptureRef | null, made: ArtifactBody | null = null, title: string | null = null): void => {
     currentRef.current = next;
     setCurrentState(next);
     setMadeBody(made);
+    setMadeTitle(title);
     onArtifact?.(next);
   };
   /** The type a capture not yet made starts as. */
@@ -201,7 +204,7 @@ function CaptureWriter({
     headVersion.current = FIRST_ARTIFACT_VERSION;
     lastTitle.current = title;
     if (typed.current?.trim()) follows.current = false;
-    setCurrent(ref, made);
+    setCurrent(ref, made, title);
     return ref;
   };
 
@@ -298,9 +301,11 @@ function CaptureWriter({
       }
       const made = { nodeId: ref.nodeId, artifactId: mintItemId() };
       const converted = convertCapture(words, to);
+      // The title last written, not the head this click saw: a retitle queued just before may not have listed yet.
+      const title = typed.current?.trim() || lastTitle.current || head?.artifact.title || titleFor(words);
       const created = await apply(made, {
         op: "create",
-        title: head?.artifact.title ?? titleFor(words),
+        title,
         body: converted,
         ...(head === undefined || head.artifact.labels.length === 0 ? {} : { labels: [...head.artifact.labels] }),
       });
@@ -309,7 +314,8 @@ function CaptureWriter({
       await apply(ref, { op: "archive" });
       setSwitches((all) => [...all, { from, archived: ref }]);
       headVersion.current = FIRST_ARTIFACT_VERSION;
-      setCurrent(made, converted);
+      lastTitle.current = title;
+      setCurrent(made, converted, title);
     });
   };
 
@@ -318,15 +324,15 @@ function CaptureWriter({
     if (last === undefined) return;
     await queue(async () => {
       const now = currentRef.current;
-      // What the switch made, with anything written in it since, is archived; the old one comes back.
-      if (now !== null) {
-        const archived = await apply(now, { op: "archive" });
-        if (archived.kind === "refused") return;
-      }
+      // The old one comes back first: a refusal here leaves everything as it was, and Back can be pressed again.
       if (last.archived !== null) {
         const restored = await apply(last.archived, { op: "restore" });
         if (restored.kind === "refused") return;
       }
+      // Then what the switch made, with anything written in it since, is archived. Refused, both stay
+      // live, never neither; the old one is back either way, so the switch is spent.
+      if (now !== null) await apply(now, { op: "archive" });
+      lastTitle.current = undefined;
       setSwitches((all) => all.slice(0, -1));
       setStartType(last.from);
       headVersion.current = UNMADE;
@@ -409,7 +415,7 @@ function CaptureWriter({
           className="artifact-head__title"
           aria-label="Title"
           placeholder="Title from the first line"
-          value={typedTitle ?? (head?.artifact.title ?? (typed.current ?? ""))}
+          value={typedTitle ?? head?.artifact.title ?? madeTitle ?? typed.current ?? ""}
           readOnly={readOnly}
           onChange={(event) => setTypedTitle(event.target.value)}
           onBlur={commitTitle}

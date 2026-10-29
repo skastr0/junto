@@ -154,4 +154,69 @@ describe("a capture", () => {
     // Out of the Inbox, the type stays: a switch would make it a new artifact.
     expect(host.querySelector('[aria-label="Type"]')).toBeNull();
   });
+
+  /** The source with a retitle that takes a while to answer, and a restore that can be refused. */
+  const slowAndStubborn = (refuseRestore: { on: boolean }): ArtifactsSource => {
+    const base = source;
+    return {
+      ...base,
+      apply: async (canvasName, nodeId, itemId, opId, op) => {
+        if (op.op === "retitle") await new Promise((resolve) => setTimeout(resolve, 40));
+        if (op.op === "restore" && refuseRestore.on) return { kind: "refused", opId, error: { type: "conflict", message: "Not now." } } as never;
+        return base.apply(canvasName, nodeId, itemId, opId, op);
+      },
+    };
+  };
+  const pickType = async (name: string): Promise<void> => {
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Type"]')!.click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((one) => one.textContent === name)!;
+    await act(async () => option.click());
+    await settle();
+  };
+
+  it("gives the switched artifact the title just typed, though its retitle has not listed yet", async () => {
+    setArtifactsSource(slowAndStubborn({ on: false }));
+    await mount();
+    await typeInto("milk\neggs");
+    await settle();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 900)));
+    await settle();
+    const title = host.querySelector<HTMLInputElement>('[aria-label="Title"]')!;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(title, "Groceries");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => title.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    // Switch at once, before the slow retitle lists.
+    await pickType("Sheet");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+    await settle();
+    const [sheet] = await live();
+    expect(sheet?.artifact).toMatchObject({ type: "sheet", title: "Groceries" });
+  });
+
+  it("undoes a switch restore-first: a refused restore leaves the switch live and Back still works", async () => {
+    const refuse = { on: true };
+    setArtifactsSource(slowAndStubborn(refuse));
+    await mount();
+    await typeInto("milk\neggs");
+    await settle();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 900)));
+    await settle();
+    await pickType("Sheet");
+    const [sheet] = await live();
+    expect(sheet?.artifact.type).toBe("sheet");
+
+    await act(async () => button("Back to document").click());
+    await settle();
+    // Refused: nothing changed, the sheet is still live and Back is still offered.
+    expect((await live()).map((head) => head.artifact.type)).toEqual(["sheet"]);
+    expect(button("Back to document")).toBeDefined();
+
+    refuse.on = false;
+    await act(async () => button("Back to document").click());
+    await settle();
+    expect((await live()).map((head) => head.artifact.type)).toEqual(["document"]);
+  });
 });
