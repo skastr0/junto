@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Composer verdict against REAL captures — the grounding gate for the
  * screen-truth typing gate (agent-state/composer.ts).

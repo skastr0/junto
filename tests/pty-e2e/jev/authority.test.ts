@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Authority boundary — Jev is advisory display only.
  *

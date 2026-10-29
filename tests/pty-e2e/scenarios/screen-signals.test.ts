@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * The screen channel reads limits, retries and compaction off real bytes.
  *

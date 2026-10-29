@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Replay harness contract: controlled time, a complete event history, real
  * geometry, one-pass equivalence, and determinism.

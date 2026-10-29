@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Mail is typed only into an available input box, per harness, on real bytes.
  *

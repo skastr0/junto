@@ -1,3 +1,4 @@
+// vitest-lane: alone
 import { describe, expect, it } from "vitest";
 import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
 import { isManagedTerminalReady } from "../../../src/main/junto/term/drive/readiness";

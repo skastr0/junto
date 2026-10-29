@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * Checkpoint + label manifest contract.
  *
