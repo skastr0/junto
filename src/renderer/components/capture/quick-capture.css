@@ -9,7 +9,7 @@
 
 .quick-capture__body {
   display: grid;
-  grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
@@ -28,6 +28,11 @@
   padding: 10px 12px;
   color: var(--color-dim);
   border-bottom: 1px solid var(--color-stroke);
+}
+
+.quick-capture__search input::placeholder {
+  color: var(--color-faint);
+  opacity: 1;
 }
 
 .quick-capture__search input {
@@ -57,6 +62,13 @@
   list-style: none;
 }
 
+/* The list is its own keyboard stop (the keys that act on a row type in the
+   search field), so it says so while the keyboard is on it. */
+.quick-capture__rows:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: -2px;
+}
+
 .quick-capture__row {
   display: flex;
   align-items: flex-start;
@@ -72,6 +84,11 @@
 .quick-capture__row[aria-selected="true"] {
   background: var(--color-overlay-3);
   color: var(--color-ink);
+}
+
+/* The quieter line keeps its contrast on the picked row's overlay. */
+.quick-capture__row[aria-selected="true"] .quick-capture__row-detail {
+  color: var(--color-dim);
 }
 
 .quick-capture__row-main {
@@ -128,19 +145,23 @@
 .quick-capture__preview-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-title);
+  font-size: var(--text-display);
   color: var(--color-ink);
 }
 
+/* Under the title, never over it: the base size would read larger than the title. */
 .quick-capture__preview-detail {
   margin: 0;
+  font-size: var(--text-label);
   color: var(--color-dim);
 }
 
 .quick-capture__foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  column-gap: 14px;
+  row-gap: 4px;
   padding: 8px 12px;
   border-top: 1px solid var(--color-stroke);
   font-size: var(--text-label);
