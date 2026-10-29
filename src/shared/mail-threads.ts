@@ -150,6 +150,27 @@ const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 /** Oldest first; the message id breaks a tie. */
 const byAge = (a: Pick<Entry, "at" | "messageId">, b: Pick<Entry, "at" | "messageId">): number => a.at - b.at || compareId(a.messageId, b.messageId);
 
+/** The operator's read point in a thread: the newest mail read, and when it was read, on the Mac clock. */
+export type MailReadPoint = { readonly through: string; readonly at: number };
+
+/** `a` is later than `b` in a thread's order. */
+export const mailAfter = (a: Pick<Entry, "at" | "messageId">, b: Pick<Entry, "at" | "messageId">): boolean => byAge(a, b) > 0;
+
+/** Where a read point sits in a thread's order: its mail's time is read from the id, as each entry's is. */
+export const readPointKey = (point: MailReadPoint): Pick<Entry, "at" | "messageId"> => ({
+  at: messageIdTimeMs(point.through) ?? 0,
+  messageId: point.through,
+});
+
+/**
+ * A thread's unread mail: what the operator did not write, past its read
+ * point, or all of it with none. The desktop and the phone count the same way.
+ */
+export const unreadPast = (messages: ReadonlyArray<Pick<Entry, "at" | "messageId" | "mine">>, point: MailReadPoint | undefined): number => {
+  const read = point === undefined ? undefined : readPointKey(point);
+  return messages.filter((message) => !message.mine && (read === undefined || mailAfter(message, read))).length;
+};
+
 /** Every thread mail held, oldest first. */
 const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
   const seat = (nodeId: string): SeatParty => ({ kind: "seat", nodeId, name: input.nameOf(nodeId) ?? nodeId });
