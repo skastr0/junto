@@ -14,12 +14,16 @@ import { Effect, Option, Result } from "effect";
 import type { WorkErrorBody } from "@shared/work-control";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
 import type { CompanionArgsByOp, CompanionResultByOp } from "@shared/wire/companion-protocol";
-import type { Artifact } from "@shared/wire/artifact";
+import type { Artifact, ArtifactBody, ArtifactOp } from "@shared/wire/artifact";
+import type { ContentRef } from "@shared/wire/content-ref";
 import type { ItemId } from "@shared/wire/ids";
 import { AppRuntime } from "../../runtime";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { applyArtifact, colourArtifactLabel, liveResourceIpcPorts } from "../work/resource-ipc";
 import { WorkService } from "../work/service";
+import { ContentService } from "../content/service";
+import { claimStagedContent } from "../content/stage";
+import { artifactStageSeat } from "./stage";
 
 /** The ports the desktop's own resource writes use, over this app's work plane. */
 const ports = liveResourceIpcPorts(
@@ -56,6 +60,40 @@ const headOf = (canvasName: string, artifactId: ItemId) =>
  * the artifact at head; every other refusal is `invalid` with the ruler's
  * sentence.
  */
+/** The content refs a body names: a file's bytes, or a link that points at stored content. */
+const refsOfBody = (body: ArtifactBody): ReadonlyArray<ContentRef> =>
+  body.type === "file" ? [body.content] : body.type === "link" && body.target.kind === "content" ? [body.target.content] : [];
+
+/**
+ * The staged-for-artifact bytes an op names (0.11.3, section 6): a create or a
+ * whole-body replace carries them in its body; a pad edit carries them in its
+ * `upsertImage` patches. Each ref staged under the artifact seat is claimed by
+ * the apply — once, since the stage owner goes with the claim — and kept under
+ * the artifact for good.
+ */
+const stagedRefsOf = (op: ArtifactOp): ReadonlyArray<ContentRef> => {
+  if (op.op === "create") return refsOfBody(op.body);
+  if (op.op !== "edit") return [];
+  if (op.edit.kind === "replace") return refsOfBody(op.edit.body);
+  if (op.edit.type === "pad")
+    return op.edit.patches.flatMap((patch) => (patch.op === "upsert" && patch.layer === "image" ? [patch.image.ref] : []));
+  return [];
+};
+
+/** Bind every artifact-staged ref an applied op named to the artifact's own owner; one never staged is just a ref. */
+const claimFor = (args: ApplyArgs, artifactId: ItemId, version: number): Effect.Effect<void, never> =>
+  Effect.gen(function* () {
+    const content = yield* Effect.serviceOption(ContentService);
+    if (Option.isNone(content)) return;
+    for (const ref of stagedRefsOf(args.op)) {
+      yield* claimStagedContent(content.value, {
+        ...artifactStageSeat(args.canvasName),
+        ref,
+        owner: { kind: "artifact", canvasName: args.canvasName, nodeId: args.nodeId, recordId: `${artifactId}@${String(version)}` },
+      }).pipe(Effect.ignore);
+    }
+  });
+
 const refused = (error: WorkErrorBody, head: Option.Option<Artifact>): CompanionOutcome<ApplyResult> => {
   const reason = error.details?.reason;
   if (reason !== "stale" && reason !== "rebase_conflict") return outcomeFail("invalid", error.message.slice(0, 500));
@@ -88,6 +126,9 @@ export const companionArtifactWriteBackend: Pick<CompanionBackend, "artifactAppl
                 itemOp && (outcome.kind === "applied" || outcome.kind === "refused")
                   ? yield* headOf(args.canvasName, args.artifactId as ItemId)
                   : Option.none<Artifact>();
+              // An applied write claims the staged bytes it named: once, under the version that holds them.
+              if (outcome.kind === "applied" && Option.isSome(head))
+                yield* claimFor(args, args.artifactId as ItemId, head.value.version);
               return { outcome, head };
             }),
           ),

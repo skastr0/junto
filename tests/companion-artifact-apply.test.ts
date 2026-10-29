@@ -27,14 +27,17 @@ const frame = (op: CompanionOpName, args: object, id = "a1"): CompanionRequestFr
   return decoded.success;
 };
 
-const call = (backend: CompanionBackend, args: object, allowArtifactWrite: () => boolean = () => true) =>
-  handleCompanionRequest(frame("artifact.apply", args), {
+const callOp = (backend: CompanionBackend, op: CompanionOpName, args: object, allowArtifactWrite: () => boolean = () => true) =>
+  handleCompanionRequest(frame(op, args), {
     backend,
     device: { deviceId: "dev", state: "paired" },
     allowWrite: () => true,
     allowArtifactWrite,
     gates: makeCompanionGates(),
   });
+
+const call = (backend: CompanionBackend, args: object, allowArtifactWrite: () => boolean = () => true) =>
+  callOp(backend, "artifact.apply", args, allowArtifactWrite);
 
 const demo = () => makeDemoBackend("apply-test");
 
@@ -203,6 +206,47 @@ describe("artifact.apply through the demo", () => {
       op: { op: "retitle", title: "later" },
     });
     expect(response).toMatchObject({ ok: true, result: { disposition: "queued", opId: "01J9DEM0TST000000000000010" } });
+  });
+
+  it("claims bytes staged for the artifact, once, and serves them by ref", async () => {
+    const backend = demo();
+    const bytes = Buffer.from("one,two\n1,2\n", "utf-8");
+    const sha256 = "ab".repeat(32);
+    const stage = (args: object) => callOp(backend, "content.stage", args);
+    const piece = { canvasName: DEMO_CANVAS, sha256, byteLength: bytes.length, mediaType: "text/csv", displayName: "phone.csv", purpose: { for: "artifact", canvasName: DEMO_CANVAS }, offset: 0, data: bytes.toString("base64") };
+
+    const staged = await stage(piece);
+    expect(staged).toMatchObject({ ok: true, result: { ref: { sha256, byteLength: bytes.length } } });
+    if (!staged.ok || !("ref" in staged.result)) expect.unreachable();
+    const ref = staged.result.ref;
+
+    const create = (artifactId: string, opId: string) =>
+      call(backend, {
+        canvasName: DEMO_CANVAS, nodeId: "art-inbox", artifactId, opId,
+        op: { op: "create", title: "Phone file", body: { type: "file", content: ref } },
+      });
+    const created = await create("01J9DEM0ART000000000000091", "01J9DEM0TST000000000000021");
+    expect(created).toMatchObject({ ok: true, result: { disposition: "applied", version: 1 } });
+
+    // The claim: content.get reads the staged bytes back through the artifact's own ref.
+    const got = await callOp(backend, "content.get", { sha256, offset: 0, length: bytes.length });
+    expect(got).toMatchObject({ ok: true, result: { sha256, length: bytes.length, data: bytes.toString("base64") } });
+
+    // A second apply naming the same ref claims nothing — the first claim took it — and still lands.
+    const second = await create("01J9DEM0ART000000000000092", "01J9DEM0TST000000000000022");
+    expect(second).toMatchObject({ ok: true, result: { disposition: "applied" } });
+    const again = await callOp(backend, "content.get", { sha256, offset: 0, length: 4 });
+    expect(again).toMatchObject({ ok: true });
+  });
+
+  it("stages only for an artifact on that canvas", async () => {
+    const backend = demo();
+    const piece = { canvasName: DEMO_CANVAS, sha256: "cd".repeat(32), byteLength: 3, mediaType: "text/plain", offset: 0, data: Buffer.from("abc").toString("base64") };
+    // Mail purpose has no claim path in the demo, as on the Mac it lands under a seat nothing claims.
+    const noPurpose = await callOp(backend, "content.stage", piece);
+    expect(noPurpose).toMatchObject({ ok: false, error: { code: "invalid" } });
+    const wrongCanvas = await callOp(backend, "content.stage", { ...piece, purpose: { for: "artifact", canvasName: "elsewhere" } });
+    expect(wrongCanvas).toMatchObject({ ok: false, error: { code: "invalid" } });
   });
 
   it("decodes on the wire: the result the demo sends is the schema's", async () => {

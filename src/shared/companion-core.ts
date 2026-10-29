@@ -204,7 +204,10 @@ export type CompanionBackend = {
   ) => Promise<CompanionOutcome<CompanionResultByOp["machine.get"]>>;
   readonly tailnetPeers: () => Promise<CompanionOutcome<CompanionResultByOp["tailnet.peers"]>>;
   /** One piece into the Mac content store, staged as the operator on `canvasName`, as the desktop stages. */
-  readonly stagePiece: (canvasName: string, args: ContentStageArgs) => Promise<CompanionOutcome<ContentStageResult>>;
+  readonly stagePiece: (
+    canvasName: string,
+    args: ContentStageArgs & { readonly purpose?: CompanionArgsByOp["content.stage"]["purpose"] },
+  ) => Promise<CompanionOutcome<ContentStageResult>>;
   /** Room on disk for a file this size, asked before its first piece. */
   readonly admitStage: (canvasName: string, byteLength: number) => Promise<CompanionOutcome<void>>;
   /** Let go of an upload: an open one's staging file, a finished one's stage hold. Never fails. */
@@ -393,6 +396,7 @@ const contentStage = async (
     const piece = await backend.stagePiece(canvasName, {
       ...(current.stageId === undefined ? {} : { stageId: current.stageId }),
       bytesBase64: args.data,
+      ...(args.purpose === undefined ? {} : { purpose: args.purpose }),
     } as ContentStageArgs);
     if (!piece.ok || "ref" in piece.value) {
       await forget();
@@ -410,6 +414,7 @@ const contentStage = async (
         ...(args.displayName === undefined ? {} : { displayName: args.displayName }),
         expected: { sha256, byteLength },
       },
+      ...(args.purpose === undefined ? {} : { purpose: args.purpose }),
     } as ContentStageArgs);
     if (!closed.ok || !("ref" in closed.value)) {
       return companionFail(id, closed.ok ? companionError("internal", COMPANION_ERROR_COPY.internal) : closed.error);
@@ -620,9 +625,6 @@ export const handleCompanionRequest = async (
       }
     }
     case "content.stage": {
-      // The artifact purpose lands with its claim path; until then nothing claims for artifacts.
-      if (frame.args.purpose !== undefined)
-        return companionFail(id, companionError("invalid", "Staging for an artifact is not on this build yet."));
       const release = context.gates.stage();
       if (release === undefined)
         return companionFail(id, companionError("rate-limited", "Send one piece at a time, and wait for it to land."));

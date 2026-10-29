@@ -28,6 +28,19 @@ const operatorSeat = (canvasName: string): ContentStageSeat => ({
   nodeId: operatorActorRef(canvasName).nodeId,
 });
 
+/**
+ * The seat an artifact staging binds under (0.11.3, section 6): a staged ref
+ * for `{ for: "artifact" }` is claimed by `artifact.apply` on that canvas, and
+ * only there — a mail or answer, which reads the operator seat, can never take
+ * it, and an apply on another canvas cannot either. It is not a canvas node;
+ * the stage owner only ever names the seat it was staged by.
+ */
+export const ARTIFACT_STAGE_NODE = "artifact-staged";
+export const artifactStageSeat = (canvasName: string): ContentStageSeat => ({
+  canvasName,
+  nodeId: ARTIFACT_STAGE_NODE,
+});
+
 const STAGE_REFUSAL: Readonly<Record<ContentStageError["code"], CompanionOutcome<never>>> = {
   invalid: outcomeFail("invalid", "That piece could not be read."),
   "not-found": outcomeFail("invalid", "That upload is gone. Send the file again from the start."),
@@ -79,15 +92,20 @@ export const mailContentRef = (sha256: string): Promise<ContentRef | undefined> 
 export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admitStage" | "dropStaged" | "mailContentRef"> = {
   mailContentRef,
   // The content store, not the canvas: as the desktop's own staging, no authoring gate.
-  stagePiece: (canvasName, args) =>
-    AppRuntime.runPromise(
+  stagePiece: (canvasName, args) => {
+    const purpose = args.purpose;
+    if (purpose !== undefined && purpose.canvasName !== canvasName)
+      return Promise.resolve(outcomeFail<ContentStageResult>("invalid", "That piece is for another canvas's artifacts."));
+    const seat = purpose?.for === "artifact" ? artifactStageSeat(canvasName) : operatorSeat(canvasName);
+    return AppRuntime.runPromise(
       Effect.gen(function* () {
         const content = yield* Effect.serviceOption(ContentService);
         if (Option.isNone(content)) return outcomeFail<ContentStageResult>("unavailable", "The Mac's file store is not open.");
-        const staged = yield* Effect.result(contentStagerFor(content.value).stage(operatorSeat(canvasName), args));
+        const staged = yield* Effect.result(contentStagerFor(content.value).stage(seat, args));
         return staged._tag === "Success" ? outcomeOk(staged.success) : STAGE_REFUSAL[staged.failure.code];
       }),
-    ).catch(() => outcomeFail<ContentStageResult>("internal")),
+    ).catch(() => outcomeFail<ContentStageResult>("internal"));
+  },
 
   admitStage: async (canvasName, byteLength) => {
     if (!(await canvasExists(canvasName))) return outcomeFail("not-found", "No such canvas.");
@@ -106,10 +124,12 @@ export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admit
       Effect.gen(function* () {
         const content = yield* Effect.serviceOption(ContentService);
         if (Option.isNone(content)) return;
-        const seat = operatorSeat(canvasName);
-        contentStagerFor(content.value).drop(seat, stageId);
-        // Finished and not claimed: its stage hold goes; a claimed one has none left to let go.
-        yield* content.value.releaseOwner(contentStageOwner(seat, stageId)).pipe(Effect.ignore);
+        // A piece may have staged under either seat; a drop of the other is a no-op.
+        for (const seat of [operatorSeat(canvasName), artifactStageSeat(canvasName)]) {
+          contentStagerFor(content.value).drop(seat, stageId);
+          // Finished and not claimed: its stage hold goes; a claimed one has none left to let go.
+          yield* content.value.releaseOwner(contentStageOwner(seat, stageId)).pipe(Effect.ignore);
+        }
       }),
     ).catch(() => undefined),
 };
