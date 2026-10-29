@@ -119,6 +119,13 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     expect(raised).toEqual([]);
   });
 
+  it("refuses a stored notice that holds a form, raising nothing", async () => {
+    const { raised, signals } = store();
+    expect(await perform(signals, { kind: "signal", signal: "notice", title: "Read this", form: { kind: "text" } }))
+      .toEqual({ index: 0, ruling: "refused", reason: "invalid_input" });
+    expect(raised).toEqual([]);
+  });
+
   it("refuses the secret form until the vault (N5), raising nothing", async () => {
     const { raised, signals } = store();
     expect(await perform(signals, { ...write, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" as never } }))

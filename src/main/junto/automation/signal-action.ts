@@ -87,9 +87,10 @@ export const performSignalAction = (
     const text = clip(normalizeSignalText(yield* input.resolve(action.title)), AGENT_SIGNAL_MAX_TEXT_LENGTH);
     if (text === "") return invalid(index);
     const detail = action.detail === undefined ? "" : clip(yield* input.resolve(action.detail), AGENT_SIGNAL_MAX_DETAIL_LENGTH);
-    // A notice is read and cleared: it carries no form and falls due never (`actionRefusal`).
+    // A notice is read and cleared (`actionRefusal`): a stored one with a form is wrong, and says so.
+    if (action.signal === "notice" && action.form !== undefined) return invalid(index);
     let form;
-    if (action.form !== undefined && action.signal === "work") {
+    if (action.form !== undefined) {
       if (input.canvas === undefined) return notAvailable(index);
       const settled = resolveSignalForm({
         board: input.canvas,
