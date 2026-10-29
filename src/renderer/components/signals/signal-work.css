@@ -23,7 +23,7 @@
   overflow: auto;
   padding: 8px 10px;
   border: 1px solid color-mix(in oklab, var(--color-stroke) 70%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--color-raise);
 }
 
@@ -55,7 +55,7 @@
   inset: 0;
   transform: scaleX(var(--signal-work-fill, 0));
   transform-origin: left center;
-  background: var(--color-accent);
+  background: var(--color-main);
   transition: transform 160ms ease-out;
 }
 
