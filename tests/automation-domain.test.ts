@@ -254,6 +254,31 @@ describe.runIf(AUTOMATION_SIGNALS_ENABLED)("signal steps that send their answer 
     });
   });
 
+  it("refuse an answered watch naming no automation here, or a step it does not hold", () => {
+    const raiser = rules(emptyAutomationState(), {
+      kind: "create", automationId: ID, enabled: true, definition: definition(A, { name: "Release review", when: [], then: [ask("ask")] }),
+    }, ID);
+    const state = raiser.kind === "apply" ? raiser.facts.reduce<AutomationState>((next, fact) => applyAutomationFact(next, fact), emptyAutomationState()) : emptyAutomationState();
+    const listen = (step: string | undefined, automationId: AutomationId = ID): AutomationOp => ({
+      kind: "create",
+      automationId: LISTENER,
+      enabled: true,
+      definition: definition(A, {
+        name: "Write review",
+        when: [],
+        trigger: { kind: "change", on: { kind: "answered", automation: { node: NODE, automationId }, ...(step === undefined ? {} : { step }) } },
+        then: [{ kind: "mail", to: { kind: "seat", nodeId: A }, text: "{{answer.text}}" }],
+      }),
+    });
+    expect(rules(state, listen("ask"), LISTENER).kind).toBe("apply");
+    expect(rules(state, listen(undefined), LISTENER).kind).toBe("apply");
+    expect(rules(state, listen("other"), LISTENER)).toMatchObject({
+      kind: "refuse",
+      refusal: { reason: "invalid_input", message: "Release review has no signal step other", next_step: "Give that step the id other with automation edit first, or drop the step" },
+    });
+    expect(rules(emptyAutomationState(), listen("ask"), LISTENER)).toMatchObject({ kind: "refuse", refusal: { reason: "unknown_target" } });
+  });
+
   it("take a listener on any machine: the step and its values ride the signal", () => {
     const raiser = rules(emptyAutomationState(), {
       kind: "create", automationId: ID, enabled: true, machine: "mini" as never, definition: definition(A, { when: [], then: [ask("ask")] }),

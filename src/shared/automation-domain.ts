@@ -145,6 +145,30 @@ const definitionRefusal = (
   return undefined;
 };
 
+/**
+ * An answered watch names an automation on its node that holds the step it
+ * narrows to (0.11/09): one that names nothing there would never fire, and
+ * says so at save instead.
+ */
+const answeredTargetRefusal = (state: AutomationState, automation: Automation): Refusal | undefined => {
+  if (automation.trigger.kind !== "change" || automation.trigger.on.kind !== "answered") return undefined;
+  const watch = automation.trigger.on;
+  const raiser = watch.automation.automationId === automation.automationId ? automation : state.get(watch.automation.automationId)?.automation;
+  if (raiser === undefined || raiser.nodeId !== automation.nodeId) {
+    return {
+      reason: "unknown_target",
+      message: `no automation ${watch.automation.automationId} on this Automations node`,
+      next_step: "Name an automation on this node, as junto automation list prints them",
+    };
+  }
+  if (watch.step === undefined || raiser.then.some((action) => action.kind === "signal" && action.id === watch.step)) return undefined;
+  return {
+    reason: "invalid_input",
+    message: `${raiser.name} has no signal step ${watch.step}`,
+    next_step: `Give that step the id ${watch.step} with automation edit first, or drop the step`,
+  };
+};
+
 /** A whole-definition replace: a field the new definition leaves out (`when`) is gone; `enabled` stays. */
 const replaced = (
   automation: Automation,
@@ -244,7 +268,7 @@ export const ruleAutomationCommand = (
       ...(codeRuling === undefined ? {} : { codeRuling }),
       ...definition,
     };
-    const refusal = definitionRefusal(automation, targetsOf);
+    const refusal = definitionRefusal(automation, targetsOf) ?? answeredTargetRefusal(state, automation);
     return refusal === undefined ? apply({ fact: "automation.created", automation, at }) : refuse(refusal);
   }
 
@@ -276,7 +300,7 @@ export const ruleAutomationCommand = (
       const codeRuling = codeRulingAfter(entry.automation, op.definition.then, author, env.rulingInstallation);
       const definition = withStepIds(op.definition);
       const edited = replaced(entry.automation, definition, AutomationVersion.make(head + 1), codeRuling);
-      const refusal = definitionRefusal(edited, targetsOf, author);
+      const refusal = definitionRefusal(edited, targetsOf, author) ?? answeredTargetRefusal(state, edited);
       if (refusal !== undefined) return refuse(refusal);
       return apply({
         fact: "automation.edited",
