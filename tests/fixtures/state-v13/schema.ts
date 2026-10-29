@@ -372,3 +372,9 @@ export const STATE_SCHEMA_V63_SQL = stepped(
   STATE_SCHEMA_V62_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 63)!.migrate,
 );
+
+/** Step 64 adds `artifact_moves`, where each artifact has been (10 M1). */
+export const STATE_SCHEMA_V64_SQL = stepped(
+  STATE_SCHEMA_V63_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 64)!.migrate,
+);

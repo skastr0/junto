@@ -113,3 +113,26 @@ export const ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL = `
     PRIMARY KEY (canvas_name, node_id, label)
   ) STRICT, WITHOUT ROWID;
 `;
+
+/**
+ * Where an artifact has been (0.11.1, 10): one row per move, written with
+ * the `artifact.moved` fact, so history can say "moved from Specs to Release
+ * by the operator". The head's `node_id` is where it is now; these rows are
+ * only its past, keyed by the ruling's op so a fact applied twice writes one
+ * row. Added by state migration 63 -> 64.
+ */
+export const ARTIFACT_MOVES_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS artifact_moves (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    artifact_id TEXT NOT NULL CHECK (length(artifact_id) = 26),
+    op_id TEXT NOT NULL CHECK (length(op_id) = 26),
+    from_node_id TEXT NOT NULL CHECK (length(from_node_id) BETWEEN 1 AND 256),
+    to_node_id TEXT NOT NULL CHECK (length(to_node_id) BETWEEN 1 AND 256),
+    by_json TEXT NOT NULL CHECK (json_valid(by_json)),
+    at INTEGER NOT NULL CHECK (at >= 0),
+    PRIMARY KEY (canvas_name, artifact_id, op_id),
+    FOREIGN KEY (canvas_name, artifact_id)
+      REFERENCES artifact_heads (canvas_name, artifact_id)
+      ON DELETE CASCADE
+  ) STRICT, WITHOUT ROWID;
+`;

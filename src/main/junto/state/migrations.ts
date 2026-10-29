@@ -53,6 +53,7 @@ import { migrateStubFiles, STUB_FILES_REPLACED_TABLES } from "./migrate-stub-fil
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
 import {
   ARTIFACT_LABEL_COLOURS_STATE_SCHEMA_SQL,
+  ARTIFACT_MOVES_STATE_SCHEMA_SQL,
   ARTIFACT_LABELS_STATE_SCHEMA_SQL,
   ARTIFACT_LINKS_STATE_SCHEMA_SQL,
 } from "../work/artifact-state-schema";
@@ -805,7 +806,16 @@ export const STATE_SCHEMA_V63_IDENTITY = {
     "83d7611b0b8a2869fa52b0743d91dbc0262de47196edecebf73e847c64ff3ad5",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 63;
+/**
+ * Version 64 keeps where each artifact has been (0.11.1, 10 M1):
+ * `artifact_moves`, one row per move, for its history. Expand only.
+ */
+export const STATE_SCHEMA_V64_IDENTITY = {
+  actualSchemaSha256:
+    "f35438d5f24b1408aca9b2b657758f7bda4de42e1fd5100446d36d3ff95c2eab",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 64;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -813,7 +823,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 63;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V63_IDENTITY;
+  STATE_SCHEMA_V64_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1313,6 +1323,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V62_IDENTITY,
     replacesTables: [...STUB_FILES_REPLACED_TABLES],
     migrate: migrateStubFiles,
+  },
+  {
+    fromVersion: 63,
+    toVersion: 64,
+    name: "keep where each artifact has been",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V63_IDENTITY,
+    migrate: (database) => database.exec(ARTIFACT_MOVES_STATE_SCHEMA_SQL),
   },
 ];
 
