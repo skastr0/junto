@@ -428,18 +428,26 @@ const openClaimed = (
      * applies: its writes land then, not when the judgment commits, and a
      * listener that read before would find none of them.
      */
-    const awaiting: Array<{ readonly through: number; readonly callbacks: ReadonlyArray<() => void> }> = [];
+    const awaiting: Array<{ readonly index: number; readonly term: number; readonly callbacks: ReadonlyArray<() => void> }> = [];
     const runCallbacks = (callbacks: ReadonlyArray<() => void>) =>
       Effect.forEach(callbacks, (callback) =>
         Effect.sync(callback).pipe(Effect.catchDefect((defect) => Effect.logError(`an after-commit listener on ${canvasName} failed`, defect))),
         { discard: true });
-    const appliedThrough = (through: number) =>
+    // A batch whose entry another authority's history replaced never landed: its listeners hear nothing.
+    const appliedThrough = (entries: ReadonlyArray<Entry>, through: number) =>
       Effect.suspend(() => {
-        const due = awaiting.filter((held) => held.through <= through);
+        const due = awaiting.filter((held) => held.index <= through);
         if (due.length === 0) return Effect.void;
-        awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.through > through));
-        return runCallbacks(due.flatMap((held) => held.callbacks));
+        awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.index > through));
+        const landed = due.filter((held) => entries.some((entry) => entry.index === held.index && entry.term === held.term));
+        return runCallbacks(landed.flatMap((held) => held.callbacks));
       });
+    /** A ready that truncates the log takes every batch held at or above the cut with it. */
+    const truncated = (ready: Ready) => {
+      if (ready.truncateFrom === undefined) return;
+      const from = ready.truncateFrom;
+      awaiting.splice(0, awaiting.length, ...awaiting.filter((held) => held.index < from));
+    };
 
     const apply = (entries: ReadonlyArray<Entry>, through: number) =>
       sql.withTransaction(
@@ -456,7 +464,7 @@ const openClaimed = (
               WHERE canvas_name = ${canvasName}`;
           }
         }),
-      ).pipe(Effect.tap(() => appliedThrough(through)));
+      ).pipe(Effect.tap(() => appliedThrough(entries, through)));
 
     const loaded = yield* sql.withTransaction(
       Effect.gen(function* () {
@@ -555,6 +563,7 @@ const openClaimed = (
       const ready = node.ready();
       return Effect.gen(function* () {
         yield* unrevoked(ready);
+        truncated(ready);
         if (!isEmpty(ready)) yield* durably(writeReady(ready));
         if (ready.committed.length > 0 && options.beforeApply !== undefined) yield* options.beforeApply;
         yield* applyCommitted(ready);
@@ -636,7 +645,7 @@ const openClaimed = (
           // The batch's listeners hear it once its last entry applies; a batch that logged nothing has nothing to wait for.
           const last = appended.entries.at(-1);
           if (last === undefined) yield* runCallbacks(callbacks);
-          else awaiting.push({ through: last.index, callbacks });
+          else awaiting.push({ index: last.index, term: last.term, callbacks });
           // Applied, and only now answered.
           yield* applyCommitted(appended.ready);
           return { value: appended.value, entries: appended.entries, messages: appended.ready.messages };

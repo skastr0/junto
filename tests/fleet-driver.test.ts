@@ -891,3 +891,44 @@ describe("the fleet driver holds a batch's after-commit listeners", () => {
     expect(heard).toEqual([1]);
   });
 });
+
+describe("the fleet driver drops a lost batch's listeners", () => {
+  it("when the old leader's appended batch is replaced by the new leader's history", async () => {
+    const pair: Record<string, Seat> = {};
+    for (const id of [MACBOOK, SELF]) {
+      const store = await makeStore(id, [MACBOOK, SELF]);
+      pair[id] = { store, authority: await open(store, id), failures: [] };
+    }
+    let linked = true;
+    const up = () => linked;
+    const macbook = pair[MACBOOK]!;
+    const mini = pair[SELF]!;
+    for (let round = 0; round < 30 && !macbook.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    expect(macbook.authority.status()).toMatchObject({ role: "leader", canCommit: true });
+
+    // The MacBook, editing the canvas here, judges a batch, and the link drops before the mini acknowledges it.
+    await macbook.store.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`UPDATE canvases SET editor_installation_id = ${MACBOOK} WHERE canvas_name = ${CANVAS}`),
+    );
+    linked = false;
+    const heard: Array<string> = [];
+    const listened = Effect.andThen(createArtifact, Effect.flatMap(SqlClient.SqlClient, (sql) => afterSqlCommit(sql, () => heard.push("landed"))));
+    await macbook.store.runtime.runPromise(macbook.authority.judge(listened) as unknown as Effect.Effect<unknown, unknown, never>);
+    const lostAt = macbook.authority.status().lastIndex;
+    expect(macbook.authority.status().commit).toBeLessThan(lostAt);
+
+    // The mini takes over on its casting vote and commits entries of its own at those indices.
+    for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
+    expect(mini.authority.status()).toMatchObject({ role: "leader", canCommit: true });
+    for (let seq = 1; seq <= 3; seq++) await proposeOn(pair, SELF, seq, up);
+    expect(mini.authority.status().commit).toBeGreaterThanOrEqual(lostAt);
+
+    // The link comes back: the MacBook takes the mini's history, applies it, and its listener never fires.
+    linked = true;
+    for (let round = 0; round < 10 && macbook.authority.status().commit < mini.authority.status().commit; round++) await tickPair(pair, [SELF, MACBOOK], up);
+    expect(macbook.authority.status().commit).toBe(mini.authority.status().commit);
+    expect(macbook.failures).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(await held(macbook.store)).toMatchObject({ rulings: [] });
+  });
+});
