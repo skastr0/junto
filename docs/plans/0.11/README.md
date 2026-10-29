@@ -195,9 +195,15 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | automations that know what fired them A1 to A4 | product-automations, automation-lead, product-cron, cli-lead | A1 to A3 verified dark and bright at 91b01dd8d (automations-a1-verify.spec.ts), operator approved; A4 CLI in review; code steps K1 landed 91b01dd8d, K2 to K5 building, K3 operator approved, its accessibility fixes verified 9 of 9 dark and bright at 0ab7b3013 (automations-k3-a11y-verify.spec.ts); B1 artifacts in automations verified 11 of 11 dark and bright at 93d3ea641 (automations-b1-verify.spec.ts), all reviews in, operator approved; S1 landed e03c13b9f; see 05-automations.md |
 | fleet state: one authority, with fallbacks | remote-lead, tech-lead, canvas-lead | design complete (83aaa3e07, 192c67774, 885ccb6cd, 70ce280cd); building in order F0 remote-core, F6 and F2 remote-work, F1 tech-lead, F3 remote-cut, F5 remote-window with cli-lead, F4 canvas-lead; remote-verify on real machines; see 06-fleet-state.md |
 | the needs-you feed holds the operator's work N1 to N4 | product-feed, automation-lead, product-automations, cli-lead | N1 contract in progress (product-feed, cut by the 20:29 sleep, resumed); N2 runtime and N4 CLI built on N1 stand-ins; N3 feed screens approved by all three reviewers, waits on N1; see 07-operator-work.md |
+| briefings written as documents B1 to B4 | product-documents, cli-lead, product-typography, product-accessibility, product-verify | started 2026-10-28; in 0.11.0 if verified by the cut, else 0.11.1; see 08-briefings.md |
 | remote review | remote-lead | F1 approved; doctrine conditions met (fsmonitor, sandboxed junto-file) |
 
 ## Carried to 0.12
+
+- Fleet state F0 to F6 and the N5 vault (operator greenlit the 0.11.0 release
+  with scope frozen, 2026-10-28). What is on main stays inert in ship.
+- Any of N2, K2, K4, K5 and A4 not verified in the real app by the cut,
+  gated off in ship.
 
 - A rename fact for file threads, retiring the `files.thread-carry` seam
   entry (63d77dc27 writes the path in place; a journal rebuild would restore
