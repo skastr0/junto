@@ -29,7 +29,9 @@ import {
 } from "./companion-core";
 import { companionCommentsPage, type CommentPostView, type CommentThreadView } from "./companion-comments";
 import type { ItemId } from "./wire/ids";
+import { artifactFirstLines } from "./artifact-lines";
 import { candidatesOfNodes, connectedSeatCandidates, filterCandidates } from "./mention-candidates";
+import { parseMentionHref } from "./wire/mention";
 import { mentionableNodesFrom } from "./mention-reach";
 import { companionConnected, companionThreadPage, companionThreadRead, companionThreadsPage } from "./companion-threads";
 import {
@@ -576,6 +578,96 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
           ...(candidate.note === undefined ? {} : { note: candidate.note.slice(0, 320) }),
         })),
       });
+    },
+    mentionResolve: async (args) => {
+      if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
+      const faces: Array<CompanionResultByOp["mentions.resolve"]["faces"][number]> = [];
+      for (const href of args.hrefs) {
+        const target = parseMentionHref(href);
+        const label = href.slice(0, 400);
+        const node = target === undefined ? undefined : CANVAS.nodes.get(asNodeId(target.nodeId));
+        if (target === undefined || node === undefined) {
+          faces.push({ kind: "missing", label, reason: "gone" });
+          continue;
+        }
+        if (node.kind === "agent") {
+          const seat = seatsNow().find((candidate) => candidate.nodeId === node.id);
+          faces.push(
+            seat === undefined
+              ? { kind: "missing", label, reason: "gone", of: "seat" }
+              : {
+                  kind: "seat",
+                  nodeId: asNodeId(seat.nodeId),
+                  name: seat.name,
+                  portraitIdentity: seat.portraitIdentity,
+                  state: seat.state,
+                  ...(seat.ring === undefined ? {} : { ring: seat.ring }),
+                },
+          );
+          continue;
+        }
+        if (node.kind === "task") {
+          faces.push({
+            kind: "task",
+            nodeId: node.id,
+            taskId: DEMO_TASK_PRICING as ItemId,
+            number: 1 as never,
+            title: "launch pricing",
+            state: "backlog",
+          });
+          continue;
+        }
+        if (node.kind === "artifacts") {
+          const artifact = target.item === undefined ? undefined : DEMO_ARTIFACTS.find((held) => held.head.artifactId === target.item);
+          faces.push(
+            artifact === undefined
+              ? { kind: "missing", label, reason: "gone", of: "artifact" }
+              : {
+                  kind: "artifact",
+                  nodeId: artifact.head.nodeId,
+                  artifactId: artifact.head.artifactId,
+                  type: artifact.head.type,
+                  title: artifact.head.title,
+                  version: artifact.head.version,
+                  lines: artifactFirstLines(artifact.body).slice(0, 2),
+                  archived: artifact.head.archived,
+                  ...(artifact.head.nodeId === node.id ? {} : { movedTo: artifact.head.nodeId }),
+                },
+          );
+          continue;
+        }
+        if (node.kind === "page") {
+          faces.push({ kind: "page", nodeId: node.id, title: node.label ?? "", ...(node.url === undefined || node.url === "" ? {} : { url: node.url }), state: "resting" });
+          continue;
+        }
+        faces.push({ kind: "missing", label, reason: "gone" });
+      }
+      return outcomeOk({ faces });
+    },
+    mentionLinkedFrom: async (args) => {
+      if (!known(args.canvasName)) return outcomeFail("not-found", "No such canvas.");
+      const target = args.target;
+      const bodies =
+        target.kind !== "artifact"
+          ? []
+          : DEMO_ARTIFACTS.flatMap((held) => {
+              if (held.body.type !== "document") return [];
+              const line = held.body.markdown
+                .split("\n")
+                .find((one) => one.includes(`item=${target.artifactId}`) && one.includes(`node=${target.nodeId}`));
+              if (line === undefined) return [];
+              return [
+                {
+                  nodeId: held.head.nodeId,
+                  artifactId: held.head.artifactId,
+                  title: held.head.title,
+                  type: held.head.type,
+                  line: (line ?? "").slice(0, 400),
+                  at: held.head.updatedAt,
+                },
+              ];
+            });
+      return outcomeOk({ bodies, mail: [] });
     },
     // The demo keeps no files: it does not advertise attachments, so a phone sends none.
     stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),

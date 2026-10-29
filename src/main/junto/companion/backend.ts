@@ -91,6 +91,15 @@ import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
 import { answerSignalAsOperator, dismissSignalAsOperator, type OperatorActionResult } from "./operator-actions";
 import { livePreambles } from "./preambles";
 import { companionStageBackend } from "./stage";
+import { artifactFirstLines } from "@shared/artifact-lines";
+import { COMPANION_FACE_SEAT_STATES, COMPANION_LINKED_FROM_MAX } from "@shared/wire/companion-artifacts";
+import type { CompanionResultByOp } from "@shared/companion-protocol";
+import { Option } from "effect";
+import { mentionKey, parseMentionHref, type MentionRef, type MentionTarget } from "@shared/wire/mention";
+import { ArtifactRepository } from "../work/artifact-repository";
+import { linkedFromBodies } from "../work/body-links";
+import { readMentions } from "../work/mention-backlinks";
+import { entryOf } from "../work/mention-ipc";
 
 // Portraits wear the packs this build bundles, as the renderer's do.
 installCosmeticPacks(decodeCosmeticPacks(overlayManifest.cosmetics));
@@ -539,6 +548,142 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
       }).pipe(Effect.catch(() => Effect.succeed(undefined))),
     );
     return bytes === undefined ? outcomeFail("unavailable") : outcomeOk(bytes);
+  },
+
+  mentionResolve: async (args) => {
+    const view = await readView(args.canvasName, true);
+    if (!view) return outcomeFail("not-found", "No such canvas.");
+    const seats = seatsFor(args.canvasName, view, Date.now());
+    const artifactOf = async (artifactId: NonNullable<MentionTarget["item"]>) =>
+      AppRuntime.runPromise(
+        Effect.flatMap(ArtifactRepository, (repository) => repository.head(args.canvasName, artifactId)).pipe(
+          Effect.map(Option.getOrUndefined),
+          Effect.catch(() => Effect.succeed(undefined)),
+        ),
+      );
+    const faces: CompanionResultByOp["mentions.resolve"]["faces"][number][] = [];
+    for (const href of args.hrefs) {
+      const target = parseMentionHref(href);
+      const label = href.length > 400 ? href.slice(0, 400) : href;
+      if (target === undefined) {
+        faces.push({ kind: "missing", label, reason: "gone" });
+        continue;
+      }
+      const node = view.canvas.nodes.get(asNodeId(target.nodeId));
+      if (node === undefined) {
+        faces.push({ kind: "missing", label, reason: "gone" });
+        continue;
+      }
+      if (node.kind === "agent") {
+        const seat = seats.find((candidate) => candidate.nodeId === node.id);
+        faces.push(
+          seat === undefined
+            ? { kind: "missing", label, reason: "gone", of: "seat" }
+            : {
+                kind: "seat",
+                nodeId: asNodeId(seat.nodeId),
+                name: seat.name.slice(0, 400),
+                portraitIdentity: seat.portraitIdentity.slice(0, 400),
+                state: seat.state as (typeof COMPANION_FACE_SEAT_STATES)[number],
+                ...(seat.ring === undefined ? {} : { ring: seat.ring }),
+              },
+        );
+        continue;
+      }
+      if (node.kind === "task") {
+        const task = target.item === undefined ? undefined : view.itemsOf(node.id).find((candidate) => candidate.taskId === target.item);
+        faces.push(
+          task === undefined
+            ? { kind: "missing", label, reason: "gone", of: "task" }
+            : {
+                kind: "task",
+                nodeId: node.id,
+                taskId: task.taskId,
+                ...(task.number === undefined ? {} : { number: task.number }),
+                title: task.title.slice(0, 400),
+                state: task.current.state,
+              },
+        );
+        continue;
+      }
+      if (node.kind === "artifacts") {
+        const head = target.item === undefined ? undefined : await artifactOf(target.item);
+        faces.push(
+          head === undefined
+            ? { kind: "missing", label, reason: "gone", of: "artifact" }
+            : {
+                kind: "artifact",
+                nodeId: head.artifact.nodeId,
+                artifactId: head.artifact.artifactId,
+                type: head.artifact.type,
+                title: head.artifact.title.slice(0, 400),
+                version: head.artifact.version,
+                lines: head.body === null ? [] : artifactFirstLines(head.body).slice(0, 2).map((line) => line.slice(0, 400)),
+                archived: head.artifact.archived,
+                ...(head.artifact.nodeId === node.id ? {} : { movedTo: head.artifact.nodeId }),
+              },
+        );
+        continue;
+      }
+      if (node.kind === "page") {
+        faces.push({
+          kind: "page",
+          nodeId: node.id,
+          title: nodeTitle(node).slice(0, 400),
+          ...(node.url === "" ? {} : { url: node.url }),
+          state: "resting",
+        });
+        continue;
+      }
+      faces.push({ kind: "missing", label, reason: "gone" });
+    }
+    return outcomeOk({ faces });
+  },
+
+  mentionLinkedFrom: async (args) => {
+    const view = await readView(args.canvasName, false);
+    if (!view) return outcomeFail("not-found", "No such canvas.");
+    const target: MentionRef = args.target;
+    const after = (() => {
+      if (args.before === undefined) return undefined;
+      const [atMs, messageId, nodeId, ...rest] = args.before.split("\u0000");
+      if (rest.length > 0 || atMs === undefined || messageId === undefined || nodeId === undefined) return undefined;
+      const at = Number(atMs);
+      return Number.isFinite(at) ? { atMs: at, messageId, nodeId } : undefined;
+    })();
+    if (args.before !== undefined && after === undefined) return outcomeFail("invalid", "That page cursor is not one this list gave.");
+    const read = await AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const bodies =
+          target.kind === "artifact"
+            ? yield* linkedFromBodies(sql, view.canvas, args.canvasName, { nodeId: asNodeId(target.nodeId), artifactId: target.artifactId })
+            : [];
+        const rows = yield* readMentions(sql, args.canvasName, mentionKey(target), COMPANION_LINKED_FROM_MAX + 1, after);
+        return { bodies, rows };
+      }).pipe(Effect.catch(() => Effect.succeed(undefined))),
+    );
+    if (read === undefined) return outcomeFail("internal", "Those backlinks could not be read.");
+    const mail = read.rows
+      .slice(0, COMPANION_LINKED_FROM_MAX)
+      .flatMap((row) => {
+        const entry = entryOf(view.canvas, row);
+        return entry === undefined ? [] : [entry];
+      });
+    const more = read.rows.length > COMPANION_LINKED_FROM_MAX;
+    const last = read.rows[COMPANION_LINKED_FROM_MAX - 1];
+    return outcomeOk({
+      bodies: read.bodies.map((body) => ({
+        nodeId: body.source.nodeId,
+        artifactId: body.source.artifactId,
+        title: body.title.slice(0, 400),
+        type: body.type,
+        line: body.line.slice(0, 400),
+        at: body.at,
+      })),
+      mail,
+      ...(more && last !== undefined ? { next: `${String(last.at_ms)}\u0000${last.message_id}\u0000${last.node_id}` } : {}),
+    });
   },
 
   ...companionMachineBackend,

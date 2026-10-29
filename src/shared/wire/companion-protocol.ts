@@ -31,6 +31,10 @@ import {
   CompanionCommentPostData,
   CompanionMentionCandidatesArgs,
   CompanionMentionCandidatesData,
+  CompanionMentionLinkedFromArgs,
+  CompanionMentionLinkedFromData,
+  CompanionMentionResolveArgs,
+  CompanionMentionResolveData,
 } from "./companion-artifacts";
 import { ContentDisplayName, ContentMediaType, ContentRef, ContentSha256 } from "./content-ref";
 import {
@@ -569,6 +573,8 @@ export const COMPANION_OPS = [
   "comments.list",
   "comment.post",
   "mentions.candidates",
+  "mentions.resolve",
+  "mentions.linkedFrom",
   /** One canvas's artifact changes, and the events that follow. */
   "artifacts.subscribe",
   "artifacts.unsubscribe",
@@ -717,6 +723,8 @@ export const CompanionArgs = {
   "comments.list": CompanionCommentsListArgs,
   "comment.post": CompanionCommentPostArgs,
   "mentions.candidates": CompanionMentionCandidatesArgs,
+  "mentions.resolve": CompanionMentionResolveArgs,
+  "mentions.linkedFrom": CompanionMentionLinkedFromArgs,
   "artifacts.subscribe": CompanionArtifactsSubscribeArgs,
   "artifacts.unsubscribe": Empty,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
@@ -746,6 +754,8 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "comments.list",
   "comment.post",
   "mentions.candidates",
+  "mentions.resolve",
+  "mentions.linkedFrom",
   "artifacts.subscribe",
   "artifacts.unsubscribe",
 ]);
@@ -843,6 +853,8 @@ export const CompanionResults = {
   "comments.list": CompanionCommentsListData,
   "comment.post": CompanionCommentPostData,
   "mentions.candidates": CompanionMentionCandidatesData,
+  "mentions.resolve": CompanionMentionResolveData,
+  "mentions.linkedFrom": CompanionMentionLinkedFromData,
   "artifacts.subscribe": Empty,
   "artifacts.unsubscribe": Empty,
 } as const satisfies Record<CompanionOpName, Schema.Top>;

@@ -12,6 +12,7 @@ import {
   COMPANION_STAGE_CHUNK_MAX,
   COMPANION_MAX_OUTBOUND_BYTES,
   COMPANION_OPS,
+  COMPANION_SEAT_STATES,
   COMPANION_PROTOCOL,
   CompanionArgs,
   CompanionHello,
@@ -31,6 +32,7 @@ import {
   encodeCompanionFrame,
   type CompanionOutboundFrame,
 } from "../src/shared/companion-protocol";
+import { COMPANION_FACE_SEAT_STATES } from "../src/shared/wire/companion-artifacts";
 import {
   SIGNAL_RAISED_VALUE_MAX_LENGTH,
   SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH,
@@ -201,6 +203,8 @@ describe("request decoding", () => {
     "inbox.set": { canvasName: "main", nodeId: "art-notes" },
     "comments.list": { canvasName: "main", subject: { kind: "artifact", nodeId: "art-notes", artifactId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" } },
     "mentions.candidates": { canvasName: "main", from: "planner", trigger: "@", query: "at" },
+    "mentions.resolve": { canvasName: "main", hrefs: ["junto://canvas/main?node=planner"] },
+    "mentions.linkedFrom": { canvasName: "main", target: { kind: "seat", nodeId: "planner" } },
     "artifacts.subscribe": { canvasName: "main" },
     "artifacts.unsubscribe": {},
     "comment.post": {
@@ -211,6 +215,10 @@ describe("request decoding", () => {
       threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5",
     },
   };
+
+  it("draws the seat face with the same states the seat reads", () => {
+    expect([...COMPANION_FACE_SEAT_STATES]).toEqual([...COMPANION_SEAT_STATES]);
+  });
 
   it("accepts every op with valid arguments", () => {
     for (const op of COMPANION_OPS) {

@@ -128,6 +128,14 @@ export type CompanionBackend = {
   readonly mentionCandidates: (
     args: CompanionArgsByOp["mentions.candidates"],
   ) => Promise<CompanionOutcome<CompanionResultByOp["mentions.candidates"]>>;
+  /** What each href draws: the desktop's own face, one per href. */
+  readonly mentionResolve: (
+    args: CompanionArgsByOp["mentions.resolve"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["mentions.resolve"]>>;
+  /** Where a seat, task, artifact or page is mentioned: body backlinks and mail. */
+  readonly mentionLinkedFrom: (
+    args: CompanionArgsByOp["mentions.linkedFrom"],
+  ) => Promise<CompanionOutcome<CompanionResultByOp["mentions.linkedFrom"]>>;
   /** The canvas's Artifacts nodes with their counts and label colours, and this Mac's Inbox when it is still one of them. */
   readonly artifactNodes: (canvasName: string) => Promise<CompanionOutcome<CompanionResultByOp["artifacts.nodes"]>>;
   /** An artifact's versions newest first, a page at a time, with every move it has made. */
@@ -557,6 +565,10 @@ export const handleCompanionRequest = async (
       return respond(id, backend.comment(frame.args), (value) => companionOk(id, "comment.post", value));
     case "mentions.candidates":
       return respond(id, backend.mentionCandidates(frame.args), (value) => companionOk(id, "mentions.candidates", value));
+    case "mentions.resolve":
+      return respond(id, backend.mentionResolve(frame.args), (value) => companionOk(id, "mentions.resolve", value));
+    case "mentions.linkedFrom":
+      return respond(id, backend.mentionLinkedFrom(frame.args), (value) => companionOk(id, "mentions.linkedFrom", value));
     case "artifacts.subscribe":
       return companionOk(id, "artifacts.subscribe", {});
     case "artifacts.unsubscribe":

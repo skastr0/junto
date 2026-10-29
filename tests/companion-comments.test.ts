@@ -10,6 +10,8 @@ import { asNodeId } from "../src/shared/model";
 import {
   DEMO_ARTIFACTS,
   DEMO_ARTIFACT_PRICING_NOTES,
+  DEMO_ARTIFACT_ROADMAP_DRAFT,
+  DEMO_TASK_PRICING,
   DEMO_ARTIFACT_THREADS,
   DEMO_CANVAS,
 } from "../src/shared/wire/companion-demo-fixture";
@@ -169,5 +171,43 @@ describe("the demo's mention picker", () => {
   it("answers not-found for a node the canvas does not hold", async () => {
     const found = await backend.mentionCandidates({ canvasName: DEMO_CANVAS, from: asNodeId("nobody"), trigger: "@" });
     expect(found.ok ? "ok" : found.error.code).toBe("not-found");
+  });
+});
+
+describe("the demo's mention faces", () => {
+  const backend = makeDemoBackend("macbook");
+
+  it("resolves a seat, a page, a task and an artifact, and says when one is gone", async () => {
+    const faces = await backend.mentionResolve({
+      canvasName: DEMO_CANVAS,
+      hrefs: [
+        "junto://canvas/demo?node=atlas",
+        "junto://canvas/demo?node=page-docs",
+        `junto://canvas/demo?node=task-roadmap&item=${DEMO_TASK_PRICING}`,
+        `junto://canvas/demo?node=art-inbox&item=${DEMO_ARTIFACT_PRICING_NOTES}`,
+        "junto://canvas/demo?node=nobody",
+      ],
+    });
+    expect(faces.ok).toBe(true);
+    if (!faces.ok) return;
+    expect(faces.value.faces.map((face) => face.kind)).toEqual(["seat", "page", "task", "artifact", "missing"]);
+    const [, page, task, artifact] = faces.value.faces;
+    expect(page).toMatchObject({ kind: "page", state: "resting", url: "https://example.com/pricing" });
+    expect(task).toMatchObject({ kind: "task", number: 1, title: "launch pricing", state: "backlog" });
+    expect(artifact).toMatchObject({ kind: "artifact", archived: false });
+    expect((artifact as { lines: ReadonlyArray<string> }).lines.length).toBeGreaterThan(0);
+  });
+
+  it("lists the body that links an artifact, with its line", async () => {
+    const linked = await backend.mentionLinkedFrom({
+      canvasName: DEMO_CANVAS,
+      target: { kind: "artifact", nodeId: asNodeId("art-notes"), artifactId: DEMO_ARTIFACT_ROADMAP_DRAFT as ItemId },
+    });
+    expect(linked.ok).toBe(true);
+    if (!linked.ok) return;
+    expect(linked.value.bodies).toHaveLength(1);
+    expect(linked.value.bodies[0]?.artifactId).toBe(DEMO_ARTIFACT_PRICING_NOTES);
+    expect(linked.value.bodies[0]?.line).toContain("Roadmap draft");
+    expect(linked.value.mail).toEqual([]);
   });
 });

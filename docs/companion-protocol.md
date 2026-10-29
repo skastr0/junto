@@ -154,6 +154,8 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `comments.list` | `{ "canvasName": string, "subject": CommentSubject, "limit"?: 1..200, "before"?: string (1 to 256) }` (closed; needs `features` to list `artifacts/1`) | `{ "threads": CommentThread[], "cut": boolean, "next"?: string }`, newest thread first, at most 200 |
 | `comment.post` | `{ "canvasName": string, "subject": CommentSubject, "opId": ULID, "text": string (1 to 8000), "anchor"?: ArtifactPlaceAnchor, "threadId"?: ULID }` (closed; counts as a write) | `{ "threadId": ULID, "messageId": ULID, "unlinked"?: { "token": string, "nearest": string[] }[] }` |
 | `mentions.candidates` | `{ "canvasName": string, "from": string, "trigger": "@" \| "#" \| "[[", "query"?: string (0 to 100), "limit"?: 1..50 }` (closed; needs `artifacts/1`) | `{ "candidates": MentionCandidate[] }` (at most 50) |
+| `mentions.resolve` | `{ "canvasName": string, "hrefs": string[] (1 to 64, each 1 to 2048) }` (closed; needs `artifacts/1`) | `{ "faces": Face[] }`, one per href in order |
+| `mentions.linkedFrom` | `{ "canvasName": string, "target": MentionRef, "before"?: string (1 to 256) }` (closed; needs `artifacts/1`) | `{ "bodies": LinkedFromBody[], "mail": MentionedIn[], "next"?: string }` |
 | `artifacts.subscribe` | `{ "canvasName": string }` (closed; needs `artifacts/1`) | `{}`, then `artifact.changed` for that canvas until `artifacts.unsubscribe` or another subscribe |
 | `artifacts.unsubscribe` | `{}` (closed) | `{}` |
 | `artifacts.subscribe` | `{ "canvasName": string }` (closed; needs `artifacts/1`) | `{}`, then `artifact.changed` for that canvas until `artifacts.unsubscribe` or another subscribe |
@@ -173,6 +175,8 @@ node that is not one of the canvas's Artifacts nodes, and the desktop's next
 Cmd+T uses what the phone chose. The phone cannot make a node.
 
 `mentions.candidates` is the desktop's own picker rule (`mentionableNodesFrom` for the scope, `filterCandidates` for the query, `shared/mention-candidates.ts`): a seat's `@` names the seats wired to it and the pages in its reach; from a resource, `@` names that resource's reach. `#` names the tasks on the boards and the artifacts in the Artifacts nodes in reach; `[[` the same artifacts by title. A `MentionCandidate` is `{ ref, kind, label, title, subtitle?, note? }`: `title` is the bare name, `subtitle` where it sits, `note` its state in words.
+
+`mentions.resolve` draws what each href names, as the desktop's own card does: a seat face carries `state` (the seat ring's word) and the seat's `ring`; a task face its number, title and state; an artifact face its type, title, version, two lines of its body and `movedTo` when it has moved; a page face its url, resting; a `missing` face the label and why. `mentions.linkedFrom` lists the artifacts whose bodies link the target (`LinkedFromBody`: `{ nodeId, artifactId, title, type, line, at }`) and the mail and comments that mention it (`MentionedIn`), a page at a time by `next`.
 
 `artifacts.list` covers the whole canvas when `nodeId` is absent (browse and
 quick add) and one Artifacts node when it is named, which must be one of the

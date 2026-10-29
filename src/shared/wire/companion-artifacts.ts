@@ -18,8 +18,11 @@ import { ArtifactEdit } from "./artifact";
 import { CompanionArtifactListItem } from "./companion-artifact-reads";
 import { ActorSeatId, ResourceActor } from "./resource-actor";
 import { ContentRef } from "./content-ref";
-import { ItemId, NodeId, OpId } from "./ids";
+import { ArtifactType, ArtifactVersion } from "./artifact";
+import { ItemId, NodeId, OpId, TaskNumber } from "./ids";
 import { MentionRef } from "./mention";
+import { RingState } from "./rings";
+import { ResourceSubject } from "./thread-subject";
 import { PlaceAnchor } from "./thread-subject";
 
 const bounded = (min: number, max: number) =>
@@ -220,3 +223,142 @@ export const CompanionArtifactChanged = Schema.Struct({
   bodyRef: Schema.optionalKey(ContentRef),
 });
 export type CompanionArtifactChanged = typeof CompanionArtifactChanged.Type;
+
+// --- mentions.resolve --------------------------------------------------------
+
+/** Hrefs one resolve asks about at most. */
+export const COMPANION_MENTION_HREFS_MAX = 64;
+const FaceText = bounded(0, 400);
+
+/** The seat states the phone's StateRing draws: `COMPANION_SEAT_STATES`, held equal by a test. */
+export const COMPANION_FACE_SEAT_STATES = [
+  "working",
+  "waiting_on_you",
+  "needs_input",
+  "blocked",
+  "trouble",
+  "done_unread",
+  "resting",
+  "starting",
+  "stopped",
+  "offline",
+] as const;
+
+/** A task's state, the desktop's own words. */
+export const CompanionFaceTaskState = Schema.Literals([
+  "backlog",
+  "assigned",
+  "working",
+  "input-required",
+  "in-review",
+  "done",
+  "canceled",
+  "archived",
+]);
+
+/**
+ * What a mention draws: the face a chip or an embed card shows, read from the
+ * live thing. The phone never rebuilds a card from fragments.
+ */
+export const CompanionFace = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("seat"),
+    nodeId: NodeId,
+    name: FaceText,
+    portraitIdentity: FaceText,
+    state: Schema.Literals(COMPANION_FACE_SEAT_STATES),
+    /** The ring the desktop draws for the seat now. */
+    ring: Schema.optionalKey(RingState),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("task"),
+    nodeId: NodeId,
+    taskId: ItemId,
+    number: Schema.optionalKey(TaskNumber),
+    title: FaceText,
+    state: CompanionFaceTaskState,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("artifact"),
+    nodeId: NodeId,
+    artifactId: ItemId,
+    type: ArtifactType,
+    title: FaceText,
+    version: ArtifactVersion,
+    /** The body's first two lines, as words; empty while its bytes are not here yet. */
+    lines: Schema.Array(FaceText),
+    archived: Schema.Boolean,
+    /** Where it sits now, when it moved since the link was written. */
+    movedTo: Schema.optionalKey(NodeId),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("page"),
+    nodeId: NodeId,
+    title: FaceText,
+    url: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(2048)))),
+    /** A page rests: the desktop's own word for a live page. */
+    state: Schema.Literals(["resting"]),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("missing"),
+    /** The link's label, as the text wrote it. */
+    label: FaceText,
+    reason: Schema.Literals(["loading", "gone"]),
+    of: Schema.optionalKey(Schema.Literals(["seat", "task", "artifact", "page"])),
+  }),
+]);
+export type CompanionFace = typeof CompanionFace.Type;
+
+export const CompanionMentionResolveArgs = Schema.Struct({
+  canvasName: CanvasName,
+  hrefs: Schema.Array(bounded(1, 2048)).pipe(Schema.check(Schema.isMaxLength(COMPANION_MENTION_HREFS_MAX))),
+});
+export type CompanionMentionResolveArgs = typeof CompanionMentionResolveArgs.Type;
+
+export const CompanionMentionResolveData = Schema.Struct({
+  /** One face per href, in the order asked. */
+  faces: Schema.Array(CompanionFace),
+});
+export type CompanionMentionResolveData = typeof CompanionMentionResolveData.Type;
+
+// --- mentions.linkedFrom -----------------------------------------------------
+
+/** An artifact whose body links the target: what "Linked from" lists. */
+export const CompanionLinkedFromBody = Schema.Struct({
+  nodeId: NodeId,
+  artifactId: ItemId,
+  title: FaceText,
+  type: ArtifactType,
+  /** The line the link sits on, as the body holds it now. */
+  line: FaceText,
+  at: Schema.Int,
+});
+export type CompanionLinkedFromBody = typeof CompanionLinkedFromBody.Type;
+
+/** One place the target is mentioned: mail, or a comment on a resource. */
+export const CompanionMentionedIn = Schema.Struct({
+  messageId: bounded(1, 128),
+  threadId: bounded(1, 128),
+  /** The node whose mail holds the row. */
+  mailbox: NodeId,
+  subject: Schema.optionalKey(ResourceSubject),
+  author: CompanionCommentAuthor,
+  at: Schema.Int,
+});
+export type CompanionMentionedIn = typeof CompanionMentionedIn.Type;
+
+export const COMPANION_LINKED_FROM_MAX = 50;
+export const CompanionMentionLinkedFromArgs = Schema.Struct({
+  canvasName: CanvasName,
+  target: MentionRef,
+  before: Schema.optionalKey(Cursor),
+});
+export type CompanionMentionLinkedFromArgs = typeof CompanionMentionLinkedFromArgs.Type;
+
+export const CompanionMentionLinkedFromData = Schema.Struct({
+  bodies: Schema.Array(CompanionLinkedFromBody),
+  mail: Schema.Array(CompanionMentionedIn),
+  /** Pass as `before` for the next page of mail; absent on the last one. */
+  next: Schema.optionalKey(Cursor),
+});
+export type CompanionMentionLinkedFromData = typeof CompanionMentionLinkedFromData.Type;
