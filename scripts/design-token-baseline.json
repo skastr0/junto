@@ -36,9 +36,10 @@
     "src/renderer/components/sessions/sessions.css": 2,
     "src/renderer/components/workbench/BrowserSurfaceSlot.tsx": 2,
     "src/renderer/demo/demo-layer.tsx": 1,
-    "src/renderer/styles.css": 53,
+    "src/renderer/styles.css": 52,
     "src/renderer/styles/canvas-lod.css": 2,
-    "src/renderer/styles/factory-grammar.css": 1
+    "src/renderer/styles/factory-grammar.css": 1,
+    "src/renderer/styles/region-title.css": 1
   },
   "font-family": {
     "src/renderer/components/RegionPathsModal.css": 1,
@@ -107,9 +108,10 @@
     "src/renderer/demo/demo-layer.tsx": 1,
     "src/renderer/lib/loom-view.ts": 1,
     "src/renderer/main.tsx": 1,
-    "src/renderer/styles.css": 37,
+    "src/renderer/styles.css": 36,
     "src/renderer/styles/canvas-lod.css": 4,
-    "src/renderer/styles/factory-grammar.css": 4
+    "src/renderer/styles/factory-grammar.css": 4,
+    "src/renderer/styles/region-title.css": 1
   },
   "color": {
     "src/renderer/components/pad/pad-editor-model.ts": 1,

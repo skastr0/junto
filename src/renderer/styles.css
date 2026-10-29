@@ -2,6 +2,7 @@
 @import "./styles/theme.generated.css";
 @import "./styles/layers.css";
 @import "./styles/seat-card.css";
+@import "./styles/region-title.css";
 @import "./styles/kbd.css";
 
 /* ============================================================================
@@ -1001,7 +1002,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
    The plate and the React Flow wrapper stay pointer-transparent, so the
    interior remains pane (marquee, deselect, right-click add). Strips unmount
    while the region is selected: NodeResizer owns the edges then. */
-:root { --junto-region-frame: 12px; --junto-region-titlebar: 24px; }
 .junto-region-frame { position: absolute; inset: 0; pointer-events: none; }
 .junto-region-frame__strip {
   position: absolute;
@@ -1016,52 +1016,9 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .junto-region-frame__strip--left { left: 0; top: var(--junto-region-titlebar); bottom: 0; width: var(--junto-region-frame); }
 .junto-region-frame__strip--right { right: 0; top: var(--junto-region-titlebar); bottom: 0; width: var(--junto-region-frame); }
 .junto-region-frame__strip--bottom { left: 0; right: 0; bottom: 0; height: var(--junto-region-frame); }
-.junto-region-titlebar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--junto-region-titlebar);
-  padding: 0 8px;
-  border-radius: 13px 13px 0 0;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  pointer-events: auto;
-  cursor: grab;
-  transition: background .16s ease, border-color .16s ease;
-}
-.junto-region-titlebar:hover {
-  background: color-mix(in oklab, var(--color-amber) 6%, transparent);
-  border-bottom-color: color-mix(in oklab, var(--color-amber) 22%, transparent);
-}
-.junto-region-titlebar:active { cursor: grabbing; }
-/* A region names itself the way a seat does: its name in the seat's type,
-   sentence case, no pill, sitting in the title bar. */
-.junto-group__label,
-.junto-group__label-input {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
-.junto-group__label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: color-mix(in oklab, var(--color-ink) 72%, transparent);
-}
-.junto-group__label:hover { color: var(--color-ink); }
-.junto-group__label-prefix { color: var(--color-faint); }
 /* Region glance — pulled-back camera prints the region name across its body.
    Opacity rides --junto-region-glance, written on the ReactFlow root per zoom
    (see lib/region-glance.ts); at readable zoom the value is 0 and this is invisible. */
-/* A region's body: the near tier's gradient (GroupNode sets --region-fill);
-   canvas-lod-regions.css switches it for the zoomed-out tiers. */
-.junto-group { background: var(--region-fill); }
 .junto-region-glance {
   position: absolute;
   inset: 0;
