@@ -387,8 +387,8 @@ export const ruleTaskCommand = <T extends TaskCore>(
       return rule({ ...task, checks: [...kept, ...runs] });
     }
     case "cancel":
-      // Closed states stay closed: a done layer may already have been sent on.
-      return isClosedTaskState(task.state) ? illegal(task, command) : rule({ ...task, state: "canceled" });
+      // Closed states stay closed: a done layer may already have been sent on. A canceled task goes nowhere next.
+      return isClosedTaskState(task.state) ? illegal(task, command) : rule({ ...without(task, "next"), state: "canceled" });
     case "archive":
       return task.state === "done" || task.state === "canceled"
         ? rule({ ...task, state: "archived", archivedFrom: task.state })

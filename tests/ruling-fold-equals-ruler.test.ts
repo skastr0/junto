@@ -249,6 +249,29 @@ const lifeOf = fc.record({ task: taskId, seat: fc.constantFrom(1, 2), paused: fc
 });
 const taskSteps = fc.array(fc.oneof(randomStep.map((step) => [step]), lifeOf), { minLength: 1, maxLength: 12 }).map((runs) => runs.flat());
 
+/**
+ * Seed 10, run 4x, shrunk: the second finish waits in review for its stamp, naming qa next, and cancel kept
+ * that next node, so the ruler's write broke task_heads' CHECK (next only while in review).
+ */
+const canceledInReview: ReadonlyArray<TaskStep> = (() => {
+  const [operator, assignee] = [actors[0]!, actors[1]!];
+  const life = TASK_IDS[2]!;
+  const at = (actor: ResourceActor, op: TaskCommand, task: TaskId = life): TaskStep => ({ actor, op: { op, task }, node: nodeOf(task) });
+  const pass = [
+    at(operator, { kind: "create", taskId: life, title: "Life" } as TaskCommand),
+    at(operator, { kind: "assign", seat: ada } as TaskCommand),
+    at(assignee, { kind: "start" } as TaskCommand),
+    at(assignee, { kind: "finish", handoff: "done" } as TaskCommand),
+  ];
+  return [
+    ...pass,
+    at(operator, { kind: "stamp-policy", required: 1 } as TaskCommand),
+    ...pass,
+    at(operator, { kind: "cancel" } as TaskCommand),
+    at(operator, { kind: "unassign" } as TaskCommand, TASK_IDS[0]!),
+  ];
+})();
+
 type TaskStep = { readonly actor: ResourceActor; readonly op: { readonly op: TaskCommand; readonly task: TaskId }; readonly node: typeof build };
 
 const taskCommand = (index: number, step: TaskStep) =>
@@ -296,7 +319,7 @@ describe("the fold equals the ruler", () => {
           store.database.close();
         }
       }),
-      runs(60, TASK_BUDGET_MS),
+      { ...runs(60, TASK_BUDGET_MS), examples: [[[...canceledInReview]]] },
     );
     expect([...applied].sort()).toEqual(expect.arrayContaining(["assign", "create", "depend", "edit", "finish", "pause", "resume", "start"]));
   }, timeoutFor(TASK_BUDGET_MS));

@@ -156,6 +156,8 @@ describe("task machine properties", () => {
       for (const task of after.tasks.values()) {
         if (isOpenTaskState(task.state) && task.assignee === undefined) out.push(`${task.id} ${task.state} without an assignee after ${step.command.kind}`);
         if (task.state === "backlog" && task.assignee !== undefined) out.push(`${task.id} backlog with assignee after ${step.command.kind}`);
+        // task_heads holds this as a CHECK: a task names where it goes next only while it waits in review.
+        if (task.next !== undefined && task.state !== "in-review") out.push(`${task.id} ${task.state} with a next node after ${step.command.kind}`);
       }
     });
     return out;
