@@ -786,6 +786,7 @@ export const AutomationRunnerLive = Layer.effect(
         : action.kind === "signal" ? Option.match(agentSignals, {
             onNone: () => Effect.succeed(notAvailable(index)),
             onSome: (signals) => performSignalAction(signals, {
+              canvas: canvases.get(canvasName),
               canvasName,
               automation,
               action,

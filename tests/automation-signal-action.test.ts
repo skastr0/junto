@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { performSignalAction, type SignalAction } from "../src/main/junto/automation/signal-action";
 import { AgentSignalNotFound, type AgentSignalRepository, type RaiseAgentSignal } from "../src/main/junto/signals/repository";
 import { type Automation, AutomationId, AutomationVersion } from "../src/shared/automation";
+import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
 
@@ -11,6 +12,13 @@ const SHELF = asNodeId("journal");
 const DOC = ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ51");
 const SIGNAL_ID = "01M62Q58WDSXMG4YBXNKR2RB91";
 const FIRED_AT = 1_790_000_000_000;
+const canvas = {
+  nodes: new Map([
+    [SHELF, { kind: "artifacts", id: SHELF, title: "Journal", x: 0, y: 0, width: 10, height: 10, z: 0 }],
+    [NODE, { kind: "automations", id: NODE, x: 0, y: 0, width: 10, height: 10, z: 0 }],
+  ]),
+  wires: new Map(),
+} as unknown as Canvas;
 const automation: Automation = {
   automationId: AutomationId.make("01M5ESKJFC1A88R1MH1NEZWJ2Q"),
   nodeId: NODE,
@@ -41,6 +49,7 @@ const store = () => {
 
 const perform = (signals: AgentSignalRepository["Service"], action: SignalAction) =>
   Effect.runPromise(performSignalAction(signals, {
+    canvas,
     canvasName: "factory",
     automation,
     action,
@@ -103,6 +112,13 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     expect(raised).toHaveLength(1);
   });
 
+  it("refuses a form whose Artifacts node is gone from the board, raising nothing", async () => {
+    const { raised, signals } = store();
+    expect(await perform(signals, { ...write, form: { kind: "artifact", node: asNodeId("gone") } }))
+      .toEqual({ index: 0, ruling: "refused", reason: "unknown_target" });
+    expect(raised).toEqual([]);
+  });
+
   it("refuses the secret form until the vault (N5), raising nothing", async () => {
     const { raised, signals } = store();
     expect(await perform(signals, { ...write, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" as never } }))
@@ -114,7 +130,7 @@ describe("an automation's signal step (0.11/07 N2)", () => {
     const { raised, signals } = store();
     const long = (text: string) => Effect.succeed(text.replaceAll("{{fired.at}}", "x".repeat(400)));
     await Effect.runPromise(performSignalAction(signals, {
-      canvasName: "factory", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, signalId: SIGNAL_ID,
+      canvas, canvasName: "factory", automation, action: write, index: 0, fired: { at: FIRED_AT }, resolve: long, signalId: SIGNAL_ID,
     }));
     expect(raised[0]!.text.length).toBe(280);
     expect((raised[0]!.form as { title: string }).title.length).toBe(200);

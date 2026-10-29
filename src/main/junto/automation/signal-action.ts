@@ -3,31 +3,31 @@
  * operator's needs-you feed, raised from the Automations node, never a seat.
  *
  * The step was ruled in reach when the firing was admitted (`targetNodeIds`
- * names its shown artifacts and its form's Artifacts node), so the form is
- * settled here as a seat raise settles it, without a second reach check: an
- * overseer-authored automation reaches what its author reaches, which the
- * seat-side rule does not see. Its id is the firing's, so a retried firing
- * raises it once.
+ * names its shown artifacts and its form's Artifacts node), so its form is
+ * settled by the seat raise's own rule against those targets: an
+ * overseer-authored automation reaches what its author reaches. Its id is the
+ * firing's, so a retried firing raises it once.
  */
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
-import { foldArtifactLabels } from "@shared/artifact-labels";
-import type { Action, ActionRuling, Automation } from "@shared/automation";
+import { type Action, type ActionRuling, type Automation, targetNodeIds } from "@shared/automation";
+import type { Canvas } from "@shared/model";
 import {
   AGENT_SIGNAL_MAX_DETAIL_LENGTH,
   AGENT_SIGNAL_MAX_TEXT_LENGTH,
   normalizeSignalText,
-  SIGNAL_DEFAULT_MIN_WORDS,
   type AgentSignalArtifactAttachment,
-  type SignalForm,
+  type SignalFormRequest,
   type WorkTiming,
 } from "@shared/agent-signals";
+import { resolveSignalForm } from "../signals/form-rule";
 import type { AgentSignalRepository } from "../signals/repository";
 import type { Fired } from "./values";
 
 export type SignalAction = Extract<Action, { readonly kind: "signal" }>;
 
 export type SignalActionInput = {
+  readonly canvas: Canvas | undefined;
   readonly canvasName: string;
   readonly automation: Automation;
   readonly action: SignalAction;
@@ -45,33 +45,21 @@ const invalid = (index: number): ActionRuling => ({ index, ruling: "refused", re
 /** Text its values made longer than its place allows is cut to fit, as a task title is. */
 const clip = (text: string, max: number): string => [...text].slice(0, max).join("").trim();
 
-/** The stored form, settled as a seat raise settles it; undefined when this version cannot ask for it. */
-const settledForm = (
+/** The step's form as a raise asks for it: its title's values said, and cut to a document title's length. */
+const formRequestOf = (
   form: NonNullable<SignalAction["form"]>,
-  text: string,
   resolve: (text: string) => Effect.Effect<string>,
-): Effect.Effect<SignalForm | "secret" | "labels"> =>
+): Effect.Effect<SignalFormRequest> =>
   Effect.gen(function* () {
-    switch (form.kind) {
-      case "text":
-      case "proof":
-        return form;
-      // The secret form waits for the vault (N5); the raise refuses it, so the step does too.
-      case "secret":
-        return "secret";
-      case "artifact": {
-        const labels = foldArtifactLabels(form.labels ?? []);
-        if (!labels.ok) return "labels";
-        const named = form.title === undefined ? "" : clip(normalizeSignalText(yield* resolve(form.title)), ARTIFACT_MAX_TITLE_LENGTH);
-        return {
-          kind: "artifact",
-          nodeId: form.node,
-          title: named === "" ? clip(text, ARTIFACT_MAX_TITLE_LENGTH) : named,
-          labels: labels.labels,
-          minWords: form.minWords ?? SIGNAL_DEFAULT_MIN_WORDS,
-        };
-      }
-    }
+    if (form.kind !== "artifact") return form;
+    const title = form.title === undefined ? "" : clip(normalizeSignalText(yield* resolve(form.title)), ARTIFACT_MAX_TITLE_LENGTH);
+    return {
+      kind: "artifact",
+      node: form.node,
+      ...(title === "" ? {} : { title }),
+      ...(form.labels === undefined ? {} : { labels: form.labels }),
+      ...(form.minWords === undefined ? {} : { minWords: form.minWords }),
+    };
   });
 
 /** Work's timing from the firing: due this long after it fired, and urgent as marked. */
@@ -100,9 +88,22 @@ export const performSignalAction = (
     if (text === "") return invalid(index);
     const detail = action.detail === undefined ? "" : clip(yield* input.resolve(action.detail), AGENT_SIGNAL_MAX_DETAIL_LENGTH);
     // A notice is read and cleared: it carries no form and falls due never (`actionRefusal`).
-    const form = action.form === undefined || action.signal !== "work" ? undefined : yield* settledForm(action.form, text, input.resolve);
-    if (form === "secret") return notAvailable(index);
-    if (form === "labels") return invalid(index);
+    let form;
+    if (action.form !== undefined && action.signal === "work") {
+      if (input.canvas === undefined) return notAvailable(index);
+      const settled = resolveSignalForm({
+        board: input.canvas,
+        reaches: targetNodeIds({ ...automation, then: [action] }),
+        text,
+        request: yield* formRequestOf(action.form, input.resolve),
+      });
+      if (Result.isFailure(settled)) {
+        // The secret form waits for the vault (N5); a shelf gone or labels unfit are the step's own.
+        const type = settled.failure.type;
+        return type === "InvalidTransition" ? notAvailable(index) : type === "UnknownTarget" ? { index, ruling: "refused", reason: "unknown_target" } as const : invalid(index);
+      }
+      form = settled.success;
+    }
     const work = timingOf(action, input.fired);
     const attachments = (action.show ?? []).flatMap((shown): ReadonlyArray<AgentSignalArtifactAttachment> =>
       shown.kind === "artifact" ? [{ kind: "artifact", nodeId: shown.nodeId, artifactId: shown.artifactId }] : []);
