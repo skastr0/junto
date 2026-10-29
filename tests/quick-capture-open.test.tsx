@@ -180,6 +180,48 @@ describe("Cmd+T lands the keyboard in a new document", () => {
     expect(shown()).not.toContain(`${rowTitles()[0]!} body`);
   });
 
+  it("the preview reads a body that changed under it, not the one it opened on", async () => {
+    const create = (title: string, markdown: string) =>
+      source.apply(CANVAS, INBOX, mintItemId() as never, mintOpId(), {
+        op: "create",
+        title,
+        body: { type: "document", markdown },
+      });
+    expect((await create("Alpha", "Alpha body")).kind).toBe("applied");
+    expect((await create("Beta", "Beta body")).kind).toBe("applied");
+
+    await act(async () => root.render(<OperatorModalHost />));
+    await pressChord();
+    for (let i = 0; i < 40 && editor() === null; i += 1) await settle();
+    const rowTitles = (): ReadonlyArray<string> =>
+      [...document.querySelectorAll(".quick-capture__row-title")].map((title) => title.textContent ?? "");
+    for (let i = 0; i < 40 && rowTitles().length < 2; i += 1) await settle();
+    const search = document.querySelector<HTMLInputElement>(".quick-capture__search input")!;
+    await act(async () => search.focus());
+    await act(async () => {
+      search.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    });
+    const picked = (): string =>
+      document.querySelector('.quick-capture__row[aria-selected="true"] .quick-capture__row-title')?.textContent ?? "";
+    for (let i = 0; i < 40 && picked() === ""; i += 1) await settle();
+
+    // Rewrite the picked artifact's body behind the open preview.
+    const target = (await source.list(CANVAS, INBOX)).find(
+      ({ artifact }) => artifact.title === picked(),
+    );
+    expect(target).toBeDefined();
+    const edit = await source.apply(CANVAS, INBOX, target!.artifact.artifactId, mintOpId(), {
+      op: "edit",
+      edit: { kind: "replace", baseVersion: target!.artifact.version, body: { type: "document", markdown: "Rewritten under it" } },
+    });
+    expect(edit.kind).toBe("applied");
+
+    const shown = (): string => document.querySelector(".quick-capture__preview")?.textContent ?? "";
+    for (let i = 0; i < 40 && !shown().includes("Rewritten under it"); i += 1) await settle();
+    expect(shown()).toContain("Rewritten under it");
+    expect(shown()).not.toContain(`${picked()} body`);
+  });
+
   it("closes on the chord with the document kept, and focus back where it was", async () => {
     const before = document.createElement("button");
     document.body.append(before);

@@ -67,6 +67,12 @@ export function QuickCapture() {
     [heads, inbox, query],
   );
   const activeRow = rows.find((row) => row.artifactId === active) ?? rows[0];
+  // The row as it is now, not the snapshot taken when it was picked: a body
+  // that changed under an open preview still reads its newest text.
+  const previewRow =
+    edit.kind === "preview" && edit.row !== undefined
+      ? rows.find((row) => row.artifactId === edit.row!.artifactId) ?? edit.row
+      : undefined;
   // The open Move to, and the routes it offers: where this artifact's links,
   // mentions and labels point, and the node holding the artifacts most like it.
   const [routing, setRouting] = useState<CaptureRow | undefined>(undefined);
@@ -278,17 +284,21 @@ export function QuickCapture() {
             />
           ) : null}
           {edit.kind === "preview" ? (
-            edit.row === undefined ? (
+            previewRow === undefined ? (
               <div className="quick-capture__preview">
                 <p className="quick-capture__preview-title">Start writing</p>
                 <p className="quick-capture__preview-detail">What you write here stays.</p>
               </div>
             ) : (
               <div className="quick-capture__preview quick-capture__preview--row">
-                <p className="quick-capture__preview-title">{rowLabel(edit.row)}</p>
-                <p className="quick-capture__preview-detail">{edit.row.detail}</p>
+                <p className="quick-capture__preview-title">{rowLabel(previewRow)}</p>
+                <p className="quick-capture__preview-detail">{previewRow.detail}</p>
                 <div className="quick-capture__preview-body">
-                  <CapturePreview key={`${edit.row.artifactId}:${String(edit.row.updatedAt)}`} row={edit.row} canvasName={canvasName} />
+                  <CapturePreview
+                    key={`${previewRow.artifactId}:${String(previewRow.updatedAt)}`}
+                    row={previewRow}
+                    canvasName={canvasName}
+                  />
                 </div>
               </div>
             )
