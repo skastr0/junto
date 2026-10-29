@@ -19,7 +19,7 @@ import { finishIntro, introVisible } from "../../lib/first-run-intro";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Kbd } from "../ui";
-import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
+import { DemoRegion, DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
 import { PromptComposer } from "../rts/PromptComposer";
 import { FeedCardView } from "../feed/FeedCardView";
 import { feedItemRank, type FeedItem } from "@shared/operator-feed";
@@ -465,11 +465,7 @@ function OrganizeDemo() {
     <div className="tour-column">
       <div className="tour-pair">
         <TourStage width={300} height={262} label="A region named build lane holding three seats">
-          <div className="tour-region junto-group">
-            <div className="junto-region-titlebar">
-              <span className="junto-group__label">build lane</span>
-            </div>
-          </div>
+          <DemoRegion label="build lane" />
           {CREW.map((seat, index) => (
             <DemoSeat
               key={seat.id}

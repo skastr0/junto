@@ -33,6 +33,7 @@ export {
 export {
   DemoSeat,
   DemoWire,
+  DemoRegion,
   PULSE_BEAT_MS,
   TourStage,
   seatPort,

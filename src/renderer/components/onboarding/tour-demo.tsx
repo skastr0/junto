@@ -52,6 +52,29 @@ export function TourStage({
   );
 }
 
+/**
+ * A region as the canvas draws it: the frame and its title bar with the
+ * name. Fills the stage less a margin, or sits at a box (a scene's region).
+ */
+export function DemoRegion({
+  label,
+  box,
+}: {
+  readonly label: string;
+  readonly box?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+}) {
+  return (
+    <div
+      className="tour-region junto-group"
+      style={box ? { inset: "auto", left: box.x, top: box.y, width: box.width, height: box.height } : undefined}
+    >
+      <div className="junto-region-titlebar">
+        <span className="junto-group__label">{label}</span>
+      </div>
+    </div>
+  );
+}
+
 export type DemoSeatProps = {
   readonly id: string;
   readonly name: string;

@@ -5,7 +5,7 @@ import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import { ProfilePortrait } from "../profiles/ProfilePortrait";
 import { SquadPortraitRow } from "../squads/SquadPortraitRow";
 import "../squads/squads.css";
-import { DemoSeat, DemoWire, TourStage, seatPort, useTourBeat } from "./tour-demo";
+import { DemoRegion, DemoSeat, DemoWire, TourStage, seatPort, useTourBeat } from "./tour-demo";
 import type { TourChapter } from "./FirstRunIntro";
 
 // Chapter: profiles and squads. The rows are the pickers' own faces
@@ -72,11 +72,7 @@ function SquadsDemo() {
         </div>
       </div>
       <TourStage width={W} height={H} label="A saved squad placed into a region: three seats and their wires arrive together">
-        <div className="tour-region junto-group">
-          <div className="junto-region-titlebar">
-            <span className="junto-group__label">migration</span>
-          </div>
-        </div>
+        <DemoRegion label="migration" />
         {placed
           ? CREW.edges.map((edge) => {
               const from = CREW.seats.find((seat) => seat.key === edge.from)!;
