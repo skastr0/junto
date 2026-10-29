@@ -115,6 +115,8 @@ const makeStore = async (self: InstallationId = SELF, authorities: ReadonlyArray
           yield* sql`INSERT OR IGNORE INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${new Date(AT).toISOString()})`;
           yield* seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: [automations("routines"), artifacts("arts"), seat("lead")] }]]) });
           yield* sql`UPDATE canvases SET editor_installation_id = ${SELF} WHERE canvas_name = ${CANVAS}`;
+          // Under all-on createCanvas has seeded this machine alone; the list here replaces it.
+          yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = ${CANVAS}`;
           for (const [position, id] of authorities.entries()) {
             yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index) VALUES (${CANVAS}, 1, 0, 0) ON CONFLICT DO NOTHING`;
             yield* sql`INSERT INTO canvas_authorities (canvas_name, position, installation_id) VALUES (${CANVAS}, ${position}, ${id})`;
