@@ -34,7 +34,11 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, "e2e/**", "infra/**"],
     // Unbound StateEngineLive / stateDatabasePath() must never resolve to
     // the operator's ~/.junto production tree during unit tests.
-    setupFiles: [resolve(__dirname, "tests/vitest-setup-junto-home.ts")],
+    setupFiles: [
+      resolve(__dirname, "tests/vitest-setup-junto-home.ts"),
+      // No-op unless the lane runner hands over the CI quarantine.
+      resolve(__dirname, "tests/vitest-setup-ci-quarantine.ts"),
+    ],
   },
   resolve: {
     alias: {
