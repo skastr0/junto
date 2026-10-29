@@ -21,8 +21,10 @@ const NO_ANSWER = "Junto got no answer for that move. Try again.";
  * region, filtered as the operator types; arrows or a press pick one, Enter,
  * a double press or Move moves there. A pick in another region shows the one
  * confirm line naming whose reach changes before anything moves, and no
- * other dialog follows. Each artifact is one move, ruled on its own: a
- * refusal stays here, said, and Move tries only what did not move.
+ * other dialog follows: a press never moves there, a double press only picks,
+ * and Enter or Move moves. Each artifact is one move, ruled on its own: a
+ * refusal stays here, said, and Move tries only what did not move. While a
+ * move runs, Escape and the backdrop wait for it.
  */
 export function ArtifactMoveDialog({
   canvasName,
@@ -91,13 +93,21 @@ export function ArtifactMoveDialog({
     if (shown.length === 1) setActive(shown[0]!.id);
   };
 
+  /** A double press moves only where no reach changes; elsewhere it picks, so the line is read first. */
+  const doublePress = (target: MoveTarget): void => {
+    if (reachLine(reachChange(canvas, from, target.id), left.length) === null) void move(target);
+    else setActive(target.id);
+  };
+
   const one = left.length === 1 ? left[0]!.title : undefined;
   return (
     <Dialog
       title={one === undefined ? `Move ${String(left.length)} artifacts` : `Move ${one}`}
       eyebrow="Move to"
       width={480}
-      onClose={onCancel}
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
       actions={
         <>
           <Button variant="chrome" onClick={onCancel}>
@@ -131,7 +141,7 @@ export function ArtifactMoveDialog({
           onActiveKeyChange={setActive}
           onCommit={(target) => commit(target)}
           onOptionClick={(target) => setActive(target.id)}
-          onOptionDoubleClick={(target) => void move(target)}
+          onOptionDoubleClick={doublePress}
           empty={
             <p className="artifact-move__none">
               {targets.length === 0 ? "There is no other Artifacts node on this canvas." : "No Artifacts node by that name or region."}
@@ -216,8 +226,8 @@ export function ArtifactRowMenu({
           data-autofocus=""
           className="artifact-row-menu__item"
           onClick={() => {
-            // The picker takes the keyboard; the row gets it back when the picker closes.
-            onClose(false);
+            // The row takes the keyboard first, so it is the picker's opener and gets it back on Cancel.
+            onClose(true);
             onMove();
           }}
         >

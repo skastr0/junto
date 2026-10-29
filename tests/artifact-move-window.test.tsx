@@ -178,6 +178,20 @@ describe("the Move to picker", () => {
     expect(done?.to.id).toBe("shelf");
   });
 
+  it("a double press moves where no reach changes, and only picks where it does", async () => {
+    await open([{ artifactId: plan, title: "Plan" }]);
+    const option = (name: string) => [...document.querySelectorAll('[role="option"]')].find((one) => one.textContent?.startsWith(name))!;
+    await act(async () => {
+      option("Shelf").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(done).toBe(null);
+    expect(reach()).toBe("Seats in Product will no longer reach this; seats in Release will.");
+    await act(async () => {
+      option("Drafts").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(done?.to.id).toBe("drafts");
+  });
+
   it("keeps a refusal in the picker and tries only what did not move", async () => {
     const gone = mintItemId();
     await open([
