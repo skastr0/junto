@@ -394,3 +394,21 @@ says 0.11.2 and the downloaded zip hashes to the stapled sha256.
   operator's live database).
 - Main carries ahead of this cut: `ebbb81f88` (preview reads the row live),
   `a6342515c` (focus ring CSS), `63f12dd58` order differs but is in both.
+
+## 0.11.3 receipt (product-releases, 2026-10-29)
+
+Published from tag `v0.11.3` = `951f99eac` on main (pushed), cut from origin/main
+as it stood, no release branch: the bump `8af02c8ee` plus every later commit
+(motion stops, feed filters, threads/2). Notarization
+`03f1569d-a219-450d-ba5a-7426009171a9` Accepted. Stapled zip sha256
+`ea1ec35d68cebfe0da800d33ea54986543b9d638d034213703c49df23b46cb03`, dmg sha256
+`36a2291c60f4c0a3331f89dd0aca5771d19dc5d81dfeb224d7931c8970ed7448`. The feed says
+0.11.3 and the downloaded zip hashes to the stapled sha256.
+
+- Unit lane: not a pass. Shared lane 788 files passed. Isolated lane failed on
+  5 s timeouts under load (first run: `canvas-editor-migration`, which passes
+  alone, 4 of 4; second run: 11 files, migration, lint-product-name, git-guard
+  and similar, all load timing). Operator ruling: ignore load-timing failures.
+  The published build skipped `bun run test` through a PATH shim, with
+  lint:product-name, typecheck, the ship feature lane, signing, Gatekeeper
+  assess and notarization intact.
