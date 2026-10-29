@@ -27,6 +27,7 @@ import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
 import { NeedsYouButton } from "./feed/NeedsYouButton";
+import { QuickCaptureButton } from "./QuickCaptureButton";
 import { UsageHud } from "./UsageHud";
 import { CommandGroupBar } from "./command-groups/CommandGroupBar";
 import { claimFocusOnMount } from "../lib/focus-ownership";
@@ -288,6 +289,7 @@ export function TopBar({
       </div>
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
+        <QuickCaptureButton />
         <NeedsYouButton />
         <FactoryPauseControl canvasName={canvasName} />
         {DEV_TOOLS_ENABLED && logsExplorer ? (
