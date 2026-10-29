@@ -47,6 +47,7 @@ describe("wire module import closure", () => {
         "mention.ts",
         "node-ref.ts",
         "operator-feed.ts",
+        "pad.ts",
         "resource-actor.ts",
         "rings.ts",
         "seat-activity.ts",

@@ -9,6 +9,7 @@ import {
   type PadPoint,
   type PadShape,
   type PadShapeStatus,
+  formatPadNumber,
 } from "./pad";
 import {
   GeomRect,
@@ -24,6 +25,9 @@ import {
 import { artifactLinkTitle } from "./artifact-link";
 import { mentionLinksOf, type MentionTarget } from "./mention";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "./theme";
+
+/** The pad as text: the wire's (`./wire/pad.ts`), for every existing import. */
+export { padToDigest } from "./pad";
 
 const VIEW_PAD = 80;
 const EMPTY_VIEW = { x: 0, y: 0, w: 800, h: 600 } as const;
@@ -132,10 +136,7 @@ const esc = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-const fmt = (n: number): string => {
-  const rounded = Math.round(n * 1000) / 1000;
-  return String(Object.is(rounded, -0) ? 0 : rounded);
-};
+const fmt = formatPadNumber;
 
 export const padStatusStroke = (
   status: PadShapeStatus | undefined,
@@ -438,46 +439,6 @@ export const padToSvg = (
 
   parts.push("</svg>");
   return parts.join("\n");
-};
-
-const xy = (x: number, y: number): string => `${fmt(x)},${fmt(y)}`;
-const wh = (w: number, h: number): string => `${fmt(w)}x${fmt(h)}`;
-
-const field = (key: string, value: string | undefined): string =>
-  value === undefined ? "" : ` ${key}=${value}`;
-
-export const padToDigest = (pad: Pad): string => {
-  const lines: string[] = [
-    `pad :: revision=${pad.revision}`,
-    `images :: ${pad.images.length}`,
-  ];
-  for (const image of pad.images) {
-    const name = image.ref.displayName;
-    lines.push(
-      `  ${image.id} :: ${xy(image.x, image.y)} ${wh(image.w, image.h)} sha=${image.ref.sha256.slice(0, SHA_PREFIX)}${field("name", name ? JSON.stringify(name) : undefined)} ${image.ref.mediaType}`,
-    );
-  }
-  lines.push(`shapes :: ${pad.shapes.length}`);
-  for (const shape of pad.shapes) {
-    lines.push(
-      `  ${shape.id} :: ${shape.type} ${xy(shape.x, shape.y)} ${wh(shape.w, shape.h)}${field("text", shape.text === undefined ? undefined : JSON.stringify(shape.text))}${field("status", shape.status)}${field("href", shape.href)}${field("label", shape.label === undefined ? undefined : JSON.stringify(shape.label))}`,
-    );
-  }
-  lines.push(`edges :: ${pad.edges.length}`);
-  for (const edge of pad.edges) {
-    const from = edge.fromSide ? `${edge.from}/${edge.fromSide}` : edge.from;
-    const to = edge.toSide ? `${edge.to}/${edge.toSide}` : edge.to;
-    lines.push(
-      `  ${edge.id} :: ${from} -> ${to}${field("label", edge.label === undefined ? undefined : JSON.stringify(edge.label))}`,
-    );
-  }
-  lines.push(`inks :: ${pad.inks.length}`);
-  for (const ink of pad.inks) {
-    lines.push(
-      `  ${ink.id} :: width=${fmt(ink.width)} color=${ink.color} points=${ink.points.length}`,
-    );
-  }
-  return lines.join("\n");
 };
 
 const focused = (

@@ -10,6 +10,8 @@ import * as actorSeat from "../src/shared/actor-seat";
 import * as labels from "../src/shared/artifact-labels";
 import * as mention from "../src/shared/mention";
 import * as modelSheet from "../src/shared/model/sheet";
+import * as pad from "../src/shared/pad";
+import * as padProject from "../src/shared/pad-project";
 import * as physics from "../src/shared/physics/schema";
 import * as resourceCommand from "../src/shared/resource-command";
 import * as sheet from "../src/shared/sheet";
@@ -22,6 +24,7 @@ import * as wireLabels from "../src/shared/wire/artifact-labels";
 import * as wireCanvasName from "../src/shared/wire/canvas-name";
 import * as wireMention from "../src/shared/wire/mention";
 import * as wireNodeRef from "../src/shared/wire/node-ref";
+import * as wirePad from "../src/shared/wire/pad";
 import * as wireActor from "../src/shared/wire/resource-actor";
 import * as wireSheet from "../src/shared/wire/sheet";
 import * as wireUlid from "../src/shared/wire/ulid";
@@ -64,5 +67,11 @@ describe("the artifact model on the wire is the desktop's own", () => {
   it("mentions: the refs, the link, its parsers and the kinds are one definition", () => {
     same(mention, wireMention, Object.keys(wireMention));
     expect(Object.keys(mention).sort()).toEqual(Object.keys(wireMention).sort());
+  });
+
+  it("pads: the pad, its patches, applyPatch and the digest are one definition", () => {
+    same(pad, wirePad, Object.keys(wirePad));
+    expect(Object.keys(pad).sort()).toEqual(Object.keys(wirePad).sort());
+    same(padProject, wirePad, ["padToDigest"]);
   });
 });
