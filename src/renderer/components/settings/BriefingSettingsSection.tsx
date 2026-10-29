@@ -5,14 +5,18 @@
  * change and never saves an edit over a text the operator has not seen.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import type { AppBriefing } from "@shared/references";
 import { getJuntoApi } from "../../lib/junto-api";
-import { Button, Textarea } from "../ui";
+import { state$ } from "../../lib/state";
+import { BriefingDocument } from "../briefing/BriefingDocument";
+import { Button } from "../ui";
 import { ChangedElsewhere, ImportFileButton, appendText } from "./text-edit";
 import "./texts-settings.css";
 
 export function BriefingSettingsSection() {
   const api = getJuntoApi();
+  const canvasName = use$(state$.canvasName);
   // The text as stored, and the edit on top of it (undefined: no edit open).
   const [stored, setStored] = useState<AppBriefing | null>();
   const [draft, setDraft] = useState<string>();
@@ -84,14 +88,14 @@ export function BriefingSettingsSection() {
           }}
         />
       ) : null}
-      <Textarea
-        className="texts-settings__editor"
-        aria-label="App briefing"
-        spellCheck={false}
-        disabled={stored === undefined}
-        placeholder="What every agent should know: how you work, what to avoid, where things are."
+      <BriefingDocument
+        canvasName={canvasName}
         value={text}
-        onChange={(event) => setDraft(event.target.value)}
+        readOnly={stored === undefined}
+        label="App briefing"
+        surfaceLabel="App briefing, document"
+        placeholder="What every agent should know: how you work, what to avoid, where things are. @ names a seat, # a task or an artifact."
+        onChange={setDraft}
       />
       <div className="texts-settings__bar">
         <ImportFileButton

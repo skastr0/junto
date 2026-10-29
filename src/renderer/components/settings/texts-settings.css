@@ -2,16 +2,8 @@
 .texts-settings {
   gap: 12px;
 }
-.texts-settings__editor {
-  width: 100%;
-  /* Most of the page: this is the page's one job. */
-  height: 62vh;
-  min-height: 320px;
-  font-family: var(--font-mono);
-  font-size: var(--text-body-lg);
-  line-height: var(--leading-open);
-}
-.texts-settings__editor--body {
+/* A reference's document shares the page with its name and description. */
+.texts-settings--reference .briefing-document[data-size="page"] {
   height: 52vh;
 }
 .texts-settings__bar {

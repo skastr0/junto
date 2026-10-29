@@ -5,10 +5,13 @@
  * reference's name is how agents ask for it, so it is fixed once saved.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
 import { REFERENCE_NAME_MAX, type ReferenceSummary, type StoredReference } from "@shared/references";
 import { getJuntoApi } from "../../lib/junto-api";
-import { Button, ConfirmDialog, Input, Textarea } from "../ui";
+import { state$ } from "../../lib/state";
+import { BriefingDocument } from "../briefing/BriefingDocument";
+import { Button, ConfirmDialog, Input } from "../ui";
 import { ChangedElsewhere, ImportFileButton, appendText, textSize } from "./text-edit";
 import "./texts-settings.css";
 
@@ -44,6 +47,7 @@ function ReferenceEditor({
   readonly onDone: () => void;
 }) {
   const api = getJuntoApi();
+  const canvasName = use$(state$.canvasName);
   // What is stored (EMPTY for a new one; undefined while it loads).
   const [base, setBase] = useState<Draft | undefined>(name === undefined ? EMPTY : undefined);
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -117,7 +121,7 @@ function ReferenceEditor({
   };
 
   return (
-    <div className="settings-section texts-settings" data-testid="reference-editor">
+    <div className="settings-section texts-settings texts-settings--reference" data-testid="reference-editor">
       {conflict ? (
         <ChangedElsewhere
           what={theirs === null ? "This reference was deleted, or it" : "This reference"}
@@ -162,13 +166,14 @@ function ReferenceEditor({
           />
         </label>
       </div>
-      <Textarea
-        className="texts-settings__editor texts-settings__editor--body"
-        aria-label="Reference text"
-        spellCheck={false}
-        disabled={base === undefined}
+      <BriefingDocument
+        canvasName={canvasName}
         value={draft.body}
-        onChange={(event) => setDraft({ ...draft, body: event.target.value })}
+        readOnly={base === undefined}
+        label="Reference text"
+        surfaceLabel={`${draft.name.trim() || "New reference"}, document`}
+        placeholder="The reference as agents read it. @ names a seat, # a task or an artifact."
+        onChange={(body) => setDraft((current) => ({ ...current, body }))}
       />
       <div className="texts-settings__bar">
         <ImportFileButton
