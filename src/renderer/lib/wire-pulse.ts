@@ -7,10 +7,9 @@
  * the per-edge pulse the edge component renders. Nothing here runs at idle:
  * every write is caused by an event, and every pulse ends on its own.
  *
- * Pure apart from the keyed observable the edges subscribe to.
+ * Pure: the keyed observable the edges subscribe to is wire-pulse-state.ts.
  */
 
-import { observable } from "@legendapp/state";
 import type { WireTrafficEvent, WireTrafficKind } from "@shared/wire-traffic";
 
 /** One travel of light from sender to receiver. */
@@ -348,11 +347,3 @@ export class WirePulseScheduler {
     }
   }
 }
-
-/** Per-edge pulse, keyed so only the lit edge re-renders. */
-export const wirePulses$ = observable<Record<string, WirePulse>>({});
-
-export const wirePulseScheduler = new WirePulseScheduler((edgeId, pulse) => {
-  if (pulse === undefined) wirePulses$[edgeId]!.delete();
-  else wirePulses$[edgeId]!.set(pulse);
-});

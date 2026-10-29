@@ -14,12 +14,8 @@ import { canvasTier$ } from "../../lib/canvas-tier";
 import type { FlowEdge } from "../../lib/convert";
 import { panForScreenX, playCue } from "../../lib/sound";
 import { state$ } from "../../lib/state";
-import {
-  pickPulseEdge,
-  pulseOnScreen,
-  wirePulseScheduler,
-  type PulseRect,
-} from "../../lib/wire-pulse";
+import { pickPulseEdge, pulseOnScreen, type PulseRect } from "../../lib/wire-pulse";
+import { wirePulseScheduler } from "../../lib/wire-pulse-state";
 
 type BoxNode = {
   readonly width?: number | null;

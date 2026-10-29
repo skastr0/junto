@@ -5,7 +5,7 @@ import type { FlowEdge } from "../../lib/convert";
 import { loomLanes$, loomRoutes$, loomStrands$ } from "../../lib/loom-view";
 import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
-import { wirePulses$ } from "../../lib/wire-pulse";
+import { wirePulses$ } from "../../lib/wire-pulse-state";
 import { WIRE_WIDTH } from "../../lib/flow-track";
 import { isTaskPathVerb } from "@shared/physics";
 import { FlowTrack } from "./FlowTrack";
