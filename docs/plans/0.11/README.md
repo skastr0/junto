@@ -180,7 +180,7 @@ type FilesError = "outside-root" | "not-found" | "exists" | "stale" | "too-large
 | F2 service, protocol, doctrine | tech | done; index passed performance review on 200k files (6343f9d59); fff spiked and rejected |
 | git config commands neutralised (security) | tech | landed e9cc0324e |
 | shared-index commit guard | tech-ci | dd438c028, needs `core.hooksPath` set by the operator |
-| F2 modal | product-shell | done, verified, operator approved |
+| F2 modal | product-shell | operator approved, but create, trash and a keyboard move are missing in the window (preload has files.create and files.trash, no renderer caller; the walk only probed them softly), found by product-accessibility 2026-10-28; cut blocker, product-shell building |
 | F3 editor (CodeMirror, spike 0613f3324) | product-documents | done, verified, operator approved |
 | F4 quick open | product-modals, product-keyboard | done, verified 8 of 8, centred (6654b233b), operator approved keys |
 | F5 drops | product-sheet, canvas (card) | done, 9 of 9 after the tree move fix c732058f5 |
