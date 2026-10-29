@@ -232,8 +232,23 @@ describe("work done in the signal", () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(fresh, "second-try");
       fresh.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    putAnswer = { ok: false, message: "The vault token on studio was refused." };
+    fresh.focus();
     await act(async () => fresh.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(put.at(-1)).toEqual({ signalId: "sig-1", value: "second-try" });
+    // Enter's try remounted the field; focus is on the new one, not lost to the page.
+    const third = host.querySelector<HTMLInputElement>('input[aria-label="Value of CLOUDFLARE_API_TOKEN"]')!;
+    expect(third).not.toBe(fresh);
+    expect(document.activeElement).toBe(third);
+    expect(done).toBe(0);
+
+    putAnswer = { ok: true };
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(third, "third-try");
+      third.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Set secret").click());
+    expect(put.at(-1)).toEqual({ signalId: "sig-1", value: "third-try" });
     expect(done).toBe(1);
   });
 

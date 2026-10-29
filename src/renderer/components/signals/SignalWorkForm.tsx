@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ulid } from "ulid";
 import { regionName } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
@@ -167,6 +167,13 @@ function SecretWork({
   const [typed, setTyped] = useState(false);
   // Each try gets a new field: emptying one leaves its own undo able to bring the value back.
   const [attempt, setAttempt] = useState(0);
+  // Enter in the field sent it: the new field takes the focus the old one had, so the next try is where the operator is.
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    field.current?.focus();
+  }, [attempt]);
   const canvas = useCanvas(canvasName);
   const region = canvas.nodes.get(form.regionId as NodeId);
   const where = region?.kind === "region" ? regionName(region) : "a region out of reach";
@@ -178,6 +185,7 @@ function SecretWork({
     // Emptied as it goes, whatever comes back.
     input.value = "";
     setTyped(false);
+    refocus.current = document.activeElement === input;
     setAttempt((count) => count + 1);
     onPut(value);
   };
