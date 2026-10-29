@@ -208,15 +208,19 @@ I run them at the cut hash if asked.
       the cut hash, and the signed form of the audit (no `--source`), which
       only the real `app:build:ship` runs.
 
-- [ ] Ship gates `codeSteps` (K2 runtime, K3 editor, K4 CLI) and
-      `automationSignals` (N2, an automation raising a notice or work) are OFF
-      in ship (c2f4df48b); seat raises with forms (N1, N3, N4) are not under
-      them. The notes' Code steps bullet is out while codeSteps is off. If
-      product-lead flips a gate after its real-app walk (automation-lead mails
-      the hash), put the bullet back for codeSteps: edit an automation's code in
-      its modal with the Files code editor, unsaved code survives Escape,
-      Revert asks first; and word N2 for automationSignals, checked against the
-      code.
+- [ ] Ship gates: `codeSteps` (K2 runtime, K3 editor, K4 CLI) is OFF in ship
+      (c2f4df48b); `automationSignals` (N2, an automation raising a signal,
+      and the answered trigger, 0.11/09) is ON in ship from 0.11.1 (15c9e388e,
+      after operator-work-verify 25/25 and human-loop-h5-verify 12/12). Seat
+      raises with forms (N1, N3, N4) were never under it. The notes' Code
+      steps bullet is out while codeSteps is off. If product-lead flips
+      codeSteps after its real-app walk (automation-lead mails the hash), put
+      the bullet back: edit an automation's code in its modal with the Files
+      code editor, unsaved code survives Escape, Revert asks first. For 0.11.1
+      the notes carry an N2 bullet (an automation can raise a signal in the
+      needs-you feed, and another automation can start from its answer),
+      checked against `actionKindInBuild` and `answeredWatchRefusal` in
+      `src/shared/automation.ts`.
 - [ ] Cut floor, second part (product-lead via canvas-lead): main does not
       build from ffa6c836c through 42a15903b (`control.ts:115` imports
       briefing-mentions, which landed only in e6cfecf72; "Could not resolve" in
