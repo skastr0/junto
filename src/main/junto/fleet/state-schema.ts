@@ -117,3 +117,26 @@ export const FLEET_CONSENSUS_SEED_SQL = `
     WHERE editor IS NOT NULL
     ON CONFLICT DO NOTHING;
 `;
+
+/**
+ * Step 61's seed again, for every canvas that has no list: a home the engine
+ * alone migrated has no installation row when the step runs (the app writes
+ * it after), and a canvas created with the authority off gets no rows at all.
+ * Run once the installation row exists and before any canvas opens its
+ * authority; idempotent, statement by statement, in one transaction.
+ */
+export const FLEET_CONSENSUS_FILL_SQL = [
+  `INSERT INTO canvas_consensus (canvas_name, current_term, voted_for, commit_index, applied_index)
+    SELECT canvas_name, 1, NULL, 0, 0 FROM canvases
+    WHERE NOT EXISTS (SELECT 1 FROM canvas_authorities a WHERE a.canvas_name = canvases.canvas_name)
+    ON CONFLICT (canvas_name) DO NOTHING`,
+  `INSERT INTO canvas_authorities (canvas_name, position, installation_id)
+    SELECT canvas_name, 0, editor
+    FROM (
+      SELECT canvas_name,
+        COALESCE(editor_installation_id, (SELECT installation_id FROM installation WHERE singleton = 1)) AS editor
+      FROM canvases
+      WHERE NOT EXISTS (SELECT 1 FROM canvas_authorities a WHERE a.canvas_name = canvases.canvas_name)
+    )
+    WHERE editor IS NOT NULL`,
+] as const;

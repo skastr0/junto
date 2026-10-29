@@ -476,9 +476,22 @@ describe("the fleet driver, one batch in flight", () => {
   });
 });
 
+/** A canvas nothing can name an authority for: no list, no editor named, and no installation row yet. */
+const unnamed = async () => {
+  const store = await makeStore(SELF, []);
+  await store.runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE canvases SET editor_installation_id = NULL WHERE canvas_name = ${CANVAS}`;
+      yield* sql`DELETE FROM installation`;
+    }),
+  );
+  return store;
+};
+
 describe("the fleet driver begins a canvas's log", () => {
   it("only from the authority list F6 seeded, and refuses without one rather than guess the editor", async () => {
-    const store = await makeStore(SELF, []);
+    const store = await unnamed();
     const exit = await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
     expect(exit._tag).toBe("Failure");
     expect(String(exit._tag === "Failure" ? exit.cause : "")).toMatch(/no authority list/);
@@ -675,8 +688,43 @@ describe("the fleet driver opens a canvas once per process", () => {
   });
 
   it("releases the canvas when its open fails", async () => {
-    const store = await makeStore(SELF, []);
+    const store = await unnamed();
     expect((await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })))._tag).toBe("Failure");
     expect(String(await store.runtime.runPromiseExit(openCanvasAuthority({ canvasName: CANVAS, self: SELF })).then((exit) => exit._tag === "Failure" ? exit.cause : ""))).toMatch(/no authority list/);
+  });
+});
+
+describe("the fleet driver fills every canvas's list before the first opens", () => {
+  it("for a canvas created with the authority off, and one whose step 61 ran before the installation row", async () => {
+    const store = await makeStore(SELF, []);
+    await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        // Created with the gate off: no consensus row, no list.
+        yield* sql`DELETE FROM canvas_consensus WHERE canvas_name = ${CANVAS}`;
+        // An engine-made home: step 61 ran with no installation row, so a consensus row and no list.
+        yield* sql`INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('home', 'canvas-home', ${new Date(AT).toISOString()}, ${new Date(AT).toISOString()})`;
+        yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = 'home'`;
+        yield* sql`INSERT INTO canvas_consensus (canvas_name, current_term, commit_index, applied_index) VALUES ('home', 1, 0, 0) ON CONFLICT DO NOTHING`;
+      }),
+    );
+    const factory = await open(store);
+    const lists = await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{ canvas_name: string; installation_id: string }>`SELECT canvas_name, installation_id FROM canvas_authorities ORDER BY canvas_name`;
+        const consensus = yield* sql<{ canvas_name: string; current_term: number }>`SELECT canvas_name, current_term FROM canvas_consensus ORDER BY canvas_name`;
+        return { lists: rows.map((row) => ({ ...row })), consensus: consensus.map((row) => ({ ...row })) };
+      }),
+    );
+    expect(lists).toEqual({
+      lists: [{ canvas_name: CANVAS, installation_id: SELF }, { canvas_name: "home", installation_id: SELF }],
+      // The factory's open settled its lone election, a term up; home is as the seed left it.
+      consensus: [{ canvas_name: CANVAS, current_term: 2 }, { canvas_name: "home", current_term: 1 }],
+    });
+    // Both open and rule.
+    await store.runtime.runPromise(factory.judge(createArtifact) as unknown as Effect.Effect<unknown, unknown, never>);
+    const home = await store.runtime.runPromise(openCanvasAuthority({ canvasName: "home", self: SELF }));
+    expect(home.status()).toMatchObject({ canCommit: true });
   });
 });

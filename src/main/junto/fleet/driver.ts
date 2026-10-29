@@ -36,6 +36,7 @@ import type { ResourceCommand } from "@shared/resource-command";
 import { RulingRecorder, type RulingRecordFailed } from "../work/ruling-recorder";
 import { RulingCapture, type RecordRulingInput } from "../work/repository";
 import { foldRuling } from "../work/ruling-projection";
+import { FLEET_CONSENSUS_FILL_SQL } from "./state-schema";
 import { ConsensusNode, ProposalRefused, type Entry, type EntryPayload, type HardState, type MemberList, type Message, type Ready, type Status } from "./consensus";
 
 export class FleetDriverError extends Schema.TaggedError<FleetDriverError>()("FleetDriverError", {
@@ -353,6 +354,23 @@ export type CanvasAuthority = {
  */
 const opened = new WeakMap<SqlClient.SqlClient, Set<string>>();
 
+/** The stores whose canvases have all had their list filled, this process. */
+const filled = new WeakSet<SqlClient.SqlClient>();
+
+/**
+ * Before a store's first canvas opens: every canvas with no list gets step
+ * 61's seed. A home the engine alone migrated, or a canvas created with the
+ * authority off, has none; the installation row exists by now, since this
+ * machine's id is what opens the authority.
+ */
+const fillLists = (sql: SqlClient.SqlClient) =>
+  filled.has(sql)
+    ? Effect.void
+    : sql.withTransaction(Effect.forEach(FLEET_CONSENSUS_FILL_SQL, (statement) => sql.unsafe(statement), { discard: true })).pipe(
+      Effect.tap(() => Effect.sync(() => filled.add(sql))),
+      Effect.mapError(failed("the canvases' authority lists could not be filled")),
+    );
+
 /** Open a canvas's group on this machine: load it, apply what was committed and not applied, and settle a lone authority. */
 export const openCanvasAuthority = (
   options: CanvasAuthorityOptions,
@@ -368,7 +386,8 @@ export const openCanvasAuthority = (
       }));
     }
     held.add(options.canvasName);
-    return yield* openClaimed(options, () => held.delete(options.canvasName)).pipe(
+    return yield* fillLists(sql).pipe(
+      Effect.andThen(openClaimed(options, () => held.delete(options.canvasName))),
       Effect.onError(() => Effect.sync(() => held.delete(options.canvasName))),
     );
   });
