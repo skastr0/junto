@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { companionSeat } from "../src/shared/companion-seats";
 import { makeCompanionChanges } from "../src/main/junto/companion/changes";
-import { pairingHosts, parseTailscaleStatus } from "../src/main/junto/companion/environment";
+import { lanAddressesOf, pairingHosts, parseTailscaleStatus } from "../src/main/junto/companion/environment";
 
 const signal = (state: AgentSignal["state"]): AgentSignal => ({
   signalId: "sig_1",
@@ -65,6 +65,26 @@ describe("companion environment", () => {
       "192.168.1.2",
     ]);
     expect(pairingHosts({ tailscale: undefined, localName: "mac.local", lanAddresses: [] })).toEqual(["mac.local"]);
+  });
+
+  it("offers only real ports' LAN addresses, never a VM bridge, a tunnel or AirDrop", () => {
+    const v4 = (address: string, internal = false) => ({ address, netmask: "255.255.255.0", family: "IPv4" as const, mac: "00:00:00:00:00:00", internal, cidr: `${address}/24` });
+    const v6 = { address: "fe80::1", netmask: "ffff::", family: "IPv6" as const, mac: "00:00:00:00:00:00", internal: false, cidr: "fe80::1/64", scopeid: 1 };
+    expect(
+      lanAddressesOf({
+        lo0: [v4("127.0.0.1", true)],
+        en0: [v6, v4("192.168.1.20")],
+        en7: [v4("10.0.0.5")],
+        bridge100: [v4("192.168.139.3")],
+        vmnet8: [v4("172.16.1.1")],
+        docker0: [v4("172.17.0.1")],
+        utun4: [v4("100.101.102.103")],
+        awdl0: [v6],
+        eth0: [v4("192.168.2.9")],
+        enp3s0: [v4("192.168.3.9")],
+        wlan0: [v4("192.168.4.9")],
+      }),
+    ).toEqual(["192.168.1.20", "10.0.0.5", "192.168.2.9", "192.168.3.9", "192.168.4.9"]);
   });
 });
 

@@ -103,11 +103,23 @@ const computerName = async (): Promise<string> => {
   return hostname().replace(/\.local$/u, "");
 };
 
-const lanAddresses = (): ReadonlyArray<string> =>
-  Object.values(networkInterfaces())
-    .flatMap((entries) => entries ?? [])
+/**
+ * A real network port: Ethernet or Wi-Fi (`en0` on a Mac; `eth0`, `enp3s0`,
+ * `wlan0` on Linux). A VM or container bridge (`bridge100`, `vmnet8`,
+ * `docker0`), a tunnel (`utun4`) or AirDrop (`awdl0`) carries an address the
+ * phone cannot use, and on it another machine's sshd may answer.
+ */
+const REAL_INTERFACE = /^(?:en|eth|wl)[a-z0-9]*$/u;
+
+/** The phone's LAN candidates: IPv4 on real ports only. Tailscale is probed apart. */
+export const lanAddressesOf = (interfaces: ReturnType<typeof networkInterfaces>): ReadonlyArray<string> =>
+  Object.entries(interfaces)
+    .filter(([name]) => REAL_INTERFACE.test(name))
+    .flatMap(([, entries]) => entries ?? [])
     .filter((entry) => entry.family === "IPv4" && !entry.internal && !entry.address.startsWith("100."))
     .map((entry) => entry.address);
+
+const lanAddresses = (): ReadonlyArray<string> => lanAddressesOf(networkInterfaces());
 
 /**
  * The `junto` command the forced command runs. An installed app links it at
