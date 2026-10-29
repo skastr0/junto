@@ -728,3 +728,29 @@ describe("the fleet driver fills every canvas's list before the first opens", ()
     expect(home.status()).toMatchObject({ canCommit: true });
   });
 });
+
+describe("the fleet driver fills a replica's list", () => {
+  it("with the copy's editor, never this machine, for a copy taken in while the authority was off", async () => {
+    const store = await makeStore();
+    await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        // A copy installed with the gate off: the MacBook named as editor, no consensus row, no list.
+        yield* sql`INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at, editor_installation_id)
+          VALUES ('home', 'canvas-home', ${new Date(AT).toISOString()}, ${new Date(AT).toISOString()}, ${MACBOOK})`;
+        yield* sql`DELETE FROM canvas_authorities WHERE canvas_name = 'home'`;
+        yield* sql`DELETE FROM canvas_consensus WHERE canvas_name = 'home'`;
+      }),
+    );
+    await open(store);
+    const home = await store.runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const list = yield* sql<{ installation_id: string }>`SELECT installation_id FROM canvas_authorities WHERE canvas_name = 'home' ORDER BY position`;
+        const consensus = yield* sql<{ current_term: number }>`SELECT current_term FROM canvas_consensus WHERE canvas_name = 'home'`;
+        return { list: list.map((row) => row.installation_id), terms: consensus.map((row) => row.current_term) };
+      }),
+    );
+    expect(home).toEqual({ list: [MACBOOK], terms: [1] });
+  });
+});
