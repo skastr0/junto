@@ -25,20 +25,28 @@ const fixture = (): ModelFixture =>
     modelRegion({ id: "writing", label: "Writing", color: "5", x: 0, y: 0, width: 1000, height: 500 }) as Region,
     modelSeat({ id: "lead", key: "local:e2e-automation-lead", label: "lead", x: 40, y: 340 }),
     modelNode({ kind: "automations", id: NODE, label: "Routines", x: 40, y: 60, width: 260, height: 120, z: 1 }),
+    modelNode({ kind: "artifacts", id: "shelf", label: "Journal", x: 360, y: 60, width: 260, height: 120, z: 2 }),
   ]);
 
 // The node holds no automation here (the harness seeds none), so the card falls
 // back to the node's title, which is the older reader's own answer.
-const signal: AgentSignal = {
-  signalId: "sig-ask",
+const signal = (over: Partial<AgentSignal> & Pick<AgentSignal, "signalId" | "kind" | "text">): AgentSignal => ({
   canvasName: CANVAS,
   nodeId: NODE,
-  kind: "escalate",
-  text: "Which post goes out first?",
   createdAt: Date.now() - 10 * 60_000,
   state: "open",
   source: { kind: "automation", automationId: AUTOMATION_ID, nodeId: NODE, firingId: FIRING_ID },
-};
+  ...over,
+});
+
+const ASK = signal({ signalId: "sig-ask", kind: "escalate", text: "Which post goes out first?" });
+// The work kind an automation raises now: escalate or blocked with a form.
+const FORM = signal({
+  signalId: "sig-form",
+  kind: "blocked",
+  text: "Write today's post",
+  form: { kind: "artifact", nodeId: "shelf", title: "Today's post", labels: [], minWords: 5 },
+});
 
 const stateOf = async (page: Page, signalId: string) => {
   const signals = await page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
@@ -48,24 +56,30 @@ const stateOf = async (page: Page, signalId: string) => {
 
 test("an automation's signal reads as its kind, opens the run, and answers without a seat", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture() }, seedAgentSignals: [signal] });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture() }, seedAgentSignals: [ASK, FORM] });
   try {
     const { page } = junto;
     await expect(page.locator(`.react-flow__node[data-id="${NODE}"]`)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("operator-feed-trigger")).toHaveAttribute("aria-label", "Needs you, 1", {
+    await expect(page.getByTestId("operator-feed-trigger")).toHaveAttribute("aria-label", "Needs you, 2", {
       timeout: 10_000,
     });
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-
-    const card = feed.getByTestId("operator-feed-card");
-    await expect(card).toHaveAttribute("data-kind", "escalate");
-    await expect(card).toContainText("Routines");
-    await expect(card).toContainText("waiting on you");
-
     const pane = page.getByTestId("operator-feed-detail");
-    // One row of answers: a quiet note would spare no seat, because there is none.
+
+    // The blocked one leads: a form is its whole answer, and the run is still there.
+    await expect(pane).toHaveAttribute("data-item-id", "signal:sig-form");
+    await expect(pane.getByTestId("signal-work-form")).toBeVisible();
+    await expect(pane.getByRole("button", { name: "Open the run in Routines" })).toBeVisible();
+    await page.mouse.move(4, 700);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: join(SHOTS, "automation-work-form.png") });
+
+    // The question is answered in words: one row, no quiet note, Open run, and
+    // the keys say open run.
+    await feed.locator("[data-item-id='signal:sig-ask']").click();
+    await expect(pane).toHaveAttribute("data-item-id", "signal:sig-ask");
     await expect(pane.getByTestId("quick-replies")).toBeVisible();
     await expect(pane.getByTestId("quiet-notes")).toHaveCount(0);
     await expect(pane.getByTestId("quick-replies").getByRole("button").first()).toHaveAttribute(
