@@ -6,8 +6,8 @@ import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import type { SeatBubble } from "../../lib/preamble-feed";
 import { WIRE_PULSE_MS } from "../../lib/wire-pulse";
 import { PulseHold, PulseStrips } from "../edges/WirePulse";
-import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeat";
-import { PreambleBubble } from "../nodes/PreambleBubble";
+import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeatView";
+import { PreambleBubbleView } from "../nodes/PreambleBubbleView";
 
 // Live demos for the tour. Every piece here is the real component the canvas
 // draws, fed scripted props: nothing reads or writes the operator's
@@ -99,7 +99,7 @@ export function DemoSeat({
           overseer={overseer}
           title={<div className="truncate font-mono text-body-lg font-semibold leading-snug text-ink">{name}</div>}
         />
-        {bubble ? <PreambleBubble nodeId={`tour-${id}`} bubble={bubble} selected={selected} /> : null}
+        {bubble ? <PreambleBubbleView nodeId={`tour-${id}`} bubble={bubble} /> : null}
       </div>
       {caption ? <div className="tour-seat__caption">{caption}</div> : null}
     </div>
