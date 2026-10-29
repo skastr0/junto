@@ -8,6 +8,7 @@ import { Result } from "effect";
 import { decodeOverseerArgs, isOverseerMutation, OVERSEER_CATALOG } from "../src/shared/overseer-control";
 import {
   ARTIFACT_MOVE_MAX,
+  ARTIFACT_MOVE_REFUSAL_CODES,
   ARTIFACT_MOVE_REFUSAL_REASON,
   summarizeArtifactMoveRun,
   type ArtifactMoveRun,
@@ -144,6 +145,12 @@ describe("artifact move in the CLI", () => {
     expect(OVERSEER_SKILL_MARKDOWN).toContain("artifact move {artifactIds, to, canvas?}");
     expect(OVERSEER_SKILL_MARKDOWN).toContain("`unchanged` when it was already on `to` (a retry is not a refusal)");
     expect(OVERSEER_SKILL_MARKDOWN).toContain("`queued` when another machine edits the canvas");
+    // Every refusal code M1 rules is named, in the skill and in the example.
+    const example = overseerExamples.find((entry) => entry.command_id === "overseer.artifact.move")!;
+    for (const code of ARTIFACT_MOVE_REFUSAL_CODES) {
+      expect(OVERSEER_SKILL_MARKDOWN, code).toContain(`\`${code}\``);
+      expect(example.description, code).toContain(code);
+    }
     expect(OVERSEER_SKILL_MARKDOWN).toContain("its `opId` is what `junto op show` reads it by");
   });
 });

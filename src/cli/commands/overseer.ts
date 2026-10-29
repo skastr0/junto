@@ -1051,7 +1051,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("artifact.move"),
     command: "overseer artifact move",
     name: "move artifacts to another Artifacts node",
-    description: `Only the node changes: links and backlinks hold, and history says who moved each and from where. ids come from junto artifact list; to is the Artifacts node's id. One row per artifact in the order asked: moved; unchanged when it was already there; queued, with the opId junto op show reads it by on your own canvas, when another machine edits the canvas and has not ruled it yet; or refused (not-found, failed, which includes a node your seat does not reach) with its reason, and the command exits non-zero. A to that is not an Artifacts node fails the whole call and nothing moves. 1 to ${ARTIFACT_MOVE_MAX} ids, each once.`,
+    description: `Only the node changes: links and backlinks hold, and history says who moved each and from where. ids come from junto artifact list; to is the Artifacts node's id. One row per artifact in the order asked: moved; unchanged when it was already there; queued, with the opId junto op show reads it by on your own canvas, when another machine edits the canvas and has not ruled it yet; or refused with its reason: not-found (no such artifact, or one your seat does not reach), not-in-reach (you reach the artifact but not to), failed (anything else), and the command exits non-zero. A to that is not an Artifacts node fails the whole call and nothing moves. 1 to ${ARTIFACT_MOVE_MAX} ids, each once.`,
     args: ["overseer", "artifact", "move"],
     input: { artifactIds: ["01M5ESMQ2ZT55QZ073EWPH10SG", "01M5ESMQ2ZT55QZ073EWPH10SH"], to: "artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0" },
   },
