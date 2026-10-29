@@ -24,7 +24,6 @@
     "src/renderer/components/nodes/AgentSeat.tsx": 3,
     "src/renderer/components/nodes/ExecutionCardHeader.tsx": 2,
     "src/renderer/components/nodes/FirstLineRenameInput.tsx": 1,
-    "src/renderer/components/nodes/InstrumentSeat.tsx": 1,
     "src/renderer/components/nodes/preamble-bubble.css": 2,
     "src/renderer/components/nodes/seat-message.css": 4,
     "src/renderer/components/pad/pad-editor.css": 6,
@@ -109,7 +108,7 @@
     "src/renderer/main.tsx": 1,
     "src/renderer/styles.css": 37,
     "src/renderer/styles/canvas-lod.css": 4,
-    "src/renderer/styles/factory-grammar.css": 10
+    "src/renderer/styles/factory-grammar.css": 4
   },
   "color": {
     "src/renderer/components/pad/pad-editor-model.ts": 1,
@@ -131,7 +130,7 @@
     "src/renderer/components/nodes/NodeShell.tsx": 2,
     "src/renderer/components/nodes/seat-message.css": 3,
     "src/renderer/components/nodes/seat-offboard.css": 6,
-    "src/renderer/components/pad/pad-editor.css": 3,
+    "src/renderer/components/pad/pad-editor.css": 1,
     "src/renderer/components/rts/RtsBottomBar.css": 2,
     "src/renderer/components/rts/RtsBottomBar.tsx": 4,
     "src/renderer/components/rts/RtsControls.tsx": 1,
