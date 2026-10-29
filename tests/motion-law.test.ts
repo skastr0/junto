@@ -206,6 +206,11 @@ describe("motion law: rings move on the compositor", () => {
     );
   });
 
+  it("a minimap with no part in the window runs no ping", () => {
+    expect(read("src/renderer/components/FactoryMinimap.tsx")).toMatch(/<div ref=\{unseenRef\} className="react-flow__panel react-flow__minimap/);
+    expect(read("src/renderer/components/factory-minimap.css")).toContain(".react-flow__minimap[data-unseen] .junto-minimap-ping { animation: none; }");
+  });
+
   it("the motion law lets motion no one can see stop, and names where", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/motion\s+no\s+one\s+can\s+see\s+may\s+stop/);

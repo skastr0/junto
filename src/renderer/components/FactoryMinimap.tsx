@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { useStoreApi, type Node } from "@xyflow/react";
 import type { Urgency } from "../lib/region-urgency";
+import { unseenRef } from "../lib/unseen";
 import "./factory-minimap.css";
 
 /**
@@ -399,7 +400,8 @@ export function FactoryMinimap({
   };
 
   return (
-    <div className="react-flow__panel react-flow__minimap bottom right" data-testid="rf__minimap" style={style}>
+    // Scrolled out of the bottom bar (a narrow window), the map's pings stop (lib/unseen.ts).
+    <div ref={unseenRef} className="react-flow__panel react-flow__minimap bottom right" data-testid="rf__minimap" style={style}>
       <svg
         ref={svgRef}
         className="react-flow__minimap-svg"

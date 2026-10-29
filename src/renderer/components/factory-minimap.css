@@ -56,3 +56,7 @@
   animation: juntoMinimapPingNeedsYou 2.88s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
 }
 html[data-surface-motion="paused"] .junto-minimap-ping { animation: none; }
+/* No part of the map in the window (scrolled out of the bottom bar in a
+   narrow window): no one sees a ping, so none runs (lib/unseen.ts, operator
+   signal 01M63W6RQY1YT2Q65MCM0N3YQ8). The rim still says it. */
+.react-flow__minimap[data-unseen] .junto-minimap-ping { animation: none; }
