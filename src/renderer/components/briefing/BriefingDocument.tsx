@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { NodeId } from "@shared/physics/schema";
+import { CANVAS_DRAFT_FOCUS_OWNER, FOCUS_OWNER_ATTRIBUTE } from "../../lib/focus-ownership";
 import { useBriefingMentions } from "../../lib/briefing-mentions";
 import { LiveMarkdownField } from "../artifacts/lazy-editors";
 import type { LiveMarkdownFieldHandle } from "../artifacts/LiveMarkdownField";
@@ -26,6 +27,7 @@ export function BriefingDocument({
   surfaceLabel,
   placeholder,
   size = "page",
+  canvasDraft = false,
   onChange,
   onRest,
 }: {
@@ -38,6 +40,8 @@ export function BriefingDocument({
   readonly placeholder: string;
   /** A settings page's document, or the shorter one a region's panel holds. */
   readonly size?: "page" | "panel";
+  /** A draft written on the canvas: the canvas may take the keyboard back from it (focus-ownership). */
+  readonly canvasDraft?: boolean;
   readonly onChange?: (text: string) => void;
   readonly onRest?: (text: string) => void;
 }) {
@@ -53,7 +57,12 @@ export function BriefingDocument({
   }, [value]);
 
   return (
-    <div className="briefing-document" data-size={size} data-readonly={readOnly ? "true" : undefined}>
+    <div
+      className="briefing-document"
+      data-size={size}
+      data-readonly={readOnly ? "true" : undefined}
+      {...(canvasDraft ? { [FOCUS_OWNER_ATTRIBUTE]: CANVAS_DRAFT_FOCUS_OWNER } : {})}
+    >
       <LiveMarkdownField
         handle={field}
         className="briefing-document__field"
