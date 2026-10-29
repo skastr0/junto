@@ -29,7 +29,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { seatThreadMessages } from "../src/main/junto/work/operator-threads";
-import { markRead, onReadChanged, readPoints } from "../src/main/junto/work/mail-reads";
+import { canvasPoints, markRead, onReadChanged, readPoints } from "../src/main/junto/work/mail-reads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "threads";
@@ -185,5 +185,18 @@ describe("the operator's mail read points", () => {
     await mark("agent", threadId);
     expect([...(await points("agent", [threadId, "elsewhere"])).keys()]).toEqual([threadId]);
     expect((await points("loner", [threadId])).size).toBe(0);
+  });
+
+  it("reads a canvas's points whole, past SQLite's limit on bound variables", async () => {
+    const many = 40_000;
+    const held = await runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      Effect.andThen(
+        sql.withTransaction(Effect.forEach(Array.from({ length: many }, (_, index) => `thread-${index}`), (threadId) =>
+          sql`INSERT INTO operator_mail_reads (canvas_name, thread_id, through_message_id, through_at, read_at)
+            VALUES (${CANVAS}, ${threadId}, ${threadId}, 1, 2)`, { discard: true })),
+        canvasPoints(sql, CANVAS),
+      )));
+    expect(held.size).toBe(many);
+    expect(held.get("thread-39999")).toEqual({ through: "thread-39999", at: 2 });
   });
 });

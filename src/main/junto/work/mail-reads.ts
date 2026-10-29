@@ -49,6 +49,17 @@ const heldPoint = (sql: SqlClient.SqlClient, canvasName: string, threadId: strin
   );
 
 /**
+ * Every read point of a canvas, by thread id. Read whole, by the key's prefix,
+ * never by a list of thread ids: a busy seat's would pass SQLite's limit on
+ * bound variables (32,766).
+ */
+export const canvasPoints = (sql: SqlClient.SqlClient, canvasName: string) =>
+  Effect.map(
+    sql<PointRow>`SELECT thread_id, through_message_id, read_at FROM operator_mail_reads WHERE canvas_name = ${canvasName}`,
+    (rows) => new Map(rows.map((row) => [row.thread_id, pointOf(row)])) as ReadonlyMap<string, MailReadPoint>,
+  );
+
+/**
  * The read points of a seat's threads, by thread id; a thread never read is
  * absent. `threadIds` narrows it to one page; an id not of the seat's is left out.
  */
@@ -56,12 +67,10 @@ export const readPoints = (canvasName: string, nodeId: string, threadIds?: Reado
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const seats = seatMailThreadEntries(yield* seatThreadsInput(canvasName), nodeId);
-    const wanted = (threadIds ?? [...seats.keys()]).filter((threadId) => seats.has(threadId));
+    const wanted = new Set((threadIds ?? [...seats.keys()]).filter((threadId) => seats.has(threadId)));
     const points = new Map<string, MailReadPoint>();
-    if (wanted.length === 0) return points as ReadonlyMap<string, MailReadPoint>;
-    const rows = yield* sql<PointRow>`SELECT thread_id, through_message_id, read_at FROM operator_mail_reads
-      WHERE canvas_name = ${canvasName} AND ${sql.in("thread_id", wanted)}`;
-    for (const row of rows) points.set(row.thread_id, pointOf(row));
+    if (wanted.size === 0) return points as ReadonlyMap<string, MailReadPoint>;
+    for (const [threadId, point] of yield* canvasPoints(sql, canvasName)) if (wanted.has(threadId)) points.set(threadId, point);
     return points as ReadonlyMap<string, MailReadPoint>;
   });
 
