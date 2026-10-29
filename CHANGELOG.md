@@ -57,6 +57,27 @@ step is not approved, add that the Files stub on other machines comes later.)
   or --remove, and `junto artifact list --label`; `show` lists the labels.
   Artifacts stay one flat list: there are no folders, and a document that links
   its children is the way to build a hub.
+- Your arrangement survives a restart: command groups and the slots on the
+  hotbar, each Artifacts and Tasks node's filters and picked labels, the item
+  each node had open, the folders open in a Files tree, a collapsed sidebar, a
+  resized modal, the comments rail and the seat sidebar's open sections all
+  come back after a quit, a crash or an update. It is kept on this machine and
+  does not travel with a canvas. Text typed in a filter box is not kept.
+- Automations read like a sentence: "When a task in Release becomes done".
+  The scope lists the task and Artifacts nodes in reach by name, or one item
+  by name, and the empty "This task" picker is gone. An automation can watch
+  any artifact in a node. Mail, prompt and comment texts are multi-line and
+  can name what fired them with values such as `{{task.title}}`, offered by
+  Insert value; a value the trigger does not carry is refused when you save.
+  A new prompt action asks a seat to act, as `junto msg send --prompt` does,
+  where mail only tells it.
+- Automations and artifacts: an automation can fire when an artifact in a node
+  gains a label or when one carrying a label is edited, and can create an
+  artifact in a node, append to one, or set and remove labels on the artifact
+  that fired. A write an automation made never fires another.
+- Code steps: edit an automation's code in its modal with the same code editor
+  as Files. Unsaved code survives Escape, Revert asks first, and the editor
+  works from the keyboard.
 - Comments on a file follow it when you rename or move it in Junto, in the
   same step as the change on disk: the thread's path and a line comment's file
   move with it, and a box comment keeps its page. A move that would leave the
