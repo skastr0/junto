@@ -352,6 +352,12 @@ const triggerDraftOf = (trigger: Trigger): TriggerDraft => {
 };
 
 /** A stored action as the draft holds it: a code step's code is staged content, named by its ref. */
+/**
+ * Ms as hours to type: nine decimals hold any whole ms (an hour's ms over
+ * 1e9 is under one), so it finishes back unchanged; trailing zeros go.
+ */
+const hoursText = (ms: number): string => (ms / HOUR_MS).toFixed(9).replace(/\.?0+$/u, "");
+
 const signalFormDraftOf = (form: StoredSignalForm): SignalFormDraft => {
   if (form.kind !== "artifact") return form;
   return {
@@ -374,7 +380,7 @@ const actionDraftOf = (action: Action): ActionDraft => {
           ? {}
           : {
               work: {
-                ...(work.dueInMs === undefined ? {} : { dueHours: String(work.dueInMs / HOUR_MS) }),
+                ...(work.dueInMs === undefined ? {} : { dueHours: hoursText(work.dueInMs) }),
                 ...(work.urgent === undefined ? {} : { urgent: work.urgent }),
               },
             }),

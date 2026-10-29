@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARTIFACT_LABEL_RULE, type ArtifactLabel } from "../src/shared/artifact-labels";
 import { asCanvasName } from "../src/shared/model";
-import { AutomationVersion, DEFAULT_AUTOMATION_LIMITS } from "../src/shared/automation";
+import { AutomationVersion, DEFAULT_AUTOMATION_LIMITS, type Automation } from "../src/shared/automation";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
@@ -146,7 +146,7 @@ describe("artifact automations, the draft", () => {
     const form = { kind: "artifact", node: shelf, title: "Morning pages", minWords: 500 } as const;
     const work = { dueInMs: 5_400_000, urgent: true } as const;
     const signal = { kind: "signal", signal: "work", title: "Write 500 words", form, work } as const;
-    const loaded = draftOf({
+    const stored: Automation = {
       automationId: draftWith(onArtifact("edited"), []).automationId,
       nodeId: home,
       author: { kind: "operator" },
@@ -156,10 +156,18 @@ describe("artifact automations, the draft", () => {
       trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
       then: [signal],
       limits: DEFAULT_AUTOMATION_LIMITS,
-    });
+    };
+    const loaded = draftOf(stored);
     expect(loaded.then[0]).toMatchObject({ form: { minWords: "500" }, work: { dueHours: "1.5", urgent: true } });
     const finished = finishDraft(loaded);
     expect(finished.ok && finished.definition.then[0]).toEqual(signal);
+    // Any whole ms the contract takes reads as hours and finishes back unchanged.
+    for (const dueInMs of [1, 3, 59_999, 3_600_000, 31_622_400_000]) {
+      const tiny = draftOf({ ...stored, then: [{ ...signal, work: { dueInMs } }] });
+      const back = finishDraft(tiny);
+      expect(back.ok && back.definition.then[0]).toEqual({ ...signal, work: { dueInMs } });
+    }
+    expect(draftOf({ ...stored, then: [{ ...signal, work: { dueInMs: 3_600_000 } }] }).then[0]).toMatchObject({ work: { dueHours: "1" } });
     // A notice carries no timing: turned into one, the work's timing goes and the form stays.
     const notice = finishDraft({ ...loaded, then: [{ ...loaded.then[0]!, signal: "notice" } as ActionDraft] });
     expect(notice.ok && notice.definition.then[0]).toEqual({ kind: "signal", signal: "notice", title: "Write 500 words", form });
