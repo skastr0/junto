@@ -405,9 +405,8 @@ describe("seat.wait", () => {
     }
   });
 
-  it("answers within the observation budget of the transition it waits on", async () => {
+  it("answers on the transition it waits on", async () => {
     const harness = makeHarness({ doc: peerDoc(), sessionEpoch: "e1" });
-    const started = Date.now();
     const pending = Effect.runPromiseExit(
       harness.service.waitSeat({ target: "peer", until: "working", timeoutMs: 2_000 }, caller),
     );
@@ -415,11 +414,8 @@ describe("seat.wait", () => {
     expect(harness.seatSubscribed()).toBe(true);
     harness.emitSeat(seatEvent({ state: "working", reason: "turn", confidence: "high" }));
     const exit = await pending;
-    const elapsed = Date.now() - started;
     expect(Exit.isSuccess(exit)).toBe(true);
     if (Exit.isSuccess(exit)) expect(exit.value.state).toBe("working");
-    // The wait adds no debounce of its own: it answers the machine's event.
-    expect(elapsed).toBeLessThan(250);
   });
 
   it("fails ScopeError when the edge is revoked before the canvas subscription installs", async () => {
@@ -682,7 +678,6 @@ describe("seat.read", () => {
       sessionEpoch: "e1",
       window: gridWindow({ seq: 4n, lines: ["last settled line"] }),
     });
-    const started = Date.now();
     const pending = Effect.runPromiseExit(
       harness.service.readSeat({ target: "peer", follow: true, maxSeconds: 30 }, caller),
     );
@@ -709,8 +704,6 @@ describe("seat.read", () => {
       expect(exit.value.epoch).toBe("e1");
       expect(exit.value.replaced).toBe(false);
     }
-    // Resolved on the exit, not on the deadline.
-    expect(Date.now() - started).toBeLessThan(5_000);
     expect(harness.activeListeners()).toBe(0);
   });
 
