@@ -178,7 +178,7 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    never sends one between machines. The canvas shows which machines lack one.
    A region's vault (The vault) is how one secret reaches every machine: each
    reads it from 1Password with its own token, and that token, once at setup,
-   is the only secret Junto ever carries to another machine.
+   is the only secret the vault carries to another machine.
 10. **Install without privileges.** Sending Junto to a machine is a copy over
     SSH into the user's home directory plus a per-user service. No admin
     account, no logged-in screen, no `/Applications`, no Electron on a machine
