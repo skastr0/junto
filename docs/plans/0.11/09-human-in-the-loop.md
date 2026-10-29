@@ -171,3 +171,11 @@ Automations node. The runner hears the answered row through
 | H3 | product-automations | editor: the kind picker, "When answered…" making the linked automation, the `answerTo` picker, formats in "Insert value" | product-modals, product-accessibility, product-typography |
 | H4 | cli-lead | CLI for H1's shapes | cli-protocol |
 | H5 | product-verify | walk, dark and bright: an escalate from an automation answered in the feed starts a second automation that writes `Review {{fired.at\|date:YYYY-MM-DD}}` into an Artifacts node and prompts a seat; ten firings show ten signals | |
+
+## Known limit, carried to 0.12
+
+The raising firing is kept on its own machine. An answered watch on another
+machine gets no `raised.<name>` values, so a step that uses one is refused
+at save with the reason. "When answered…" creates the new automation on the
+raising automation's machine, so the usual case works. Fleet state (0.12)
+lifts the limit.
