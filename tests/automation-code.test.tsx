@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { CODE_STEPS_ENABLED } from "../src/shared/features";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
 import { Schema } from "effect";
@@ -224,7 +225,7 @@ describe("a code step in the Automations node", () => {
     expect(editor().state.doc.toString()).toBe("const answer = 2;\n");
   });
 
-  it("opens a step never written on the template, and refuses to save it empty", async () => {
+  it.runIf(CODE_STEPS_ENABLED)("opens a step never written on the template, and refuses to save it empty", async () => {
     await opened([{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Plan." }]);
     // The action's kind becomes Run code, which has no program yet.
     await act(async () => button("Send mail").click());
@@ -278,7 +279,7 @@ describe("a code step in the Automations node", () => {
     expect(stored.get(step.source.sha256)).toBe("const answer = 1;\n");
   });
 
-  it("opens a shell step on a shell template", async () => {
+  it.runIf(CODE_STEPS_ENABLED)("opens a shell step on a shell template", async () => {
     await opened([{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Plan." }]);
     await act(async () => button("Send mail").click());
     await flush();

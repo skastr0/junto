@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { CODE_STEPS_ENABLED } from "../src/shared/features";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -77,19 +78,19 @@ describe("who a code step's program is by", () => {
   const createdBy = (actor: ResourceActor, on: InstallationId) =>
     ruled(emptyAutomationState(), { kind: "create", automationId: AUTO, enabled: true, definition: definition([code("a"), mail("{{code.count}}")]) }, actor, on);
 
-  it("is stamped from the ruling that set it: its actor and the installation that ruled it", () => {
+  it.runIf(CODE_STEPS_ENABLED)("is stamped from the ruling that set it: its actor and the installation that ruled it", () => {
     expect(head(createdBy(overseer, EDITOR)).codeRuling).toEqual({ author: { kind: "seat", seat: SEAT }, installation: EDITOR });
     expect(head(ruled(emptyAutomationState(), { kind: "create", automationId: AUTO, enabled: true, definition: definition([mail("x")]) }, operator, EDITOR)).codeRuling).toBeUndefined();
   });
 
-  it("stays when a later edit by another actor, ruled elsewhere, changes only the trigger", () => {
+  it.runIf(CODE_STEPS_ENABLED)("stays when a later edit by another actor, ruled elsewhere, changes only the trigger", () => {
     const state = createdBy(overseer, EDITOR);
     const edited = ruled(state, { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition([code("a"), mail("{{code.count}}")], "0 10 * * *") }, operator, STANDBY);
     expect(head(edited).version).toBe(2);
     expect(head(edited).codeRuling).toEqual({ author: { kind: "seat", seat: SEAT }, installation: EDITOR });
   });
 
-  it("is the editor's for new code, and an overseer's whenever an overseer's program stays beside it", () => {
+  it.runIf(CODE_STEPS_ENABLED)("is the editor's for new code, and an overseer's whenever an overseer's program stays beside it", () => {
     const state = createdBy(operator, EDITOR);
     const replacedBySeat = ruled(state, { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition([code("b")]) }, overseer, STANDBY);
     expect(head(replacedBySeat).codeRuling).toEqual({ author: { kind: "seat", seat: SEAT }, installation: STANDBY });

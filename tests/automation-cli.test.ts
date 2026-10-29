@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "../src/shared/features";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -58,7 +59,7 @@ describe("junto automation discovery", () => {
     }
   });
 
-  it("shows only junto:// links that parse, as mentionLink writes them", () => {
+  it.runIf(AUTOMATION_SIGNALS_ENABLED)("shows only junto:// links that parse, as mentionLink writes them", () => {
     const shows = overseerExamples.flatMap((example) =>
       ((example.input as { then?: ReadonlyArray<{ show?: ReadonlyArray<string> }> }).then ?? []).flatMap((action) => action.show ?? []),
     );
@@ -125,10 +126,12 @@ describe("overseer automation writes", () => {
     for (const verb of ["automation.create", "automation.edit"] as const) {
       for (const name of Object.values(AUTOMATION_VALUES).flat()) expect(AUTOMATION_WRITE_DESCRIPTIONS[verb], name).toContain(`{{${name}}}`);
     }
-    expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: prompt");
-    expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("kind: code");
-    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}", "kind: signal", "notice or work", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: secret, name", "kind: proof", "dueInMs?"]) expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain(word);
-    expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).toContain("{{code.<field>}}");
+    const create = AUTOMATION_WRITE_DESCRIPTIONS["automation.create"];
+    expect(create).toContain("kind: prompt");
+    for (const word of ["labelled", "create-artifact", "append-artifact", "label-artifact", "{fired: true}"]) expect(create).toContain(word);
+    // Code steps and the signal action are said only where the build carries them (0.11 gates).
+    for (const word of ["kind: code", "{{code.<field>}}"]) expect(create.includes(word), word).toBe(CODE_STEPS_ENABLED);
+    for (const word of ["kind: signal", "notice or work", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: secret, name", "kind: proof", "dueInMs?"]) expect(create.includes(word), word).toBe(AUTOMATION_SIGNALS_ENABLED);
   });
 
   it("sends a prompt example naming values as written, for main to check against its trigger", () => {
@@ -139,7 +142,7 @@ describe("overseer automation writes", () => {
     expect(wire.success.then).toEqual([{ kind: "prompt", to: "@product-verify", text: "{{task.title}} is done ({{task.link}}), check it in the real app." }]);
   });
 
-  it("finds each code step that names a file, by language, and refuses file with source or an unknown language", () => {
+  it.runIf(CODE_STEPS_ENABLED)("finds each code step that names a file, by language, and refuses file with source or an unknown language", () => {
     const step = (extra: object) => ({ then: [{ kind: "mail", to: "@a", text: "x" }, { kind: "code", ...extra }] });
     expect(Effect.runSync(codeFilesOf("automation.create", step({ language: "typescript", file: "./a.ts" }))))
       .toEqual([{ index: 1, file: "./a.ts", mediaType: "text/typescript" }]);
@@ -163,7 +166,7 @@ describe("overseer automation writes", () => {
     expect(withSources("automation.edit", { change: { then: input.then } }, new Map([[1, ref]]))).toMatchObject({ change: { then: [{}, { source: ref }] } });
   });
 
-  it("stages a code step's file and sends its ref as source, which the wire takes", async () => {
+  it.runIf(CODE_STEPS_ENABLED)("stages a code step's file and sends its ref as source, which the wire takes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "junto-code-step-"));
     const file = join(dir, "check.ts");
     await writeFile(file, "export default async () => ({ continue: { status: 'ok' } })\n");

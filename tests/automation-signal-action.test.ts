@@ -5,6 +5,7 @@ import { AgentSignalNotFound, type AgentSignalRepository, type RaiseAgentSignal 
 import { type Automation, AutomationId, AutomationVersion } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
+import { VAULT_ENABLED } from "../src/shared/features";
 import { ItemId } from "../src/shared/work-ids";
 
 const NODE = asNodeId("automations-1");
@@ -130,7 +131,8 @@ describe("an automation's signal step (0.11/07 N2)", () => {
   it("refuses a secret form no region declares for the firing's machine, and one with no machine, raising nothing", async () => {
     const { raised, signals } = store();
     const secret = { ...write, form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } } as SignalAction;
-    expect(await perform(signals, secret)).toEqual({ index: 0, ruling: "refused", reason: "invalid_input" });
+    // Without the vault (N5) every secret form is not_available; with it, an undeclared name is the step's own.
+    expect(await perform(signals, secret)).toEqual({ index: 0, ruling: "refused", reason: VAULT_ENABLED ? "invalid_input" : "not_available" });
     expect(await Effect.runPromise(performSignalAction(signals, {
       canvas, canvasName: "factory", machine: undefined, automation, action: secret, index: 0,
       fired: { at: FIRED_AT }, resolve: Effect.succeed, signalId: SIGNAL_ID,
