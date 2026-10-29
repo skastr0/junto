@@ -5,7 +5,6 @@
  */
 import { use$ } from "@legendapp/state/react";
 import { NotebookPen } from "lucide-react";
-import { cancelFocusSwitcher } from "../lib/focus-switcher";
 import { keyAria, keyCaps } from "../lib/key-match";
 import { operatorModal$, toggleOperatorModal } from "../lib/operator-modal";
 import { isMac } from "../lib/platform";
@@ -24,13 +23,9 @@ export function QuickCaptureButton() {
       aria-keyshortcuts={keyAria("capture.open")}
       title={caps === undefined ? "Quick capture" : `Quick capture (${caps.join(isMac() ? "" : "+")})`}
       style={{ borderColor: "var(--color-stroke)", color: "var(--color-steel)" }}
-      onClick={() => {
-        // As the chord does: a switcher held open under the press goes away.
-        cancelFocusSwitcher();
-        toggleOperatorModal("capture");
-      }}
+      onClick={() => toggleOperatorModal("capture")}
     >
-      <NotebookPen size={15} />
+      <NotebookPen size={15} aria-hidden />
     </button>
   );
 }
