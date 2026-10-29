@@ -122,7 +122,11 @@ Head 62 then; step 63 (the stub) is not in this run. Results per line:
 - [ ] A stale write is refused `stale`; a drop never overwrites. Receipt
       (tech-lead, relayed): refused against the stamp it read; taken names are
       numbered.
-- [ ] Other machines get a stub with the label and no root path. Receipt:
+- [ ] Other machines get a stub with its geometry, a label only when the
+      operator wrote one, and no root path. Step 63 landed (c403df836, 62 to
+      63, `stubs` rebuilt with every row copied; head is 63). Receipt: still
+      none; canvas-verifier's run 1 was at head 62, so section 1 reruns with 63.
+      A no from the operator reverts the step before the cut. Receipt:
 - [ ] Text reads cap at 5 MB. Receipt (tech-lead, relayed):
       `FILE_TEXT_MAX_BYTES`, `shared/files.ts:81`.
 - [ ] Git guard (e9cc0324e, reported by remote-lead): every git main runs

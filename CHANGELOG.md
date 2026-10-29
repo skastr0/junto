@@ -13,18 +13,21 @@ records which artifacts link to which, artifact labels and their colours,
 the tables that keep your view state, the record of where each automation
 was, which canvases this machine runs code for, a peer's link key, a seat
 control applied at most once, and a signal an automation raises with its form
-and due time (and, if approved, rebuild stubs so other machines show a Files
-stub); every node, wire and task is kept as it was. Two steps are groundwork
+and due time, and one that rebuilds the stubs so other machines show a Files
+node; every node, wire and task is kept as it was. Two steps are groundwork
 for a later release and nothing in 0.11.0 reads them: a canvas's authority
 tables (seeded) and the scope record of each vault token (empty).
-(<HEAD> is read from `CURRENT_STATE_SCHEMA_VERSION` at the cut. If the stub
-step is not approved, add that the Files stub on other machines comes later.)
+(<HEAD> is read from `CURRENT_STATE_SCHEMA_VERSION` at the cut, 63 on c403df836.
+If the operator answers no to the stub step, it is reverted before the cut:
+drop the stub clause here and the stub sentence in the Files bullet, and say
+the Files stub on other machines comes later.)
 
 - Files: a node that opens a folder on this machine as a file tree and opens
   a file in the main pane, laid out like Artifacts. The node keeps the folder
   it was made in, from the region's folder for this machine, and you can
-  change it. Other machines see the node by its label only; the folder path
-  never leaves this machine.
+  change it. Other machines see the node as a stub with its position and size,
+  and its label only when you wrote one; the folder path never leaves this
+  machine.
 - Edit code and text in the node: it highlights, edits and saves with Cmd+S.
   If the file changed since you opened it, the save is refused and offers
   reload or keep. Markdown opens in the same live editor as artifacts. Files
