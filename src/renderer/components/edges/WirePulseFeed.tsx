@@ -69,7 +69,7 @@ export function WirePulseFeed({ edges }: { readonly edges: ReadonlyArray<FlowEdg
       // starts: it would travel unseen (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8).
       // The drop is still heard, as it was while the pulse ran hidden.
       const drawn = canvasTier$.peek() === "near";
-      // The drop rides the light: heard only when a pulse is painted.
+      // At near the drop rides the light: heard only when a pulse is painted.
       if (!drawn || wirePulseScheduler.fire(target, event.kind) !== "dropped") {
         const middle = (from.x + from.width / 2 + to.x + to.width / 2) / 2;
         playCue("mail", { tone: event.kind, pan: panForScreenX(middle * zoom + tx, width) });
