@@ -12,7 +12,7 @@ import { decodeLinkFrame, LinkHelloSchema } from "../src/main/junto/link/protoco
 import type { LinkChannelHandler, LinkHello, LinkSession } from "../src/main/junto/link/types";
 import { decodeSeatsStatus, toSeatsStatus } from "../src/main/junto/term/seats-status";
 import { initialSnapshot, topNeed, type BindingId } from "../src/shared/harness-domain";
-import { Level, rankOf } from "../src/shared/wire/urgency";
+import { Level, rankOf, URGENCY_LADDER } from "../src/shared/wire/urgency";
 
 const sessions: LinkSession[] = [];
 afterEach(async () => { await Promise.all(sessions.splice(0).map((session) => session.close())); });
@@ -91,6 +91,7 @@ describe("seats channel: opens only after a hello from the same build", () => {
   it("refuses a need in any other vocabulary", () => {
     const wire = status();
     expect(() => decodeSeatsStatus({ ...wire, need: { ...wire.need, level: "ready" } })).toThrow();
-    expect(() => decodeSeatsStatus({ ...wire, need: { ...wire.need, urgency: 10 } })).toThrow();
+    // One past the ladder's top rank: the rank is the ladder's own length today, so this never goes stale.
+    expect(() => decodeSeatsStatus({ ...wire, need: { ...wire.need, urgency: URGENCY_LADDER.length } })).toThrow();
   });
 });

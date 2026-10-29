@@ -1,6 +1,4 @@
 import { Schema } from "effect";
-import { ARTIFACT_MAX_TITLE_LENGTH } from "../artifact";
-import { ArtifactLabels } from "../artifact-labels";
 import { ContentRef } from "./content-ref";
 
 /**
@@ -245,10 +243,26 @@ export const SIGNAL_SHOWN_ARTIFACTS_MAX = 8;
 export const SIGNAL_DEFAULT_MIN_WORDS = 1;
 /** The longest artifact form condition. */
 export const SIGNAL_MAX_MIN_WORDS = 100_000;
+/**
+ * The longest title a form may ask for, and the most labels it may carry.
+ * Both are artifact bounds (`shared/artifact.ts`, `shared/artifact-labels.ts`)
+ * applied where artifacts live: this module may import nothing but `effect`
+ * and its wire siblings, so it bounds what it can and main settles the rest
+ * (the title it stores is cut to the artifact's own length, and the labels it
+ * stores are folded by the artifact label rule).
+ */
+export const SIGNAL_FORM_TITLE_MAX_LENGTH = 280;
+export const SIGNAL_FORM_LABELS_MAX = 20;
 
-/** A variable name a process environment accepts, as a region's sources name one. */
+/**
+ * A variable name a process environment accepts, as a region's sources name
+ * one: the same bound `automation.ts` gives a code step's secret, so a name
+ * the automation editor takes is never one this refuses.
+ */
+export const SIGNAL_SECRET_NAME_MAX_LENGTH = 128;
 const SignalSecretName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)),
+  Schema.check(Schema.isMaxLength(SIGNAL_SECRET_NAME_MAX_LENGTH)),
 );
 
 /**
@@ -296,7 +310,7 @@ export const SignalFormRequest = Schema.Union([
     title: Schema.optionalKey(
       Schema.String.pipe(
         Schema.check(Schema.isMinLength(1)),
-        Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH)),
+        Schema.check(Schema.isMaxLength(SIGNAL_FORM_TITLE_MAX_LENGTH)),
       ),
     ),
     labels: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -322,9 +336,9 @@ export const SignalForm = Schema.Union([
     nodeId: WireNodeId,
     title: Schema.String.pipe(
       Schema.check(Schema.isMinLength(1)),
-      Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH)),
+      Schema.check(Schema.isMaxLength(SIGNAL_FORM_TITLE_MAX_LENGTH)),
     ),
-    labels: ArtifactLabels,
+    labels: Schema.Array(Schema.String).check(Schema.isMaxLength(SIGNAL_FORM_LABELS_MAX)),
     minWords: Schema.Int.check(Schema.isBetween({ minimum: SIGNAL_DEFAULT_MIN_WORDS, maximum: SIGNAL_MAX_MIN_WORDS })),
   }),
   Schema.Struct({
@@ -348,7 +362,7 @@ export type SignalShownArtifact = typeof SignalShownArtifact.Type;
 export const SignalReplyArtifact = Schema.Struct({
   nodeId: WireNodeId,
   artifactId: WireItemId,
-  title: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH))),
+  title: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(SIGNAL_FORM_TITLE_MAX_LENGTH))),
   /** Words in the markdown, by the one word rule (`word-count.ts`). */
   words: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
