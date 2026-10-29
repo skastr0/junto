@@ -217,6 +217,17 @@ describe("a code step in the Automations node", () => {
     expect(editor().state.doc.toString()).toBe(CODE_TEMPLATE);
   });
 
+  it("leaves the code view on Back once the code is saved", async () => {
+    await opened();
+    await click("Edit code");
+    await replaceCode("const answer = 7;\n");
+    await click("Save");
+    await flush();
+    await click("Back");
+    expect(document.body.querySelector("[data-testid='automation-code']")).toBeNull();
+    expect(button("Edit code")).not.toBeNull();
+  });
+
   it("asks before Back drops code that was typed, and keeps the view on cancel", async () => {
     await opened();
     await click("Edit code");

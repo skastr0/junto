@@ -703,7 +703,7 @@ export function AutomationsPane({
                   if (codeHeld !== undefined && codeHeld.text !== codeHeld.loaded) setCodeAsking(() => revert);
                   else revert();
                 }}
-                onBack={leaveCode}
+                onBack={() => leaveCode()}
               />
             </div>
           ) : editing ? (
