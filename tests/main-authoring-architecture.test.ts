@@ -110,6 +110,9 @@ describe("main authoring architecture", () => {
       "src/main/junto/automation/live.ts",
       // The phone companion reads a seat's recent-ops Activity through WorkService.
       "src/main/junto/companion/backend.ts",
+      // A subject's comments for the phone: the desktop's topology and mailbox
+      // reads, and one comment written only under companion.comment (asserted below).
+      "src/main/junto/companion/comments.ts",
       // A paired phone's mail and signal answers are operator mail, written only
       // under the companion.* authoring labels (asserted below).
       "src/main/junto/companion/operator-actions.ts",
@@ -157,6 +160,8 @@ describe("main authoring architecture", () => {
     expect(companion).toContain('.run("companion.signal-dismiss"');
     // The phone's mail send lives with the thread reads it answers.
     expect(source("src/main/junto/companion/threads.ts")).toContain('.run("companion.mail-send"');
+    // A phone's comment is written through the desktop's comment path, under its own label.
+    expect(source("src/main/junto/companion/comments.ts")).toContain('.run("companion.comment"');
 
     const control = source("src/main/junto/work/control.ts");
     expect(control).toContain("mainAuthoringLabelForWorkOperation(req.op)");
