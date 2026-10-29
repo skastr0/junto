@@ -137,7 +137,9 @@ describe("motion law: rings move on the compositor", () => {
     for (const rel of ["src/renderer/components/ActivityMark.tsx", "src/renderer/components/edges/FlowTrack.tsx"]) {
       const source = read(rel);
       expect(source, rel).toMatch(/\{ rootMargin: "0px" \}/);
-      expect(source, rel).not.toMatch(/rootMargin: "[1-9]/);
+      expect(source, rel).not.toMatch(/rootMargin: "[1-9-]/);
+      // A threshold above 0 would stop a ring that is partly on screen.
+      expect(source, rel).not.toMatch(/threshold\s*:/);
     }
   });
 
