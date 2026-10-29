@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+## 0.11.3 — 2026-10-29
+
+Opening the database with 0.11.3 moves it to version 66, and 0.11.2 then
+refuses it as newer than supported. To go back to 0.11.2, open the backup
+taken at the upgrade. The step adds one table, which keeps the operator's read
+point in each mail thread; it stays on this machine, and every node, wire,
+task and artifact is kept as it was.
+
+- One read state for your mail threads, on the desktop and on the phone. A
+  thread has one read point, so reading it anywhere reads it everywhere. In a
+  seat's Threads window a row with mail you have not read shows its count, the
+  Threads button shows the seat's whole total (it no longer moves when you
+  page the list, and it keeps its last number rather than show zero when it
+  cannot be read), and the thread on screen is marked read as it opens, is
+  picked, or gets new mail while you look at it. A thread between two seats is
+  one conversation and has one point.
+- The phone can read and write your artifacts through this Mac, once the phone
+  app that asks for it is installed. It lists the Artifacts nodes and their
+  artifacts, opens one with its history and pending changes, creates, edits,
+  retitles, labels, moves and archives them, posts comments, picks and resolves mentions, shows
+  where an artifact is linked from, and answers an artifact-form signal with
+  a document. Every write is ruled by the same code as the desktop's, as you,
+  and a write that arrives twice is ruled once. A document edited on the Mac
+  or by an agent reaches an open phone editor as it happens. A phone that
+  predates this is sent none of it.
+- The phone reads threads a page at a time, those you wrote in first, and
+  shows each seat's unread total and each thread's unread count, kept in step
+  with the desktop's.
+- The phone pairs only over real network ports (Ethernet and Wi-Fi). A VM
+  bridge, a tunnel or AirDrop address is no longer offered, which was one
+  cause of the phone showing Pair again after finding another machine's SSH
+  server.
+- A canvas with many streaming terminals is lighter. An attached terminal's
+  screen-reader status still drew a ring, clipped to nothing, and the browser
+  then ran its animation on the main thread and laid the whole board out again
+  on every frame; on a 180-seat board with 40 seats streaming that was 53
+  full layouts a second, and it is now under 2. Nothing you can see changes.
+- The pulse that travels a wire when a message is delivered runs on the
+  compositor with transform alone, as the other canvas motion does, instead
+  of repainting the wire every frame. It looks the same.
+- Files: the index no longer drops names when git's listing ended before its
+  last output arrived, which left some files missing from the index.
+- Quick capture: the preview of a row follows the artifact, so a document
+  rewritten while its preview is open shows the new text.
+- The keyboard focus ring in quick capture's list and the Inbox picker's rows
+  is the same ring as the rest of the app.
+
 ## 0.11.2 — 2026-10-29
 
 Opening the database with 0.11.2 moves it to version 65, and 0.11.1 then
