@@ -47,7 +47,7 @@ import type { AutomationAuthor as ReachAuthor } from "./region-reach";
 import { RefusalReason, type Refusal } from "./resource-command";
 import { TASK_STATES } from "./task-model";
 import { AGENT_SIGNAL_MAX_DETAIL_LENGTH, AGENT_SIGNAL_MAX_TEXT_LENGTH } from "./wire/agent-signals";
-import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "./features";
+import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED, VAULT_ENABLED } from "./features";
 import { ContentRef } from "./wire/content-ref";
 import { ItemId } from "./work-ids";
 
@@ -651,6 +651,14 @@ export const actionRefusal = (action: Action): Refusal | undefined => {
           reason: "invalid_input",
           message: "only an escalate or blocked signal asks for an answer in a form",
           next_step: "Make it escalate or blocked, or drop its form",
+        };
+      }
+      // The secret form writes to the vault (0.12, N5): without it every firing would be refused, so the save is.
+      if (action.form?.kind === "secret" && !VAULT_ENABLED) {
+        return {
+          reason: "not_available",
+          message: "the secret form arrives with the vault, which is not in this build",
+          next_step: "Ask in words or for proof instead, or raise it from a build with the vault",
         };
       }
       if (action.answerTo === undefined) return undefined;

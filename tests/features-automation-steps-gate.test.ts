@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { AUTOMATION_WRITE_DESCRIPTIONS, codeFilesOf, overseerAutomationExamples } from "../src/cli/commands/overseer-automation";
-import { actionKindInBuild, actionKindRefusal, answeredWatchRefusal } from "../src/shared/automation";
+import { actionKindInBuild, actionKindRefusal, actionRefusal, answeredWatchRefusal } from "../src/shared/automation";
 import { ALL_FEATURES, SHIP_FEATURES } from "../src/shared/feature-catalog";
-import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "../src/shared/features";
+import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED, VAULT_ENABLED } from "../src/shared/features";
 
 describe("code steps and the automation signal action (0.11 gates)", () => {
   it("code steps ship off until their walk passes, signals ship on, and all-on carries them", () => {
@@ -26,6 +26,19 @@ describe("code steps and the automation signal action (0.11 gates)", () => {
     );
     expect(readFileSync("src/renderer/components/automations/AutomationEditor.tsx", "utf8")).toContain(
       "(Object.keys(ACTION_LABEL) as ReadonlyArray<ActionKind>).filter(actionKindInBuild)",
+    );
+  });
+
+  it("refuses a signal's secret form at save while the vault is not in the build", () => {
+    const secret = { kind: "signal", signal: "escalate", title: "Token?", form: { kind: "secret", name: "CLOUDFLARE_API_TOKEN" } } as const;
+    expect(actionRefusal(secret as never)).toEqual(
+      VAULT_ENABLED
+        ? undefined
+        : {
+            reason: "not_available",
+            message: "the secret form arrives with the vault, which is not in this build",
+            next_step: "Ask in words or for proof instead, or raise it from a build with the vault",
+          },
     );
   });
 
