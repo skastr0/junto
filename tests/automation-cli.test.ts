@@ -1,5 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "../src/shared/features";
+import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED, VAULT_ENABLED } from "../src/shared/features";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -145,11 +145,13 @@ describe("overseer automation writes", () => {
     // Code steps and the signal action are said only where the build carries them (0.11 gates).
     for (const word of ["kind: code", "{{code.<field>}}"]) expect(create.includes(word), word).toBe(CODE_STEPS_ENABLED);
     const signalWords = [
-      "kind: signal", "escalate (a question, waiting on the operator), blocked, or feedback", "notice, only to read", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: secret, name", "kind: proof",
+      "kind: signal", "escalate (a question, waiting on the operator), blocked, or feedback", "notice, only to read", "form?", "kind: artifact, node, title?, labels?, minWords?", "kind: proof",
       "answerTo?", "{kind: seat, to: @seat}", "{kind: document, node, title}", "{kind: append, to: <artifact>}", "id?",
       "{kind: answered, automation: {node, automationId}, step?, signal?}", "one per firing, never merged",
     ];
     for (const word of signalWords) expect(create.includes(word), word).toBe(AUTOMATION_SIGNALS_ENABLED);
+    // The save refuses a secret form until the vault ships, so the help offers it only with the vault.
+    for (const word of ["kind: secret, name", "A secret answer is never a value"]) expect(create.includes(word), word).toBe(AUTOMATION_SIGNALS_ENABLED && VAULT_ENABLED);
     // An answerTo title names the answer values on any trigger (answerToValuesOf), not only on an answered watch.
     expect(create.includes("its title naming the step's own values and, said when the answer comes, {{answer.text}}"), "answerTo title").toBe(AUTOMATION_SIGNALS_ENABLED);
     // work went with 0.11/09: escalate with a form asks for the same.
