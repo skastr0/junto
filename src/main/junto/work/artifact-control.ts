@@ -686,24 +686,32 @@ const linkedFromOf = (
     const seat = caller.actor.nodeId;
     const linking = ports.bodyLinks === undefined ? [] : yield* ports.bodyLinks(caller.canvas, caller.canvasName, { nodeId: artifact.nodeId, artifactId: artifact.artifactId });
     const bodies = linking.filter((link) => reaches(caller.canvas, seat, link.source.nodeId));
-    const key = mentionKey({ kind: "artifact", nodeId: artifact.nodeId, artifactId: artifact.artifactId });
-    const rows = ports.mentions === undefined ? [] : yield* ports.mentions(caller.canvasName, key, LINKED_FROM_SCAN);
+    // A mention written before a move names a node the artifact was on: each of those still mentions it (0.11.1, 10).
+    const moves = ports.moves === undefined ? [] : yield* ports.moves(caller.canvasName, artifact.artifactId);
+    const nodes = [...new Set([artifact.nodeId, ...moves.map((move) => move.from)])];
+    const scans = ports.mentions === undefined
+      ? []
+      : yield* Effect.forEach(nodes, (nodeId) =>
+          ports.mentions!(caller.canvasName, mentionKey({ kind: "artifact", nodeId, artifactId: artifact.artifactId }), LINKED_FROM_SCAN));
+    const rows = scans.flat();
     const readable = rows.flatMap((row) => {
       const entry = entryOf(caller.canvas, row);
       if (entry === undefined) return [];
       const own = entry.mailbox === seat || (entry.author.kind === "seat" && entry.author.nodeId === seat);
       // A thread is held at its own resource, never in a seat's mailbox: pinned
       // here, not left to the writers, since reach also joins seats in a region.
+      // A thread on this artifact is read where the artifact is now, not where it was written.
+      const onThis = entry.subject?.kind === "artifact" && entry.subject.artifactId === artifact.artifactId;
       const thread = entry.subject !== undefined &&
         entry.subject.nodeId === entry.mailbox &&
         caller.canvas.nodes.get(entry.mailbox)?.kind !== "agent" &&
-        reaches(caller.canvas, seat, entry.mailbox);
+        reaches(caller.canvas, seat, onThis ? artifact.nodeId : entry.mailbox);
       return own || thread ? [entry] : [];
     });
     return {
       bodies: bodies.slice(0, ARTIFACT_LINKED_FROM_MAX),
       mail: readable.slice(0, ARTIFACT_LINKED_FROM_MAX),
-      more: bodies.length > ARTIFACT_LINKED_FROM_MAX || readable.length > ARTIFACT_LINKED_FROM_MAX || rows.length === LINKED_FROM_SCAN,
+      more: bodies.length > ARTIFACT_LINKED_FROM_MAX || readable.length > ARTIFACT_LINKED_FROM_MAX || scans.some((scan) => scan.length === LINKED_FROM_SCAN),
     };
   });
 

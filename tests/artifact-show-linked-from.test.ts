@@ -112,4 +112,30 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact show, linked from bodies", () 
     expect(shown.linkedFrom.bodies.map((body) => [body.source.artifactId, body.title])).toEqual([[notes, "Notes"]]);
     expect(shown.linkedFrom.bodies[0]!.line).toContain("see ");
   });
+
+  it("still lists a link written before the artifact moved, judged where it is now (0.11.1, 10)", async () => {
+    const plan = await create("Launch plan", "the plan", AWAY);
+    const notes = await create("Notes", `see ${artifactLink({ kind: "artifact", nodeId: AWAY, artifactId: plan }, "Launch plan", CANVAS)}`);
+    const moved = await runtime.runPromise(
+      Effect.flatMap(ArtifactRepository, (repo) =>
+        repo.submit("mini" as InstallationId, {
+          opId: mintOpId(),
+          canvasName: CANVAS,
+          actor: { kind: "operator" },
+          target: { kind: "artifact", nodeId: AWAY, itemId: plan },
+          basis: null,
+          after: [],
+          op: { op: "move", to: SHELF },
+        }, { inReach: () => true })),
+    );
+    expect(moved).toMatchObject({ kind: "applied" });
+    const shown = await runtime.runPromise(
+      handleArtifactOp("artifact.show", { artifact: plan }, {
+        canvas: topology,
+        canvasName: CANVAS,
+        actor: { kind: "seat", seatId: ActorSeatId.make(`seat_${"a".repeat(64)}`), nodeId: SEAT },
+      }, liveArtifactPorts) as Effect.Effect<ArtifactShowResult, unknown>,
+    );
+    expect(shown.linkedFrom.bodies.map((body) => body.source.artifactId)).toEqual([notes]);
+  });
 });
