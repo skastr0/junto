@@ -30,7 +30,8 @@ import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub"
 import { MachineRepository } from "../machines/repository";
 import { HostsService } from "../hosts/service";
 import { parseHostSshRoute, SshTransport } from "../ssh";
-import { makeRemoteStdin, SshExitError } from "../ssh/domain";
+import { makeRemoteStdin, SshExitError, type RemoteStdin } from "../ssh/domain";
+import type { OneShotProgram } from "../ssh/program";
 import { placeVaultToken } from "../ssh/machine-commands";
 import type { ToolRunner } from "../region-env/tool";
 import { opServiceAccountEnv } from "../region-env/sources";
@@ -155,25 +156,33 @@ export const makeVaultSetup = (options: VaultSetupOptions) => Effect.gen(functio
       const here = input.name === (yield* machines.machineName);
       const permissions = here ? WRITE : READ;
       const host = here ? undefined : yield* hosts.get(input.name);
+      // Everything that can refuse the far machine runs first: the route, its paths and the command.
+      let program: ((stdin: RemoteStdin) => OneShotProgram) | undefined;
       if (!here) {
         if (host === undefined || host.isThisMachine || (yield* machines.peer(input.name)) === undefined) return yield* Effect.fail(refused(`Set up ${input.name} from this machine before giving it a vault token`));
         if (host.juntoHome === undefined || host.installRoot === undefined) return yield* Effect.fail(refused(`Send Junto to ${input.name} before giving it a vault token`));
+        const location = { juntoHome: host.juntoHome, installRoot: host.installRoot };
+        program = yield* parseHostSshRoute(host).pipe(Effect.flatMap((target) => placeVaultToken(target, location)),
+          Effect.mapError(() => refused(`The route to ${input.name} cannot carry a vault token; check its SSH address and install paths`)));
       }
       // Minted only once the machine is known to be ready for it, so no account is made for nothing.
       const account = input.mint === true ? `junto-${input.name}-${here ? "write" : "read"}` : undefined;
       const token = account === undefined ? input.token! : yield* mint(owner, account, input.vault, permissions);
       const origin: VaultTokenOrigin = account === undefined ? "pasted" : "minted";
       const unused = account === undefined ? "" : `; the service account ${account} was made in 1Password and is unused, so delete it there`;
-      if (here) {
+      if (here || program === undefined) {
         yield* Effect.tryPromise({ try: () => writeVaultToken(options.home, token), catch: () => refused(`The vault token could not be written on this machine${unused}`) });
         return yield* recordHere({ vault: input.vault, permissions, origin, ...(account === undefined ? {} : { accountName: account }) });
       }
-      const target = yield* parseHostSshRoute(host!);
-      const stdin = yield* makeRemoteStdin(JSON.stringify({ vault: input.vault, permissions, token, ...(account === undefined ? {} : { accountName: account }) }));
-      const program = yield* placeVaultToken(target, { juntoHome: host!.juntoHome!, installRoot: host!.installRoot! }, stdin);
-      const output = yield* ssh.run(program).pipe(Effect.catch((cause) => Effect.fail(farRefusal(input.name, cause, unused))));
+      const stdin = yield* makeRemoteStdin(JSON.stringify({ vault: input.vault, permissions, token, ...(account === undefined ? {} : { accountName: account }) })).pipe(
+        Effect.mapError(() => refused(`The vault token could not be placed on ${input.name}${unused}`)));
+      const output = yield* ssh.run(program(stdin)).pipe(Effect.catch((cause) => Effect.fail(farRefusal(input.name, cause, unused))));
       const answer = Schema.decodeUnknownResult(Placed, { onExcessProperty: "error" })(output.stdout.trim().split("\n").at(-1));
-      if (answer._tag === "Failure" || answer.success.data.machineName !== input.name) return yield* Effect.fail(refused(`${input.name} answered machine vault-token-local outside its contract`));
+      if (answer._tag === "Failure" || answer.success.data.machineName !== input.name) {
+        // It may have been placed: the far machine ran and said something else.
+        const named = account === undefined ? "" : `; the service account ${account} was made in 1Password and may already be placed there, so check it`;
+        return yield* Effect.fail(refused(`${input.name} answered machine vault-token-local outside its contract${named}`));
+      }
       const placed = answer.success.data;
       // This machine keeps the record of the token it handed out; the far machine holds its own.
       yield* tokens.put({ machineName: input.name, vault: placed.token.vault, permissions: placed.token.permissions, origin,

@@ -47,6 +47,7 @@ const mini = Schema.decodeUnknownSync(RemoteHost)({
 let home: string;
 let calls: ToolCall[];
 let sent: Array<{ readonly args: ReadonlyArray<string>; readonly stdin: string }>;
+let hostsOverride: ((name: string) => RemoteHost | undefined) | undefined;
 let farAnswer: () => Effect.Effect<{ readonly stdout: string; readonly stderr: string }, SshExitError>;
 const cleanups: Array<() => Promise<void>> = [];
 beforeEach(async () => {
@@ -75,7 +76,7 @@ const setup = async (tool: (call: ToolCall) => ToolResult = answer) => {
     warm: () => Effect.void,
     teardown: () => Effect.void,
   });
-  const hosts = { get: (name: string) => Effect.succeed(name === "mini" ? mini : undefined) } as unknown as HostsService["Service"];
+  const hosts = { get: (name: string) => Effect.succeed(hostsOverride?.(name) ?? (name === "mini" ? mini : undefined)) } as unknown as HostsService["Service"];
   const runtime = ManagedRuntime.make(Layer.mergeAll(
     Layer.provideMerge(makeMachineRepositoryLive({ defaultName: () => "macbook" }), makeStateEngineLive(join(home, "junto.db"))),
     Layer.succeed(SshTransport, ssh),
@@ -214,6 +215,19 @@ describe("--mint: Junto makes the token itself, so its scope is verified", () =>
     const failed = await runtime.runPromise(Effect.flip(vault.place({ name: "mini", vault: "Junto", mint: true })));
     expect(String((failed as Error).message)).toBe("The vault token could not be placed on mini; the service account junto-mini-read was made in 1Password and is unused, so delete it there");
     expect(JSON.stringify(failed)).not.toContain(MINTED);
+  });
+
+  it("refuses a route that cannot carry the token before it mints, and names the account when the far answer is off contract", async () => {
+    const { runtime, vault } = await setup(minting);
+    // A record the schema would refuse, as a hand-edited registry row might hold.
+    const badPaths = { ...mini, installRoot: "relative/junto" } as RemoteHost;
+    hostsOverride = (name) => name === "mini" ? badPaths : undefined;
+    await expect(runtime.runPromise(vault.place({ name: "mini", vault: "Junto", mint: true }))).rejects.toThrow("The route to mini cannot carry a vault token");
+    expect(calls).toEqual([]);
+    hostsOverride = undefined;
+    farAnswer = () => Effect.succeed({ stdout: "not json", stderr: "" });
+    const odd = await runtime.runPromise(Effect.flip(vault.place({ name: "mini", vault: "Junto", mint: true })));
+    expect(String((odd as Error).message)).toBe("mini answered machine vault-token-local outside its contract; the service account junto-mini-read was made in 1Password and may already be placed there, so check it");
   });
 
   it("classifies a refused mint from stderr in fixed words, and never repeats what op printed", async () => {

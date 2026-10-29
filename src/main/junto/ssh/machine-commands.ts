@@ -129,15 +129,16 @@ export const placeBoatMachineKey = (
  * A machine's vault token (docs/machines.md, The vault), written by that
  * machine's own Junto from stdin over the operator's route: never argv, an
  * environment value or a command string. Its answer is the names-only record.
+ * The paths and command are checked first, before any token exists; the
+ * program is made once the token is on its stdin.
  */
 export const placeVaultToken = (
   target: SshTarget,
   location: { readonly juntoHome: string; readonly installRoot: string },
-  input: RemoteStdin,
 ) => Effect.gen(function* () {
   if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "a vault token needs absolute install paths" });
   const command = yield* makeRemoteCommand("/usr/bin/env", [
     `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "machine", "vault-token-local",
   ]);
-  return oneShotWithStdin(target, command, input);
+  return (input: RemoteStdin) => oneShotWithStdin(target, command, input);
 });
