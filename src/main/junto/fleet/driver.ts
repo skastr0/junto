@@ -27,7 +27,7 @@
  * Messages are the caller's to send; a canvas this machine rules alone needs
  * none, and settles its own election when opened.
  */
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ArtifactBody } from "@shared/artifact";
 import { rulingRowOf } from "@shared/command-row";
@@ -261,6 +261,22 @@ const bootstrap = (sql: SqlClient.SqlClient, canvasName: string, self: Installat
     yield* sql`UPDATE canvas_consensus SET commit_index = 1, applied_index = 1 WHERE canvas_name = ${canvasName}`;
   });
 
+/**
+ * One consensus transaction at a time in this process. `synchronous` is the
+ * connection's, set and reset around a transaction as separate statements:
+ * without one holder across all three, a second canvas's reset to NORMAL can
+ * land while the first's transaction is still to commit.
+ */
+const durableLock = Semaphore.makeUnsafe(1);
+
+/** A consensus transaction: its acknowledgement survives power loss, so it commits under synchronous=FULL. */
+export const durableTransaction = <A, E, R>(sql: SqlClient.SqlClient, transaction: Effect.Effect<A, E, R>) =>
+  durableLock.withPermits(1)(
+    Effect.andThen(sql`PRAGMA synchronous = FULL`, sql.withTransaction(transaction)).pipe(
+      Effect.ensuring(Effect.ignore(sql`PRAGMA synchronous = NORMAL`)),
+    ),
+  );
+
 export type CanvasAuthorityOptions = {
   readonly canvasName: string;
   readonly self: InstallationId;
@@ -362,11 +378,7 @@ export const openCanvasAuthority = (
         for (const entry of ready.entries) yield* writeEntry(sql, canvasName, entry);
       });
 
-    /** A consensus transaction: its acknowledgement survives power loss, so it runs under synchronous=FULL. */
-    const durably = <A, E, R>(transaction: Effect.Effect<A, E, R>) =>
-      Effect.andThen(sql`PRAGMA synchronous = FULL`, sql.withTransaction(transaction)).pipe(
-        Effect.ensuring(Effect.ignore(sql`PRAGMA synchronous = NORMAL`)),
-      );
+    const durably = <A, E, R>(transaction: Effect.Effect<A, E, R>) => durableTransaction(sql, transaction);
 
     // The core ran ahead of what is on disk: only opening the canvas again tells it the truth.
     const breaks = (cause: unknown) => {
