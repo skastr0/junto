@@ -30,6 +30,8 @@ export function DocumentEditor({
   revealAnchor,
   mentions,
   title,
+  onDraft,
+  saveRef,
 }: {
   readonly body: DocumentBody;
   readonly version: ArtifactVersion;
@@ -52,6 +54,13 @@ export function DocumentEditor({
   readonly mentions?: DocumentMentions;
   /** The artifact's title, so two open documents read apart. */
   readonly title?: string;
+  /**
+   * Each change to the draft; true sends it at once rather than at rest, as
+   * a capture's first keystroke is (11 Q2).
+   */
+  readonly onDraft?: (text: string) => boolean;
+  /** Set to this editor's save while it is mounted: sends what is unsent, to a refusal line or null. */
+  readonly saveRef?: { current: (() => Promise<string | null>) | null };
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selection, setSelection] = useState<FieldSelection | null>(null);
@@ -131,6 +140,7 @@ export function DocumentEditor({
    * quote; it never resends an old draft whose buttons are gone.
    */
   const saveForComment = (): Promise<string | null> => (mounted.current ? send() : Promise.resolve(null));
+  if (saveRef !== undefined) saveRef.current = saveForComment;
 
   /** Write the draft over the newest head, replacing what the other writer changed. */
   const overwrite = (): void => {
@@ -170,6 +180,7 @@ export function DocumentEditor({
           restMs={SAVE_REST_MS}
           onChange={(text) => {
             draftRef.current = text;
+            if (onDraft?.(text) === true) void send();
           }}
           // Typing rested, the editor was left, or it closed with typing unsent: send it rather than drop it.
           onRest={() => void send()}
