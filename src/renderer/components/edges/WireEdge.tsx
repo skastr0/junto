@@ -5,11 +5,11 @@ import type { FlowEdge } from "../../lib/convert";
 import { loomLanes$, loomRoutes$, loomStrands$ } from "../../lib/loom-view";
 import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
-import { WIRE_PULSE_TOKEN, wirePulses$, wirePulseScheduler } from "../../lib/wire-pulse";
+import { wirePulses$ } from "../../lib/wire-pulse";
 import { WIRE_WIDTH } from "../../lib/flow-track";
 import { isTaskPathVerb } from "@shared/physics";
 import { FlowTrack } from "./FlowTrack";
-import "./wire-pulse.css";
+import { WirePulse } from "./WirePulse";
 
 /**
  * One stroke for every wire but flows: a solid hairline whose only variable
@@ -131,18 +131,9 @@ export function WireEdge({
       />
       {track ? <FlowTrack id={id} path={path} selected={Boolean(selected)} verb={track} /> : null}
       {pulse ? (
-        // A transient second path, only while traffic crosses: at idle the
-        // wire is still one hairline. pathLength 1 lets the stylesheet run
-        // one short dash end to end in either direction.
-        <path
-          key={pulse.seq}
-          d={path}
-          pathLength={1}
-          className="junto-wire-pulse"
-          data-direction={pulse.reverse ? "reverse" : "forward"}
-          style={{ stroke: `var(${WIRE_PULSE_TOKEN[pulse.kind]})` }}
-          onAnimationEnd={() => wirePulseScheduler.end(id, pulse.seq)}
-        />
+        // Transient, only while traffic crosses: at idle the wire is still
+        // one hairline. The dash runs on the compositor (WirePulse).
+        <WirePulse edgeId={id} path={path} pulse={pulse} impactIn={impactIn} />
       ) : null}
       <EdgeLabelRenderer>
         {/* Edge faces are silent by design: the relationship reads through

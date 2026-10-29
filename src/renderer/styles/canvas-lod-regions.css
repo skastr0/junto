@@ -41,7 +41,7 @@
 html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
   background: var(--region-flat);
 }
-html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport :is(.junto-edge-label, path.junto-wire-pulse) {
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport :is(.junto-edge-label, .junto-wire-pulse, path.junto-wire-pulse-hold) {
   visibility: hidden;
 }
 

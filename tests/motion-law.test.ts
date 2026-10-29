@@ -127,6 +127,16 @@ describe("motion law: rings move on the compositor", () => {
     expect(law).toMatch(/wholly\s+under\s+an\s+opaque\s+surface/);
   });
 
+  it("the wire pulse travels on the compositor: transform alone, no stroke repaint", () => {
+    const sheet = read("src/renderer/components/edges/wire-pulse.css");
+    expect(sheet).not.toMatch(/stroke-dash(offset|array)/);
+    for (const name of ["wire-pulse-forward", "wire-pulse-reverse"]) {
+      const body = keyframes(sheet.replace(/\s+/g, " ").replace(/ ?([{}:;]) ?/g, "$1")).get(name);
+      expect(body, name).toBeDefined();
+      for (const decl of body!.matchAll(/([a-z-]+)\s*:/g)) expect(decl[1], name).toBe("transform");
+    }
+  });
+
   it("no frame-stamping clock comes back to step the rings", () => {
     for (const rel of filesUnder("src/renderer")) {
       if (!/\.(ts|tsx|css)$/.test(rel)) continue;

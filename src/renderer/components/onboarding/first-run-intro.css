@@ -185,6 +185,8 @@
   font-size: var(--text-body);
 }
 .tour-wire { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+/* The pulse lies over its own wire, in stage order, not on the canvas's track layer. */
+.junto-wire-pulse.tour-wire-pulse { z-index: auto; }
 /* Demos never take the pointer: they show, they do not act. */
 .tour-stage__field > * { pointer-events: none; }
 

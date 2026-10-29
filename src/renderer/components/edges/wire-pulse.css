@@ -1,37 +1,73 @@
 /* Wire pulse — one short dash of light running the wire, sender to receiver.
 
    Exists only while a delivered message is crossing (wire-pulse.ts), so the
-   idle canvas keeps its one hairline per wire. The path is normalised to
-   pathLength 1 and the gap is longer than the path, so exactly one dash
-   travels: it enters at one end hidden (offset past the start) and leaves at
-   the other. Only stroke-dashoffset animates; nothing lays out. */
-path.junto-wire-pulse {
-  fill: none;
-  stroke-width: 3.2;
-  stroke-linecap: round;
-  stroke-dasharray: 0.16 2;
+   idle canvas keeps its one hairline per wire. The dash is a round-capped
+   stadium in the kind's colour, laid once per straight leg of the wire
+   (WirePulse.tsx): each leg is a clip turned to its heading, and the mover
+   inside it is one travel wide and translates 100% (one travel), so the
+   dash enters at one end hidden and leaves at the other on the compositor
+   every frame and never repaints. Every leg shares the easing and the
+   clock, so the dash turns each corner as one. Only transform animates;
+   nothing lays out. */
+/* Above every card (CARD_Z 32), with the flow tracks, so nothing paints over
+   a moving strip and no card is lifted into a layer for overlapping one. */
+.junto-wire-pulse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--layer-canvas-track);
   pointer-events: none;
+}
+.junto-wire-pulse__run {
+  position: absolute;
+  overflow: hidden;
+  transform-origin: 0 50%;
+}
+.junto-wire-pulse__mover {
+  position: absolute;
+  top: 0;
+  height: 100%;
   animation: wire-pulse-forward 900ms cubic-bezier(.45, 0, .55, 1) forwards;
 }
-path.junto-wire-pulse[data-direction="reverse"] {
+.junto-wire-pulse[data-direction="reverse"] .junto-wire-pulse__mover {
   animation-name: wire-pulse-reverse;
 }
+.junto-wire-pulse__dash {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background-color: currentColor;
+}
 @keyframes wire-pulse-forward {
-  from { stroke-dashoffset: 0.16; }
-  to { stroke-dashoffset: -1; }
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
 }
 @keyframes wire-pulse-reverse {
-  from { stroke-dashoffset: -1; }
-  to { stroke-dashoffset: 0.16; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+/* Impact and connection focus dim every wire outside the cone (styles.css),
+   and the light on it with them. */
+.react-flow:is(.impact-mode, .connection-focus-mode) .junto-wire-pulse:not([data-impact-in]) {
+  opacity: 0.12;
+}
+
+/* The hold: the wire's own second path, drawn only under reduced motion. */
+path.junto-wire-pulse-hold {
+  display: none;
+  fill: none;
+  pointer-events: none;
 }
 
 /* Reduced motion: no travel. The whole wire holds the kind's colour
    briefly, then clears in one step. */
 @media (prefers-reduced-motion: reduce) {
-  path.junto-wire-pulse,
-  path.junto-wire-pulse[data-direction="reverse"] {
-    stroke-dasharray: none;
+  .junto-wire-pulse {
+    display: none;
+  }
+  path.junto-wire-pulse-hold {
+    display: inline;
     stroke-width: 2.4;
+    stroke-linecap: round;
     animation: wire-pulse-hold 700ms steps(1, end) forwards;
   }
 }

@@ -4,10 +4,10 @@ import type { WireTrafficKind } from "@shared/wire-traffic";
 import type { ActivitySpec } from "../../lib/activity";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import type { SeatBubble } from "../../lib/preamble-feed";
-import { WIRE_PULSE_MS, WIRE_PULSE_TOKEN } from "../../lib/wire-pulse";
+import { WIRE_PULSE_MS } from "../../lib/wire-pulse";
+import { PulseHold, PulseStrips } from "../edges/WirePulse";
 import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeat";
 import { PreambleBubble } from "../nodes/PreambleBubble";
-import "../edges/wire-pulse.css";
 
 // Live demos for the tour. Every piece here is the real component the canvas
 // draws, fed scripted props: nothing reads or writes the operator's
@@ -145,23 +145,17 @@ export function DemoWire({
 }) {
   const d = wirePath(from, to);
   return (
-    <svg className="tour-wire" width={width} height={height} aria-hidden>
-      <path
-        d={d}
-        className="junto-edge"
-        style={{ fill: "none", stroke: `var(${VERB_COLOR_TOKEN.messages})`, strokeWidth: 1.2, opacity: 0.9 }}
-      />
-      {pulse ? (
+    <>
+      <svg className="tour-wire" width={width} height={height} aria-hidden>
         <path
-          key={pulse}
           d={d}
-          pathLength={1}
-          className="junto-wire-pulse"
-          data-direction={reverse ? "reverse" : "forward"}
-          style={{ stroke: `var(${WIRE_PULSE_TOKEN[kind]})` }}
+          className="junto-edge"
+          style={{ fill: "none", stroke: `var(${VERB_COLOR_TOKEN.messages})`, strokeWidth: 1.2, opacity: 0.9 }}
         />
-      ) : null}
-    </svg>
+        {pulse ? <PulseHold key={pulse} path={d} kind={kind} /> : null}
+      </svg>
+      {pulse ? <PulseStrips key={pulse} path={d} kind={kind} reverse={reverse} className="tour-wire-pulse" /> : null}
+    </>
   );
 }
 

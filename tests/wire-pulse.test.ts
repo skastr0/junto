@@ -7,11 +7,15 @@ import {
   wireTrafficPreview,
 } from "../src/shared/wire-traffic";
 import {
+  WIRE_PULSE_DASH,
   WIRE_PULSE_MAX_ACTIVE,
   WIRE_PULSE_MS,
+  WIRE_PULSE_WIDTH,
   WirePulseScheduler,
   pickPulseEdge,
+  pulseMover,
   pulseOnScreen,
+  pulsePlan,
   type PulseEdge,
   type WirePulse,
 } from "../src/renderer/lib/wire-pulse";
@@ -186,5 +190,72 @@ describe("burst coalescing", () => {
     const { writes, advance } = rig();
     advance(60_000);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("the dash's legs", () => {
+  const HALF = WIRE_PULSE_WIDTH / 2;
+  /** A point `s` along a leg's straight line, from its origin. */
+  const along = (leg: { x: number; y: number; angle: number; at: number }, s: number) => {
+    const rad = (leg.angle * Math.PI) / 180;
+    return { x: leg.x + Math.cos(rad) * (s - leg.at), y: leg.y + Math.sin(rad) * (s - leg.at) };
+  };
+
+  it("lays a straight wire as one leg, end to end", () => {
+    const plan = pulsePlan("M10,20 L210,20");
+    expect(plan.length).toBeCloseTo(200);
+    expect(plan.legs).toEqual([{ x: 10, y: 20, length: 200, angle: 0, at: 0 }]);
+  });
+
+  it("runs each leg to the sharp corner, half the weight past it, and places the dash as the wire does", () => {
+    // A smooth-step wire: right 92, a rounded corner of 8, down 92.
+    const plan = pulsePlan("M0,0 L92,0 Q100,0 100,8 L100,100");
+    expect(plan.legs).toHaveLength(2);
+    const [first, second] = plan.legs as [NonNullable<(typeof plan.legs)[0]>, NonNullable<(typeof plan.legs)[0]>];
+    expect(first).toMatchObject({ x: 0, y: 0, angle: 0, at: 0 });
+    expect(first.length).toBeCloseTo(100 + HALF);
+    expect(second.angle).toBeCloseTo(90);
+    expect(second.x).toBeCloseTo(100);
+    expect(second.y).toBeCloseTo(-HALF);
+    expect(second.length).toBeCloseTo(100 + HALF);
+    // The corner is a curve: the wire is shorter than its two legs.
+    const curve = plan.length - 184;
+    expect(curve).toBeGreaterThan(8 * Math.SQRT2);
+    expect(curve).toBeLessThan(16);
+    // On either straight part a leg puts a point where the wire has it.
+    expect(along(first, 50)).toEqual({ x: 50, y: 0 });
+    const p = along(second, 92 + curve + 10);
+    expect(p.x).toBeCloseTo(100);
+    expect(p.y).toBeCloseTo(18);
+  });
+
+  it("parses React Flow's spaced smooth step the same", () => {
+    const tight = pulsePlan("M0,0 L92,0 Q100,0 100,8 L100,100");
+    const spaced = pulsePlan("M 0,0L 92,0Q 100,0 100,8L 100,100");
+    expect(spaced).toEqual(tight);
+  });
+
+  it("splits a turn with no rounding at the sharp corner", () => {
+    const plan = pulsePlan("M0,0 L50,0 L50,50");
+    expect(plan.legs.map((leg) => [leg.length, Math.round(leg.angle), leg.at])).toEqual([
+      [50 + HALF, 0, 0],
+      [50 + HALF, 90, 50 - HALF],
+    ]);
+  });
+
+  it("carries the dash from just before the start to just past the end, either way", () => {
+    const plan = pulsePlan("M0,0 L92,0 Q100,0 100,8 L100,100");
+    const dash = WIRE_PULSE_DASH * plan.length;
+    for (const leg of plan.legs) {
+      const forward = pulseMover(plan, leg, false);
+      expect(forward.travel).toBeCloseTo(plan.length + dash);
+      expect(forward.dash).toBeCloseTo(dash + WIRE_PULSE_WIDTH);
+      // The dash's own start (inside its cap) at the start and end of travel.
+      expect(forward.left + HALF + leg.at).toBeCloseTo(-dash);
+      expect(forward.left + forward.travel + HALF + leg.at).toBeCloseTo(plan.length);
+      const reverse = pulseMover(plan, leg, true);
+      expect(reverse.left + HALF + leg.at).toBeCloseTo(plan.length);
+      expect(reverse.left - reverse.travel + HALF + leg.at).toBeCloseTo(-dash);
+    }
   });
 });
