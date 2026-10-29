@@ -216,9 +216,28 @@ describe("the Threads button", () => {
     expect(q("seat-threads-button")?.textContent).toBe("Threads2");
 
     await click(q("seat-threads-button"));
-    expect(fixture.marks).toEqual([{ canvasName: "factory", seatId: "seat-1", threadId: "notes" }]);
+    expect(fixture.marks[0]).toEqual({ canvasName: "factory", seatId: "seat-1", threadId: "notes" });
+    // Every mark is for the thread on screen; main writes nothing once the point has moved.
+    expect(new Set(fixture.marks.map((mark) => mark.threadId))).toEqual(new Set(["notes"]));
     expect(q("seat-threads-row-unread")).toBeNull();
     expect(q("seat-threads-button")?.textContent).toBe("Threads");
+  });
+
+  it("reads mail that lands in the thread on screen, so the row never counts what is in front of the operator", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    expect(fixture.state.threads[0]?.unread).toBe(0);
+
+    // Mail arrives in the thread the popup is showing: the seat reads again, and the row is read at once.
+    fixture.state.threads = [{ ...fixture.state.threads[0]!, unread: 1 }];
+    act(() => fixture.change());
+    await flush();
+    expect(fixture.marks.filter((mark) => mark.threadId === "notes").length).toBeGreaterThan(0);
+    expect(fixture.state.threads[0]?.unread).toBe(0);
+    expect(q("seat-threads-row-unread")).toBeNull();
   });
 
   it("clears a thread the operator read on the phone", async () => {

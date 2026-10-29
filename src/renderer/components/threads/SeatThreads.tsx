@@ -137,14 +137,17 @@ export function SeatThreadsPopup({
   const thread = shown?.kind === "thread" ? threads.find((candidate) => candidate.threadId === shown.threadId) : undefined;
 
   // A thread on screen is read, on this device and every other: the modal opens
-  // on one, and every pick shows one. Main writes nothing when the point has
-  // not moved, so re-marking on each render costs nothing (0.11.3).
+  // on one, and every pick shows one. Mail that lands in it while it is on
+  // screen reads too, so the row never counts what the operator is looking at.
+  // Main writes nothing when the point has not moved, so re-marking on each
+  // render costs nothing (0.11.3).
   const shownThreadId = shown?.kind === "thread" ? shown.threadId : undefined;
+  const shownUnread = thread?.unread ?? 0;
   const { canvasName, seatId } = seat;
   useEffect(() => {
     if (shownThreadId === undefined) return;
     void markSeatThreadRead({ canvasName, seatId }, shownThreadId);
-  }, [canvasName, seatId, shownThreadId]);
+  }, [canvasName, seatId, shownThreadId, shownUnread]);
 
   const row = (item: SeatThreadSummary) => (
     <li key={item.threadId}>
