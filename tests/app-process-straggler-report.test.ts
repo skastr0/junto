@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createAppProcessPlane,
@@ -55,8 +56,7 @@ describe("a quit drain that keeps a group reports what it saw", () => {
     lease.io.stdin.end();
     await lease.io.exited;
     await new Promise((resolve) => setTimeout(resolve, 700));
-    const late = (await import("node:child_process"))
-      .execFileSync("/bin/ps", ["-axo", "pid=,pgid="], { encoding: "utf8" })
+    const late = execFileSync("/bin/ps", ["-axo", "pid=,pgid="], { encoding: "utf8" })
       .split("\n")
       .map((line) => line.trim().split(/\s+/).map(Number))
       .filter(([pid, pgid]) => pgid === lease.io.pidForDiagnostics && pid !== lease.io.pidForDiagnostics)

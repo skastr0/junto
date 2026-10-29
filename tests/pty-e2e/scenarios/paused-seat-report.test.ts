@@ -5,7 +5,7 @@
  * Wiring and fakes are documented in tests/pty-e2e/proto-harness.ts.
  */
 import { mkdirSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -79,7 +79,6 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     if (harness) await harness.dispose();
     for (const root of roots) {
       try {
-        const { rm } = await import("node:fs/promises");
         await rm(root, { recursive: true, force: true });
       } catch {
         // best-effort cleanup

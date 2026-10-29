@@ -6,7 +6,7 @@
  * revokes it and takes its line out, and expired pairings are swept. The real
  * ~/.ssh is never touched.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
@@ -94,7 +94,6 @@ const call = (deviceId: string, id: string, requestOp: string, args: object) =>
 describe("companion service", () => {
   it("pairs, admits, and revokes a phone end to end", async () => {
     writeFileSync(join(dir, "seed"), "");
-    const { mkdirSync } = await import("node:fs");
     mkdirSync(join(dir, ".ssh"), { recursive: true, mode: 0o700 });
     writeFileSync(authorizedKeysPath, `${OPERATOR_LINE}\n`, { mode: 0o600 });
     const firstDevice: string[] = [];

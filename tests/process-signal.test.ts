@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
+import * as childProcess from "node:child_process";
 import { once } from "node:events";
 import {
   admitChildProcess,
@@ -13,6 +14,7 @@ import {
   type OwnedProcess,
   type DetachedProcessGroup,
 } from "../src/main/junto/process-signal";
+import * as processSignal from "../src/main/junto/process-signal";
 import {
   captureChildProcessEpoch,
   captureProcessGroupEpoch,
@@ -51,10 +53,9 @@ describe("process-signal authority", () => {
     expect(Schema.decodeUnknownResult(KillablePid)(process.pid)._tag).toBe("Failure");
     expect(Schema.decodeUnknownResult(KillablePid)(process.ppid)._tag).toBe("Failure");
   });
-  it("has no raw-pid admission export", async () => {
-    const surface = await import("../src/main/junto/process-signal");
-    expect("admitSpawnedProcess" in surface).toBe(false);
-    expect("registerOwnedProcess" in surface).toBe(false);
+  it("has no raw-pid admission export", () => {
+    expect("admitSpawnedProcess" in processSignal).toBe(false);
+    expect("registerOwnedProcess" in processSignal).toBe(false);
   });
 
   it("forged handle is refused", () => {
@@ -190,8 +191,7 @@ describe("process-signal authority", () => {
   );
 
   it("central detached spawn mints verified group authority", async () => {
-    const source = await import("node:child_process");
-    const original = source.spawn;
+    const original = childProcess.spawn;
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
     const closed = once(spawned.child, "close");

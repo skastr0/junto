@@ -1,6 +1,8 @@
 /**
  * PERF-P2 — equal geometry must not fan out; routes stay keyed and stable.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   diffKeyedRoutes,
@@ -182,9 +184,7 @@ describe("planStandaloneRoutes", () => {
 });
 
 describe("renderer subscription contract (static)", () => {
-  it("WireEdge source does not read full obstacle/corridor observables", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { resolve } = await import("node:path");
+  it("WireEdge source does not read full obstacle/corridor observables", () => {
     const src = readFileSync(
       resolve(__dirname, "../src/renderer/components/edges/WireEdge.tsx"),
       "utf8",
@@ -197,9 +197,7 @@ describe("renderer subscription contract (static)", () => {
     expect(src).not.toMatch(/state\$\.doc/);
   });
 
-  it("CanvasLoom publishes obstacles only when unequal", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { resolve } = await import("node:path");
+  it("CanvasLoom publishes obstacles only when unequal", () => {
     const src = readFileSync(
       resolve(__dirname, "../src/renderer/components/edges/CanvasLoom.tsx"),
       "utf8",

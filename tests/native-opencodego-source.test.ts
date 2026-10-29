@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   aggregateLocalRows,
@@ -138,9 +141,6 @@ describe("resolveGoApiKey — credential resolution", () => {
   });
 
   it("reads the opencode CLI auth.json entry when env is absent", async () => {
-    const os = await import("node:os");
-    const fs = await import("node:fs");
-    const path = await import("node:path");
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "ocgo-test-"));
     fs.mkdirSync(path.join(home, ".local", "share", "opencode"), { recursive: true });
     const authPath = path.join(home, ".local", "share", "opencode", "auth.json");

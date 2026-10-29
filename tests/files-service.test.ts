@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -348,7 +348,6 @@ describe("write", () => {
 
   it("keeps the file's mode", async () => {
     const { files } = service();
-    const { chmod } = await import("node:fs/promises");
     await chmod(join(root, "README.md"), 0o600);
     const read = value(await files.read(ref, p("README.md")));
     if (read.kind !== "text") throw new Error("text");

@@ -4,6 +4,7 @@
  * record before the row is written. A reply and a retried write take no
  * new shot. Every store lives under a temp root.
  */
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -193,7 +194,6 @@ describe("a page box comment", () => {
   it("lets the claim go when the page's address cannot be named", async () => {
     const refused = await post(comment("01M5ESMJV6GNZ0891YFFWS0S3Y"), context(capture("file:///etc/hosts")));
     expect(failure(refused)).toMatchObject({ type: "InputError" });
-    const { createHash } = await import("node:crypto");
     expect(await owners(createHash("sha256").update(PNG).digest("hex"))).toEqual([]);
     expect(await rows()).toEqual([]);
   });
@@ -244,7 +244,6 @@ describe("the operator's box comment", () => {
   it("drops a shot that is discarded, and ends with no box on Escape", async () => {
     const started = await start();
     if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
-    const { createHash } = await import("node:crypto");
     const sha = createHash("sha256").update(PNG).digest("hex");
     expect(await owners(sha)).toHaveLength(1);
     await runtime.runPromise(discardOperatorPageBox("s1", started.data.draft.shotId));
@@ -258,7 +257,6 @@ describe("the operator's box comment", () => {
     const first = await start();
     const second = await start();
     if (!first.ok || first.data.kind !== "drawn" || !second.ok || second.data.kind !== "drawn") throw new Error("not drawn");
-    const { createHash } = await import("node:crypto");
     const sha = createHash("sha256").update(PNG).digest("hex");
     expect(await owners(sha)).toHaveLength(2);
     await runtime.runPromise(releaseStagedShots("s2"));
@@ -297,7 +295,7 @@ describe("a seat's page box comment", () => {
     text: "cut off",
     ...more,
   });
-  const sha = () => import("node:crypto").then(({ createHash }) => createHash("sha256").update(PNG).digest("hex"));
+  const sha = () => createHash("sha256").update(PNG).digest("hex");
 
   it("takes the shot as the lease's owner and posts it as the seat, held by the comment alone", async () => {
     taken.length = 0;
@@ -307,7 +305,7 @@ describe("a seat's page box comment", () => {
     const row = (await rows()).find((message) => message.messageId === posted.data.messageId)!;
     expect(row.metadata?.senderNodeId).toBe("agent");
     expect(threadSubjectOf(row)).toMatchObject({ kind: "page", nodeId: PAGE, anchor: { kind: "box", ...RECT, url: "https://example.com/a" } });
-    expect(await owners(await sha())).toEqual([{ kind: "message", canvasName: CANVAS, nodeId: PAGE, recordId: posted.data.messageId }]);
+    expect(await owners(sha())).toEqual([{ kind: "message", canvasName: CANVAS, nodeId: PAGE, recordId: posted.data.messageId }]);
   });
 
   it("refuses a paused canvas, a grant whose seat is not one, and a shot main could not take, holding nothing", async () => {
@@ -320,7 +318,7 @@ describe("a seat's page box comment", () => {
     expect(await runtime.runPromise(postSeatPageBox(browser(), request({ seatNodeId: PAGE })))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await runtime.runPromise(postSeatPageBox(browser("refused"), request()))).toMatchObject({ ok: false, code: "operator_holds" });
     expect(await runtime.runPromise(postSeatPageBox(browser(), request({ text: "  " })))).toMatchObject({ ok: false, code: "invalid" });
-    expect(await owners(await sha())).toEqual([]);
+    expect(await owners(sha())).toEqual([]);
     expect(await rows()).toEqual([]);
   });
 

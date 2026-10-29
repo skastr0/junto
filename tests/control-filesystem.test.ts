@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -189,7 +189,7 @@ describe("control filesystem lifecycle", () => {
     await withLease(path, async (lease) => {
       await expect(removeObservedSocket(lease, { beforeQuarantineRename: () => renameSync(replacement, path) })).rejects.toThrow(/changed before quarantine/);
     });
-    const quarantines = (await (await import("node:fs/promises")).readdir(base)).filter((name) => name.startsWith(".junto-stale-"));
+    const quarantines = (await readdir(base)).filter((name) => name.startsWith(".junto-stale-"));
     expect(quarantines).toHaveLength(1);
     expect(readFileSync(path, "utf8")).toBe("foreign");
     expect(existsSync(join(base, quarantines[0]!, "control.sock"))).toBe(false);

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readdirSync, rmSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -104,7 +105,6 @@ describe("content layout + stream ingest", () => {
     const partials = await readFile(contentIncomingDir(root)).catch(() => null);
     void partials;
     // Directory exists and is empty of partials for this ingest.
-    const { readdirSync } = await import("node:fs");
     expect(readdirSync(contentIncomingDir(root))).toEqual([]);
   });
 
@@ -160,7 +160,6 @@ describe("content layout + stream ingest", () => {
     await mkdir(outside);
     await writeFile(join(outside, "trap"), "x");
     // Replace sha256 root with a symlink.
-    const { rmSync } = await import("node:fs");
     const digestRoot = join(root, "sha256");
     rmSync(digestRoot, { recursive: true, force: true });
     await symlink(outside, digestRoot);

@@ -3,6 +3,7 @@ import {
   chmodSync,
   readFileSync,
   readdirSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -510,7 +511,6 @@ describe("content integrity + GC + snapshot", () => {
       }),
     );
     // Remove object file only — dangling relative to live store.
-    const { unlinkSync } = await import("node:fs");
     unlinkSync(put.path);
 
     const result = await Effect.runPromise(
