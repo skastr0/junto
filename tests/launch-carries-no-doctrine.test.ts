@@ -173,19 +173,16 @@ describe("a managed launch carries no Junto instructions", () => {
         ["connected", true],
         ["unconnected", false],
       ] as const)("spawn planner, %s seat", (_label, connected) => {
-        const input = (resume: boolean) => {
-          return {
-
-            nodeId: "worker",
-            harness,
-            documentLaunch: {
-              kind: "harness" as const,
-              argv: [templateFor(harness).argvSpec.binary],
-            },
-            sessionId: SESSION,
-            resume,
-          };
-        };
+        const input = (resume: boolean) => ({
+          nodeId: "worker",
+          harness,
+          documentLaunch: {
+            kind: "harness" as const,
+            argv: [templateFor(harness).argvSpec.binary],
+          },
+          sessionId: SESSION,
+          resume,
+        });
 
         it("fresh", () => {
           expectNoDoctrine(harness, planManagedSpawn(input(false)));
