@@ -13,7 +13,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
-import { unreadPast } from "../src/shared/mail-threads";
+import { unreadPast, type MailReadChanged } from "../src/shared/mail-threads";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { seat as seatNode, wire } from "./support/model-nodes";
@@ -29,7 +29,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { seatThreadMessages } from "../src/main/junto/work/operator-threads";
-import { markRead, onReadChanged, readPoints, type MailReadChanged } from "../src/main/junto/work/mail-reads";
+import { markRead, onReadChanged, readPoints } from "../src/main/junto/work/mail-reads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "threads";

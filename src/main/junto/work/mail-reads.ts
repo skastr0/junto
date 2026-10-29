@@ -10,13 +10,10 @@
  */
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { mailAfter, readPointKey, seatMailThreadEntries, type MailReadPoint } from "@shared/mail-threads";
+import { mailAfter, readPointKey, seatMailThreadEntries, type MailReadChanged, type MailReadPoint } from "@shared/mail-threads";
 import { afterSqlCommit } from "../state/sql-commit";
 import { StateTransactionOperation } from "../state/service";
 import { seatThreadsInput } from "./operator-threads";
-
-/** A read point moved: the thread, and every seat it is a thread of, so each seat's count is read again. */
-export type MailReadChanged = { readonly canvasName: string; readonly threadId: string; readonly seats: ReadonlyArray<string> };
 
 type Listener = (change: MailReadChanged) => void;
 const listeners = new Set<Listener>();

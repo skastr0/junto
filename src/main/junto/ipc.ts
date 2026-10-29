@@ -8,11 +8,15 @@ import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "elec
 import { Effect, Option, Result, Schema, Stream } from "effect";
 import {
   OperatorThreadSend,
+  SeatThreadMarkRead,
   SeatThreadPageQuery,
+  SeatThreadReadsQuery,
   SeatThreadsPageQuery,
   SeatThreadsQuery,
+  type MailReadPoint,
   type OperatorThreadSent,
 } from "@shared/mail-threads";
+import { markRead, onReadChanged, readPoints } from "./work/mail-reads";
 import {
   deliverOperatorThreadMail,
   mentionableSeats,
@@ -557,6 +561,21 @@ export const registerJuntoIpc = (): void => {
       return yield* mentionableSeats(query.canvasName, query.nodeId);
     })),
   );
+  // The operator's read points, one per thread and shared with the phone
+  // (work/mail-reads.ts). A mark never rejects: a refusal is undefined.
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadReads, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadReadsQuery, { onExcessProperty: "error" })(input);
+      return Object.fromEntries(yield* readPoints(query.canvasName, query.nodeId, query.threadIds));
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadMarkRead, (_event, input: unknown): Promise<MailReadPoint | undefined> => {
+    const decoded = Schema.decodeUnknownResult(SeatThreadMarkRead, { onExcessProperty: "error" })(input);
+    if (Result.isFailure(decoded)) return Promise.resolve(undefined);
+    const { canvasName, nodeId, threadId, through } = decoded.success;
+    return AppRuntime.runPromise(markRead(canvasName, nodeId, threadId, through)).catch(() => undefined);
+  });
+  onReadChanged((change) => broadcast(IPC_CHANNELS.seatThreadReadChanged, change));
   privilegedIpc.handle(IPC_CHANNELS.seatThreadSend, async (_event, input: unknown): Promise<OperatorThreadSent> => {
     const decoded = Schema.decodeUnknownResult(OperatorThreadSend, { onExcessProperty: "error" })(input);
     if (Result.isFailure(decoded)) return { ok: false, reason: "invalid", message: "That mail could not be read." };

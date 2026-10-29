@@ -44,6 +44,8 @@ export type MailThreadsInput = {
   readonly nameOf: (nodeId: string) => string | undefined;
   /** The name a subject thread is listed under, `#42 fix tabs`; its subject's label stands in when it has none. */
   readonly subjectNameOf?: (subject: ResourceSubject) => string | undefined;
+  /** The operator's read point in a thread (work/mail-reads.ts); absent, every thread reads as never read. */
+  readonly readPointOf?: (threadId: string) => MailReadPoint | undefined;
 };
 
 const OPERATOR: MailParty = { kind: "operator" };
@@ -171,6 +173,12 @@ export const unreadPast = (messages: ReadonlyArray<Pick<Entry, "at" | "messageId
   return messages.filter((message) => !message.mine && (read === undefined || mailAfter(message, read))).length;
 };
 
+/** A summary's read state: when the operator last read it, and what came after, counted as the desktop counts. */
+const readStateOf = (entries: ReadonlyArray<Entry>, point: MailReadPoint | undefined) => ({
+  ...(point === undefined ? {} : { readAt: point.at }),
+  unread: unreadPast(entries, point),
+});
+
 /** Every thread mail held, oldest first. */
 const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
   const seat = (nodeId: string): SeatParty => ({ kind: "seat", nodeId, name: input.nameOf(nodeId) ?? nodeId });
@@ -217,6 +225,7 @@ const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyA
     messageCount: entries.length,
     canReply: entries.some((entry) => entry.mine || entry.to.some((party) => party.kind === "operator")),
     owned: entries.some((entry) => entry.mine),
+    ...readStateOf(entries, input.readPointOf?.(threadId)),
     ...(subject === undefined ? {} : { subject }),
   };
 };
@@ -447,3 +456,27 @@ export const SeatThreadPageQuery = Schema.Struct({
 /** As a caller sends it; main decodes it to `SeatThreadPageQueryDecoded`. */
 export type SeatThreadPageQuery = typeof SeatThreadPageQuery.Encoded;
 export type SeatThreadPageQueryDecoded = typeof SeatThreadPageQuery.Type;
+
+/** The operator's read points of a seat's threads: all of them, or one page's. */
+export const SeatThreadReadsQuery = Schema.Struct({
+  canvasName: CanvasName,
+  nodeId: NodeId,
+  threadIds: Schema.optionalKey(Schema.Array(MailMessageId).pipe(Schema.check(Schema.isMaxLength(PAGE_MAX)))),
+});
+/** As a caller sends it; main decodes it to `SeatThreadReadsQueryDecoded`. */
+export type SeatThreadReadsQuery = typeof SeatThreadReadsQuery.Encoded;
+export type SeatThreadReadsQueryDecoded = typeof SeatThreadReadsQuery.Type;
+
+/** Read a seat's thread through one of its mails, or through its newest with none named. */
+export const SeatThreadMarkRead = Schema.Struct({
+  canvasName: CanvasName,
+  nodeId: NodeId,
+  threadId: MailMessageId,
+  through: Schema.optionalKey(MailMessageId),
+});
+/** As a caller sends it; main decodes it to `SeatThreadMarkReadDecoded`. */
+export type SeatThreadMarkRead = typeof SeatThreadMarkRead.Encoded;
+export type SeatThreadMarkReadDecoded = typeof SeatThreadMarkRead.Type;
+
+/** A read point moved: the thread, and every seat it is a thread of, so each seat's count is read again. */
+export type MailReadChanged = { readonly canvasName: string; readonly threadId: string; readonly seats: ReadonlyArray<string> };

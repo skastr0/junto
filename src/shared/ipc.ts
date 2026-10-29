@@ -15,10 +15,14 @@ import type { SignalSecretPutRequest, SignalSecretPutResult } from "./vault";
 import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type { PageShotPurged, PageShotPurgeRequest } from "./page-shot";
 import type {
+  MailReadChanged,
+  MailReadPoint,
   MentionableSeat,
   OperatorThreadSend,
   OperatorThreadSent,
+  SeatThreadMarkRead,
   SeatThreadPageQuery,
+  SeatThreadReadsQuery,
   SeatThreadsPageQuery,
   SeatThreadsQuery,
 } from "./mail-threads";
@@ -507,6 +511,12 @@ export const IPC_CHANNELS = {
   seatThreadSend: "junto:seat-thread-send",
   /** Renderer → main: the seats a mention may name (wired to the seat). */
   seatThreadMentionables: "junto:seat-thread-mentionables",
+  /** Renderer → main: the operator's read points of a seat's threads. */
+  seatThreadReads: "junto:seat-thread-reads",
+  /** Renderer → main: the operator read a seat's thread. */
+  seatThreadMarkRead: "junto:seat-thread-mark-read",
+  /** Main → renderer: a read point moved, on the desktop or the phone. */
+  seatThreadReadChanged: "junto:seat-thread-read-changed",
   /** Renderer → main: one piece of a file the operator attaches to mail, staged in the content store. */
   operatorContentPut: "junto:operator-content-put",
   browserSessionChanged: "junto:browser-session-changed",
@@ -1486,6 +1496,20 @@ export interface JuntoTerminalApi {
   /** No threadId and no inReplyTo starts a thread; a mention is a link in the text to a wired seat. */
   readonly seatThreadSend: (input: OperatorThreadSend) => Promise<OperatorThreadSent>;
   readonly seatThreadMentionables: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MentionableSeat>>;
+  /**
+   * The operator's read point in each of a seat's threads, by thread id; a
+   * thread never read is absent. One point per thread, shared with the phone:
+   * a thread between two seats read under one is read under both.
+   */
+  readonly seatThreadReads: (query: SeatThreadReadsQuery) => Promise<Readonly<Record<string, MailReadPoint>>>;
+  /**
+   * Read a thread through a mail, or through its newest. Forward only; a mark
+   * that moves nothing writes nothing and tells no one, so it is safe on every
+   * render. Undefined on a refusal; it never rejects.
+   */
+  readonly seatThreadMarkRead: (input: SeatThreadMarkRead) => Promise<MailReadPoint | undefined>;
+  /** Main → renderer: a read point moved, from any surface, naming every seat of the thread. */
+  readonly onSeatThreadReadChanged: (listener: (change: MailReadChanged) => void) => () => void;
   /**
    * One piece of a file the operator attaches to a thread mail or a signal
    * answer, staged in the Mac content store as the operator; the last piece
