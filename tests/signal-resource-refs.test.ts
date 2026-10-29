@@ -73,6 +73,13 @@ describe("a signal's task and artifact refs, resolved in reach", () => {
     }
   });
 
+  it("finds an artifact by id when its ref names a node it left, and attaches it where it is now (0.11.1, 10)", () => {
+    // The ref was written while SPEC sat on SHELF-OLD, a node since gone or out of reach.
+    const moved = resolve("artifact", href("SHELF-OLD", SPEC));
+    expect(moved).toEqual(Result.succeed({ kind: "artifact", ref: href("A", SPEC), caption: "Look" }));
+    if (Result.isSuccess(moved)) expect(admitResourceAttachment(moved.success, S, { canvas: board, holds: holdsOf(items) })).toMatchObject({ ok: true });
+  });
+
   it("holds exactly the items read, each on its own node", () => {
     const holds = holdsOf(items);
     expect(holds("task", asNodeId("T"), T42)).toBe(true);

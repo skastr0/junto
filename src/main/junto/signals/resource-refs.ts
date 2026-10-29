@@ -1,6 +1,7 @@
 import { Effect, Option, Result } from "effect";
 import type { AgentSignalAttachmentInput } from "@shared/agent-signals";
-import { mentionHref } from "@shared/mention";
+import { mentionHref, parseMentionHref } from "@shared/mention";
+import { parseNodeRef } from "@shared/node-ref";
 import type { Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
 import { resourcesSeatReaches } from "@shared/region-reach";
@@ -34,6 +35,9 @@ export type ReachedItem = {
   /** An archived artifact: found, so it is not called missing, but not attached. */
   readonly archived?: true;
 };
+
+/** Where an item ref's node part ends. */
+const ITEM_SEPARATOR = "&item=";
 
 const NODE_KIND = { task: "task", artifact: "artifacts" } as const satisfies Record<ResourceKind, string>;
 
@@ -86,6 +90,16 @@ export const resolveResourceRef = (
           message: `no ${input.kind} ${typed} in this seat's reach`,
           details: { target: typed, retryable: false, next_step: `send the ${input.kind}'s ref exactly as Junto printed it` },
         });
+  }
+  // An artifact's ref finds it by id, its node only a hint (0.11.1, 10): one
+  // that moved is attached where it is now, if that is in the seat's reach.
+  if (input.kind === "artifact") {
+    const named = parseMentionHref(typed);
+    const onCanvas = parseNodeRef(typed.split(ITEM_SEPARATOR)[0] ?? typed);
+    const found = named?.item === undefined || !onCanvas.ok || onCanvas.value.canvasName !== canvasName
+      ? undefined
+      : ofKind.find((item) => item.itemId === named.item);
+    if (found !== undefined) return found.archived === true ? archived(found) : Result.succeed(linked(found.nodeId, found.itemId));
   }
   const live = ofKind.filter((item) => item.archived !== true);
   const resolved = resolveWorkTarget(board, seatId, typed, "signal.raise", () => live.map(candidateOf));
