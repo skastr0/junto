@@ -5,7 +5,7 @@ import type { ActivitySpec } from "../../lib/activity";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import type { SeatBubble } from "../../lib/preamble-feed";
 import { WIRE_PULSE_MS } from "../../lib/wire-pulse";
-import { PulseHold, PulseStrips } from "../edges/WirePulse";
+import { PulseHold, PulseStrips } from "../edges/WirePulseView";
 import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeatView";
 import { PreambleBubbleView } from "../nodes/PreambleBubbleView";
 
