@@ -37,10 +37,12 @@ export type ArtifactMoveRunInput = {
  * Why an artifact was not moved. A code to count by; the row's `reason` is
  * the sentence to show.
  *
- *   not-found  no artifact with that id on that canvas
- *   failed     the move was not ruled or not stored
+ *   not-found     no artifact with that id on that canvas that the mover
+ *                 reaches: one out of reach reads the same, title and all
+ *   not-in-reach  the mover reaches the artifact but not the node it goes to
+ *   failed        the move was not ruled or not stored
  */
-export const ARTIFACT_MOVE_REFUSAL_CODES = ["not-found", "failed"] as const;
+export const ARTIFACT_MOVE_REFUSAL_CODES = ["not-found", "not-in-reach", "failed"] as const;
 export type ArtifactMoveRefusalCode = (typeof ARTIFACT_MOVE_REFUSAL_CODES)[number];
 
 export type ArtifactMoveRunRow =
@@ -88,6 +90,7 @@ export type ArtifactMoveRun = (input: ArtifactMoveRunInput, by: ResourceActor) =
 /** The sentence for each refusal. One place, so every surface says the same. */
 export const ARTIFACT_MOVE_REFUSAL_REASON: Readonly<Record<ArtifactMoveRefusalCode, string>> = {
   "not-found": "Junto could not find that artifact on this canvas.",
+  "not-in-reach": "The node it would move to is out of reach. Nothing about it changed.",
   failed: "The artifact could not be moved. Nothing about it changed.",
 };
 

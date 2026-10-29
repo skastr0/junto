@@ -101,7 +101,22 @@ describe("runArtifactMove", () => {
     const { ports, nodeOf } = portsOf([{ id: plan, title: "Plan" }]);
     const writer: ResourceActor = { kind: "seat", seatId: `seat_${"a".padEnd(64, "0")}` as never, nodeId: asNodeId("writer") };
     const answer = await run(ports, [plan], release, writer);
-    expect(answer).toMatchObject({ ok: true, moved: 0, refused: 1, results: [{ artifactId: plan, title: "Plan", ok: false, code: "failed" }] });
+    expect(answer).toMatchObject({ ok: true, moved: 0, refused: 1, results: [{ artifactId: plan, title: "Plan", ok: false, code: "not-in-reach" }] });
     expect(nodeOf(plan)).toBe(specs);
+  });
+
+  it("an artifact the mover does not reach is not found, its title unsaid", async () => {
+    const plan = mintItemId();
+    const { ports, nodeOf } = portsOf([{ id: plan, title: "Plan" }]);
+    expect(await run(ports, [plan], release)).toMatchObject({ ok: true, moved: 1 });
+    const writer: ResourceActor = { kind: "seat", seatId: `seat_${"a".padEnd(64, "0")}` as never, nodeId: asNodeId("writer") };
+    const answer = await run(ports, [plan], specs, writer);
+    expect(answer).toEqual({
+      ok: true,
+      moved: 0,
+      refused: 1,
+      results: [{ artifactId: plan, ok: false, code: "not-found", reason: "Junto could not find that artifact on this canvas." }],
+    });
+    expect(nodeOf(plan)).toBe(release);
   });
 });

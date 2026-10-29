@@ -75,11 +75,15 @@ const moveOne = (
 ): Effect.Effect<ArtifactMoveRunRow, WorkErrorBody> =>
   Effect.gen(function* () {
     const head = yield* ports.artifacts.head(canvasName, artifactId);
-    if (Option.isNone(head)) {
-      return { artifactId, ok: false, code: "not-found", reason: ARTIFACT_MOVE_REFUSAL_REASON["not-found"] } as const;
-    }
+    const notFound = { artifactId, ok: false, code: "not-found", reason: ARTIFACT_MOVE_REFUSAL_REASON["not-found"] } as const;
+    if (Option.isNone(head)) return notFound;
     const { title, nodeId: from } = head.value.artifact;
+    // Reach is judged before anything about the artifact is said: one the mover does not reach is not found, its title unsaid.
+    if (!context.inReach(by, { kind: "artifact", nodeId: from, itemId: artifactId })) return notFound;
     if (from === toNode) return { artifactId, title, ok: true, outcome: "unchanged", from, to: toNode } as const;
+    if (!context.inReach(by, { kind: "artifact", nodeId: toNode, itemId: artifactId })) {
+      return { artifactId, title, ok: false, code: "not-in-reach", reason: ARTIFACT_MOVE_REFUSAL_REASON["not-in-reach"] } as const;
+    }
     const opId = mintOpId();
     const outcome = yield* ports.artifacts.submit(
       {
