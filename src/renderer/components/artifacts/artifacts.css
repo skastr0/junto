@@ -306,6 +306,11 @@
   row-gap: 2px;
 }
 
+/* Sized from zero, so a long name shares the first line with the place and ellipsises. */
+.artifact-move__target--suggested .artifact-move__name {
+  flex: 1 1 0;
+}
+
 .artifact-move__why {
   flex-basis: 100%;
   min-width: 0;
