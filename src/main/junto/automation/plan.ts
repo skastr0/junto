@@ -179,9 +179,11 @@ export type ChangeEvent =
       readonly key: string;
       readonly automationId: ItemId;
       readonly nodeId: NodeId;
+      /** The signal step's index when it raised, and its id; absent on a signal raised before steps were named. */
+      readonly index: number | undefined;
       readonly step: StepId | undefined;
       readonly signal: AnsweredSignal;
-      /** The values its raising firing said, kept on that firing's ruling: what `raised.<name>` reads. Empty when this machine holds no such firing. */
+      /** The values its raising firing said, carried on the signal: what `raised.<name>` reads. */
       readonly raised: Readonly<Record<string, string>>;
     };
 

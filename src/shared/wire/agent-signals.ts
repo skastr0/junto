@@ -259,6 +259,27 @@ const SignalSecretName = Schema.String.pipe(
 );
 
 /**
+ * The values an automation's signal carries of the firing that raised it
+ * (0.11/09): each cut to this length, and all of them to the total, so a
+ * signal stays a small row wherever it travels.
+ */
+export const SIGNAL_RAISED_VALUES_MAX = 96;
+export const SIGNAL_RAISED_VALUE_MAX_LENGTH = 2_000;
+export const SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH = 32_000;
+
+const RaisedValues = Schema.Record(
+  Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64))),
+  Schema.String.pipe(Schema.check(Schema.isMaxLength(SIGNAL_RAISED_VALUE_MAX_LENGTH))),
+).pipe(
+  Schema.check(
+    Schema.makeFilter((values) => {
+      const all = Object.values(values);
+      return all.length <= SIGNAL_RAISED_VALUES_MAX && all.reduce((total, value) => total + value.length, 0) <= SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH;
+    }),
+  ),
+);
+
+/**
  * Who raised a signal. A seat signal names its seat; an automation signal
  * names the Automations node and the automation, and never a seat.
  */
@@ -270,6 +291,17 @@ export const SignalSource = Schema.Union([
     nodeId: WireNodeId,
     /** The firing that raised it, so the feed opens that run; absent on a signal raised before it was named. */
     firingId: Schema.optionalKey(WireItemId),
+    /**
+     * The signal step that raised it (0.11/09): its index in the automation
+     * then, its id when it has one, and the values its firing said. They ride
+     * the signal, so the answer finds them on any machine, however long it
+     * waits and whatever history kept.
+     */
+    step: Schema.optionalKey(Schema.Struct({
+      index: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 63 })),
+      id: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,31}$/)))),
+      raised: RaisedValues,
+    })),
   }),
 ]);
 export type SignalSource = typeof SignalSource.Type;

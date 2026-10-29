@@ -17,6 +17,7 @@ import {
   AutomationId,
   AutomationVersion,
   actionRefusal,
+  answeredWatchNodeRefusal,
   answerToValuesOf,
   automationValuesOf,
   decodeAutomation,
@@ -104,13 +105,18 @@ const definition = (over: Partial<AutomationDefinition>): Pick<AutomationDefinit
 });
 
 describe("the answered watch and answerTo (0.11/09 H1)", () => {
-  it("decodes the watch, narrowed to a step or kind, and reaches the raising automation's node", () => {
+  it("decodes the watch, narrowed to a step or kind, on its own node", () => {
     expect(Schema.is(Watch)(answeredWatch)).toBe(true);
     expect(Schema.is(Watch)({ ...answeredWatch, step: "ask-review", signal: "escalate" })).toBe(true);
     expect(Schema.is(Watch)({ ...answeredWatch, step: "Ask Review" })).toBe(false);
     expect(Schema.is(Watch)({ ...answeredWatch, signal: "notice" })).toBe(false);
+    // Its own node: reach never lists an Automations node, and an answered watch needs none.
     const listener = { automationId: RAISER, nodeId: NODE, author: { kind: "operator" }, ...definition({}) } as unknown as Automation;
-    expect(targetNodeIds(listener)).toContain(NODE);
+    expect(targetNodeIds(listener)).toEqual([SEAT]);
+    expect(answeredWatchNodeRefusal(listener)).toBeUndefined();
+    expect(answeredWatchNodeRefusal({ ...listener, nodeId: asNodeId("automations-2") })).toMatchObject({
+      message: "an answered watch listens to an automation on its own Automations node",
+    });
   });
 
   it("carries the answer's values and its raising firing's, and only there", () => {
@@ -179,7 +185,13 @@ const signal = (over: Partial<AgentSignal> = {}): AgentSignal => ({
   signalId: SIGNAL_ID,
   canvasName: CANVAS,
   nodeId: NODE,
-  source: { kind: "automation", automationId: RAISER, nodeId: NODE, firingId: FIRING_ID },
+  source: {
+    kind: "automation",
+    automationId: RAISER,
+    nodeId: NODE,
+    firingId: FIRING_ID,
+    step: { index: 1, id: "ask-review", raised: { "fired.at": "2026-10-29T09:00:00.000Z", "task.title": "Release notes" } },
+  },
   kind: "escalate",
   text: "Review the release notes?",
   createdAt: ANSWERED_AT - 60_000,
@@ -188,29 +200,24 @@ const signal = (over: Partial<AgentSignal> = {}): AgentSignal => ({
   closedAt: ANSWERED_AT,
   ...over,
 });
-const raisedRuling = {
-  index: 1,
-  ruling: "raised",
-  signalId: SIGNAL_ID,
-  step: "ask-review",
-  values: { "fired.at": "2026-10-29T09:00:00.000Z", "task.title": "Release notes" },
-} as const;
 
 describe("an automation's signal answered (0.11/09 H1)", () => {
-  it("is heard once answered, from an automation, as a seat's kind", () => {
-    const event = answeredChange(signal(), raisedRuling);
-    expect(event).toMatchObject({ kind: "answered", key: `answered:${SIGNAL_ID}`, automationId: RAISER, nodeId: NODE, step: "ask-review" });
-    expect(event?.raised).toEqual(raisedRuling.values);
-    expect(answeredChange(signal({ state: "dismissed" }), raisedRuling)).toBeUndefined();
-    expect(answeredChange(signal({ state: "open" }), raisedRuling)).toBeUndefined();
-    expect(answeredChange(signal({ kind: "notice" }), raisedRuling)).toBeUndefined();
-    expect(answeredChange(signal({ source: { kind: "seat", nodeId: SEAT } }), raisedRuling)).toBeUndefined();
+  it("is heard once answered, from an automation, as a seat's kind, with the step and values the signal carries", () => {
+    const event = answeredChange(signal());
+    expect(event).toMatchObject({ kind: "answered", key: `answered:${SIGNAL_ID}`, automationId: RAISER, nodeId: NODE, index: 1, step: "ask-review" });
+    expect(event?.raised).toEqual({ "fired.at": "2026-10-29T09:00:00.000Z", "task.title": "Release notes" });
+    expect(answeredChange(signal({ state: "dismissed" }))).toBeUndefined();
+    expect(answeredChange(signal({ state: "open" }))).toBeUndefined();
+    expect(answeredChange(signal({ kind: "notice" }))).toBeUndefined();
+    expect(answeredChange(signal({ source: { kind: "seat", nodeId: SEAT } }))).toBeUndefined();
     // A stored work signal answered is an escalate.
-    expect(answeredChange(signal({ kind: "work" }), undefined)?.signal.kind).toBe("escalate");
+    expect(answeredChange(signal({ kind: "work" }))?.signal.kind).toBe("escalate");
+    // A signal raised before steps rode it: no step, no values, nothing invented.
+    expect(answeredChange(signal({ source: { kind: "automation", automationId: RAISER, nodeId: NODE } }))).toMatchObject({ index: undefined, step: undefined, raised: {} });
   });
 
   it("fires the watch on its automation, narrowed to the step or kind", () => {
-    const event = answeredChange(signal(), raisedRuling)! as ChangeEvent;
+    const event = answeredChange(signal())! as ChangeEvent;
     const none = new Set<never>();
     expect(changeMatches(answeredWatch, event, none)).toBe(true);
     expect(changeMatches({ ...answeredWatch, step: "ask-review", signal: "escalate" }, event, none)).toBe(true);
@@ -220,9 +227,9 @@ describe("an automation's signal answered (0.11/09 H1)", () => {
   });
 
   it("says the answer, its signal and the raising firing's values; a secret only by name", () => {
-    const event = answeredChange(signal(), raisedRuling)!;
+    const event = answeredChange(signal())!;
     const value = (name: string, over: Partial<AgentSignal> = {}, delivering = false) =>
-      firedValue(name as never, { event: answeredChange(signal(over), raisedRuling) ?? event, at: ANSWERED_AT + 5, delivering }, {}, undefined, CANVAS);
+      firedValue(name as never, { event: answeredChange(signal(over)) ?? event, at: ANSWERED_AT + 5, delivering }, {}, undefined, CANVAS);
     expect(value("answer.text")).toBe("Ship it, fix the typo first");
     expect(value("answer.by")).toBe("operator");
     expect(value("answer.at")).toBe("2026-10-29T14:05:09.000Z");
@@ -272,7 +279,7 @@ const raiser = (answerTo: NonNullable<Extract<Action, { readonly kind: "signal" 
   ...over,
 });
 
-const harness = async (seed: Automation) => {
+const harness = async (...seeds: ReadonlyArray<Automation>) => {
   const database = new DatabaseSync(":memory:");
   database.exec(AUTOMATION_STATE_SCHEMA_SQL);
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
@@ -295,7 +302,7 @@ const harness = async (seed: Automation) => {
   };
   const runner = makeAutomationRunner(ports);
   const go = <A, E>(effect: Effect.Effect<A, E, AutomationRepository>) => runtime.runPromise(effect);
-  await go(Effect.flatMap(AutomationRepository, (r) => r.applyFacts(CANVAS, [{ fact: "automation.created", automation: seed, at: 0 }])));
+  await go(Effect.flatMap(AutomationRepository, (r) => r.applyFacts(CANVAS, seeds.map((automation) => ({ fact: "automation.created" as const, automation, at: 0 })))));
   const history = () => go(Effect.flatMap(AutomationRepository, (r) => r.firings(CANVAS, { automationId: RAISER })));
   const close = async () => {
     await runtime.dispose();
@@ -304,7 +311,7 @@ const harness = async (seed: Automation) => {
   return { runner, go, performed, history, close };
 };
 
-const heard = () => ({ event: answeredChange(signal(), raisedRuling)!, index: raisedRuling.index });
+const heard = () => answeredChange(signal())!;
 
 describe("delivering an answer where its step says (0.11/09 H1)", () => {
   it("writes a new document titled with its values, once, even with the automation off and at its limit", async () => {
@@ -355,6 +362,39 @@ describe("delivering an answer where its step says (0.11/09 H1)", () => {
       expect(await quiet.history()).toEqual([]);
     } finally {
       await quiet.close();
+    }
+  });
+
+  it("delivers when the raising firing is long gone from history: the signal carries what it needs", async () => {
+    // This machine holds the raising automation and no firing of it at all, as after pruning.
+    const h = await harness(raiser({ kind: "document", node: SHELF, title: "Review of {{task.title}}" }));
+    try {
+      expect(await h.history()).toEqual([]);
+      await h.go(h.runner.onAnswer(CANVAS, heard()));
+      expect(h.performed[0]!.said).toBe("Review of Release notes\nShip it, fix the typo first");
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("fires a watch on a machine that never ran the raising automation, with the step and values from the signal", async () => {
+    // Only the listener lives here: no raising automation, no raising firing.
+    const listener: Automation = {
+      ...raiser(undefined),
+      automationId: AutomationId.make("01M5ESKJFC1A88R1MH1NEZWJ2R"),
+      name: "Write review",
+      enabled: true,
+      trigger: { kind: "change", on: { kind: "answered", automation: { node: NODE, automationId: RAISER }, step: "ask-review" } },
+      then: [{ kind: "prompt", to: { kind: "seat", nodeId: SEAT }, text: "{{raised.task.title}}, {{raised.fired.at|date:YYYY-MM-DD}}: {{answer.text}}" }],
+    };
+    const h = await harness(listener);
+    try {
+      await h.go(h.runner.onChange(CANVAS, heard()));
+      expect(h.performed.map((one) => one.said)).toEqual(["Release notes, 2026-10-29: Ship it, fix the typo first"]);
+      await h.go(h.runner.onChange(CANVAS, heard()));
+      expect(h.performed).toHaveLength(1);
+    } finally {
+      await h.close();
     }
   });
 

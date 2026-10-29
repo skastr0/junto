@@ -91,13 +91,6 @@ export const answerDelivery = (
   }
 };
 
-/** An answered automation signal, as the raising automation's firing kept it. */
-export type AnswerHeard = {
-  readonly event: Extract<ChangeEvent, { readonly kind: "answered" }>;
-  /** The signal step's index when it raised. */
-  readonly index: number;
-};
-
 export type AutomationRunner = {
   readonly tick: (canvasName: string) => Effect.Effect<void, AutomationPersistenceError, AutomationRepository>;
   readonly onChange: (
@@ -110,7 +103,7 @@ export type AutomationRunner = {
   ) => Effect.Effect<Firing | undefined, AutomationPersistenceError, AutomationRepository>;
   readonly onAnswer: (
     canvasName: string,
-    heard: AnswerHeard,
+    event: Extract<ChangeEvent, { readonly kind: "answered" }>,
   ) => Effect.Effect<Firing | undefined, AutomationPersistenceError, AutomationRepository>;
 };
 
@@ -237,13 +230,16 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     return yield* consider(canvasName, automation, { kind: "run" }, targetsOf(canvasName, automation));
   });
 
-  const onAnswer = Effect.fn("AutomationRunner.onAnswer")(function* (canvasName: string, heard: AnswerHeard) {
-    const { event } = heard;
+  const onAnswer = Effect.fn("AutomationRunner.onAnswer")(function* (
+    canvasName: string,
+    event: Extract<ChangeEvent, { readonly kind: "answered" }>,
+  ) {
     const automation = (yield* live(canvasName)).find((candidate) => candidate.automationId === event.automationId);
     if (automation === undefined) return undefined;
-    // The step by its id when it has one, so an edit that moved it still finds it; else where it stood.
+    // The step by its id, so an edit that moved it still finds it. Every step with an answerTo has one
+    // (minted at save); a signal raised before that is found where it stood.
     const index = event.step === undefined
-      ? heard.index
+      ? event.index ?? -1
       : automation.then.findIndex((action) => action.kind === "signal" && action.id === event.step);
     const step = automation.then[index];
     if (step?.kind !== "signal" || step.answerTo === undefined) return undefined;

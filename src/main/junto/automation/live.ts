@@ -970,22 +970,14 @@ export const AutomationRunnerLive = Layer.effect(
 
     const answered = (canvasName: string, signal: AgentSignal) =>
       turn.withPermits(1)(Effect.gen(function* () {
-        const source = signal.source;
-        if (source?.kind !== "automation") return;
-        if (!(yield* runsAny(canvasName))) return;
-        // The firing that raised it, on the machine that ran it: its step, and the values it said.
-        const firing = source.firingId === undefined
-          ? undefined
-          : yield* repository.firing(canvasName, FiringId.make(source.firingId)).pipe(Effect.orElseSucceed(() => undefined));
-        const raised = firing?.outcome.kind === "fired"
-          ? firing.outcome.actions.find((ruling) => ruling.ruling === "raised" && ruling.signalId === signal.signalId)
-          : undefined;
-        const event = answeredChange(signal, raised?.ruling === "raised" ? raised : undefined);
+        // The step and its firing's values ride the signal: no history is read, on any machine.
+        const event = answeredChange(signal);
         if (event === undefined) return;
+        if (!(yield* runsAny(canvasName))) return;
         // The canvas as it is now, for reach; what moved meanwhile goes first.
         yield* pass(canvasName);
         yield* withRepository(runner.onChange(canvasName, event));
-        if (raised !== undefined) yield* withRepository(runner.onAnswer(canvasName, { event, index: raised.index }));
+        yield* withRepository(runner.onAnswer(canvasName, event));
       }));
 
     return AutomationRunnerService.of({ tickAll, wake, heard, seatFired, onRun, answered });
@@ -1006,13 +998,11 @@ export const signalChange = (
 
 /**
  * An automation's signal as an answered watch hears it (0.11/09): only once
- * answered, keyed by its id. A notice is read, never answered; a stored
- * `work` signal is an escalate, as an automation's `work` step now reads.
+ * answered, keyed by its id, with the step and values its source carries. A
+ * notice is read, never answered; a stored `work` signal is an escalate, as
+ * an automation's `work` step now reads.
  */
-export const answeredChange = (
-  signal: AgentSignal,
-  raised: Extract<ActionRuling, { readonly ruling: "raised" }> | undefined,
-): Extract<ChangeEvent, { readonly kind: "answered" }> | undefined => {
+export const answeredChange = (signal: AgentSignal): Extract<ChangeEvent, { readonly kind: "answered" }> | undefined => {
   const source = signal.source;
   if (signal.state !== "answered" || source?.kind !== "automation") return undefined;
   const kind = signal.kind === "work" ? "escalate" : signal.kind;
@@ -1022,7 +1012,8 @@ export const answeredChange = (
     key: `answered:${signal.signalId}`,
     automationId: source.automationId as ItemId,
     nodeId: source.nodeId as NodeId,
-    step: raised?.step,
+    index: source.step?.index,
+    step: source.step?.id,
     signal: {
       signalId: signal.signalId,
       canvasName: signal.canvasName,
@@ -1031,7 +1022,7 @@ export const answeredChange = (
       ...(signal.response === undefined ? {} : { response: signal.response }),
       ...(signal.closedAt === undefined ? {} : { closedAt: signal.closedAt }),
     },
-    raised: raised?.values ?? {},
+    raised: source.step?.raised ?? {},
   };
 };
 
@@ -1064,7 +1055,7 @@ export const AutomationRunnerLoopLive = Layer.effectDiscard(
     const unsubscribeSignals = onAgentSignalChanged((signal) => {
       const event = signalChange(signal);
       if (event !== undefined) Queue.offerUnsafe(writes, { kind: "signal", canvasName: signal.canvasName, event });
-      if (answeredChange(signal, undefined) !== undefined) Queue.offerUnsafe(writes, { kind: "answered", canvasName: signal.canvasName, signal });
+      if (answeredChange(signal) !== undefined) Queue.offerUnsafe(writes, { kind: "answered", canvasName: signal.canvasName, signal });
     });
     yield* Effect.addFinalizer(() => Effect.sync(() => {
       unsubscribe();

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { AUTOMATION_WRITE_DESCRIPTIONS, codeFilesOf, overseerAutomationExamples } from "../src/cli/commands/overseer-automation";
-import { actionKindInBuild, actionKindRefusal } from "../src/shared/automation";
+import { actionKindInBuild, actionKindRefusal, answeredWatchRefusal } from "../src/shared/automation";
 import { ALL_FEATURES, SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED } from "../src/shared/features";
 
@@ -47,6 +47,9 @@ describe("code steps and the automation signal action (0.11 gates)", () => {
       expect(actionKindRefusal("signal")).toMatchObject({ reason: "not_available", message: "signals from automations are off in this build" });
       expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).not.toContain("signal action");
       expect(overseerAutomationExamples.some((one) => JSON.stringify(one).includes('"kind":"signal"'))).toBe(false);
+      // An answered watch rides the same gate: nothing it hears is raised.
+      expect(answeredWatchRefusal({ kind: "change", on: { kind: "answered", automation: { node: "automations-1", automationId: "01M5ESKJFC1A88R1MH1NEZWJ2Q" } } } as never))
+        .toMatchObject({ reason: "not_available", message: "answers to automation signals are off in this build" });
     });
   });
 });

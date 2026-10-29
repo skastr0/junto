@@ -7,16 +7,15 @@
  * names its shown artifacts and its form's Artifacts node), so its form is
  * settled by the seat raise's own rule against those targets: an
  * overseer-authored automation reaches what its author reaches. Its id is the
- * firing's, so a retried firing raises it once. Its ruling keeps the firing's
- * values, which `raised.<name>` says when the answer comes back.
+ * firing's, so a retried firing raises it once. Its source carries the
+ * step and the firing's values, which `raised.<name>` says when the answer
+ * comes back, on whatever machine hears it.
  */
 import { Effect, Result } from "effect";
 import { ARTIFACT_MAX_TITLE_LENGTH } from "@shared/artifact";
 import {
   type Action,
   type ActionRuling,
-  AUTOMATION_CODE_VALUE_MAX_CHARS,
-  AUTOMATION_RAISED_VALUES_MAX,
   type Automation,
   signalTakesForm,
   targetNodeIds,
@@ -26,6 +25,9 @@ import {
   AGENT_SIGNAL_MAX_DETAIL_LENGTH,
   AGENT_SIGNAL_MAX_TEXT_LENGTH,
   normalizeSignalText,
+  SIGNAL_RAISED_VALUE_MAX_LENGTH,
+  SIGNAL_RAISED_VALUES_MAX,
+  SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH,
   type AgentSignalArtifactAttachment,
   type SignalFormRequest,
 } from "@shared/agent-signals";
@@ -42,7 +44,7 @@ export type SignalActionInput = {
   readonly automation: Automation;
   readonly action: SignalAction;
   readonly index: number;
-  /** The firing's values as its signal step says them, kept on the ruling. */
+  /** The firing's values as its signal step says them, carried on the signal. */
   readonly values: Readonly<Record<string, string>>;
   /** The action's text with its values said. */
   readonly resolve: (text: string) => Effect.Effect<string>;
@@ -75,13 +77,24 @@ const formRequestOf = (
     };
   });
 
-/** The values a ruling keeps: each cut to a value's length, at most AUTOMATION_RAISED_VALUES_MAX. */
-const keptValues = (values: Readonly<Record<string, string>>): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(values)
-      .slice(0, AUTOMATION_RAISED_VALUES_MAX)
-      .map(([name, value]) => [name, [...value].slice(0, AUTOMATION_CODE_VALUE_MAX_CHARS).join("")]),
-  );
+/**
+ * The values a signal carries, in the order the firing said them: each cut
+ * to SIGNAL_RAISED_VALUE_MAX_LENGTH, as many as fit the total. One that does
+ * not fit is left off, and its `raised.<name>` stays as written.
+ */
+export const carriedValues = (values: Readonly<Record<string, string>>): Record<string, string> => {
+  const carried: Record<string, string> = {};
+  let total = 0;
+  for (const [name, value] of Object.entries(values).slice(0, SIGNAL_RAISED_VALUES_MAX)) {
+    // Cut by UTF-16 length, the bound the wire checks, without splitting a pair.
+    let cut = value.slice(0, SIGNAL_RAISED_VALUE_MAX_LENGTH);
+    if (cut.length > 0 && /[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+    if (total + cut.length > SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH) continue;
+    carried[name] = cut;
+    total += cut.length;
+  }
+  return carried;
+};
 
 /** Raise the step's signal. Never fails: a refusal is a ruling. */
 export const performSignalAction = (
@@ -95,7 +108,6 @@ export const performSignalAction = (
       ruling: "raised",
       signalId: input.signalId,
       ...(action.id === undefined ? {} : { step: action.id }),
-      values: keptValues(input.values),
     };
     // Raised once: a retried firing finds its signal and is done.
     const existing = yield* signals.get(input.signalId).pipe(Effect.option);
@@ -134,7 +146,13 @@ export const performSignalAction = (
       kind: action.signal,
       text,
       ...(detail === "" ? {} : { detail }),
-      source: { kind: "automation", automationId: automation.automationId, nodeId: automation.nodeId, firingId: input.firingId },
+      source: {
+        kind: "automation",
+        automationId: automation.automationId,
+        nodeId: automation.nodeId,
+        firingId: input.firingId,
+        step: { index, ...(action.id === undefined ? {} : { id: action.id }), raised: carriedValues(input.values) },
+      },
       ...(form === undefined ? {} : { form }),
       ...(attachments.length === 0 ? {} : { attachments }),
     }).pipe(Effect.result);

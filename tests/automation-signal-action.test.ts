@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { performSignalAction, type SignalAction } from "../src/main/junto/automation/signal-action";
+import { carriedValues, performSignalAction, type SignalAction } from "../src/main/junto/automation/signal-action";
 import { AgentSignalNotFound, type AgentSignalRepository, type RaiseAgentSignal } from "../src/main/junto/signals/repository";
 import { type Automation, AutomationId, AutomationVersion } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
@@ -72,7 +72,7 @@ const write: SignalAction = {
   show: [{ kind: "artifact", nodeId: SHELF, artifactId: DOC }],
   form: { kind: "artifact", node: SHELF, labels: ["Daily"] as never, minWords: 500 },
 };
-const RAISED = { index: 0, ruling: "raised", signalId: SIGNAL_ID, step: "pages", values: VALUES } as const;
+const RAISED = { index: 0, ruling: "raised", signalId: SIGNAL_ID, step: "pages" } as const;
 
 describe("an automation's signal step (0.11/07 N2, 0.11/09 H1)", () => {
   it("raises an escalate from the Automations node, with its values said and its form settled, and keeps the firing's values", async () => {
@@ -85,7 +85,8 @@ describe("an automation's signal step (0.11/07 N2, 0.11/09 H1)", () => {
       kind: "escalate",
       text: "Write 500 words, Tuesday",
       detail: "Morning pages",
-      source: { kind: "automation", automationId: automation.automationId, nodeId: NODE, firingId: FIRING_ID },
+      // The step and the firing's values ride the signal, for the answer on any machine.
+      source: { kind: "automation", automationId: automation.automationId, nodeId: NODE, firingId: FIRING_ID, step: { index: 0, id: "pages", raised: VALUES } },
       // Titled from the signal when the form names none; labels fold as a seat raise folds them.
       form: { kind: "artifact", nodeId: SHELF, title: "Write 500 words, Tuesday", labels: ["daily"], minWords: 500 },
       attachments: [{ kind: "artifact", nodeId: SHELF, artifactId: DOC }],
@@ -176,5 +177,14 @@ describe("an automation's signal step (0.11/07 N2, 0.11/09 H1)", () => {
     }));
     expect(raised[0]!.text.length).toBe(280);
     expect((raised[0]!.form as { title: string }).title.length).toBe(200);
+  });
+
+  it("carries the firing's values cut to the signal's bounds, leaving off what does not fit", () => {
+    const long = "x".repeat(2_500);
+    const carried = carriedValues({ "fired.at": "2026-09-22T09:00:00.000Z", "code.a": long, ...Object.fromEntries(Array.from({ length: 20 }, (_, k) => [`code.f${k}`, long])) });
+    expect(carried["fired.at"]).toBe("2026-09-22T09:00:00.000Z");
+    expect(carried["code.a"]).toHaveLength(2_000);
+    expect(Object.values(carried).reduce((total, value) => total + value.length, 0)).toBeLessThanOrEqual(32_000);
+    expect(Object.keys(carried)).toHaveLength(16);
   });
 });

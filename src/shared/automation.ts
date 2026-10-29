@@ -97,8 +97,6 @@ export const AUTOMATION_STEPS_MAX = 16;
 export const AUTOMATION_SIGNAL_SHOWS_MAX = 8;
 /** The most words a signal's artifact reply may be asked for. */
 export const AUTOMATION_SIGNAL_MIN_WORDS_MAX = 100_000;
-/** The values a raised signal keeps of its firing, for the automation its answer fires (0.11/09). */
-export const AUTOMATION_RAISED_VALUES_MAX = 96;
 /** A region secret by the variable name it declares, as a process environment takes it. */
 const SecretName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)));
 
@@ -526,8 +524,9 @@ const watchNodes = (watch: Watch | Condition): ReadonlyArray<NodeId> => {
       return ["kind" in watch.artifact ? watch.artifact.nodeId : watch.artifact.node];
     case "signal":
       return watch.from === undefined ? [] : [watch.from.nodeId];
+    // Its own node, which reach never lists and never needs to (`answeredWatchNodeRefusal`).
     case "answered":
-      return [watch.automation.node];
+      return [];
     default:
       return watch satisfies never;
   }
@@ -604,6 +603,30 @@ export const ACTION_KIND_OFF: Readonly<Partial<Record<ActionKind, Refusal>>> = {
   },
 };
 
+/**
+ * An answered watch listens to an automation on its own Automations node:
+ * reach lists seats and resources, never an Automations node, so another
+ * node's automation is not one it may hear.
+ */
+export const answeredWatchNodeRefusal = (automation: Pick<Automation, "nodeId" | "trigger">): Refusal | undefined =>
+  automation.trigger.kind === "change" && automation.trigger.on.kind === "answered" && automation.trigger.on.automation.node !== automation.nodeId
+    ? {
+        reason: "invalid_input",
+        message: "an answered watch listens to an automation on its own Automations node",
+        next_step: "Make this automation on the node that holds the one raising the signal",
+      }
+    : undefined;
+
+/** An answered watch rides the signal action's gate: with automation signals off, nothing it hears is raised. */
+export const answeredWatchRefusal = (trigger: Trigger): Refusal | undefined =>
+  AUTOMATION_SIGNALS_ENABLED || trigger.kind !== "change" || trigger.on.kind !== "answered"
+    ? undefined
+    : {
+        reason: "not_available",
+        message: "answers to automation signals are off in this build",
+        next_step: "Pick another trigger; a build with automation signals on fires it",
+      };
+
 /** The build's refusal of an action kind it does not carry, if it does not. */
 export const actionKindRefusal = (kind: ActionKind): Refusal | undefined =>
   actionKindInBuild(kind) ? undefined : ACTION_KIND_OFF[kind];
@@ -672,6 +695,25 @@ export const stepIdRefusal = (definition: Pick<AutomationDefinition, "then">): R
     seen.add(action.id);
   }
   return undefined;
+};
+
+/**
+ * The definition with an id on every signal step that sends its answer
+ * somewhere, minted at save when it has none (0.11/09): the delivery finds
+ * its step by id, so a reorder never sends an answer to another step. The
+ * id is `step-<n>` by its place, unless another step holds that.
+ */
+export const withStepIds = <D extends Pick<AutomationDefinition, "then">>(definition: D): D => {
+  if (!definition.then.some((action) => action.kind === "signal" && action.answerTo !== undefined && action.id === undefined)) return definition;
+  const taken = new Set(definition.then.flatMap((action) => (action.kind === "signal" && action.id !== undefined ? [action.id] : [])));
+  const then = definition.then.map((action, index) => {
+    if (action.kind !== "signal" || action.answerTo === undefined || action.id !== undefined) return action;
+    let id = `step-${index + 1}`;
+    for (let n = 2; taken.has(id); n += 1) id = `step-${index + 1}-${n}`;
+    taken.add(id);
+    return { ...action, id };
+  });
+  return { ...definition, then };
 };
 
 /** The time zone a date format writes in: its schedule's, or undefined for the machine's own. */
@@ -940,14 +982,8 @@ export const ActionRuling = Schema.Union([
     index: StepIndex,
     ruling: Schema.Literal("raised"),
     signalId: Text(64),
-    /** The step's id when it has one, so an answered watch knows the step after an edit moved it. */
+    /** The step's id when it has one. The signal itself carries it, its index and the firing's values (0.11/09). */
     step: Schema.optionalKey(StepId),
-    /** The firing's values as its signal step said them, kept for `raised.<name>` when the answer comes back (0.11/09). */
-    values: Schema.optionalKey(
-      Schema.Record(Text(64), Schema.String.pipe(Schema.check(Schema.isMaxLength(AUTOMATION_CODE_VALUE_MAX_CHARS)))).pipe(
-        Schema.check(Schema.makeFilter((values) => Object.keys(values).length <= AUTOMATION_RAISED_VALUES_MAX)),
-      ),
-    ),
   }),
   Schema.Struct({
     index: StepIndex,

@@ -16,6 +16,7 @@ import {
   ruleAutomationCommand,
   type AutomationEnv,
 } from "../src/shared/automation-domain";
+import { AUTOMATION_SIGNALS_ENABLED } from "../src/shared/features";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import type { ResourceActor, ResourceCommand } from "../src/shared/resource-command";
 import { OpId } from "../src/shared/work-ids";
@@ -207,5 +208,46 @@ describe("the machine an automation runs on", () => {
     // An edit after the move keeps the machine.
     const edited = ruled(moved, { kind: "edit", baseVersion: automation!.version, definition: definition(A, { name: "Later" }) });
     expect(automationsOnNode(edited, NODE)[0]).toMatchObject({ machine: "mini", version: 2, name: "Later" });
+  });
+});
+
+describe.runIf(AUTOMATION_SIGNALS_ENABLED)("signal steps that send their answer somewhere (0.11/09 H1)", () => {
+  const LISTENER = Schema.decodeUnknownSync(AutomationId)("01M5ESKJFC1A88R1MH1NEZWJ2R");
+  const reach: AutomationEnv = { ...env, targetsOf: () => new Set([A, SIBLING, NODE]), rulingMachine: "macbook" as never };
+  const rules = (state: AutomationState, op: AutomationOp, itemId: AutomationId) =>
+    ruleAutomationCommand(state, command(op, operator, itemId), 1_000, reach);
+  const ask = (id?: string) =>
+    ({ kind: "signal", ...(id === undefined ? {} : { id }), signal: "escalate", title: "Review?", answerTo: { kind: "seat", to: { kind: "seat", nodeId: A } } }) as const;
+
+  it("are named at save when they have no id, by their place, never taking another step's", () => {
+    const verdict = rules(emptyAutomationState(), {
+      kind: "create",
+      automationId: ID,
+      enabled: true,
+      definition: definition(A, { when: [], then: [ask(), { kind: "signal", signal: "notice", title: "Read" }, ask("step-1"), ask()] }),
+    }, ID);
+    expect(verdict.kind === "apply" && verdict.facts[0]!.fact === "automation.created" && verdict.facts[0]!.automation.then.map((one) => ("id" in one ? one.id : undefined)))
+      .toEqual(["step-1-2", undefined, "step-1", "step-4"]);
+    const state = verdict.kind === "apply" ? verdict.facts.reduce<AutomationState>((next, fact) => applyAutomationFact(next, fact), emptyAutomationState()) : emptyAutomationState();
+    const edited = rules(state, { kind: "edit", baseVersion: AutomationVersion.make(1), definition: definition(A, { when: [], then: [ask()] }) }, ID);
+    expect(edited).toMatchObject({ kind: "apply", facts: [{ fact: "automation.edited", definition: { then: [{ id: "step-1" }] } }] });
+  });
+
+  it("take a listener on any machine: the step and its values ride the signal", () => {
+    const raiser = rules(emptyAutomationState(), {
+      kind: "create", automationId: ID, enabled: true, machine: "mini" as never, definition: definition(A, { when: [], then: [ask("ask")] }),
+    }, ID);
+    const state = raiser.kind === "apply" ? raiser.facts.reduce<AutomationState>((next, fact) => applyAutomationFact(next, fact), emptyAutomationState()) : emptyAutomationState();
+    expect(rules(state, {
+      kind: "create",
+      automationId: LISTENER,
+      enabled: true,
+      definition: definition(A, {
+        name: "Write review",
+        when: [],
+        trigger: { kind: "change", on: { kind: "answered", automation: { node: NODE, automationId: ID }, step: "ask" } },
+        then: [{ kind: "mail", to: { kind: "seat", nodeId: A }, text: "Review {{raised.fired.at|date:YYYY-MM-DD}}" }],
+      }),
+    }, LISTENER)).toMatchObject({ kind: "apply", facts: [{ automation: { machine: "macbook" } }] });
   });
 });

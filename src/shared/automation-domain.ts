@@ -31,6 +31,9 @@ import {
   actionKindRefusal,
   actionRefusal,
   firedTargetRefusal,
+  answeredWatchRefusal,
+  answeredWatchNodeRefusal,
+  withStepIds,
   valueRefusal,
 } from "./automation";
 import { NodeId } from "./physics/schema";
@@ -121,6 +124,8 @@ const definitionRefusal = (
   if (triggerRefusal(automation.trigger) !== undefined) {
     return { reason: "not_available", message: "webhook triggers are not available in this version" };
   }
+  const answered = answeredWatchRefusal(automation.trigger) ?? answeredWatchNodeRefusal(automation);
+  if (answered !== undefined) return answered;
   for (const action of automation.then) {
     const refused = actionKindRefusal(action.kind) ?? actionRefusal(action);
     if (refused !== undefined) return refused;
@@ -227,6 +232,8 @@ export const ruleAutomationCommand = (
       return refuse({ reason: "invalid_input", message: `automation ${op.automationId} already exists` });
     }
     const codeRuling = codeRulingAfter(undefined, op.definition.then, author, env.rulingInstallation);
+    // A step that sends its answer somewhere is named, so its delivery finds it after a reorder.
+    const definition = withStepIds(op.definition);
     const automation: Automation = {
       automationId: op.automationId,
       nodeId: target.nodeId,
@@ -235,7 +242,7 @@ export const ruleAutomationCommand = (
       enabled: op.enabled,
       ...((op.machine ?? env.rulingMachine) === undefined ? {} : { machine: op.machine ?? env.rulingMachine }),
       ...(codeRuling === undefined ? {} : { codeRuling }),
-      ...op.definition,
+      ...definition,
     };
     const refusal = definitionRefusal(automation, targetsOf);
     return refusal === undefined ? apply({ fact: "automation.created", automation, at }) : refuse(refusal);
@@ -267,14 +274,15 @@ export const ruleAutomationCommand = (
       // The creator stays the author, and a seat's edit must also fit its own
       // targets: the definition sits inside both, so an edit widens no one.
       const codeRuling = codeRulingAfter(entry.automation, op.definition.then, author, env.rulingInstallation);
-      const edited = replaced(entry.automation, op.definition, AutomationVersion.make(head + 1), codeRuling);
+      const definition = withStepIds(op.definition);
+      const edited = replaced(entry.automation, definition, AutomationVersion.make(head + 1), codeRuling);
       const refusal = definitionRefusal(edited, targetsOf, author);
       if (refusal !== undefined) return refuse(refusal);
       return apply({
         fact: "automation.edited",
         automationId,
         version: edited.version,
-        definition: op.definition,
+        definition,
         ...(codeRuling === undefined ? {} : { codeRuling }),
         at,
       });
