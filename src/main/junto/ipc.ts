@@ -692,11 +692,9 @@ export const registerJuntoIpc = (): void => {
             path: async () => (await resolvedSpawnEnv()).PATH,
           }),
         ),
-      ).catch((error: unknown) => ({
-        ok: false as const,
-        reason: "store-failed" as const,
-        message: error instanceof Error ? error.message : "the secret could not be set",
-      }));
+      // Never its text: a thrown message can hold anything the failure saw, and the
+      // pane shows a refusal as a sentence. One sentence, no value, no detail.
+      ).catch(() => ({ ok: false as const, reason: "store-failed" as const, message: "The secret was not set." }));
       if (result.ok && result.signal !== undefined) {
         raisedHands.note(result.signal);
         broadcast(IPC_CHANNELS.agentSignal, result.signal);
