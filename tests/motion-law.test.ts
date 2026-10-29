@@ -120,6 +120,15 @@ describe("motion law: rings move on the compositor", () => {
     expect(source).toMatch(/if \(on && !visible\.has\(el\)\) \{\s*syncPhase\(el\);/);
   });
 
+  // A ring clipped to nothing has no compositor layer, so Blink ticks it on the
+  // main thread and re-layerizes the whole board every frame (canvas-scale lab,
+  // 2026-10-29: the attached terminal's screen-reader status, 53 full updates/s).
+  it("no ring sits in a box that is never drawn", () => {
+    const source = read("src/renderer/components/terminal/TerminalSurface.tsx");
+    expect(source).toMatch(/attached \? "sr-only" : ""/);
+    expect(source).toMatch(/\{attached \? null : \(\s*<ActivityMark/);
+  });
+
   it("the motion law names its three exceptions", () => {
     const law = read("AGENTS.md");
     expect(law).toMatch(/hidden\s+window/);

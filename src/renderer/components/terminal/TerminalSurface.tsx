@@ -2233,12 +2233,18 @@ export function TerminalSurface({
                 />
               ) : (
                 <>
-                  <ActivityMark
-                    mode={attached ? "static" : "wave"}
-                    tone={processDead || processStopping ? "crimson" : "amber"}
-                    size="inline"
-                    label={status}
-                  />
+                  {/* Attached, the status is for screen readers only and is never
+                      drawn, so it holds no ring: a ring clipped to nothing cannot
+                      run on the compositor, and ticking it on the main thread
+                      re-layerized the whole board every frame. */}
+                  {attached ? null : (
+                    <ActivityMark
+                      mode="wave"
+                      tone={processDead || processStopping ? "crimson" : "amber"}
+                      size="inline"
+                      label={status}
+                    />
+                  )}
                   <span>{status}</span>
                 </>
               )}
