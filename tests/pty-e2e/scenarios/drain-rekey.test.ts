@@ -1,3 +1,4 @@
+// vitest-lane: alone
 /**
  * A session detached from its seat to drain keeps its grid and its reading.
  *
