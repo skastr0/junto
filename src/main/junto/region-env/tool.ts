@@ -28,6 +28,11 @@ export type ToolCall = {
   /** Process-plane labels for this call. Absent: an environment source. */
   readonly source?: string;
   readonly purpose?: string;
+  /**
+   * Bytes for the tool's stdin, then end of input: how a value reaches a tool
+   * that must not see it in argv or its environment. Absent: no input.
+   */
+  readonly stdin?: string;
 };
 
 export type ToolResult =
@@ -136,8 +141,8 @@ export const makeToolRunner = (
           ? { kind: "exit", code: exit.code, stdout: output, stderr: Buffer.concat(chunks.stderr).toString("utf8") }
           : { kind: "failed", why: "signal", ...(exit.signal ? { signal: String(exit.signal) } : {}) });
     }, () => finish({ kind: "failed" }));
-    // No input is typed to these tools, even when one waits for stdin.
-    io.stdin.end();
+    // Only what the call hands over is written; nothing is typed to a tool that waits for more.
+    io.stdin.end(call.stdin);
   });
 
 export const runTool: ToolRunner = makeToolRunner(appProcessPlane);
