@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import { AutomationVersion, DEFAULT_AUTOMATION_LIMITS, formatProblem, VALUE_FORMATS, type Automation, type AutomationId } from "../src/shared/automation";
+import { AUTOMATION_SIGNALS_ENABLED } from "../src/shared/features";
 import { asNodeId } from "../src/shared/physics/schema";
 import { AutomationEditor } from "../src/renderer/components/automations/AutomationEditor";
 import {
@@ -131,7 +132,7 @@ describe("answered back, the draft", () => {
   it("an answered trigger names the automation it hears, in the list's words", () => {
     const named = (raising: { readonly node: string; readonly automationId: string }) => (raising.automationId === raisingId ? "Daily review" : undefined);
     expect(triggerWords(onAnswered("review"), nameOf, named)).toBe("when a signal from Daily review is answered");
-    expect(triggerWords(onAnswered(undefined, "escalate"), nameOf, named)).toBe("when an escalate from Daily review is answered");
+    expect(triggerWords(onAnswered(undefined, "escalate"), nameOf, named)).toBe("when an escalation from Daily review is answered");
     expect(triggerWords(onAnswered(undefined, "blocked"), nameOf)).toBe("when a blocked signal from another automation is answered");
   });
 
@@ -267,7 +268,13 @@ describe("answered back, the form", () => {
     expect(button("When answered…")).toBeUndefined();
   });
 
-  it("When answered waits for a draft with nothing to fix, then hands the step up", async () => {
+  // Off with automation signals: the save refuses an answered watch, so nothing offers one.
+  it.runIf(!AUTOMATION_SIGNALS_ENABLED)("When answered is not offered while automation signals are off", async () => {
+    await render(draftWith(schedule, [{ kind: "signal", signal: "escalate", title: "Review" }]), { onWhenAnswered: () => undefined });
+    expect(button("When answered…")).toBeUndefined();
+  });
+
+  it.runIf(AUTOMATION_SIGNALS_ENABLED)("When answered waits for a draft with nothing to fix, then hands the step up", async () => {
     const onWhenAnswered = vi.fn();
     await render(draftWith(schedule, [{ kind: "signal", signal: "escalate", title: " " }]), { onWhenAnswered });
     await act(async () => button("When answered…")!.click());
@@ -282,7 +289,7 @@ describe("answered back, the form", () => {
     expect(onWhenAnswered).toHaveBeenCalledWith(1);
   });
 
-  it("the two show as linked: the step names what runs on its answer, the trigger opens what raised it", async () => {
+  it.runIf(AUTOMATION_SIGNALS_ENABLED)("the two show as linked: the step names what runs on its answer, the trigger opens what raised it", async () => {
     const raising = draftWith(schedule, [{ kind: "signal", id: "review", signal: "escalate", title: "Review the draft" }]);
     const answering = draftWith(onAnswered("review"), [{ kind: "mail", to: seat, text: "{{answer.text}}" }], answeringId);
     const all = [stored(raising, { name: "Daily review" }), stored(answering, { name: "File the review" })];

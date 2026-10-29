@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_AUTOMATION_LIMITS, type Automation, type AutomationDefinition } from "@shared/automation";
+import { AUTOMATION_SIGNALS_ENABLED } from "@shared/features";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import { AutomationsPane } from "../src/renderer/components/automations/AutomationsPane";
@@ -66,7 +67,7 @@ afterEach(() => {
   host.remove();
 });
 
-describe("automations pane, answered back (0.11/09 H3)", () => {
+describe.runIf(AUTOMATION_SIGNALS_ENABLED)("automations pane, answered back (0.11/09 H3)", () => {
   it("When answered saves the step's new id, then opens a new automation on this node whose trigger names it", async () => {
     await opened();
     await act(async () => button("When answered…").click());

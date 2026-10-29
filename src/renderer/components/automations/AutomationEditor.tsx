@@ -25,6 +25,7 @@ import { automationTargets } from "@shared/region-reach";
 import {
   ACTION_LABEL,
   ANSWER_TO_KINDS,
+  ANSWERED_KIND_WORDS,
   ARTIFACT_EVENT_WORD,
   ARTIFACT_EVENTS,
   SEAT_BECOMES,
@@ -414,12 +415,6 @@ const stepTitle = (title: string): string => {
   return [...flat].length > 48 ? `${[...flat].slice(0, 47).join("").trimEnd()}…` : flat;
 };
 
-const ANSWERED_KIND_WORD: Readonly<Record<(typeof SIGNALS)[number], string>> = {
-  escalate: "that escalates",
-  blocked: "that says blocked",
-  feedback: "that asks for review",
-};
-
 /**
  * An answered watch as the rest of its sentence: "from Daily review, the
  * step "Review the draft", of any kind, is answered". It is made by a signal
@@ -486,7 +481,7 @@ function AnsweredFields({
         dense
         aria-label="Of which kind"
         value={watch.signal ?? ANY}
-        options={[{ value: ANY, label: "of any kind" }, ...SIGNALS.map((kind) => ({ value: kind, label: ANSWERED_KIND_WORD[kind] }))]}
+        options={[{ value: ANY, label: "of any kind" }, ...SIGNALS.map((kind) => ({ value: kind, label: `only ${ANSWERED_KIND_WORDS[kind]}` }))]}
         onChange={(value) => {
           const { signal: _old, ...rest } = watch;
           onChange(value === ANY ? rest : { ...rest, signal: value as (typeof SIGNALS)[number] });
@@ -1162,10 +1157,10 @@ function ActionFields({
 }
 
 const SIGNAL_RAISE_WORD: Readonly<Record<SignalRaise, string>> = {
-  notice: "A notice, only to read",
+  notice: "Notice, only to read",
   escalate: "Escalate, a question for you",
   blocked: "Blocked, waiting on you",
-  feedback: "Feedback, asks for your review",
+  feedback: "Feedback, for your review",
 };
 
 const NO_ANSWER_TO = "none";

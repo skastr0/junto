@@ -1111,9 +1111,9 @@ export type NameOf = (ref: TargetRef | NodeScope) => string;
 /** An automation an answered watch names, by its name, or undefined when this window does not hold it. */
 export type AutomationNameOf = (automation: RaisingAutomation) => string | undefined;
 
-/** A signal kind as the subject of "is answered": "an escalate", "a blocked signal". */
-const ANSWERED_KIND_WORDS: Readonly<Record<WatchedSignal, string>> = {
-  escalate: "an escalate",
+/** A signal kind as the subject of "is answered", in the list's sentence and the trigger's picker alike: "an escalation". */
+export const ANSWERED_KIND_WORDS: Readonly<Record<WatchedSignal, string>> = {
+  escalate: "an escalation",
   blocked: "a blocked signal",
   feedback: "a feedback signal",
 };
@@ -1242,8 +1242,8 @@ export type FormatChoice = { readonly format: string; readonly words: string };
  * written in the automation's time zone.
  */
 export const FORMAT_CHOICES: ReadonlyArray<FormatChoice> = [
-  { format: "date:YYYY-MM-DD", words: "a time as its day, 2026-10-29" },
-  { format: "date:YYYY-MM-DD HH:mm", words: "a time to the minute, 2026-10-29 09:30" },
+  { format: "date:YYYY-MM-DD", words: "a time as its day, 2027-03-04" },
+  { format: "date:YYYY-MM-DD HH:mm", words: "a time to the minute, 2027-03-04 09:30" },
   { format: "date:HH:mm", words: "a time of day, 09:30" },
   { format: "slug", words: "lower case, dashes between words" },
   { format: "lower", words: "lower case" },
