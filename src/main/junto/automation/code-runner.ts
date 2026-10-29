@@ -34,7 +34,7 @@
  * The child runs as this OS account. It is not a sandbox.
  */
 import { createHash } from "node:crypto";
-import { mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
@@ -234,6 +234,13 @@ type ProcessPlan = {
   readonly env: Record<string, string>;
   readonly stdin: string;
   readonly answerFile: string;
+  /**
+   * The answer file, held open by this process from before the spawn. The
+   * launcher opens fd 3 on the same file before the step runs, and the bound
+   * and the read go through this handle, never the path: a step that swaps
+   * the path for a FIFO or a link cannot stall or redirect the read.
+   */
+  readonly answer: FileHandle;
   readonly timeoutMs: number;
   readonly maxOutputBytes: number;
 };
@@ -301,7 +308,7 @@ const runProcess = (plan: ProcessPlan, abort: AbortSignal): Promise<ProcessEnd> 
       if (settled || exited === undefined) return;
       const end = exited;
       settle();
-      void readAnswer(plan.answerFile, plan.maxOutputBytes).then((read) => resolve({
+      void readAnswer(plan.answer, plan.maxOutputBytes).then((read) => resolve({
         exitCode: end.code,
         signal: end.signal,
         answer: read.answer,
@@ -323,7 +330,7 @@ const runProcess = (plan: ProcessPlan, abort: AbortSignal): Promise<ProcessEnd> 
 
     // The answer is bounded while the step runs, not only after: a runaway writer is ended.
     const measure = setInterval(() => {
-      void stat(plan.answerFile).then((file) => {
+      void plan.answer.stat().then((file) => {
         if (tooLarge || exited !== undefined || file.size <= plan.maxOutputBytes) return;
         tooLarge = true;
         kill("automation code step answer past its bound");
@@ -351,18 +358,17 @@ const runProcess = (plan: ProcessPlan, abort: AbortSignal): Promise<ProcessEnd> 
   });
 
 /** The answer file as the step left it: at most one byte past the bound is read. */
-const readAnswer = async (file: string, maxOutputBytes: number): Promise<{ readonly answer: Buffer; readonly tooLarge: boolean }> => {
-  const handle = await open(file, "r").catch(() => undefined);
-  if (handle === undefined) return { answer: Buffer.alloc(0), tooLarge: false };
-  try {
-    const buffer = Buffer.alloc(maxOutputBytes + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    return bytesRead > maxOutputBytes
-      ? { answer: Buffer.alloc(0), tooLarge: true }
-      : { answer: buffer.subarray(0, bytesRead), tooLarge: false };
-  } finally {
-    await handle.close();
+const readAnswer = async (handle: FileHandle, maxOutputBytes: number): Promise<{ readonly answer: Buffer; readonly tooLarge: boolean }> => {
+  const buffer = Buffer.alloc(maxOutputBytes + 1);
+  let read = 0;
+  while (read < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, read, buffer.length - read, read);
+    if (bytesRead === 0) break;
+    read += bytesRead;
   }
+  return read > maxOutputBytes
+    ? { answer: Buffer.alloc(0), tooLarge: true }
+    : { answer: buffer.subarray(0, read), tooLarge: false };
 };
 
 /**
@@ -504,17 +510,23 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
             : [file];
           const answerFile = join(dir, "answer");
           await writeFile(answerFile, "", { mode: 0o600 });
-          return runProcess({
-            shell,
-            command,
-            args,
-            cwd: dir,
-            env,
-            stdin: JSON.stringify(request.input),
-            answerFile,
-            timeoutMs,
-            maxOutputBytes,
-          }, signal);
+          const answer = await open(answerFile, "r");
+          try {
+            return await runProcess({
+              shell,
+              command,
+              args,
+              cwd: dir,
+              env,
+              stdin: JSON.stringify(request.input),
+              answerFile,
+              answer,
+              timeoutMs,
+              maxOutputBytes,
+            }, signal);
+          } finally {
+            await answer.close();
+          }
         },
         catch: spawnFailed("The step could not be started"),
       }),

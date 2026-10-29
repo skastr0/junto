@@ -288,6 +288,15 @@ describe("admission", () => {
     return Exit.isFailure(exit) ? JSON.parse(JSON.stringify(exit.cause)) : undefined;
   };
 
+  it("reads the answer it wrote even when the step swaps the path for a FIFO, and never stalls on it", async () => {
+    const result = await run(request("shell", [
+      `printf '{"kind":"continue","output":{"swapped":true}}\\n' >&3`,
+      "rm -f answer && mkfifo answer",
+      "exit 0",
+    ].join("\n")));
+    expect(result).toMatchObject({ kind: "continue", output: { swapped: true } });
+  }, 30_000);
+
   it("refuses bytes that do not match the digest", async () => {
     const req = request("shell", "exit 0");
     sources.set(req.source.sha256, new TextEncoder().encode("exit 1"));

@@ -112,6 +112,10 @@ test.describe("Files surfaces, bright and dark (F1 to F7)", () => {
         await page.keyboard.press("Meta+p");
         await expect(page.getByTestId("quick-open")).toBeVisible();
         found.push(...(await scan(page, `${theme}-quick-open`, '[data-testid="quick-open"]')));
+        // The list with results, not only the empty palette: a query the fixture answers.
+        await page.getByTestId("quick-open-input").fill("README");
+        await expect(page.locator('[role="option"]').first()).toBeVisible({ timeout: 10_000 });
+        found.push(...(await scan(page, `${theme}-quick-open-results`, '[data-testid="quick-open"]')));
         await page.keyboard.press("Escape");
         await expect(page.getByTestId("quick-open")).toHaveCount(0);
 
