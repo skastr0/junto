@@ -187,6 +187,27 @@ export const resourcesSeatReaches = (canvas: ReachCanvas, seatId: NodeId): Reado
   return [...reached, ...tasks].sort(byId);
 };
 
+/**
+ * Nodes a seat placed in this region would reach, the region's own, those of
+ * regions below and above it, and the root's, whatever `admits`. Empty when
+ * the id names no region. Sorted by id.
+ */
+export const inReachOfRegion = (
+  canvas: ReachCanvas,
+  regionId: NodeId,
+  admits: (kind: NodeKind) => boolean,
+): ReadonlyArray<ReachNode> => {
+  if (canvas.nodes.get(regionId)?.kind !== "region") return [];
+  const regions = regionsOf(canvas);
+  const at = mint({ _tag: "Regions", innermost: [regionId as RegionId] });
+  const found: Array<ReachNode> = [];
+  for (const node of canvas.nodes.values()) {
+    if (node.id === regionId || !admits(node.kind)) continue;
+    if (onOneLine(canvas, at, positionsIn(regions, node))) found.push(node);
+  }
+  return found.sort(byId);
+};
+
 /** Seats that reach a node: reviewers, mention candidates, recipients. Sorted by id. */
 export const seatsInReach = (canvas: ReachCanvas, nodeId: NodeId): ReadonlyArray<ReachNode> =>
   inReachOf(canvas, nodeId, isSeatKind);
