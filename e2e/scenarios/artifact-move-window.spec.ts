@@ -104,6 +104,11 @@ test("artifact move window: M, the reach line, several rows, the row menu, the h
     await page.keyboard.press("Shift+ArrowUp");
     await expect(page.locator(".artifacts-picked")).toHaveText("2 picked. M or Move to moves them together.");
     await expect(page.locator('.artifacts-list__item[data-picked="true"]')).toHaveCount(2);
+    // At the last row Shift and Down has nowhere to go: the picks and the keyboard stay.
+    await row(page, "Beta").focus();
+    await page.keyboard.press("Shift+ArrowDown");
+    await expect(row(page, "Beta")).toBeFocused();
+    await expect(page.locator(".artifacts-picked")).toHaveText("2 picked. M or Move to moves them together.");
     await shoot(page, "2-two-picked");
     await page.keyboard.press("Shift+F10");
     const menu = page.getByRole("menu");
@@ -116,6 +121,8 @@ test("artifact move window: M, the reach line, several rows, the row menu, the h
     await page.keyboard.press("Enter");
     await expect(two).toBeHidden();
     await expect(page.locator(".artifacts-moved")).toHaveText("Moved 2 artifacts to Drafts.");
+    // The keyboard waits on the row left, not on one that went.
+    await expect(row(page, "Delta")).toBeFocused();
     expect(await titlesIn(page, "drafts")).toEqual(["Beta", "Gamma"]);
 
     // The row says it has a menu; Tab closes it in one press and goes on past the row.
@@ -150,6 +157,10 @@ test("artifact move window: M, the reach line, several rows, the row menu, the h
     await page.keyboard.press("Enter");
     await expect(header).toBeHidden();
     expect(await titlesIn(page, "specs")).toEqual([]);
+    // Every row gone: the keyboard is in the pane that says so, not dropped on the page.
+    await expect
+      .poll(() => page.evaluate(() => (document.activeElement === document.body ? "body" : (document.activeElement?.closest(".two-pane") ? "pane" : document.activeElement?.outerHTML.slice(0, 160)))))
+      .toBe("pane");
     await page.keyboard.press("Escape");
     await page.locator('.react-flow__node[data-id="shelf"]').dblclick();
     await row(page, "Alpha").click();
