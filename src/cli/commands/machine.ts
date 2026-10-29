@@ -87,18 +87,22 @@ const readTokenStdin = Effect.suspend(() => process.stdin.isTTY
  * On the window's machine: one machine's 1Password service-account token,
  * from stdin, to that machine (or this one). The window's machine gets the
  * write token, every other machine a read-only one; a pasted token's scope
- * is shown unverified.
+ * is shown unverified. With --mint nothing is read: this machine's Junto
+ * mints the token under the operator's own 1Password session, with the one
+ * fixed argv, and its scope is shown verified.
  */
 const vaultToken = Command.make("vault-token", {
   name: Argument.string("name").pipe(Argument.withDescription("Machine name: this machine (the write token) or a set-up one (a read token)")),
   vault: Flag.string("vault").pipe(Flag.withDescription("The 1Password vault the token is for")),
-}, ({ name, vault }) => executeJsonCommand("machine vault-token", Effect.gen(function* () {
+  mint: Flag.boolean("mint").pipe(Flag.withDefault(false), Flag.withDescription("Mint the token under your own 1Password session instead of reading one from stdin")),
+}, ({ name, vault, mint }) => executeJsonCommand("machine vault-token", Effect.gen(function* () {
   yield* requireOwnerCommand;
   yield* vaultOff;
-  const text = (yield* readTokenStdin).trim();
-  const token = yield* Schema.decodeUnknownEffect(VaultTokenSecret)(text).pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "That is not a 1Password service account token" })));
   const checkedVault = yield* Schema.decodeUnknownEffect(VaultName)(vault).pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "A vault name holds no : , / or control character" })));
-  const args = yield* Schema.decodeUnknownEffect(MachineVaultTokenInput)({ name, vault: checkedVault, token }).pipe(Effect.mapError(() => new VaultTokenNotPlaced({ message: "The machine name is not one Junto knows" })));
+  const token = mint ? undefined : yield* readTokenStdin.pipe(Effect.flatMap((text) => Schema.decodeUnknownEffect(VaultTokenSecret)(text.trim()).pipe(
+    Effect.mapError(() => new VaultTokenNotPlaced({ message: "That is not a 1Password service account token" })))));
+  const args = yield* Schema.decodeUnknownEffect(MachineVaultTokenInput)({ name, vault: checkedVault, ...(token === undefined ? { mint: true } : { token }) }).pipe(
+    Effect.mapError(() => new VaultTokenNotPlaced({ message: "The machine name is not one Junto knows" })));
   const socket = yield* OperatorSocket;
   return yield* socket.call("machine.vault-token", args, 2 * 60_000);
 }))).pipe(Command.withDescription("Give a machine its 1Password service-account token, read from stdin"));
@@ -118,7 +122,8 @@ const vaultTokenLocal = Command.make("vault-token-local", {}, () => executeJsonC
   });
   yield* Effect.tryPromise({ try: () => writeVaultToken(resolveJuntoHome(), delivery.token), catch: () => new VaultTokenNotPlaced({ message: "The vault token could not be written in this Junto home" }) });
   const socket = yield* OperatorSocket;
-  return yield* socket.call("machine.vault-record", { vault: delivery.vault, permissions: delivery.permissions, origin: "pasted" });
+  return yield* socket.call("machine.vault-record", { vault: delivery.vault, permissions: delivery.permissions,
+    ...(delivery.accountName === undefined ? { origin: "pasted" as const } : { origin: "minted" as const, accountName: delivery.accountName }) });
 }))).pipe(Command.withDescription("Write this machine's vault token from stdin (run by the window's machine over SSH)"));
 
 /** A send and a Boat machine made from nothing take minutes; a wake or a key, a few. */

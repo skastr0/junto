@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as Command from "effect/unstable/process/ChildProcess";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const flags = vi.hoisted(() => ({ vault: true }));
 vi.mock("@shared/features", async (original) => ({
@@ -26,12 +26,18 @@ import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 import { SshTransport, type SshTransportShape } from "../src/main/junto/ssh/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeVaultTokens } from "../src/main/junto/vault/repository";
-import { makeVaultSetup } from "../src/main/junto/vault/setup";
+import { makeVaultSetup, mintArgv } from "../src/main/junto/vault/setup";
 import { readVaultToken, vaultDir } from "../src/main/junto/vault/token-file";
 import { InstallationId } from "../src/shared/installation-id";
 import { RemoteHost } from "../src/shared/remote-hosts";
 
 const TOKEN = "ops_test-only-pasted-vault-token-0123456789abcdef";
+const MINTED = "ops_test-only-minted-vault-token-0123456789abcdef";
+/** The app's environment: the operator's session lives here, and so may stray credentials. */
+const ambient = {
+  PATH: "/usr/bin", HOME: "/Users/operator", USER: "operator",
+  OP_SERVICE_ACCOUNT_TOKEN: "ops_stray-ambient-service-account-token-000000", OP_CONNECT_HOST: "https://connect.example.invalid", OP_CONNECT_TOKEN: "fake-connect",
+};
 const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-vault-setup-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
 const mini = Schema.decodeUnknownSync(RemoteHost)({
   id: "mini", label: "mini", isThisMachine: false, sshEndpoint: "ops@mini.example", capabilities: ["terminal"],
@@ -79,7 +85,7 @@ const setup = async (tool: (call: ToolCall) => ToolResult = answer) => {
   await runtime.runPromise(Effect.flatMap(MachineRepository, (machines) =>
     machines.pinPeer({ machineName: "mini", installationId: Schema.decodeUnknownSync(InstallationId)("mini-installation") })));
   const vault = await runtime.runPromise(makeVaultSetup({
-    home, userHome: home, path: async () => "/usr/bin",
+    home, userHome: home, toolEnv: async () => ambient,
     run: async (call) => { calls.push(call); return tool(call); }, now: () => 5 * 86_400_000,
   }));
   const records = () => runtime.runPromise(Effect.flatMap(makeVaultTokens, (tokens) => tokens.list));
@@ -168,4 +174,64 @@ it("with VAULT_ENABLED off, places, records and lists nothing, and runs and dial
   expect(calls).toEqual([]);
   expect(sent).toEqual([]);
   expect(await records()).toEqual([]);
+});
+
+describe("--mint: Junto makes the token itself, so its scope is verified", () => {
+  const minting = (call: ToolCall): ToolResult => call.args[0] === "service-account" ? { kind: "ok", stdout: `${MINTED}\n` } : answer(call);
+
+  it("runs the one fixed create under the operator's own session, never a service account or Connect, never --can-create-vaults", async () => {
+    const { runtime, vault, records } = await setup(minting);
+    const placed = await runtime.runPromise(vault.place({ name: "macbook", vault: "Junto", mint: true }));
+    const create = calls[0]!;
+    expect(create.command).toBe("op");
+    expect(create.args).toEqual(["service-account", "create", "junto-macbook-write", "--vault", "Junto:read_items,write_items", "--raw"]);
+    expect(create.args).not.toContain("--can-create-vaults");
+    expect(create.env).toEqual({ PATH: "/usr/bin", HOME: "/Users/operator", USER: "operator" });
+    // The minted token, not the stray ambient one, is what the liveness check then uses.
+    expect(calls[1]!.env).toEqual({ OP_SERVICE_ACCOUNT_TOKEN: MINTED, PATH: "/usr/bin", HOME: home });
+    expect(await readVaultToken(home)).toBe(MINTED);
+    expect(placed.token).toMatchObject({ origin: "minted", scope: "verified", accountName: "junto-macbook-write", permissions: "read_items,write_items" });
+    expect(await records()).toEqual([{ machineName: "macbook", vault: "Junto", permissions: "read_items,write_items", origin: "minted", accountName: "junto-macbook-write", setAtEpochMs: 5 * 86_400_000 }]);
+    expect(JSON.stringify(placed)).not.toContain(MINTED);
+  });
+
+  it("mints another machine a read token and sends it with its account name on SSH stdin", async () => {
+    const { runtime, vault, records } = await setup(minting);
+    const far = { machineName: "mini", liveness: "ready", token: { vault: "Junto", permissions: "read_items", origin: "minted", scope: "verified", accountName: "junto-mini-read", setAtEpochMs: 7, ageDays: 0 } };
+    farAnswer = () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine vault-token-local", data: far }), stderr: "" });
+    expect(await runtime.runPromise(vault.place({ name: "mini", vault: "Junto", mint: true }))).toEqual(far);
+    expect(calls.map((call) => call.args)).toEqual([["service-account", "create", "junto-mini-read", "--vault", "Junto:read_items", "--raw"]]);
+    expect(JSON.parse(sent[0]!.stdin)).toEqual({ vault: "Junto", permissions: "read_items", token: MINTED, accountName: "junto-mini-read" });
+    expect(sent[0]!.args.join(" ")).not.toContain(MINTED);
+    expect(await records()).toEqual([{ machineName: "mini", vault: "Junto", permissions: "read_items", origin: "minted", accountName: "junto-mini-read", setAtEpochMs: 7 }]);
+  });
+
+  it("mints nothing for a machine that is not ready, and names the unused account when placing fails after the mint", async () => {
+    const { runtime, vault } = await setup(minting);
+    await expect(runtime.runPromise(vault.place({ name: "vps", vault: "Junto", mint: true }))).rejects.toThrow("Set up vps from this machine");
+    expect(calls).toEqual([]);
+    farAnswer = () => Effect.fail(new SshExitError({ endpoint: "ops@mini.example", operation: "run", code: 255, stderrTail: `ssh: lost ${MINTED}` }));
+    const failed = await runtime.runPromise(Effect.flip(vault.place({ name: "mini", vault: "Junto", mint: true })));
+    expect(String((failed as Error).message)).toBe("The vault token could not be placed on mini; the service account junto-mini-read was made in 1Password and is unused, so delete it there");
+    expect(JSON.stringify(failed)).not.toContain(MINTED);
+  });
+
+  it("classifies a refused mint from stderr in fixed words, and never repeats what op printed", async () => {
+    for (const [stderr, words] of [
+      ["[ERROR] You are not currently signed in", "Sign in to 1Password on this machine, then mint again"],
+      [`[ERROR] "Junto" isn't a vault in this account`, "1Password has no vault named Junto"],
+      ["[ERROR] permission denied: only owners and administrators may create service accounts", "This 1Password account may not create service accounts"],
+      ["[ERROR] something else entirely", "1Password refused to mint the vault token"],
+    ] as const) {
+      const { runtime, vault } = await setup((call) => call.args[0] === "service-account" ? { kind: "exit", code: 1, stdout: "", stderr } : answer(call));
+      const refused = await runtime.runPromise(Effect.flip(vault.place({ name: "macbook", vault: "Junto", mint: true })));
+      expect(String((refused as Error).message)).toBe(words);
+      expect(await readVaultToken(home)).toBeUndefined();
+    }
+  });
+
+  it("builds no create argv for a vault name that would widen --vault", () => {
+    expect(mintArgv("junto-mini-read", "Junto", "read_items")).toEqual(["service-account", "create", "junto-mini-read", "--vault", "Junto:read_items", "--raw"]);
+    for (const name of ["Dev:write_items", "Dev,Other", "a/b", ""]) expect(mintArgv("junto-mini-read", name, "read_items"), name).toBeUndefined();
+  });
 });

@@ -98,17 +98,25 @@ export const vaultView = (record: VaultTokenRecord, nowMs: number): MachineVault
  * `junto machine vault-token <machine> --vault <V>`, on the window's machine:
  * the token comes from the command's stdin and rides only the owner socket
  * to this core, then that machine's SSH stdin. Never argv, an environment
- * value, a row or a log.
+ * value, a row or a log. With `mint`, no token comes in: this core mints it
+ * under the operator's own 1Password session.
  */
 export const MachineVaultTokenInput = Schema.Struct({
   name: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
   vault: VaultName,
-  token: VaultTokenSecret,
-});
+  token: Schema.optionalKey(VaultTokenSecret),
+  mint: Schema.optionalKey(Schema.Literal(true)),
+}).pipe(Schema.check(Schema.makeFilter((input) => (input.token === undefined) !== (input.mint === undefined) || "a vault token is pasted in or minted, one of the two")));
 export type MachineVaultTokenInput = typeof MachineVaultTokenInput.Type;
 
-/** What `vault-token-local` reads from its stdin on the receiving machine. */
-export const VaultTokenDelivery = Schema.Struct({ vault: VaultName, permissions: VaultPermissions, token: VaultTokenSecret });
+/** The service account a mint makes for a machine: its name says which machine and which token. */
+export const VaultAccountName = Schema.String.pipe(Schema.check(Schema.isPattern(/^junto-[A-Za-z0-9][A-Za-z0-9._-]{0,63}-(?:read|write)$/u)));
+
+/** What `vault-token-local` reads from its stdin on the receiving machine; `accountName` only for a minted token. */
+export const VaultTokenDelivery = Schema.Struct({
+  vault: VaultName, permissions: VaultPermissions, token: VaultTokenSecret,
+  accountName: Schema.optionalKey(VaultAccountName),
+});
 export type VaultTokenDelivery = typeof VaultTokenDelivery.Type;
 
 /**

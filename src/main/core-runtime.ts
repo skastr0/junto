@@ -455,7 +455,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     } });
     // Off in the ship build: no vault token is placed, recorded or listed.
     const vaultSetup = VAULT_ENABLED ? yield* makeVaultSetup({
-      home: options.home, userHome: homedir(), run: runTool, path: async () => (await resolvedSpawnEnv()).PATH,
+      home: options.home, userHome: homedir(), run: runTool, toolEnv: resolvedSpawnEnv,
     }) : undefined;
     const actions = yield* makeMachineOwnerActions({
       linkSetup,

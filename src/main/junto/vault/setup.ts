@@ -11,15 +11,19 @@
  * the names-only record of every token it handed out. Nothing keeps the
  * token but the 0600 file on the machine it is for.
  *
- * Pasted here: the scope is the operator's word, shown unverified. A token
- * Junto mints itself is the other origin.
+ * Pasted in, the scope is the operator's word, shown unverified. Minted
+ * (`--mint`), this core runs the one fixed `op service-account create` under
+ * the operator's own 1Password session: the one vault, `read_items`, or
+ * `read_items,write_items` for the window's machine, never
+ * `--can-create-vaults`. That argv is the proof of scope, recorded as names
+ * (the account, the vault, the permissions), and shown verified.
  */
 import { Effect, Schema } from "effect";
 import { VAULT_ENABLED } from "@shared/features";
 import { OperatorErrorBody } from "@shared/operator-control";
 import { RemoteHostsError } from "@shared/remote-hosts";
 import {
-  MachineVaultTokenData, vaultView,
+  MachineVaultTokenData, VaultName, VaultTokenSecret, vaultView,
   type MachineVaultRecordInput, type MachineVaultTokenInput, type VaultLiveness, type VaultPermissions, type VaultTokenOrigin,
 } from "@shared/vault";
 import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
@@ -38,7 +42,8 @@ export interface VaultSetupOptions {
   /** The operator's home, op's HOME. */
   readonly userHome: string;
   readonly run: ToolRunner;
-  readonly path: () => Promise<string | undefined>;
+  /** The app's resolved environment, where the operator's own 1Password session is reached. */
+  readonly toolEnv: () => Promise<Readonly<Record<string, string | undefined>>>;
   readonly now?: () => number;
 }
 
@@ -48,6 +53,25 @@ const off = () => refused("The vault is not in this build");
 const WRITE: VaultPermissions = "read_items,write_items";
 const READ: VaultPermissions = "read_items";
 const VAULT_GET_MS = 15_000;
+/** A mint may wait on the operator approving it in the 1Password app. */
+const MINT_MS = 120_000;
+
+/**
+ * The one create argv. The vault name is checked again here, since it goes
+ * inside `--vault <name>:<permissions>`, where a `:` or `,` would add
+ * permissions or vaults.
+ */
+export const mintArgv = (account: string, vault: string, permissions: VaultPermissions): ReadonlyArray<string> | undefined =>
+  Schema.is(VaultName)(vault) ? ["service-account", "create", account, "--vault", `${vault}:${permissions}`, "--raw"] : undefined;
+
+/** The operator's session, never a service account or Connect: those would mint as someone else, or not at all. */
+const sessionEnv = (base: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> => {
+  const env = { ...base };
+  delete env.OP_SERVICE_ACCOUNT_TOKEN;
+  delete env.OP_CONNECT_HOST;
+  delete env.OP_CONNECT_TOKEN;
+  return env;
+};
 
 /**
  * Can this machine's token reach the vault now: `op vault get` on that one
@@ -56,12 +80,12 @@ const VAULT_GET_MS = 15_000;
  * classification only and never returned.
  */
 export const vaultLiveness = async (
-  options: Pick<VaultSetupOptions, "home" | "userHome" | "run" | "path">,
+  options: Pick<VaultSetupOptions, "home" | "userHome" | "run" | "toolEnv">,
   vault: string,
 ): Promise<{ readonly liveness: VaultLiveness; readonly seesOtherVaults?: true }> => {
   const token = await readVaultToken(options.home).catch(() => undefined);
   if (token === undefined) return { liveness: "no-token" };
-  const env = opServiceAccountEnv(token, await options.path(), options.userHome);
+  const env = opServiceAccountEnv(token, (await options.toolEnv()).PATH, options.userHome);
   const got = await options.run({ command: "op", args: ["vault", "get", vault, "--format", "json"], timeoutMs: VAULT_GET_MS, env, purpose: "check the vault token" });
   if (got.kind === "not-installed") return { liveness: "op-missing" };
   if (got.kind !== "ok") {
@@ -96,28 +120,64 @@ export const makeVaultSetup = (options: VaultSetupOptions) => Effect.gen(functio
     return { machineName, token: vaultView(record, now()), ...checked } satisfies MachineVaultTokenData;
   });
 
+  /**
+   * The fixed create, under the operator's own session; the token is parsed
+   * from stdout in memory and known to the scrub at once. stderr only
+   * classifies the refusal.
+   */
+  const mint = (owner: string, account: string, vault: string, permissions: VaultPermissions) => Effect.gen(function* () {
+    const args = mintArgv(account, vault, permissions);
+    if (args === undefined) return yield* Effect.fail(refused("A vault name holds no : , / or control character"));
+    const env = sessionEnv(yield* Effect.promise(() => options.toolEnv()));
+    const result = yield* Effect.promise(() => options.run({ command: "op", args, timeoutMs: MINT_MS, env, purpose: "mint a vault token" }));
+    if (result.kind === "ok") {
+      const token = Schema.decodeUnknownResult(VaultTokenSecret)(result.stdout.trim());
+      if (token._tag === "Success") { registerKnownSecrets(owner, [token.success]); return token.success; }
+      registerKnownSecrets(owner, [result.stdout.trim()]);
+      return yield* Effect.fail(refused(`1Password answered the mint with no service account token; check for ${account} in 1Password`));
+    }
+    if (result.kind === "not-installed") return yield* Effect.fail(refused("The 1Password CLI (op) is not installed on this machine"));
+    if (result.kind === "timeout") return yield* Effect.fail(refused("1Password did not answer in time; it may be waiting for you to approve the mint"));
+    const said = result.kind === "exit" ? result.stderr.toLowerCase() : "";
+    if (/not (currently )?signed in|sign in|unlock|session expired|authoriz/u.test(said)) return yield* Effect.fail(refused("Sign in to 1Password on this machine, then mint again"));
+    if (/isn't a vault|is not a vault|not found|no vault/u.test(said)) return yield* Effect.fail(refused(`1Password has no vault named ${vault}`));
+    if (/permission|not allowed|forbidden|owner|administrator/u.test(said)) return yield* Effect.fail(refused("This 1Password account may not create service accounts"));
+    if (/rate|too many/u.test(said)) return yield* Effect.fail(refused("1Password is limiting requests; mint again later"));
+    return yield* Effect.fail(refused("1Password refused to mint the vault token"));
+  });
+
   /** On the window's machine: one token placed for one machine, the value known to the scrub for the call. */
   const place = Effect.fn("VaultSetup.place")(function* (input: MachineVaultTokenInput) {
     if (!VAULT_ENABLED) return yield* Effect.fail(off());
     const owner = `vault-token-delivery:${input.name}`;
-    registerKnownSecrets(owner, [input.token]);
+    if (input.token !== undefined) registerKnownSecrets(owner, [input.token]);
     return yield* Effect.gen(function* () {
-      if (input.name === (yield* machines.machineName)) {
-        yield* Effect.tryPromise({ try: () => writeVaultToken(options.home, input.token), catch: () => refused("The vault token could not be written on this machine") });
-        return yield* recordHere({ vault: input.vault, permissions: WRITE, origin: "pasted" });
+      const here = input.name === (yield* machines.machineName);
+      const permissions = here ? WRITE : READ;
+      const host = here ? undefined : yield* hosts.get(input.name);
+      if (!here) {
+        if (host === undefined || host.isThisMachine || (yield* machines.peer(input.name)) === undefined) return yield* Effect.fail(refused(`Set up ${input.name} from this machine before giving it a vault token`));
+        if (host.juntoHome === undefined || host.installRoot === undefined) return yield* Effect.fail(refused(`Send Junto to ${input.name} before giving it a vault token`));
       }
-      const host = yield* hosts.get(input.name);
-      if (host === undefined || host.isThisMachine || (yield* machines.peer(input.name)) === undefined) return yield* Effect.fail(refused(`Set up ${input.name} from this machine before giving it a vault token`));
-      if (host.juntoHome === undefined || host.installRoot === undefined) return yield* Effect.fail(refused(`Send Junto to ${input.name} before giving it a vault token`));
-      const target = yield* parseHostSshRoute(host);
-      const stdin = yield* makeRemoteStdin(JSON.stringify({ vault: input.vault, permissions: READ, token: input.token }));
-      const program = yield* placeVaultToken(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }, stdin);
-      const output = yield* ssh.run(program).pipe(Effect.catch((cause) => Effect.fail(farRefusal(input.name, cause))));
+      // Minted only once the machine is known to be ready for it, so no account is made for nothing.
+      const account = input.mint === true ? `junto-${input.name}-${here ? "write" : "read"}` : undefined;
+      const token = account === undefined ? input.token! : yield* mint(owner, account, input.vault, permissions);
+      const origin: VaultTokenOrigin = account === undefined ? "pasted" : "minted";
+      const unused = account === undefined ? "" : `; the service account ${account} was made in 1Password and is unused, so delete it there`;
+      if (here) {
+        yield* Effect.tryPromise({ try: () => writeVaultToken(options.home, token), catch: () => refused(`The vault token could not be written on this machine${unused}`) });
+        return yield* recordHere({ vault: input.vault, permissions, origin, ...(account === undefined ? {} : { accountName: account }) });
+      }
+      const target = yield* parseHostSshRoute(host!);
+      const stdin = yield* makeRemoteStdin(JSON.stringify({ vault: input.vault, permissions, token, ...(account === undefined ? {} : { accountName: account }) }));
+      const program = yield* placeVaultToken(target, { juntoHome: host!.juntoHome!, installRoot: host!.installRoot! }, stdin);
+      const output = yield* ssh.run(program).pipe(Effect.catch((cause) => Effect.fail(farRefusal(input.name, cause, unused))));
       const answer = Schema.decodeUnknownResult(Placed, { onExcessProperty: "error" })(output.stdout.trim().split("\n").at(-1));
       if (answer._tag === "Failure" || answer.success.data.machineName !== input.name) return yield* Effect.fail(refused(`${input.name} answered machine vault-token-local outside its contract`));
       const placed = answer.success.data;
       // This machine keeps the record of the token it handed out; the far machine holds its own.
-      yield* tokens.put({ machineName: input.name, vault: placed.token.vault, permissions: placed.token.permissions, origin: "pasted", setAtEpochMs: placed.token.setAtEpochMs });
+      yield* tokens.put({ machineName: input.name, vault: placed.token.vault, permissions: placed.token.permissions, origin,
+        ...(account === undefined ? {} : { accountName: account }), setAtEpochMs: placed.token.setAtEpochMs });
       return placed;
     }).pipe(Effect.ensuring(Effect.sync(() => releaseKnownSecrets(owner))));
   });
@@ -146,10 +206,10 @@ const Placed = Schema.fromJsonString(Schema.Struct({ ok: Schema.Literal(true), c
 const Refusal = Schema.fromJsonString(Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine vault-token-local"), error: OperatorErrorBody }));
 
 /** The far machine's own refusal when it said one; otherwise only that it could not be placed. */
-const farRefusal = (name: string, cause: unknown) => {
+const farRefusal = (name: string, cause: unknown, unused: string) => {
   if (cause instanceof SshExitError && cause.stderrTail !== undefined) {
     const said = Schema.decodeUnknownResult(Refusal, { onExcessProperty: "error" })(cause.stderrTail.trim().split("\n").at(-1));
-    if (said._tag === "Success") return refused(`${name}: ${said.success.error.message}`);
+    if (said._tag === "Success") return refused(`${name}: ${said.success.error.message}${unused}`);
   }
-  return refused(`The vault token could not be placed on ${name}`);
+  return refused(`The vault token could not be placed on ${name}${unused}`);
 };
