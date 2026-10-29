@@ -66,7 +66,8 @@
       ],
       "receipts": [
         "src/main/junto/term/local-host.ts:5@951f99eac",
-        "src/main/junto/term/session-existence.ts:599@951f99eac"
+        "src/main/junto/term/session-existence.ts:599@951f99eac",
+        "src/main/junto/term/managed-spawn-plan.ts:153-158@951f99eac"
       ]
     },
     {
@@ -101,7 +102,8 @@
         }
       ],
       "receipts": [
-        "src/shared/message-delivery.ts:65@951f99eac"
+        "src/shared/message-delivery.ts:65@951f99eac",
+        "src/main/junto/work/control.ts:1870-1873@951f99eac"
       ]
     }
   ]

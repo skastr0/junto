@@ -79,7 +79,7 @@
           "id": "json",
           "text": "As one JSON object: inline, @file, or - for stdin",
           "correct": true,
-          "why": "Each takes a JSON object, an @file path, a raw JSON string, or stdin."
+          "why": "Most take a JSON object inline, from an @file path, or from stdin. secret put reads its value from stdin, so its JSON comes inline or by @file, and references write also takes the body by --body."
         },
         {
           "id": "env",
@@ -88,7 +88,8 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/overseer.ts:49-51@951f99eac"
+        "src/cli/commands/overseer.ts:49-51@951f99eac",
+        "src/cli/commands/overseer.ts:349-358@951f99eac"
       ]
     }
   ]

@@ -20,7 +20,7 @@
           "id": "ok-false",
           "text": "ok: false and a typed error",
           "correct": true,
-          "why": "Every failure prints ok: false with an error whose type names the kind of failure, on stderr with exit code 1."
+          "why": "A failed call prints ok: false with an error whose type names the kind of failure, and exits 1. A command that answers for many rows (artifact move, an overseer offboard) prints its whole answer with ok: true and exits 1 when a row was refused, so read the exit code too."
         },
         {
           "id": "empty-data",
@@ -35,7 +35,8 @@
       ],
       "receipts": [
         "src/cli/core/output.ts:69-74@951f99eac",
-        "src/cli/command-runner.ts:70@951f99eac"
+        "src/cli/command-runner.ts:70@951f99eac",
+        "src/cli/core/output.ts:100-113@951f99eac"
       ]
     },
     {
@@ -93,7 +94,7 @@
         {
           "id": "blocked",
           "text": "Raise blocked at once",
-          "why": "Paused is not a problem the operator must solve for this seat; waiting is the first move."
+          "why": "Pausing is the operator's own choice, and the error already says to wait for play; raise a signal only if the wait itself stops work that matters."
         },
         {
           "id": "give-up",

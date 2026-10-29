@@ -54,12 +54,12 @@
           "id": "full-turn",
           "text": "It types the full text at once, as its own turn",
           "correct": true,
-          "why": "A prompt is typed whole and never batched; plain mail is typed up to 2,500 characters."
+          "why": "A prompt is typed whole, as a turn of its own, without waiting for the batch plain mail gathers in (2 s quiet, 10 s at most); plain mail is typed up to 2,500 characters."
         },
         {
-          "id": "faster",
-          "text": "It is delivered sooner",
-          "why": "Both wait for an empty input box."
+          "id": "over-draft",
+          "text": "It is typed even while the operator is typing in the box",
+          "why": "A prompt waits for a free input box like any mail; Junto never types over a draft."
         },
         {
           "id": "interrupt",
@@ -69,7 +69,8 @@
       ],
       "receipts": [
         "src/shared/message-delivery.ts:161@951f99eac",
-        "src/shared/message-delivery.ts:314@951f99eac"
+        "src/shared/message-delivery.ts:314@951f99eac",
+        "src/main/junto/work/message-delivery.ts:559-566@951f99eac"
       ]
     },
     {

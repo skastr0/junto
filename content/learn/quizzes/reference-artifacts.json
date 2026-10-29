@@ -93,7 +93,7 @@
       ],
       "receipts": [
         "src/shared/region-reach.ts:5-9@951f99eac",
-        "src/main/junto/work/authz.ts:615@951f99eac"
+        "src/main/junto/work/authz.ts:566-571@951f99eac"
       ]
     }
   ]
