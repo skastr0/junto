@@ -18,24 +18,29 @@ export type ArtifactWhereItIs = { readonly nodeId: NodeId; readonly heads: Reado
 const listed = (canvasName: string, nodeId: NodeId): Promise<ReadonlyArray<ArtifactHead>> =>
   artifactsSource().list(canvasName, nodeId).catch((): ReadonlyArray<ArtifactHead> => []);
 
-/** The node an artifact's last move took it to; none when it never moved, or its moves cannot be read. */
-const movedTo = async (canvasName: string, artifactId: ItemId): Promise<NodeId | undefined> => {
+/** Every node an artifact moved to, the latest first; none when it never moved, or its moves cannot be read. */
+const movedTo = async (canvasName: string, artifactId: ItemId): Promise<ReadonlyArray<NodeId>> => {
   try {
-    return (await artifactsSource().moves(canvasName, artifactId)).at(-1)?.to;
+    return [...new Set((await artifactsSource().moves(canvasName, artifactId)).map((move) => move.to).reverse())];
   } catch {
-    return undefined;
+    return [];
   }
 };
 
 /**
- * An artifact a link's node did not hold, read where it moved: that node and
- * its artifacts, or undefined when it never left `hint` or is held nowhere.
+ * An artifact a link's node did not hold, read where it moved: the node that
+ * holds it and its artifacts, or undefined when it is held nowhere else. The
+ * node that holds it is the truth: the moves' order is their rulers' clocks,
+ * which need not agree, so each node it moved to is read, the latest first,
+ * until one holds it.
  */
 export const readArtifactMovedFrom = async (canvasName: string, hint: NodeId, artifactId: ItemId): Promise<ArtifactWhereItIs | undefined> => {
-  const now = await movedTo(canvasName, artifactId);
-  if (now === undefined || now === hint) return undefined;
-  const heads = await listed(canvasName, now);
-  return heads.some((head) => head.artifact.artifactId === artifactId) ? { nodeId: now, heads } : undefined;
+  for (const nodeId of await movedTo(canvasName, artifactId)) {
+    if (nodeId === hint) continue;
+    const heads = await listed(canvasName, nodeId);
+    if (heads.some((head) => head.artifact.artifactId === artifactId)) return { nodeId, heads };
+  }
+  return undefined;
 };
 
 export const readArtifactWhereItIs = async (canvasName: string, hint: NodeId, artifactId: ItemId): Promise<ArtifactWhereItIs> => {

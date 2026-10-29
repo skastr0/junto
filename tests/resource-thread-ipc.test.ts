@@ -183,8 +183,16 @@ describe("threads on an artifact", () => {
       seat("S", { x: 10, y: 10 }),
       artifacts("A", { x: 600, y: 10 }),
       artifacts("B", { x: 800, y: 10 }),
+      artifacts("C", { x: 900, y: 10 }),
     ]);
-    const moves = { moves: () => Effect.succeed([{ from: asNodeId("A"), to: asNodeId("B"), by: { kind: "operator" }, at: 1 }]) };
+    // Its moves out of clock order, as two rulers can stamp them: its head says where it is.
+    const moves = {
+      head: () => Effect.succeed(Option.some({ artifact: { artifactId: ART, nodeId: asNodeId("B") } })),
+      moves: () => Effect.succeed([
+        { from: asNodeId("C"), to: asNodeId("B"), by: { kind: "operator" }, at: 1 },
+        { from: asNodeId("A"), to: asNodeId("C"), by: { kind: "operator" }, at: 2 },
+      ]),
+    };
     const reply = await run(postSubjectComment(
       { subject: { kind: "artifact", nodeId: asNodeId("B"), artifactId: ART }, text: "still here", actor: { kind: "seat", seatId: S_SEAT, nodeId: asNodeId("S") }, opId: SEAT_OP, threadId: root.threadId },
       { canvas: movedBoard, canvasName: "factory", people: [] },

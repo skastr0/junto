@@ -5,6 +5,7 @@ import type { Pad } from "@shared/pad";
 import type { PadLinkTitleOf } from "@shared/pad-project";
 import type { NodeId } from "@shared/physics/schema";
 import type { ItemId } from "@shared/work-ids";
+import { readArtifactMovedFrom } from "../../lib/artifact-where";
 import { artifactsSource } from "../../lib/artifacts-source";
 import { useCanvas } from "../../lib/use-model";
 
@@ -98,12 +99,17 @@ export const usePadLinkTitles = (canvasName: string | undefined, pad: Pad): PadL
         }))];
         const movedTo = new Map<string, NodeId>();
         await Promise.all(unheld.map(async (item) => {
-          const moves = await artifactsSource().moves(canvasName, item as ItemId).catch(() => []);
-          const now = moves.at(-1)?.to;
-          if (now !== undefined && canvas.nodes.get(now)?.kind === "artifacts") movedTo.set(item, now);
-        }));
-        await Promise.all([...new Set(movedTo.values())].filter((nodeId) => !heads.has(nodeId)).map(async (nodeId) => {
-          heads.set(nodeId, await headsOf(canvasName, nodeId));
+          const hint = reading.find(([, linked]) => linked === item)![0];
+          // The node that holds it, never the moves' order: their rulers' clocks need not agree.
+          const where = await readArtifactMovedFrom(canvasName, hint, item as ItemId);
+          if (where === undefined || canvas.nodes.get(where.nodeId)?.kind !== "artifacts") return;
+          movedTo.set(item, where.nodeId);
+          heads.set(where.nodeId, where.heads.map(({ artifact }): LinkedArtifactHead => ({
+            artifactId: artifact.artifactId,
+            title: artifact.title,
+            type: artifact.type,
+            archived: artifact.archived,
+          })));
         }));
         if (live) setHeld({ heads, movedTo });
       })();

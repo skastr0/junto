@@ -248,6 +248,24 @@ describe("a [[ link drawn in a document", () => {
     expect(host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!.dataset.missing).toBe("true");
   });
 
+  it("finds a moved artifact on the node that holds it, though its moves' clocks disagree on their order", async () => {
+    setArtifactsSource({
+      ...original,
+      list: async (_canvas: string, nodeId: string) =>
+        nodeId === "artifacts-b" ? [{ artifact: { artifactId: PLAN.ref.artifactId, title: "Launch plan, at B", type: "document", archived: false } }] : [],
+      // It went home to C, then C to B; C's ruler stamped its move later than B's.
+      moves: async () => [
+        { from: "artifacts-c", to: "artifacts-b", by: { kind: "operator" }, at: 1 },
+        { from: NODE, to: "artifacts-c", by: { kind: "operator" }, at: 2 },
+      ],
+      onChanged: () => () => undefined,
+    } as unknown as ArtifactsSource);
+    const kinds3: Record<string, NodeKind> = { ...kinds, "artifacts-b": "artifacts", "artifacts-c": "artifacts" };
+    await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={(id) => kinds3[id]} />));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(host.querySelector(".resource-chip__label")?.textContent).toBe("Launch plan, at B");
+  });
+
   it("an artifact that is gone keeps its written title, unavailable", async () => {
     await act(async () => root.render(<DocumentMentionChip href={href} label="\[\[Launch plan\]\]" nodeKindOf={() => undefined} />));
     const chip = host.querySelector<HTMLElement>("[data-testid=document-mention-chip]")!;

@@ -120,10 +120,10 @@ const isPageBox = Schema.is(PageBoxAnchor);
 
 /**
  * Where a subject's comments go and are held (0.11.1, 10). A comment goes to
- * the subject's node; an artifact named on a node it has since left goes to
- * the node its last move took it to. Its thread is read from every node it
- * has been on. Without the artifact store in this process, the named node
- * alone.
+ * the subject's node; an artifact's goes to the node its head is on now,
+ * whatever node it was named on. Its thread is read from every node it has
+ * been on. Without the artifact store in this process, or with no head, the
+ * named node alone.
  */
 const commentNodesOf = (
   canvasName: string,
@@ -134,10 +134,13 @@ const commentNodesOf = (
     if (subject.kind !== "artifact") return named;
     const artifacts = yield* Effect.serviceOption(ArtifactRepository);
     if (Option.isNone(artifacts)) return named;
-    const moves = yield* artifacts.value.moves(canvasName, subject.artifactId).pipe(Effect.mapError((error) => runtimeDown(error.message)));
-    const past = moves.some((move) => move.from === subject.nodeId);
-    const now = past ? moves.at(-1)!.to : subject.nodeId;
-    return { now, held: [...new Set([now, ...moves.flatMap((move) => [move.from, move.to])])] };
+    const down = (error: { readonly message: string }) => runtimeDown(error.message);
+    // Where it is now is its head's node: the moves' order is their rulers' clocks, which need not agree.
+    const head = yield* artifacts.value.head(canvasName, subject.artifactId).pipe(Effect.mapError(down));
+    if (Option.isNone(head)) return named;
+    const moves = yield* artifacts.value.moves(canvasName, subject.artifactId).pipe(Effect.mapError(down));
+    const now = head.value.artifact.nodeId;
+    return { now, held: [...new Set([now, subject.nodeId, ...moves.flatMap((move) => [move.from, move.to])])] };
   });
 
 /**
