@@ -18,7 +18,7 @@ import { closeFront } from "./front-close";
 import { toggleSeatGitDetail } from "./git-summary";
 import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
-import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
+import { openOperatorModal, toggleOperatorModal } from "./operator-modal";
 import { runPageChromeKey } from "./page-chrome-keys";
 import { movePaneFocus } from "./pane-focus";
 import { toggleQuickOpenFor } from "./quick-open-host";
@@ -46,11 +46,8 @@ const railInFront = (): boolean => {
 const stepSwitcher = (direction: 1 | -1): boolean =>
   focusSwitcher$.session.peek() ? moveFocusSwitcher(direction) : openFocusSwitcher(direction);
 
-// The switcher is an operator surface too: one at a time.
-const toggleOperator = (id: OperatorModalId): void => {
-  cancelFocusSwitcher();
-  toggleOperatorModal(id);
-};
+// The switcher is an operator surface too: one at a time. That is
+// openOperatorModal's to keep, so a chord and a press behave alike.
 
 /**
  * What each shortcut in the key table does. The table says which keys and
@@ -59,13 +56,10 @@ const toggleOperator = (id: OperatorModalId): void => {
  */
 export const KEY_ACTIONS: KeyActions = {
   // A modal's own chord closes it; the other's swaps to it.
-  "search.open": () => toggleOperator("search"),
-  "feed.open": () => toggleOperator("feed"),
-  "capture.open": () => toggleOperator("capture"),
-  "search.slash": () => {
-    cancelFocusSwitcher();
-    openOperatorModal("search");
-  },
+  "search.open": () => toggleOperatorModal("search"),
+  "feed.open": () => toggleOperatorModal("feed"),
+  "capture.open": () => toggleOperatorModal("capture"),
+  "search.slash": () => openOperatorModal("search"),
   "groups.assign": ({ digit }) => assignSelectionToSlot(digit! - 1),
   // An empty slot takes nothing: the digit passes.
   "groups.recall": ({ digit }) => recallSlot(digit! - 1),

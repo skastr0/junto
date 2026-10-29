@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
 import {
   closeOperatorModal,
   isOperatorModalOpen,
@@ -14,6 +15,14 @@ describe("the operator slot", () => {
     // Twice: a modal opened from another closes back to it first.
     closeOperatorModal();
     closeOperatorModal();
+    focusSwitcher$.session.set(null);
+  });
+
+  it("ends an agent switcher held open under the press", () => {
+    focusSwitcher$.session.set({ entries: [], selectedIndex: 0 });
+    openOperatorModal("feed");
+    expect(focusSwitcher$.session.peek()).toBeNull();
+    expect(operatorModal$.open.peek()).toBe("feed");
   });
 
   it("holds one modal: opening another swaps it", () => {

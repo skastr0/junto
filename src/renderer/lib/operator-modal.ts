@@ -1,9 +1,11 @@
 import { observable } from "@legendapp/state";
+import { cancelFocusSwitcher } from "./focus-switcher";
 
 /**
  * Operator modals: the surfaces that must always be reachable, above every
  * working modal (search, the needs-you feed). One slot holds the open one, so
- * opening a second swaps it and two never stack.
+ * opening a second swaps it and two never stack. The agent switcher is an
+ * operator surface too: opening a modal ends a switcher held open under it.
  *
  * The host (OperatorModalHost) renders the slot; the shell
  * (OperatorModalShell) owns the frame, focus and Escape. The chords that open
@@ -70,6 +72,8 @@ export const isOperatorModalOpen = (id?: OperatorModalId): boolean => {
 
 export const openOperatorModal = (id: OperatorModalId): void => {
   if (operatorModal$.open.peek() === id) return;
+  // A switcher held open under the press goes away, as it does on a chord.
+  cancelFocusSwitcher();
   if (operatorModal$.open.peek() === null) {
     opener = typeof document === "undefined" ? null : document.activeElement;
   }
