@@ -153,7 +153,8 @@ test("automations H3: an escalate step answers back, When answered… saves and 
     await pane.getByRole("button", { name: startsWith(RAISER) }).first().click();
     await check("the raiser's step lists the answering automation, and its button opens it", async () => {
       await expect(name).toHaveValue(RAISER, { timeout: 15_000 });
-      const linked = action(1).getByRole("group", { name: "When answered", exact: true }).getByRole("button", { name: ANSWERING, exact: true });
+      // The list names each button as a verb: "Open <name>" (aria-label, for the controls list).
+      const linked = action(1).getByRole("group", { name: "When answered", exact: true }).getByRole("button", { name: `Open ${ANSWERING}`, exact: true });
       await expect(linked).toBeVisible({ timeout: 10_000 });
       await shoot(page, "5-step-lists-the-answering-automation");
       await linked.click();
