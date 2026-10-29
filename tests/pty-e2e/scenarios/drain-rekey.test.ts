@@ -71,20 +71,43 @@ const rig = (harness: string) => {
   return { plane, runtime, seatEvents, drainEvents, attach, feed, detach };
 };
 
-/** Every real capture that ends on a confirmed idle when read whole. */
+/**
+ * Per harness, its working turn and its two shortest other captures that end
+ * on a confirmed idle when read whole. Every harness keeps its own idle
+ * evidence, the mid-turn case keeps its working turn, and the sweep stays well
+ * under a minute: reading the whole corpus first, about 24,000 grid writes,
+ * then four moved re-reads of every settled capture, took 233 s.
+ */
+const OTHERS_PER_HARNESS = 2;
 const settledCaptures = async () => {
-  const out: Array<{ harness: string; scenario: string; chunks: Array<{ data: string; seq: bigint }>; reason: string }> = [];
-  for (const harness of readdirSync(corpusRoot()).filter((name) => !name.includes("."))) {
-    for (const file of readdirSync(join(corpusRoot(), harness))) {
-      if (!file.endsWith(".jsonl")) continue;
-      const scenario = file.slice(0, -6);
-      const fixture = loadP1Fixture(harness, scenario);
-      if (!fixture) continue;
-      const chunks = chunkEvents(fixture.events, "split-at-escapes");
-      const whole = await feedStream(harness, chunks, sizeOf(harness));
-      if (whole.isSeatIdle && chunks.length >= 4) {
-        out.push({ harness, scenario, chunks, reason: whole.slot!.reason });
-      }
+  type Capture = { harness: string; scenario: string; chunks: Array<{ data: string; seq: bigint }>; reason: string };
+  const out: Capture[] = [];
+  for (const harness of readdirSync(corpusRoot()).filter((name) => !name.includes(".")).sort()) {
+    const candidates = readdirSync(join(corpusRoot(), harness))
+      .filter((file) => file.endsWith(".jsonl"))
+      .map((file) => file.slice(0, -6))
+      .flatMap((scenario) => {
+        const fixture = loadP1Fixture(harness, scenario);
+        return fixture ? [{ harness, scenario, chunks: chunkEvents(fixture.events, "split-at-escapes") }] : [];
+      })
+      .filter((candidate) => candidate.chunks.length >= 4);
+    const settles = async (candidate: Omit<Capture, "reason">): Promise<Capture | undefined> => {
+      const whole = await feedStream(harness, candidate.chunks, sizeOf(harness));
+      return whole.isSeatIdle ? { ...candidate, reason: whole.slot!.reason } : undefined;
+    };
+    const working = candidates.find((candidate) => candidate.scenario === "working-turn");
+    const settledWorking = working ? await settles(working) : undefined;
+    if (settledWorking) out.push(settledWorking);
+    const others = candidates
+      .filter((candidate) => candidate !== working)
+      .sort((a, b) => a.chunks.length - b.chunks.length || a.scenario.localeCompare(b.scenario));
+    let picked = 0;
+    for (const candidate of others) {
+      if (picked >= OTHERS_PER_HARNESS) break;
+      const settled = await settles(candidate);
+      if (!settled) continue;
+      out.push(settled);
+      picked += 1;
     }
   }
   return out;
@@ -96,6 +119,7 @@ describe("a detached session is read on the grid it already had", () => {
     // The corpus is the evidence: a silent skip here would prove nothing.
     expect(captures.length).toBeGreaterThan(15);
     expect(new Set(captures.map((c) => c.harness)).size).toBeGreaterThanOrEqual(7);
+    console.log(`[drain-rekey] ${String(captures.length)} captures across ${String(new Set(captures.map((c) => c.harness)).size)} harnesses`);
     const failures: string[] = [];
     for (const { harness, scenario, chunks } of captures) {
       for (const fraction of [0.2, 0.4, 0.6, 0.8]) {
