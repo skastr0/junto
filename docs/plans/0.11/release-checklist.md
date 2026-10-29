@@ -172,6 +172,10 @@ Head 62 then; step 63 (the stub) is not in this run. Results per line:
       the cut hash, and the signed form of the audit (no `--source`), which
       only the real `app:build:ship` runs.
 
+- [ ] Cut floor (product-lead): the cut hash is at or after a1308dd3a, which
+      gates the region source's vault token read behind VAULT_ENABLED (210a7506e
+      let it read in ship). tech-lead's section 3 receipts ran at 210a7506e and
+      are rerun at the cut hash, which covers it.
 - [ ] Every track in the plan's tracker reports done and verified by a seat
       that did not write it (product-automation and product-verify in the real
       app), and product-lead names the cut hash. If main moved past it with
