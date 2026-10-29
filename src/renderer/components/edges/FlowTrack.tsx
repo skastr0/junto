@@ -127,6 +127,9 @@ const tileOf = (scale: number, fit: number, verb: TaskPathVerb): string => {
  * A run slides only while it intersects the window, as a seat's ring turns
  * only on screen (ActivityMark), so a run out of view holds no compositor
  * layer. Toggled straight on the DOM: visibility never re-renders React.
+ * No margin, as for the rings: a run just off screen is culled from paint
+ * and its slide would tick on the main thread (operator signal
+ * 01M63W6RQY1YT2Q65MCM0N3YQ8).
  */
 const visible = new Set<HTMLElement>();
 let observer: IntersectionObserver | undefined;
@@ -167,7 +170,7 @@ const visibilityObserver = (): IntersectionObserver | undefined => {
     (entries) => {
       for (const entry of entries) setVisible(entry.target as HTMLElement, entry.isIntersecting);
     },
-    { rootMargin: "48px" },
+    { rootMargin: "0px" },
   );
   return observer;
 };

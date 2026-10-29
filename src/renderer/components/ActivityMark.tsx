@@ -99,6 +99,12 @@ export function ActivityMarkFromSpec({
  * opaque surface wholly covers it (mark-occlusion.ts), so a mark no one can
  * see holds no compositor layer and runs nothing. Toggled straight on the
  * DOM: visibility never re-renders React.
+ *
+ * The observer has no margin. A ring just off screen is culled from paint,
+ * and Blink ticks an animation with nothing to show on the main thread,
+ * re-layerizing the board every frame (canvas-scale lab, 2026-10-29: one
+ * such ring, 115 full updates/s). A ring coming on screen may show its rest
+ * pose for one frame (operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8).
  */
 const watched = new WeakSet<Element>();
 const intersecting = new Set<HTMLElement>();
@@ -159,7 +165,7 @@ const visibilityObserver = (): IntersectionObserver | undefined => {
     (entries) => {
       for (const entry of entries) setIntersecting(entry.target, entry.isIntersecting);
     },
-    { rootMargin: "48px" },
+    { rootMargin: "0px" },
   );
   return observer;
 };
