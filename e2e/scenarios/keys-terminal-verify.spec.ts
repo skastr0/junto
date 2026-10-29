@@ -65,17 +65,20 @@ test("keys under a modal stand down, and a hidden terminal parks and catches up"
       void dialog.dismiss().catch(() => undefined);
     });
     const modal = await openFilesModal(page);
-    await modal.click({ position: { x: 20, y: 20 } });
+    // Focus the panel itself, a non-text spot: the dialog root's corner is the backdrop, which closes it.
+    await modal.locator(".focus-surface__panel").first().focus();
+    await expect(modal).toBeVisible();
+    const before = await selected.count();
     await page.keyboard.press("Delete");
     await page.keyboard.press("Backspace");
     await page.waitForTimeout(600);
+    await check("the Files modal stays open through Delete and Backspace", () => expect(modal).toBeVisible());
     console.log("KT-NATIVE", JSON.stringify(nativeDialogs));
     await check("Delete and Backspace in the Files modal ask nothing of the canvas", async () => {
       expect(nativeDialogs, "native confirm from the canvas").toEqual([]);
       await expect(page.getByRole("alertdialog")).toHaveCount(0);
     });
     await shoot(page, "1-delete-under-modal");
-    const before = await selected.count();
     await page.keyboard.press("Escape");
     await check("Escape closes the Files modal", () => expect(modal).toBeHidden({ timeout: 5_000 }));
     await check("the Files node is still on the canvas", () => expect(filesCard).toHaveCount(1));
