@@ -40,7 +40,12 @@ export {
   type DemoSeatProps,
 } from "../components/onboarding/tour-demo";
 export { terminalActivity, type ActivitySpec } from "../lib/activity";
+export { mirrorMarkAtlas } from "../lib/activity-atlas";
+export { mergedQuickReplies } from "../lib/quick-reply-rules";
 export { AGENT_NODE_SIZE } from "../lib/node-geometry";
 export type { PreambleItem, SeatBubble } from "../lib/preamble-feed";
 export type { FeedItem } from "@shared/operator-feed";
+export { feedItemRank } from "@shared/wire/operator-feed";
+export { DEFAULT_QUICK_REPLIES } from "@shared/settings";
+export { decodeQuiz, decodeScene, type Quiz, type Scene } from "@shared/learn";
 export { WIRE_PULSE_MS } from "../lib/wire-pulse";
