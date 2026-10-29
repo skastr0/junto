@@ -113,7 +113,7 @@ export function ArtifactMoveDialog({
           <Button variant="chrome" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" aria-disabled={busy || picked === undefined} onClick={() => commit(picked)}>
+          <Button variant="primary" aria-disabled={busy || (picked === undefined && shown.length !== 1)} onClick={() => commit(picked)}>
             Move
           </Button>
         </>
@@ -165,8 +165,8 @@ export function ArtifactMoveDialog({
 /**
  * A sidebar row's menu (0.11.1, 10 M2): opened by a right-click, Shift+F10
  * or the Menu key on a row, focus on its first item. Arrows, Home and End
- * move; Escape and Tab close and give focus back to the row; a press
- * outside only closes. Move to takes the whole selection when the row is in
+ * move; Escape closes and gives focus back to the row, Tab closes and goes
+ * on from the row as the popover routes it; a press outside only closes. Move to takes the whole selection when the row is in
  * one of several.
  */
 export function ArtifactRowMenu({
@@ -188,10 +188,13 @@ export function ArtifactRowMenu({
   // Heard ahead of the popover's own keys, as the swatch menu's are (LabelColourMenu).
   useLayoutEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape" || (event.key === "Tab" && menu.current?.contains(document.activeElement) === true)) {
+      if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
         done.current(true);
+      } else if (event.key === "Tab" && menu.current?.contains(document.activeElement) === true) {
+        // The popover routes Tab on past the row; the menu only closes.
+        done.current(false);
       }
     };
     // focus-law: Escape and Tab close the open row menu, never a typing shortcut.
@@ -218,7 +221,8 @@ export function ArtifactRowMenu({
   const label = count > 1 ? `Actions for ${String(count)} artifacts` : "Actions for this artifact";
   return (
     <Popover anchor={anchor} onClose={() => onClose(false)} label={label} sides={["below", "above"]} align="center" width={200} className="artifact-row-menu">
-      <div ref={menu} role="menu" aria-label={label} onKeyDown={keys}>
+      {/* The popover's dialog carries the name; the menu inside is not named twice. */}
+      <div ref={menu} role="menu" onKeyDown={keys}>
         <button
           type="button"
           role="menuitem"

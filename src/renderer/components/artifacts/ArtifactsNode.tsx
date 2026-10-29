@@ -183,7 +183,7 @@ export function ArtifactsNode({
     if (keyIs(event.nativeEvent, "inArtifacts.move")) {
       event.preventDefault();
       openMove(id);
-    } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+    } else if (keyIs(event.nativeEvent, "inArtifacts.menu")) {
       event.preventDefault();
       setRowMenu({ row: id, anchor: row as HTMLElement });
     } else if (keyIs(event.nativeEvent, "inArtifacts.extend")) {
@@ -365,6 +365,8 @@ export function ArtifactsNode({
                 meta={ageLabel(artifact.updatedAt, now)}
                 selected={artifact.artifactId === selected?.artifact.artifactId}
                 pending={pending.some((write) => write.artifactId === artifact.artifactId)}
+                aria-haspopup="menu"
+                aria-expanded={rowMenu?.row === artifact.artifactId}
                 {...listNav.rowProps(artifact.artifactId)}
                 onClick={(event) => pickRow(artifact.artifactId, { add: event.metaKey || event.ctrlKey, run: event.shiftKey })}
                 onContextMenu={(event) => {
@@ -376,16 +378,13 @@ export function ArtifactsNode({
           );
         })}
       </div>
-      {selection.size > 1 ? (
-        <p className="artifacts-picked" role="status">
-          {selection.size} picked. M or Move to moves them together.
-        </p>
-      ) : null}
-      {moved === null ? null : (
-        <p className="artifacts-moved" role="status">
-          {moved}
-        </p>
-      )}
+      {/* Mounted empty, so the change that fills them is the one announced. */}
+      <p className="artifacts-picked" role="status">
+        {selection.size > 1 ? `${String(selection.size)} picked. M or Move to moves them together.` : ""}
+      </p>
+      <p className="artifacts-moved" role="status">
+        {moved ?? ""}
+      </p>
       {archivedCount > 0 || archived ? (
         <Button size="xs" variant="subtle" className="artifacts-archived-toggle" aria-pressed={archived} onClick={() => setArchived(!archived)}>
           {archived ? "Back to live artifacts" : `Archived ${archivedCount}`}

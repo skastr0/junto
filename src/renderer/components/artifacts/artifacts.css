@@ -225,6 +225,12 @@
   line-height: var(--leading-compact);
 }
 
+/* Kept mounted for their announcements: empty, they take no room. */
+.artifacts-picked:empty,
+.artifacts-moved:empty {
+  margin: 0;
+}
+
 /* A row's menu: Move to, as the swatch menu draws its items. */
 .artifact-row-menu {
   padding: 4px;

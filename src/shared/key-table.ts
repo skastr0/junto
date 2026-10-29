@@ -153,6 +153,7 @@ export type SurfaceKeyId =
   | "inList.open"
   | "inArtifacts.move"
   | "inArtifacts.extend"
+  | "inArtifacts.menu"
   | "inQuickOpen.move"
   | "inQuickOpen.open"
   | "inFeed.reply"
@@ -677,6 +678,14 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     name: "Pick more rows",
     does: "Pick the next or previous artifact as well, to move them together",
     keys: ["Shift+ArrowDown", "Shift+ArrowUp"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inArtifacts.menu",
+    area: "Inside an artifact",
+    name: "Open the row's menu",
+    does: "Open the menu of the focused artifact in the list",
+    keys: ["Shift+F10", "ContextMenu"],
     where: ["working"],
   }),
 
