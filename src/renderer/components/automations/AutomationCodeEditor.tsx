@@ -170,9 +170,10 @@ export function AutomationCodeEditor({
         <Button
           variant="primary"
           size="sm"
-          aria-disabled={(!dirty && !unsaved) || saving}
+          aria-disabled={(!dirty && !unsaved) || saving || loading}
           onClick={() => {
-            if ((dirty || unsaved) && !saving) onSave();
+            // Nothing is saved before the program is here: the text a save would put is not the step's yet.
+            if ((dirty || unsaved) && !saving && !loading) onSave();
           }}
         >
           {saving ? "Saving" : "Save"}

@@ -166,6 +166,25 @@ describe("a code step in the Automations node", () => {
     expect(editor().state.doc.toString()).toBe("const answer = 1;\n");
   });
 
+  it("offers no Save while the code is still opening", async () => {
+    slow = true;
+    try {
+      await opened();
+      await click("Edit code");
+      expect(document.body.textContent).toContain("Opening the code.");
+      expect(button("Save").getAttribute("aria-disabled")).toBe("true");
+      heldRead!.resolve();
+      await flush();
+      // Opened, the saved program is what the store holds: still nothing to save until it is typed into.
+      expect(button("Save").getAttribute("aria-disabled")).toBe("true");
+      await replaceCode("const answer = 8;\n");
+      expect(button("Save").getAttribute("aria-disabled")).not.toBe("true");
+    } finally {
+      slow = false;
+      heldRead = undefined;
+    }
+  });
+
   it("leaves the keyboard where the operator put it when the code arrives late", async () => {
     slow = true;
     try {
