@@ -56,6 +56,7 @@ import { VIEW_STATE_SCHEMA_SQL } from "../view-state/state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../fleet/state-schema";
+import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -147,6 +148,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   MACHINE_CODE_ALLOWANCES_SQL,
   SEAT_CONTROLS_STATE_SCHEMA_SQL,
   FLEET_CONSENSUS_STATE_SCHEMA_SQL,
+  MACHINE_VAULT_TOKENS_SQL,
 ] as const;
 
 

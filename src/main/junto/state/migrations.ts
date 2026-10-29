@@ -17,6 +17,7 @@ import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema
 import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL } from "../fleet/state-schema";
+import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -781,7 +782,18 @@ export const STATE_SCHEMA_V61_IDENTITY = {
     "8546fa8d9dfbbcdd57683671cf0ef0ef1e6097f3c4374112aaec771b1dbe9ca7",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 61;
+/**
+ * Version 62 keeps each vault token's scope record (0.11, 07 N5):
+ * `machine_vault_tokens`, names only, the vault, its permissions and whether
+ * Junto minted the token or the operator pasted it in. Machine-local; the
+ * token is a file, never a row. Expand only.
+ */
+export const STATE_SCHEMA_V62_IDENTITY = {
+  actualSchemaSha256:
+    "6bd4211a71666d421e19a1ba0bf0eb4627ba9b736f556852803db7f6bbc2dfff",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 62;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -789,7 +801,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 61;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V61_IDENTITY;
+  STATE_SCHEMA_V62_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1272,6 +1284,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
       database.exec(FLEET_CONSENSUS_STATE_SCHEMA_SQL);
       database.exec(FLEET_CONSENSUS_SEED_SQL);
     },
+  },
+  {
+    fromVersion: 61,
+    toVersion: 62,
+    name: "keep each vault token's scope record",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V61_IDENTITY,
+    migrate: (database) => database.exec(MACHINE_VAULT_TOKENS_SQL),
   },
 ];
 

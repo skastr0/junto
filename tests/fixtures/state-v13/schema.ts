@@ -360,3 +360,9 @@ export const STATE_SCHEMA_V61_SQL = stepped(
   STATE_SCHEMA_V60_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 61)!.migrate,
 );
+
+/** Step 62 adds the vault tokens' scope records (N5). */
+export const STATE_SCHEMA_V62_SQL = stepped(
+  STATE_SCHEMA_V61_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 62)!.migrate,
+);
