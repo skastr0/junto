@@ -216,6 +216,24 @@
   color: var(--color-dim);
 }
 
+/* A signal's answer in words, on its own lines under the step: two of them until Show all. */
+.automation-history__answer {
+  display: -webkit-box;
+  margin: 2px 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-body);
+  color: var(--color-ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automation-history__answer[data-whole] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
 .automation-history__row[data-outcome="skipped"] {
   color: var(--color-dim);
 }

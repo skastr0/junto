@@ -17,6 +17,8 @@ import {
   firingWords,
   newDraft,
   signalRulingWords,
+  signalAnswerOf,
+  answerIsLong,
   type AutomationDraft,
 } from "../src/renderer/lib/automation-editor";
 import { automationValuesOf, type ActionRuling, type Firing } from "../src/shared/automation";
@@ -279,17 +281,34 @@ describe("a signal step in the firing history", () => {
         }),
         at,
       ),
-    ).toBe('raised "Write 500 words", answered at 1700000060000 with "Morning pages"');
+    ).toBe('raised "Write 500 words", answered at 1700000060000');
     expect(
       signalRulingWords(
         raised("01MSIGNAL00000000000000001"),
         signal({ state: "answered", response: { text: "Did it", at: 7, links: ["https://example.com"] } }),
         at,
       ),
-    ).toBe('raised "Write 500 words", answered at 7 with proof');
+    ).toBe('raised "Write 500 words", answered at 7');
     expect(signalRulingWords(raised("01MSIGNAL00000000000000001"), signal({ state: "dismissed", closedAt: 9 }), at)).toBe(
       'raised "Write 500 words", dismissed at 9',
     );
+  });
+
+  it("says what the answer was: the document, proof, a secret only as given, or the words (0.11/09 decision 1)", () => {
+    const answered = (response: NonNullable<AgentSignal["response"]>) => signalAnswerOf(signal({ state: "answered", response }));
+    expect(
+      answered({ text: "x", at: 1, artifact: { nodeId: "artifacts-1", artifactId: "01MARTIFACT000000000000001", title: "Morning pages", words: 512 } }),
+    ).toEqual({ kind: "document", title: "Morning pages", artifact: { kind: "artifact", nodeId: "artifacts-1", artifactId: "01MARTIFACT000000000000001" } });
+    expect(answered({ text: "Did it", at: 1, links: ["https://example.com"] })).toEqual({ kind: "proof" });
+    expect(
+      answered({ text: "", at: 1, secret: { item: "i", name: "TOKEN", regionId: "r", machine: "m", setAt: 1 } }),
+    ).toEqual({ kind: "secret" });
+    expect(answered({ text: "  Ship it after the smoke test ", at: 1 })).toEqual({ kind: "words", text: "Ship it after the smoke test" });
+    expect(answered({ text: " ", at: 1 })).toBeUndefined();
+    expect(signalAnswerOf(signal({}))).toBeUndefined();
+    expect(answerIsLong("Ship it")).toBe(false);
+    expect(answerIsLong("Ship it\nthen tag")).toBe(true);
+    expect(answerIsLong("x".repeat(161))).toBe(true);
   });
 
   it("names a signal this window does not hold, and says nothing for another kind of step", () => {

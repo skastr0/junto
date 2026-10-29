@@ -139,6 +139,35 @@ describe("a signal step in the automation's history", () => {
     });
     await flush();
     expect(document.body.textContent).toContain('Step 1 raised "Write 500 words", answered');
-    expect(document.body.textContent).toContain('with "Morning pages"');
+    // The document handed in is the answer: a chip that opens its artifact.
+    const chip = [...document.body.querySelectorAll(".automation-history__step button")].find((button) => button.textContent?.includes("Morning pages"));
+    expect(chip).not.toBeUndefined();
+  });
+
+  it("shows an answer in words, cut to two lines with the rest a press away", async () => {
+    const long = `Ship it after the smoke test. ${"Then tag it and post the notes. ".repeat(8)}`.trim();
+    act(() => replaceAgentSignals(canvas, [signal({ state: "answered", response: { text: long, at: 1_700_000_060_000 } })]));
+    source.record(canvas, firing);
+    await render();
+    await row();
+    const words = document.body.querySelector<HTMLElement>(".automation-history__answer")!;
+    expect(words.textContent).toBe(long);
+    expect(words.hasAttribute("data-whole")).toBe(false);
+    const more = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "Show all")!;
+    expect(more.getAttribute("aria-controls")).toBe(words.id);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => more.click());
+    expect(words.hasAttribute("data-whole")).toBe(true);
+    expect(more.textContent).toBe("Show less");
+  });
+
+  it("shows a secret only as given, never by its name or value", async () => {
+    const secret = { item: "item-1", name: "DEPLOY_TOKEN", regionId: "region-1", machine: "mini", setAt: 1_700_000_060_000 };
+    act(() => replaceAgentSignals(canvas, [signal({ state: "answered", response: { text: "", at: 1_700_000_060_000, secret } })]));
+    source.record(canvas, firing);
+    await render();
+    await row();
+    expect(document.body.textContent).toContain(", secret given");
+    expect(document.body.textContent).not.toContain("DEPLOY_TOKEN");
   });
 });

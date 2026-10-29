@@ -15,7 +15,7 @@
  * editing machine rules it, and any other machine refuses it `not_available`,
  * naming where to make it.
  */
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { Archive, Play, Plus, Zap } from "lucide-react";
 import { ulid } from "ulid";
 import type {
@@ -40,6 +40,8 @@ import {
   finishDraft,
   firingWords,
   historyOrder,
+  answerIsLong,
+  signalAnswerOf,
   signalRulingWords,
   newAnsweredDraft,
   newDraft,
@@ -48,7 +50,9 @@ import {
   type ActionDraft,
   type AutomationDraft,
   type AutomationNameOf,
+  type SignalAnswerShown,
 } from "../../lib/automation-editor";
+import { openMention } from "../../lib/mention-open";
 import {
   automationsSource,
   useAutomations,
@@ -63,6 +67,7 @@ import {
   ListRow,
   PaneEmpty,
   PaneHeader,
+  ResourceChip,
   StatusDot,
   TwoPane,
 } from "../ui";
@@ -129,6 +134,47 @@ const timeWords = (at: number): string =>
     minute: "2-digit",
   });
 
+/**
+ * What a signal was answered with, after its step's words (0.11/09 decision
+ * 1): the document handed in, as a chip that opens it; proof; a secret only
+ * as given; or the reply's words, cut to two lines with the rest a press away.
+ */
+function SignalAnswer({ answer }: { readonly answer: SignalAnswerShown }) {
+  const [whole, setWhole] = useState(false);
+  const wordsId = useId();
+  switch (answer.kind) {
+    case "document":
+      return (
+        <>
+          {" with "}
+          <ResourceChip kind="artifact" label={answer.title} onOpen={() => openMention(answer.artifact)} />
+        </>
+      );
+    case "proof":
+      return <>{" with proof"}</>;
+    case "secret":
+      return <>{", secret given"}</>;
+    case "words": {
+      const long = answerIsLong(answer.text);
+      return (
+        <>
+          {", saying:"}
+          <span id={wordsId} className="automation-history__answer" data-whole={!long || whole || undefined}>
+            {answer.text}
+          </span>
+          {long ? (
+            <Button size="xs" variant="subtle" aria-expanded={whole} aria-controls={wordsId} onClick={() => setWhole((shown) => !shown)}>
+              {whole ? "Show less" : "Show all"}
+            </Button>
+          ) : null}
+        </>
+      );
+    }
+    default:
+      return answer satisfies never;
+  }
+}
+
 function FiringHistory({
   firings,
   focused,
@@ -179,13 +225,14 @@ function FiringHistory({
               </div>
               {firing.outcome.kind === "fired"
                 ? firing.outcome.actions.map((ruling) => {
-                    const words =
-                      codeRulingWords(ruling) ??
-                      signalRulingWords(ruling, ruling.ruling === "raised" ? signals.get(ruling.signalId) : undefined, timeWords);
+                    const signal = ruling.ruling === "raised" ? signals.get(ruling.signalId) : undefined;
+                    const words = codeRulingWords(ruling) ?? signalRulingWords(ruling, signal, timeWords);
+                    const answer = signalAnswerOf(signal);
                     return words === undefined ? null : (
-                      <p key={ruling.index} className="automation-history__step">
+                      <div key={ruling.index} className="automation-history__step">
                         Step {ruling.index + 1} {words}
-                      </p>
+                        {answer === undefined ? null : <SignalAnswer answer={answer} />}
+                      </div>
                     );
                   })
                 : null}

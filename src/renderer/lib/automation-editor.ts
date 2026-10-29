@@ -68,6 +68,7 @@ type SignalWatch = Extract<Watch, { readonly kind: "signal" }>;
 
 /** A seat, task, artifact or page, as a target is picked. */
 export type TargetRef = SeatWatch["seat"];
+type ArtifactMentionId = Extract<TargetRef, { readonly kind: "artifact" }>["artifactId"];
 /** A task, or any task on one board. */
 export type TaskTarget = TaskWatch["task"];
 export type TaskBecomes = TaskWatch["becomes"];
@@ -1437,7 +1438,8 @@ const signalTextWords = (text: string): string => {
 
 /**
  * A signal step's ruling in words, with what became of the signal it raised:
- * `raised "Write 500 words", answered 09:12 with "Morning pages"`. The
+ * `raised "Write 500 words", answered 09:12`; what the answer was follows it
+ * (`signalAnswerOf`). The
  * ruling says which signal; its state and answer are the signal's own row,
  * so a dismissal or an answer a month later still reads right here. A
  * signal this window does not hold is named as such, never guessed at.
@@ -1460,17 +1462,43 @@ export const signalRulingWords = (
     case "answered": {
       const response = signal.response;
       if (response === undefined) return `${raised}, answered`;
-      const answered = `${raised}, answered ${atWords(response.at)}`;
-      if (response.artifact !== undefined) return `${answered} with "${response.artifact.title}"`;
-      if (response.links !== undefined && response.links.length > 0) return `${answered} with proof`;
-      if (response.attachments !== undefined && response.attachments.length > 0) return `${answered} with proof`;
-      if (response.secret !== undefined) return `${answered} with the secret ${response.secret.name}`;
-      return answered;
+      // What the answer was is `signalAnswerOf`, shown after these words: a link, or the words themselves.
+      return `${raised}, answered ${atWords(response.at)}`;
     }
     default:
       return signal.state satisfies never;
   }
 };
+
+/**
+ * What the operator answered a signal with, as its history row shows it
+ * (0.11/09 decision 1, the signal and its answer): a handed-in document as
+ * its artifact to open, proof, a secret only as given and never by its
+ * value, or the reply's own words. Undefined until it is answered, or for
+ * an answer with nothing in it.
+ */
+export type SignalAnswerShown =
+  | { readonly kind: "document"; readonly artifact: Extract<TargetRef, { readonly kind: "artifact" }>; readonly title: string }
+  | { readonly kind: "proof" }
+  | { readonly kind: "secret" }
+  | { readonly kind: "words"; readonly text: string };
+
+export const signalAnswerOf = (signal: AgentSignal | undefined): SignalAnswerShown | undefined => {
+  const response = signal?.state === "answered" ? signal.response : undefined;
+  if (response === undefined) return undefined;
+  if (response.artifact !== undefined) {
+    const { nodeId, artifactId, title } = response.artifact;
+    return { kind: "document", artifact: { kind: "artifact", nodeId: nodeId as NodeId, artifactId: artifactId as ArtifactMentionId }, title };
+  }
+  if ((response.links?.length ?? 0) > 0 || (response.attachments?.length ?? 0) > 0) return { kind: "proof" };
+  if (response.secret !== undefined) return { kind: "secret" };
+  const text = response.text.trim();
+  return text === "" ? undefined : { kind: "words", text };
+};
+
+/** Past this many characters, or with a line break, a reply's words show cut to two lines with the rest a press away. */
+export const ANSWER_SHORT_MAX = 160;
+export const answerIsLong = (text: string): boolean => text.length > ANSWER_SHORT_MAX || text.includes("\n");
 
 export const firingWords = (firing: Firing): string => {
   const cause = causeWords(firing.cause);
