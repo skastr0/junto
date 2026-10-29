@@ -36,7 +36,7 @@ import { expandedAfter, fileOfSelection, filePathOfTree, movedPath, treePathOf, 
 import { FILES_DROP_TREE_CSS, FilesDropHighlight } from "./FilesDropHighlight";
 import { useFilesDrop, type FilesMoved } from "./useFilesDrop";
 import { folderLabel, FilesCreateDialog, FilesMoveDialog, FilesRowMenu, FilesTrashDialog } from "./FilesActions";
-import { focusRowWhenShown, folderOfRow, isWithin, rowOf, type FilesAction } from "./files-actions";
+import { focusRowWhenShown, isWithin, rowOf, type FilesAction } from "./files-actions";
 import { registerFileEditorSave } from "../../lib/file-editor-keys";
 import { keyAria } from "../../lib/key-match";
 import { fileQuickOpen } from "../../lib/quick-open";
@@ -176,15 +176,21 @@ export function FilesNode({
    * back to it, or to nothing: a drag never opens one.
    */
   const reselectOpenFile = useCallback((moves: ReadonlyArray<FilesMoved>) => {
-    const after = followRef.current(moves);
+    selectInTree(followRef.current(moves));
+  }, []);
+  /**
+   * The tree's selection set to the open file, or to nothing, so a press on a
+   * row that was selected before still opens it. The tree's own selection,
+   * not DOM focus: the keyboard stays where it is.
+   */
+  const selectInTree = (after: FilePath | null): void => {
     const tree = modelRef.current;
     if (tree === null) return;
     const open = after === null ? null : treePathOf({ path: after, dir: false });
     for (const path of tree.getSelectedPaths()) if (path !== open) tree.getItem(path)?.deselect();
-    // The tree's own selection, not DOM focus: the keyboard stays where the drag left it.
     const item = open === null ? undefined : tree.getItem(open);
     if (item !== undefined && item !== null && !item.isSelected()) item.toggleSelect();
-  }, []);
+  };
   const drop = useFilesDrop({
     port: filesSource(),
     node: ref,
@@ -252,10 +258,12 @@ export function FilesNode({
   /** The focused row, else the open file: what a header button acts on. */
   const focusedRow = (): { readonly path: FilePath; readonly dir: boolean } | null =>
     rowOf(model.getFocusedPath()) ?? (selectedRef.current === null ? null : { path: selectedRef.current, dir: false });
-  const startCreate = (dir: boolean): void => {
-    const row = focusedRow();
-    act({ kind: "create", dir, into: row === null ? ROOT_PATH : folderOfRow(row.path, row.dir) }, row);
-  };
+  /**
+   * The sidebar's New file and New folder make it at the root: once the pointer
+   * is on the button the tree shows no focus, so a folder taken from it would be
+   * one the operator cannot see. A row's menu makes it beside that row.
+   */
+  const startCreate = (dir: boolean): void => act({ kind: "create", dir, into: ROOT_PATH }, focusedRow());
   const startRename = (treePath: string): void => {
     if (!model.startRenaming(treePath)) setTreeError("That row cannot be renamed now.");
   };
@@ -330,7 +338,10 @@ export function FilesNode({
             onCancel={cancel}
             onDone={(made) => {
               shownNow(() => model.add(treePathOf(made)));
-              if (!made.dir) setSelected(made.path);
+              if (!made.dir) {
+                setSelected(made.path);
+                selectInTree(made.path);
+              }
               settle(made, `Made ${baseName(made.path)} in ${folderLabel(action.into, folderName)}.`);
             }}
           />
@@ -358,7 +369,10 @@ export function FilesNode({
             onDone={(gone) => {
               // Asked and confirmed: unsaved text under it goes with it.
               for (const path of dirtyPaths(nodeId)) if (isWithin(path, gone.path)) setFileDraft(nodeId, path, undefined);
-              if (selectedRef.current !== null && isWithin(selectedRef.current, gone.path)) setSelected(null);
+              if (selectedRef.current !== null && isWithin(selectedRef.current, gone.path)) {
+                setSelected(null);
+                selectInTree(null);
+              }
               const next = rowAfterTrash(gone.path);
               shownNow(() => model.remove(treePathOf(gone), { recursive: gone.dir }));
               settle(next, `${baseName(gone.path)} is in the Trash.`);
@@ -393,31 +407,30 @@ export function FilesNode({
     <>
       <PaneHeader
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
-        actions={
-          <>
-            <IconButton aria-label="New file" title="New file" size="sm" onClick={() => startCreate(false)}>
-              <FilePlus size={14} />
-            </IconButton>
-            <IconButton aria-label="New folder" title="New folder" size="sm" onClick={() => startCreate(true)}>
-              <FolderPlus size={14} />
-            </IconButton>
-            {quickOpen.trigger}
-          </>
-        }
+        actions={quickOpen.trigger}
       />
-      <label className="files-filter">
-        <Search size={12} aria-hidden />
-        <Input
-          dense
-          aria-label={`Filter files in ${folderName}`}
-          placeholder="Filter"
-          value={filter}
-          onChange={(event) => {
-            setFilter(event.target.value);
-            model.setSearch(event.target.value === "" ? null : event.target.value);
-          }}
-        />
-      </label>
+      {/* New file and New folder sit by the filter, so the header keeps its width for the folder's name. */}
+      <div className="files-filter">
+        <label className="files-filter__field">
+          <Search size={12} aria-hidden />
+          <Input
+            dense
+            aria-label={`Filter files in ${folderName}`}
+            placeholder="Filter"
+            value={filter}
+            onChange={(event) => {
+              setFilter(event.target.value);
+              model.setSearch(event.target.value === "" ? null : event.target.value);
+            }}
+          />
+        </label>
+        <IconButton aria-label="New file" title="New file" size="sm" onClick={() => startCreate(false)}>
+          <FilePlus size={14} />
+        </IconButton>
+        <IconButton aria-label="New folder" title="New folder" size="sm" onClick={() => startCreate(true)}>
+          <FolderPlus size={14} />
+        </IconButton>
+      </div>
       {treeError ? (
         <p className="files-error" role="alert">
           <CircleAlert size={14} aria-hidden />
