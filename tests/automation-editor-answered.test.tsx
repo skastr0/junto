@@ -284,7 +284,11 @@ describe("answered back, the form", () => {
     await render(draftWith(schedule, [{ kind: "mail", to: seat, text: "x" }, { kind: "signal", signal: "feedback", title: "Review" }]), { onWhenAnswered });
     const control = button("When answered…")!;
     // What it does beyond its name is said to a reader.
-    expect(document.getElementById(control.getAttribute("aria-describedby")!)?.textContent).toContain("Saves this automation");
+    const said = document.getElementById(control.getAttribute("aria-describedby")!);
+    expect(said?.textContent).toBe("Saves this automation before opening the new one.");
+    // Shown to everyone, not only said to a reader: the press commits the edits.
+    expect(said?.classList.contains("automation-editor__note")).toBe(true);
+    expect(said?.classList.contains("sr-only")).toBe(false);
     await act(async () => control.click());
     expect(onWhenAnswered).toHaveBeenCalledWith(1);
   });
