@@ -17,6 +17,10 @@ import { modelStore } from "../src/renderer/lib/use-model";
 import { CaptureEditor, type CaptureOpen, type CaptureRef } from "../src/renderer/components/capture/CaptureEditor";
 import { artifacts, region } from "./support/model-nodes";
 
+// jsdom lays nothing out; CodeMirror's measuring asks a range for its boxes.
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect = () => new DOMRect();
+
 const CANVAS = "factory";
 const INBOX = asNodeId("inbox");
 const NODES = [
@@ -69,7 +73,9 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // A measure still scheduled runs now, inside this test, never after it; unmount then destroys the view.
+  await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
   act(() => root.unmount());
   host.remove();
   release();
