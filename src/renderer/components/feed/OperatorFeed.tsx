@@ -52,6 +52,8 @@ import {
 import type { Node, Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
+  feedKindChips,
+  feedSeatChips,
   needsOperatorCount,
   orderFeedSections,
   type FeedItem,
@@ -65,6 +67,8 @@ import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signal
 import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
 import { isOperatorTyping } from "../../lib/focus-ownership";
 import {
+  clearFeedFilters,
+  feedFilterOf,
   feedItemsInOrder,
   feedRegionChips,
   feedStatusLine,
@@ -73,10 +77,13 @@ import {
   reconcileSelection,
   regionPickKey,
   regionPickName,
+  toggleFeedKind,
+  toggleFeedSeat,
   useOperatorFeed,
   viewFeedSections,
   type ShownFeedSection,
 } from "../../lib/operator-feed";
+import { feedFilterOn } from "@shared/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
 import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
 import { isThisMacItem, openRemoteLoginSettings } from "../../lib/phone-reach";
@@ -657,6 +664,11 @@ export function OperatorFeed() {
   const nodesById: ReadonlyMap<string, Node> = useCanvas(canvasName).nodes;
   const regionPick = use$(feedView$.region);
   const feedOrder = use$(feedView$.order);
+  const feedQuery = use$(feedView$.query);
+  const feedKinds = use$(feedView$.kinds);
+  const feedSeats = use$(feedView$.seats);
+  const filter = useMemo(() => feedFilterOf({ query: feedQuery, kinds: feedKinds, seats: feedSeats }), [feedQuery, feedKinds, feedSeats]);
+  const filtering = feedFilterOn(filter);
   const activeRegion = regionPick?.canvasName === canvasName ? regionPick : undefined;
   // Coming back from a review opened on a card: the same card, the same
   // open details, the same scroll. Read as the feed mounts.
@@ -685,8 +697,8 @@ export function OperatorFeed() {
   // The view the operator picked: one region, or all of them, in the picked
   // order. Kept in feedView$ so it survives the modal's open and close.
   const viewSections = useMemo(
-    () => viewFeedSections(feed.sections, regionPick, canvasName, feedOrder),
-    [feed.sections, regionPick, canvasName, feedOrder],
+    () => viewFeedSections(feed.sections, regionPick, canvasName, feedOrder, filter),
+    [feed.sections, regionPick, canvasName, feedOrder, filter],
   );
 
   // What the feed draws. The operator's own picks (canvas, region, order)
@@ -697,7 +709,7 @@ export function OperatorFeed() {
   // commit ever draws the list without a card that is still fading: one that
   // did remounted the card, a reply box open on it took focus again, and the
   // list scrolled to it.
-  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}`;
+  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}\n${feedQuery}\n${feedKinds.join(",")}\n${feedSeats.join(",")}`;
   const drawn = useRef<{ readonly pick: string; readonly sections: ReadonlyArray<ShownFeedSection> }>({ pick, sections: [] });
   // Cards whose fade is over: the next draw leaves them out.
   const [faded, setFaded] = useState<ReadonlySet<string>>(NO_IDS);
@@ -805,6 +817,8 @@ export function OperatorFeed() {
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
     // A region chip is a button: Enter picks it, and no answer key acts from it.
     if (event.target instanceof Element && event.target.closest('[data-testid="feed-region-strip"]')) return;
+    // The filter bar's chips and search field are their own: their keys are theirs.
+    if (event.target instanceof Element && event.target.closest('[data-testid="feed-filter-bar"]')) return;
     // The moves every list shares (lib/list-nav). Enter is the feed's own: it replies.
     const intent = listIntentOf(event.nativeEvent);
     if (intent !== null && intent !== "open") {
@@ -858,6 +872,11 @@ export function OperatorFeed() {
     () => feedRegionChips(orderFeedSections(feed.sections, feedOrder), activeRegion?.path),
     [feed.sections, feedOrder, activeRegion],
   );
+  // The kind and seat chips, in the order the feed runs them: every kind it
+  // holds in the one order every surface says them, and every seat with a need.
+  // Counted over the whole feed, so picking one chip never empties the others.
+  const kindChips = useMemo(() => feedKindChips(orderFeedSections(feed.sections, feedOrder)), [feed.sections, feedOrder]);
+  const seatChips = useMemo(() => feedSeatChips(orderFeedSections(feed.sections, feedOrder)), [feed.sections, feedOrder]);
   const chosenRegion = activeRegion ? regionPickKey(activeRegion.path) : undefined;
   const regionName = activeRegion ? regionPickName(activeRegion.path) : "";
   const status = activeRegion
@@ -899,9 +918,73 @@ export function OperatorFeed() {
           />
         </div>
       ) : null}
+      {feed.count > 0 ? (
+        <div className="operator-feed__filter-bar" data-testid="feed-filter-bar">
+          <input
+            className="operator-feed__search"
+            type="search"
+            placeholder="Search needs"
+            aria-label="Search needs"
+            value={feedQuery}
+            onChange={(event) => feedView$.query.set(event.target.value)}
+          />
+          <div className="operator-feed__chips" role="group" aria-label="Kinds">
+            {kindChips.map((chip) => (
+              <button
+                key={chip.kind}
+                type="button"
+                className="operator-feed__filter-chip"
+                data-testid="feed-kind-chip"
+                data-kind={chip.kind}
+                aria-pressed={feedKinds.includes(chip.kind)}
+                onClick={() => toggleFeedKind(chip.kind)}
+              >
+                {chip.label}
+                <span className="operator-feed__filter-count" aria-hidden>
+                  {chip.count}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="operator-feed__chips" role="group" aria-label="Seats">
+            {seatChips.map((chip) => (
+              <button
+                key={chip.seatId}
+                type="button"
+                className="operator-feed__filter-chip"
+                data-testid="feed-seat-chip"
+                data-seat={chip.seatId}
+                aria-pressed={feedSeats.includes(chip.seatId)}
+                onClick={() => toggleFeedSeat(chip.seatId)}
+              >
+                {chip.name}
+                <span className="operator-feed__filter-count" aria-hidden>
+                  {chip.count}
+                </span>
+              </button>
+            ))}
+          </div>
+          {filtering || activeRegion !== undefined ? (
+            <Button size="sm" variant="subtle" data-testid="feed-clear-filters" onClick={clearFeedFilters}>
+              Clear
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {sections.length === 0 ? (
         <div className="operator-feed__scroll" data-testid="operator-feed">
-          {activeRegion !== undefined ? (
+          {filtering ? (
+            <div className="operator-feed__empty" role="status" data-testid="feed-no-matches">
+              <span className="operator-feed__empty-mark" aria-hidden>
+                <Inbox size={22} strokeWidth={1.4} />
+              </span>
+              <p className="operator-feed__empty-title">Nothing matches these filters</p>
+              <p className="operator-feed__empty-copy">Clear the search or the chips to see what is still waiting.</p>
+              <Button size="sm" variant="subtle" onClick={clearFeedFilters}>
+                Clear
+              </Button>
+            </div>
+          ) : activeRegion !== undefined ? (
             <div className="operator-feed__empty" role="status">
               <span className="operator-feed__empty-mark" aria-hidden>
                 <Inbox size={22} strokeWidth={1.4} />

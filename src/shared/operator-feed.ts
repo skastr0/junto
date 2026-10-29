@@ -12,11 +12,13 @@ import {
 } from "./thread-health";
 import { Level } from "./wire/urgency";
 import {
+  FEED_KIND_LABEL,
   feedItemRank,
   needsOperatorCount,
   OPERATOR_FEED_VERSION,
   type FeedHealth,
   type FeedItem,
+  type FeedItemKind,
   type FeedRegion,
   type FeedSeat,
   type FeedSection,
@@ -269,6 +271,110 @@ export const orderFeedSections = (
         (a.items[0] !== undefined && b.items[0] !== undefined ? byItem(a.items[0], b.items[0]) : 0) ||
         a.region.label.localeCompare(b.region.label),
     );
+};
+
+/**
+ * What the operator narrowed the feed to, besides a region: words, kinds and
+ * seats. An empty list keeps everything of that axis, so clearing one chip
+ * clears one axis and the rest stay.
+ */
+export type FeedFilter = {
+  /** Case-insensitive words to find in a need's sentence or its detail. */
+  readonly query: string;
+  readonly kinds: ReadonlyArray<FeedItemKind>;
+  readonly seats: ReadonlyArray<string>;
+};
+
+export const NO_FEED_FILTER: FeedFilter = { query: "", kinds: [], seats: [] };
+
+/** Whether the operator narrowed anything: the surface offers to clear it. */
+export const feedFilterOn = (filter: FeedFilter): boolean =>
+  filter.query.trim() !== "" || filter.kinds.length > 0 || filter.seats.length > 0;
+
+/** A need's words as a search reads them: its one sentence and its detail. */
+const feedItemWords = (item: FeedItem): string => `${item.text}\n${item.detail ?? ""}`.toLowerCase();
+
+/** Whether a need passes every axis the operator set; an axis left empty passes all. */
+export const feedItemMatches = (item: FeedItem, filter: FeedFilter): boolean => {
+  if (filter.kinds.length > 0 && !filter.kinds.includes(item.kind)) return false;
+  if (filter.seats.length > 0 && !filter.seats.includes(item.seat.nodeId)) return false;
+  const words = filter.query.trim().toLowerCase();
+  return words === "" || feedItemWords(item).includes(words);
+};
+
+/** The sections a filter leaves: its matching needs, and no section left empty. */
+export const filterFeedSections = (
+  sections: ReadonlyArray<FeedSection>,
+  filter: FeedFilter,
+): ReadonlyArray<FeedSection> =>
+  feedFilterOn(filter)
+    ? sections
+        .map((section) => ({ ...section, items: section.items.filter((item) => feedItemMatches(item, filter)) }))
+        .filter((section) => section.items.length > 0)
+    : sections;
+
+/** The one order every surface says the kinds in, as `FEED_KIND_LABEL` declares them. */
+const FEED_KIND_ORDER: ReadonlyArray<FeedItemKind> = [
+  "blocked",
+  "attention",
+  "stopped",
+  "escalate",
+  "feedback",
+  "health",
+  "notice",
+  "work",
+];
+
+/** A kind's words on a chip: the one name every surface gives it, its first letter capitalised. */
+export const feedKindChipLabel = (kind: FeedItemKind): string => {
+  const label = FEED_KIND_LABEL[kind];
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+/** A kind filter chip: its kind, the words every surface gives it, and how many it would show. */
+export type FeedKindChip = {
+  readonly kind: FeedItemKind;
+  readonly label: string;
+  /** What pressing it leaves on screen; readings count, because this chip is a view of the list. */
+  readonly count: number;
+};
+
+/**
+ * One chip per kind the feed holds, in the one order every surface says them
+ * (`FEED_KIND_LABEL`), so the strip does not move as counts change. The count is
+ * what the chip would show, which is why a reading counts here where the region
+ * strip counts needs only: this chip filters the list.
+ */
+export const feedKindChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedKindChip> => {
+  const counts = new Map<FeedItemKind, number>();
+  for (const section of sections) for (const item of section.items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+  return FEED_KIND_ORDER.filter((kind) => counts.has(kind)).map((kind) => ({
+    kind,
+    label: feedKindChipLabel(kind),
+    count: counts.get(kind) ?? 0,
+  }));
+};
+
+/** A seat filter chip: the seat by its name, and how many of its needs it would show. */
+export type FeedSeatChip = {
+  readonly seatId: string;
+  readonly name: string;
+  readonly count: number;
+};
+
+/**
+ * One chip per seat with a need, the busiest first and ties by name, so the
+ * strip reads like the list it filters rather than like a roster.
+ */
+export const feedSeatChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedSeatChip> => {
+  const chips = new Map<string, FeedSeatChip>();
+  for (const section of sections) {
+    for (const item of section.items) {
+      const known = chips.get(item.seat.nodeId);
+      chips.set(item.seat.nodeId, { seatId: item.seat.nodeId, name: item.seat.name, count: (known?.count ?? 0) + 1 });
+    }
+  }
+  return [...chips.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 };
 
 /**

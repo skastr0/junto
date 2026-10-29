@@ -10,14 +10,18 @@ import { automationsSource } from "./automations-source";
 import { canvasTasks$, seatTasks$ } from "./seat-tasks";
 import type { TaskView } from "@shared/task-model";
 import {
+  NO_FEED_FILTER,
   OPEN_FIELD,
   buildOperatorFeed,
   feedSeatsFromCanvas,
   feedSourcesFromCanvas,
+  filterFeedSections,
   needsOperatorCount,
   orderFeedSections,
   type FeedCanvasNeed,
+  type FeedFilter,
   type FeedItem,
+  type FeedItemKind,
   type FeedMailWait,
   type FeedRegion,
   type FeedSection,
@@ -364,27 +368,65 @@ export const feedRegionChips = (
 };
 
 /**
- * The feed's view: which region is showing and in what order. Session-lived
- * and module-scoped so it survives the modal opening and closing — triage
- * spans more than one look — without pretending to be a preference.
+ * The feed's view: which region is showing, what the operator narrowed it to,
+ * and in what order. Session-lived and module-scoped so it survives the modal
+ * opening and closing — triage spans more than one look — without pretending to
+ * be a preference.
  */
 export const feedView$ = observable<{
   region: FeedRegionPick | undefined;
   order: FeedSortOrder;
-}>({ region: undefined, order: "urgency" });
+  /** Words to find in a need's sentence or its detail; empty finds everything. */
+  query: string;
+  /** The kinds kept; empty keeps every kind. */
+  kinds: ReadonlyArray<FeedItemKind>;
+  /** The seats kept, by node id; empty keeps every seat. */
+  seats: ReadonlyArray<string>;
+}>({ region: undefined, order: "urgency", query: "", kinds: [], seats: [] });
+
+/** The filter the view's three narrowing fields say. */
+export const feedFilterOf = (view: {
+  readonly query: string;
+  readonly kinds: ReadonlyArray<FeedItemKind>;
+  readonly seats: ReadonlyArray<string>;
+}): FeedFilter => ({ query: view.query, kinds: view.kinds, seats: view.seats });
+
+/** A chip's press: the kind joins the filter, or leaves it. */
+export const toggleFeedKind = (kind: FeedItemKind): void => {
+  const held = feedView$.kinds.peek();
+  feedView$.kinds.set(held.includes(kind) ? held.filter((one) => one !== kind) : [...held, kind]);
+};
+
+/** A chip's press: the seat joins the filter, or leaves it. */
+export const toggleFeedSeat = (seatId: string): void => {
+  const held = feedView$.seats.peek();
+  feedView$.seats.set(held.includes(seatId) ? held.filter((one) => one !== seatId) : [...held, seatId]);
+};
+
+/** Clear everything the operator narrowed: the region pick and the three axes. */
+export const clearFeedFilters = (): void => {
+  feedView$.region.set(undefined);
+  feedView$.query.set("");
+  feedView$.kinds.set([]);
+  feedView$.seats.set([]);
+};
 
 /**
- * The sections an open feed shows: the picked region's, or all of them, in
- * the picked order.
+ * The sections an open feed shows: the picked region's, what the filter keeps
+ * of them, in the picked order.
  */
 export const viewFeedSections = (
   sections: ReadonlyArray<FeedSection>,
   pick: FeedRegionPick | undefined,
   canvasName: string,
   order: FeedSortOrder,
+  filter: FeedFilter = NO_FEED_FILTER,
 ): ReadonlyArray<FeedSection> =>
   orderFeedSections(
-    pick?.canvasName === canvasName ? sections.filter((section) => regionMatches(pick.path, section.region)) : sections,
+    filterFeedSections(
+      pick?.canvasName === canvasName ? sections.filter((section) => regionMatches(pick.path, section.region)) : sections,
+      filter,
+    ),
     order,
   );
 
