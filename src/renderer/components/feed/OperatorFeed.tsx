@@ -473,23 +473,38 @@ function FeedDetail({
         {item.signalId &&
         (form?.kind === "artifact" || form?.kind === "proof" || (form?.kind === "secret" && VAULT_ENABLED)) &&
         answer === form.kind ? (
-          <SignalWorkForm
-            key={item.signalId}
-            signalId={item.signalId}
-            canvasName={item.canvasName}
-            text={item.text}
-            form={form}
-            asker={item.seat.name}
-            handIn={handInSignalWork}
-            putSecret={putSignalSecret}
-            dismiss={dismissAgentSignal}
-            onDone={() => onReply(false)}
-          />
+          <>
+            <SignalWorkForm
+              key={item.signalId}
+              signalId={item.signalId}
+              canvasName={item.canvasName}
+              text={item.text}
+              form={form}
+              asker={item.seat.name}
+              handIn={handInSignalWork}
+              putSecret={putSignalSecret}
+              dismiss={dismissAgentSignal}
+              onDone={() => onReply(false)}
+            />
+            {/* The form is the whole answer; the run is still one press away. */}
+            {thisMac ? null : (
+              <div className="operator-feed__actions">
+                <OpenTargetButton item={item} node={node} isSeat={isSeat} />
+              </div>
+            )}
+          </>
         ) : item.signalId && answer === "secret" ? (
           // Never answered in text: a secret goes only into the vault, which this build has off.
-          <p className="operator-feed__secret-wait" role="note">
-            This asks for a secret. Secrets are set through the vault, which is not set up yet, so it cannot be answered here.
-          </p>
+          <>
+            <p className="operator-feed__secret-wait" role="note">
+              This asks for a secret. Secrets are set through the vault, which is not set up yet, so it cannot be answered here.
+            </p>
+            {thisMac ? null : (
+              <div className="operator-feed__actions">
+                <OpenTargetButton item={item} node={node} isSeat={isSeat} />
+              </div>
+            )}
+          </>
         ) : answer === "clear" && item.signalId ? (
           // A notice is read and cleared: no reply to write.
           <div className="operator-feed__actions">
@@ -504,6 +519,7 @@ function FeedDetail({
             >
               Clear
             </Button>
+            {thisMac ? null : <OpenTargetButton item={item} node={node} isSeat={isSeat} />}
           </div>
         ) : replying && item.signalId ? (
           <SignalReply
@@ -540,22 +556,7 @@ function FeedDetail({
                   <ArrowUpRight size={11} aria-hidden />
                 </Button>
               ) : (
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  disabled={!node}
-                  aria-label={
-                    isSeat
-                      ? `Open seat ${item.seat.name}`
-                      : automationSourceOf(item) === undefined
-                        ? `Open ${item.seat.name}`
-                        : `Open the run in ${item.seat.name}`
-                  }
-                  onClick={() => openSeat(item, node)}
-                >
-                  {isSeat ? "Open seat" : automationSourceOf(item) === undefined ? "Open" : "Open run"}
-                  <ArrowUpRight size={11} aria-hidden />
-                </Button>
+                <OpenTargetButton item={item} node={node} isSeat={isSeat} />
               )}
             </div>
           </>
@@ -573,6 +574,41 @@ function FeedDetail({
         answer={answer}
       />
     </section>
+  );
+}
+
+/**
+ * The way out of a card, in its pane: the seat's own surface, or the run an
+ * automation's signal raised. Shown wherever the pane answers, a form
+ * included: a work signal's whole answer is its form, and the run is still
+ * one press away.
+ */
+function OpenTargetButton({
+  item,
+  node,
+  isSeat,
+}: {
+  readonly item: FeedItem;
+  readonly node: Node | undefined;
+  readonly isSeat: boolean;
+}) {
+  return (
+    <Button
+      size="xs"
+      variant="subtle"
+      disabled={!node}
+      aria-label={
+        isSeat
+          ? `Open seat ${item.seat.name}`
+          : automationSourceOf(item) === undefined
+            ? `Open ${item.seat.name}`
+            : `Open the run in ${item.seat.name}`
+      }
+      onClick={() => openSeat(item, node)}
+    >
+      {isSeat ? "Open seat" : automationSourceOf(item) === undefined ? "Open" : "Open run"}
+      <ArrowUpRight size={11} aria-hidden />
+    </Button>
   );
 }
 

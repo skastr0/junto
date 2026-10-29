@@ -194,6 +194,25 @@ it("an automation's signal answers once and opens the run, never a seat", async 
   expect(buttons()).toContain("Open run");
 });
 
+it("a work form keeps the run one press away", async () => {
+  live.set(
+    feedWith({
+      kind: "escalate",
+      form: { kind: "artifact", nodeId: "shelf-1", title: "Morning pages", labels: [], minWords: 5 },
+      source: {
+        kind: "automation",
+        automationId: "01M62Q58WDSXMG4YBXNKR2RB91",
+        nodeId: "automations-1",
+        firingId: "01M62Q58WDSXMG4YBXNKR2RB92",
+      },
+    }),
+  );
+  await act(async () => root.render(<OperatorFeed />));
+  expect(pane().querySelector("[data-testid='signal-work-form']")).not.toBeNull();
+  // The form is the answer; the run it came from is still one press away.
+  expect(buttons()).toContain("Open run");
+});
+
 it("an empty feed says the day's work is done", async () => {
   live.set(buildOperatorFeed({ canvasName: CANVAS, nowMs: Date.now(), seats: [], signals: [] }));
   await act(async () => root.render(<OperatorFeed />));
