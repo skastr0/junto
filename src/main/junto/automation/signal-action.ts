@@ -25,6 +25,7 @@ import {
   AGENT_SIGNAL_MAX_DETAIL_LENGTH,
   AGENT_SIGNAL_MAX_TEXT_LENGTH,
   normalizeSignalText,
+  SIGNAL_RAISED_NAME_MAX_LENGTH,
   SIGNAL_RAISED_VALUE_MAX_LENGTH,
   SIGNAL_RAISED_VALUES_MAX,
   SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH,
@@ -85,7 +86,10 @@ const formRequestOf = (
 export const carriedValues = (values: Readonly<Record<string, string>>): Record<string, string> => {
   const carried: Record<string, string> = {};
   let total = 0;
-  for (const [name, value] of Object.entries(values).slice(0, SIGNAL_RAISED_VALUES_MAX)) {
+  for (const [name, value] of Object.entries(values)) {
+    if (Object.keys(carried).length >= SIGNAL_RAISED_VALUES_MAX) break;
+    // A name the wire would drop is never carried, so it costs nothing of the total.
+    if (name.length === 0 || name.length > SIGNAL_RAISED_NAME_MAX_LENGTH) continue;
     // Cut by UTF-16 length, the bound the wire checks, without splitting a pair.
     let cut = value.slice(0, SIGNAL_RAISED_VALUE_MAX_LENGTH);
     if (cut.length > 0 && /[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);

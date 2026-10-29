@@ -1,8 +1,9 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { carriedValues, performSignalAction, type SignalAction } from "../src/main/junto/automation/signal-action";
+import { SignalSource } from "../src/shared/wire/agent-signals";
 import { AgentSignalNotFound, type AgentSignalRepository, type RaiseAgentSignal } from "../src/main/junto/signals/repository";
-import { type Automation, AutomationId, AutomationVersion } from "../src/shared/automation";
+import { AUTOMATION_CODE_FIELD, type Automation, AutomationId, AutomationVersion } from "../src/shared/automation";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import { VAULT_ENABLED } from "../src/shared/features";
@@ -186,5 +187,14 @@ describe("an automation's signal step (0.11/07 N2, 0.11/09 H1)", () => {
     expect(carried["code.a"]).toHaveLength(2_000);
     expect(Object.values(carried).reduce((total, value) => total + value.length, 0)).toBeLessThanOrEqual(32_000);
     expect(Object.keys(carried)).toHaveLength(16);
+  });
+
+  it("carries the longest code field's value name, and the wire keeps it", () => {
+    const longest = `code.${"a".repeat(64)}`;
+    expect(AUTOMATION_CODE_FIELD.test(longest.slice("code.".length))).toBe(true);
+    const carried = carriedValues({ [longest]: "kept", [`code.${"a".repeat(70)}`]: "x".repeat(2_000) });
+    expect(carried).toEqual({ [longest]: "kept" });
+    const source = { kind: "automation", automationId: automation.automationId, nodeId: NODE, step: { index: 0, raised: carried } };
+    expect(Schema.decodeUnknownSync(SignalSource)(source)).toEqual(source);
   });
 });

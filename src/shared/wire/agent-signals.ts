@@ -266,9 +266,11 @@ const SignalSecretName = Schema.String.pipe(
 export const SIGNAL_RAISED_VALUES_MAX = 96;
 export const SIGNAL_RAISED_VALUE_MAX_LENGTH = 2_000;
 export const SIGNAL_RAISED_VALUES_MAX_TOTAL_LENGTH = 32_000;
+/** The longest value name: `code.` and a 64-character field (automation.ts AUTOMATION_CODE_FIELD). */
+export const SIGNAL_RAISED_NAME_MAX_LENGTH = 69;
 
 const RaisedValues = Schema.Record(
-  Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64))),
+  Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(SIGNAL_RAISED_NAME_MAX_LENGTH))),
   Schema.String.pipe(Schema.check(Schema.isMaxLength(SIGNAL_RAISED_VALUE_MAX_LENGTH))),
 ).pipe(
   Schema.check(
