@@ -3,7 +3,7 @@ import { use$ } from "@legendapp/state/react";
 import { FileText, Search } from "lucide-react";
 import type { NodeId } from "@shared/physics/schema";
 import type { ItemId } from "@shared/resource-command";
-import { claimFocus } from "../../lib/focus-ownership";
+import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import { keyIs, keyCaps } from "../../lib/key-match";
 import { isMac } from "../../lib/platform";
 import { useCanvasArtifacts } from "../../lib/capture-artifacts";
@@ -11,17 +11,21 @@ import { useCaptureInbox } from "../../lib/capture-inbox";
 import { state$ } from "../../lib/state";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { focusCanvasNode } from "../../lib/command-bar";
+import { useCanvas } from "../../lib/use-model";
 import {
   comboboxFieldAria,
   listboxAria,
   optionAria,
+  optionId,
   type ListboxAriaState,
 } from "../../lib/listbox-aria";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
+import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
 import { Kbd } from "../ui";
 import { CaptureEditor } from "./CaptureEditor";
 import { CapturePreview } from "./CapturePreview";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
+import { moveSuggestionsFor } from "./capture-model";
 import { captureRowsOf, type CaptureRow } from "./capture-list";
 import "./quick-capture.css";
 
@@ -63,6 +67,14 @@ export function QuickCapture() {
     [heads, inbox, query],
   );
   const activeRow = rows.find((row) => row.artifactId === active) ?? rows[0];
+  // The open Move to, and the routes it offers: where this artifact's links,
+  // mentions and labels point, and the node holding the artifacts most like it.
+  const [routing, setRouting] = useState<CaptureRow | undefined>(undefined);
+  const canvas = useCanvas(canvasName);
+  const routes = useMemo(
+    () => (routing === undefined ? [] : moveSuggestionsFor(canvas, routing.head, heads)),
+    [routing, canvas, heads],
+  );
   const aria: ListboxAriaState = {
     baseId,
     presentation: "inline",
@@ -122,6 +134,7 @@ export function QuickCapture() {
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (event.defaultPrevented) return;
     // The editor is the one scope that owns the bare keys: there M types m and
     // Cmd+Enter follows the link at the caret. Everywhere else in the surface,
     // the search field included, they are the list's.
@@ -152,6 +165,13 @@ export function QuickCapture() {
     if (keyIs(event.nativeEvent, "inCapture.open") && activeRow !== undefined) {
       event.preventDefault();
       setEdit({ kind: "artifact", row: activeRow });
+      return;
+    }
+    // A bare key: it types in the search field, so it routes only from the
+    // list itself, where the keyboard steps in with Tab.
+    if (keyIs(event.nativeEvent, "inCapture.route") && !isOperatorTyping(event.nativeEvent.target) && activeRow !== undefined) {
+      event.preventDefault();
+      setRouting(activeRow);
     }
   };
 
@@ -162,6 +182,7 @@ export function QuickCapture() {
       id="capture"
       label="Quick capture"
       title="Quick capture"
+      width={920}
       fill
       panelClassName="quick-capture"
       onKeyDown={onKeyDown}
@@ -175,7 +196,7 @@ export function QuickCapture() {
               {...comboboxFieldAria(aria)}
               type="search"
               aria-label="Search every artifact"
-              placeholder="Search every artifact"
+              placeholder="Search artifacts"
               value={query}
               spellCheck={false}
               autoComplete="off"
@@ -188,7 +209,15 @@ export function QuickCapture() {
           <p className="quick-capture__list-label" id={`${baseId}-label`}>
             {query.trim() === "" ? "Inbox, then recent" : "Matches"}
           </p>
-          <ul {...listboxAria(aria)} className="quick-capture__rows" aria-labelledby={`${baseId}-label`}>
+          <ul
+            {...listboxAria(aria)}
+            className="quick-capture__rows"
+            aria-labelledby={`${baseId}-label`}
+            aria-activedescendant={activeRow === undefined ? undefined : optionId(baseId, activeRow.artifactId)}
+            // The list is its own stop: the keys that act on a row, M included,
+            // type in the search field, so the keyboard has to be able to sit here.
+            tabIndex={0}
+          >
             {rows.length === 0 ? (
               <li className="quick-capture__none" role="status">
                 {query.trim() === "" ? "Nothing captured yet." : "No artifact matches."}
@@ -270,6 +299,16 @@ export function QuickCapture() {
           <Kbd>esc</Kbd> close
         </span>
       </div>
+      {routing === undefined ? null : (
+        <ArtifactMoveDialog
+          canvasName={canvasName}
+          from={routing.nodeId}
+          artifacts={[{ artifactId: routing.artifactId as ItemId, title: rowLabel(routing) }]}
+          suggestions={routes}
+          onCancel={() => setRouting(undefined)}
+          onDone={() => setRouting(undefined)}
+        />
+      )}
     </OperatorModalShell>
   );
 }
