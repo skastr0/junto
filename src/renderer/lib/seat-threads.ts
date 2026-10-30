@@ -190,11 +190,9 @@ export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void 
   offRead?.();
   offRead = undefined;
   installed = next;
-  if (retained.size > 0) listenForChanges();
-  for (const key of retained.keys()) {
-    void refreshSeat(key);
-    void refreshUnread(key);
-  }
+  if (listed.size > 0 || counted.size > 0) listenForChanges();
+  for (const key of listed.keys()) void refreshSeat(key);
+  for (const key of counted.keys()) void refreshUnread(key);
   for (const key of Object.keys(seatThreads$.messages.peek())) void refreshThread(key);
 };
 
@@ -318,11 +316,11 @@ const merged = (withYou: ReadonlyArray<SeatThreadSummary>, between: ReadonlyArra
 const refreshSeat = (key: string): Promise<void> =>
   coalesce(key, async () => {
     const read = activeSource();
-    if (!read || !retained.has(key)) return;
+    if (!read || !listed.has(key)) return;
     try {
       const seat = seatOfKey(key);
       const pages = await Promise.all(GROUPS.map((group) => read.list({ ...seat, group })));
-      if (activeSource() !== read || !retained.has(key)) return;
+      if (activeSource() !== read || !listed.has(key)) return;
       const prior = seatThreads$.seats[key].peek();
       // Each list's head over what it holds, on its own cursor.
       const heads = GROUPS.map((group, n) => {
@@ -358,10 +356,10 @@ const refreshSeat = (key: string): Promise<void> =>
 const refreshUnread = (key: string): Promise<void> =>
   coalesce(`${key}\u0001unread`, async () => {
     const read = activeSource();
-    if (!read || !retained.has(key)) return;
+    if (!read || !counted.has(key)) return;
     try {
       const total = await read.unreadTotal(seatOfKey(key));
-      if (activeSource() !== read || !retained.has(key)) return;
+      if (activeSource() !== read || !counted.has(key)) return;
       // A count that cannot be read keeps the last one: zero would claim nothing is waiting.
       if (total !== undefined) seatThreads$.unread[key].set(total);
     } catch {
@@ -402,11 +400,11 @@ export const loadMoreSeatThreads = async (seat: SeatAddress): Promise<void> => {
   const state = seatThreads$.seats[key].peek();
   const group = GROUPS.find((candidate) => state?.next?.[candidate] !== undefined);
   const after = group === undefined ? undefined : state?.next?.[group];
-  if (!read || !state || !retained.has(key) || group === undefined || after === undefined || state.loadingMore) return;
+  if (!read || !state || !listed.has(key) || group === undefined || after === undefined || state.loadingMore) return;
   seatThreads$.seats[key].set({ ...state, loadingMore: true });
   try {
     const page = await read.list({ ...seat, group, after });
-    if (activeSource() !== read || !retained.has(key)) return;
+    if (activeSource() !== read || !listed.has(key)) return;
     const now = seatThreads$.seats[key].peek();
     if (!now) return;
     // A head read meanwhile may have moved the cursor on; only its own page ends here.
@@ -463,44 +461,53 @@ export const loadOlderMessages = async (seat: SeatAddress, threadId: string): Pr
   }
 };
 
-/** Seats retained, and by how many users. */
-const retained = new Map<string, number>();
+/** Seats whose list is retained, and by how many users. */
+const listed = new Map<string, number>();
+/** Seats whose unread count is retained, and by how many users: the button shows one with the popup shut. */
+const counted = new Map<string, number>();
 /** Threads open, and by how many users. */
 const openThreads = new Map<string, number>();
 let offChanged: (() => void) | undefined;
 let offRead: (() => void) | undefined;
 
+/** The keys of `held` this change touches: its canvas, and the seat the change names when it names one. */
+const touched = (
+  keys: Iterable<string>,
+  change: { readonly canvasName: string; readonly seatId?: string },
+): ReadonlyArray<string> => {
+  const out: string[] = [];
+  for (const key of keys) {
+    const seat = seatOfKey(key);
+    if (seat.canvasName !== change.canvasName) continue;
+    if (change.seatId !== undefined && change.seatId !== seat.seatId) continue;
+    out.push(key);
+  }
+  return out;
+};
+
+/**
+ * A mail change names no thread, and any mailbox can change a seat's threads:
+ * every list held is read again, and every count, while a seat whose popup is
+ * shut is asked only for the count its button shows.
+ */
 const listenForChanges = (): void => {
   const read = activeSource();
   if ((offChanged && offRead) || !read) return;
   offChanged ??= read.onChanged((change) => {
-    for (const key of retained.keys()) {
-      const seat = seatOfKey(key);
-      if (seat.canvasName !== change.canvasName) continue;
-      if (change.seatId !== undefined && change.seatId !== seat.seatId) continue;
-      void refreshSeat(key);
-      void refreshUnread(key);
-    }
-    for (const key of openThreads.keys()) {
-      const [canvasName, seatId] = key.split("\u0000");
-      if (canvasName !== change.canvasName) continue;
-      if (change.seatId !== undefined && change.seatId !== seatId) continue;
-      void refreshThread(key);
-    }
+    for (const key of touched(listed.keys(), change)) void refreshSeat(key);
+    for (const key of touched(counted.keys(), change)) void refreshUnread(key);
+    for (const key of touched(openThreads.keys(), change)) void refreshThread(key);
   });
   // The operator read on the other device: the counts here follow (0.11.3).
   offRead ??= read.onReadChanged((change) => {
-    for (const key of retained.keys()) {
-      const seat = seatOfKey(key);
-      if (seat.canvasName !== change.canvasName || !change.seatIds.includes(seat.seatId)) continue;
-      void refreshSeat(key);
-      void refreshUnread(key);
-    }
+    const seats = new Set(change.seatIds);
+    for (const key of touched(listed.keys(), change)) if (seats.has(seatOfKey(key).seatId)) void refreshSeat(key);
+    for (const key of touched(counted.keys(), change)) if (seats.has(seatOfKey(key).seatId)) void refreshUnread(key);
   });
 };
 
 const stopListeningIfIdle = (): void => {
-  if (retained.size > 0 || openThreads.size > 0) return;
+  if (listed.size > 0 || counted.size > 0 || openThreads.size > 0) return;
   offChanged?.();
   offChanged = undefined;
   offRead?.();
@@ -516,30 +523,63 @@ export const markSeatThreadRead = async (seat: SeatAddress, threadId: string): P
   const read = activeSource();
   if (!read) return;
   await read.markRead({ ...seat, threadId });
-  await Promise.all([refreshSeat(seatKey(seat)), refreshUnread(seatKey(seat))]);
+  // The list's rows carry the read state; a thread's mail does not, so it is not read again.
+  await Promise.all([refreshList(seat), refreshCount(seat)]);
+};
+
+/** Read a retained seat's list again, if its popup is showing one. */
+const refreshList = (seat: SeatAddress): Promise<void> => {
+  const key = seatKey(seat);
+  return listed.has(key) ? refreshSeat(key) : Promise.resolve();
 };
 
 /** Read a retained seat's threads again now, as after the operator sent in them. */
 export const refreshSeatThreads = (seat: SeatAddress): void => {
   const key = seatKey(seat);
-  if (retained.has(key)) void refreshSeat(key);
+  void refreshList(seat);
   for (const thread of openThreads.keys()) if (thread.startsWith(`${key}\u0000`)) void refreshThread(thread);
 };
 
-/** Keep a seat's thread list read and current; the returned function lets go. */
+/** Read a retained seat's count again, if its button is showing one. */
+const refreshCount = (seat: SeatAddress): Promise<void> => {
+  const key = seatKey(seat);
+  return counted.has(key) ? refreshUnread(key) : Promise.resolve();
+};
+
+/**
+ * Keep a seat's thread list read and current; the returned function lets go.
+ * A seat whose popup is shut keeps only its count (`retainSeatUnread`).
+ */
 export const retainSeatThreads = (seat: SeatAddress): (() => void) => {
   const key = seatKey(seat);
-  retained.set(key, (retained.get(key) ?? 0) + 1);
+  listed.set(key, (listed.get(key) ?? 0) + 1);
   listenForChanges();
   void refreshSeat(key);
+  void refreshCount(seat);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const users = (listed.get(key) ?? 1) - 1;
+    if (users > 0) listed.set(key, users);
+    else listed.delete(key);
+    stopListeningIfIdle();
+  };
+};
+
+/** Keep a seat's unread count read and current, for the button; the returned function lets go. */
+export const retainSeatUnread = (seat: SeatAddress): (() => void) => {
+  const key = seatKey(seat);
+  counted.set(key, (counted.get(key) ?? 0) + 1);
+  listenForChanges();
   void refreshUnread(key);
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    const users = (retained.get(key) ?? 1) - 1;
-    if (users > 0) retained.set(key, users);
-    else retained.delete(key);
+    const users = (counted.get(key) ?? 1) - 1;
+    if (users > 0) counted.set(key, users);
+    else counted.delete(key);
     stopListeningIfIdle();
   };
 };
@@ -570,14 +610,14 @@ export const useSeatThreads = (seat: SeatAddress, enabled = true): SeatState => 
 
 /**
  * What the operator has not read in the seat, over every thread of it: the
- * header's count, which paging never moves. Kept current with the seat's
- * threads while mounted, and 0 until the first read lands.
+ * header's count, which paging never moves. Kept current while mounted, and 0
+ * until the first read lands; the list is not read for it.
  */
 export const useSeatUnread = (seat: SeatAddress, enabled = true): number => {
   const { canvasName, seatId } = seat;
   useEffect(() => {
     if (!enabled || !canvasName) return;
-    return retainSeatThreads({ canvasName, seatId });
+    return retainSeatUnread({ canvasName, seatId });
   }, [canvasName, seatId, enabled]);
   return use$(() => seatThreads$.unread[seatKey(seat)].get()) ?? 0;
 };
@@ -700,7 +740,8 @@ export const resetSeatThreads = (): void => {
   offChanged = undefined;
   installed = undefined;
   bridged = undefined;
-  retained.clear();
+  listed.clear();
+  counted.clear();
   openThreads.clear();
   flights.clear();
   seatThreads$.set({ seats: {}, messages: {}, unread: {} });

@@ -13,10 +13,11 @@
  * typed ids, and a failed write is reported without the store's message.
  */
 import { Effect, Option } from "effect";
+import type { SqlClient } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
 import { mentionedOnce, mentionsOf } from "@shared/mention";
-import { linesAnchorMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
+import { linesAnchorMetadata, type ResourceSubject } from "@shared/thread-subject";
 import { reviewCandidates } from "@shared/review-candidates";
 import { subjectNoticeId } from "@shared/subject-notice";
 import { OpId } from "@shared/work-ids";
@@ -25,10 +26,12 @@ import type { NodeId } from "@shared/physics/schema";
 import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
 import {
+  mailAfter,
   seatMailThreadMessages,
   seatMailThreadMessagesPage,
   seatMailThreads,
   seatMailThreadsPage,
+  threadEntriesOfMailbox,
   type MailReadPoint,
   type MailThreadsInput,
   type MentionableSeat,
@@ -36,6 +39,8 @@ import {
   type OperatorThreadSent,
   type ThreadGroup,
 } from "@shared/mail-threads";
+import type { MailThreadMessage } from "@shared/wire/mail-threads";
+import type { Message } from "@shared/work-model";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
 import type { ContentOwner } from "../content/manifest";
@@ -45,11 +50,12 @@ import { writeMailCarryingText } from "../content/mail-text-file";
 import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
 import { heldMailbox } from "./mailbox-cache";
-import type { WorkRepository } from "./repository";
+import type { WorkRepositoryShape } from "./repository";
+import { WorkRepository } from "./repository";
 import { WorkService } from "./service";
 import { postSubjectComment } from "./subject-comment";
 import { subjectReplyOf } from "@shared/subject-comment";
-import { subjectNameAt, subjectPeopleAt } from "./subject-people";
+import { subjectNamesAt, subjectPeopleAt } from "./subject-people";
 
 /** One key per resource, whatever place on it a thread hangs. */
 const subjectKey = (subject: ResourceSubject): string =>
@@ -60,33 +66,236 @@ const subjectKey = (subject: ResourceSubject): string =>
 
 const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "agent");
 
-/** Every agent seat's mailbox on the canvas, with seat names. */
+/** What one held mailbox contributes to the threads it is in. */
+type MailboxThreads = {
+  /** The held read it was derived from: another array means its mail moved. */
+  readonly messages: ReadonlyArray<Message>;
+  /** Its thread mail, by thread id, each thread oldest first. */
+  readonly byThread: ReadonlyMap<string, ReadonlyArray<MailThreadMessage>>;
+};
+
+/** One thread's mail, as the mailboxes that hold it say it. */
+type ThreadMail = {
+  /** Each mailbox's rows in it, by mailbox. */
+  readonly boxes: Map<string, ReadonlyArray<MailThreadMessage>>;
+  /** All of them, oldest first. */
+  entries: ReadonlyArray<MailThreadMessage>;
+  /** The seats in it, as its mail names them. */
+  seats: ReadonlyArray<string>;
+  /** The resources its rows hang on, by key. */
+  subjects: ReadonlyMap<string, ResourceSubject>;
+};
+
+/**
+ * A canvas's threads, derived from its mailboxes once and after that only as
+ * each mailbox changes: a mail change re-derives the mailbox it landed in and
+ * the threads that mailbox holds, never every mailbox on the canvas. Mail is
+ * still held by `mailbox-cache`, so a mailbox that did not change costs
+ * nothing at all.
+ */
+type CanvasThreads = {
+  readonly boxes: Map<string, MailboxThreads>;
+  /** The seats whose mail has been read, an empty mailbox included. */
+  readonly known: Set<string>;
+  readonly threads: Map<string, ThreadMail>;
+  /** The threads each seat is in. */
+  readonly ofSeat: Map<string, Set<string>>;
+  /** The subjects held anywhere in it, and how many threads name each. */
+  readonly subjects: Map<string, { readonly subject: ResourceSubject; count: number }>;
+  /** The seats it was derived for and their names: a rename re-derives what names them. */
+  signature: string;
+  /** Mailboxes whose mail moved since their rows were derived. */
+  readonly stale: Set<string>;
+  /** Each seat's threads by id, built when asked and dropped when one of them moves. */
+  readonly views: Map<string, ReadonlyMap<string, ReadonlyArray<MailThreadMessage>>>;
+};
+
+/** The shared order: oldest first, the message id breaking a tie. */
+const byAge = (a: MailThreadMessage, b: MailThreadMessage): number => (mailAfter(a, b) ? 1 : mailAfter(b, a) ? -1 : 0);
+
+const NO_MAIL: ReadonlyArray<Message> = [];
+
+const seatsIn = (entries: ReadonlyArray<MailThreadMessage>): ReadonlyArray<string> => {
+  const seats = new Set<string>();
+  for (const entry of entries) {
+    if (entry.from.kind === "seat") seats.add(entry.from.nodeId);
+    for (const party of entry.to) if (party.kind === "seat") seats.add(party.nodeId);
+  }
+  return [...seats];
+};
+
+const subjectsIn = (entries: ReadonlyArray<MailThreadMessage>): ReadonlyMap<string, ResourceSubject> => {
+  const subjects = new Map<string, ResourceSubject>();
+  for (const entry of entries) if (entry.subject !== undefined) subjects.set(subjectKey(entry.subject), entry.subject);
+  return subjects;
+};
+
+/** A thread's mailboxes merged into its mail, oldest first, with the seats and subjects they name. */
+const settle = (index: CanvasThreads, threadId: string, mail: ThreadMail): void => {
+  const wasSeats = mail.seats;
+  // One mailbox's rows are already oldest first; several merge into one order.
+  const parts = [...mail.boxes.values()];
+  mail.entries = parts.length === 1 ? parts[0]! : parts.flat().sort(byAge);
+  const seats = seatsIn(mail.entries);
+  const subjects = subjectsIn(mail.entries);
+  for (const seat of seats) {
+    const held = index.ofSeat.get(seat);
+    if (held === undefined) index.ofSeat.set(seat, new Set([threadId]));
+    else held.add(threadId);
+  }
+  for (const seat of wasSeats) {
+    if (seats.includes(seat)) continue;
+    const held = index.ofSeat.get(seat);
+    held?.delete(threadId);
+    if (held?.size === 0) index.ofSeat.delete(seat);
+  }
+  for (const [key] of mail.subjects) {
+    if (subjects.has(key)) continue;
+    const held = index.subjects.get(key);
+    if (held === undefined) continue;
+    if (held.count <= 1) index.subjects.delete(key);
+    else index.subjects.set(key, { subject: held.subject, count: held.count - 1 });
+  }
+  for (const [key, subject] of subjects) {
+    if (mail.subjects.has(key)) continue;
+    index.subjects.set(key, { subject, count: (index.subjects.get(key)?.count ?? 0) + 1 });
+  }
+  mail.seats = seats;
+  mail.subjects = subjects;
+  for (const seat of new Set([...wasSeats, ...seats])) index.views.delete(seat);
+};
+
+/**
+ * One mailbox's rows replaced in the index: only the threads it is in are
+ * rebuilt. `again` derives the same rows under other names (a rename).
+ */
+const placeMailbox = (
+  index: CanvasThreads,
+  nodeId: string,
+  messages: ReadonlyArray<Message>,
+  nameOf: (nodeId: string) => string | undefined,
+  again = false,
+): void => {
+  const before = index.boxes.get(nodeId);
+  if (!again && before !== undefined && before.messages === messages) return;
+  const next: MailboxThreads = { messages, byThread: threadEntriesOfMailbox({ nodeId, messages }, nameOf) };
+  if (messages.length === 0) index.boxes.delete(nodeId);
+  else index.boxes.set(nodeId, next);
+  const touched = new Set<string>([...(before?.byThread.keys() ?? []), ...next.byThread.keys()]);
+  for (const threadId of touched) {
+    let mail = index.threads.get(threadId);
+    const rows = next.byThread.get(threadId);
+    if (mail === undefined && rows === undefined) continue;
+    if (mail === undefined) {
+      mail = { boxes: new Map(), entries: [], seats: [], subjects: new Map() };
+      index.threads.set(threadId, mail);
+    }
+    if (rows === undefined) mail.boxes.delete(nodeId);
+    else mail.boxes.set(nodeId, rows);
+    settle(index, threadId, mail);
+    if (mail.boxes.size === 0) index.threads.delete(threadId);
+  }
+};
+
+/** One seat's threads by id, as held; built when first asked, dropped when one of them moves. */
+const viewOf = (index: CanvasThreads, nodeId: string): ReadonlyMap<string, ReadonlyArray<MailThreadMessage>> => {
+  const held = index.views.get(nodeId);
+  if (held !== undefined) return held;
+  const view = new Map<string, ReadonlyArray<MailThreadMessage>>();
+  for (const threadId of index.ofSeat.get(nodeId) ?? []) {
+    const mail = index.threads.get(threadId);
+    if (mail !== undefined) view.set(threadId, mail.entries);
+  }
+  index.views.set(nodeId, view);
+  return view;
+};
+
+/** One index per repository and canvas, subscribed as it is made: a mail change names the mailbox it landed in. */
+const indexes = new WeakMap<object, Map<string, CanvasThreads>>();
+
+const threadsOf = (repository: WorkRepositoryShape, canvasName: string): CanvasThreads => {
+  let byCanvas = indexes.get(repository);
+  if (byCanvas === undefined) {
+    const held = new Map<string, CanvasThreads>();
+    byCanvas = held;
+    indexes.set(repository, held);
+    repository.subscribeChanges((canvas, nodeId, kind) => {
+      if (kind === "work") return;
+      held.get(canvas)?.stale.add(nodeId);
+    });
+  }
+  let index = byCanvas.get(canvasName);
+  if (index === undefined) {
+    index = {
+      boxes: new Map(),
+      known: new Set(),
+      threads: new Map(),
+      ofSeat: new Map(),
+      subjects: new Map(),
+      signature: "",
+      stale: new Set(),
+      views: new Map(),
+    };
+    byCanvas.set(canvasName, index);
+  }
+  return index;
+};
+
+/** Every seat's mail read once, and after that only the mailboxes the store said changed. */
+const refreshThreads = (
+  index: CanvasThreads,
+  canvasName: string,
+  names: ReadonlyMap<string, string>,
+  signature: string,
+) =>
+  Effect.gen(function* () {
+    const nameOf = (nodeId: string): string | undefined => names.get(nodeId);
+    if (index.signature !== signature) {
+      // A seat was named, added or removed: what names it is derived again, from the mail already held.
+      for (const [nodeId, box] of [...index.boxes]) placeMailbox(index, nodeId, box.messages, nameOf, true);
+      for (const nodeId of [...index.known]) {
+        if (names.has(nodeId)) continue;
+        index.known.delete(nodeId);
+        placeMailbox(index, nodeId, NO_MAIL, nameOf, true);
+      }
+      index.signature = signature;
+    }
+    for (const nodeId of names.keys()) {
+      if (index.known.has(nodeId)) continue;
+      const messages = yield* heldMailbox(canvasName, nodeId);
+      index.known.add(nodeId);
+      placeMailbox(index, nodeId, messages, nameOf);
+    }
+    for (const nodeId of [...index.stale]) {
+      // Dropped before the read: a change that lands during it marks this mailbox again.
+      index.stale.delete(nodeId);
+      if (!index.known.has(nodeId)) continue;
+      const messages = yield* heldMailbox(canvasName, nodeId).pipe(
+        // A read that failed is still owed: the next look tries this mailbox again.
+        Effect.tapError(() => Effect.sync(() => index.stale.add(nodeId))),
+      );
+      placeMailbox(index, nodeId, messages, nameOf);
+    }
+  });
+
+/** Every agent seat's mailbox on the canvas, held, with seat names and the name of each subject thread. */
 const threadsInput = (canvasName: string) =>
   Effect.gen(function* () {
     const canvas = yield* (yield* ModelService).canvas(canvasName);
+    const repository = yield* WorkRepository;
     const seats = agentSeatsOf(canvas);
-    const mailboxes = yield* Effect.forEach(seats, (seat) =>
-      heldMailbox(canvasName, seat.id).pipe(Effect.map((messages) => ({ nodeId: seat.id as string, messages }))),
-    );
     const names = new Map(seats.map((seat) => [seat.id as string, titleOf(seat)]));
+    const signature = [...names].map(([nodeId, name]) => `${nodeId}\u0000${name}`).join("\u0001");
+    const index = threadsOf(repository, canvasName);
+    yield* refreshThreads(index, canvasName, names, signature);
     // Each subject held is named once: a task thread is listed as the task.
-    const subjects = new Map<string, ResourceSubject>();
-    for (const mailbox of mailboxes) {
-      for (const row of mailbox.messages) {
-        const subject = threadSubjectOf(row);
-        if (subject !== undefined) subjects.set(subjectKey(subject), subject);
-      }
-    }
-    const subjectNames = new Map<string, string>();
-    yield* Effect.forEach(subjects, ([key, subject]) =>
-      Effect.map(subjectNameAt(canvas, canvasName, subject), (name) => {
-        if (name !== undefined) subjectNames.set(key, name);
-      }),
-    );
+    const subjects = [...index.subjects.values()].map((held) => [subjectKey(held.subject), held.subject] as const);
+    const subjectNames = yield* subjectNamesAt(canvas, canvasName, subjects);
     const input: MailThreadsInput = {
-      mailboxes,
+      mailboxes: [...index.boxes].map(([nodeId, box]) => ({ nodeId, messages: box.messages })),
       nameOf: (nodeId) => names.get(nodeId),
       subjectNameOf: (subject) => subjectNames.get(subjectKey(subject)),
+      derivedFor: (nodeId) => viewOf(index, nodeId),
     };
     return { canvas, input };
   });
@@ -181,7 +390,7 @@ const refused = (reason: Refused["reason"], message: string): Refused => ({ ok: 
  * check runs before the write.
  */
 export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
-  Effect.gen(function* (): Effect.fn.Return<Refused | OperatorThreadWritten, unknown, ModelService | WorkService | WorkRepository> {
+  Effect.gen(function* (): Effect.fn.Return<Refused | OperatorThreadWritten, unknown, ModelService | WorkService | WorkRepository | SqlClient.SqlClient> {
     const { canvasName, nodeId } = send;
     const { canvas, input } = yield* threadsInput(canvasName);
     const seat = canvas.nodes.get(asNodeId(nodeId));

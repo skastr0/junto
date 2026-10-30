@@ -42,6 +42,13 @@ export type MailThreadsInput = {
   readonly mailboxes: ReadonlyArray<HeldMailbox>;
   /** A seat's display name; the node id stands in when it has none. */
   readonly nameOf: (nodeId: string) => string | undefined;
+  /**
+   * A seat's threads already derived, by thread id, oldest first. A reader
+   * that holds them as its mailboxes change (`work/operator-threads.ts`)
+   * passes them, so a page costs its page and not every mailbox on the
+   * canvas; a reader with none leaves this out and the mailboxes are walked.
+   */
+  readonly derivedFor?: (nodeId: string) => ReadonlyMap<string, ReadonlyArray<MailThreadMessage>> | undefined;
   /** The name a subject thread is listed under, `#42 fix tabs`; its subject's label stands in when it has none. */
   readonly subjectNameOf?: (subject: ResourceSubject) => string | undefined;
   /** The operator's read point in a thread (work/mail-reads.ts); absent, every thread reads as never read. */
@@ -152,6 +159,29 @@ const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 /** Oldest first; the message id breaks a tie. */
 const byAge = (a: Pick<Entry, "at" | "messageId">, b: Pick<Entry, "at" | "messageId">): number => a.at - b.at || compareId(a.messageId, b.messageId);
 
+/**
+ * One mailbox's rows as thread mail, by thread id, each thread oldest first:
+ * what a held mailbox contributes to its threads, derived once per held read.
+ */
+export const threadEntriesOfMailbox = (
+  mailbox: HeldMailbox,
+  nameOf: MailThreadsInput["nameOf"],
+): ReadonlyMap<string, ReadonlyArray<Entry>> => {
+  const seat = (nodeId: string): SeatParty => ({ kind: "seat", nodeId, name: nameOf(nodeId) ?? nodeId });
+  const threads = new Map<string, Entry[]>();
+  for (const row of mailbox.messages) {
+    const entry = entryOf(row, mailbox.nodeId, seat, nameOf);
+    if (entry === undefined) continue;
+    const held = threads.get(entry.threadId);
+    if (held === undefined) threads.set(entry.threadId, [entry]);
+    else held.push(entry);
+  }
+  // Mailboxes are read in position order, so a thread's rows are nearly always
+  // already oldest first: sorted only when there is more than one.
+  for (const entries of threads.values()) if (entries.length > 1) entries.sort(byAge);
+  return threads;
+};
+
 /** The operator's read point in a thread: the newest mail read, and when it was read, on the Mac clock. */
 export type MailReadPoint = { readonly through: string; readonly at: number };
 
@@ -250,6 +280,8 @@ const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyA
 };
 
 const threadsTouching = (input: MailThreadsInput, nodeId: string): ReadonlyMap<string, ReadonlyArray<Entry>> => {
+  const derived = input.derivedFor?.(nodeId);
+  if (derived !== undefined) return derived;
   const entries = entriesOf(input);
   const mine = new Set(entries.filter((entry) => involves(entry, nodeId)).map((entry) => entry.threadId));
   const threads = new Map<string, Entry[]>();

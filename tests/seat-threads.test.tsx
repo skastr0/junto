@@ -222,6 +222,22 @@ describe("the Threads button", () => {
     expect(row("notes")?.querySelector('[data-testid="seat-threads-row-unread"]')).toBeNull();
   });
 
+  it("reads the count alone while the popup is shut, and the list once it opens", async () => {
+    const fixture = fake();
+    setSeatThreadsSource(fixture.source);
+    await render();
+    const lists = fixture.state.lists;
+    const counts = fixture.state.counts;
+    // A mailbox changed: the button's number follows, and no list is read for a popup that is not showing.
+    act(() => fixture.change());
+    await flush();
+    expect(fixture.state.lists).toBe(lists);
+    expect(fixture.state.counts).toBeGreaterThan(counts);
+
+    await click(q("seat-threads-button"));
+    expect(fixture.state.lists).toBeGreaterThan(lists);
+  });
+
   it("counts the whole seat, not the page the list has read", async () => {
     const fixture = fake();
     fixture.state.threads = [

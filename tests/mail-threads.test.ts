@@ -606,6 +606,22 @@ describe("operator threads", () => {
     expect(await mailbox("loner")).toEqual([]);
   });
 
+  it("reads a seat's threads once, then only the mailbox that changed", async () => {
+    // Read before any mail: every mailbox is read once, and the seat has no thread.
+    expect(await threadsOf("agent")).toEqual([]);
+    const root = await call("peer", "msg.send", { target: "agent", text: "can you look?" });
+    expect(root.ok).toBe(true);
+    const [opened] = await threadsOf("agent");
+    expect(opened).toMatchObject({ threadId: root.data.messageId, messageCount: 1 });
+
+    // The answer lands in the other seat's mailbox: the same thread grows to hold it.
+    const reply = await call("agent", "msg.reply", { target: "peer", text: "on it", inReplyTo: root.data.messageId });
+    expect(reply.ok).toBe(true);
+    const [grown] = await threadsOf("agent");
+    expect(grown).toMatchObject({ threadId: root.data.messageId, messageCount: 2, canReply: false });
+    expect(grown?.last.messageId).toBe(reply.data.messageId);
+  });
+
   it("seat to seat threads show to the operator without a reply", async () => {
     const root: string = (await call("peer", "msg.send", { target: "agent", text: "between us" })).data.messageId;
     await call("agent", "msg.reply", { target: "peer", text: "sure", inReplyTo: root });
