@@ -34,11 +34,15 @@ test("mention combobox: the keyboard's active option against the pointer's hover
   const out: Record<string, unknown> = {};
   try {
     const { page } = junto;
-    // An empty board opens New task; its description takes @ for a seat.
+    // An empty board opens New task: a title and Add task make one, then its comment field takes @ for a seat.
     const card = page.locator('.react-flow__node[data-id="board"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.dblclick();
-    const field = page.getByPlaceholder(/^Context, constraints/u);
+    await page.getByPlaceholder("What needs doing?").fill("Ship the wire spec", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Add task", exact: true }).click();
+    const task = page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first();
+    if (!(await page.getByTestId("task-thread").isVisible())) await task.click({ timeout: 20_000 });
+    const field = page.getByTestId("task-thread").getByLabel("Comment on this task");
     await field.click({ timeout: 20_000 });
     await field.pressSequentially("over to @");
     const options = page.getByTestId("mention-option");

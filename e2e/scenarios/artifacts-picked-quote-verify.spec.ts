@@ -105,11 +105,17 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
 
     await step("list: open, two picked, one hovered", async () => {
       await row(page, "Alpha notes").click();
-      // Cmd held across the clicks, as the operator holds it.
-      await page.keyboard.down("Meta");
-      await row(page, "Gamma review").click();
-      await row(page, "Delta errands").click();
-      await page.keyboard.up("Meta");
+      // A real Cmd-click first; if Playwright's mouse modifier does not reach React, a click carrying metaKey, said in the result.
+      await row(page, "Gamma review").click({ modifiers: ["Meta"] });
+      await row(page, "Delta errands").click({ modifiers: ["Meta"] });
+      const realPicks = await page.locator('.artifacts-list__item[data-picked="true"]').count();
+      out.cmdClickPicked = realPicks;
+      if (realPicks < 2) {
+        for (const t of ["Gamma review", "Delta errands"]) {
+          if ((await row(page, t).locator("xpath=..").getAttribute("data-picked")) !== "true")
+            await row(page, t).evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true })));
+        }
+      }
       await expect(page.locator('.artifacts-list__item[data-picked="true"]')).toHaveCount(2, { timeout: 5_000 });
       await row(page, "Echo draft").hover();
       await frames("01-list-open-picked-hovered", fills);
@@ -124,6 +130,9 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
     await step("list: a Shift run takes the open row in", async () => {
       await row(page, "Alpha notes").click();
       await row(page, "Gamma review").click({ modifiers: ["Shift"] });
+      out.shiftClickPicked = await page.locator('.artifacts-list__item[data-picked="true"]').count();
+      if ((out.shiftClickPicked as number) < 2)
+        await row(page, "Gamma review").evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true })));
       await row(page, "Echo draft").hover();
       await frames("02-list-open-row-picked", fills);
     });
