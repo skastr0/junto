@@ -87,6 +87,15 @@ html[data-canvas-tier="overview"] .react-flow__viewport .junto-seat {
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
   transform: scale(var(--seat-s));
 }
+/* The scale is published once the camera rests (CanvasTierGate), so a ring
+   changes size after a zoom gesture, not on each frame of it. The change is
+   traced by a transform transition, on the compositor the ring already turns
+   on; a ring's motion is never slowed or stilled, only its size eased into
+   place. 160ms is CAMERA_SETTLE_MS, the rest the camera is counted at. With
+   motion paused (reduced motion) the size lands at once. */
+html:not([data-surface-motion="paused"]):is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
+  transition: transform 160ms cubic-bezier(.33, 1, .68, 1);
+}
 /* The scaled mark is already its own compositor layer, holding the ring and
    its turning parts, so the card's own layer (styles.css, a card with a
    turning ring) would only double it: far and overview drop it. The rings
@@ -239,6 +248,12 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   transform: translate(-50%, -50%) scale(var(--far-seat-scale, 1.75));
   transform-origin: 50% 50%;
   pointer-events: auto;
+}
+/* Its ring rides the far seat scale, published once the camera rests
+   (CanvasTierGate): ease the step like the seat's own ring, on the
+   compositor, and land at once when motion is paused. */
+html:not([data-surface-motion="paused"]) .junto-seat-cluster__body {
+  transition: transform 160ms cubic-bezier(.33, 1, .68, 1);
 }
 /* The button is the front ring's disc (a 52-unit seat ring is 40 across);
    the turning ring is the seat's own mark, centred over it. */
