@@ -248,7 +248,7 @@ describe("machines.changed", () => {
         yield next;
       }
     })();
-    const session = runCompanionSession({ lines, write: (line) => written.push(line), host, waitMs: 10 });
+    const session = runCompanionSession({ lines, write: (line) => written.push(line), host, waitMs: 10, refreshGapMs: 0 });
     const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
     await tick();
     feed!(demoRequest("l1", "machines.list", {}));

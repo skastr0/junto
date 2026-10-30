@@ -81,6 +81,8 @@ export type CompanionSessionIo = {
   readonly idleCloseMs?: number;
   /** Long-poll window for change notifications. */
   readonly waitMs?: number;
+  /** The least time between two change-driven refreshes; changes in between ride the next one. */
+  readonly refreshGapMs?: number;
 };
 
 /** A feed with its clock fields zeroed: two feeds that say the same thing compare equal. */
@@ -121,6 +123,9 @@ type Next = { readonly kind: "line"; readonly line: string } | { readonly kind: 
 export const runCompanionSession = async (io: CompanionSessionIo): Promise<void> => {
   const idleMs = io.idleCloseMs ?? COMPANION_IDLE_CLOSE_MS;
   const waitMs = io.waitMs ?? 25_000;
+  // A refresh reads on the Mac's main thread; a canvas mailing nonstop would
+  // otherwise run one after another. Changes in the gap fold into the next.
+  const refreshGapMs = io.refreshGapMs ?? 500;
   let open = true;
   const write = (line: string): void => {
     if (open) io.write(line);
@@ -419,7 +424,10 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       // The first cursor may already count a change made while the phone's
       // answer was on its way: read once against what was sent, then wait.
       if (first || change.changed || change.reset || change.signals.length > 0) {
+        const started = Date.now();
         await refresh(change.signals, change.artifacts ?? [], first || change.reset || change.mail !== false).catch(() => undefined);
+        const rest = refreshGapMs - (Date.now() - started);
+        if (rest > 0 && open) await new Promise((resolve) => setTimeout(resolve, rest));
       }
     }
   };

@@ -72,7 +72,7 @@ describe("a session following a seat's threads", () => {
         return polled;
       },
     };
-    const running = runCompanionSession({ lines: io.lines, write: () => undefined, host, idleCloseMs: 5_000, waitMs: 0 });
+    const running = runCompanionSession({ lines: io.lines, write: () => undefined, host, idleCloseMs: 5_000, waitMs: 0, refreshGapMs: 0 });
     io.push(JSON.stringify({ v: COMPANION_PROTOCOL, type: "request", id: "t1", op: "threads.list", args: { canvasName: "demo", nodeId: "seat-a" } }));
     await settle();
     // The first poll reads once against what was answered.
@@ -100,5 +100,35 @@ describe("a session following a seat's threads", () => {
     io.end();
     release?.();
     await running;
+  });
+
+  it("refreshes at most once per gap, and a change in the gap rides the next refresh", async () => {
+    const io = lineFeed();
+    let polls = 0;
+    let reads = 0;
+    const host = {
+      hello: async () => ({
+        ok: true as const,
+        hello: { appVersion: "0.11.7", deviceId: "dev", deviceName: "Test phone", station: "Test Mac", protocol: COMPANION_PROTOCOL, serverTime: 0, features: [] },
+      }),
+      call: async (frame: CompanionRequestFrame): Promise<CompanionResponseFrame> => {
+        if (frame.op === "threads.list") reads += 1;
+        const result = frame.op === "threads.list" ? { threads: [] } : {};
+        return { v: COMPANION_PROTOCOL, type: "response", id: frame.id, ok: true, result } as CompanionResponseFrame;
+      },
+      // A canvas mailing nonstop: every poll answers at once with a mail change.
+      waitChange: async (): Promise<CompanionChange> => {
+        polls += 1;
+        return { cursor: `c${polls}`, changed: true, signals: [], mail: true, reset: false };
+      },
+    };
+    const running = runCompanionSession({ lines: io.lines, write: () => undefined, host, idleCloseMs: 5_000, waitMs: 0, refreshGapMs: 100 });
+    io.push(JSON.stringify({ v: COMPANION_PROTOCOL, type: "request", id: "t1", op: "threads.list", args: { canvasName: "demo", nodeId: "seat-a" } }));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    io.end();
+    await running;
+    // About 450 / 100 refreshes, not one per tick.
+    expect(polls).toBeLessThanOrEqual(6);
+    expect(reads).toBeLessThanOrEqual(8);
   });
 });
