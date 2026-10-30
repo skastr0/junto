@@ -2,7 +2,7 @@ import { Effect, Exit } from "effect";
 import { coreFailureOf, type CoreFailure } from "./client";
 import { HostCallError, type HostClient } from "./host-ops";
 import { coreOpBody } from "./ops";
-import { messageOf, postAnswer, type CoreMessage, type CorePort } from "./port";
+import { messageOf, post, postAnswer, type CoreMessage, type CorePort } from "./port";
 
 /**
  * The core's side of the port: the one place a named operation runs. Entry
