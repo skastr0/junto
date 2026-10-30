@@ -20,7 +20,8 @@ type Handler = (...args: readonly unknown[]) => unknown;
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
 
-const rig = (surfaces = true) => {
+const rig = (surfaces: boolean | (() => boolean) = true) => {
+  const during: Array<() => void> = [];
   const sent: { readonly channel: string; readonly payload: unknown }[] = [];
   const ports: { readonly leaseId: string }[] = [];
   const sender = Object.assign(new EventEmitter(), {
@@ -38,7 +39,11 @@ const rig = (surfaces = true) => {
   const router = Object.assign(new EventEmitter(), {
     thisMachineName: () => "workbench",
     isLocalHostId: (hostId: string | undefined | null) => !hostId || hostId === "workbench",
-    attach: vi.fn(async (input: { bindingId: string; mode: "control" | "observe" }) => ({
+    attach: vi.fn(async (input: { bindingId: string; mode: "control" | "observe" }) => {
+      // An unpark reads the screen through an observe lease; output can flow meanwhile.
+      if (input.mode === "observe") for (const step of during.splice(0)) step();
+      await settle();
+      return {
       ok: true as const,
       lease: { leaseId: `lease-${(minted += 1)}`, bindingId: input.bindingId, epoch: "e1", mode: input.mode },
       cols: 80,
@@ -46,13 +51,14 @@ const rig = (surfaces = true) => {
       screen: { bindingId: input.bindingId, epoch: "e1", cols: 80, rows: 24, seq: 9n, serialized: "grid" },
       journal: [],
       status: "running" as const,
-    })),
+      };
+    }),
     release: vi.fn(async () => {}),
     setTerminalEnvironment: vi.fn(),
   });
   const host = {
     openSurface: vi.fn((_lease: unknown, port: { close: () => void }, _options?: { read?: bigint }) => {
-      if (!surfaces) {
+      if (!(typeof surfaces === "function" ? surfaces() : surfaces)) {
         port.close();
         return undefined;
       }
@@ -76,7 +82,7 @@ const rig = (surfaces = true) => {
   const emit = (seq: bigint, data: string) => router.emit("event", { type: "output", bindingId: "seat", epoch: "e1", seq, data });
   const output = () =>
     sent.filter((entry) => entry.channel === IPC_CHANNELS.terminalEvent && (entry.payload as { type: string }).type === "output");
-  return { host, ports, open, park, emit, output, router, sent };
+  return { host, ports, open, park, emit, output, router, sent, during };
 };
 
 afterEach(() => vi.restoreAllMocks());
@@ -109,6 +115,22 @@ describe("a control view on a surface port", () => {
     view.emit(12n, "after");
     await settle();
     expect(view.output()).toEqual([]);
+  });
+
+  it("a view whose new port does not open still gets the output that flowed while its screen was read", async () => {
+    let opens = 0;
+    const view = rig(() => (opens += 1) === 1);
+    const lease = await view.open();
+    await view.park(lease, true);
+    view.during.push(() => view.emit(10n, "during the read"));
+    const shown = await view.park(lease, false);
+    expect(shown).toMatchObject({ ok: true, missed: true, screen: { seq: 9n } });
+    expect(view.ports).toHaveLength(1);
+    await settle();
+    expect(view.output().map((entry) => (entry.payload as { data: string }).data).join("")).toContain("during the read");
+    view.emit(11n, "after");
+    await settle();
+    expect(view.output().map((entry) => (entry.payload as { data: string }).data).join("")).toContain("after");
   });
 
   it("reads over IPC when its PTY is not in the terminal process", async () => {

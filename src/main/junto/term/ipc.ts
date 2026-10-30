@@ -43,6 +43,12 @@ type LeaseOwner = {
   surfaced: boolean;
   /** It gave its port up when it was hidden, and gets a new one when shown. */
   resurface?: boolean;
+  /**
+   * Output that flowed while an unpark read the screen for a new port. Given
+   * up once the port opens (it starts after that screen); sent over IPC if
+   * it does not, so the view misses none of it.
+   */
+  reading?: LocalHostEvent[];
   stopSurface?: () => void;
 };
 
@@ -206,6 +212,10 @@ export const registerTerminalIpc = (
       }
       // Its port carries the output, straight from the terminal process.
       if (owner.surfaced && payload.type === "output") continue;
+      if (owner.reading !== undefined && payload.type === "output") {
+        owner.reading.push(payload);
+        continue;
+      }
       try {
         owner.sender.send(IPC_CHANNELS.terminalEvent, payload);
       } catch {
@@ -504,11 +514,24 @@ export const registerTerminalIpc = (
       }
       if (!owner.parked) return { ok: true, missed: false };
       owner.parked = false;
-      // Output that flows while the screen is read waits for the new port,
-      // which starts after that screen; none of it goes over IPC.
+      // Output that flows while the screen is read waits to see whether the
+      // new port opens: it starts after that screen, so then none of this is
+      // needed; if it does not, this goes over IPC, after the screen.
       const resurface = owner.resurface === true;
       owner.resurface = false;
-      if (resurface) owner.surfaced = true;
+      if (resurface) owner.reading = [];
+      const endRead = (opened: boolean): void => {
+        const held = owner.reading ?? [];
+        owner.reading = undefined;
+        if (opened || owner.sender.isDestroyed()) return;
+        for (const payload of held) {
+          try {
+            owner.sender.send(IPC_CHANNELS.terminalEvent, payload);
+          } catch {
+            return;
+          }
+        }
+      };
       const missed = owner.missed;
       owner.missed = false;
       if (!missed) return { ok: true, missed: false };
@@ -518,19 +541,20 @@ export const registerTerminalIpc = (
         hostId: owner.hostId,
       });
       if (!view.ok) {
-        owner.surfaced = false;
+        endRead(false);
         return { ok: true, missed: true };
       }
       void router.release(view.lease, owner.hostId);
       if (view.lease.epoch !== owner.lease.epoch) {
-        owner.surfaced = false;
+        endRead(false);
         return { ok: true, missed: true };
       }
       const screen = view.screen?.epoch === owner.lease.epoch ? view.screen : undefined;
-      // No new port: the lease lost control during the read (its view is
-      // told it ended), or the generation left no grid. The view paints what
-      // there is and reads over IPC from here.
-      if (resurface && (screen === undefined || !openSurface(owner, screen.seq))) owner.surfaced = false;
+      // No new port (the lease lost control during the read, the generation
+      // left no grid, or the chunk memory let go of the screen's seq): the
+      // view paints what there is and reads over IPC from here, beginning
+      // with what flowed during the read.
+      if (resurface) endRead(screen !== undefined && openSurface(owner, screen.seq));
       return {
         ok: true,
         missed: true,
