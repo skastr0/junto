@@ -5,6 +5,10 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The surface's base is the scale's body, so no line falls to the browser's
+     16px: titles take body-lg, the quieter lines label. */
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
 }
 
 .quick-capture__body {
@@ -48,8 +52,8 @@
 .quick-capture__list-label {
   margin: 10px 12px 4px;
   font-family: var(--font-mono);
-  font-size: var(--text-micro);
-  letter-spacing: var(--tracking-label);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--color-faint);
 }
@@ -94,6 +98,8 @@
 
 .quick-capture__row-title {
   overflow: hidden;
+  font-size: var(--text-body-lg);
+  font-weight: 500;
   color: var(--color-ink);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -140,7 +146,7 @@
 .quick-capture__preview-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-display);
+  font-size: var(--text-title);
   color: var(--color-ink);
 }
 
