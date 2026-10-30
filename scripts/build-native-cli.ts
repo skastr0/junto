@@ -81,7 +81,8 @@ export const compileNativeCli = (outfile: string, input: NativeCliInput): void =
   });
   if (build.status !== 0) throw new Error(`native CLI build for ${target} failed (exit ${String(build.status)})`);
 
-  const built = resolve(process.env.CARGO_TARGET_DIR ?? resolve(crate, "target"), target, "release", "junto");
+  // cargo reads a relative CARGO_TARGET_DIR against its cwd, the crate.
+  const built = resolve(crate, process.env.CARGO_TARGET_DIR ?? "target", target, "release", "junto");
   // Run what can run here: the host, or x86_64 macOS under Rosetta on an
   // Apple silicon host. Any other target is proven by its bytes: the stamp
   // is in the binary as plain text.
