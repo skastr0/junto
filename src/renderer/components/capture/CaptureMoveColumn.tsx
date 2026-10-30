@@ -5,6 +5,8 @@ import { FIRST_ARTIFACT_VERSION } from "@shared/artifact";
 import { applyArtifactOp, useHeadBody } from "../../lib/artifacts-source";
 import { useCanvasArtifacts } from "../../lib/mention-items";
 import { claimFocus } from "../../lib/focus-ownership";
+import { keyCaps } from "../../lib/key-match";
+import { isMac } from "../../lib/platform";
 import { useCanvas } from "../../lib/use-model";
 import { Kbd } from "../ui";
 import { FOCUS_RING_INSET } from "../ui/focus";
@@ -14,8 +16,15 @@ import type { CaptureArtifactRef } from "./CaptureEditor";
 import { moveSuggestionsFor } from "./capture-model";
 import "./capture-move.css";
 
-/** The desk offers this many routes, each on its own number key. */
-const ROUTES = 3;
+/** The desk's routes, each on its own key from the key table (1, 2 and 3 unless rebound). */
+const ROUTE_KEYS = ["inCapture.route1", "inCapture.route2", "inCapture.route3"] as const;
+const ROUTES = ROUTE_KEYS.length;
+
+/** Route `i`'s key caps as one word, as the footer writes a chord; its number when the table has no row. */
+const routeCap = (i: number): string => {
+  const id = ROUTE_KEYS[i];
+  return (id === undefined ? undefined : keyCaps(id)?.join(isMac() ? "" : "+")) ?? String(i + 1);
+};
 
 const NO_ANSWER = "Junto got no answer for that move. Try again.";
 
@@ -213,7 +222,7 @@ export function CaptureMoveColumn({ move, canvasName }: { readonly move: Capture
                   onClick={() => move.choose(i)}
                   onKeyDown={(event) => keys(event, i)}
                 >
-                  <Kbd className="capture-move__key">{String(i + 1)}</Kbd>
+                  <Kbd className="capture-move__key">{routeCap(i)}</Kbd>
                   <span className="capture-move__name">{route.title}</span>
                   <span className="capture-move__why">{route.why}</span>
                 </button>

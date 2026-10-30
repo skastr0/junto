@@ -385,20 +385,22 @@ function CaptureWriter({
     if (inbox !== undefined && currentRef.current === null && draft.current.text.trim() !== "") void saveDocument.current?.();
   }, [inbox]);
 
-  // The flush the desk awaits, and once this writing is gone, its last answer.
+  // The flush the desk awaits, and once this writing is gone, its last answer. Set once;
+  // the live flush is read through a ref, so no render ever leaves the seam empty.
+  const flushNow = useRef<CaptureFlush>(async () => null);
+  flushNow.current = async () => {
+    try {
+      await saveDocument.current?.();
+      await chain.current;
+    } catch {
+      // A refused or unanswered save keeps the words in the draft; the answer says where they are.
+    }
+    await drafts.settled();
+    return currentRef.current;
+  };
   useEffect(() => {
     if (flushRef === undefined) return;
-    const flush: CaptureFlush = async () => {
-      try {
-        await saveDocument.current?.();
-        await chain.current;
-      } catch {
-        // A refused or unanswered save keeps the words in the draft; the answer says where they are.
-      }
-      await drafts.settled();
-      return currentRef.current;
-    };
-    flushRef.current = flush;
+    flushRef.current = () => flushNow.current();
     return () => {
       // Closing sent what was unsent; the answer waits for that send to land.
       const closing = chain.current;
@@ -408,7 +410,9 @@ function CaptureWriter({
         return currentRef.current;
       };
     };
-  });
+    // Once per writing: flushNow carries every render's state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Where the operator was in the writing: read now, or put back once the engine is in.
   const place = useRef<DocumentPlaceHandle | null>(null);
@@ -426,25 +430,20 @@ function CaptureWriter({
     return () => {
       viewRef.current = null;
     };
-  });
+    // Once per writing: both calls read refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     const surface = surfaceRef.current;
     if (surface === null) return;
-    const tryPlace = (): boolean => {
-      const view = pendingPlace.current;
-      if (view === null) return true;
-      if (place.current?.restore(view) !== true) return false;
-      pendingPlace.current = null;
-      return true;
-    };
-    if (tryPlace()) return;
-    // The engine loads lazily: the place waits for its lines to exist.
+    // A place asked for before the engine loaded lands once its lines exist, and a new editor after a switch too.
     const observer = new MutationObserver(() => {
-      if (tryPlace()) observer.disconnect();
+      const view = pendingPlace.current;
+      if (view !== null && place.current?.restore(view) === true) pendingPlace.current = null;
     });
     observer.observe(surface, { childList: true, subtree: true });
     return () => observer.disconnect();
-  });
+  }, []);
 
   const editor = (() => {
     if (body === null) return <p className="capture-editor__wait">{head === undefined ? "Finding it." : "Loading this version."}</p>;

@@ -15,7 +15,11 @@ import { nodeViewStore } from "../../lib/node-view-state";
 export type CaptureDraftWriter = {
   /** Keep this draft, or null to clear it. */
   readonly write: (draft: CaptureDraft | null) => void;
-  /** Resolves once nothing is waiting and nothing is in flight. Never rejects. */
+  /**
+   * Resolves once nothing is waiting and nothing is in flight. Never rejects.
+   * Each write that arrives meanwhile is waited for too, so while the
+   * operator keeps typing it keeps waiting: await it as the writing closes.
+   */
   readonly settled: () => Promise<void>;
 };
 
