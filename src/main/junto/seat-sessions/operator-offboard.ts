@@ -212,6 +212,40 @@ export type SeatClockRecord = {
   >;
 };
 
+/** One clock save: the seats whose saved row is out of date, and the seats no longer kept. */
+export type SeatClockChanges = {
+  readonly savedAt: number;
+  readonly seats: SeatClockRecord["seats"];
+  readonly removed: ReadonlyArray<string>;
+};
+
+/** A time as the clock table keeps it: whole, never negative. */
+const wholeTime = (value: number | undefined): number | undefined =>
+  value === undefined || !Number.isFinite(value) ? undefined : Math.max(0, Math.floor(value));
+
+const sameSavedSeat = (a: SeatClockRecord["seats"][string], b: SeatClockRecord["seats"][string]): boolean =>
+  wholeTime(a.idleSince) === wholeTime(b.idleSince) &&
+  wholeTime(a.activitySince) === wholeTime(b.activitySince) &&
+  (a.offboarded === true) === (b.offboarded === true) &&
+  (wholeTime(a.workMs) ?? 0) === (wholeTime(b.workMs) ?? 0) &&
+  (a.sessionId?.trim() || undefined) === (b.sessionId?.trim() || undefined);
+
+/**
+ * What a save must write, given the seats as last saved: a seat whose row
+ * would read differently, and every seat still active after rest, since its
+ * row's save time bounds when it came to rest across a restart. A seat at
+ * rest whose row reads the same is left alone.
+ */
+export const seatClockChanges = (saved: SeatClockRecord["seats"], next: SeatClockRecord): SeatClockChanges => {
+  const seats: Record<string, SeatClockRecord["seats"][string]> = {};
+  for (const [bindingId, seat] of Object.entries(next.seats)) {
+    const before = saved[bindingId];
+    if (before === undefined || !sameSavedSeat(before, seat) || activeAfterRest({ idleSince: seat.idleSince, activitySince: seat.activitySince })) seats[bindingId] = seat;
+  }
+  const removed = Object.keys(saved).filter((bindingId) => !(bindingId in next.seats));
+  return { savedAt: next.savedAt, seats, removed };
+};
+
 type ClockEntry = {
   idleSince: number | undefined;
   activitySince: number | undefined;

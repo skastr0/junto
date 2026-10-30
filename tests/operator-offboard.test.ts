@@ -16,6 +16,7 @@ import {
   coldSessionStartsFresh,
   makeOperatorOffboard,
   parseSeatClockRecord,
+  seatClockChanges,
   setOperatorOffboard,
   waitsOnOperator,
   type OffboardSeat,
@@ -1373,5 +1374,37 @@ describe("the cache mode, case by case", () => {
     } finally {
       setOperatorOffboard(undefined);
     }
+  });
+});
+
+describe("the clock save writes only what changed", () => {
+  it("leaves a seat at rest whose row reads the same, and writes a changed, new or active one", () => {
+    const saved: SeatClockRecord["seats"] = {
+      rest: { idleSince: 1_000, activitySince: 900, workMs: 50, sessionId: "s1" },
+      moved: { idleSince: 1_000 },
+      active: { idleSince: 1_000, activitySince: 2_000 },
+      gone: { idleSince: 500 },
+    };
+    const next: SeatClockRecord = {
+      savedAt: 9_000,
+      seats: {
+        // The table keeps whole times: a fraction is no change.
+        rest: { idleSince: 1_000.4, activitySince: 900, workMs: 50.7, sessionId: "s1" },
+        moved: { idleSince: 4_000 },
+        active: { idleSince: 1_000, activitySince: 2_000 },
+        fresh: { activitySince: 3_000 },
+      },
+    };
+    const changes = seatClockChanges(saved, next);
+    expect(changes.savedAt).toBe(9_000);
+    expect(Object.keys(changes.seats).sort()).toEqual(["active", "fresh", "moved"]);
+    expect(changes.removed).toEqual(["gone"]);
+  });
+
+  it("writes nothing when nothing changed and every seat is at rest", () => {
+    const seats = { a: { idleSince: 1_000, activitySince: 900 }, b: { offboarded: true } };
+    const changes = seatClockChanges(seats, { savedAt: 5_000, seats });
+    expect(changes.seats).toEqual({});
+    expect(changes.removed).toEqual([]);
   });
 });

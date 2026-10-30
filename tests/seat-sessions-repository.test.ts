@@ -452,6 +452,37 @@ describe("a session's notes and marks, kept on its row", () => {
     });
   });
 
+  it("saves only the clock's changes: named seats are written, removed ones go, the rest stand", async () => {
+    await run(Effect.flatMap(repo, (r) => r.saveOffboardClock({
+      savedAt: 5_000,
+      seats: { "bind-a": { idleSince: 1_000 }, "bind-b": { activitySince: 2_000 }, "bind-c": { workMs: 7 } },
+    })));
+    await run(Effect.flatMap(repo, (r) => r.saveOffboardClockChanges({
+      savedAt: 8_000,
+      seats: { "bind-b": { idleSince: 7_000, activitySince: 2_000, workMs: 3.9 }, "bind-d": { sessionId: " s4 " } },
+      removed: ["bind-c"],
+    })));
+    expect(await run(Effect.flatMap(repo, (r) => r.offboardClock()))).toEqual({
+      savedAt: 8_000,
+      seats: {
+        "bind-a": { idleSince: 1_000 },
+        "bind-b": { idleSince: 7_000, activitySince: 2_000, workMs: 3 },
+        "bind-d": { sessionId: "s4" },
+      },
+    });
+  });
+
+  it("reads every open session in one read, with its binding", async () => {
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude", bindingId: "bind-a" })));
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s2", harness: "claude", bindingId: "bind-a" })));
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "b", sessionId: "s3", harness: "codex" })));
+    const open = await run(Effect.flatMap(repo, (r) => r.openSessions()));
+    expect([...open].sort((x, y) => x.seatId.localeCompare(y.seatId))).toEqual([
+      { seatId: "a", sessionId: "s2", bindingId: "bind-a" },
+      { seatId: "b", sessionId: "s3" },
+    ]);
+  });
+
   it("records who ended a session from outside it, and forgets it when the session is the seat's again", async () => {
     await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
     await run(Effect.flatMap(repo, (r) => r.end("a", "replaced", "s1")));

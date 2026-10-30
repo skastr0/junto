@@ -14,7 +14,7 @@ import {
 import { StateTransactionOperation } from "../state/service";
 import { type Fidelity, type HarnessChannel, SESSION_LOCATION_PATH_MAX } from "@shared/harness-domain";
 import { admitReportedSessionLocation, harnessSessionLocation } from "../term/session-existence";
-import type { SeatClockRecord } from "./operator-offboard";
+import type { SeatClockChanges, SeatClockRecord } from "./operator-offboard";
 
 export class SeatSessionPersistenceError extends Schema.TaggedError<SeatSessionPersistenceError>()(
   "SeatSessionPersistenceError",
@@ -142,6 +142,13 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     readonly offboardClock: () => Effect.Effect<SeatClockRecord | undefined, SeatSessionPersistenceError>;
     /** Save the operator offboard clock whole: it replaces the one saved before. */
     readonly saveOffboardClock: (record: SeatClockRecord) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /** Save only what changed on the clock: the seats named are written, the removed ones go. */
+    readonly saveOffboardClockChanges: (changes: SeatClockChanges) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /** Every open session, at most one per seat: each seat's current session in one read. */
+    readonly openSessions: () => Effect.Effect<
+      ReadonlyArray<{ readonly seatId: string; readonly sessionId: string; readonly bindingId?: string }>,
+      SeatSessionPersistenceError
+    >;
     /** Who ended this session from outside it (the operator, an overseer, the automatic rule). */
     readonly markEnded: (
       seatId: string,
@@ -522,6 +529,35 @@ export const makeSeatSessionRepositoryLive = (): Layer.Layer<SeatSessionReposito
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.clock.save"),
       Effect.mapError(persistence("clock.save")));
 
+      const saveOffboardClockChanges = Effect.fn("seat-sessions.clock.changes")(function* (changes: SeatClockChanges) {
+        const savedAt = at(changes.savedAt) ?? 0;
+        for (const bindingId of changes.removed) yield* sql`DELETE FROM seat_offboard_clock WHERE binding_id = ${bindingId}`;
+        for (const [bindingId, seat] of Object.entries(changes.seats)) {
+          if (!bindingId) continue;
+          yield* sql`INSERT INTO seat_offboard_clock(binding_id, idle_since, activity_since, offboarded, work_ms, session_id, saved_at)
+            VALUES (${bindingId}, ${at(seat.idleSince)}, ${at(seat.activitySince)}, ${seat.offboarded === true ? 1 : 0},
+              ${at(seat.workMs) ?? 0}, ${seat.sessionId?.trim() ? seat.sessionId.trim() : null}, ${savedAt})
+            ON CONFLICT(binding_id) DO UPDATE SET idle_since = excluded.idle_since, activity_since = excluded.activity_since,
+              offboarded = excluded.offboarded, work_ms = excluded.work_ms, session_id = excluded.session_id, saved_at = excluded.saved_at`;
+        }
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.clock.changes"),
+      Effect.mapError(persistence("clock.changes")));
+
+      const openSessionRows = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ seat_id: Schema.String, session_id: Schema.String, binding_id: Schema.NullOr(Schema.String) }),
+        // The one-open-per-seat index: as many rows as seats, never the history.
+        execute: () => sql`SELECT seat_id, session_id, binding_id FROM seat_sessions WHERE ended_at IS NULL`,
+      });
+
+      const openSessions = Effect.fn("seat-sessions.open")(function* () {
+        return (yield* openSessionRows(undefined)).map((row) => ({
+          seatId: row.seat_id,
+          sessionId: row.session_id,
+          ...(row.binding_id === null ? {} : { bindingId: row.binding_id }),
+        }));
+      }, Effect.mapError(persistence("open")));
+
       const noteTranscript = Effect.fn("seat-sessions.transcript")(function* (seatId: string, sessionId: string, path: string) {
         const value = bounded(path, 4096);
         if (value === null) return;
@@ -617,6 +653,8 @@ export const makeSeatSessionRepositoryLive = (): Layer.Layer<SeatSessionReposito
         settleContinuation,
         offboardClock,
         saveOffboardClock,
+        saveOffboardClockChanges,
+        openSessions,
         noteTranscript,
         noteReportedTranscript,
         beginDrain,

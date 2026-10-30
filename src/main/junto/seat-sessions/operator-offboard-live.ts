@@ -36,6 +36,7 @@ import {
   SeatStatusClock,
   makeOperatorOffboard,
   seatCacheQuestionsChanged,
+  seatClockChanges,
   setOperatorOffboard,
   waitsOnOperator,
   type OffboardSeat,
@@ -78,30 +79,62 @@ const readClock = (run: SeatSessionRun): Promise<SeatClockRecord | undefined> =>
     return undefined;
   });
 
-/** Save the clock in junto.db. Best effort: the next save carries it. */
-const writeClock = (run: SeatSessionRun, record: SeatClockRecord): void => {
-  void run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.saveOffboardClock(record))).catch(
-    (error: unknown) => console.error("[offboard] could not save the clock:", error),
-  );
+/**
+ * Save the clock in junto.db, one save at a time: only the rows that changed
+ * since the last good save (`seatClockChanges`). Best effort: a failed save
+ * leaves the last good one standing, and the next carries its changes.
+ */
+const clockWriter = (run: SeatSessionRun, restored: SeatClockRecord | undefined): ((record: SeatClockRecord) => Promise<void>) => {
+  let saved: SeatClockRecord["seats"] = restored?.seats ?? {};
+  let queue = Promise.resolve();
+  return (record) => {
+    queue = queue.then(async () => {
+      const changes = seatClockChanges(saved, record);
+      if (Object.keys(changes.seats).length === 0 && changes.removed.length === 0) return;
+      await run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.saveOffboardClockChanges(changes)));
+      saved = record.seats;
+    }).catch((error: unknown) => console.error("[offboard] could not save the clock:", error));
+    return queue;
+  };
 };
 
 const titleOf = (node: Node): string | undefined => {
   return "label" in node ? node.label?.trim() || undefined : undefined;
 };
 
-const seatOf = async (
-  run: SeatSessionRun,
+/** Read once per pass, for every seat on it: open sessions and this machine's name. */
+type PassFacts = {
+  readonly sessionOf: (seatId: string, bindingId: string) => string | undefined;
+  readonly machineName: string;
+};
+
+const passFacts = async (run: SeatSessionRun): Promise<PassFacts> => {
+  const [open, machineName] = await Promise.all([
+    run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.openSessions())),
+    run(Effect.flatMap(MachineRepository, (machine) => machine.machineName)),
+  ]);
+  const bySeat = new Map(open.map((session) => [session.seatId, session]));
+  return {
+    // The open session counts only while it is on the seat's current binding.
+    sessionOf: (seatId, bindingId) => {
+      const session = bySeat.get(seatId);
+      return session?.bindingId === bindingId ? session.sessionId : undefined;
+    },
+    machineName,
+  };
+};
+
+const seatOf = (
+  facts: PassFacts,
   canvasName: string,
   node: Node,
   paused: boolean,
-): Promise<OffboardSeat | undefined> => {
+): OffboardSeat | undefined => {
   if (node.kind !== "agent") return undefined;
   const surface = { ...node, hostId: node.host };
   const live = termPlane.host.get(surface.bindingId);
   const running = live !== undefined && live.status !== "exited";
-  const sessionId = await run(
-    Effect.flatMap(SeatSessionRepository, (sessions) => sessions.current(node.id, node.bindingId)),
-  ).then((session) => session?.sessionId);
+  const sessionId = facts.sessionOf(node.id, node.bindingId);
   const title = titleOf(node);
   const state = !running
     ? undefined
@@ -117,7 +150,7 @@ const seatOf = async (
     ...(title ? { title } : {}),
     bindingId: surface.bindingId,
     harness: surface.harness,
-    local: isThisMachine(surface.hostId, await run(Effect.flatMap(MachineRepository, (machine) => machine.machineName))),
+    local: isThisMachine(surface.hostId, facts.machineName),
     machine: surface.hostId,
     ...(sessionId ? { sessionId } : {}),
     running,
@@ -183,6 +216,7 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
   const restored = await readClock(input.run);
   started = input.run;
   const clock = new SeatStatusClock(() => Date.now(), restored);
+  const writeClock = clockWriter(input.run, restored);
   let rules: OffboardRules = defaultOffboardRules();
   const refreshRules = async (): Promise<void> => {
     rules = await readOffboardRules();
@@ -205,16 +239,17 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
         const found = (await documents()).find((entry) => entry.canvasName === canvasName);
         const node = found?.doc.nodes.get(seatId as never);
         if (!found || !node) return undefined;
-        const seat = await seatOf(input.run, canvasName, node, await pausedOn(input.run, canvasName));
+        const seat = seatOf(await passFacts(input.run), canvasName, node, await pausedOn(input.run, canvasName));
         if (seat) cwds.set(seat.bindingId, cwdOf(found.doc, seatId));
         return seat;
       },
       seats: async () => {
         const out: OffboardSeat[] = [];
+        const facts = await passFacts(input.run);
         for (const { canvasName, doc } of await documents()) {
           const paused = await pausedOn(input.run, canvasName);
           for (const node of doc.nodes.values()) {
-            const seat = await seatOf(input.run, canvasName, node, paused);
+            const seat = seatOf(facts, canvasName, node, paused);
             if (!seat) continue;
             cwds.set(seat.bindingId, cwdOf(doc, node.id));
             out.push(seat);
@@ -271,7 +306,7 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
       // A seat run elsewhere: what its own machine last said, for its row only.
       remote: async (seat) =>
         seat.machine === undefined ? undefined : (await remoteSeatLaunchOf({ bindingId: seat.bindingId, host: seat.machine }))?.offboard,
-      saveClock: (record) => writeClock(input.run, record),
+      saveClock: (record) => void writeClock(record),
       // The window here, and the views of these seats on linked machines.
       dueChanged: () => {
         input.publishDue?.();
@@ -352,7 +387,7 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
     offState();
     offTyped();
     // Best effort: the last tick's save stands.
-    writeClock(input.run, clock.record());
+    void writeClock(clock.record());
     setOperatorOffboard(undefined);
     if (started === input.run) started = undefined;
   };
