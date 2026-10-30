@@ -30,6 +30,30 @@ export const assessLiveWork = (input: LiveWorkInputs): LiveWorkSnapshot => ({
 export const hasLiveWork = (snapshot: LiveWorkSnapshot): boolean =>
   snapshot.countUnknown || snapshot.localTerminalSessionCount > 0;
 
+/** One terminal session, as the quit check needs it: only the status matters. */
+export interface LiveSessionLike {
+  readonly status: string;
+}
+
+/**
+ * Ask whoever owns the terminals what is running. The caller passes the ask
+ * (main: `core.call("term.list", {})`), so both answers are testable here: the
+ * count, and the unknown that must warn rather than assume zero.
+ */
+export const probeLiveWork = async (
+  ask: () => Promise<ReadonlyArray<LiveSessionLike>>,
+): Promise<LiveWorkSnapshot> => {
+  let sessions: ReadonlyArray<LiveSessionLike>;
+  try {
+    sessions = await ask();
+  } catch (cause) {
+    console.error("[quit] the terminal owner did not say what is running; treating the count as unknown", cause);
+    return assessLiveWork({ localTerminalSessionCount: "unknown" });
+  }
+  const running = sessions.filter((session) => session.status === "running" || session.status === "starting");
+  return assessLiveWork({ localTerminalSessionCount: running.length });
+};
+
 export interface QuitConfirmPrompt {
   readonly type: "warning";
   readonly title: string;

@@ -113,9 +113,9 @@ import {
   resolveRendererSurfaceTimeoutMs,
 } from "./junto/renderer-surface-recovery";
 import {
-  assessLiveWork,
   buildQuitConfirmPrompt,
   hasLiveWork,
+  probeLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
   type LiveWorkSnapshot,
 } from "./junto/quit-live-work";
@@ -2031,16 +2031,8 @@ const quiesceSignalRenderer = (generation: number): void => {
  * count is a core call (term.list) filtered to the statuses a quit would end.
  * A core that does not answer is unknown, never zero, and unknown warns.
  */
-const collectLiveWorkSnapshot = async (): Promise<LiveWorkSnapshot> => {
-  try {
-    const sessions = await core.call("term.list", {});
-    const running = sessions.filter((session) => session.status === "running" || session.status === "starting");
-    return assessLiveWork({ localTerminalSessionCount: running.length });
-  } catch (cause) {
-    console.error("[quit] the core did not say what is running; treating the count as unknown", cause);
-    return assessLiveWork({ localTerminalSessionCount: "unknown" });
-  }
-};
+const collectLiveWorkSnapshot = (): Promise<LiveWorkSnapshot> =>
+  probeLiveWork(() => core.call("term.list", {}));
 
 /** Cancel left the process with no UI — give the operator a surface back. */
 const recreateWindowIfEmpty = (): void => {
@@ -2153,6 +2145,13 @@ app.on("before-quit", (event) => {
 
   const confirmLiveWorkThenQuit = async (): Promise<void> => {
     const live = await collectLiveWorkSnapshot();
+    // Named in the quit log either way: it is the only record of what the
+    // check saw, and the proof a real seat is counted.
+    quitPhases.mark(
+      live.countUnknown
+        ? "live work: the core did not answer how many terminals are running"
+        : `live work: ${live.localTerminalSessionCount} local terminal session${live.localTerminalSessionCount === 1 ? "" : "s"}`,
+    );
     if (!hasLiveWork(live)) {
       quitConfirmed = true;
       beginQuitPreparation();
