@@ -28,7 +28,6 @@ import { buildDoctrineDoc, buildNodeKindDoc } from "../src/shared/junto-docs";
 import { ARTIFACTS_ENABLED, BROWSER_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { compileVerb } from "../src/shared/physics/verbs";
 import { ALL_PORTS } from "../src/shared/physics/schema";
-import { rootCommandNames } from "../src/cli/command-runner";
 
 const peerPorts = compileVerb("messages", "agent", "agent")!.ports;
 
@@ -319,19 +318,9 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
     }
   });
 
-  it("every command onboard can teach is a root command this build registers", () => {
-    const registered = new Set(rootCommandNames());
-    for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
-      const spec = COMMAND_FAMILIES[family];
-      if (spec.reach !== undefined && compileReach([{ id: "<node>", kind: spec.reach }]).length === 0) continue; // gated off
-      for (const row of spec.rows) {
-        const taught = `${row.command("<node>")} ${row.detail ?? ""}`;
-        for (const [, root] of taught.matchAll(/junto ([a-z][a-z-]*)/g)) {
-          expect(registered, `${family}: ${row.intent} teaches junto ${root}`).toContain(root);
-        }
-      }
-    }
-  });
+  // Every command onboard can teach is a root command the native binary
+  // registers: that lock is native/cli/src/help.rs every_taught_root_is_registered,
+  // over the roots scripts/native-cli-corpus.ts exports.
 
   it("every command onboard can teach appears in its kind's junto docs node page", () => {
     for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
