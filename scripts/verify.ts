@@ -114,15 +114,11 @@ await allMustPass([
   },
 ]);
 
+// Both bundles: the window's, then the core's own (electron.core.vite.config.ts).
+// One Rollup build with both entries gave them shared chunks, and core code
+// rode chunks the window loads.
 await allMustPass([
-  { name: "electron-vite build", cmd: ["electron-vite", "build"] },
-]);
-
-// The core is its own bundle (electron.core.vite.config.ts): one Rollup build
-// with both entries gave them shared chunks, and core code rode chunks the
-// window loads. It runs second, over the same out/main, without clearing it.
-await allMustPass([
-  { name: "electron-vite build (core)", cmd: ["electron-vite", "build", "-c", "electron.core.vite.config.ts"] },
+  { name: "build:bundles", cmd: ["bun", "scripts/build-bundles.ts"] },
 ]);
 
 // The build above resolved JUNTO_OVERLAY; unset, out/ must hold no overlay.

@@ -935,16 +935,12 @@ export const preparePackageRuntimes = async (input: {
   }
   await rm(priorMainManifest, { force: true });
   await (input.buildMain ?? (async (root) => {
+    // Both bundles, through the one build script: the window's, then the core's
+    // (electron.core.vite.config.ts). The app forks out/main/core-process.js,
+    // so a package without it cannot start.
     runCompiler({
-      command: "bunx",
-      args: ["--no-install", "electron-vite", "build"],
-      cwd: root,
-    });
-    // The core is its own bundle (electron.core.vite.config.ts). The app forks
-    // out/main/core-process.js, so a package without it cannot start.
-    runCompiler({
-      command: "bunx",
-      args: ["--no-install", "electron-vite", "build", "-c", "electron.core.vite.config.ts"],
+      command: "bun",
+      args: ["scripts/build-bundles.ts"],
       cwd: root,
     });
   }))(repoRoot);

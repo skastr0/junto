@@ -14,7 +14,7 @@ cd "${WT}"
 git rev-parse HEAD >"${OUT}/commit.txt"
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  electron-vite build >"${OUT}/build.log" 2>&1 || { echo "build failed"; tail -20 "${OUT}/build.log"; exit 1; }
+  bun scripts/build-bundles.ts >"${OUT}/build.log" 2>&1 || { echo "build failed"; tail -20 "${OUT}/build.log"; exit 1; }
 fi
 
 scripts/perf-lab.sh launch >"${OUT}/app.log" 2>&1 &
