@@ -12,13 +12,11 @@ import {
   type AgentSignalAnswerOptions,
   type AgentSignalOperatorResult,
   type FactoryPauseSetResult,
-  type WorkOpResult,
 } from "@shared/ipc";
 import { ARTIFACT_LINKS_IPC_CHANNELS } from "@shared/artifact-links-ipc-channels";
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
-import { ModelActorRefs } from "./model/actor-refs";
 import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
 import { subscribe as onCorePush } from "../core-process/push";
@@ -156,48 +154,6 @@ export const resolveProjectedIpcActorRef = (
   );
   return matches.length === 1 ? matches[0] : undefined;
 };
-
-type RendererActorResolution =
-  | { readonly ok: true; readonly actor: ActorRef }
-  | { readonly ok: false; readonly result: WorkOpResult<never> };
-
-const resolveRendererActor = (
-  canvasName: string,
-  nodeId: string,
-): Effect.Effect<RendererActorResolution, never, ModelActorRefs> =>
-  Effect.gen(function* () {
-    const refs = yield* ModelActorRefs;
-    const read = yield* refs.read(canvasName).pipe(Effect.result);
-    if (read._tag === "Failure") {
-      return {
-        ok: false,
-        result: {
-          ok: false,
-          code: "invalid",
-          message:
-            `cannot resolve actor ${JSON.stringify(nodeId)} on ` +
-            `${JSON.stringify(canvasName)} from the current projection`,
-        },
-      };
-    }
-    const actor = resolveProjectedIpcActorRef(
-      read.success,
-      canvasName,
-      nodeId,
-    );
-    return actor === undefined
-      ? {
-        ok: false,
-        result: {
-          ok: false,
-          code: "invalid",
-          message:
-            `actor ${JSON.stringify(nodeId)} does not identify exactly one ` +
-            "compiled actor seat in the current projection",
-        },
-      }
-      : { ok: true, actor };
-  });
 
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
