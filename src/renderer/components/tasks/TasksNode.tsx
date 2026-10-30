@@ -36,6 +36,7 @@ import { TaskEvidence } from "./TaskEvidence";
 import { TaskThread } from "./TaskThread";
 import { TaskBody } from "./TaskBody";
 import { TaskLayers } from "./TaskLayers";
+import { taskWriteRefusalOf } from "../../lib/task-write-rules";
 import {
   agoLabel,
   listedTasks,
@@ -133,6 +134,14 @@ export function TasksNode({
   });
 
   const apply = async (taskId: TaskId, command: TaskCommand): Promise<string | undefined> => {
+    // A bound the wire enforces would come back as a schema error and vanish
+    // (a retitle past 200 characters did, 0.12): refused here, in words.
+    const overBound = taskWriteRefusalOf(command);
+    if (overBound !== undefined) {
+      setError(overBound);
+      setNotice(null);
+      return overBound;
+    }
     const ruling = await tasksSource().apply(canvasName, node, taskId, command);
     const line = ruling.ok ? undefined : ruling.message;
     setError(line ?? null);

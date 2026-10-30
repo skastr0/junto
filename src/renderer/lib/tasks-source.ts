@@ -158,11 +158,20 @@ export const makeLocalTasksSource = (
  * and one write as the local stand-in. The opId is minted per command, so a
  * resend after a lost answer is the same command to the ruler.
  */
+/** A write main refused at its own boundary, in words the pane can show. */
+const WRITE_REFUSED = "The task could not be changed.";
+
 export const makeIpcTasksSource = (api: TaskResourceApi): TasksSource => ({
   list: (canvasName, node) => api.list(canvasName, node),
   all: (canvasName) => api.all(canvasName),
   apply: async (canvasName, node, taskId, command) => {
-    const outcome = await api.apply(canvasName, node, taskId, mintOpId(), command);
+    const opId = mintOpId();
+    const outcome = await api.apply(canvasName, node, taskId, opId, command).catch((cause: unknown) => {
+      // A write main refuses at its own boundary rejects instead of ruling; it
+      // is still refused, so it is answered as one rather than dropped.
+      console.error("[tasks] write refused at the boundary", cause);
+      return { kind: "refused" as const, opId, error: { type: "InputError" as const, message: WRITE_REFUSED } };
+    });
     switch (outcome.kind) {
       case "applied":
         return outcome.deliveryError === undefined ? { ok: true } : { ok: true, deliveryError: outcome.deliveryError.message };
