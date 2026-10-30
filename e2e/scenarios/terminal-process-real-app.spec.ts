@@ -192,22 +192,19 @@ test("the shell runs in the terminal process and its view types over the port th
     }, BINDING);
     console.log("TP-TAKEOVER", JSON.stringify({ second }));
     await check("the first view says another view has control", () =>
-      expect(page.locator(SURFACE).getByText("Another view has control of this seat", { exact: false })).toBeVisible({ timeout: 10_000 }));
-    await check("the second view's keys reach the shell", async () => {
-      expect(second, "the second lease").toBeDefined();
-      await page.evaluate(([leaseId]) => window.junto!.terminalWrite(leaseId!, "echo second-$((6*8))\r"), [second] as const);
-      await expect.poll(async () => {
-        const text = await page.evaluate((binding) =>
-          (window as unknown as { __juntoTermTranscriptText?: Map<string, () => string> }).__juntoTermTranscriptText?.get(binding)?.() ?? "", BINDING);
-        // The first view no longer controls, but it still shows the screen.
-        return text.includes("second-48");
-      }, { timeout: 10_000 }).toBe(true);
-    });
+      expect(page.locator(SURFACE).getByText("Another view has control of this seat", { exact: false }).first()).toBeVisible({ timeout: 10_000 }));
+    // The replaced view hears nothing more; the shell's own screen, read by
+    // the next view, shows what the second view typed.
+    if (second !== undefined) await page.evaluate(([leaseId]) => window.junto!.terminalWrite(leaseId!, "echo second-$((6*8))\r"), [second] as const);
     if (second !== undefined) await page.evaluate((leaseId) => window.junto!.terminalRelease(leaseId), second);
 
     // Reopen takes control back; then Stop process and Reopen.
     await closeView(page);
     await openView(page);
+    await check("the second view's keys reached the shell", async () => {
+      expect(second, "the second lease").toBeDefined();
+      await expect.poll(() => has(page, "second-48"), { timeout: 10_000 }).toBe(true);
+    });
     const surface = page.locator(SURFACE);
     await surface.getByRole("button", { name: "Stop this terminal's process", exact: true }).click();
     await surface.getByRole("button", { name: "Confirm: stop this terminal's process", exact: true }).click();
