@@ -46,7 +46,8 @@ describe("the trash without Electron", () => {
     await mkdir(join(root, "dir"));
     await writeFile(join(root, "dir", "n txt.txt"), "x");
     await writeFile(join(root, "n.txt"), "newer");
-    const at = new Date("2026-10-29T12:30:45.000Z");
+    // Local time, so the expectation does not depend on the zone the test runs in.
+    const at = new Date(2026, 9, 29, 12, 30, 45);
     expect(await (await trashed("linux", { now: () => at }))("n.txt")).toEqual({ ok: true, value: null });
     expect(await readFile(join(data, "files", "n.txt"), "utf8")).toBe("older");
     expect(await readFile(join(data, "files", "n 2.txt"), "utf8")).toBe("newer");
@@ -56,6 +57,65 @@ describe("the trash without Electron", () => {
     expect(await readFile(join(data, "info", "n.txt.trashinfo"), "utf8")).toBe("older info");
     expect(await (await trashed("linux"))("dir/n txt.txt")).toEqual({ ok: true, value: null });
     expect(await readFile(join(data, "info", "n txt.txt.trashinfo"), "utf8")).toContain("/dir/n%20txt.txt\n");
+  });
+
+  it("never overwrites a name in files/ that has no info record", async () => {
+    const data = join(home, ".local", "share", "Trash");
+    await mkdir(join(data, "files"), { recursive: true });
+    await writeFile(join(data, "files", "m.txt"), "foreign");
+    await writeFile(join(root, "m.txt"), "mine");
+    expect(await (await trashed("linux"))("m.txt")).toEqual({ ok: true, value: null });
+    expect(await readFile(join(data, "files", "m.txt"), "utf8")).toBe("foreign");
+    expect(await readFile(join(data, "files", "m 2.txt"), "utf8")).toBe("mine");
+    expect(await readdir(join(data, "info"))).toEqual(["m 2.txt.trashinfo"]);
+  });
+
+  it.each(["darwin", "linux"] as const)("loses none of five same-named files trashed at once (%s)", async (platform) => {
+    const trash = await trashed(platform);
+    const paths = ["a", "b", "c", "d", "e"].map((folder) => `${folder}/notes.md`);
+    for (const folder of ["a", "b", "c", "d", "e"]) {
+      await mkdir(join(root, folder));
+      await writeFile(join(root, folder, "notes.md"), `from ${folder}`);
+    }
+    const results = await Promise.all(paths.map((target) => trash(target)));
+    expect(results).toEqual(paths.map(() => ({ ok: true, value: null })));
+    const where = platform === "darwin" ? join(home, ".Trash") : join(home, ".local", "share", "Trash", "files");
+    const kept = await Promise.all((await readdir(where)).map((name) => readFile(join(where, name), "utf8")));
+    expect(kept.sort()).toEqual(["from a", "from b", "from c", "from d", "from e"]);
+    if (platform === "linux") expect(await readdir(join(home, ".local", "share", "Trash", "info"))).toHaveLength(5);
+  });
+
+  it.each(["darwin", "linux"] as const)("loses none of five same-named folders trashed at once (%s)", async (platform) => {
+    const trash = await trashed(platform);
+    const names = ["a", "b", "c", "d", "e"];
+    for (const folder of names) {
+      await mkdir(join(root, folder, "docs"), { recursive: true });
+      await writeFile(join(root, folder, "docs", "x.md"), `from ${folder}`);
+    }
+    const results = await Promise.all(names.map((folder) => trash(`${folder}/docs`)));
+    expect(results).toEqual(names.map(() => ({ ok: true, value: null })));
+    const where = platform === "darwin" ? join(home, ".Trash") : join(home, ".local", "share", "Trash", "files");
+    const kept = await Promise.all((await readdir(where)).map((name) => readFile(join(where, name, "x.md"), "utf8")));
+    expect(kept.sort()).toEqual(["from a", "from b", "from c", "from d", "from e"]);
+  });
+
+  it.each(["darwin", "linux"] as const)("takes its placeholder away when the move fails, and only while it is empty (%s)", async (platform) => {
+    await writeFile(join(root, "keep.txt"), "kept");
+    const failing = async () => { throw Object.assign(new Error("cross-device"), { code: "EXDEV" }); };
+    expect(await (await trashed(platform, { move: failing }))("keep.txt")).toEqual({ ok: false, error: "denied" });
+    const where = platform === "darwin" ? join(home, ".Trash") : join(home, ".local", "share", "Trash", "files");
+    expect(await readdir(where)).toEqual([]);
+    await mkdir(join(root, "dir"));
+    expect(await (await trashed(platform, { move: failing }))("dir")).toEqual({ ok: false, error: "denied" });
+    expect(await readdir(where)).toEqual([]);
+    expect(await exists(join(root, "dir"))).toBe(true);
+    // Someone put a file in the placeholder folder meanwhile: it is not ours to remove.
+    const filling = async (_from: string, to: string) => {
+      await writeFile(join(to, "theirs.txt"), "t");
+      throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+    };
+    expect(await (await trashed(platform, { move: filling }))("dir")).toEqual({ ok: false, error: "denied" });
+    expect(await readFile(join(where, "dir", "theirs.txt"), "utf8")).toBe("t");
   });
 
   it("orders the info file before the move on Linux", async () => {
