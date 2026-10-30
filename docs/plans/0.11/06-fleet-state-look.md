@@ -26,8 +26,9 @@ list position comes first, because the order is what decides who rules.
   normal state, so it is the plainest chip, set apart only by its frame.
 - `here` is this machine: its chip says its label, never "this machine",
   plus its state. The window already knows which machine it runs on.
-- Time: today `01:12`; within the week `Tue 01:12`; older `Oct 27, 01:12`.
-  One formatter, passed as `when` to every contract function.
+- Time: the existing `seatStatusTime` (`src/shared/seat-status-text.ts`):
+  `01:12` today, `Oct 27 01:12` on any other day. It is passed as `when` to
+  every contract function, so no second formatter is written.
 
 ## The banner over the canvas
 
@@ -35,7 +36,8 @@ list position comes first, because the order is what decides who rules.
   the place `.error-banner` uses; when both show, the error banner sits
   above it. It is a state, not a message: no close button.
 - `kind: "read-only"`: a full 1px border at `color-mix(in oklab,
-  var(--color-amber) 50%, transparent)` and a tint at amber 10%, the same
+  var(--color-amber) 50%, transparent)` and a tint at amber 10% laid over
+  an opaque `--color-raise`, so canvas nodes never show through it, the same
   treatment as the selected machine card (09ca91509). No one-sided edge, no
   shadow stripe, no icon in red. Crimson stays for faults.
 - `kind: "waiting"`: a full 1px `--color-stroke` border on `--color-raise`.
@@ -44,16 +46,26 @@ list position comes first, because the order is what decides who rules.
 - Inside, top to bottom:
   1. The title, `--text-title`, ink, weight 600.
   2. The list as a row of chips in the operator's order, wrapping. A chip
-     is a 16px `MachineFigure`, the position (`1`, `2`, `3`) in mono
+     is a button: it opens the Machines window on that machine, where the
+     fix is (wake it, check it, read why it cannot be reached). Inside the
+     Machines window the same chip selects that machine on the shelf. A
+     chip is a 16px `MachineFigure`, the position (`1`, `2`, `3`) in mono
      `--text-label` dim, the label in ink, then the state words in the
      state's colour from the table. Chips use `--radius-md`, 4px 8px
-     padding, 6px gap. The chips replace the contract's joined machine
-     sentence on screen; that sentence stays as the row's accessible name.
+     padding, 6px gap, and the shelf card's hover (`--color-overlay-1`).
+     The button's accessible name is the machine's contract line, for
+     example `Mac mini asleep since 01:12`.
+     `openMachines` takes no machine today and the shelf keeps its
+     selection in local state; F5d adds a machine to open on.
   3. The other contract lines (`Reads are as of`, `This window is
      read-only`, the kept-change line) in `--text-body`, dim, one per line.
 - Nothing moves. The banner appears and leaves with the state, and no part
   of it pulses.
-- `role="status"` with `aria-live="polite"`; the title is the label.
+- The live region holds only what should be read out when it changes: the
+  title and the chips' state words, each in an element with `role="status"`
+  and `aria-live="polite"`. The banner itself is not live. `Reads are as
+  of` and the other lines change on every refresh, and a live region over
+  them would read the whole banner out again each time.
 
 ## The Machines window
 
@@ -78,3 +90,20 @@ list position comes first, because the order is what decides who rules.
 remote-window builds the banner and its IPC read (F5d). The Machines window
 lines read the same view, and remote-design adds them once the read lands,
 unless remote-window would rather carry them in the same slice.
+
+## Contrast
+
+Measured with `themeRuntime` and `contrastRatio` from `src/shared/theme`,
+the way `scripts/theme-build.ts` builds its chip tone report: each word on
+amber at 10% blended over each surface, against the 4.5 floor. The banner's
+surface is raise; the others are shown for a banner drawn elsewhere.
+
+| Word on amber 10% | Dark, on raise | Dark, worst | Bright, on raise | Bright, worst |
+|---|---|---|---|---|
+| `amber-fg` | 7.32 | 7.32 (raise) | 5.65 | 4.69 (well) |
+| `dim` | 5.89 | 5.89 (raise) | 5.94 | 4.93 (well) |
+| `ink` | 12.73 | 12.73 (raise) | 11.44 | 9.49 (well) |
+
+Every pair clears the floor in both themes, so bright `amber-fg` stays as it
+is. `theme-build --check` holds its own amber chip wash at 7.43 dark and 4.73
+bright.
