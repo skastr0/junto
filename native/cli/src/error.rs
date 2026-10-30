@@ -44,6 +44,19 @@ pub enum ErrorType {
     ShowHelp,
     #[serde(skip_deserializing)]
     InvalidValue,
+    // The operator socket's own, passed through as it names them.
+    #[serde(rename = "validation", skip_deserializing)]
+    Validation,
+    #[serde(rename = "not_found", skip_deserializing)]
+    OperatorNotFound,
+    #[serde(rename = "conflict", skip_deserializing)]
+    OperatorConflict,
+    #[serde(rename = "io", skip_deserializing)]
+    Io,
+    #[serde(rename = "protocol_error", skip_deserializing)]
+    OperatorProtocolError,
+    #[serde(rename = "internal_error", skip_deserializing)]
+    OperatorInternalError,
 }
 
 /// A failure: printed as the `error` of the failure envelope.
