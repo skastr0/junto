@@ -133,8 +133,6 @@ import { registerOperatorHoldsIpc } from "./term/operator-holds";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import {
   handleSeatCacheDueAnswer,
-  handleSeatOffboardRun,
-  handleSeatOffboardStatus,
   seatCacheDueForWindow,
 } from "./seat-sessions/operator-offboard-ipc";
 import { onSeatViewQuestions } from "./term/seat-views";
@@ -904,11 +902,11 @@ export const registerJuntoIpc = (): void => {
   // buttons should say first. The same operation the overseer and the
   // automatic rules go through (seat-sessions/operator-offboard.ts).
   privilegedIpc.handle(IPC_CHANNELS.seatOffboardRun, (_event, input: unknown) =>
-    handleSeatOffboardRun(input, "operator"),
+    core.call("seatOffboard.run", { input }),
   );
   privilegedIpc.handle(
     IPC_CHANNELS.seatOffboardStatus,
-    (_event, canvasName: unknown, seatIds: unknown) => handleSeatOffboardStatus(canvasName, seatIds),
+    (_event, canvasName: unknown, seatIds: unknown) => core.call("seatOffboard.status", { canvasName, seatIds }),
   );
   privilegedIpc.handle(
     IPC_CHANNELS.seatOffboardAsk,

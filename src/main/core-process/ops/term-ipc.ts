@@ -1,3 +1,4 @@
+import { seatStateRuntime } from "../../junto/term/agent-state";
 import { Effect } from "effect";
 import type { MachineInventoryResult, NativeSettingsReadResult, NativeSettingWriteResult } from "@shared/ipc";
 import { asCanvasName, type NodeId, type NodeOf } from "@shared/model";
@@ -33,7 +34,7 @@ export const bindTermIpcSeatControl = (options: SeatControlOptions): void => {
 export const TERM_EVENT = "term.event";
 /** A linked seat's view its machine ended. */
 export const TERM_LEASE_ENDED = "term.leaseEnded";
-/** A seat on another machine reported its state over the seats channel. */
+/** A seat changed state: one this machine runs, or one on another machine over the seats channel. */
 export const TERM_SEAT_STATE = "term.seatState";
 
 /**
@@ -54,10 +55,12 @@ export const bindTermIpcPlane = (plane: TermPlane): (() => void) => {
   plane.router.on("event", onEvent);
   plane.router.on("lease-ended", onLeaseEnded);
   const stopSeatState = onRemoteSeatState((event) => publish(TERM_SEAT_STATE, event));
+  const stopLocalSeatState = seatStateRuntime.subscribe((event) => publish(TERM_SEAT_STATE, event));
   return () => {
     plane.router.off("event", onEvent);
     plane.router.off("lease-ended", onLeaseEnded);
     stopSeatState();
+    stopLocalSeatState();
     if (termPlane === plane) termPlane = undefined;
   };
 };
