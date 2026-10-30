@@ -172,6 +172,14 @@ export function FilesNode({
   selectedRef.current = selected;
   const followRef = useRef(follow);
   followRef.current = follow;
+  // A rename made outside Junto, which main paired by file id: the open file and its draft follow it as they follow one made here.
+  useEffect(
+    () =>
+      filesSource().onChange((event) => {
+        if (event.node === nodeId && event.kind === "paths" && event.moves !== undefined) followRef.current(event.moves);
+      }),
+    [nodeId],
+  );
   /**
    * After a tree drag the open file follows what moved, and the highlight goes
    * back to it, or to nothing: a drag never opens one.

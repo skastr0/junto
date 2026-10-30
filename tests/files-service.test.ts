@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -251,6 +251,76 @@ describe("a save told at once", () => {
     // A refused write tells no one.
     expect(errorOf(await files.write(ref, p("README.md"), "late\n", stamp))).toBe("stale");
     expect(sent).toHaveLength(2);
+  });
+});
+
+describe("a rename made outside Junto", () => {
+  /** A service whose watch the test fires: each named path, then the window's timers. */
+  const watched = (extra: Partial<Parameters<typeof makeFilesService>[0]> = {}) => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    const made = service({ watch: watch.factory, timers: { set: (fn) => queued.push(fn), clear: () => undefined }, ...extra });
+    const fire = async (...names: string[]): Promise<void> => {
+      for (const name of names) watch.fire(name);
+      while (queued.length > 0) queued.shift()?.();
+      await made.files.settle();
+    };
+    return { ...made, fire };
+  };
+  const movesSent = (sent: ReadonlyArray<{ readonly event: FilesChanged }>) =>
+    sent.flatMap(({ event }) => (event.kind === "paths" && event.moves !== undefined ? [event.moves] : []));
+
+  it("pairs the old and new path of a file a window read, and carries its threads before any window hears", async () => {
+    const order: string[] = [];
+    const { files, sent, fire } = watched({
+      carryThreads: async (_ref, from, to) => {
+        order.push(`carry ${from} ${to} at ${String(sent.length)}`);
+      },
+    });
+    value(await files.open(1, ref));
+    value(await files.read(ref, p("README.md")));
+    await rename(join(root, "README.md"), join(root, "INTRO.md"));
+    await fire("README.md", "INTRO.md");
+    expect(movesSent(sent)).toEqual([[{ from: "README.md", to: "INTRO.md" }]]);
+    expect(order).toEqual(["carry README.md INTRO.md at 0"]);
+  });
+
+  it("pairs a folder renamed over a file a window read", async () => {
+    const { files, sent, fire } = watched();
+    value(await files.open(1, ref));
+    value(await files.read(ref, p("src/a.ts")));
+    await rename(join(root, "src"), join(root, "lib"));
+    await fire("src", "lib");
+    expect(movesSent(sent)).toEqual([[{ from: "src", to: "lib" }]]);
+  });
+
+  it("pairs nothing for a rename made in Junto, a file no window read, or a delete", async () => {
+    const carried: string[] = [];
+    const { files, sent, fire } = watched({ carryThreads: async (_ref, from, to) => void carried.push(`${from} ${to}`) });
+    value(await files.open(1, ref));
+    value(await files.read(ref, p("README.md")));
+    // In Junto: its own watch batch names both paths, and finds nothing to pair.
+    value(await files.rename(ref, p("README.md"), "INTRO.md"));
+    await fire("README.md", "INTRO.md");
+    // A file no window read.
+    await rename(join(root, "src/a.ts"), join(root, "src/b.ts"));
+    await fire("src/a.ts", "src/b.ts");
+    // A delete, then a new file at another name.
+    await rm(join(root, "INTRO.md"));
+    await writeFile(join(root, "NEW.md"), "# hi\n");
+    await fire("INTRO.md", "NEW.md");
+    expect(movesSent(sent)).toEqual([]);
+    expect(carried).toEqual(["README.md INTRO.md"]);
+  });
+
+  it("still pairs a file a window saved, which a save may give a new id", async () => {
+    const { files, sent, fire } = watched();
+    value(await files.open(1, ref));
+    const stamp = value(await files.read(ref, p("README.md"))).stamp;
+    value(await files.write(ref, p("README.md"), "# saved\n", stamp));
+    await rename(join(root, "README.md"), join(root, "INTRO.md"));
+    await fire("README.md", "INTRO.md");
+    expect(movesSent(sent)).toEqual([[{ from: "README.md", to: "INTRO.md" }]]);
   });
 });
 

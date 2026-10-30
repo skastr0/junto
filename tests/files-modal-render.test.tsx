@@ -151,6 +151,29 @@ describe("the Files modal", () => {
     expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("theirs");
   });
 
+  it("follows an open file renamed outside Junto, with its draft and no stale bar", async () => {
+    const files = makeLocalFiles({ "src/a.ts": "one" });
+    installFilesSource(files);
+    await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={A} onClose={() => undefined} />));
+    await flush();
+    const read = await files.read(ref, A);
+    if (!read.ok) throw new Error("expected a file");
+    await act(async () => setFileDraft(nodeId, A, { text: "mine", base: read.value.stamp }));
+    const B = parseFilePath("src/b.ts")!;
+    // Finder renames it; main pairs the two paths by file id and says so with the change.
+    await act(async () => {
+      await files.rename(ref, A, "b.ts");
+      files.announce({ node: nodeId, kind: "paths", paths: [A, B], moves: [{ from: A, to: B }] });
+    });
+    await flush();
+    expect(document.querySelector(".files-head__name")?.textContent).toBe("b.ts");
+    expect(fileDraft(nodeId, A)).toBeUndefined();
+    expect(fileDraft(nodeId, B)?.text).toBe("mine");
+    expect(document.querySelector(".files-stale")).toBeNull();
+    expect(document.querySelector(".files-code .cm-content")?.textContent).toBe("mine");
+    setFileDraft(nodeId, B, undefined);
+  });
+
   it("offers the default app and Finder for a file it does not open", async () => {
     installFilesSource(makeLocalFiles({ "a.zip": { size: 10 } }));
     await act(async () => root.render(<FilesNode canvasName="c" nodeId={nodeId} initialPath={parseFilePath("a.zip")!} onClose={() => undefined} />));

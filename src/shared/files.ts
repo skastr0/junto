@@ -167,9 +167,17 @@ export type FileImported = { readonly path: FilePath; readonly dir: boolean };
  * Main -> renderer: something changed under an open node's root. Paths are
  * the entries that changed (added, removed or written); `reset` means too
  * much changed at once (a checkout, an install) and the tree re-lists.
+ * `moves` are renames made outside Junto that main paired by file id, for a
+ * file a window read: the open file and its draft follow them. The link
+ * does not carry them, so a remote window sees the old path go.
  */
 export type FilesChanged =
-  | { readonly node: NodeId; readonly kind: "paths"; readonly paths: ReadonlyArray<FilePath> }
+  | {
+      readonly node: NodeId;
+      readonly kind: "paths";
+      readonly paths: ReadonlyArray<FilePath>;
+      readonly moves?: ReadonlyArray<{ readonly from: FilePath; readonly to: FilePath }>;
+    }
   | { readonly node: NodeId; readonly kind: "reset" }
   /** The root folder is gone from disk; calls refuse `root-missing`, the node stays open. */
   | { readonly node: NodeId; readonly kind: "missing" }

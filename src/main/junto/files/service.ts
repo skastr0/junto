@@ -1,5 +1,5 @@
 import type { FileHandle } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import {
   type FileEntry,
   type FilesCount,
@@ -32,6 +32,7 @@ import {
   type Scope,
 } from "./fs-ops";
 import { mainNameSources } from "./git-spawn";
+import { moveIds, pairRenames, probePath, type FileId, type Moved } from "./outside-renames";
 import { makeRootIndex, type RootEvent, type RootIndex } from "./root-index";
 import type { NameSources } from "./sources";
 import type { Timers, WatchFactory } from "./watcher";
@@ -110,7 +111,14 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
   const sessionsOn = (root: string): ReadonlyArray<string> =>
     [...sessions].flatMap(([key, session]) => (session.root === root ? [key] : []));
 
-  const onEvent = (root: string, event: RootEvent): void => {
+  /** Per root a window holds: each file a window read and its id, so a rename outside Junto pairs (`outside-renames.ts`). */
+  const readIds = new Map<string, Map<FilePath, FileId>>();
+  /** Per root: paths the last batch saw go unpaired, given one more batch. */
+  const heldGone = new Map<string, ReadonlyArray<FilePath>>();
+  /** Per root: the batch still being paired; later events wait behind it, so windows hear them in order. */
+  const telling = new Map<string, Promise<void>>();
+
+  const tell = (root: string, event: RootEvent, moves: ReadonlyArray<Moved> = []): void => {
     const keys = sessionsOn(root);
     for (const key of keys) {
       const session = sessions.get(key)!;
@@ -120,13 +128,76 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
         event.kind === "lost"
           ? { node, kind: "closed", error: "root-missing" }
           : event.kind === "paths"
-            ? { node, kind: "paths", paths: event.paths }
+            ? { node, kind: "paths", paths: event.paths, ...(moves.length === 0 ? {} : { moves }) }
             : { node, kind: event.kind },
       );
     }
     if (event.kind === "missing" || event.kind === "back") counts.delete(root);
     // The holder is gone with its watch: so are the sessions on it.
     if (event.kind === "lost") for (const key of keys) forget(key);
+  };
+
+  /**
+   * A rename outside Junto: the threads of every node open on the root
+   * follow it before any window hears of it, as a rename in Junto does.
+   */
+  const followOutside = async (root: string, move: Moved): Promise<void> => {
+    const ids = readIds.get(root);
+    if (ids !== undefined) moveIds(ids, move.from, move.to);
+    if (deps.carryThreads === undefined) return;
+    const refs = new Map(sessionsOn(root).map((key) => [`${sessions.get(key)!.ref.canvas}\u0000${sessions.get(key)!.ref.node}`, sessions.get(key)!.ref]));
+    for (const ref of refs.values()) {
+      try {
+        await deps.carryThreads(ref, move.from, move.to);
+      } catch (cause) {
+        console.error("[files] comment threads did not follow a rename made outside Junto", cause);
+      }
+    }
+  };
+
+  /** `pair` false: a path Junto just wrote, which names no rename. */
+  const onEvent = (root: string, event: RootEvent, pair = true): void => {
+    const busy = telling.get(root);
+    if (busy === undefined && (!pair || event.kind !== "paths" || (readIds.get(root)?.size ?? 0) === 0)) return tell(root, event);
+    const next = (busy ?? Promise.resolve()).then(async () => {
+      const ids = readIds.get(root);
+      if (!pair || event.kind !== "paths" || ids === undefined || ids.size === 0) return tell(root, event);
+      let moves: ReadonlyArray<Moved> = [];
+      try {
+        const found = await pairRenames(root, event.paths, ids, heldGone.get(root));
+        if (found.unpaired.length === 0) heldGone.delete(root);
+        else heldGone.set(root, found.unpaired);
+        for (const move of found.moves) await followOutside(root, move);
+        moves = found.moves;
+      } catch (cause) {
+        console.error("[files] renames made outside Junto were not paired", cause);
+      }
+      tell(root, event, moves);
+    });
+    telling.set(root, next);
+    void next.finally(() => {
+      if (telling.get(root) === next) telling.delete(root);
+    });
+  };
+
+  /** Note a file's id as a window reads or writes it, on a root a window holds. */
+  const noteId = async (root: string, path: FilePath): Promise<void> => {
+    if (sessionsOn(root).length === 0) return;
+    const probe = await probePath(join(root, path));
+    let ids = readIds.get(root);
+    if (probe.kind !== "file") {
+      ids?.delete(path);
+      return;
+    }
+    if (ids === undefined) readIds.set(root, (ids = new Map()));
+    ids.set(path, probe.id);
+  };
+
+  /** A rename or move made in Junto carries the ids too, so its own watch batch pairs nothing. */
+  const movedInJunto = (scope: Scope, from: FilePath, result: FilesResult<FilePath>): FilesResult<FilePath> => {
+    const ids = readIds.get(scope.root);
+    if (result.ok && ids !== undefined) moveIds(ids, from, result.value);
+    return result;
   };
 
   let settleIndex: (() => Promise<void>) | undefined;
@@ -186,6 +257,10 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     if (session === undefined) return;
     forget(key);
     const { root } = session;
+    if (sessionsOn(root).length === 0) {
+      readIds.delete(root);
+      heldGone.delete(root);
+    }
     turn(root);
     const at = turnOf(root);
     index.release(root, key).then(
@@ -287,7 +362,11 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     list: (ref: FilesNodeRef, dir: FilePath): Promise<FilesResult<ReadonlyArray<FileEntry>>> =>
       withRoot(ref, (root) => listDir(root, dir)),
     read: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> =>
-      withRoot(ref, (root) => readFileAt(root, path)),
+      withRoot(ref, async (scope) => {
+        const result = await readFileAt(scope, path);
+        if (result.ok) await noteId(scope.root, path);
+        return result;
+      }),
     /**
      * A save is told to every window on the root as it lands: a twin node on
      * the same folder need not wait for the watch, which says it again later.
@@ -295,15 +374,18 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     write: (ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp | null): Promise<FilesResult<FileStamp>> =>
       (base === null ? changing : withRoot)(ref, async (scope) => {
         const result = await writeFileAt(scope, path, text, base);
-        if (result.ok) onEvent(scope.root, { kind: "paths", paths: [path] });
+        if (!result.ok) return result;
+        // A save may give the file a new id (a write to a fresh file, renamed over the old).
+        await noteId(scope.root, path);
+        onEvent(scope.root, { kind: "paths", paths: [path] }, false);
         return result;
       }),
     create: (ref: FilesNodeRef, path: FilePath, dir: boolean): Promise<FilesResult<FileEntry>> =>
       changing(ref, (root) => createAt(root, path, dir)),
     rename: (ref: FilesNodeRef, path: FilePath, name: string): Promise<FilesResult<FilePath>> =>
-      changing(ref, (root) => renameAt(root, path, name)).then((result) => carrying(ref, path, result)),
+      changing(ref, async (scope) => movedInJunto(scope, path, await renameAt(scope, path, name))).then((result) => carrying(ref, path, result)),
     move: (ref: FilesNodeRef, path: FilePath, intoDir: FilePath): Promise<FilesResult<FilePath>> =>
-      changing(ref, (root) => moveAt(root, path, intoDir)).then((result) => carrying(ref, path, result)),
+      changing(ref, async (scope) => movedInJunto(scope, path, await moveAt(scope, path, intoDir))).then((result) => carrying(ref, path, result)),
     trash: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
       changing(ref, (root) => trashAt(root, path, deps.trash)),
     import: (
@@ -346,6 +428,7 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     /** Every rebuild and queued delta done (in-process index only): for tests and measurements. */
     settle: async (): Promise<void> => {
       await settleIndex?.();
+      await Promise.all(telling.values());
     },
   };
 };
