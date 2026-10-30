@@ -35,7 +35,7 @@ it("streams 40 MiB in bounded chunks, and a range costs only its own bytes", asy
   const closed: string[] = [];
   const sizes: number[] = [];
   // The core's side, as ops/files.ts answers it: one handle by token, chunks by offset.
-  useCoreClient({
+  useCoreClient(({
     call: async (name: string, input: never) => {
       const request = input as { readonly token?: string; readonly offset?: number; readonly length?: number };
       switch (name) {
@@ -58,7 +58,7 @@ it("streams 40 MiB in bounded chunks, and a range costs only its own bytes", asy
           throw new Error(`unexpected core call ${name}`);
       }
     },
-  });
+  }) as never);
 
   const handler = createFileProtocolHandler(coreFileBytes());
   const url = `junto-file://files-1/large.bin`;
@@ -90,9 +90,9 @@ it("streams 40 MiB in bounded chunks, and a range costs only its own bytes", asy
 });
 
 it("answers 404 for a node no window opened", async () => {
-  useCoreClient({
+  useCoreClient(({
     call: async () => ({ ok: false, error: "no-node" }) as never,
-  });
+  }) as never);
   const handler = createFileProtocolHandler(coreFileBytes());
   const response = await handler(new Request("junto-file://files-1/missing.pdf"));
   expect(response.status).toBe(404);

@@ -1,7 +1,8 @@
 import { Readable } from "node:stream";
 import type { Protocol } from "electron";
 import type { FilePath, FilesError, FilesResult } from "@shared/files";
-import { FILE_BYTE_CHUNK, type FileBytesReader } from "./bytes";
+import { FILE_BYTE_CHUNK } from "@shared/files";
+import type { FileBytesReader } from "./bytes";
 import { FILE_PROTOCOL_SCHEME, fileMime, parseFileUrl } from "@shared/file-url";
 import { parseByteRangeHeader } from "../content/range";
 

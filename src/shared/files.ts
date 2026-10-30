@@ -30,6 +30,9 @@ export type FilePath = string & { readonly [filePathBrand]: "FilePath" };
 export const ROOT_PATH = "" as FilePath;
 
 /** Longest relative path main accepts, in UTF-16 units. */
+/** The most one read of a file's bytes answers, in both processes that pass them. */
+export const FILE_BYTE_CHUNK = 64 * 1024;
+
 export const FILE_PATH_MAX = 4096;
 /** Longest segment: the common filesystem name limit. */
 export const FILE_NAME_MAX = 255;

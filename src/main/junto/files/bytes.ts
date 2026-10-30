@@ -5,9 +5,7 @@
  * offset, so a large PDF or video never crosses a process in one message.
  */
 import type { FileHandle } from "node:fs/promises";
-
-/** The most one read answers; a viewer pulls a large file in these. */
-export const FILE_BYTE_CHUNK = 64 * 1024;
+import { FILE_BYTE_CHUNK } from "@shared/files";
 
 export type FileBytesReader = {
   readonly size: number;
