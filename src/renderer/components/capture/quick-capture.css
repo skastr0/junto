@@ -4,6 +4,11 @@
 .quick-capture {
   display: flex;
   flex-direction: column;
+  /* A writing surface, not a page: the frame keeps close to Cmd+K's
+     proportions instead of taking the window's whole height (846 of 900 read
+     as a full-bleed panel). The fixed height also keeps a filtering list from
+     resizing the frame. */
+  height: min(600px, 100%);
   min-height: 0;
   /* The surface's base is the scale's body, so no line falls to the browser's
      16px: titles take body-lg, the quieter lines label. */

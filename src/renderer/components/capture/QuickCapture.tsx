@@ -188,8 +188,7 @@ export function QuickCapture() {
       id="capture"
       label="Quick capture"
       title="Quick capture"
-      width={920}
-      fill
+      width={760}
       panelClassName="quick-capture"
       onKeyDown={onKeyDown}
     >
