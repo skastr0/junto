@@ -157,6 +157,38 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
       await row.hover();
       await shoot("4-file-comment-row-hovered", row);
     });
+
+    await step("5 reply composer", async () => {
+      // e7f95587b: the reply field is the thread's full width, one line empty, growing as it is typed into.
+      const modal = page.getByRole("dialog", { name: "Files" });
+      await modal.getByTestId("file-comment-row").first().click();
+      const reply = modal.getByRole("combobox", { name: "Reply" }).or(modal.getByLabel("Reply", { exact: true })).first();
+      await expect(reply).toBeVisible({ timeout: 10_000 });
+      const measure = () =>
+        reply.evaluate((el) => {
+          const box = el.closest(".artifact-thread__reply") as HTMLElement;
+          const thread = (box.parentElement as HTMLElement).getBoundingClientRect();
+          const field = el.getBoundingClientRect();
+          const button = [...box.querySelectorAll("button")].find((b) => /reply/iu.test(b.textContent ?? ""));
+          const b = button?.getBoundingClientRect();
+          return {
+            field: { w: Math.round(field.width), h: Math.round(field.height), lineHeight: getComputedStyle(el).lineHeight },
+            thread: Math.round(thread.width),
+            button: b === undefined || b.width === 0 ? null : { w: Math.round(b.width), h: Math.round(b.height), rightGap: Math.round(box.getBoundingClientRect().right - b.right), top: Math.round(b.top - field.top) },
+          };
+        });
+      read["5-empty"] = await measure();
+      await shoot("5-reply-empty", modal.locator(".artifact-thread__reply").first().locator(".."));
+      await reply.click();
+      await page.keyboard.type("First line of the reply.");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("Second line.");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("Third.");
+      await page.waitForTimeout(300);
+      read["5-typed"] = await measure();
+      await shoot("5-reply-typed", modal.locator(".artifact-thread__reply").first().locator(".."));
+    });
   } finally {
     mkdirSync(SHOTS, { recursive: true });
     writeFileSync(join(SHOTS, "read.json"), JSON.stringify({ read, misses }, null, 2));
