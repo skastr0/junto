@@ -59,7 +59,7 @@ import type {
 import { IntentFactBasis } from "@shared/work-protocol";
 import { MachineRepository } from "../machines/repository";
 import { ContentService } from "../content/service";
-import { StateEngine } from "../state/service";
+import { StateEngine, StateTransactionOperation } from "../state/service";
 import { workerMailReads } from "./mail-read-host";
 import { type MailPage, type MailPageQuery, pageOfInbox, pageOfSent } from "./mail-read-sql";
 import type { ContentOwner } from "../content/manifest";
@@ -379,6 +379,19 @@ export interface WorkServiceShape {
       reader: ActorRef,
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly readAt: string }>>;
+    /**
+     * `workMessageMarkRead` for a whole page in one transaction and one
+     * topology read: each id answers the point it holds (an existing one is
+     * returned, an identity conflict is applied), and one unknown id refuses
+     * the batch with nothing marked.
+     */
+    readonly workMessagesMarkRead: (
+      canvas: string,
+      nodeId: string,
+      messageIds: ReadonlyArray<string>,
+      reader: ActorRef,
+      admin?: OverseerWorkAdmin,
+    ) => Effect.Effect<WorkOpResult<{ readonly read: ReadonlyArray<{ readonly messageId: string; readonly readAt: string }> }>>;
     readonly workMessageReact: (
       canvas: string,
       nodeId: string,
@@ -1275,6 +1288,106 @@ export const WorkLive = Layer.effect(
                 })),
               );
             return yield* complete(outcome);
+          }),
+        ),
+
+      workMessagesMarkRead: (canvas, nodeId, messageIds, reader, admin) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readTopology(canvas);
+            yield* requireActor(
+              read,
+              reader,
+              nodeId,
+              "msg.read",
+              admin,
+            );
+            if (reader.nodeId !== nodeId || reader.canvasName !== canvas) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "only the mailbox owner may mark a message read",
+                }),
+              );
+            }
+            const wanted = [...new Set(messageIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+            if (wanted.length === 0) {
+              return yield* complete({ disposition: "applied" as const, value: { read: [] } });
+            }
+            const sink = sinkRef(canvas, nodeId);
+            const acceptedAt = new Date().toISOString();
+            // One transaction for the page: every id is checked, stamped and
+            // written together, so one unknown id marks nothing at all.
+            const marked = yield* sql
+              .withTransaction(
+                Effect.forEach(wanted, (messageId) =>
+                  Effect.gen(function* () {
+                    const exists =
+                      (yield* repository
+                        .mailMessage(canvas, nodeId, messageId)
+                        .pipe(Effect.mapError(toWorkServiceError))) !== undefined;
+                    if (!exists) {
+                      return yield* Effect.fail(
+                        new WorkServiceError({
+                          code: "node_not_found",
+                          message: `message "${messageId}" not found in mailbox`,
+                        }),
+                      );
+                    }
+                    const deliveryId = mailboxMessageReadId(canvas, nodeId, messageId);
+                    const existingAt = yield* repository
+                      .acceptedDeliveryAt(sink, deliveryId)
+                      .pipe(Effect.mapError(toWorkServiceError));
+                    if (existingAt !== undefined) return { messageId, readAt: existingAt };
+                    // Race-safe: a concurrent markRead may win the insert
+                    // between the lookup above and acceptDelivery; an
+                    // identity conflict is applied as the held point.
+                    const readAt = yield* repository
+                      .acceptDelivery({
+                        sink,
+                        basis: intentBasis(read.intentWitness),
+                        receipt: {
+                          deliveryId,
+                          deliveredItem: {
+                            kind: "message",
+                            itemId: messageId,
+                            sink,
+                          },
+                          actor: reader,
+                          acceptedAt,
+                        },
+                      })
+                      .pipe(
+                        Effect.map((result) => result.value.acceptedAt),
+                        Effect.catchIf(
+                          (error): error is WorkAuthorityError =>
+                            error instanceof WorkAuthorityError &&
+                            error.reason === "identity-conflict",
+                          () =>
+                            repository.acceptedDeliveryAt(sink, deliveryId).pipe(
+                              Effect.mapError(toWorkServiceError),
+                              Effect.flatMap((at) =>
+                                at === undefined
+                                  ? Effect.fail(
+                                    new WorkServiceError({
+                                      code: "invalid",
+                                      message: `read receipt "${deliveryId}" conflicted but is missing`,
+                                    }),
+                                  )
+                                  : Effect.succeed(at),
+                              ),
+                            ),
+                        ),
+                        Effect.mapError(toWorkServiceError),
+                      );
+                    return { messageId, readAt };
+                  })),
+              )
+              .pipe(
+                Effect.provideService(StateTransactionOperation, "mail.markRead"),
+                Effect.mapError(toWorkServiceError),
+              );
+            return yield* complete({ disposition: "applied" as const, value: { read: marked } });
           }),
         ),
 

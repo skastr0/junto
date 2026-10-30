@@ -1691,34 +1691,35 @@ const dispatchOp = (
             filter: filter.success,
           })
           .pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-        const overlaid: Message[] = [];
-        for (const item of page.items) {
-          if (item.role !== "user" || decoded.success.peek === true) {
-            overlaid.push(item);
-            continue;
-          }
-          const existingReadAt = item.metadata?.readAt;
-          if (typeof existingReadAt === "number" && Number.isFinite(existingReadAt)) {
-            overlaid.push(item);
-            continue;
-          }
-          const marked = yield* work.workMessageMarkRead(
+        // One transaction marks the page's rows, not one per message.
+        const unread = decoded.success.peek === true
+          ? []
+          : page.items.flatMap((item) => {
+              if (item.role !== "user") return [];
+              const existingReadAt = item.metadata?.readAt;
+              return typeof existingReadAt === "number" && Number.isFinite(existingReadAt) ? [] : [item.messageId];
+            });
+        const readAtOf = new Map<string, number>();
+        if (unread.length > 0) {
+          const marked = yield* work.workMessagesMarkRead(
             caller.canvasName,
             caller.nodeId,
-            item.messageId,
+            unread,
             reader.success,
           );
           const mapped = fromWorkResult(marked);
           if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-          const readAtMs = Date.parse(mapped.success.value.readAt);
-          overlaid.push({
-            ...item,
-            metadata: {
-              ...(item.metadata ?? {}),
-              ...(Number.isFinite(readAtMs) ? { readAt: readAtMs } : {}),
-            },
-          });
+          for (const mark of mapped.success.value.read) {
+            const readAtMs = Date.parse(mark.readAt);
+            if (Number.isFinite(readAtMs)) readAtOf.set(mark.messageId, readAtMs);
+          }
         }
+        const overlaid: Message[] = page.items.map((item) => {
+          const readAtMs = readAtOf.get(item.messageId);
+          return readAtMs === undefined
+            ? item
+            : { ...item, metadata: { ...(item.metadata ?? {}), readAt: readAtMs } };
+        });
         return {
           target: caller.nodeId,
           ...threadField,

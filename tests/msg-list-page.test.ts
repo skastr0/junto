@@ -17,7 +17,7 @@ import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { region, seat as seatNode, wire } from "./support/model-nodes";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
-import { WorkLive } from "../src/main/junto/work/service";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -140,6 +140,34 @@ describe("msg list pages", () => {
     expect(again.data.items.map((item: any) => item.metadata?.readAt)).toEqual(
       first.data.items.map((item: any) => item.metadata?.readAt),
     );
+  });
+
+  it("marks a page in one call: idempotent, and one unknown id marks nothing", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) ids.push(await send(peerToken, PEER, ME, `batch ${i}`));
+    const work = await runtime.runPromise(WorkService);
+    const topology = await runtime.runPromise(work.readTopology(CANVAS));
+    const reader = topology.actorRefs.find((ref) => ref.nodeId === ME)!;
+
+    const first = await runtime.runPromise(work.workMessagesMarkRead(CANVAS, ME, ids, reader));
+    expect(first.ok, JSON.stringify(first)).toBe(true);
+    if (!first.ok) return;
+    expect(first.data.read.map((mark) => mark.messageId)).toEqual(ids);
+    for (const mark of first.data.read) expect(Date.parse(mark.readAt)).toBeTypeOf("number");
+
+    // Read again, the same points come back: a mark that moves nothing writes nothing.
+    const second = await runtime.runPromise(work.workMessagesMarkRead(CANVAS, ME, ids, reader));
+    expect(second.ok && second.data.read).toEqual(first.data.read);
+
+    // One unknown id refuses the whole batch, and the good id in it stays unread.
+    const late = await send(peerToken, PEER, ME, "late");
+    const refused = await runtime.runPromise(
+      work.workMessagesMarkRead(CANVAS, ME, [late, "01M65000000000000000000099"], reader),
+    );
+    expect(refused.ok).toBe(false);
+    const peeked = await call(mine, "msg.list", { limit: 50, peek: true });
+    const lateItem = peeked.data.items.find((item: any) => item.messageId === late);
+    expect(lateItem.metadata?.readAt).toBeUndefined();
   });
 
   it("a peek marks nothing and pages the same rows", async () => {
