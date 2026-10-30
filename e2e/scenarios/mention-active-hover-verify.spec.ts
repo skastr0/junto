@@ -9,7 +9,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator } from "@playwright/test";
 import { Schema } from "effect";
-import { Node } from "../../src/shared/model";
+import { asNodeId, Node } from "../../src/shared/model";
+import { mintItemId, mintOpId } from "../../src/shared/resource-command";
+import { taskNodeId } from "../../src/shared/task-model";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 
@@ -30,18 +32,21 @@ const read = (option: Locator) =>
 
 test("mention combobox: the keyboard's active option against the pointer's hovered one", async () => {
   test.setTimeout(240_000);
-  const junto = await launchJunto({ windowContentSize: { width: 1500, height: 900 }, seedModels: { [CANVAS]: modelFixture([ops, ...seats, board], []) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([ops, ...seats, board], []) } });
   const out: Record<string, unknown> = {};
   try {
     const { page } = junto;
-    // An empty board opens New task: a title and Add task make one, then its comment field takes @ for a seat.
+    // As task-comment-reload: a task made through the resource, opened from the board, its comment field takes @ for a seat.
+    const taskId = mintItemId();
+    const created = await page.evaluate(
+      ({ canvas, node, taskId, opId }) => window.junto!.resource!.task!.apply(canvas, node, taskId, opId, { kind: "create", taskId, title: "Ship the wire spec" }),
+      { canvas: CANVAS, node: taskNodeId(asNodeId("board")), taskId, opId: mintOpId() },
+    );
+    expect(created.kind).toBe("applied");
     const card = page.locator('.react-flow__node[data-id="board"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.dblclick();
-    await page.getByPlaceholder("What needs doing?").fill("Ship the wire spec", { timeout: 20_000 });
-    await page.getByRole("button", { name: "Add task", exact: true }).click();
-    const task = page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first();
-    if (!(await page.getByTestId("task-thread").isVisible())) await task.click({ timeout: 20_000 });
+    await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first().click({ timeout: 20_000 });
     const field = page.getByTestId("task-thread").getByLabel("Comment on this task");
     await field.click({ timeout: 20_000 });
     await field.pressSequentially("over to @");

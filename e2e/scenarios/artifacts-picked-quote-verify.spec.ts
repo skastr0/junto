@@ -2,8 +2,7 @@
  * Real app, c8262a42d and f73fcde88, dark and bright. (1) The Artifacts
  * window list with one row open, two others picked by Cmd-click and one more
  * hovered: picked is cyan at 10%, hovered overlay-1, the open row its own;
- * then a Shift run that takes the open row in too (cyan at 18%; Cmd-click
- * never picks the open row, ArtifactsNode pickRow). The Move to picker
+ * the open row joins the pick once another is picked (cyan at 18%). The Move to picker
  * (Combobox) with the keyboard's active option and a hovered one. (2) A > blockquote in a
  * document's live editor and in rendered markdown (ArtifactMarkdown, here a
  * signal's detail, which draws the same .artifact-markdown rule): a neutral
@@ -110,13 +109,14 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
       await row(page, "Delta errands").click({ modifiers: ["Meta"] });
       const realPicks = await page.locator('.artifacts-list__item[data-picked="true"]').count();
       out.cmdClickPicked = realPicks;
-      if (realPicks < 2) {
+      if (realPicks < 3) {
         for (const t of ["Gamma review", "Delta errands"]) {
           if ((await row(page, t).locator("xpath=..").getAttribute("data-picked")) !== "true")
             await row(page, t).evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true })));
         }
       }
-      await expect(page.locator('.artifacts-list__item[data-picked="true"]')).toHaveCount(2, { timeout: 5_000 });
+      // The open row joins the pick once another is picked: three marked, the open one at the deeper tint.
+      await expect(page.locator('.artifacts-list__item[data-picked="true"]')).toHaveCount(3, { timeout: 5_000 });
       await row(page, "Echo draft").hover();
       await frames("01-list-open-picked-hovered", fills);
     });
@@ -125,16 +125,6 @@ test("artifacts: picked, hovered and open rows read apart; the quote rule is neu
       const quote = page.locator(".live-markdown .cm-md-quote").first();
       await expect(quote).toBeVisible({ timeout: 10_000 });
       await frames("03-quote-live-editor", () => rule(quote));
-    });
-
-    await step("list: a Shift run takes the open row in", async () => {
-      await row(page, "Alpha notes").click();
-      await row(page, "Gamma review").click({ modifiers: ["Shift"] });
-      out.shiftClickPicked = await page.locator('.artifacts-list__item[data-picked="true"]').count();
-      if ((out.shiftClickPicked as number) < 2)
-        await row(page, "Gamma review").evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true })));
-      await row(page, "Echo draft").hover();
-      await frames("02-list-open-row-picked", fills);
     });
 
     await step("Move to: the keyboard's active option and a hovered one", async () => {
