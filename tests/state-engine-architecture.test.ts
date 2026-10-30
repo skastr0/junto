@@ -28,6 +28,9 @@ const allowed = new Set([
   // thread; StateEngine stays the only writer (operator ruling 2026-10-30).
   "src/main/junto/work/mail-read-worker.ts",
   "src/main/junto/work/mail-read-sql.ts",
+  // The core's maintenance writer, off the main thread: checkpoints and
+  // ANALYZE only, never a row (operator ruling 2026-10-30).
+  "src/main/junto/state/maintenance-worker.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

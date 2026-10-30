@@ -34,6 +34,7 @@ import {
 } from "./migrations";
 import { makeSqliteClient } from "./sqlite-client";
 import { installSqlCommitCallbacks } from "./sql-commit";
+import { startStateMaintenance } from "./maintenance";
 
 export {
   StateEngine,
@@ -162,6 +163,10 @@ const openStateEngine = (
           throw error;
         }
       })();
+      // Checkpoints and statistics run on a maintenance writer off main.
+      const maintenance = startStateMaintenance(path, (pages) => {
+        if (!closed) database.exec(`PRAGMA wal_autocheckpoint = ${Math.trunc(pages)}`);
+      });
 
       const requireOpen = (): void => {
         if (closed) throw new Error("state engine is closed");
@@ -237,6 +242,7 @@ const openStateEngine = (
         close: () => {
           if (closed) return;
           closed = true;
+          maintenance.close();
           database.close();
         },
       };
