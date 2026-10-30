@@ -1,0 +1,665 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-30T00:17:49.669Z",
+  "title": "Design System: Junto",
+  "extensions": {
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Night Ground",
+        "canonical": "oklch(0.15039 0.00272 67.55)",
+        "tonalRamp": [
+          "oklch(0.150 0.00068 67.55)",
+          "oklch(0.264 0.00121 67.55)",
+          "oklch(0.379 0.00206 67.55)",
+          "oklch(0.493 0.00257 67.55)",
+          "oklch(0.607 0.00272 67.55)",
+          "oklch(0.721 0.00252 67.55)",
+          "oklch(0.836 0.00197 67.55)",
+          "oklch(0.950 0.00107 67.55)"
+        ]
+      },
+      "raise": {
+        "role": "neutral",
+        "displayName": "Raised Panel",
+        "canonical": "oklch(0.18883 0.00925 75.06)",
+        "tonalRamp": [
+          "oklch(0.150 0.00231 75.06)",
+          "oklch(0.264 0.00410 75.06)",
+          "oklch(0.379 0.00701 75.06)",
+          "oklch(0.493 0.00873 75.06)",
+          "oklch(0.607 0.00925 75.06)",
+          "oklch(0.721 0.00858 75.06)",
+          "oklch(0.836 0.00671 75.06)",
+          "oklch(0.950 0.00365 75.06)"
+        ]
+      },
+      "raise-2": {
+        "role": "neutral",
+        "displayName": "Raised Panel 2",
+        "canonical": "oklch(0.18379 0.00518 67.50)",
+        "tonalRamp": [
+          "oklch(0.150 0.00129 67.50)",
+          "oklch(0.264 0.00230 67.50)",
+          "oklch(0.379 0.00393 67.50)",
+          "oklch(0.493 0.00489 67.50)",
+          "oklch(0.607 0.00518 67.50)",
+          "oklch(0.721 0.00480 67.50)",
+          "oklch(0.836 0.00376 67.50)",
+          "oklch(0.950 0.00205 67.50)"
+        ]
+      },
+      "inset": {
+        "role": "neutral",
+        "displayName": "Inset",
+        "canonical": "oklch(0.17963 0.00389 48.50)",
+        "tonalRamp": [
+          "oklch(0.150 0.00097 48.50)",
+          "oklch(0.264 0.00172 48.50)",
+          "oklch(0.379 0.00295 48.50)",
+          "oklch(0.493 0.00367 48.50)",
+          "oklch(0.607 0.00389 48.50)",
+          "oklch(0.721 0.00361 48.50)",
+          "oklch(0.836 0.00282 48.50)",
+          "oklch(0.950 0.00154 48.50)"
+        ]
+      },
+      "well": {
+        "role": "neutral",
+        "displayName": "Well",
+        "canonical": "oklch(0.13530 0.00322 69.58)",
+        "tonalRamp": [
+          "oklch(0.150 0.00081 69.58)",
+          "oklch(0.264 0.00143 69.58)",
+          "oklch(0.379 0.00244 69.58)",
+          "oklch(0.493 0.00304 69.58)",
+          "oklch(0.607 0.00322 69.58)",
+          "oklch(0.721 0.00299 69.58)",
+          "oklch(0.836 0.00234 69.58)",
+          "oklch(0.950 0.00127 69.58)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Lamplit Ink",
+        "canonical": "oklch(0.92716 0.01775 81.33)",
+        "tonalRamp": [
+          "oklch(0.150 0.00444 81.33)",
+          "oklch(0.264 0.00787 81.33)",
+          "oklch(0.379 0.01345 81.33)",
+          "oklch(0.493 0.01674 81.33)",
+          "oklch(0.607 0.01775 81.33)",
+          "oklch(0.721 0.01646 81.33)",
+          "oklch(0.836 0.01288 81.33)",
+          "oklch(0.950 0.00701 81.33)"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Ink 2",
+        "canonical": "oklch(0.80991 0.02376 84.59)",
+        "tonalRamp": [
+          "oklch(0.150 0.00594 84.59)",
+          "oklch(0.264 0.01054 84.59)",
+          "oklch(0.379 0.01801 84.59)",
+          "oklch(0.493 0.02241 84.59)",
+          "oklch(0.607 0.02375 84.59)",
+          "oklch(0.721 0.02203 84.59)",
+          "oklch(0.836 0.01724 84.59)",
+          "oklch(0.950 0.00939 84.59)"
+        ]
+      },
+      "dim": {
+        "role": "neutral",
+        "displayName": "Dim",
+        "canonical": "oklch(0.70000 0.01830 79.30)",
+        "tonalRamp": [
+          "oklch(0.150 0.00458 79.30)",
+          "oklch(0.264 0.00811 79.30)",
+          "oklch(0.379 0.01387 79.30)",
+          "oklch(0.493 0.01726 79.30)",
+          "oklch(0.607 0.01830 79.30)",
+          "oklch(0.721 0.01697 79.30)",
+          "oklch(0.836 0.01328 79.30)",
+          "oklch(0.950 0.00723 79.30)"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Faint",
+        "canonical": "oklch(0.62000 0.03000 90.43)",
+        "tonalRamp": [
+          "oklch(0.150 0.00750 90.43)",
+          "oklch(0.264 0.01330 90.43)",
+          "oklch(0.379 0.02274 90.43)",
+          "oklch(0.493 0.02830 90.43)",
+          "oklch(0.607 0.02999 90.43)",
+          "oklch(0.721 0.02782 90.43)",
+          "oklch(0.836 0.02177 90.43)",
+          "oklch(0.950 0.01185 90.43)"
+        ]
+      },
+      "stroke": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "color-mix(in oklab, oklch(0.92716 0.01775 81.33) 14%, transparent)"
+      },
+      "stroke-hi": {
+        "role": "neutral",
+        "displayName": "Bright Hairline",
+        "canonical": "color-mix(in oklab, oklch(0.92716 0.01775 81.33) 28%, transparent)"
+      },
+      "overlay-1": {
+        "role": "neutral",
+        "displayName": "Overlay 1",
+        "canonical": "color-mix(in oklab, oklch(0.92716 0.01775 81.33) 3%, transparent)"
+      },
+      "overlay-2": {
+        "role": "neutral",
+        "displayName": "Overlay 2 (selected row)",
+        "canonical": "color-mix(in oklab, oklch(0.92716 0.01775 81.33) 5%, transparent)"
+      },
+      "overlay-3": {
+        "role": "neutral",
+        "displayName": "Overlay 3",
+        "canonical": "color-mix(in oklab, oklch(0.92716 0.01775 81.33) 7%, transparent)"
+      },
+      "overlay-4": {
+        "role": "neutral",
+        "displayName": "Overlay 4",
+        "canonical": "color-mix(in oklab, oklch(0.92716 0.01775 81.33) 10%, transparent)"
+      },
+      "backdrop": {
+        "role": "neutral",
+        "displayName": "Modal Dim",
+        "canonical": "color-mix(in oklab, oklch(0.15039 0.00272 67.55) 72%, transparent)"
+      },
+      "focus-ring": {
+        "role": "secondary",
+        "displayName": "Focus Halo",
+        "canonical": "color-mix(in oklab, oklch(0.76048 0.11721 206.31) 10%, transparent)"
+      },
+      "selection": {
+        "role": "primary",
+        "displayName": "Text Selection",
+        "canonical": "color-mix(in oklab, oklch(0.76490 0.13988 72.95) 28%, transparent)"
+      },
+      "amber": {
+        "role": "primary",
+        "displayName": "Lamp Amber",
+        "canonical": "oklch(0.76490 0.13988 72.95)",
+        "tonalRamp": [
+          "oklch(0.150 0.03497 72.95)",
+          "oklch(0.264 0.06203 72.95)",
+          "oklch(0.379 0.10601 72.95)",
+          "oklch(0.493 0.13195 72.95)",
+          "oklch(0.607 0.13984 72.95)",
+          "oklch(0.721 0.12969 72.95)",
+          "oklch(0.836 0.10150 72.95)",
+          "oklch(0.950 0.05526 72.95)"
+        ]
+      },
+      "amber-hi": {
+        "role": "primary",
+        "displayName": "Lit Amber",
+        "canonical": "oklch(0.89239 0.06852 85.73)",
+        "tonalRamp": [
+          "oklch(0.150 0.01713 85.73)",
+          "oklch(0.264 0.03038 85.73)",
+          "oklch(0.379 0.05193 85.73)",
+          "oklch(0.493 0.06464 85.73)",
+          "oklch(0.607 0.06850 85.73)",
+          "oklch(0.721 0.06353 85.73)",
+          "oklch(0.836 0.04972 85.73)",
+          "oklch(0.950 0.02707 85.73)"
+        ]
+      },
+      "cyan": {
+        "role": "secondary",
+        "displayName": "Signal Cyan",
+        "canonical": "oklch(0.76048 0.11721 206.31)",
+        "tonalRamp": [
+          "oklch(0.150 0.02930 206.31)",
+          "oklch(0.264 0.05198 206.31)",
+          "oklch(0.379 0.08883 206.31)",
+          "oklch(0.493 0.11057 206.31)",
+          "oklch(0.607 0.11718 206.31)",
+          "oklch(0.721 0.10868 206.31)",
+          "oklch(0.836 0.08505 206.31)",
+          "oklch(0.950 0.04631 206.31)"
+        ]
+      },
+      "crimson": {
+        "role": "tertiary",
+        "displayName": "Blocker Crimson",
+        "canonical": "oklch(0.62557 0.19334 23.03)",
+        "tonalRamp": [
+          "oklch(0.150 0.04834 23.03)",
+          "oklch(0.264 0.08573 23.03)",
+          "oklch(0.379 0.14653 23.03)",
+          "oklch(0.493 0.18238 23.03)",
+          "oklch(0.607 0.19329 23.03)",
+          "oklch(0.721 0.17926 23.03)",
+          "oklch(0.836 0.14029 23.03)",
+          "oklch(0.950 0.07638 23.03)"
+        ]
+      },
+      "steel": {
+        "role": "neutral",
+        "displayName": "Steel",
+        "canonical": "oklch(0.70421 0.02949 236.38)",
+        "tonalRamp": [
+          "oklch(0.150 0.00737 236.38)",
+          "oklch(0.264 0.01308 236.38)",
+          "oklch(0.379 0.02235 236.38)",
+          "oklch(0.493 0.02782 236.38)",
+          "oklch(0.607 0.02948 236.38)",
+          "oklch(0.721 0.02734 236.38)",
+          "oklch(0.836 0.02140 236.38)",
+          "oklch(0.950 0.01165 236.38)"
+        ]
+      },
+      "violet": {
+        "role": "canvas",
+        "displayName": "Violet (artifacts)",
+        "canonical": "oklch(0.64851 0.16258 287.53)",
+        "tonalRamp": [
+          "oklch(0.150 0.04065 287.53)",
+          "oklch(0.264 0.07209 287.53)",
+          "oklch(0.379 0.12322 287.53)",
+          "oklch(0.493 0.15336 287.53)",
+          "oklch(0.607 0.16254 287.53)",
+          "oklch(0.721 0.15074 287.53)",
+          "oklch(0.836 0.11797 287.53)",
+          "oklch(0.950 0.06423 287.53)"
+        ]
+      },
+      "indigo": {
+        "role": "canvas",
+        "displayName": "Indigo (pages)",
+        "canonical": "oklch(0.63143 0.17645 275.45)",
+        "tonalRamp": [
+          "oklch(0.150 0.04411 275.45)",
+          "oklch(0.264 0.07824 275.45)",
+          "oklch(0.379 0.13373 275.45)",
+          "oklch(0.493 0.16645 275.45)",
+          "oklch(0.607 0.17641 275.45)",
+          "oklch(0.721 0.16360 275.45)",
+          "oklch(0.836 0.12804 275.45)",
+          "oklch(0.950 0.06971 275.45)"
+        ]
+      },
+      "green": {
+        "role": "canvas",
+        "displayName": "Green (tasks)",
+        "canonical": "oklch(0.71797 0.10827 161.16)",
+        "tonalRamp": [
+          "oklch(0.150 0.02707 161.16)",
+          "oklch(0.264 0.04801 161.16)",
+          "oklch(0.379 0.08205 161.16)",
+          "oklch(0.493 0.10213 161.16)",
+          "oklch(0.607 0.10824 161.16)",
+          "oklch(0.721 0.10039 161.16)",
+          "oklch(0.836 0.07856 161.16)",
+          "oklch(0.950 0.04277 161.16)"
+        ]
+      },
+      "orange": {
+        "role": "canvas",
+        "displayName": "Orange (git)",
+        "canonical": "oklch(0.69551 0.16920 44.10)",
+        "tonalRamp": [
+          "oklch(0.150 0.04230 44.10)",
+          "oklch(0.264 0.07503 44.10)",
+          "oklch(0.379 0.12823 44.10)",
+          "oklch(0.493 0.15961 44.10)",
+          "oklch(0.607 0.16916 44.10)",
+          "oklch(0.721 0.15688 44.10)",
+          "oklch(0.836 0.12278 44.10)",
+          "oklch(0.950 0.06684 44.10)"
+        ]
+      },
+      "gold": {
+        "role": "canvas",
+        "displayName": "Gold",
+        "canonical": "oklch(0.75664 0.11885 83.55)",
+        "tonalRamp": [
+          "oklch(0.150 0.02971 83.55)",
+          "oklch(0.264 0.05270 83.55)",
+          "oklch(0.379 0.09007 83.55)",
+          "oklch(0.493 0.11211 83.55)",
+          "oklch(0.607 0.11882 83.55)",
+          "oklch(0.721 0.11020 83.55)",
+          "oklch(0.836 0.08624 83.55)",
+          "oklch(0.950 0.04695 83.55)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "hero": {
+        "displayName": "Hero",
+        "purpose": "The label node on the canvas and first-run headings, in the condensed display face."
+      },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Stamped uppercase section titles and the empty canvas title."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Dialog titles and note headings."
+      },
+      "body-lg": {
+        "displayName": "Body Large",
+        "purpose": "Node chip names, palette row titles, form fields, md buttons."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "The working size: list rows, spine rows, dialog body, counts."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons at sm and xs, status tags, meta lines, footers, key caps, eyebrows."
+      },
+      "prose": {
+        "displayName": "Prose",
+        "purpose": "Paragraphs a person wrote: thread messages, quick capture, automation prompts."
+      }
+    },
+    "shadows": [
+      {
+        "name": "modal-lift",
+        "value": "0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1)",
+        "purpose": "The one card chrome for dialogs and operator modals (.layer-frame in src/renderer/styles/layers.css)."
+      },
+      {
+        "name": "popup-lift",
+        "value": "0 10px 24px var(--color-shadow-2)",
+        "purpose": "Anchored popups such as the mention list."
+      },
+      {
+        "name": "focus-halo",
+        "value": "0 0 0 3px var(--color-focus-ring)",
+        "purpose": "A focused field and the armed button."
+      },
+      {
+        "name": "selected-node-ring",
+        "value": "0 0 0 1px var(--color-main)",
+        "purpose": "A selected canvas node chip, with a main border. No blur."
+      },
+      {
+        "name": "focus-ring-inset",
+        "value": "inset 0 0 0 2px var(--color-cyan)",
+        "purpose": "The house focus ring where a clipping parent would cut an outline."
+      },
+      {
+        "name": "modal-dim",
+        "value": "background: var(--color-backdrop); backdrop-filter: blur(2px)",
+        "purpose": "The one dim behind every modal shell ([data-layer-backdrop])."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-house",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "The most used ease out for state transitions and panel entrances."
+      },
+      {
+        "name": "ease-quart-out",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "The second ease out in use."
+      },
+      {
+        "name": "duration-state",
+        "value": "120ms to 160ms",
+        "purpose": "Hover, color and border transitions."
+      },
+      {
+        "name": "duration-reveal",
+        "value": "180ms to 220ms",
+        "purpose": "Panel and detail entrances."
+      },
+      {
+        "name": "rings",
+        "value": "every display frame, transform and opacity only",
+        "purpose": "Seat rings turn and pulse on the compositor; never slowed, stepped or stilled while visible (tests/motion-law.test.ts)."
+      }
+    ],
+    "layers": [
+      {
+        "name": "base",
+        "value": "0"
+      },
+      {
+        "name": "canvas-track",
+        "value": "1000"
+      },
+      {
+        "name": "working",
+        "value": "10000"
+      },
+      {
+        "name": "working-dialog",
+        "value": "11000"
+      },
+      {
+        "name": "popover",
+        "value": "12000"
+      },
+      {
+        "name": "flyout",
+        "value": "13000"
+      },
+      {
+        "name": "operator",
+        "value": "15000"
+      },
+      {
+        "name": "operator-dialog",
+        "value": "15500"
+      },
+      {
+        "name": "operator-popover",
+        "value": "16000"
+      },
+      {
+        "name": "tooltip",
+        "value": "20000"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Chrome Button",
+      "kind": "button",
+      "refersTo": "button-chrome",
+      "description": "The default bordered control on raised panels.",
+      "html": "<button class=\"ds-btn ds-btn-chrome\">Rename</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-label); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; cursor: pointer; transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; } .ds-btn-chrome { border: 1px solid var(--color-stroke); background: color-mix(in oklab, var(--color-ink) 4%, transparent); color: var(--color-ink); } .ds-btn-chrome:hover { background: color-mix(in oklab, var(--color-ink) 10%, transparent); }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one amber action per surface, never two.",
+      "html": "<button class=\"ds-btn-primary\">Start seat</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid color-mix(in oklab, var(--color-amber) 35%, transparent); border-radius: var(--radius-md); background: color-mix(in oklab, var(--color-amber) 18%, transparent); color: var(--color-amber-hi); font-family: var(--font-mono); font-size: var(--text-label); font-weight: 600; letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; cursor: pointer; transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-primary:hover { background: color-mix(in oklab, var(--color-amber) 26%, transparent); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }"
+    },
+    {
+      "name": "Subtle Button",
+      "kind": "button",
+      "refersTo": "button-subtle",
+      "description": "A quiet text action: cancel, advanced toggles.",
+      "html": "<button class=\"ds-btn-subtle\">Cancel</button>",
+      "css": ".ds-btn-subtle { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--radius-md); background: transparent; color: var(--color-dim); font-family: var(--font-mono); font-size: var(--text-label); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; cursor: pointer; transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-subtle:hover { color: var(--color-ink); background: color-mix(in oklab, var(--color-ink) 6%, transparent); } .ds-btn-subtle:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive actions only, in crimson, used sparingly.",
+      "html": "<button class=\"ds-btn-danger\">Remove seat</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid color-mix(in oklab, var(--color-crimson) 40%, transparent); border-radius: var(--radius-md); background: color-mix(in oklab, var(--color-crimson) 10%, transparent); color: var(--color-crimson); font-family: var(--font-mono); font-size: var(--text-label); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; cursor: pointer; transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-danger:hover { background: color-mix(in oklab, var(--color-crimson) 18%, transparent); } .ds-btn-danger:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "The one treatment for every text input: inset fill, hairline, cyan focus.",
+      "html": "<input class=\"ds-input\" placeholder=\"Seat name\" />",
+      "css": ".ds-input { width: 240px; padding: 6px 8px; border: 1px solid var(--color-stroke); border-radius: var(--radius-md); background: var(--color-inset); color: var(--color-ink); font-family: var(--font-mono); font-size: var(--text-body-lg); outline: none; transition: border-color 150ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-input::placeholder { color: var(--color-faint); } .ds-input:focus { border-color: color-mix(in oklab, var(--color-cyan) 60%, transparent); box-shadow: 0 0 0 3px var(--color-focus-ring); }"
+    },
+    {
+      "name": "Command Palette Rows",
+      "kind": "nav",
+      "refersTo": "palette-row",
+      "description": "Cmd+K rows: the selected row is an overlay-2 tint, never an edge.",
+      "html": "<div class=\"ds-palette\"><div class=\"ds-palette-row ds-palette-row--active\"><span class=\"ds-palette-mark\" style=\"--mark-hue: var(--color-green)\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01\"/></svg></span><span class=\"ds-palette-main\"><span class=\"ds-palette-title\">Release board</span><span class=\"ds-palette-detail\">tasks in Platform</span></span><span class=\"ds-palette-kind\">tasks</span></div><div class=\"ds-palette-row\"><span class=\"ds-palette-mark\" style=\"--mark-hue: var(--color-violet)\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M21 8 12 3 3 8v8l9 5 9-5z\"/></svg></span><span class=\"ds-palette-main\"><span class=\"ds-palette-title\">Launch notes</span><span class=\"ds-palette-detail\">artifacts in Platform</span></span><span class=\"ds-palette-kind\">artifacts</span></div></div>",
+      "css": ".ds-palette { width: 420px; padding: 6px; border: 1px solid var(--color-stroke); border-radius: var(--radius-xl); background: var(--color-raise); } .ds-palette-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-md); cursor: pointer; } .ds-palette-row:hover { background: var(--color-overlay-1); } .ds-palette-row--active { background: var(--color-overlay-2); } .ds-palette-mark { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border: 1px solid color-mix(in oklab, var(--mark-hue) 30%, transparent); border-radius: var(--radius-lg); background: color-mix(in oklab, var(--mark-hue) 12%, transparent); color: var(--mark-hue); } .ds-palette-row--active .ds-palette-mark { border-color: color-mix(in oklab, var(--mark-hue) 60%, transparent); } .ds-palette-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; } .ds-palette-title { color: var(--color-ink); font-family: var(--font-mono); font-size: var(--text-body-lg); font-weight: 500; } .ds-palette-detail, .ds-palette-kind { color: var(--color-faint); font-family: var(--font-mono); font-size: var(--text-label); }"
+    },
+    {
+      "name": "Node Head Chip",
+      "kind": "chip",
+      "refersTo": "node-chip",
+      "description": "A canvas node is one chip: glyph in the kind hue, mono name, dim count.",
+      "html": "<button class=\"ds-node-chip\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"var(--color-green)\" stroke-width=\"2\"><path d=\"M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01\"/></svg><span class=\"ds-node-name\">Release board</span><span class=\"ds-node-count\">12</span></button>",
+      "css": ".ds-node-chip { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px 0 9px; border: 1px solid var(--color-stroke); border-radius: var(--radius-pill); background: var(--color-overlay-3); cursor: pointer; transition: border-color 180ms ease; } .ds-node-chip:hover { border-color: var(--color-stroke-hi); } .ds-node-chip:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 3px; } .ds-node-chip[aria-pressed=\"true\"] { border-color: var(--color-main); box-shadow: 0 0 0 1px var(--color-main); } .ds-node-name { color: var(--color-ink); font-family: var(--font-mono); font-size: var(--text-body-lg); font-weight: 600; } .ds-node-count { color: var(--color-dim); font-family: var(--font-mono); font-size: var(--text-body); font-weight: 600; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Status Tag",
+      "kind": "chip",
+      "refersTo": "status-tag",
+      "description": "Status is a shape and a word in its tone, never color alone.",
+      "html": "<span class=\"ds-status ds-status--blocked\"><span class=\"ds-status-shape\"></span>Blocked</span> <span class=\"ds-status ds-status--needs\"><span class=\"ds-status-shape\"></span>Needs you</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 1.5px solid; border-radius: var(--radius-pill); font-family: var(--font-mono); font-size: var(--text-label); font-weight: 700; letter-spacing: var(--tracking-soft); text-transform: uppercase; } .ds-status--blocked { border-color: var(--color-crimson); color: var(--color-crimson-fg); } .ds-status--blocked .ds-status-shape { width: 8px; height: 7px; background: var(--color-crimson); clip-path: polygon(50% 0, 100% 100%, 0 100%); } .ds-status--needs { border-color: var(--color-amber); color: var(--color-amber-fg); } .ds-status--needs .ds-status-shape { width: 7px; height: 7px; border-radius: 50%; background: var(--color-amber); }"
+    },
+    {
+      "name": "Key Cap",
+      "kind": "custom",
+      "refersTo": "key-cap",
+      "description": "A hotkey chip in cyan text on a faint cyan tint.",
+      "html": "<kbd class=\"ds-kbd\">Cmd</kbd> <kbd class=\"ds-kbd\">K</kbd>",
+      "css": ".ds-kbd { display: inline-block; padding: 3px 5px; border: 1px solid color-mix(in oklab, var(--color-cyan) 22%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--color-cyan) 6%, transparent); color: var(--color-cyan-fg); font-family: var(--font-mono); font-size: var(--text-label); line-height: var(--leading-compact); }"
+    },
+    {
+      "name": "Callout",
+      "kind": "card",
+      "refersTo": "callout-note",
+      "description": "A full 1px border in its hue at 30 percent and a tint at 8 percent, never a side stripe.",
+      "html": "<div class=\"ds-callout\"><strong class=\"ds-callout-title\">Handoff</strong><p class=\"ds-callout-body\">The builder picks this up after review.</p></div>",
+      "css": ".ds-callout { max-width: 320px; padding: 8px 12px; border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent); border-radius: var(--radius-md); background: color-mix(in oklab, var(--color-amber) 8%, transparent); } .ds-callout-title { display: block; color: var(--color-ink); font-family: var(--font-mono); font-size: var(--text-title); font-weight: 600; } .ds-callout-body { margin: 4px 0 0; color: var(--color-ink-2); font-family: var(--font-mono); font-size: var(--text-body); line-height: var(--leading-open); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Lamplit Control Room",
+    "overview": "Junto is a dark room lit by one warm lamp. The operator sits at a canvas of agent seats, task boards and regions, and the room stays quiet until something needs them. AGENTS.md says it plainly: \"The UI exists to show what needs the operator: the seat's state ring and halo, the inbox, notifications and sound cues.\" Everything else stays out, because every extra surface competes for attention. The lamp is amber, the home hue, and it is almost the only light in the room: about 95 percent of colored marks are amber, with sparse cyan for focus and keys, and crimson kept for blockers alone.\n\nThe voice is an instrument panel, not a dashboard. Type is monospace by default (the root font is `--font-mono`), small and dense: most of the app reads at 10, 11 and 12px, on 28px rows. A condensed display face stamps titles, the wordmark and the label node in uppercase with wide tracking. Strokes are hairlines of ink at low alpha, never greys. Depth in dark comes from small steps in surface lightness, not from shadows. The bright theme is a designed daylight edition on warm paper, never a mechanical inversion.\n\nThis system rejects: cards with action buttons on them, decorative motion, gradients and blur shadows on canvas nodes, color as the only carrier of state, generic robot glyphs where a seat's portrait belongs, and operator copy that explains mechanics (ports, grants, masks, wire families). Canvas nodes are not cards at all: a node is one chip with its contents hanging from a thin spine, and the ground shows through (`docs/node-card-language.md`).\n\nTokens have one source, `src/shared/theme/` (OKLCH primitives in `primitives.ts`, meaning per mode in `semantic.ts`), projected by `scripts/theme-build.ts` into `src/renderer/styles/theme.generated.css` with `bun run theme:build`. Runtime consumers (canvas paint, inline styles) read the same source through `src/renderer/lib/theme.ts` (`HUE`, `HUE_TEXT`, `INK`, `DIM`).",
+    "keyCharacteristics": [
+      "Warm near-black ground, never pure black; warm paper in bright, never pure white.",
+      "One home hue (amber), one focus hue (cyan), one alarm hue (crimson).",
+      "Monospace instrument type at a six-step scale from 10 to 24px.",
+      "Hairline ink strokes and ink-alpha overlays for every hover, tint and divider.",
+      "Flat surfaces; shadows only on floating frames above the canvas.",
+      "Status is a shape plus a word, never color alone.",
+      "Motion runs on the compositor and is never slowed to save frames."
+    ],
+    "rules": [
+      {
+        "name": "The Lamplight Rule",
+        "body": "About 95 percent of the colored marks on any screen are amber. Cyan is for focus and keys. Everything else is ink. If a screen has three hues competing, two of them are wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The Crimson Means Blocked Rule",
+        "body": "Crimson marks a blocker, a failure, a refusal or a destructive action. It is never a brand accent, a highlight or a decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mark and Word Rule",
+        "body": "A hue drawn as a mark (dot, glyph, ring, border) uses its base token; a hue drawn as text uses its `-fg` token (`amber-fg`, `cyan-fg`, `crimson-fg`, `label-<name>-fg`). The marks fall near 3 to 1 on paper; the words clear 4.5 to 1.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Source Rule",
+        "body": "Never hardcode a palette hex, rgba or OKLCH value in a component. Edit `src/shared/theme/`, run `bun run theme:build`, and consume the token (`lint:design-tokens` holds it). There is never a second palette.",
+        "section": "colors"
+      },
+      {
+        "name": "The Six Steps Rule",
+        "body": "New work uses exactly six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).",
+        "section": "typography"
+      },
+      {
+        "name": "The Instrument Type Rule",
+        "body": "Mono is the default voice. The display face is a stamp: uppercase, tracked, short. The prose face is for paragraphs a person wrote. Never set a control, a count or a node name in the prose face.",
+        "section": "typography"
+      },
+      {
+        "name": "The Attention Rule",
+        "body": "A surface exists only if it shows something that needs the operator. Seat internals (sessions, notes, transcripts, plumbing) never get a surface, because every extra surface competes for attention.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Canvas Rule",
+        "body": "Nothing on the canvas casts a blurred shadow. A node lifts 1px on hover with `transform`, and that is all the depth it gets.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Three Layers Rule",
+        "body": "Every overlay belongs to exactly one system: base (canvas, tabs, dock, bars), working (terminals, focus views, settings, dialogs from them) or operator (Cmd+K search, the Cmd+I needs-you feed, the agent switcher, above everything). A z-index of 100 or more is one of the `--layer-*` tokens (`lint:layers`), and an overlay renders through its layer's shell, never a hand-rolled portal or backdrop.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Whole Border Rule",
+        "body": "A border that carries state or a hue goes all the way round. State changes the whole border's color, the fill or the weight; it never paints one side. The only one-sided lines are neutral structure: layout dividers and the `stroke-hi` node spine, which never change color with state.",
+        "section": "shapes"
+      },
+      {
+        "name": "The House Focus Ring Rule",
+        "body": "Keyboard focus is one mark everywhere: 2px of full-strength `cyan`. Outside with a 2px offset where there is room (`FOCUS_OUTLINE` in `src/renderer/components/ui/focus.ts`), inset as a 2px shadow where a clipping parent would cut it (`FOCUS_RING_INSET`). Canvas nodes ring the head chip at a 3px offset in screen pixels at every zoom. Selection (the 1px amber ring) and focus (the cyan outline) are always distinct. Only `src/renderer/lib/focus-ownership.ts` moves focus.",
+        "section": "components"
+      },
+      {
+        "name": "The No One-Sided Edge Rule",
+        "body": "Never mark state with one colored edge: no colored left, right, top or bottom border, no stripe, no one-side inset shadow on a selected row, a card or a callout. Show state with a full border, a background tint, weight, or an icon. A selected row is an `overlay-2` tint, as in Cmd+K. A callout is a full 1px border in its hue at about 30 percent plus a tint at about 8 percent. Neutral hairline dividers and quote rules are structure, not state, and stay. A colored one-side line that is not state on a row, card or callout is kept by name: the text caret, a spinner arc, a link or mention underline, a tab indicator. `tests/one-sided-accent-border.test.ts` is the lock.",
+        "section": "dos-and-donts"
+      },
+      {
+        "name": "The Copy Law",
+        "body": "No middle dot (U+00B7) on any surface: product copy, UI strings, generated documents, artifacts. Separate with commas, em dashes or spaces. Derived wire sentences read as spoken compounds (\"access stops\", \"watch completes\").",
+        "section": "dos-and-donts"
+      },
+      {
+        "name": "The Motion Law",
+        "body": "Never slow, step, throttle or still a moving animation anyone can see to save frames, GPU or power. Motion runs on the compositor: seat rings turn and pulse every display frame with `transform` and `opacity` only, still parts baked once into the atlas (`src/renderer/lib/activity-atlas.ts`). Motion no one can see (hidden window, reduced motion, a ring under an opaque surface or off screen) may stop. Only the operator changes motion. `tests/motion-law.test.ts` is the lock.",
+        "section": "dos-and-donts"
+      }
+    ],
+    "dos": [
+      "Do show a selected row with the `overlay-2` tint and a hovered row with `overlay-1`.",
+      "Do build a callout as a full 1px border in its hue at 30 percent plus the same hue at 8 percent fill.",
+      "Do pair every status color with a shape and a word: triangle Blocked, filled circle Needs you, open arc Working, hollow circle Off.",
+      "Do use the six type steps (10, 11, 12, 14, 18, 24px) and the mono voice by default.",
+      "Do draw hues as text with their `-fg` token and as marks with their base token.",
+      "Do keep state transitions at 120 to 220ms on an exponential ease out (`cubic-bezier(0.22, 1, 0.36, 1)` is the house curve).",
+      "Do give every button at least a 24px hit height and every control the 2px cyan focus ring.",
+      "Do render overlays through their layer's shell (`FocusSurface`, `Dialog`, `Popover`, `Dropdown`, `OperatorModalShell`) and stack with `--layer-*` tokens.",
+      "Do draw a seat with its portrait wherever it is named.",
+      "Do design bright as its own daylight edition on warm paper, with its own values in `semantic.ts`."
+    ],
+    "donts": [
+      "Don't put a colored left, right, top or bottom border, a stripe, or a one-side inset shadow on a selected row, card, tab or callout.",
+      "Don't use a middle dot (U+00B7) anywhere, in copy, UI strings, docs or artifacts.",
+      "Don't slow, step, throttle or still visible motion, and don't animate a ring with anything but `transform` and `opacity`.",
+      "Don't use `micro` (8px) or `caption` (9px) in new work, and don't introduce a 13px or any raw pixel size.",
+      "Don't put action buttons (\"open\", \"stop\", \"detach\", form CTAs) on a canvas node.",
+      "Don't use crimson for anything but blockers, failures, refusals and destructive actions.",
+      "Don't let color alone carry status.",
+      "Don't use pure black or pure white for a surface, or a grey for a stroke; strokes are ink at alpha.",
+      "Don't hardcode a hex, rgba or OKLCH value in a component, or add a second palette.",
+      "Don't give a canvas node a blur shadow or a gradient.",
+      "Don't add a backdrop, a window Escape listener or a raw z-index of 100 or more to a surface.",
+      "Don't use a native select, JSX `autoFocus`, or a generic robot glyph for a seat.",
+      "Don't explain mechanics in operator copy: no ports, grants, masks, compiles or wire families. Say what the operator can do, or say nothing.",
+      "Don't put two primary amber buttons on one surface."
+    ]
+  }
+}
