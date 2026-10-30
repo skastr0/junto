@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FilesChanged, FilesNodeRef, FilesResult } from "../src/shared/files";
 import { asNodeId } from "../src/shared/physics/schema";
 import { makeFilesRouter, type FilesRemotePort } from "../src/main/junto/files/router";
@@ -12,7 +12,7 @@ const hosts: Record<string, string> = { [here.node]: HERE, [away.node]: "mini" }
 const counted = (files: number): FilesResult<{ files: number; capped: boolean }> => ({ ok: true, value: { files, capped: false } });
 
 /** A local service and a link client that record what they were asked. */
-const stage = (options: { enabled?: boolean; linked?: boolean } = {}) => {
+const stage = (options: { enabled?: boolean; linked?: boolean; closeAnswer?: () => Promise<FilesResult<null>> } = {}) => {
   const calls: string[] = [];
   const sent: Array<{ subscriber: number; event: FilesChanged }> = [];
   let listener: ((change: { machine: string; change: FilesChanged }) => void) | undefined;
@@ -25,7 +25,7 @@ const stage = (options: { enabled?: boolean; linked?: boolean } = {}) => {
   } as unknown as FilesService;
   const remote = {
     open: async (machine: string) => (calls.push(`remote open ${machine}`), { ok: true, value: { name: "away", repo: false } }),
-    close: async (machine: string) => (calls.push(`remote close ${machine}`), { ok: true, value: null }),
+    close: async (machine: string) => (calls.push(`remote close ${machine}`), options.closeAnswer ? options.closeAnswer() : { ok: true, value: null }),
     count: async (machine: string) => (calls.push(`remote count ${machine}`), { ok: false, error: "unreachable", machine, lastReachedAt: 7 }),
     read: async (machine: string) => (calls.push(`remote read ${machine}`), { ok: false, error: "denied" }),
     onChange: (next: typeof listener) => {
@@ -41,7 +41,7 @@ const stage = (options: { enabled?: boolean; linked?: boolean } = {}) => {
     send: (subscriber, event) => void sent.push({ subscriber, event }),
     enabled: options.enabled ?? true,
   });
-  const emit = (change: FilesChanged): void => listener?.({ machine: "mini", change });
+  const emit = (change: FilesChanged, machine = "mini"): void => listener?.({ machine, change });
   return { router, calls, sent, emit };
 };
 
@@ -88,6 +88,39 @@ describe("the Files router", () => {
     emit({ node: away.node, kind: "closed", error: "no-node" });
     emit({ node: away.node, kind: "back" });
     expect(sent.map((each) => each.event.kind)).toEqual(["closed", "back", "closed"]);
+  });
+
+  it("opens a node re-pointed to another machine on that machine, never joining the old one's session", async () => {
+    const { router, calls, sent, emit } = stage();
+    await router.open(1, away);
+    hosts[away.node] = "vps";
+    try {
+      await router.open(2, away);
+      emit({ node: away.node, kind: "reset" }, "vps");
+      expect(sent.map((each) => each.subscriber)).toEqual([2]);
+      emit({ node: away.node, kind: "reset" }, "mini");
+      expect(sent.map((each) => each.subscriber)).toEqual([2, 1]);
+      await router.close(2, away);
+      await router.close(1, away);
+      await vi.waitFor(() => expect(calls.filter((call) => call.startsWith("remote close"))).toEqual(["remote close vps", "remote close mini"]));
+    } finally {
+      hosts[away.node] = "mini";
+    }
+  });
+
+  it("keeps a node until its machine answers the close, and logs a close the link refused", async () => {
+    let answer: (result: FilesResult<null>) => void = () => undefined;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { router, sent, emit } = stage({ closeAnswer: () => new Promise((resolve) => (answer = resolve)) });
+    await router.open(1, away);
+    await router.close(1, away);
+    // Closing there: a window opening it now starts afresh rather than joining the one going away.
+    await router.open(2, away);
+    answer({ ok: false, error: "unreachable", machine: "mini", lastReachedAt: null });
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith("[files] closing a node on another machine was refused", { machine: "mini", error: "unreachable" }));
+    emit({ node: away.node, kind: "reset" });
+    expect(sent.map((each) => each.subscriber)).toEqual([2]);
+    errors.mockRestore();
   });
 
   it("closes a local session locally", async () => {

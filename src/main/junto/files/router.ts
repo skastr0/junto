@@ -37,7 +37,9 @@ export type FilesRouterDeps = {
 /** A node on another machine that windows here have open, and which windows. */
 type RemoteSession = { readonly machine: string; readonly ref: FilesNodeRef; readonly subscribers: Set<number> };
 
-const keyOf = (ref: FilesNodeRef): string => `${ref.canvas}\u0000${ref.node}`;
+/** A session is the node on one machine: a node whose host is re-pointed opens a new one. */
+const keyOf = (ref: FilesNodeRef, machine: string): string => `${ref.canvas}\u0000${ref.node}\u0000${machine}`;
+const sameRef = (a: FilesNodeRef, b: FilesNodeRef): boolean => a.canvas === b.canvas && a.node === b.node;
 
 export const makeFilesRouter = (deps: FilesRouterDeps) => {
   const enabled = deps.enabled ?? FILES_REMOTE_ENABLED;
@@ -69,13 +71,32 @@ export const makeFilesRouter = (deps: FilesRouterDeps) => {
     return { remote, machine: facts.host };
   };
 
+  /**
+   * A window leaves a node. The last one closes it on its machine; the session
+   * is kept until that close answers, so a close the link refused is logged,
+   * not forgotten. A window opening the node meanwhile starts a new session.
+   */
   const leave = (key: string, subscriber: number): void => {
     const session = sessions.get(key);
     if (session === undefined || !session.subscribers.delete(subscriber) || session.subscribers.size > 0) return;
-    sessions.delete(key);
     const remote = deps.remote();
-    if (remote !== undefined) void remote.close(session.machine, session.ref);
+    if (remote === undefined) {
+      sessions.delete(key);
+      return;
+    }
+    void remote.close(session.machine, session.ref).then(
+      (result) => {
+        if (!result.ok) console.error("[files] closing a node on another machine was refused", { machine: session.machine, error: result.error });
+      },
+      (cause: unknown) => console.error("[files] closing a node on another machine failed", { machine: session.machine }, cause),
+    ).finally(() => {
+      if (sessions.get(key) === session) sessions.delete(key);
+    });
   };
+
+  /** The sessions a window holds for this node, on whichever machine. */
+  const keysFor = (subscriber: number, ref: FilesNodeRef): ReadonlyArray<string> =>
+    [...sessions].flatMap(([key, session]) => (sameRef(session.ref, ref) && session.subscribers.has(subscriber) ? [key] : []));
 
   /** Route a call that names only the node. */
   const routed = async <A>(
@@ -93,17 +114,19 @@ export const makeFilesRouter = (deps: FilesRouterDeps) => {
       if (away === undefined) return deps.local.open(subscriber, ref);
       const result = await away.remote.open(away.machine, ref);
       if (result.ok) {
-        const key = keyOf(ref);
-        const session = sessions.get(key) ?? { machine: away.machine, ref, subscribers: new Set<number>() };
+        const key = keyOf(ref, away.machine);
+        const held = sessions.get(key);
+        // One whose last window left and is closing there is not joined: this open starts afresh.
+        const session = held !== undefined && held.subscribers.size > 0 ? held : { machine: away.machine, ref, subscribers: new Set<number>() };
         session.subscribers.add(subscriber);
         sessions.set(key, session);
       }
       return result;
     },
     close: async (subscriber: number, ref: FilesNodeRef): Promise<FilesResult<null>> => {
-      const key = keyOf(ref);
-      if (!sessions.has(key)) return deps.local.close(subscriber, ref);
-      leave(key, subscriber);
+      const keys = keysFor(subscriber, ref);
+      if (keys.length === 0) return deps.local.close(subscriber, ref);
+      for (const key of keys) leave(key, subscriber);
       return { ok: true, value: null };
     },
     /** A window went away: its local sessions, and the remote nodes only it had open. */
