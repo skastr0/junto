@@ -103,6 +103,41 @@ struct Cli {
     root: Root,
 }
 
+/// The deepest subcommand the words name.
+fn named<'a>(root: &'a clap::Command, words: &[&str]) -> &'a clap::Command {
+    let mut command = root;
+    for word in words.iter().filter(|w| !w.starts_with('-')) {
+        match command.find_subcommand(word) {
+            Some(sub) => command = sub,
+            None => break,
+        }
+    }
+    command
+}
+
+/// Whether the flag `--name` of the command the words name takes an integer,
+/// which Effect names "integer" where any other value is a "string".
+fn integer_flag(words: &[&str], name: &str) -> bool {
+    use clap::CommandFactory;
+    use std::any::TypeId;
+    let root = Cli::command();
+    named(&root, words)
+        .get_arguments()
+        .find(|arg| arg.get_long() == Some(name))
+        .is_some_and(|arg| {
+            let id = arg.get_value_parser().type_id();
+            [
+                TypeId::of::<i64>(),
+                TypeId::of::<u64>(),
+                TypeId::of::<u32>(),
+                TypeId::of::<usize>(),
+                TypeId::of::<std::num::NonZeroU64>(),
+            ]
+            .into_iter()
+            .any(|integer| id == integer)
+        })
+}
+
 const TRUE: [&str; 5] = ["true", "yes", "on", "1", "y"];
 const FALSE: [&str; 5] = ["false", "no", "off", "0", "n"];
 
@@ -112,13 +147,7 @@ const FALSE: [&str; 5] = ["false", "no", "off", "0", "n"];
 fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> {
     use clap::{ArgAction, CommandFactory};
     let root = Cli::command();
-    let mut command = &root;
-    for word in words.iter().filter(|w| !w.starts_with('-')) {
-        match command.find_subcommand(word) {
-            Some(sub) => command = sub,
-            None => break,
-        }
-    }
+    let command = named(&root, words);
     let flags: Vec<&str> = command
         .get_arguments()
         .filter(|arg| matches!(arg.get_action(), ArgAction::SetTrue))
@@ -130,8 +159,13 @@ fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> 
         } else {
             format!("Expected: {expected}")
         };
+        let message = if value.is_empty() {
+            format!("Missing value for flag --{name}. {said}")
+        } else {
+            format!("Invalid value for flag --{name}: \"{value}\". {said}")
+        };
         (
-            format!("Invalid value for flag --{name}: \"{value}\". {said}"),
+            message,
             json!({ "_tag": "InvalidValue", "option": name, "value": value,
                     "expected": expected, "kind": "flag" }),
         )
@@ -167,7 +201,10 @@ fn booleans(words: &[&str]) -> Result<Vec<String>, (String, serde_json::Value)> 
             read.push(word.into());
             continue;
         }
-        let value = inline.or_else(|| rest.next_if(|next| literal(next)));
+        // `--x=` with nothing after it is the bare flag, as Effect reads it.
+        let value = inline
+            .filter(|v| !v.is_empty())
+            .or_else(|| rest.next_if(|next| literal(next)));
         let on = match value {
             None => true,
             Some(v) if TRUE.contains(&v) => true,
@@ -240,9 +277,10 @@ fn usage(error: &clap::Error, words: &[&str]) -> ExitCode {
             )
         }
         ErrorKind::InvalidValue if value.is_empty() => {
-            // A flag with choices names them; any other takes a string.
+            // A flag with choices names them; any other names its type.
             let expected = match error.get(ContextKind::ValidValue) {
-                Some(ContextValue::Strings(valid)) => valid.join(" | "),
+                Some(ContextValue::Strings(valid)) if !valid.is_empty() => valid.join(" | "),
+                _ if integer_flag(words, flag.trim_start_matches('-')) => "integer".into(),
                 _ => "string".into(),
             };
             (
@@ -267,7 +305,13 @@ fn usage(error: &clap::Error, words: &[&str]) -> ExitCode {
             )
         }
         ErrorKind::ValueValidation => {
-            let expected = "Expected a string representing a finite number";
+            // A number that is not whole, for an integer flag, is named as such.
+            let fractional = value.parse::<f64>().is_ok_and(f64::is_finite);
+            let expected = if fractional && integer_flag(words, flag.trim_start_matches('-')) {
+                "Expected an integer"
+            } else {
+                "Expected a string representing a finite number"
+            };
             (
                 format!("Invalid value for flag {flag}: \"{value}\". {expected}"),
                 json!({ "_tag": "InvalidValue", "option": flag.trim_start_matches('-'),
