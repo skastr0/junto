@@ -1,4 +1,4 @@
-import { utilityProcess, type UtilityProcess } from "electron";
+import { utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
 import terminalEntryPath from "./entry?modulePath";
 import type { CoreMessage } from "../core-process/port";
 import { terminalClient, type TerminalClient } from "./client";
@@ -42,6 +42,10 @@ export const startTerminalProcess = (): TerminalClient & { readonly stop: () => 
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
+  }, (message, surface) => {
+    // Behind every spawn on the same port, so it reaches a PTY that exists.
+    if (stopping || child === undefined) return (surface as MessagePortMain).close();
+    child.postMessage(message, [surface as MessagePortMain]);
   });
 
   return {

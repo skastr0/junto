@@ -19,7 +19,8 @@ import { termPlane, type TermProductAutomationSuspension } from "./plane";
 
 type Options = {
   readonly wakeSeat: NonNullable<MessageDeliveryTransport["wakeSeat"]>;
-  readonly host?: Pick<LocalSessionHost, "get" | "writeManagedSeat" | "setInputSealed" | "subscribeEvents">;
+  readonly host?: Pick<LocalSessionHost, "get" | "writeManagedSeat" | "setInputSealed" | "subscribeEvents">
+    & Partial<Pick<LocalSessionHost, "inputSealChanged">>;
   readonly state?: SeatStateRuntime;
   readonly observer?: Pick<TerminalObserverPlane, "snapshot" | "subscribeGlobal">;
   readonly supervisor?: InjectionSupervisor;
@@ -78,6 +79,9 @@ export const createCoreMailTransport = (options: Options) => {
     return live !== undefined && live.status !== "exited" && live.status !== "missing" ? live.epoch : undefined;
   });
   host.setInputSealed((bindingId) => suspended || fence.sealed(bindingId));
+  // The seal turns: the terminal process's surface gate turns with it.
+  const sealTurned = (bindingId: string) => host.inputSealChanged?.(bindingId);
+  const sealWatch = [fence.subscribeSealed(sealTurned), fence.subscribeLifted(sealTurned)];
   state.start();
   const drive = createManagedTerminalDrive({
     write: fencedWriter(fence, (bindingId, data) => !suspended && host.writeManagedSeat(bindingId, data), false),
@@ -164,6 +168,8 @@ export const createCoreMailTransport = (options: Options) => {
   const suspend = (): void => {
     if (suspended) return;
     suspended = true;
+    host.inputSealChanged?.();
+    for (const stop of sealWatch) stop();
     drive.suspend();
     delivery.suspend();
     readiness.clear();

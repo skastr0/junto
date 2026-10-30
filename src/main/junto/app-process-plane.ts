@@ -150,7 +150,20 @@ export interface AppTerminalIo {
   readonly onData: (listener: (data: string) => void) => () => void;
   readonly onExit: (listener: (event: AppTerminalExit) => void) => () => void;
   readonly onError: (listener: (error: Error) => void) => () => void;
+  /** Present when the PTY runs in the terminal process: a renderer can reach it directly. */
+  readonly surface?: AppTerminalSurface;
 }
+
+/**
+ * The renderer's direct line to a PTY in the terminal process (phase 3).
+ * Whoever holds the gates says, in the same step as every change, which one
+ * control lease may type and whether a managed span holds keys; the terminal
+ * process checks each key against that and nothing else.
+ */
+export type AppTerminalSurface = Pick<
+  RemoteTerminal,
+  "gate" | "hold" | "openSurface" | "endSurface" | "lastSeq" | "onTyping" | "onInput"
+>;
 
 export class TerminalBackendUnavailableError extends Error {
   readonly code = "terminal_pty_unavailable" as const;
@@ -357,6 +370,7 @@ interface TerminalBackend {
   readonly kind: "pty";
   readonly pid: number | undefined;
   readonly pidReady?: Promise<number | undefined>;
+  readonly surface?: AppTerminalSurface;
   readonly signalSink: SignalChildHandle;
   readonly write: (data: string) => void;
   readonly resize: ((cols: number, rows: number) => void) | undefined;
@@ -490,6 +504,15 @@ const makeRemotePtyBackend = (remote: RemoteTerminal): TerminalBackend => Object
   kind: "pty" as const,
   pid: undefined,
   pidReady: remote.pid.catch(() => undefined),
+  surface: Object.freeze({
+    gate: remote.gate,
+    hold: remote.hold,
+    openSurface: remote.openSurface,
+    endSurface: remote.endSurface,
+    lastSeq: remote.lastSeq,
+    onTyping: remote.onTyping,
+    onInput: remote.onInput,
+  }),
   signalSink: Object.freeze({ kill: (signal?: NodeJS.Signals) => remote.kill(signal) }),
   write: (data: string) => remote.write(data),
   resize: (cols: number, rows: number) => remote.resize(cols, rows),
@@ -1041,6 +1064,7 @@ export const createAppProcessPlane = (
     const io: AppTerminalIo = Object.freeze({
       pidForDiagnostics: record.pidForDiagnostics,
       ...(backend.pidReady === undefined ? {} : { pidReady: backend.pidReady }),
+      ...(backend.surface === undefined ? {} : { surface: backend.surface }),
       exited,
       write,
       resize,

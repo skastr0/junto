@@ -59,7 +59,7 @@ const setup = (spawnPty: SpawnPty = realPty) => {
 };
 
 /** The renderer's end: everything the surface was sent, and a way to type. */
-const surface = (served: ReturnType<typeof setup>["served"], id: number, leaseId: string, fromSeq = 1, epoch = 1) => {
+const surface = (served: ReturnType<typeof setup>["served"], id: number, leaseId: string, fromSeq = 1, epoch = "1") => {
   const { port1, port2 } = new MessageChannel();
   opened.push(port1, port2);
   const far: SurfacePort = {
@@ -80,7 +80,7 @@ const surface = (served: ReturnType<typeof setup>["served"], id: number, leaseId
   };
 };
 
-const lease1 = { leaseId: "lease-1", epoch: 1 };
+const lease1 = { leaseId: "lease-1", epoch: "1" };
 
 const env = { PATH: process.env.PATH, TERM: "xterm-256color" };
 const cat = (client: ReturnType<typeof setup>["client"]) => client.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24, env });
@@ -179,7 +179,7 @@ describe("surface ports in the terminal process", () => {
     await pty.pid;
     pty.gate(lease1);
     await settle();
-    const stale = surface(served, pty.id, "lease-1", 1, 0);
+    const stale = surface(served, pty.id, "lease-1", 1, "0");
     stale.type("stale\r");
     await settle();
     expect(inputs).toEqual([]);
@@ -198,7 +198,7 @@ describe("surface ports in the terminal process", () => {
     lead.type("from the old lease\r");
     await until(() => typing.length === 1);
     // Taken over while the span held the key.
-    pty.gate({ leaseId: "lease-2", epoch: 1 });
+    pty.gate({ leaseId: "lease-2", epoch: "1" });
     pty.hold(false);
     await settle();
     next.type("from the new lease\r");

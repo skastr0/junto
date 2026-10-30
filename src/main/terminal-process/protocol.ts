@@ -72,7 +72,7 @@ export const TerminalSurface = {
 } as const;
 
 /** A control lease as the gate names it: the lease and the generation it controls. */
-export type SurfaceLease = { readonly leaseId: string; readonly epoch: number };
+export type SurfaceLease = { readonly leaseId: string; readonly epoch: string };
 
 export type TerminalSurfaceOpen = SurfaceLease & { readonly id: number; readonly fromSeq: number };
 export type TerminalSurfaceClose = { readonly id: number; readonly leaseId: string };

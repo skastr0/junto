@@ -81,6 +81,7 @@ export class OperatorInterlock {
   private readonly inputVersions = new Map<string, number>();
   private readonly resizeUntil = new Map<string, number>();
   private readonly holds = new Map<string, HoldState>();
+  private readonly holdingListeners = new Set<(bindingId: string) => void>();
   private readonly quietWaiters = new Map<
     string,
     Array<() => void>
@@ -186,6 +187,29 @@ export class OperatorInterlock {
   }
 
   /**
+   * Told, synchronously, each time `holding` turns for a binding: before the
+   * span's first drive write and before a release replays. The terminal
+   * process holds a surface's keys from this (phase 3), on the same port as
+   * the drive's writes, so the order holds there too.
+   */
+  subscribeHolding(listener: (bindingId: string) => void): () => void {
+    this.holdingListeners.add(listener);
+    return () => {
+      this.holdingListeners.delete(listener);
+    };
+  }
+
+  private holdingTurned(bindingId: string): void {
+    for (const listener of [...this.holdingListeners]) {
+      try {
+        listener(bindingId);
+      } catch (error) {
+        console.error("[operator-interlock] holding listener failed:", error);
+      }
+    }
+  }
+
+  /**
    * Called from the operator write path. Returns true when a submission span
    * is in-flight and the write was parked for ordered replay on hold end.
    * Every callback remains intact, so the host re-validates the original
@@ -212,6 +236,7 @@ export class OperatorInterlock {
     } else {
       hold = { depth: 1, held: [] };
       this.holds.set(bindingId, hold);
+      this.holdingTurned(bindingId);
     }
     let released = false;
     return () => {
@@ -239,6 +264,7 @@ export class OperatorInterlock {
     hold.depth -= 1;
     if (hold.depth > 0) return;
     this.holds.delete(bindingId);
+    this.holdingTurned(bindingId);
     replayHeldWrites(hold.held);
     discardHeldWrites(hold);
   }
@@ -261,6 +287,7 @@ export class OperatorInterlock {
     if (hold !== undefined) discardHeldWrites(hold);
     this.holds.delete(bindingId);
     this.quietWaiters.delete(bindingId);
+    if (hold !== undefined) this.holdingTurned(bindingId);
   }
 
   /** Process-level cut (drive suspend): every binding's latches and holds. */
@@ -269,8 +296,10 @@ export class OperatorInterlock {
     this.inputVersions.clear();
     this.resizeUntil.clear();
     for (const hold of this.holds.values()) discardHeldWrites(hold);
+    const held = [...this.holds.keys()];
     this.holds.clear();
     this.quietWaiters.clear();
+    for (const bindingId of held) this.holdingTurned(bindingId);
   }
 }
 

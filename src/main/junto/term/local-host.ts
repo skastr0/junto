@@ -350,6 +350,14 @@ type SessionRec = {
   journal: JournalEntry[];
   journalBytes: number;
   controlLeaseId: string | undefined;
+  /**
+   * Phase 3, a PTY in the terminal process: what its surface gate and hold
+   * were last told ("" is closed), and where the control lease's surface
+   * starts reading, taken at the attach that minted it.
+   */
+  surfaceGate?: string;
+  surfaceHeld?: boolean;
+  surfaceCursor?: { readonly leaseId: string; readonly fromSeq: number };
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
   killReceipt: AppProcessSignalReceipt | undefined;
@@ -1011,6 +1019,10 @@ export class LocalSessionHost extends EventEmitter {
       (processAuthority === appProcessPlane
         ? seatOperatorInterlock
         : new OperatorInterlock());
+    this.operatorInterlock.subscribeHolding((bindingId) => {
+      const rec = this.sessions.get(bindingId);
+      if (rec !== undefined) this.syncSurface(rec);
+    });
   }
 
   /** Open a geography terminal. A shell — it can hold no harness. */
@@ -1452,6 +1464,12 @@ export class LocalSessionHost extends EventEmitter {
         if (rec.pid === undefined && rec.lease === lease) rec.pid = pid;
       });
       rec.phase = SessionPhase.Live({ surface: "native" });
+      // A key from a surface is operator presence on arrival, refused or
+      // held ones included, exactly as `write` stamps it.
+      lease.io.surface?.onTyping(({ data }) => {
+        if (isOperatorTyping(data)) this.operatorInterlock.noteInput(rec.bindingId);
+      });
+      this.syncSurface(rec);
       // Retain the central plane's exact native-PTY exit witness before any
       // fallible presentation setup. Rejection is diagnostic only: authority
       // stays registered centrally and this generation remains a straggler.
@@ -1720,6 +1738,10 @@ export class LocalSessionHost extends EventEmitter {
       // every path — give its retention back here or the refcount never drains.
       if (rec.controlLeaseId) this.releaseSurfaceLease(rec.controlLeaseId);
       rec.controlLeaseId = mintLease();
+      const surface = rec.lease?.io.surface;
+      if (surface === undefined) rec.surfaceCursor = undefined;
+      else rec.surfaceCursor = { leaseId: rec.controlLeaseId, fromSeq: surface.lastSeq() + 1 };
+      this.syncSurface(rec);
       // A surface is now painting this session: retain the full scrollback for
       // as long as the lease lives. `screen` above was already serialized from
       // the bounded window, so this only changes what accrues from here on.
@@ -1786,7 +1808,70 @@ export class LocalSessionHost extends EventEmitter {
     if (!rec) return;
     if (lease.mode === "control" && rec.controlLeaseId === lease.leaseId) {
       rec.controlLeaseId = undefined;
+      this.syncSurface(rec);
     }
+    if (lease.mode === "control") rec.lease?.io.surface?.endSurface(lease.leaseId);
+  }
+
+  /**
+   * Phase 3: hand the renderer's port for this control lease to the terminal
+   * process. It reads from the seq the attach that minted the lease saw, so
+   * it neither misses nor repeats what that attach's screen held. False, and
+   * the port is closed, when the lease does not control a PTY there.
+   */
+  openSurface(lease: ControlLease, port: { readonly close: () => void }): boolean {
+    const rec = this.sessions.get(lease.bindingId);
+    const surface = rec?.lease?.io.surface;
+    const cursor = rec?.surfaceCursor;
+    if (
+      rec === undefined || surface === undefined || cursor === undefined ||
+      lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId ||
+      lease.epoch !== rec.epoch || cursor.leaseId !== lease.leaseId
+    ) {
+      port.close();
+      return false;
+    }
+    surface.openSurface({ leaseId: lease.leaseId, epoch: lease.epoch }, cursor.fromSeq, port);
+    return true;
+  }
+
+  /**
+   * Phase 3: tell the terminal process what `write` would decide for a
+   * surface key now: the one control lease that may type, or none, and
+   * whether a managed span holds keys. Called in the same step as every
+   * change to the control lease, the phase, a stop, a drain and the input
+   * seal, so it never keeps an old controller past the change.
+   */
+  private syncSurface(rec: SessionRec): void {
+    const surface = rec.lease?.io.surface;
+    if (surface === undefined) return;
+    const writable =
+      !rec.killed &&
+      rec.draining === undefined &&
+      this.sessions.get(rec.bindingId) === rec &&
+      sessionPhaseAllowsWrite(rec.phase) &&
+      this.inputSealed?.(rec.bindingId) !== true &&
+      rec.controlLeaseId !== undefined;
+    const gate = writable ? `${rec.controlLeaseId}\u0000${rec.epoch}` : "";
+    if ((rec.surfaceGate ?? "") !== gate) {
+      rec.surfaceGate = gate;
+      surface.gate(writable ? { leaseId: rec.controlLeaseId!, epoch: rec.epoch } : null);
+    }
+    const held = this.operatorInterlock.holding(rec.bindingId);
+    if ((rec.surfaceHeld ?? false) !== held) {
+      rec.surfaceHeld = held;
+      surface.hold(held);
+    }
+  }
+
+  /** The input seal may have turned for this binding, or for every binding. */
+  inputSealChanged(bindingId?: string): void {
+    if (bindingId === undefined) {
+      for (const rec of this.sessions.values()) this.syncSurface(rec);
+      return;
+    }
+    const rec = this.sessions.get(bindingId);
+    if (rec !== undefined) this.syncSurface(rec);
   }
 
   write(lease: ControlLease, data: string): boolean {
@@ -1893,6 +1978,7 @@ export class LocalSessionHost extends EventEmitter {
       // alone it would sit Broken, occupying its seat, for as long as no exit
       // witness arrives, which for a dead pipe can be forever.
       rec.phase = SessionPhase.Broken({ surface: "native", reason: "pipe" });
+      this.syncSurface(rec);
       queueMicrotask(() => {
         if (this.liveRecords.has(rec) && !rec.killed) {
           this.requestStop(rec, "pty_write_failed");
@@ -2113,6 +2199,7 @@ export class LocalSessionHost extends EventEmitter {
     if (!alreadyKilled) rec.stopCause = this.stopCauseOf(rec, reason);
     rec.killed = true;
     rec.controlLeaseId = undefined;
+    this.syncSurface(rec);
     // Identity revocation is synchronous and exact. Neither daemon shutdown nor
     // terminal TERM may begin while a dying generation still wields the seat.
     this.revokeProcessIdentities(rec);
@@ -2167,6 +2254,7 @@ export class LocalSessionHost extends EventEmitter {
       }
       this.releaseDrainSurfaces(rec, key);
       rec.phase = SessionPhase.Closed({ surface: "native", reason: "stop_unconfirmed" });
+      this.syncSurface(rec);
       console.error(
         `[term] stop unconfirmed for detached session ${key}` +
           `${rec.pid === undefined ? "" : ` pid=${rec.pid}`} (${cause}): process still tracked`,
@@ -2183,6 +2271,7 @@ export class LocalSessionHost extends EventEmitter {
     }
     this.releaseSeatSurfaces(rec);
     rec.phase = SessionPhase.Closed({ surface: "native", reason: "stop_unconfirmed" });
+    this.syncSurface(rec);
     const process = rec.pid === undefined ? "its process" : `its process (pid ${rec.pid})`;
     rec.exitMessage =
       `Junto told this session to stop and then killed it, but ${process} never reported exiting. ` +
@@ -2240,6 +2329,7 @@ export class LocalSessionHost extends EventEmitter {
    */
   setInputSealed(sealed: ((bindingId: string) => boolean) | undefined): void {
     this.inputSealed = sealed;
+    this.inputSealChanged();
   }
 
   /**
@@ -2272,6 +2362,7 @@ export class LocalSessionHost extends EventEmitter {
     // no longer leads here.
     rec.controlLeaseId = undefined;
     this.sessions.delete(rec.bindingId);
+    this.syncSurface(rec);
     // Its seat identity goes, remembered as offboarded: a junto call from it
     // is refused in plain words and can never act as the seat.
     this.offboardProcessIdentities(rec);
@@ -2833,6 +2924,7 @@ export class LocalSessionHost extends EventEmitter {
         surface: "native",
         reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
       });
+      this.syncSurface(rec);
       rec.lease = undefined;
       rec.exitWitness = undefined;
       if (rec.unconfirmedStop === undefined) this.tellDrainEnded(key, code);
@@ -2857,6 +2949,7 @@ export class LocalSessionHost extends EventEmitter {
       surface: "native",
       reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
     });
+    this.syncSurface(rec);
     rec.lease = undefined;
     rec.exitWitness = undefined;
     // An agent seat says how its process ended, in plain words: stopped and
@@ -3026,6 +3119,7 @@ export class LocalSessionHost extends EventEmitter {
     // this returns. The binding's next generation releases them.
     this.removeLiveRecord(rec);
     rec.phase = SessionPhase.Closed({ surface: "native", reason: "spawn_failed" });
+    this.syncSurface(rec);
     const classified = classifySpawnFailure(error, rec.harness);
     rec.exitReason = classified.reason;
     rec.exitMessage = classified.message;
@@ -3074,6 +3168,7 @@ export class LocalSessionHost extends EventEmitter {
     if (!this.liveRecords.has(rec)) return;
     if (sessionPhaseAllowsWrite(rec.phase)) {
       rec.phase = SessionPhase.Broken({ surface: "native", reason: "io" });
+      this.syncSurface(rec);
     }
     console.error(
       `[term] terminal process error for ${rec.bindingId}@${rec.epoch}; awaiting exact exit witness:`,

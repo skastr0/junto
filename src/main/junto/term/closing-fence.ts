@@ -28,6 +28,7 @@ export class ClosingFence {
   private readonly seals = new Map<string, Seal>();
   private liveGeneration: LiveGeneration | undefined;
   private readonly lifted = new Set<(bindingId: string) => void>();
+  private readonly sealedListeners = new Set<(bindingId: string) => void>();
 
   /** How the fence learns which generation a binding is running now. */
   setLiveGeneration(lookup: LiveGeneration): void {
@@ -42,10 +43,29 @@ export class ClosingFence {
     };
   }
 
+  /**
+   * Told, synchronously, when a seat is sealed: whatever takes keys without
+   * asking the fence each time (the terminal process's surface gate) closes
+   * in the same step.
+   */
+  subscribeSealed(listener: (bindingId: string) => void): () => void {
+    this.sealedListeners.add(listener);
+    return () => {
+      this.sealedListeners.delete(listener);
+    };
+  }
+
   /** The seat's `junto offboard` was accepted: keep everything out of this session. */
   seal(bindingId: string | undefined): void {
     if (!bindingId) return;
     this.seals.set(bindingId, { epoch: this.liveGeneration?.(bindingId) });
+    for (const listener of [...this.sealedListeners]) {
+      try {
+        listener(bindingId);
+      } catch (error) {
+        console.error("[closing-fence] listener failed:", error);
+      }
+    }
   }
 
   /** Nothing may be typed into this seat right now. */
