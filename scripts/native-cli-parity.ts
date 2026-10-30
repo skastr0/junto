@@ -15,7 +15,7 @@
  * Without --bin it builds the crate first. Exits 1 on any difference.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -137,11 +137,24 @@ const exampleCases: ReadonlyArray<Case> = allExamples.flatMap((example) =>
         answer: staged,
       }]);
 
-const cases = [...handCases, ...exampleCases].filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
+// --cases <file>: argv arrays to run instead, such as calls agents made, each
+// answered as delivered.
+const casesFlag = process.argv.indexOf("--cases");
+const given: ReadonlyArray<Case> | undefined =
+  casesFlag < 0
+    ? undefined
+    : (JSON.parse(readFileSync(process.argv[casesFlag + 1]!, "utf8")) as string[][]).map((argv) => ({
+        name: `given ${JSON.stringify(argv).slice(0, 160)}`,
+        argv,
+        answer: staged,
+      }));
+
+const cases = (given ?? [...handCases, ...exampleCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
 
 // --list prints each case's name and argv, for coverage reports, and runs none.
 if (process.argv.includes("--list")) {
-  process.stdout.write(`${JSON.stringify(cases.map(({ name, argv }) => ({ name, argv })))}\n`);
+  // Written whole before exit: a pipe would lose the tail of an async write.
+  writeSync(1, `${JSON.stringify(cases.map(({ name, argv }) => ({ name, argv })))}\n`);
   server.close();
   rmSync(home, { recursive: true, force: true });
   process.exit(0);
