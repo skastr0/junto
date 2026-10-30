@@ -81,8 +81,14 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
       await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first().click({ timeout: 20_000 });
       const title = page.getByTestId("task-detail").locator("header input").first();
       await title.click();
+      const logs: string[] = [];
+      page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") logs.push(m.text().slice(0, 300)); });
       await title.fill("x".repeat(240));
       await title.press("Enter");
+      await page.getByTestId("task-detail").locator(".task-facts").click().catch(() => undefined);
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: join(SHOTS, "1x-after-long-title.png") });
+      read["1-after-long-title"] = { title: await title.inputValue(), logs };
       const error = page.locator(".task-error").first();
       await expect(error).toBeVisible({ timeout: 10_000 });
       read["1-task-error-text"] = await error.innerText();
@@ -139,7 +145,7 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
       await expect(composer).toBeVisible({ timeout: 10_000 });
       await composer.click();
       await composer.fill("This line reads the old row label.");
-      await composer.press("Enter");
+      await composer.press("Meta+Enter");
       const row = modal.getByTestId("file-comment-row").first();
       await expect(row).toBeVisible({ timeout: 15_000 });
       await row.hover();
