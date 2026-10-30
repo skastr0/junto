@@ -33,6 +33,12 @@ import type { OverseerPages } from "./overseer/pages";
 import type { PreambleEvent } from "@shared/preamble";
 import { OPERATOR_COMPANION_OPS, OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope, type OperatorResponseEnvelope } from "@shared/operator-control";
 import { AuthorityOwnerControl } from "./hosts/authority-owner";
+import type { AgentSignal } from "@shared/agent-signals";
+import type { CompanionDeviceRecord } from "@shared/companion-devices";
+import type { CompanionEnvironment } from "./companion/environment";
+import { makeCompanionService, setCompanionService, type CompanionService } from "./companion/service";
+import { bindCompanionHost } from "./companion/runtime";
+import { companionNotePreamble, wireCompanionChanges } from "./companion/wiring";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
@@ -55,6 +61,18 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready"> & {
     readonly commands: boolean;
     /** The phone companion's answer to its ops, when this machine has one. */
     readonly companion?: (request: OperatorRequestEnvelope) => Promise<OperatorResponseEnvelope | undefined>;
+  };
+  /**
+   * The desktop core runs the phone companion: a phone's request is answered
+   * here and never waits on Electron main. Only what main alone knows comes in.
+   */
+  readonly companion?: {
+    readonly appVersion: string;
+    readonly environment: () => Promise<CompanionEnvironment>;
+    /** Settings' device list changed. */
+    readonly onDevicesChanged: (devices: ReadonlyArray<CompanionDeviceRecord>) => void;
+    /** A signal the operator answered from the phone, for the window. */
+    readonly showSignal: (signal: AgentSignal) => void;
   };
 };
 
@@ -95,6 +113,8 @@ export const startCore = async (options: CoreOptions) => {
   let work: WorkControlServer | undefined;
   let canvas: CanvasControlServer | undefined;
   let overseer: OverseerComposition | undefined;
+  let companion: CompanionService | undefined;
+  let stopCompanion: (() => void) | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
@@ -138,6 +158,7 @@ export const startCore = async (options: CoreOptions) => {
       }
       await seatProcesses?.close();
       overseer?.dispose();
+      stopCompanion?.();
       const writes = await mainAuthoringGate.drain(5_000);
       if (writes.remaining.length > 0) {
         throw new CoreDidNotDrain({ part: "writes", remaining: writes.remaining.length, message: "Core writes did not drain; core state retained" });
@@ -165,7 +186,12 @@ export const startCore = async (options: CoreOptions) => {
       version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
       run: effect => runtime.runPromise(effect),
       ...(overseer === undefined ? {} : { onOverseer: overseer.onOverseer }),
-      ...(options.onPreamble === undefined ? {} : { onPreamble: options.onPreamble }),
+      ...(options.onPreamble === undefined && options.companion === undefined ? {} : {
+        onPreamble: (event: PreambleEvent) => {
+          if (options.companion !== undefined) companionNotePreamble(event);
+          options.onPreamble?.(event);
+        },
+      }),
     });
     if (options.canvasControl === true) {
       canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });
@@ -181,7 +207,28 @@ export const startCore = async (options: CoreOptions) => {
     await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
     listener = await runtime.runPromise(link.listen(options.home));
     const machineDispatch = (request: OperatorRequestEnvelope) => runtime.runPromise(actions.dispatch(request));
-    const desk = options.operator;
+    if (options.companion !== undefined) {
+      const unbind = bindCompanionHost({ runPromise: (effect) => runtime.runPromise(effect), showSignal: options.companion.showSignal });
+      const service = makeCompanionService({
+        appVersion: options.companion.appVersion,
+        environment: options.companion.environment,
+        onDevicesChanged: options.companion.onDevicesChanged,
+        onFirstDevice: () => {
+          void ensureOperatorListening().catch((cause: unknown) => {
+            console.error("[companion] operator control failed to start", cause);
+          });
+        },
+      });
+      companion = service;
+      setCompanionService(service);
+      stopCompanion = () => {
+        service.close();
+        service.changes.close();
+        unbind();
+      };
+    }
+    const desk = options.operator === undefined || companion === undefined ? options.operator
+      : { ...options.operator, companion: options.operator.companion ?? companion.dispatch };
     const dispatch = desk === undefined ? machineDispatch : async (request: OperatorRequestEnvelope): Promise<OperatorResponseEnvelope> => {
       if (OPERATOR_COMPANION_OPS.has(request.op)) {
         return (await desk.companion?.(request)) ?? operatorRefusal(request, "runtime_down", "the phone companion is not available");
@@ -202,6 +249,24 @@ export const startCore = async (options: CoreOptions) => {
         throw cause;
       }));
     if (desk?.listen !== "on-demand") await ensureOperatorListening();
+    if (companion !== undefined) {
+      const service = companion;
+      // A paired phone needs the socket from boot; the first pairing opens it later.
+      void wireCompanionChanges(service.changes)
+        .then((unwire) => {
+          const stop = stopCompanion;
+          stopCompanion = () => {
+            unwire();
+            stop?.();
+          };
+          return service.reconcile();
+        })
+        .then(() => service.hasDevices())
+        .then((paired) => (paired ? ensureOperatorListening() : undefined))
+        .catch((cause: unknown) => {
+          console.error("[companion] failed to start", cause);
+        });
+    }
     await runtime.runPromise(mail.boot({
       runPromise: effect => runtime.runPromise(effect),
       runFork: effect => { runtime.runFork(effect); },

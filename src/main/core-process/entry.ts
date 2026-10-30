@@ -14,10 +14,11 @@ import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download
 import { startCore } from "../junto/core";
 import { serveCore, type CoreMessage, type CorePort } from "./port";
 import type { CoreRunner } from "./client";
-import { forwardPublishes } from "./push";
+import { forwardPublishes, publish } from "./push";
 import { host, useHostClient } from "./host-ops";
 import { hostCaptureApplicationPage, hostOverseerPages } from "./ops/overseer-pages";
-import { publishWindowBroadcasts } from "./ops/main-index";
+import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, publishWindowBroadcasts } from "./ops/main-index";
+import { companionE2eEnvironment, readCompanionEnvironment } from "../junto/companion/service";
 import { bindOperatorListening } from "./ops/operator";
 import "./ops/index";
 
@@ -28,6 +29,8 @@ export type CoreBoot = {
   readonly bundlesRoot: string;
   /** Junto was launched for operator control: the socket listens from boot and takes every command. */
   readonly operatorCommands: boolean;
+  /** What the phone companion reads of the app: its version, and where the junto command ships. */
+  readonly app: { readonly version: string; readonly packaged: boolean; readonly resourcesPath: string; readonly appPath: string };
 };
 
 type ParentPort = {
@@ -63,6 +66,14 @@ const main = async (parent: ParentPort): Promise<void> => {
     overseer: { captureApplicationPage: hostCaptureApplicationPage(host), pages: hostOverseerPages(host) },
     onPreamble: broadcasts.onPreamble,
     operator: { listen: boot.operatorCommands ? "always" : "on-demand", commands: boot.operatorCommands },
+    companion: {
+      appVersion: boot.app.version,
+      environment: () =>
+        companionE2eEnvironment() ??
+        readCompanionEnvironment({ packaged: boot.app.packaged, resourcesPath: boot.app.resourcesPath, repoRoot: boot.app.appPath }),
+      onDevicesChanged: (devices) => publish(COMPANION_DEVICES, devices),
+      showSignal: (signal) => publish(AGENT_SIGNAL_CHANGED, signal),
+    },
     ...makeMachineBundleSources({
       home: boot.home,
       build: boot.build,

@@ -45,7 +45,7 @@ import { core } from "./core-process/main-client";
 import { startTerminalProcess, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
-import { AGENT_SIGNAL_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE } from "./core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE } from "./core-process/ops/main-index";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/ops/browser";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
@@ -192,6 +192,7 @@ import {
 import { broadcastCompanionDevices, registerCompanionIpc } from "./junto/companion/ipc";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { bindCompanionHost } from "./junto/companion/runtime";
+import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import { findPackagedSandboxDisablingSwitch } from "./junto/packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
@@ -1735,6 +1736,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       // process the hooks below call them, and nothing is published.
       subscribeCore(WORK_PREAMBLE, (event) => showPreamble(event as PreambleEvent));
       subscribeCore(AGENT_SIGNAL_CHANGED, (signal) => showAgentSignal(signal as AgentSignal));
+      subscribeCore(COMPANION_DEVICES, (devices) => broadcastCompanionDevices(devices as ReadonlyArray<CompanionDeviceRecord>));
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),

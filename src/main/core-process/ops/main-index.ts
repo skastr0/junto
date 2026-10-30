@@ -35,9 +35,11 @@ export const SETTINGS_CHANGED = "settings.changed";
 export const WORK_PREAMBLE = "work.preamble";
 /** Every agent signal the core writes, for the window and the raised hands. */
 export const AGENT_SIGNAL_CHANGED = "signals.changed";
+/** The paired phones, after any change, for Settings. */
+export const COMPANION_DEVICES = "companion.devices";
 
 /** Every channel main forwards to the window. */
-export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const;
+export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED, COMPANION_DEVICES] as const;
 
 /**
  * Main's side, once the core runs in its own process: each window push from
