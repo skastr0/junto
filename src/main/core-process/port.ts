@@ -155,7 +155,14 @@ export const serveCore = (port: CorePort, runner: CoreRunner | Promise<CoreRunne
       new Promise((resolve, reject) => {
         const id = nextHostId++;
         asked.set(id, { name, resolve, reject });
-        port.post({ kind: "hostCall", id, name, input });
+        post(port, { kind: "hostCall", id, name, input }).pipe(
+          Effect.catchTag("PortPostFailed", ({ message }) =>
+            Effect.sync(() => {
+              asked.delete(id);
+              reject(new HostCallError(name, "HostInputNotCloneable", message));
+            })),
+          Effect.runSync,
+        );
       }),
   };
   const failHost = (reason: string): void => {
@@ -164,5 +171,11 @@ export const serveCore = (port: CorePort, runner: CoreRunner | Promise<CoreRunne
       entry.reject(new HostCallError(entry.name, "HostStopped", reason));
     }
   };
-  return { push: (channel, payload) => port.post({ kind: "push", channel, payload }), host, failHost, close };
+  // A push that cannot cross the port is dropped and logged, never thrown into the operation that pushed.
+  const push = (channel: string, payload: unknown): void =>
+    post(port, { kind: "push", channel, payload }).pipe(
+      Effect.catchTag("PortPostFailed", ({ message }) => Effect.logWarning(`core port: a push on ${channel} could not be posted: ${message}`)),
+      Effect.runSync,
+    );
+  return { push, host, failHost, close };
 };

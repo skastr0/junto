@@ -98,6 +98,24 @@ describe("core operations", () => {
     await expect(core.call("test.add", { n: 1, read: () => 1 } as never)).rejects.toMatchObject({ tag: "CoreInputNotCloneable" });
   });
 
+  it("an uncloneable host input or push fails or drops, and never throws into the core", async () => {
+    const runtime = runtimeWith();
+    const { port1, port2 } = new MessageChannel();
+    opened.push(() => {
+      port1.close();
+      void runtime.dispose();
+    });
+    const served = serveCore(portOf(port2), runtime);
+    const core = portCore(portOf(port1));
+    const pushed: Array<unknown> = [];
+    core.onPush("test.changed", (payload) => pushed.push(payload));
+    await expect(served.host.call("test.shot", { scale: 1, read: () => 1 } as never)).rejects.toMatchObject({ tag: "HostInputNotCloneable" });
+    expect(() => served.push("test.changed", { read: () => 1 })).not.toThrow();
+    served.push("test.changed", { total: 1 });
+    await expect(core.call("test.add", { n: 1 })).resolves.toEqual({ total: 1 });
+    expect(pushed).toEqual([{ total: 1 }]);
+  });
+
   it("a stopped core rejects every call in flight", async () => {
     const { port1 } = new MessageChannel();
     opened.push(() => port1.close());
