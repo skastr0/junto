@@ -193,6 +193,18 @@ describe("task repository", () => {
     expect(later.leftOut).toBe(0);
   });
 
+  it("reads a seat's open tasks newest change first, so since's cap keeps the newest", async () => {
+    const open = [await create("first"), await create("second"), await create("third")];
+    for (const { taskId } of open) applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    // The middle one changes last; the index alone would hand them back by id.
+    applied(await submit(command({ kind: "edit", title: "second, edited" }, open[1]!.taskId)));
+    const read = await withRepo((repo) => repo.seatTasks(canvas, { nodeIds: [build], seat: ada, limit: 1 }));
+    const updated = read.tasks.map((task) => task.updatedAt);
+    expect(read.tasks).toHaveLength(3);
+    expect(read.tasks[0]!.title).toBe("second, edited");
+    expect(updated).toEqual([...updated].sort((a, b) => b - a));
+  });
+
   it("answers a retried command with its first ruling and owes no mail again", async () => {
     const { taskId } = await create("one");
     const opId = mintOpId();

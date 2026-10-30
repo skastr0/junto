@@ -600,10 +600,12 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       const nodes = sql.in(query.nodeIds);
       type Changed = { readonly task_id: string; readonly total: number };
       // The planner, without statistics, reads every head for an assignee; its index holds only the seat's.
+      // Open ones newest change first, as since lists them, so a cap keeps the newest.
       const open = yield* sql<{ readonly task_id: string }>`
         SELECT task_id FROM task_heads INDEXED BY task_heads_by_assignee
         WHERE canvas_name = ${canvasName} AND assignee_node_id = ${query.seat}
-          AND node_id IN ${nodes} AND ${sql.in("state", OPEN_TASK_STATES)}`;
+          AND node_id IN ${nodes} AND ${sql.in("state", OPEN_TASK_STATES)}
+        ORDER BY updated_at DESC, task_id DESC`;
       const finished = yield* sql<Changed>`
         SELECT task_id, count(*) OVER () AS total FROM task_heads INDEXED BY task_heads_by_assignee
         WHERE canvas_name = ${canvasName} AND assignee_node_id = ${query.seat}
