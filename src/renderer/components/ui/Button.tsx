@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef, ReactNode } from "react";
+import { FOCUS_RING_INSET } from "./focus";
 
 /**
  * The house button. One component for every clickable action — surface
@@ -66,7 +67,12 @@ export function Button({
       // preventDefault too, so an inert submit button does not submit its form.
       onClick={inert ? (event) => event.preventDefault() : onClick}
       className={[
-        "inline-flex items-center justify-center transition-colors select-none",
+        // outline-none with the ring, as IconButton and ListRow have it: the
+        // inset shadow is the mark, and the browser's own outline would double it.
+        "inline-flex items-center justify-center outline-none transition-colors select-none",
+        // The keyboard mark every control wears; without it the browser's own
+        // outline was the only focus cue a Button had (design scan, 0.11.4).
+        FOCUS_RING_INSET,
         HIT_24,
         "disabled:opacity-40 disabled:pointer-events-none",
         "aria-disabled:opacity-40 aria-disabled:pointer-events-none",
