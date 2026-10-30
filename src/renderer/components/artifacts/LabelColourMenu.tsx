@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import type { ArtifactLabel } from "@shared/artifact-labels";
 import { claimFocus } from "../../lib/focus-ownership";
 import { ARTIFACT_LABEL_COLOURS, type ArtifactLabelColour, LABEL_COLOUR_NOUN } from "../../lib/artifact-label-colours";
-import { Popover } from "../ui";
+import { MenuItem, Popover } from "../ui";
 
 const CHOICES: ReadonlyArray<ArtifactLabelColour | null> = [null, ...ARTIFACT_LABEL_COLOURS];
 const SIDES = ["below", "above"] as const;
@@ -106,15 +106,13 @@ export function LabelColourMenu({
         {CHOICES.map((choice) => {
           const checked = choice === colour;
           return (
-            <button
+            <MenuItem
               key={choice ?? "none"}
-              type="button"
               role="menuitemradio"
               aria-checked={checked}
               // The checked one is the menu's one stop, and a keyboard open lands on it.
               tabIndex={checked ? 0 : -1}
               data-autofocus={checked ? "" : undefined}
-              className="label-colour-menu__item"
               onClick={() => {
                 onPick(choice);
                 onClose(true);
@@ -123,7 +121,7 @@ export function LabelColourMenu({
               <LabelColourDot colour={choice} />
               <span className="label-colour-menu__word">{choice === null ? "No colour" : LABEL_COLOUR_NOUN[choice]}</span>
               {checked ? <Check size={12} aria-hidden className="label-colour-menu__check" /> : null}
-            </button>
+            </MenuItem>
           );
         })}
       </div>

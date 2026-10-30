@@ -236,36 +236,9 @@
   padding: 4px;
 }
 
-.artifact-row-menu__item {
-  display: flex;
-  width: 100%;
-  min-height: 28px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-ink);
-  font-size: var(--text-label);
-  line-height: var(--leading-compact);
-  text-align: start;
-}
 
-.artifact-row-menu__item > svg {
-  flex: none;
-  color: var(--color-dim);
-}
 
-.artifact-row-menu__item:hover,
-.artifact-row-menu__item:focus-visible {
-  background: var(--color-overlay-2);
-}
 
-.artifact-row-menu__item:focus-visible {
-  outline: 2px solid var(--color-cyan);
-  outline-offset: -2px;
-}
 
 /* Move to: the nodes by name with their region after, the reach line, a refusal. */
 .artifact-move {
@@ -465,31 +438,8 @@
   padding: 4px;
 }
 
-.label-colour-menu__item {
-  display: flex;
-  width: 100%;
-  min-height: 28px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-ink);
-  font-size: var(--text-label);
-  line-height: var(--leading-compact);
-  text-align: start;
-}
 
-.label-colour-menu__item:hover,
-.label-colour-menu__item:focus-visible {
-  background: var(--color-overlay-2);
-}
 
-.label-colour-menu__item:focus-visible {
-  outline: 2px solid var(--color-cyan);
-  outline-offset: -2px;
-}
 
 .label-colour-menu__check {
   margin-left: auto;

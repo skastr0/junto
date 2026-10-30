@@ -5,7 +5,7 @@ import { FilePlus, FolderInput, FolderPlus, Pencil, Trash2, type LucideIcon } fr
 import { baseName, joinFilePath, ROOT_PATH, type FilePath, type FilesNodeRef, type FilesResult } from "@shared/files";
 import { filesErrorLine, filesSource } from "../../lib/files-source";
 import { claimFocus } from "../../lib/focus-ownership";
-import { Button, Combobox, ConfirmDialog, Dialog, Input } from "../ui";
+import { Button, Combobox, ConfirmDialog, Dialog, Input, MenuItem } from "../ui";
 import { folderOfRow, moveTargets, rowOf, typedFolder, walkFolders, type FilesAction } from "./files-actions";
 
 type RowChoice = { readonly key: string; readonly label: string; readonly glyph: LucideIcon; readonly run: () => void };
@@ -93,10 +93,10 @@ export function FilesRowMenu({
       onKeyDown={keys}
     >
       {choices.map(({ key, label, glyph: Glyph, run }, index) => (
-        <button key={key} type="button" role="menuitem" tabIndex={index === 0 ? 0 : -1} className="files-row-menu__item" onClick={choose(run)}>
+        <MenuItem key={key} tabIndex={index === 0 ? 0 : -1} onClick={choose(run)}>
           <Glyph size={14} aria-hidden />
           {label}
-        </button>
+        </MenuItem>
       ))}
     </div>,
     document.body,

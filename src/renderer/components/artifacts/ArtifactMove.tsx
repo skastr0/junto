@@ -5,7 +5,7 @@ import type { ItemId } from "@shared/resource-command";
 import { applyArtifactOp } from "../../lib/artifacts-source";
 import { claimFocus } from "../../lib/focus-ownership";
 import { useCanvas } from "../../lib/use-model";
-import { Button, Combobox, Dialog, Popover } from "../ui";
+import { Button, Combobox, Dialog, MenuItem, Popover } from "../ui";
 import { matchTargets, moveTargets, reachChange, reachLine, suggestedFirst, type MoveSuggestion, type MoveTarget } from "./artifact-move-model";
 
 /** What the picker moves: each artifact by id, with the title its lines name it by. */
@@ -248,12 +248,9 @@ export function ArtifactRowMenu({
     <Popover anchor={anchor} onClose={() => onClose(false)} label={label} sides={["below", "above"]} align="center" width={200} className="artifact-row-menu">
       {/* The popover's dialog carries the name; the menu inside is not named twice. */}
       <div ref={menu} role="menu" onKeyDown={keys}>
-        <button
-          type="button"
-          role="menuitem"
+        <MenuItem
           tabIndex={0}
           data-autofocus=""
-          className="artifact-row-menu__item"
           onClick={() => {
             // The row takes the keyboard first, so it is the picker's opener and gets it back on Cancel.
             onClose(true);
@@ -262,7 +259,7 @@ export function ArtifactRowMenu({
         >
           <FolderInput size={14} aria-hidden />
           {count > 1 ? `Move ${String(count)} to…` : "Move to…"}
-        </button>
+        </MenuItem>
       </div>
     </Popover>
   );

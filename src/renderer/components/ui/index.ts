@@ -21,6 +21,7 @@ export { OverlayHeader } from "./OverlayHeader";
 export { FocusMaximizeButton, FocusWindowContext, useFocusWindow, type FocusWindow } from "./FocusWindow";
 export { ToolbarPill } from "./ToolbarPill";
 export { Kbd, KeyChord } from "./Kbd";
+export { MenuItem } from "./MenuItem";
 export { Popover } from "./Popover";
 export { CodeBlock, DiffView } from "./lazy-code-view";
 export type { DiffLineAnnotation, DiffSide, DiffSource } from "./CodeView";
