@@ -12,8 +12,13 @@ name = "junto"
 path = "src/main.rs"
 
 # Few dependencies: blocking std sockets and threads, no async runtime unless
-# the byte pipes (N4) prove they need one.
+# the byte pipes (N4) prove they need one. serde carries every request and
+# answer as a type; clap parses the command line into one; ulid mints write ids.
 [dependencies]
+clap = { version = "4.5", default-features = false, features = ["std", "derive", "error-context"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+ulid = "1"
 
 [profile.release]
 lto = true
