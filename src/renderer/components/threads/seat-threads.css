@@ -460,8 +460,13 @@ html[data-theme="bright"] .seat-threads__block {
    fill, so it does not look like a control. */
 .seat-threads__id {
   display: inline-block;
-  /* Its first characters, or the line it sits in when the line is narrower. */
-  max-width: min(14ch, 100%);
+  /* Its first characters, or the line it sits in when the line is narrower.
+     13ch leaves no slack after the cut: at 14ch the box kept a spare column,
+     and the word after it read as a double space. */
+  max-width: min(13ch, 100%);
+  /* The ellipsis glyph leaves its own right bearing: the optical space after a
+     token is one word space, not one and a half. */
+  margin-inline-end: -0.2ch;
   overflow: hidden;
   vertical-align: bottom;
   color: var(--color-dim);
