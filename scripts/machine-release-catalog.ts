@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { extractFile } from "@electron/asar";
+import { extractFile, listPackage } from "@electron/asar";
 import { decodeMachineReleaseCatalog, type MachineReleaseCatalog } from "../src/shared/machine-release";
 import { buildIdentity } from "./build-identity";
 
@@ -17,7 +17,12 @@ export const extractMachineReleaseCatalog = (main: Uint8Array): MachineReleaseCa
 };
 
 export const readPackagedMachineReleaseCatalog = (appPath: string): MachineReleaseCatalog => {
-  const main = extractFile(path.join(appPath, "Contents/Resources/app.asar"), "out/main/index.js");
+  const archive = path.join(appPath, "Contents/Resources/app.asar");
+  // The pin sits in whichever compiled main file holds the release code: the entry or one of its chunks.
+  const compiled = listPackage(archive, {})
+    .map(file => file.replaceAll("\\", "/").replace(/^\//u, ""))
+    .filter(file => /^out\/main\/.+\.js$/u.test(file));
+  const main = Buffer.concat(compiled.flatMap(file => [extractFile(archive, file), Buffer.from("\n")]));
   const catalog = extractMachineReleaseCatalog(main);
   if (catalog === undefined) throw new Error("release app has no compiled machine archive pins");
   return catalog;
