@@ -21,7 +21,8 @@
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 4px 0 12px;
+  /* The gutter the row's border and ring sit in, so neither is clipped. */
+  padding: 4px 2px 12px;
 }
 
 .seat-threads__list > section > :first-child {
@@ -48,16 +49,19 @@
   list-style: none;
 }
 
+/* A row: who wrote last, then the thread's subject when it has one, then the
+   words of the latest mail. The whole row is the button, so the ring and the
+   selection sit on it, and the row keeps 2px of wash between them. */
 .seat-threads__row {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  justify-content: flex-start;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
   min-width: 0;
-  /* The left padding keeps the words where the 2px stripe used to hold them. */
-  padding: 8px 14px 8px 16px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   text-align: left;
   color: var(--color-ink);
 }
@@ -66,36 +70,28 @@
   background: var(--color-overlay-1);
 }
 
+/* Selection is a full amber border on the wash; focus is the cyan ring. */
 .seat-threads__row[data-selected="true"] {
+  border-color: var(--color-amber-fg);
   background: var(--color-overlay-2);
 }
 
-/* The first line of the thread, as words in the body face, two lines at most. */
-.seat-threads__row-title {
-  display: -webkit-box;
-  min-width: 0;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  font-family: var(--font-body);
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
+.seat-threads__row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-cyan);
 }
 
-/* A comment thread's kind, before its resource's name. */
-.seat-threads__row-title > svg {
-  margin-inline-end: 6px;
-  vertical-align: -1px;
+.seat-threads__row[data-selected="true"]:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-cyan-fg);
 }
 
-.seat-threads__row-meta {
+/* The author line: the portrait, the name, what is unread, the time. */
+.seat-threads__row-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  min-width: 0;
   font-family: var(--font-mono);
-  font-size: var(--text-body);
-  color: var(--color-dim);
 }
 
 .seat-threads__row-who {
@@ -104,14 +100,71 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--color-ink-2);
+}
+
+/* The operator has no portrait; the row still needs its left edge. */
+.seat-threads__row-you {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--color-overlay-3);
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+
+/* A comment thread's subject: the kind's glyph, then the resource's name. */
+.seat-threads__row-subject {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.seat-threads__row-subject > svg {
+  flex: none;
+}
+
+/* The latest mail's words, at the row's reading size, two lines at most. */
+.seat-threads__row-preview {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-body);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  color: var(--color-ink);
+}
+
+.seat-threads__row[data-unread="true"] .seat-threads__row-preview {
+  font-weight: 600;
 }
 
 .seat-threads__row-time {
   flex: none;
+  font-size: var(--text-label);
+  color: var(--color-dim);
   font-variant-numeric: tabular-nums;
 }
 
-/* What the operator has not read: the same amber pill as the needs-you count. */
+/* What the operator has not read: the needs-you pill, in the lit amber. */
 .seat-threads__row-unread,
 .seat-threads__unread-count {
   flex: none;
@@ -119,7 +172,7 @@
   height: 15px;
   padding: 0 4px;
   border-radius: var(--radius-pill);
-  background: var(--color-amber);
+  background: var(--color-amber-fg);
   color: var(--color-ground);
   font-family: var(--font-mono);
   font-size: var(--text-label);
@@ -200,87 +253,127 @@
   box-shadow: inset 0 0 0 2px var(--color-cyan);
 }
 
+/* The stream scrolls one centred reading column. Its four vars are the whole
+   type setting of a thread: the reading size, its leading, the gap between
+   blocks, and the step code takes so it stays legible inside prose. */
+.seat-threads__chat {
+  --prose-size: var(--text-prose-xl);
+  --prose-leading: var(--leading-open);
+  --prose-gap: 0.8em;
+  --prose-code-size: var(--text-title);
+}
+
 .seat-threads__stream {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
-  gap: 14px;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 0 24px;
 }
 
-/* A message hugs its text on the sender's side, about 72 characters a line in
-   the reading step: the title size (14px) on the open leading, in the prose
-   face. A ch is a zero's width, wider than prose averages, so 58ch of this
-   face is about 72 characters of a sentence (measured in the real app); the
-   bubble's padding and border (26px) sit outside the measure. */
+/* The stream is a control now: it scrolls from the keyboard, so it wears the
+   inset house ring where it takes focus. */
+.seat-threads__stream:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-cyan);
+}
+
+/* 34em: the measure follows the size, so a line stays 66 to 72 characters
+   whatever the reading step is. */
+.seat-threads__column {
+  width: 100%;
+  max-width: calc(34 * var(--prose-size));
+  margin: 0 auto;
+  padding: 8px 0 24px;
+  font-size: var(--prose-size);
+}
+
+/* A turn: a head line, then the words. The same seat writing again soon after
+   keeps the words and folds the head (the head stays in the document). */
 .seat-threads__message {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  max-width: min(92%, calc(58ch + 26px));
-  font-family: var(--font-body);
-  font-size: var(--text-title);
-  line-height: var(--leading-open);
+  min-width: 0;
+  margin-top: calc(var(--prose-size) * 1.6);
+}
+
+.seat-threads__message:first-child {
+  margin-top: 0;
+}
+
+.seat-threads__message[data-folded="true"] {
+  margin-top: calc(var(--prose-size) * 0.6);
 }
 
 .seat-threads__message[data-mine="true"] {
-  align-self: flex-end;
   align-items: flex-end;
 }
 
+/* Who is speaking: the seat's portrait, its name, the time. The face and sizes
+   are the instrument's; the words below are the reading voice. */
 .seat-threads__message-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
   font-family: var(--font-mono);
-  font-size: var(--text-body);
+  font-size: var(--text-body-lg);
   color: var(--color-dim);
 }
 
 .seat-threads__message-head strong {
-  color: var(--color-ink-2);
+  font-weight: 600;
+  color: var(--color-ink);
 }
 
-.seat-threads__bubble {
-  padding: 10px 14px;
+.seat-threads__message-time {
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A seat's words sit on the panel, unboxed: the reading column is the frame. */
+.seat-threads__body {
+  width: 100%;
+  max-width: calc(var(--prose-size) * 34);
+  min-width: 0;
+}
+
+/* The operator's own words: a quiet neutral block on the right. Never a second
+   hue: cyan is focus and amber is selection, so authorship carries no color. */
+.seat-threads__block {
+  max-width: min(85%, calc(var(--prose-size) * 34 + 32px));
+  padding: 0.75em 1.05em;
   border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-lg);
-  background: var(--color-overlay-2);
+  border-radius: var(--radius-xl);
+  background: var(--color-overlay-3);
+}
+
+html[data-theme="bright"] .seat-threads__block {
+  background: var(--color-overlay-1);
+}
+
+.seat-threads__block .seat-threads__prose {
+  max-width: none;
+}
+
+/* The message's markdown, drawn as prose: the reading face at the reading
+   size, a block gap between paragraphs, a line break where the writer broke
+   the line, and headings at the text's own size. */
+.seat-threads__prose {
+  max-width: calc(var(--prose-size) * 34);
   color: var(--color-ink);
-  font-size: inherit;
-  line-height: inherit;
+  font-family: var(--font-body);
+  font-size: var(--prose-size);
+  line-height: var(--prose-leading);
+  text-wrap: pretty;
   overflow-wrap: break-word;
 }
 
-/* The message's markdown, drawn as prose: the body face in ink, a half line
-   between paragraphs, a line break where the writer broke the line, and
-   headings at the text's own size. Code stays mono (artifact-markdown.css). */
-.seat-threads__prose {
-  color: var(--color-ink);
-  font-size: inherit;
-  line-height: inherit;
-}
-
-/* A long id is one token, never a word broken across lines. The whole id is
-   the text (selecting it copies all of it, a screen reader reads all of it);
-   the eye sees its first characters, cut by the box. Plain mono, no border or
-   fill, so it does not look like a control. */
-.seat-threads__id {
-  display: inline-block;
-  /* Its first characters, or the line it sits in when the line is narrower. */
-  max-width: min(14ch, 100%);
-  overflow: hidden;
-  vertical-align: bottom;
-  color: var(--color-dim);
-  font-family: var(--font-mono);
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .seat-threads__prose :is(p, ul, ol, blockquote, pre, table) {
-  margin: 0 0 0.5em;
+  margin: 0 0 var(--prose-gap);
 }
 
 .seat-threads__prose > :last-child {
@@ -302,14 +395,83 @@
   text-transform: none;
 }
 
-/* A mention chip is taller than the line: it bleeds into the leading so the line keeps its rhythm. */
-.seat-threads__bubble .resource-chip {
-  margin-block: -2px;
+/* Lists hang: the marker sits outside the words, so a wrapped line keeps the
+   sentence's left edge. */
+.seat-threads__prose :is(ul, ol) {
+  padding-left: 1.5em;
 }
 
-.seat-threads__message[data-mine="true"] .seat-threads__bubble {
-  border-color: color-mix(in oklab, var(--color-cyan) 40%, transparent);
-  background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
+.seat-threads__prose li {
+  margin: 0.35em 0;
+  padding-left: 0.2em;
+}
+
+.seat-threads__prose blockquote {
+  padding: 0 0 0 1em;
+  border-left: 2px solid var(--color-stroke-hi);
+  color: var(--color-ink-2);
+}
+
+.seat-threads__prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Code steps with the prose instead of scaling with it: a fixed step per
+   reading size keeps it legible and keeps the line rhythm. */
+.seat-threads__prose :is(code, pre) {
+  font-family: var(--font-mono);
+  font-size: var(--prose-code-size);
+}
+
+.seat-threads__prose :is(code:not(pre code)) {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+  padding: 0.12em 0.4em;
+}
+
+/* The well scrolls sideways and takes the keyboard: it shows the house ring
+   whenever it holds focus, a pointer press included, so the reader can see
+   which block the arrow keys will move. */
+.seat-threads__prose pre:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-cyan);
+}
+
+.seat-threads__prose pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-well);
+  color: var(--color-ink-2);
+  line-height: var(--leading-open);
+  white-space: pre;
+}
+
+/* A long id is one token, never a word broken across lines. The whole id is
+   the text (selecting it copies all of it, a screen reader reads all of it);
+   the eye sees its first characters, cut by the box. Plain mono, no border or
+   fill, so it does not look like a control. */
+.seat-threads__id {
+  display: inline-block;
+  /* Its first characters, or the line it sits in when the line is narrower. */
+  max-width: min(14ch, 100%);
+  overflow: hidden;
+  vertical-align: bottom;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A mention chip is taller than the line: it bleeds into the leading so the line keeps its rhythm. */
+.seat-threads__prose .resource-chip {
+  margin-block: -2px;
 }
 
 .seat-threads__empty {
@@ -320,7 +482,7 @@
 
 .seat-threads__note {
   margin: 0;
-  padding: 0 14px;
+  padding: 0;
   font-size: var(--text-body);
   color: var(--color-dim);
 }
@@ -334,13 +496,14 @@
   color: var(--color-crimson-fg);
 }
 
+/* The reply field is one roomy block at the reading size: the words, then a
+   bar with the hint, the attach control and Send inside the same frame. */
 .thread-composer {
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--color-stroke);
+  padding: 10px 24px 18px;
 }
 
 .thread-composer__to {
@@ -348,15 +511,45 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  max-width: calc(34 * var(--prose-size) + 34px);
+  margin: 0 auto;
   font-size: var(--text-body);
   color: var(--color-dim);
 }
 
 .thread-composer__field {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: calc(34 * var(--prose-size) + 34px);
+  margin: 0 auto;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: var(--radius-xl);
+  background: var(--color-inset);
 }
 
-.thread-composer__foot {
+/* The field's own frame is the border above; the textarea inside is words. */
+.thread-composer__field textarea {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  font-family: var(--font-body);
+  font-size: var(--prose-size);
+  line-height: var(--prose-leading);
+  color: var(--color-ink);
+}
+
+.thread-composer__field:focus-within {
+  border-color: color-mix(in oklab, var(--color-cyan) 60%, transparent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.thread-composer__bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -366,11 +559,11 @@
 .thread-composer__failure {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--text-body);
+  font-size: var(--text-label);
 }
 
 .thread-composer__hint {
-  color: var(--color-dim);
+  color: var(--color-faint);
 }
 
 .thread-composer__failure {

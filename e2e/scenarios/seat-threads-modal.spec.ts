@@ -83,6 +83,13 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
     await input.pressSequentially("- first item");
     await input.press("Shift+Enter");
     await input.pressSequentially("- second item");
+    await input.press("Shift+Enter");
+    await input.press("Shift+Enter");
+    await input.pressSequentially("```");
+    await input.press("Shift+Enter");
+    await input.pressSequentially("junto msg reply '{\"target\":\"agent-1\",\"text\":\"a line long enough to scroll sideways at any reading size, twice over\"}'");
+    await input.press("Shift+Enter");
+    await input.pressSequentially("```");
     await input.press("Enter");
     await expect(page.getByTestId("seat-threads-message")).toHaveCount(1, { timeout: 20_000 });
     await expect(page.getByTestId("seat-threads-mention")).toHaveCount(1, { timeout: 20_000 });
@@ -154,6 +161,13 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
     expect(text, "no raw backticks").not.toContain("`");
     const chip = page.getByTestId("seat-threads-mention").first();
     await expect(chip).toContainText("Bravo");
+    // A fenced block scrolls sideways, so it takes the keyboard and wears the ring.
+    const well = page.locator(".seat-threads__prose pre").first();
+    await expect(well).toHaveAttribute("tabindex", "0");
+    await well.focus();
+    const wellRing = await well.evaluate((el) => getComputedStyle(el).boxShadow);
+    report.push(`(2) code well tabindex 0, focus ring ${wellRing}`);
+    expect(wellRing, "the code well shows the house ring when focused").toContain("inset");
     frames.push(await shot(page, "4-markdown-message"));
     await chip.click();
     await expect(page.getByTestId("seat-threads")).toHaveCount(0, { timeout: 10_000 });
@@ -174,21 +188,21 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
     const rows = page.getByTestId("seat-threads-row");
     await expect(rows).toHaveCount(2);
     const longRow = rows.filter({ hasText: "onboarding flow" }).first();
-    const clamp = await longRow.locator(".seat-threads__row-title").evaluate((el) => {
+    const clamp = await longRow.locator(".seat-threads__row-preview").evaluate((el) => {
       const cs = getComputedStyle(el);
       const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3;
       return { height: el.clientHeight, scrollHeight: el.scrollHeight, lineHeight: line, lines: Math.round(el.clientHeight / line), clamp: cs.getPropertyValue("-webkit-line-clamp") };
     });
-    const meta = await longRow.locator(".seat-threads__row-meta").innerText();
+    const meta = await longRow.locator(".seat-threads__row-top").innerText();
     const order = await longRow.evaluate((el) => {
-      const t = el.querySelector(".seat-threads__row-title")!.getBoundingClientRect();
-      const m = el.querySelector(".seat-threads__row-meta")!.getBoundingClientRect();
-      return { titleBottom: t.bottom, metaTop: m.top };
+      const t = el.querySelector(".seat-threads__row-preview")!.getBoundingClientRect();
+      const m = el.querySelector(".seat-threads__row-top")!.getBoundingClientRect();
+      return { titleBottom: t.bottom, metaTop: m.top, metaBottom: m.bottom, previewTop: t.top };
     });
-    report.push(`(3) list row title ${JSON.stringify(clamp)}; meta ${JSON.stringify(meta)}; meta sits under title: ${order.metaTop >= order.titleBottom - 1}`);
+    report.push(`(3) list row preview ${JSON.stringify(clamp)}; author line ${JSON.stringify(meta)}; author line sits above the words: ${order.previewTop >= order.metaBottom - 1}`);
     expect(clamp.scrollHeight, "the long first line overflows its box, so it is clamped").toBeGreaterThan(clamp.height + 1);
     expect(clamp.lines, "two lines at most").toBeLessThanOrEqual(2);
-    expect(order.metaTop).toBeGreaterThanOrEqual(order.titleBottom - 1);
+    expect(order.previewTop).toBeGreaterThanOrEqual(order.metaBottom - 1);
     await longRow.click();
     await expect(page.getByTestId("seat-threads-message")).toHaveCount(1, { timeout: 15_000 });
     const head = await page.locator(".seat-threads__chat-title").evaluate((el) => {
@@ -205,7 +219,7 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
     const measure = async (label: string): Promise<void> => {
       const m = await page.evaluate(() => {
         const stream = document.querySelector('[data-testid="seat-threads-stream"]') as HTMLElement;
-        const bubble = document.querySelector(".seat-threads__bubble") as HTMLElement;
+        const bubble = (document.querySelector(".seat-threads__block") ?? document.querySelector(".seat-threads__body")) as HTMLElement;
         const prose = document.querySelector(".seat-threads__prose") as HTMLElement;
         const name = document.querySelector(".seat-threads__message-head") as HTMLElement;
         const probe = (family: string) => {
@@ -257,9 +271,9 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
         const tops = new Set(perLineList.map((_, i) => i));
         const chars = (prose.textContent ?? "").length;
         const proseBox = prose.getBoundingClientRect();
-        const bubbleCs = getComputedStyle(prose.closest(".seat-threads__bubble")!);
+        const blockCs = getComputedStyle(prose.closest(".seat-threads__block, .seat-threads__body")!);
         const textWidth = proseBox.width;
-        void bubbleCs;
+        const block = { background: blockCs.backgroundColor, border: blockCs.borderTopColor, radius: blockCs.borderTopLeftRadius };
         const font = getComputedStyle(prose).fontSize;
         const title = getComputedStyle(document.querySelector(".seat-threads__chat-title")!).fontFamily;
         const probe = document.createElement("span");
@@ -267,12 +281,14 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
         document.body.appendChild(probe);
         const body = getComputedStyle(probe).fontFamily;
         probe.remove();
-        return { lines: tops.size, chars, perLine: Math.max(...perLineList), perLineList, textWidth: Math.round(textWidth), font, title, body };
+        return { lines: tops.size, chars, perLine: Math.max(...perLineList), perLineList, textWidth: Math.round(textWidth), font, title, body, block };
       });
-      report.push(`(4) ${label}: ${lines.lines} lines, ${lines.chars} characters, lines of ${JSON.stringify(lines.perLineList)} characters (longest ${lines.perLine}), text column ${lines.textWidth}px at ${lines.font}; chat title face ${lines.title === lines.body ? "body (proportional)" : "NOT body"} (${lines.title.slice(0, 40)})`);
+      report.push(`(4) ${label}: ${lines.lines} lines, ${lines.chars} characters, lines of ${JSON.stringify(lines.perLineList)} characters (longest ${lines.perLine}), text column ${lines.textWidth}px at ${lines.font}; chat title face ${lines.title === lines.body ? "body (proportional)" : "NOT body"} (${lines.title.slice(0, 40)}); operator block ${JSON.stringify(lines.block)}`);
       expect(lines.title, "the chat title is in the body face").toBe(lines.body);
-      // The 80ch cap is in the ch unit (the width of a zero), so prose of narrower average glyphs runs longer; the numbers are the report.
-      expect(lines.textWidth, "the text column holds the 80ch cap").toBeLessThanOrEqual(600);
+      // 34em: the measure follows the reading size, so a line stays 66 to 72 characters.
+      expect(lines.textWidth, "the text column holds the 34em measure").toBeLessThanOrEqual(545);
+      expect(lines.font, "prose is the reading step").toBe("16px");
+      expect(lines.perLine, "a line is 66 to 72 characters").toBeLessThanOrEqual(80);
       report.push(`(4) ${label}: bubble ${Math.round(m.bubbleWidth)} of chat ${m.streamWidth} = ${ratio.toFixed(3)}; prose face ${m.prose === m.body ? "body" : "NOT body"} (${m.prose.slice(0, 40)}); head face ${m.head === m.mono ? "mono" : "NOT mono"} (${m.head.slice(0, 40)}); parts ${JSON.stringify(m.nameParts)}`);
       expect(ratio, "bubble reaches up to 92% of the chat").toBeLessThanOrEqual(0.93);
       expect(m.prose, "prose is in the body face").toBe(m.body);

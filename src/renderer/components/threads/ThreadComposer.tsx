@@ -131,49 +131,49 @@ export function ThreadComposer({
           data-testid="thread-composer-input"
           onKeyDown={onKeyDown}
         />
-      </div>
-      <AttachmentTray attachments={attachments} />
-      <div className="thread-composer__foot">
-        {failure ? (
-          <span className="thread-composer__failure" role="alert" data-testid="thread-composer-failure">
-            {failure}
-          </span>
-        ) : long.notice ? (
-          <span
-            className={long.blocked ? "thread-composer__failure" : "thread-composer__hint"}
-            role="status"
-            data-testid="thread-composer-long-text"
+        <AttachmentTray attachments={attachments} />
+        <div className="thread-composer__bar">
+          {failure ? (
+            <span className="thread-composer__failure" role="alert" data-testid="thread-composer-failure">
+              {failure}
+            </span>
+          ) : long.notice ? (
+            <span
+              className={long.blocked ? "thread-composer__failure" : "thread-composer__hint"}
+              role="status"
+              data-testid="thread-composer-long-text"
+            >
+              {long.notice}
+            </span>
+          ) : uploading ? (
+            <span className="thread-composer__hint" data-testid="thread-composer-uploading">
+              Attaching files, then it sends.
+            </span>
+          ) : hasFiles && attachments.ready === undefined ? (
+            <span className="thread-composer__hint" data-testid="thread-composer-file-failed">
+              Remove the file that did not attach, or add it again.
+            </span>
+          ) : (
+            <span className="thread-composer__hint">
+              {mode === "reply" ? `Enter sends, Shift+Enter is a new line, ${wired}` : wired}
+            </span>
+          )}
+          <AttachButton attachments={attachments} disabled={sending} />
+          {mode === "new" && onCancel ? (
+            <Button size="sm" variant="chrome" disabled={sending} onClick={onCancel}>
+              Cancel
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={sending || unsendable}
+            data-testid="thread-composer-send"
+            onClick={() => void send()}
           >
-            {long.notice}
-          </span>
-        ) : uploading ? (
-          <span className="thread-composer__hint" data-testid="thread-composer-uploading">
-            Attaching files, then it sends.
-          </span>
-        ) : hasFiles && attachments.ready === undefined ? (
-          <span className="thread-composer__hint" data-testid="thread-composer-file-failed">
-            Remove the file that did not attach, or add it again.
-          </span>
-        ) : (
-          <span className="thread-composer__hint">
-            {mode === "reply" ? `Enter sends, Shift+Enter is a new line, ${wired}` : wired}
-          </span>
-        )}
-        <AttachButton attachments={attachments} disabled={sending} />
-        {mode === "new" && onCancel ? (
-          <Button size="sm" variant="chrome" disabled={sending} onClick={onCancel}>
-            Cancel
+            {mode === "new" ? "Start thread" : "Send"}
           </Button>
-        ) : null}
-        <Button
-          size="sm"
-          variant="chrome"
-          disabled={sending || unsendable}
-          data-testid="thread-composer-send"
-          onClick={() => void send()}
-        >
-          {mode === "new" ? "Start thread" : "Send"}
-        </Button>
+        </div>
       </div>
     </div>
   );

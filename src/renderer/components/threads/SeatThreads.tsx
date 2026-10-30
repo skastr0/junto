@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
 import { parseMentionHref } from "@shared/mention";
+import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import {
   betweenLine,
@@ -8,7 +9,6 @@ import {
   loadMoreSeatThreads,
   loadOlderMessages,
   markSeatThreadRead,
-  participantsLine,
   previewText,
   threadTime,
   useSeatThreadMessages,
@@ -26,11 +26,12 @@ import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
 import { PaneHeader, TwoPane } from "../ui/TwoPane";
 import { FocusSurface } from "../FocusSurface";
+import { AgentPortrait } from "../AgentPortrait";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
-import { rehypeThreadInlineIds } from "./thread-inline-ids";
+import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
 
 /**
@@ -66,7 +67,23 @@ export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; 
 }
 
 /** The markdown passes a thread needs, held once so a message's render stays memoized. */
-const THREAD_MARKDOWN_PLUGINS = [rehypeThreadInlineIds];
+const THREAD_MARKDOWN_PLUGINS = [rehypeThreadInlineIds, rehypeThreadCodeWells];
+
+/**
+ * A seat's portrait identity, read back from the name a thread carries: a seat
+ * is its node id, so the canvas says which node wears that name, and a peer or
+ * a removed seat wears the portrait its name draws.
+ */
+function usePortraitOf(canvasName: string): (author: string) => string {
+  const nodes = useCanvas(canvasName).nodes;
+  return useMemo(() => {
+    const byTitle = new Map<string, string>();
+    for (const node of nodes.values()) {
+      if (node.kind === "agent" || node.kind === "peer") byTitle.set(titleOf(node), node.id);
+    }
+    return (author: string): string => byTitle.get(author) ?? author;
+  }, [nodes]);
+}
 
 /**
  * A thread's line as it is drawn: its words, with each long id as the token
@@ -94,6 +111,8 @@ function Headline({ text, known }: { readonly text: string; readonly known: Read
 const LIST_NEAR_END = 400;
 /** How far from the chat's top, in pixels, the next older page is asked for. */
 const CHAT_NEAR_TOP = 240;
+/** Two messages from one seat this close together share a head: the second folds. */
+const FOLD_MS = 10 * 60 * 1000;
 
 type Selection =
   | {
@@ -127,6 +146,7 @@ export function SeatThreadsPopup({
   readonly onClose: () => void;
 }) {
   const { threads, loaded, error, next, loadingMore } = useSeatThreads(seat);
+  const portraitOf = usePortraitOf(seat.canvasName);
   const listRef = useRef<HTMLElement>(null);
   // The next older page when the list is scrolled near its end, or when what
   // is read does not yet fill the column and so cannot be scrolled. After a
@@ -183,17 +203,21 @@ export function SeatThreadsPopup({
         type="button"
         className="seat-threads__row"
         data-selected={shown?.kind === "thread" && shown.threadId === item.threadId ? "true" : undefined}
+        data-unread={item.unread > 0 ? "true" : undefined}
         data-testid="seat-threads-row"
         data-thread-id={item.threadId}
         aria-current={shown?.kind === "thread" && shown.threadId === item.threadId ? "true" : undefined}
         onClick={() => setSelection({ kind: "thread", threadId: item.threadId })}
       >
-        <span className="seat-threads__row-title">
-          {item.subject && item.subject.kind !== "file" ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
-          <Headline text={item.title} known={item.participants} />
-        </span>
-        <span className="seat-threads__row-meta">
-          <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
+        <span className="seat-threads__row-top">
+          {item.last.author === "you" ? (
+            <span className="seat-threads__row-you" aria-hidden="true">
+              Y
+            </span>
+          ) : (
+            <AgentPortrait identity={portraitOf(item.last.author)} size={18} frame="round" badge={false} outline={false} />
+          )}
+          <span className="seat-threads__row-who">{item.last.author === "you" ? "You" : item.last.author}</span>
           {item.unread > 0 ? (
             <span
               className="seat-threads__row-unread"
@@ -205,6 +229,15 @@ export function SeatThreadsPopup({
             </span>
           ) : null}
           <span className="seat-threads__row-time">{threadTime(item.lastAt)}</span>
+        </span>
+        {item.subject && item.subject.kind !== "file" ? (
+          <span className="seat-threads__row-subject">
+            <ResourceGlyphMark kind={item.subject.kind} />
+            {previewText(item.title)}
+          </span>
+        ) : null}
+        <span className="seat-threads__row-preview">
+          <Headline text={item.last.text} known={[item.last.author]} />
         </span>
       </button>
     </li>
@@ -357,6 +390,7 @@ function ThreadChat({
     },
     [kindOf, onLeave],
   );
+  const portraitOf = usePortraitOf(seat.canvasName);
   const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
   const streamRef = useRef<HTMLDivElement>(null);
   const held = useRef<{ threadId: string; first?: string; last?: string; height: number } | undefined>(undefined);
@@ -415,40 +449,55 @@ function ThreadChat({
         tabIndex={0}
         onScroll={() => fillStream(true)}
       >
-        {older !== undefined ? (
-          <p className="seat-threads__note seat-threads__note--center" data-testid="seat-threads-older">
-            Reading earlier messages…
-          </p>
-        ) : null}
-        {error ? (
-          <p className="seat-threads__note seat-threads__note--error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {loaded && messages.length === 0 && !error ? <p className="seat-threads__empty">Nothing sent yet.</p> : null}
-        {messages.map((message) => (
-          <article
-            key={message.messageId}
-            className="seat-threads__message"
-            data-mine={message.mine ? "true" : undefined}
-            data-testid="seat-threads-message"
-          >
-            <div className="seat-threads__message-head">
-              <strong>{message.author}</strong> {threadTime(message.at)}
-            </div>
-            {message.text !== "" || message.attachments === undefined ? (
-              <div className="seat-threads__bubble">
-                <ArtifactMarkdown
-                  source={stripAuthorPreamble(message.text, [message.author])}
-                  className="seat-threads__prose"
-                  renderLink={renderLink}
-                  rehypePlugins={THREAD_MARKDOWN_PLUGINS}
-                />
-              </div>
-            ) : null}
-            {message.attachments ? <MessageAttachments files={message.attachments} /> : null}
-          </article>
-        ))}
+        <div className="seat-threads__column">
+          {older !== undefined ? (
+            <p className="seat-threads__note seat-threads__note--center" data-testid="seat-threads-older">
+              Reading earlier messages…
+            </p>
+          ) : null}
+          {error ? (
+            <p className="seat-threads__note seat-threads__note--error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {loaded && messages.length === 0 && !error ? <p className="seat-threads__empty">Nothing sent yet.</p> : null}
+          {messages.map((message, index) => {
+            const previous = messages[index - 1];
+            // The same seat writing twice in a row says its name once; the folded
+            // head stays in the document, so a reader still hears who is speaking.
+            const folded = previous !== undefined && previous.author === message.author && message.at - previous.at < FOLD_MS;
+            return (
+              <article
+                key={message.messageId}
+                className="seat-threads__message"
+                data-mine={message.mine ? "true" : undefined}
+                data-folded={folded ? "true" : undefined}
+                data-testid="seat-threads-message"
+              >
+                <div className={folded ? "seat-threads__message-head sr-only" : "seat-threads__message-head"}>
+                  {message.mine ? null : (
+                    <AgentPortrait identity={portraitOf(message.author)} size={20} frame="round" badge={false} outline={false} />
+                  )}
+                  <strong>{message.mine ? "You" : message.author}</strong>{" "}
+                  <time className="seat-threads__message-time" dateTime={new Date(message.at).toISOString()}>
+                    {threadTime(message.at)}
+                  </time>
+                </div>
+                {message.text !== "" || message.attachments === undefined ? (
+                  <div className={message.mine ? "seat-threads__block" : "seat-threads__body"}>
+                    <ArtifactMarkdown
+                      source={stripAuthorPreamble(message.text, [message.author])}
+                      className="seat-threads__prose"
+                      renderLink={renderLink}
+                      rehypePlugins={THREAD_MARKDOWN_PLUGINS}
+                    />
+                  </div>
+                ) : null}
+                {message.attachments ? <MessageAttachments files={message.attachments} /> : null}
+              </article>
+            );
+          })}
+        </div>
       </div>
       {thread.canReply ? (
         <ThreadComposer

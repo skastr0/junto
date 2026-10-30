@@ -15,6 +15,7 @@ import {
   THREAD_TEXT_MAX,
   betweenLine,
   juntoSeatThreadsSource,
+  previewText,
   groupSeatThreads,
   participantsLine,
   refreshSeatThreads,
@@ -350,8 +351,8 @@ describe("main's threads IPC as the source", () => {
     // Each list is read on its own: the operator's, and the one between seats (0.11.5).
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "with-you" });
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "between" });
-    expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
-    expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
+    expect(q("seat-threads-with-you")?.textContent).toContain("You");
+    expect(all("seat-threads-message")[0]?.textContent).toContain("You 01:02");
     // The row previews the latest mail without reading the thread: it rides the list page,
     // with the operator named as this surface names them.
     const page = await juntoSeatThreadsSource()!.list({ canvasName: "factory", seatId: "seat-1", group: "with-you" });
@@ -397,14 +398,15 @@ describe("the Threads popup", () => {
     expect([...between.querySelectorAll("[data-thread-id]")].map((row) => row.getAttribute("data-thread-id"))).toEqual([
       "reader",
     ]);
-    expect(withYou.textContent).toContain("you, pty-lead, +1");
+    // A row leads with who wrote last, not with everyone who is in it.
+    expect(withYou.textContent).toContain("pty-lead");
     expect(withYou.textContent).toContain("01:12");
   });
 
   it("opens on the newest thread with you, oldest first, the operator's own on the right", async () => {
     await open();
     const messages = all("seat-threads-message");
-    expect(messages.map((message) => message.querySelector(".seat-threads__bubble")?.textContent)).toEqual([
+    expect(messages.map((message) => message.querySelector(".seat-threads__prose")?.textContent)).toEqual([
       "Move them into junto.db.",
       "On it.",
     ]);
@@ -454,6 +456,13 @@ describe("the Threads popup", () => {
     expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBeNull();
   });
 
+  it("reads a mention as its label in a row, never as the address it is written as", () => {
+    expect(previewText("Status with **bold** and `code`, ask [@Bravo](junto://canvas/seat-threads?node=bravo) about it")).toBe(
+      "Status with bold and code, ask @Bravo about it",
+    );
+    expect(previewText("keep snake_case and __init__")).toBe("keep snake_case and __init__");
+  });
+
   it("opens a thread on a named stream that takes the keyboard, under an h2 subject", async () => {
     await open();
     const stream = q("seat-threads-stream")!;
@@ -469,7 +478,7 @@ describe("the Threads popup", () => {
     state.messages.notes = [{ messageId: "m1", author: "product-lead", mine: false, text, at: at(1, 2) }];
     change();
     await flush();
-    const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__bubble")!;
+    const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__prose")!;
     expect(bubble.textContent).toContain("the list row leads with the words, not the tag.");
     expect(bubble.textContent).not.toContain("product-lead:");
     // Render only: the mail main holds is unchanged, so unread counts read the same words.
@@ -502,15 +511,22 @@ describe("the Threads popup", () => {
     state.threads = [
       thread({
         threadId: "tagged",
-        title: "Review ask, from product-feed: the Needs you feed's filters, 01M65NSRWSB3PCSBAG7N44SHXN",
+        title: "Review ask, from product-feed: the Needs you feed's filters",
         participants: ["you", "product-feed"],
         lastAt: at(4, 0),
+        last: {
+          messageId: "tagged-last",
+          author: "product-feed",
+          mine: false,
+          text: "Review ask, from product-feed: the Needs you feed's filters, 01M65NSRWSB3PCSBAG7N44SHXN",
+          at: at(4, 0),
+        },
       }),
       ...state.threads,
     ];
     change();
     await flush();
-    const row = document.querySelector('[data-thread-id="tagged"] .seat-threads__row-title')!;
+    const row = document.querySelector('[data-thread-id="tagged"] .seat-threads__row-preview')!;
     expect(row.textContent).toBe("Review ask, the Needs you feed's filters, 01M65NSRWSB3PCSBAG7N44SHXN");
     // A row is a button whose name is its text: the whole id is in it, and the
     // stylesheet, not the string, is what cuts the eye's copy.
@@ -530,7 +546,7 @@ describe("the Threads popup", () => {
     ];
     change();
     await flush();
-    const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__bubble")!;
+    const bubble = all("seat-threads-message")[0]!.querySelector(".seat-threads__prose")!;
     expect(bubble.querySelector("strong")?.textContent).toBe("V");
     expect(bubble.querySelector("em")?.textContent).toBe("I");
     expect(bubble.querySelector("code")?.textContent).toBe("junto.db");
@@ -539,16 +555,17 @@ describe("the Threads popup", () => {
     expect(chipLabels()).toEqual(["@cli-lead"]);
   });
 
-  it("lists a thread by its first line as words, and heads it with the whole subject on hover", async () => {
+  it("heads a thread with its subject as words, the whole of it on hover, and previews its latest mail", async () => {
     const fixture = fake();
     fixture.state.threads = [thread({ threadId: "notes", title: "Ship **V** with `junto.db` in place, keep __init__" })];
     setSeatThreadsSource(fixture.source);
     await render();
     await click(q("seat-threads-button"));
-    expect(document.querySelector(".seat-threads__row-title")?.textContent).toBe("Ship V with junto.db in place, keep __init__");
     const title = document.querySelector(".seat-threads__chat-title");
     expect(title?.textContent).toBe("Ship V with junto.db in place, keep __init__");
     expect(title?.getAttribute("title")).toBe("Ship **V** with `junto.db` in place, keep __init__");
+    // The row previews the words of the latest mail, which is not the subject.
+    expect(document.querySelector('[data-thread-id="notes"] .seat-threads__row-preview')?.textContent).toBe("notes");
   });
 
   it("closes and lets go of the source when nothing holds it", async () => {
@@ -578,7 +595,7 @@ describe("files on a message", () => {
     expect(chip?.getAttribute("data-kind")).toBe("file");
     expect(chip?.textContent).toContain("plan.pdf");
     expect(chip?.textContent).toContain("application/pdf, 3.0 MB");
-    expect(document.querySelector(".seat-threads__message .seat-threads__bubble")).toBeNull();
+    expect(document.querySelector(".seat-threads__message .seat-threads__body, .seat-threads__message .seat-threads__block")).toBeNull();
     // An image the renderer cannot draw falls back to the chip.
     act(() => thumb?.querySelector("img")?.dispatchEvent(new Event("error")));
     expect(all("seat-threads-attachment")[0]?.getAttribute("data-kind")).toBe("file");
@@ -793,7 +810,7 @@ describe("the thread composer", () => {
     change();
     await flush();
     expect(all("seat-threads-mention")).toEqual([]);
-    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe(
+    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__prose")?.textContent).toBe(
       "Thanks. @cli-lead check it, and @pty-lead or @nobody.",
     );
     expect(q("seat-threads")?.querySelector(".seat-threads__chat-meta")?.textContent).not.toContain("cli-lead");
@@ -814,7 +831,7 @@ describe("the thread composer", () => {
     await flush();
     expect(chipLabels()).toEqual(["@cli-lead"]);
     expect(all("seat-threads-mention")[0]?.tagName).toBe("BUTTON");
-    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe("Ask @cli-lead, Seat first.");
+    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__prose")?.textContent).toBe("Ask @cli-lead, Seat first.");
   });
 
   it("a comment thread shows its subject: a glyph in the list, a chip in the header that opens it", async () => {
@@ -832,8 +849,8 @@ describe("the thread composer", () => {
     change();
     await flush();
     const row = document.querySelector('[data-thread-id="on-task"]')!;
-    expect(row.querySelector(".seat-threads__row-title svg")).not.toBeNull();
-    expect(document.querySelector('[data-thread-id="notes"] .seat-threads__row-title svg')).toBeNull();
+    expect(row.querySelector(".seat-threads__row-subject svg")).not.toBeNull();
+    expect(document.querySelector('[data-thread-id="notes"] .seat-threads__row-subject svg')).toBeNull();
     await click(row);
     const subject = q("seat-threads-subject")!;
     expect(subject.querySelector(".resource-chip__number")?.textContent).toBe("#42");
@@ -907,7 +924,8 @@ describe("paging in the popup", () => {
     // jsdom lays nothing out: a row is ROW tall and the panes VIEW.
     define("scrollHeight", function () {
       const rows = this.querySelectorAll('[data-testid="seat-threads-row"]').length;
-      return (rows > 0 ? rows : this.children.length) * ROW;
+      const messages = this.querySelectorAll('[data-testid="seat-threads-message"]').length;
+      return (rows > 0 ? rows : messages > 0 ? messages : this.children.length) * ROW;
     });
     define("clientHeight", () => VIEW);
   });

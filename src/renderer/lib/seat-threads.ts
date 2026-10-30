@@ -617,11 +617,16 @@ export const participantsLine = (participants: ReadonlyArray<string>): string =>
 };
 
 /**
- * A thread's title as a line of words: the markers markdown would draw (bold,
- * strike, inline code) are dropped, since a list row and a header do not
- * render markdown. Underscores stay: names like snake_case and __init__ carry them.
+ * A line of words for a place that does not render markdown: a list row, a
+ * header. The markers markdown would draw (bold, strike, inline code) are
+ * dropped, and a link reads as its label, so a mention shows as "@Bravo" and
+ * not as the address it is written as. Underscores stay: names like
+ * snake_case and __init__ carry them.
  */
-export const previewText = (title: string): string => title.replace(/\*\*|~~|`/g, "");
+export const previewText = (title: string): string =>
+  title
+    .replace(/\[([^\]]*)\]\([^)]*\)/gu, "$1")
+    .replace(/\*\*|~~|`/g, "");
 
 /** "Between cli-lead and pty-lead.", for a read-only thread. */
 export const betweenLine = (participants: ReadonlyArray<string>): string => {

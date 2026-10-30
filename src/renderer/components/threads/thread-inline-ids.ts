@@ -38,3 +38,13 @@ const walkIds = (node: HastNode): void => {
 
 /** The rehype pass: each long id is its own token. */
 export const rehypeThreadInlineIds = () => (tree: HastNode): void => walkIds(tree);
+
+/** A code well scrolls sideways: it takes the keyboard, so its last line is reachable. */
+const walkWells = (node: HastNode): void => {
+  if (!Array.isArray(node.children)) return;
+  if (node.type === "element" && node.tagName === "pre") node.properties = { ...node.properties, tabIndex: 0 };
+  for (const child of node.children) walkWells(child);
+};
+
+/** The rehype pass: every fenced block is a control that scrolls. */
+export const rehypeThreadCodeWells = () => (tree: HastNode): void => walkWells(tree);
