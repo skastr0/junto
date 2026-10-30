@@ -10,7 +10,9 @@
  * shortcut typed in a terminal.
  *
  * Junto's own global key listeners ignore modifier-only keys
- * (focus-ownership.ts, modal-stack.ts), so nothing of ours needs these.
+ * (focus-ownership.ts, modal-stack.ts), or only act while the canvas owns the
+ * keyboard (CanvasKeyboardPan.tsx reads Shift from event.shiftKey when a pan
+ * starts), so nothing of ours needs these from a terminal.
  * Only keydown stops. The keyup still travels, so a Shift pressed on the
  * canvas and released in the terminal is never left held down in xyflow,
  * and a keyup for a press xyflow never saw changes no state.
