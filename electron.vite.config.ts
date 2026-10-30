@@ -1,71 +1,28 @@
 import { resolve } from "node:path";
-import { buildIdentity } from "./scripts/build-identity";
-import { clearBuildSourceStamp, writeBuildSourceStamp } from "./scripts/build-source-stamp";
-import { machineReleaseCatalogForBuild, machineReleaseCatalogConstant } from "./scripts/machine-release-catalog";
+import { writeBuildSourceStamp } from "./scripts/build-source-stamp";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import {
-  featureViteDefines,
-  resolveBuildFeatures,
-} from "./scripts/build-features";
-import { OVERLAY_PREVIEW_MODE, overlayAlias, overlayDepsPlugin, resolveOverlay } from "./scripts/overlay";
+import { buildContext, mainBuildSection } from "./scripts/vite-sections";
+import { overlayDepsPlugin } from "./scripts/overlay";
 import { preloadBundleGuard } from "./scripts/preload-bundle-guard";
-import { electronNamespaceImports } from "./scripts/electron-namespace-imports";
 
 export default defineConfig(({ command, mode }) => {
-  // Plus is preview-only until checkout and entitlement delivery are released.
-  // Vite's build command/mode, not NODE_ENV or an ambient override, owns intent.
-  const preview = command === "serve" || mode === OVERLAY_PREVIEW_MODE;
-  const overlay = resolveOverlay(process.env, undefined, preview ? "preview" : "production");
-
-  const alias = {
-    "@main": resolve("src/main"),
-    "@preload": resolve("src/preload"),
-    "@renderer": resolve("src/renderer"),
-    "@shared": resolve("src/shared"),
-    ...overlayAlias(overlay),
-  };
-
-  // Build-time update feed only — never honored as a runtime env override.
-  // Empty → macArm64UpdateFeed() uses the interim/public default in compiled-config.
-  const updateFeedUrl = (process.env.JUNTO_MAC_UPDATE_FEED_URL ?? "").trim();
-  const updateDefines = {
-    __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
-  };
-
-  const resolvedBuildFeatures = resolveBuildFeatures(process.env);
-  const machineCatalog = machineReleaseCatalogForBuild(process.cwd(), preview);
-
-  const productDefines = {
-    __JUNTO_BUILD_ID__: JSON.stringify(buildIdentity(process.cwd())),
-    __JUNTO_PREVIEW_BUILD__: JSON.stringify(process.env.JUNTO_PREVIEW_BUILD === "1"),
-    __JUNTO_MACHINE_RELEASE_CATALOG__: machineCatalog === undefined ? "undefined" : JSON.stringify(machineReleaseCatalogConstant(machineCatalog)),
-    ...updateDefines,
-    __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
-    __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),
-    // The open-source build folds every premium branch away (docs/overlay.md).
-    __JUNTO_PREMIUM__: JSON.stringify(overlay.kind === "official"),
-    ...featureViteDefines(resolvedBuildFeatures),
-  };
+  const { overlay, alias, productDefines } = buildContext({ command, mode });
+  // Dev keeps both entries in one build: the app forks out/main/core-process.js,
+  // and a second watcher for it would be a build system of its own. The
+  // production build splits them (electron.core.vite.config.ts), so a module
+  // only the core needs cannot ride a chunk the window also loads.
+  const mainInput =
+    command === "serve"
+      ? {
+          index: resolve("src/main/index.ts"),
+          "core-process": resolve("src/main/core-process/entry.ts"),
+        }
+      : { index: resolve("src/main/index.ts") };
 
   return {
-    main: {
-      plugins: [clearBuildSourceStamp(process.cwd()), externalizeDepsPlugin(), overlayDepsPlugin(overlay), electronNamespaceImports()],
-      resolve: { alias },
-      define: productDefines,
-      // The core process entry is built with main, not as a `?modulePath`
-      // sub-build: that one runs without main's plugins, so its `?nodeWorker`
-      // imports (the state workers) have no default and the build fails.
-      build: {
-        rollupOptions: {
-          input: {
-            index: resolve("src/main/index.ts"),
-            "core-process": resolve("src/main/core-process/entry.ts"),
-          },
-        },
-      },
-    },
+    main: mainBuildSection({ command, mode, input: mainInput, stampBuild: true }),
     preload: {
       // The sandboxed preload carries only src/preload, src/shared and
       // require("electron"); anything else fails the build.
