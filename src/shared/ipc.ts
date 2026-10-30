@@ -2,6 +2,7 @@ import type { MentionIpcApi } from "./mention-ipc";
 import type { ArtifactLinksApi } from "./artifact-links-ipc";
 import type { ResourceIpcApi } from "./resource-ipc";
 import type { MachineInventory } from "./harness-domain/inventory";
+import type { AuthorityWindowData } from "./authority";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
 import type { WorkAttentionSnapshot } from "./work-attention";
@@ -476,6 +477,10 @@ export const IPC_CHANNELS = {
   managedTerminalFlags: "junto:managed-terminal-flags",
   /** One machine's harness inventory snapshot (docs/machines.md, Harness inventory). */
   machineInventory: "junto:machine-inventory",
+  /** This machine's canvas authorities (0.11/06 F5); null with the authority off. */
+  authorityRead: "junto:authority-read",
+  /** The authority read changed (a commit, a list edit, alone): read it again. */
+  authorityChanged: "junto:authority-changed",
   /** Declared keys of a harness's own config, read on the machine that holds it. */
   nativeSettingsRead: "junto:native-settings-read",
   /** One declared key written by the machine's own Junto, answered as read back. */
@@ -1418,6 +1423,10 @@ export interface JuntoTerminalApi {
   readonly managedTerminalHarnesses: () => Promise<ManagedTerminalHarnessesResult>;
   /** One machine's harness inventory, answered at once from that machine's cache. */
   readonly machineInventory: (machine: string) => Promise<MachineInventoryResult>;
+  /** This machine's canvas authorities for every canvas it holds; null with the authority off. */
+  readonly authorityRead: () => Promise<AuthorityWindowData | null>;
+  /** The authority read changed; read it again. Returns its own unsubscribe. */
+  readonly onAuthorityChanged: (listener: () => void) => () => void;
   /** Declared keys of a harness's own config on a machine, read by that machine. */
   readonly nativeSettingsRead: (input: {
     readonly machine: string;

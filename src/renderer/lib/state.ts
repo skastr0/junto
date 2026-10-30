@@ -99,6 +99,8 @@ export const state$ = observable({
   machineFacts: {} as Record<string, MachineFacts>,
   /** The Machines window is open. What it shows lives with it (lib/machines-actions.ts). */
   machinesOpen: false,
+  /** A machine the next Machines window mount selects (the authority banner's chip); empty, none. */
+  machinesRequested: "",
   digest: null as DigestResult | null,
   digestOpen: false,
   exporting: false,

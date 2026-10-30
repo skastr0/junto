@@ -808,6 +808,8 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.managedTerminalHarnesses, IPC_TIMEOUT_MS),
   machineInventory: (machine) =>
     invoke(IPC_CHANNELS.machineInventory, IPC_TIMEOUT_MS, machine),
+  authorityRead: () => invoke(IPC_CHANNELS.authorityRead, IPC_TIMEOUT_MS),
+  onAuthorityChanged: (listener) => subscribe<void>(IPC_CHANNELS.authorityChanged, listener),
   nativeSettingsRead: (input) =>
     invoke(IPC_CHANNELS.nativeSettingsRead, IPC_TIMEOUT_MS, input),
   nativeSettingWrite: (write) =>

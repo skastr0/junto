@@ -53,6 +53,7 @@ import { Command, CanvasName, asNodeId } from "@shared/model";
 
 import {
   ARTIFACTS_ENABLED,
+  AUTHORITY_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   productNodeKindEnabled,
@@ -62,6 +63,8 @@ import {
 } from "@shared/features";
 import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
+import { CanvasAuthorities } from "./fleet/authorities";
+import type { AuthorityWindowData } from "@shared/authority";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { registerViewStateIpc } from "./view-state/ipc";
@@ -393,6 +396,19 @@ export const registerJuntoIpc = (): void => {
   if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc);
   }
+  // The authority read (0.11/06 F5): null with the authority off, so a ship window shows none of it.
+  privilegedIpc.handle(IPC_CHANNELS.authorityRead, () =>
+    AppRuntime.runPromise(
+      Effect.gen(function* () {
+        if (!AUTHORITY_ENABLED) return null;
+        const host = yield* Effect.serviceOption(CanvasAuthorities);
+        if (Option.isNone(host)) return null;
+        const machines = yield* host.value.machines();
+        const canvases = yield* host.value.status();
+        return { self: machines.self, machines: machines.machines, canvases } satisfies AuthorityWindowData;
+      }).pipe(Effect.catch(() => Effect.succeed(null))),
+    ),
+  );
   registerUpdateIpc(
     privilegedIpc,
     broadcast,

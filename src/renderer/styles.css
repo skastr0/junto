@@ -2949,3 +2949,53 @@ button.actor-ledger__item-row:focus-visible {
   padding: 12px;
   text-align: center;
 }
+
+/* The authority banner (0.11/06 F5): a state, never a message. Read-only is
+   the amber frame and tint of the selected machine card; waiting is neutral.
+   The list is chips in the operator's order, each a button to the Machines
+   window. No motion: the banner appears and leaves with the state. */
+.authority-banner {
+  position: relative;
+  display: flex;
+  max-width: min(680px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 30px var(--color-shadow-2);
+}
+.authority-banner--read-only {
+  border: 1px solid color-mix(in oklab, var(--color-amber) 50%, transparent);
+  background: color-mix(in oklab, var(--color-amber) 10%, var(--color-raise));
+}
+.authority-banner--waiting {
+  border: 1px solid var(--color-stroke);
+  background: var(--color-raise);
+}
+.authority-banner__heading { display: flex; flex-direction: column; gap: 2px; }
+.authority-banner__title { color: var(--color-ink); font-size: var(--text-title); font-weight: 600; }
+.authority-banner__states { color: var(--color-dim); font-size: var(--text-body); }
+.authority-banner__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.authority-banner__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+.authority-banner__chip[data-role="ruling"] { border-color: var(--color-stroke-hi); }
+.authority-banner__chip[data-role="unreachable"],
+.authority-banner__chip[data-role="not-linked"] {
+  border-color: color-mix(in oklab, var(--color-amber) 50%, transparent);
+}
+.authority-banner__chip[data-role="unreachable"] .authority-banner__words,
+.authority-banner__chip[data-role="not-linked"] .authority-banner__words { color: var(--color-amber-fg); }
+.authority-banner__chip[data-role="ruling"] .authority-banner__words { color: var(--color-ink); }
+.authority-banner__position { color: var(--color-dim); }
+.authority-banner__label { color: var(--color-ink); }
+.authority-banner__words { color: var(--color-dim); }
+.authority-banner__line { color: var(--color-dim); font-size: var(--text-body); margin: 0; }

@@ -16,9 +16,15 @@ export const prefetchMachinesWindow = (): void => {
   });
 };
 
-export const openMachines = (): void => {
+/**
+ * Open the Machines window, on `machine` when one is named (the authority
+ * banner's chips open the machine they stand for). The shelf selection is the
+ * window's own; the request is read once, when the window mounts.
+ */
+export const openMachines = (machine?: string): void => {
   if (!FLEET_UI_ENABLED) return;
   prefetchMachinesWindow();
+  state$.machinesRequested.set(machine ?? "");
   state$.machinesOpen.set(true);
 };
 

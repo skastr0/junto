@@ -209,6 +209,31 @@ const noAuthorityLine = (
     ? `${machine.label} reachable but not taking changes`
     : authorityMachineLine(machine, when);
 
+/** The banner chips' joined sentence: the list's accessible name, and the live text. */
+export const authorityMachineSentence = (
+  view: AuthorityView,
+  when: (at: number) => string,
+): string => machineStates(view, when);
+
+/**
+ * One chip's state words. A chip names its machine already, so this machine
+ * reads `not taking changes` rather than the sentence's `this machine`; while
+ * an authority is reachable the ruling machine takes changes and every other
+ * reachable one stands by.
+ */
+export const authorityChipWords = (
+  view: AuthorityView,
+  machine: AuthorityMachineView,
+  when: (at: number) => string,
+): string => {
+  if (!view.authorityReachable) {
+    return machine.reach === "here" ? "not taking changes" : noAuthorityLine(machine, when);
+  }
+  if (machine.isAuthority) return "takes changes";
+  if (machine.reach === "reachable" || machine.reach === "here") return "stands by";
+  return authorityMachineLine(machine, when);
+};
+
 const asSentence = (text: string): string => (text === "" ? text : `${text[0]!.toUpperCase()}${text.slice(1)}`);
 
 /** How many machines a reason names before it stops; the list stays readable. */
@@ -339,6 +364,18 @@ export const AuthorityCanvasStatus = Schema.Struct({
   waiting: AuthorityWaiting,
 });
 export type AuthorityCanvasStatus = typeof AuthorityCanvasStatus.Type;
+
+/**
+ * What the window reads for every canvas it holds (0.11/06 F5): the driver's
+ * reads and this machine's machine names, from which the one view is built.
+ * Null in a build with the authority off.
+ */
+export const AuthorityWindowData = Schema.Struct({
+  self: AuthorityMachineFacts,
+  machines: Schema.Array(AuthorityMachineFacts),
+  canvases: Schema.Array(AuthorityRead),
+});
+export type AuthorityWindowData = typeof AuthorityWindowData.Type;
 
 export const AuthorityStatusData = Schema.Struct({
   self: AuthorityMachineFacts,

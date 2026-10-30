@@ -61,10 +61,13 @@ import { StoreHost } from "./overlay/surfaces";
 import { AgentEditorHost } from "./components/agent-editor/AgentEditor";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
+  AUTHORITY_ENABLED,
   FLEET_UI_ENABLED,
   LIVE_OVERSEER_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
+import { AuthorityBanner } from "./components/fleet/AuthorityBanner";
+import { followAuthority } from "./lib/authority";
 // The Machines window is behind a flag. The define identifier must wrap
 // import() in this module so ship builds can drop the chunk; imported
 // FLEET_UI_ENABLED is not visible to Rollup DCE.
@@ -343,6 +346,8 @@ export function App() {
   const machinesOpen = use$(state$.machinesOpen);
   const errorAction = retryActionForError(error);
 
+  useEffect(() => followAuthority(), []);
+
   useEffect(() => {
     if (!window.junto) {
       state$.error.set("Electron preload bridge is not available.");
@@ -581,6 +586,12 @@ export function App() {
       <div className="junto-stage flex min-h-0 flex-1">
         {/* Canvas column shrinks when the dock opens; overlays anchor to it. */}
         <div className="junto-stage-main relative min-w-0 flex-1">
+        {AUTHORITY_ENABLED ? (
+          <div className={`absolute left-1/2 z-40 -translate-x-1/2 ${error ? "top-14" : "top-3"}`}>
+            <AuthorityBanner canvasName={canvasName} />
+          </div>
+        ) : null}
+
         {error ? (
           <div
             role="alert"
