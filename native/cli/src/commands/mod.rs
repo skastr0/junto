@@ -59,7 +59,10 @@ impl Pending {
     pub fn refuse(name: &str) -> ExitCode {
         envelope::refuse(
             Some(name),
-            &Failure::new(ErrorType::InputError, format!("{name} is not in this junto build yet")),
+            &Failure::new(
+                ErrorType::InputError,
+                format!("{name} is not in this junto build yet"),
+            ),
         )
     }
 }

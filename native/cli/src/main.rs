@@ -40,8 +40,10 @@ fn main() -> ExitCode {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
 
     // early-dispatch.ts: owner refusals and the byte pipes, before any parsing.
-    if matches!(words.first(), Some(&("machine" | "link" | "companion-stdio")))
-        && std::env::var_os("JUNTO_WORK_TOKEN").is_some()
+    if matches!(
+        words.first(),
+        Some(&("machine" | "link" | "companion-stdio"))
+    ) && std::env::var_os("JUNTO_WORK_TOKEN").is_some()
     {
         eprintln!("{OWNER_COMMAND_REFUSAL}");
         return ExitCode::FAILURE;
@@ -55,7 +57,9 @@ fn main() -> ExitCode {
         ["companion-stdio", rest @ ..] => commands::pipes::companion_stdio(rest),
         ["content-transfer", rest @ ..] => commands::pipes::content_transfer(rest),
         ["browser", ..] if features::MACHINE_BUILD => {
-            eprintln!("junto browser: the browser runs in the desktop app, not on a Junto Remote machine");
+            eprintln!(
+                "junto browser: the browser runs in the desktop app, not on a Junto Remote machine"
+            );
             ExitCode::from(2)
         }
         [first, ..] if features::disabled_group(first).is_some() => {
@@ -71,7 +75,12 @@ fn main() -> ExitCode {
 }
 
 #[derive(Parser)]
-#[command(name = "junto", disable_help_flag = true, disable_version_flag = true, disable_help_subcommand = true)]
+#[command(
+    name = "junto",
+    disable_help_flag = true,
+    disable_version_flag = true,
+    disable_help_subcommand = true
+)]
 struct Cli {
     #[command(subcommand)]
     root: Root,
@@ -86,7 +95,12 @@ fn usage(error: &clap::Error, words: &[&str]) -> Failure {
         .unwrap_or_default()
         .trim_start_matches("error: ")
         .to_string();
-    let path: Vec<&str> = words.iter().take_while(|w| !w.starts_with('-')).take(2).copied().collect();
+    let path: Vec<&str> = words
+        .iter()
+        .take_while(|w| !w.starts_with('-'))
+        .take(2)
+        .copied()
+        .collect();
     Failure::next_step(
         ErrorType::InputError,
         message,

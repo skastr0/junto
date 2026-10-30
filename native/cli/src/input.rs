@@ -56,7 +56,8 @@ pub fn file(path: &str) -> Result<String> {
 /// Text parsed as JSON and decoded as `T`, or the InputError naming `source`.
 pub fn decode_text<T: DeserializeOwned>(text: &str, source: &str) -> Result<T> {
     serde_json::from_str(text).map_err(|error| {
-        Failure::input(error.to_string(), source).and("hint", "provide valid JSON (object or array)")
+        Failure::input(error.to_string(), source)
+            .and("hint", "provide valid JSON (object or array)")
     })
 }
 
@@ -85,7 +86,9 @@ pub fn load_batch(input: &str) -> Result<Vec<Value>> {
 
 /// A counting number (a line, a page), written either way JSON allows (`3`
 /// or `3.0`), as Schema.Int with a minimum of 1 reads it.
-pub fn counting<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<NonZeroU64>, D::Error> {
+pub fn counting<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<NonZeroU64>, D::Error> {
     let n = f64::deserialize(deserializer)?;
     if n.fract() != 0.0 || n.abs() > 9_007_199_254_740_991.0 {
         return Err(D::Error::custom("Expected an integer"));

@@ -28,8 +28,16 @@ enum Outcome {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum Row {
-    Ok { index: usize, ok: bool, data: Data },
-    Err { index: usize, ok: bool, error: Failure },
+    Ok {
+        index: usize,
+        ok: bool,
+        data: Data,
+    },
+    Err {
+        index: usize,
+        ok: bool,
+        error: Failure,
+    },
 }
 
 #[derive(Serialize)]
@@ -62,8 +70,10 @@ where
 {
     let concurrency = concurrency.unwrap_or(DEFAULT_CONCURRENCY);
     if concurrency <= 0 {
-        return Err(Failure::input("concurrency must be a positive integer", "concurrency")
-            .and("received", concurrency));
+        return Err(
+            Failure::input("concurrency must be a positive integer", "concurrency")
+                .and("received", concurrency),
+        );
     }
     let items = input::load_batch(input)?;
     let results = parallel(items, concurrency as usize, one);
@@ -76,16 +86,33 @@ where
         (_, 0) => Outcome::Failed,
         _ => Outcome::PartialFailure,
     };
-    let retryable = results.iter().all(|r| r.as_ref().err().is_some_and(Failure::retryable));
+    let retryable = results
+        .iter()
+        .all(|r| r.as_ref().err().is_some_and(Failure::retryable));
     let rows: Vec<Row> = results
         .into_iter()
         .enumerate()
         .map(|(index, result)| match result {
-            Ok(data) => Row::Ok { index, ok: true, data },
-            Err(error) => Row::Err { index, ok: false, error },
+            Ok(data) => Row::Ok {
+                index,
+                ok: true,
+                data,
+            },
+            Err(error) => Row::Err {
+                index,
+                ok: false,
+                error,
+            },
         })
         .collect();
-    let summary = Summary { outcome, total, success_count, error_count, concurrency, results: rows };
+    let summary = Summary {
+        outcome,
+        total,
+        success_count,
+        error_count,
+        concurrency,
+        results: rows,
+    };
 
     // Nothing was written, so the envelope says ok:false: a caller reading .ok
     // never takes a refusal for a send. One item fails with its own error.
@@ -98,13 +125,19 @@ where
             // Retry the batch only when every item may be retried.
             map.insert("retryable".into(), retryable.into());
         }
-        return Err(Failure::new(ErrorType::BatchFailed, format!("all {total} items failed")).with(details));
+        return Err(
+            Failure::new(ErrorType::BatchFailed, format!("all {total} items failed")).with(details),
+        );
     }
     crate::envelope::verdict(&summary, error_count > 0)
 }
 
 /// Each item through `one` on at most `workers` threads, answers in input order.
-fn parallel<T: Send, U: Send>(items: Vec<T>, workers: usize, one: impl Fn(T, usize) -> U + Sync) -> Vec<U> {
+fn parallel<T: Send, U: Send>(
+    items: Vec<T>,
+    workers: usize,
+    one: impl Fn(T, usize) -> U + Sync,
+) -> Vec<U> {
     let slots: Vec<Mutex<Option<T>>> = items.into_iter().map(|i| Mutex::new(Some(i))).collect();
     let answers: Vec<Mutex<Option<U>>> = slots.iter().map(|_| Mutex::new(None)).collect();
     let next = AtomicUsize::new(0);
@@ -112,7 +145,9 @@ fn parallel<T: Send, U: Send>(items: Vec<T>, workers: usize, one: impl Fn(T, usi
     std::thread::scope(|scope| {
         for _ in 0..workers.min(slots.len()).max(1) {
             scope.spawn(|| {
-                while let Some(index) = Some(next.fetch_add(1, Ordering::Relaxed)).filter(|i| *i < slots.len()) {
+                while let Some(index) =
+                    Some(next.fetch_add(1, Ordering::Relaxed)).filter(|i| *i < slots.len())
+                {
                     if let Some(item) = take(&slots[index]) {
                         let answer = one(item, index);
                         *answers[index].lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);

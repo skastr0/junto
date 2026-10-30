@@ -57,8 +57,19 @@ struct Refusal<'a> {
 pub fn print(command: &str, answer: Answer) -> ExitCode {
     match answer {
         Ok(Reply { data, unmet }) => {
-            line(&mut std::io::stdout(), &Success { ok: true, command, data: &data });
-            if unmet { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+            line(
+                &mut std::io::stdout(),
+                &Success {
+                    ok: true,
+                    command,
+                    data: &data,
+                },
+            );
+            if unmet {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
         }
         Err(failure) => refuse(Some(command), &failure),
     }
@@ -66,7 +77,14 @@ pub fn print(command: &str, answer: Answer) -> ExitCode {
 
 /// The failure envelope on stderr, exit 1.
 pub fn refuse(command: Option<&str>, error: &Failure) -> ExitCode {
-    line(&mut std::io::stderr(), &Refusal { ok: false, command, error });
+    line(
+        &mut std::io::stderr(),
+        &Refusal {
+            ok: false,
+            command,
+            error,
+        },
+    );
     ExitCode::FAILURE
 }
 

@@ -21,7 +21,11 @@ pub enum EvidenceRef {
     },
     File {
         path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::input::counting")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::input::counting"
+        )]
         line: Option<NonZeroU64>,
     },
     Task {
@@ -221,21 +225,35 @@ fn single<R: Request + for<'de> Deserialize<'de>>(input: Option<&str>, timeout: 
 impl Run for Msg {
     fn run(self) -> ExitCode {
         let (name, answer) = match self.command {
-            Command::List { input, timeout } => ("msg list", single::<ListArgs>(input.as_deref(), timeout)),
-            Command::Sent { input, timeout } => ("msg sent", single::<SentArgs>(input.as_deref(), timeout)),
-            Command::Send { input, text, prompt, flags } => {
+            Command::List { input, timeout } => {
+                ("msg list", single::<ListArgs>(input.as_deref(), timeout))
+            }
+            Command::Sent { input, timeout } => {
+                ("msg sent", single::<SentArgs>(input.as_deref(), timeout))
+            }
+            Command::Send {
+                input,
+                text,
+                prompt,
+                flags,
+            } => {
                 // `msg send <target> <text>` is shorthand for one JSON item.
                 let input = match text {
                     Some(text) => serde_json::json!({ "target": input, "text": text }).to_string(),
                     None => input,
                 };
-                let BatchFlags { concurrency, timeout } = flags;
+                let BatchFlags {
+                    concurrency,
+                    timeout,
+                } = flags;
                 let answer = if prompt {
                     batch::run(&input, concurrency, timeout.into(), |item: PromptArgs| item)
                 } else {
-                    batch::run(&input, concurrency, timeout.into(), |item: SendArgs| SendArgs {
-                        op_id: item.op_id.clone().or_else(|| Some(OpId::mint())),
-                        ..item
+                    batch::run(&input, concurrency, timeout.into(), |item: SendArgs| {
+                        SendArgs {
+                            op_id: item.op_id.clone().or_else(|| Some(OpId::mint())),
+                            ..item
+                        }
                     })
                 };
                 ("msg send", answer)
@@ -246,18 +264,37 @@ impl Run for Msg {
                     Some('[' | '{' | '@' | '-') | None => input,
                     Some(_) => serde_json::json!({ "messageId": input }).to_string(),
                 };
-                ("msg read", batch::run(&input, flags.concurrency, flags.timeout.into(), |item: ReadArgs| item))
+                (
+                    "msg read",
+                    batch::run(
+                        &input,
+                        flags.concurrency,
+                        flags.timeout.into(),
+                        |item: ReadArgs| item,
+                    ),
+                )
             }
             Command::Reply { input, flags } => (
                 "msg reply",
-                batch::run(&input, flags.concurrency, flags.timeout.into(), |item: ReplyArgs| ReplyArgs {
-                    op_id: item.op_id.clone().or_else(|| Some(OpId::mint())),
-                    ..item
-                }),
+                batch::run(
+                    &input,
+                    flags.concurrency,
+                    flags.timeout.into(),
+                    |item: ReplyArgs| ReplyArgs {
+                        op_id: item.op_id.clone().or_else(|| Some(OpId::mint())),
+                        ..item
+                    },
+                ),
             ),
-            Command::React { input, flags } => {
-                ("msg react", batch::run(&input, flags.concurrency, flags.timeout.into(), |item: ReactArgs| item))
-            }
+            Command::React { input, flags } => (
+                "msg react",
+                batch::run(
+                    &input,
+                    flags.concurrency,
+                    flags.timeout.into(),
+                    |item: ReactArgs| item,
+                ),
+            ),
         };
         envelope::print(name, answer)
     }

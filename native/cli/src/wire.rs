@@ -174,7 +174,10 @@ fn is_mail(op: &str) -> bool {
 
 /// One call of `R::OP`: the answer's data, or the error the TypeScript CLI would give.
 pub fn call<R: Request>(args: &R, timeout: Timeout) -> Result<Data> {
-    let change = Change { op_id: args.op_id(), mutation: is_mail(R::OP).then_some(R::OP) };
+    let change = Change {
+        op_id: args.op_id(),
+        mutation: is_mail(R::OP).then_some(R::OP),
+    };
     send(R::OP, args, change, timeout)
 }
 
@@ -190,10 +193,24 @@ pub fn call_changing(op: &str, args: &Value, change: Change<'_>, timeout: Timeou
     send(op, args, change, timeout)
 }
 
-fn send<A: Serialize + ?Sized>(op: &str, args: &A, change: Change<'_>, timeout: Timeout) -> Result<Data> {
+fn send<A: Serialize + ?Sized>(
+    op: &str,
+    args: &A,
+    change: Change<'_>,
+    timeout: Timeout,
+) -> Result<Data> {
     let token = seat_token()?;
-    let frame = Frame { token: &token, op, args };
-    Call { op, change, timeout }.run(&frame)
+    let frame = Frame {
+        token: &token,
+        op,
+        args,
+    };
+    Call {
+        op,
+        change,
+        timeout,
+    }
+    .run(&frame)
 }
 
 #[derive(Serialize)]
@@ -220,7 +237,11 @@ impl Call<'_> {
     fn run<F: Serialize>(&self, frame: &F) -> Result<Data> {
         let started = Instant::now();
         let bound = Duration::from_millis(self.timeout.0.max(0) as u64);
-        let left = || bound.checked_sub(started.elapsed()).filter(|d| !d.is_zero());
+        let left = || {
+            bound
+                .checked_sub(started.elapsed())
+                .filter(|d| !d.is_zero())
+        };
         if self.timeout.0 <= 0 {
             return Err(self.timed_out(Stage::Unsent));
         }
@@ -245,14 +266,18 @@ impl Call<'_> {
         let io = |stage| move |error: std::io::Error| self.io_failure(&error, stage);
 
         let wait = left().ok_or_else(|| self.timed_out(Stage::Sent))?;
-        stream.set_write_timeout(Some(wait)).map_err(io(Stage::Sent))?;
+        stream
+            .set_write_timeout(Some(wait))
+            .map_err(io(Stage::Sent))?;
         stream.write_all(&bytes).map_err(io(Stage::Sent))?;
 
         let mut reader = BufReader::new(&stream).take(MAX_FRAME_BYTES + 1);
         let mut line = Vec::new();
         loop {
             let wait = left().ok_or_else(|| self.timed_out(Stage::Sent))?;
-            stream.set_read_timeout(Some(wait)).map_err(io(Stage::Sent))?;
+            stream
+                .set_read_timeout(Some(wait))
+                .map_err(io(Stage::Sent))?;
             match reader.read_until(b'\n', &mut line) {
                 Ok(_) if line.ends_with(b"\n") => break,
                 Ok(_) if line.len() as u64 > MAX_FRAME_BYTES => {
@@ -281,7 +306,12 @@ impl Call<'_> {
 
         let text = String::from_utf8_lossy(&line);
         let malformed = |what: &str| {
-            self.transport(ErrorType::ProtocolError, format!("server returned {what}"), None, Stage::Sent)
+            self.transport(
+                ErrorType::ProtocolError,
+                format!("server returned {what}"),
+                None,
+                Stage::Sent,
+            )
         };
         let response: Response =
             serde_json::from_str(text.trim()).map_err(|error| match error.classify() {
@@ -290,7 +320,9 @@ impl Call<'_> {
                 }
                 _ => malformed("a malformed envelope"),
             })?;
-        response.into_result().ok_or_else(|| malformed("a malformed envelope"))?
+        response
+            .into_result()
+            .ok_or_else(|| malformed("a malformed envelope"))?
     }
 
     fn timed_out(&self, stage: Stage) -> Failure {
@@ -317,9 +349,18 @@ impl Call<'_> {
     /// A transport failure. Once sent, a write with its id is offered for
     /// replay under it (writeTimeout); mail and an overseer mutation without
     /// one may have completed, and mail is looked at before it is sent again.
-    fn transport(&self, kind: ErrorType, message: String, details: Option<Value>, stage: Stage) -> Failure {
+    fn transport(
+        &self,
+        kind: ErrorType,
+        message: String,
+        details: Option<Value>,
+        stage: Stage,
+    ) -> Failure {
         let Change { op_id, mutation } = self.change;
-        if stage == Stage::Sent && !is_mail(self.op) && let Some(id) = op_id {
+        if stage == Stage::Sent
+            && !is_mail(self.op)
+            && let Some(id) = op_id
+        {
             return Failure::new(ErrorType::Timeout, format!("{message}; the write may have applied"))
                 .and("opId", id.as_str())
                 .and("retryable", true)
@@ -357,7 +398,7 @@ impl Call<'_> {
     }
 }
 
-fn errno_name(error: &std::io::Error) -> &'static str {
+pub(crate) fn errno_name(error: &std::io::Error) -> &'static str {
     match error.raw_os_error() {
         Some(1) => "EPERM",
         Some(2) => "ENOENT",
@@ -388,8 +429,19 @@ struct Response {
 impl Response {
     fn into_result(self) -> Option<Result<Data>> {
         match self {
-            Response { ok: true, op: Some(_), data: Some(data), error: None, .. } => Some(Ok(data)),
-            Response { ok: false, data: None, error: Some(error), .. } => Some(Err(error.into())),
+            Response {
+                ok: true,
+                op: Some(_),
+                data: Some(data),
+                error: None,
+                ..
+            } => Some(Ok(data)),
+            Response {
+                ok: false,
+                data: None,
+                error: Some(error),
+                ..
+            } => Some(Err(error.into())),
             _ => None,
         }
     }
@@ -464,10 +516,12 @@ impl From<WireError> for Failure {
         match (error.kind, error.details) {
             (_, None) => failure,
             // AuthError and RuntimeDown keep only their next step, as the CLI's own carry it.
-            (ErrorType::AuthError | ErrorType::RuntimeDown, Some(details)) => match details.next_step {
-                Some(next) => failure.with(json!({ "next_step": next })),
-                None => failure,
-            },
+            (ErrorType::AuthError | ErrorType::RuntimeDown, Some(details)) => {
+                match details.next_step {
+                    Some(next) => failure.with(json!({ "next_step": next })),
+                    None => failure,
+                }
+            }
             (_, Some(details)) => match serde_json::to_value(details) {
                 Ok(details) => failure.with(details),
                 Err(_) => failure,
@@ -506,7 +560,9 @@ mod tests {
     #[test]
     fn decodes_the_response_envelope() {
         assert_eq!(
-            decode(r#"{"ok":true,"op":"msg.send","data":{"b":1,"a":1e21},"protocol_version":"v1"}"#),
+            decode(
+                r#"{"ok":true,"op":"msg.send","data":{"b":1,"a":1e21},"protocol_version":"v1"}"#
+            ),
             Some(Ok(r#"{"b":1,"a":1e21}"#.into()))
         );
         assert_eq!(
@@ -514,8 +570,12 @@ mod tests {
             Some(Err(r#"{"type":"InputError","message":"m","details":{"path":"args","retryable":false}}"#.into()))
         );
         assert_eq!(
-            decode(r#"{"ok":false,"error":{"type":"AuthError","message":"m","details":{"retryable":false,"next_step":"n"}}}"#),
-            Some(Err(r#"{"type":"AuthError","message":"m","details":{"next_step":"n"}}"#.into()))
+            decode(
+                r#"{"ok":false,"error":{"type":"AuthError","message":"m","details":{"retryable":false,"next_step":"n"}}}"#
+            ),
+            Some(Err(
+                r#"{"type":"AuthError","message":"m","details":{"next_step":"n"}}"#.into()
+            ))
         );
         for bad in [
             r#"{"ok":true,"op":"msg.send"}"#,
