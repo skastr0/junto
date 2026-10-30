@@ -1,13 +1,12 @@
 /**
- * One terminal plane, in the core (plan B). With the core in its own process,
- * Electron main builds no LocalSessionHost and any use of its termPlane
- * throws, naming it. The core's terminals run over a port main hands it: a
- * spawn before a port is refused, one over a port carries input and output,
- * a port that closes exits its terminals, and a new port serves again.
+ * One terminal plane, in the core (plan B). The core's terminals run over a
+ * port main hands it: a spawn before a port is refused, one over a port
+ * carries input and output, a port that closes exits its terminals, and a new
+ * port serves again.
  */
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { serveTerminals, type SpawnPty } from "../src/main/terminal-process/serve";
 import { terminalsOverPorts, type TerminalPortMain } from "../src/main/terminal-process/over-ports";
 import type { CoreMessage } from "../src/main/core-process/port";
@@ -16,12 +15,8 @@ const nodePty = createRequire(import.meta.url)("node-pty") as typeof import("nod
 const realPty: SpawnPty = (command, args, options) => nodePty.spawn(command, [...args], options);
 
 const opened: MessagePort[] = [];
-const initialType = (process as { type?: string }).type;
 afterEach(() => {
   for (const port of opened.splice(0)) port.close();
-  (process as { type?: string }).type = initialType;
-  vi.resetModules();
-  vi.doUnmock("../src/main/junto/term/local-host");
 });
 
 const until = async (check: () => boolean, timeoutMs = 5_000): Promise<void> => {
@@ -65,25 +60,6 @@ const terminalPort = () => {
 const env = { PATH: process.env.PATH, TERM: "xterm-256color" };
 
 describe("one terminal plane, in the core", () => {
-  it("Electron main builds no LocalSessionHost with the core in its own process", async () => {
-    let built = 0;
-    vi.doMock("../src/main/junto/term/local-host", async (load) => {
-      const real = await load<typeof import("../src/main/junto/term/local-host")>();
-      class Counted extends real.LocalSessionHost {
-        constructor(...args: ConstructorParameters<typeof real.LocalSessionHost>) {
-          built += 1;
-          super(...args);
-        }
-      }
-      return { ...real, LocalSessionHost: Counted };
-    });
-    (process as { type?: string }).type = "browser";
-    const plane = await import("../src/main/junto/term/plane");
-    expect(plane.TERM_PLANE_IN_THIS_PROCESS).toBe(false);
-    expect(built).toBe(0);
-    expect(() => plane.termPlane.host).toThrow("Electron main builds no terminal plane with the core in its own process (termPlane.host)");
-  });
-
   it("the core's terminals run over the port main hands it, and only there", async () => {
     const terminals = terminalsOverPorts();
     expect(() => terminals.spawn({ command: "/bin/cat", args: [], cols: 80, rows: 24, env })).toThrow("the Junto terminal process is not connected");

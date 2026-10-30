@@ -453,17 +453,8 @@ export class TermPlane {
 }
 
 /**
- * One terminal plane, in the core. Electron main builds none: every use there is a bug
- * (a seat reached on a plane that holds none) and throws, naming the use.
+ * One terminal plane, in the core process. Nothing else in Junto builds one:
+ * Electron main runs no PTY and holds no LocalSessionHost; every seat's plane
+ * lives here (junto/core.ts starts it, junto/term/core-seats.ts drains it).
  */
-export const TERM_PLANE_IN_THIS_PROCESS =
-  (process as { type?: string }).type !== "browser";
-
-const noPlaneInMain = (): TermPlane =>
-  new Proxy({} as TermPlane, {
-    get: (_target, key) => {
-      throw new Error(`Electron main builds no terminal plane with the core in its own process (termPlane.${String(key)})`);
-    },
-  });
-
-export const termPlane: TermPlane = TERM_PLANE_IN_THIS_PROCESS ? new TermPlane() : noPlaneInMain();
+export const termPlane: TermPlane = new TermPlane();

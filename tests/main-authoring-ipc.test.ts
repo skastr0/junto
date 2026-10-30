@@ -41,7 +41,7 @@ vi.mock("../src/main/junto/browser/ipc", () => ({ registerBrowserIpc: vi.fn() })
 vi.mock("../src/main/junto/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
 vi.mock("../src/main/junto/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
 vi.mock("../src/main/junto/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
-vi.mock("../src/main/junto/term/plane", () => ({ termPlane: {}, TERM_PLANE_IN_THIS_PROCESS: false }));
+vi.mock("../src/main/junto/term/plane", () => ({ termPlane: {} }));
 // Every core call here answers "executed"; the seat awareness read at registration is not under test.
 vi.mock("../src/main/junto/term/seat-awareness", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -54,11 +54,18 @@ const handlerFor = (channel: string): InvokeHandler => {
   return handler;
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules();
   electron.handlers.clear();
   runtime.runPromise.mockClear();
   runtime.runPromise.mockResolvedValue("executed");
+  // The main module graph is fresh after resetModules: install the core client
+  // that graph will call, as boot does.
+  const [{ useCoreClient }, { inProcessCore }] = await Promise.all([
+    import("../src/main/core-process/main-client"),
+    import("./support/in-process-core"),
+  ]);
+  useCoreClient(inProcessCore(runtime));
 });
 
 describe("renderer canvas authoring IPC", () => {
