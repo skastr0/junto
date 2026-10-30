@@ -19,6 +19,7 @@ import { opViewOf, opViewOfRuling, type OpListResult, type OpListState, type OpV
 import type { NodeId } from "@shared/physics/schema";
 import type { OpId } from "@shared/work-ids";
 import { withSqlRead } from "../state/sql-read";
+import { openCommandsOf } from "./open-projections-schema";
 
 export class OpReadError extends Schema.TaggedError<OpReadError>()("OpReadError", {
   operation: Schema.String,
@@ -46,21 +47,6 @@ export class OpRepository extends Context.Service<OpRepository,
 
 const decodeRuling = Schema.decodeUnknownResult(Schema.Union([RulingAppliedResult, RulingRefusedResult]));
 const decodeQueued = Schema.decodeUnknownResult(CommandQueuedResult);
-
-/** No ruling made here or received answers the command row `event`. */
-const UNRULED = `
-  AND NOT EXISTS (
-    SELECT 1 FROM resource_rulings AS ruled
-    WHERE ruled.canvas_name = event.item_canvas_name AND ruled.writer = event.event_home
-      AND ruled.op_id = event.item_id
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM work_events AS ruling
-    JOIN work_facts AS ruled USING (event_home, entity_home, seq)
-    WHERE ruling.item_canvas_name = event.item_canvas_name AND ruling.item_kind = 'ruling'
-      AND ruling.item_id = event.item_id
-      AND json_extract(ruled.result_json, '$.writer') = event.event_home
-  )`;
 
 type Narrow = { readonly opId?: OpId; readonly before?: OpId; readonly refusedOnly?: boolean; readonly limit: number };
 
@@ -143,19 +129,15 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
 
     /** This seat's commands written here that neither place has ruled. */
     const queued = (writer: InstallationId, scope: OpScope, narrow: Narrow) => {
-      const where = narrowed("event.item_id", narrow);
+      const where = narrowed("held.op_id", narrow);
       return Effect.map(
         sql.unsafe<{ op_id: string }>(
-          `SELECT event.item_id AS op_id FROM work_events AS event INDEXED BY work_events_by_operation
-           JOIN work_facts AS fact USING (event_home, entity_home, seq)
-           WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
-             AND event.item_kind = 'command' AND event.operation = 'command.queued'
+          `SELECT held.op_id ${openCommandsOf(`
              AND json_extract(fact.result_json, '$.command.actor.kind') = 'seat'
              AND json_extract(fact.result_json, '$.command.actor.nodeId') = ?
-             ${where.sql}
-             ${UNRULED}
-           ORDER BY event.item_id DESC LIMIT ?`,
-          [writer, writer, scope.canvasName, scope.seat, ...where.params, narrow.limit],
+             ${where.sql}`)}
+           ORDER BY held.op_id DESC LIMIT ?`,
+          [scope.canvasName, writer, scope.seat, ...where.params, narrow.limit],
         ),
         (rows) => rows.map((row): OpView => ({ state: "queued", opId: row.op_id as OpId })),
       );
@@ -211,13 +193,9 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
           const writer = yield* self;
           if (writer === undefined) return undefined;
           const rows = yield* sql.unsafe<{ result_json: string }>(
-            `SELECT fact.result_json FROM work_events AS event INDEXED BY work_events_by_operation
-             JOIN work_facts AS fact USING (event_home, entity_home, seq)
-             WHERE event.event_home = ? AND event.entity_home = ? AND event.item_canvas_name = ?
-               AND event.item_kind = 'command' AND event.operation = 'command.queued'
-               ${UNRULED}
-             ORDER BY length(event.seq), event.seq`,
-            [writer, writer, canvasName],
+            `SELECT fact.result_json ${openCommandsOf("")}
+             ORDER BY length(held.seq), held.seq`,
+            [canvasName, writer],
           );
           const commands = yield* Effect.forEach(rows, (row) => {
             const held = decodeQueued(parsed(row.result_json));

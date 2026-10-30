@@ -159,6 +159,7 @@ export type ReviewReceiptRecord = {
 import { canonicalJson } from "./canonical-json";
 import { taskReviewSubjectHash } from "./review-subject-hash";
 import { WorkJournal, WorkJournalLive } from "./journal";
+import { OPEN_READS } from "./open-projections-schema";
 
 type WorkSqlFailure =
   | Error
@@ -5136,23 +5137,7 @@ export const WorkRepositoryLive = Layer.effect(
               origin_at: string;
               received_at: string;
               result_json: string;
-            }>(
-              `SELECT event.event_home AS writer, event.item_id AS control_id,
-                      event.origin_at, event.received_at, fact.result_json
-               FROM work_events AS event
-               JOIN work_facts AS fact USING (event_home, entity_home, seq)
-               WHERE event.item_canvas_name = ?
-                 AND event.operation = 'seat.control'
-                 AND fact.predecessor_seq IS NULL
-                 AND NOT EXISTS (
-                   SELECT 1 FROM seat_controls AS settled
-                   WHERE settled.canvas_name = event.item_canvas_name
-                     AND settled.firing_id = json_extract(fact.result_json, '$.firingId')
-                     AND settled.action_index = json_extract(fact.result_json, '$.actionIndex')
-                 )
-               ORDER BY event.received_at DESC`,
-              [canvasName],
-            );
+            }>(OPEN_READS.pendingSeatControls, [canvasName]);
             const pending: ArrivedSeatControl[] = [];
             for (const row of rows) {
               const decoded = Schema.decodeUnknownResult(SeatControlResult)(
@@ -5228,28 +5213,7 @@ export const WorkRepositoryLive = Layer.effect(
 
     const queueLoadOf = (reader: SqlClient.SqlClient, self: string, canvasName: string) =>
       reader
-        .unsafe<{ rows: number; bytes: number | null }>(
-          `
-            SELECT count(*) AS rows, sum(length(CAST(fact.result_json AS BLOB))) AS bytes
-            FROM work_events AS command INDEXED BY work_events_by_operation
-            JOIN work_facts AS fact USING (event_home, entity_home, seq)
-            WHERE command.event_home = ?
-              AND command.entity_home = ?
-              AND command.item_canvas_name = ?
-              AND command.operation = 'command.queued'
-              AND NOT EXISTS (
-                SELECT 1
-                FROM work_events AS ruling
-                JOIN work_facts AS ruled USING (event_home, entity_home, seq)
-                WHERE ruling.item_canvas_name = command.item_canvas_name
-                  AND ruling.item_node_id = command.item_node_id
-                  AND ruling.item_kind = 'ruling'
-                  AND ruling.item_id = command.item_id
-                  AND json_extract(ruled.result_json, '$.writer') = command.event_home
-              )
-          `,
-          [self, self, canvasName],
-        )
+        .unsafe<{ rows: number; bytes: number | null }>(OPEN_READS.queueLoad, [canvasName, self])
         .pipe(Effect.map((rows): QueueLoad => ({ rows: rows[0]?.rows ?? 0, bytes: rows[0]?.bytes ?? 0 })));
 
     const queueCommand = (
@@ -5438,28 +5402,7 @@ export const WorkRepositoryLive = Layer.effect(
       withSqlRead(
         sql,
         Effect.gen(function* () {
-          const rows = yield* sql.unsafe<{ writer: string; result_json: string }>(
-            `
-              SELECT command.event_home AS writer, fact.result_json
-              FROM work_events AS command INDEXED BY work_events_by_operation
-              JOIN work_facts AS fact USING (event_home, entity_home, seq)
-              WHERE command.item_canvas_name = ?
-                AND command.operation = 'command.queued'
-                AND command.event_home = command.entity_home
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM work_events AS ruling
-                  JOIN work_facts AS ruled USING (event_home, entity_home, seq)
-                  WHERE ruling.item_canvas_name = command.item_canvas_name
-                    AND ruling.item_node_id = command.item_node_id
-                    AND ruling.item_kind = 'ruling'
-                    AND ruling.item_id = command.item_id
-                    AND json_extract(ruled.result_json, '$.writer') = command.event_home
-                )
-              ORDER BY command.event_home, length(command.seq), command.seq
-            `,
-            [canvasName],
-          );
+          const rows = yield* sql.unsafe<{ writer: string; result_json: string }>(OPEN_READS.unruledCommands, [canvasName]);
           const found: Array<UnruledCommand> = [];
           for (const row of rows) {
             // Every held row decoded when it was taken; one that no longer does is a defect, never a command.

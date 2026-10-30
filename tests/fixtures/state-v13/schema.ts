@@ -426,3 +426,9 @@ export const STATE_SCHEMA_V72_SQL = stepped(
   STATE_SCHEMA_V71_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 72)!.migrate,
 );
+
+/** Step 73 adds `open_commands` and `open_seat_controls`, what is open in the work log, kept by triggers (0.11.7). */
+export const STATE_SCHEMA_V73_SQL = stepped(
+  STATE_SCHEMA_V72_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 73)!.migrate,
+);

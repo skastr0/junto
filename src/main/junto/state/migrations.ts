@@ -81,6 +81,7 @@ import { VIEW_CAPTURE_DESK_SCHEMA_SQL, VIEW_CAPTURE_INBOX_SCHEMA_SQL, VIEW_STATE
 import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema";
 import { WORK_MESSAGES_SENDER_INDEX_SQL, WORK_READ_INDEXES_SQL } from "../work/state-schema";
 import { TASK_HEADS_BY_STATE_INDEX_SQL } from "../work/task-state-schema";
+import { OPEN_PROJECTIONS_BACKFILL_SQL, OPEN_PROJECTIONS_STATE_SCHEMA_SQL } from "../work/open-projections-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -899,7 +900,18 @@ export const STATE_SCHEMA_V72_IDENTITY = {
     "563d6ddb6b93c3539d15b65d093d80b1cb4f446c6c568a21fcf8653d5a982693",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 72;
+/**
+ * Version 73 keeps what is still open in the work log beside it (protect the
+ * main thread, 0.11.7): `open_commands` and `open_seat_controls`, kept by
+ * triggers in the transaction of the fact or settle that changes them, and
+ * filled from the log by the step. Expand only.
+ */
+export const STATE_SCHEMA_V73_IDENTITY = {
+  actualSchemaSha256:
+    "98f97313235d1de083a5625f39fcb13a67bc34b7b4b8e2c5c21858edb2ad7ebe",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 73;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -907,7 +919,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 72;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V72_IDENTITY;
+  STATE_SCHEMA_V73_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -1480,6 +1492,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V71_IDENTITY,
     migrate: (database) => database.exec(`${WORK_READ_INDEXES_SQL}\n${TASK_HEADS_BY_STATE_INDEX_SQL}`),
+  },
+  {
+    fromVersion: 72,
+    toVersion: 73,
+    name: "keep what is open in the work log beside it",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V72_IDENTITY,
+    migrate: (database) => database.exec(`${OPEN_PROJECTIONS_STATE_SCHEMA_SQL}\n${OPEN_PROJECTIONS_BACKFILL_SQL}`),
   },
 ];
 
