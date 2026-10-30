@@ -45,7 +45,7 @@ import { core } from "./core-process/main-client";
 import { startTerminalProcess, TERMINAL_PROCESS_ENABLED } from "./terminal-process/host";
 import { useTerminalProcess } from "./terminal-process/use";
 import { subscribe as subscribeCore } from "./core-process/push";
-import { SETTINGS_CHANGED } from "./core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE } from "./core-process/ops/main-index";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/ops/browser";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
@@ -1510,12 +1510,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // The companion runs on this process's core until the core has its own process.
     bindCompanionHost({
       runPromise: (effect) => AppRuntime.runPromise(effect),
-      showSignal: (signal) => {
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (window.isDestroyed() || window.webContents.isDestroyed() || !isTrustedMainWebContents(window.webContents)) continue;
-          window.webContents.send(IPC_CHANNELS.agentSignal, signal);
-        }
-      },
+      showSignal: sendAgentSignal,
     });
     const companion = makeCompanionService({
             appVersion: app.getVersion(),
@@ -1722,19 +1717,28 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       void core.call("signals.raisedHands", {}).then(raisedHands.hydrate, (error: unknown) => {
         console.error("[signals] raised hands not loaded:", error);
       });
+      const showPreamble = (event: PreambleEvent): void => {
+        companionNotePreamble(event);
+        const window = currentTrustedMainWindow();
+        if (
+          window === undefined ||
+          window.webContents.isDestroyed() ||
+          !isTrustedMainWebContents(window.webContents)
+        ) return;
+        window.webContents.send(IPC_CHANNELS.preamble, event);
+      };
+      const showAgentSignal = (signal: AgentSignal): void => {
+        raisedHands.note(signal);
+        sendAgentSignal(signal);
+      };
+      // A core in its own process sends these on the push stream; in this
+      // process the hooks below call them, and nothing is published.
+      subscribeCore(WORK_PREAMBLE, (event) => showPreamble(event as PreambleEvent));
+      subscribeCore(AGENT_SIGNAL_CHANGED, (signal) => showAgentSignal(signal as AgentSignal));
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
-        onPreamble: (event: PreambleEvent) => {
-          companionNotePreamble(event);
-          const window = currentTrustedMainWindow();
-          if (
-            window === undefined ||
-            window.webContents.isDestroyed() ||
-            !isTrustedMainWebContents(window.webContents)
-          ) return;
-          window.webContents.send(IPC_CHANNELS.preamble, event);
-        },
+        onPreamble: showPreamble,
         onOverseer: overseerComposition.onOverseer,
         onOverseerLive: overseerLive?.onHost,
         validateOverseerLive: overseerLive?.validateOperation,
@@ -1744,10 +1748,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       // an operator's answer, another machine's take. The control socket's own
       // callback used to be the only sender, so an automation's work stayed
       // invisible until the canvas was reopened.
-      onAgentSignalChanged((signal) => {
-        raisedHands.note(signal);
-        sendAgentSignal(signal);
-      });
+      onAgentSignalChanged(showAgentSignal);
       if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {
       console.error("[work-control] failed to start:", error);

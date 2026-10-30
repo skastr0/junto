@@ -1,7 +1,9 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 import { inProcessCore, type CoreRunner } from "../src/main/core-process/client";
-import { AGENT_SIGNAL_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, publishWindowBroadcasts } from "../src/main/core-process/ops/main-index";
+import { AGENT_SIGNAL_CHANGED, SETTINGS_CHANGED, WORK_PREAMBLE, publishWindowBroadcasts, relayWindowPushes } from "../src/main/core-process/ops/main-index";
+import { MessageChannel, type MessagePort } from "node:worker_threads";
+import { portCore, serveCore, type CorePort } from "../src/main/core-process/port";
 import { emitAgentSignalChanged } from "../src/main/junto/signals/changes";
 import { subscribe } from "../src/main/core-process/push";
 import { SettingsService } from "../src/main/junto/settings/service";
@@ -66,6 +68,39 @@ describe("index.ts core operations", () => {
       expect(seen).toEqual([[WORK_PREAMBLE, preamble], [AGENT_SIGNAL_CHANGED, signal]]);
     } finally {
       for (const off of offs) off();
+    }
+  });
+
+  it("a preamble and a signal pushed by a core in its own process reach main's subscribers", async () => {
+    const portOf = (port: MessagePort): CorePort => ({
+      post: (message) => port.postMessage(message),
+      listen: (handler) => {
+        const on = (message: Parameters<typeof handler>[0]) => handler(message);
+        port.on("message", on);
+        return () => port.off("message", on);
+      },
+    });
+    const { port1, port2 } = new MessageChannel();
+    const runtime = ManagedRuntime.make(Layer.empty);
+    const served = serveCore(portOf(port2), runtime as unknown as CoreRunner);
+    const stopRelay = relayWindowPushes(portCore(portOf(port1)));
+    const seen: Array<[string, unknown]> = [];
+    const offs = [WORK_PREAMBLE, AGENT_SIGNAL_CHANGED].map((channel) => subscribe(channel, (payload) => seen.push([channel, payload])));
+    try {
+      const preamble = { preambleId: "p1", canvasName: "factory", nodeId: "seat", text: "hello", expiresAt: 1 };
+      const signal = { signalId: "s1", canvasName: "factory", nodeId: "seat" };
+      served.push(WORK_PREAMBLE, preamble);
+      served.push(AGENT_SIGNAL_CHANGED, signal);
+      await new Promise<void>((resolve) => {
+        const wait = () => (seen.length >= 2 ? resolve() : setTimeout(wait, 5));
+        wait();
+      });
+      expect(seen).toEqual([[WORK_PREAMBLE, preamble], [AGENT_SIGNAL_CHANGED, signal]]);
+    } finally {
+      for (const off of offs) off();
+      stopRelay();
+      port1.close();
+      await runtime.dispose();
     }
   });
 });

@@ -36,6 +36,21 @@ export const WORK_PREAMBLE = "work.preamble";
 /** Every agent signal the core writes, for the window and the raised hands. */
 export const AGENT_SIGNAL_CHANGED = "signals.changed";
 
+/** Every channel main forwards to the window. */
+export const WINDOW_CHANNELS = [SETTINGS_CHANGED, WORK_PREAMBLE, AGENT_SIGNAL_CHANGED] as const;
+
+/**
+ * Main's side, once the core runs in its own process: each window push from
+ * the port reaches main's subscribers on the push bus, as a publish in this
+ * process would. Returns the stop.
+ */
+export const relayWindowPushes = (client: { readonly onPush: (channel: string, listener: (payload: unknown) => void) => () => void }): (() => void) => {
+  const stops = WINDOW_CHANNELS.map((channel) => client.onPush(channel, (payload) => publish(channel, payload)));
+  return () => {
+    for (const stop of stops) stop();
+  };
+};
+
 /**
  * The window's broadcasts from a core in its own process: each signal change
  * is published as it happens, and the work control server's preamble hook
