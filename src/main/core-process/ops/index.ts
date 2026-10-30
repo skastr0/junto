@@ -27,5 +27,6 @@ import "./ipc-watch";
 import "./ipc-seats";
 import "./ipc-view-state";
 import "./ipc-references";
+import "./ipc-startup";
 import "./ipc-library";
 import "./core-reads";

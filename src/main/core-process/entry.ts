@@ -13,6 +13,7 @@ import { getCompiledMachineReleaseCatalog } from "@shared/machine-release";
 import { makeMachineBundleSources } from "../junto/hosts/machine-bundle-download";
 import { startCore } from "../junto/core";
 import { serveCore, type CoreMessage, type CorePort } from "./port";
+import { runCoreOp } from "./client";
 import type { CoreRunner } from "./client";
 import { forwardPublishes, publish } from "./push";
 import { host, useHostClient } from "./host-ops";
@@ -94,6 +95,10 @@ const main = async (parent: ParentPort): Promise<void> => {
   bindOperatorListening(core.ensureOperatorListening);
   bindOverseerLive(core.overseerLive);
   started(core.runtime);
+  // The core's share of the window startup wiring runs here, where the core
+  // services live; a failure is logged and the core still serves.
+  const startup = await runCoreOp(core.runtime, "ipc.startup.core", {});
+  if (!startup.ok) console.error("[core] startup wiring failed:", startup.failure.message);
   served.push("core.ready", {});
   const stop = (): void => {
     // Main stops the core; nothing will answer a host call still out.
