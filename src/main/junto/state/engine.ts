@@ -24,10 +24,8 @@ import {
   type WorkMutationScope,
 } from "../work/mutation-seam";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
-import {
-  createVerifiedStateBackup,
-  reconcilePendingStateBackups,
-} from "./backup";
+import { reconcilePendingStateBackups } from "./backup";
+import { runStateBackup } from "./backup-host";
 import {
   migrateStateSchema,
   stateSchemaAdvanceRequired,
@@ -116,27 +114,27 @@ type OpenStateEngine = {
 const openStateEngine = (
   configuredPath?: string,
 ): Effect.Effect<OpenStateEngine, StateEngineError> =>
-  Effect.try({
-    try: () => {
-      const path = resolve(configuredPath ?? stateDatabasePath());
-      const directory = dirname(path);
-      assertRealDirectory(directory);
-      assertRegularOrMissing(path);
+  Effect.gen(function* () {
+    // Stage one opens the file and learns whether the schema must advance. A
+    // schema advance is backed up first, on a worker thread while this
+    // Effect awaits, so main keeps serving input for the seconds it takes.
+    const opened = yield* Effect.try({
+      try: () => {
+        const path = resolve(configuredPath ?? stateDatabasePath());
+        const directory = dirname(path);
+        assertRealDirectory(directory);
+        assertRegularOrMissing(path);
 
-      const database = new DatabaseSync(path, {
-        open: true,
-        readOnly: false,
-        allowExtension: false,
-        enableForeignKeyConstraints: true,
-        enableDoubleQuotedStringLiterals: false,
-        allowBareNamedParameters: false,
-        allowUnknownNamedParameters: false,
-        timeout: STATE_BUSY_TIMEOUT_MS,
-      });
-      let closed = false;
-      const semaphore = Semaphore.makeUnsafe(1);
-
-      const schemaState = (() => {
+        const database = new DatabaseSync(path, {
+          open: true,
+          readOnly: false,
+          allowExtension: false,
+          enableForeignKeyConstraints: true,
+          enableDoubleQuotedStringLiterals: false,
+          allowBareNamedParameters: false,
+          allowUnknownNamedParameters: false,
+          timeout: STATE_BUSY_TIMEOUT_MS,
+        });
         try {
           chmodSync(path, STATE_FILE_MODE);
           database.exec(`
@@ -145,9 +143,41 @@ const openStateEngine = (
             PRAGMA trusted_schema = OFF;
             PRAGMA cache_size = -${STATE_CACHE_SIZE_KIB};
           `);
-          if (stateSchemaAdvanceRequired(database)) {
-            createVerifiedStateBackup(database, directory);
-          }
+          return { path, directory, database, advance: stateSchemaAdvanceRequired(database) };
+        } catch (error) {
+          database.close();
+          throw error;
+        }
+      },
+      catch: (error) => stateEngineError("open", error),
+    });
+    const { path, directory, database } = opened;
+    if (opened.advance) {
+      yield* Effect.tryPromise({
+        try: (signal) => runStateBackup(path, directory, signal),
+        catch: (error) => stateEngineError("open", error),
+      }).pipe(Effect.onError(() => Effect.sync(() => database.close())));
+    }
+    return yield* finishOpen(opened);
+  });
+
+type OpenedStateFile = {
+  readonly path: string;
+  readonly directory: string;
+  readonly database: DatabaseSync;
+};
+
+/** Stage two: the connection is open and its backup, if one was due, is made. */
+const finishOpen = (
+  { path, directory, database }: OpenedStateFile,
+): Effect.Effect<OpenStateEngine, StateEngineError> =>
+  Effect.try({
+    try: () => {
+      let closed = false;
+      const semaphore = Semaphore.makeUnsafe(1);
+
+      const schemaState = (() => {
+        try {
           const migrated = migrateStateSchema(database);
           reconcilePendingStateBackups(directory);
           // journal_mode persists in the database. Apply it only after schema
@@ -176,13 +206,20 @@ const openStateEngine = (
         StateBackupReceipt,
         StateEngineError
       > =>
-        Effect.try({
-          try: () => {
-            requireOpen();
-            return createVerifiedStateBackup(database, directory);
-          },
-          catch: (error) => stateEngineError("backup", error),
-        }).pipe(semaphore.withPermit, Effect.withSpan("state.backup"));
+        // Wait for the transaction lease that is held now, as a backup always
+        // has, then copy on a worker: the lease is not held for the copy, and
+        // the worker's own connection sees committed rows only.
+        Effect.void.pipe(
+          semaphore.withPermit,
+          Effect.andThen(Effect.tryPromise({
+            try: (signal) => {
+              requireOpen();
+              return runStateBackup(path, directory, signal);
+            },
+            catch: (error) => stateEngineError("backup", error),
+          })),
+          Effect.withSpan("state.backup"),
+        );
 
       const journalMode = database.prepare("PRAGMA journal_mode").get()?.journal_mode;
       const synchronous = database.prepare("PRAGMA synchronous").get()?.synchronous;

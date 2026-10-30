@@ -257,7 +257,22 @@ export const reconcilePendingStateBackups = (
 const quoteIdentifier = (identifier: string): string =>
   `"${identifier.replaceAll('"', '""')}"`;
 
+/**
+ * One witness, read inside one read transaction when the connection is not
+ * already in one, so the schema and every row count belong to the same commit
+ * even while another connection writes.
+ */
 const readBackupWitness = (database: DatabaseSync): BackupWitness => {
+  if (database.isTransaction) return readBackupWitnessNow(database);
+  database.exec("BEGIN");
+  try {
+    return readBackupWitnessNow(database);
+  } finally {
+    database.exec("COMMIT");
+  }
+};
+
+const readBackupWitnessNow = (database: DatabaseSync): BackupWitness => {
   const version = database.prepare("PRAGMA user_version").get() as
     | { readonly user_version: SQLOutputValue }
     | undefined;
@@ -356,16 +371,21 @@ const redactProviderSecretsInBackup = (path: string): void => {
   }
 };
 
+/** How many times a backup is started over when the source changed while it was copied. */
+export const STATE_BACKUP_ATTEMPTS = 4;
+
 /**
- * Mint a retained, owner-only SQLite snapshot and prove that a separate
- * read-only connection sees the same durable schema witness and row totals.
- * This runs before a live schema-advance transaction; it never mutates the
- * source database.
+ * One attempt: mint a retained, owner-only SQLite snapshot and prove that a
+ * separate read-only connection sees the same durable schema witness and row
+ * totals. Undefined when the source changed between the witness read before
+ * the copy and the one read right after it, on the same connection: the
+ * snapshot's moment is then unknown, so it is discarded and nothing is
+ * published. Never mutates the source database.
  */
-export const createVerifiedStateBackup = (
+const attemptVerifiedStateBackup = (
   database: DatabaseSync,
   stateDirectory: string,
-): StateBackupReceipt => {
+): StateBackupReceipt | undefined => {
   const source = readBackupWitness(database);
   reconcilePendingStateBackups(stateDirectory);
   const backupDirectory = assertPrivateBackupDirectory(stateDirectory);
@@ -402,6 +422,13 @@ export const createVerifiedStateBackup = (
     device: created.dev,
     inode: created.ino,
   };
+  // The copy and the witness are not one step once the writer runs on another
+  // thread. A source that moved in between cannot be proven against the copy.
+  if (JSON.stringify(readBackupWitness(database)) !== JSON.stringify(source)) {
+    unlinkKnownBackup(pendingPath, identity);
+    fsyncDirectory(backupDirectory);
+    return undefined;
+  }
   let backup: DatabaseSync | undefined;
   let published = false;
   try {
@@ -476,4 +503,50 @@ export const createVerifiedStateBackup = (
     schemaSha256: source.identity.actualSchemaSha256,
     schemaVersion: source.userVersion,
   };
+};
+
+/**
+ * Mint a retained, owner-only SQLite snapshot of the state database and prove
+ * it. A source that kept changing through every attempt is refused rather than
+ * published unproven.
+ */
+export const createVerifiedStateBackup = (
+  database: DatabaseSync,
+  stateDirectory: string,
+): StateBackupReceipt => {
+  for (let attempt = 1; attempt <= STATE_BACKUP_ATTEMPTS; attempt += 1) {
+    const receipt = attemptVerifiedStateBackup(database, stateDirectory);
+    if (receipt !== undefined) return receipt;
+  }
+  throw new Error(
+    `state backup source changed during each of ${STATE_BACKUP_ATTEMPTS} attempts`,
+  );
+};
+
+/**
+ * The connection a backup reads its source through: read-only, so the thread
+ * that runs it can never change a row. VACUUM INTO works from it.
+ */
+export const openStateBackupSource = (path: string): DatabaseSync =>
+  new DatabaseSync(path, {
+    open: true,
+    readOnly: true,
+    allowExtension: false,
+    enableDoubleQuotedStringLiterals: false,
+    allowBareNamedParameters: false,
+    allowUnknownNamedParameters: false,
+    timeout: 5_000,
+  });
+
+/** A whole backup of the database at `path`, on the calling thread, through its own read-only connection. */
+export const runStateBackupHere = (
+  path: string,
+  stateDirectory: string,
+): StateBackupReceipt => {
+  const source = openStateBackupSource(path);
+  try {
+    return createVerifiedStateBackup(source, stateDirectory);
+  } finally {
+    source.close();
+  }
 };
