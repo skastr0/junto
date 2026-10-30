@@ -1,17 +1,47 @@
 {
   "entry": "index",
   "coreEntry": "core-process",
-  "why": "The split, mid-flight: these src/main modules are linked into both main's bundle and the core's, so each one exists twice and main's copy is the empty one. The list may only shrink: a module leaves it when main stops linking it, and `bun scripts/lint-main-bundle.ts --prune` drops it. Never add one. src/shared modules are in both by design (contracts one side imports from the other) and are counted, not listed. The gate that reads this list lives in scripts/lint-main-bundle.ts.",
-  "linkedInBoth": [
-    "src/main/core-process/channels.ts",
-    "src/main/core-process/client.ts",
-    "src/main/core-process/host-ops.ts",
+  "why": "Two lists. stays: modules both processes need to talk, each with the reason it carries no product state; a module holding product state can never be justified here. debt: core code main still links, shrink-only, and the split is done when it is empty. Never add to either list: a new module in both fails the gate. bun scripts/lint-main-bundle.ts --prune drops debt the split closed.",
+  "stays": [
+    {
+      "path": "src/main/core-process/client.ts",
+      "why": "The core call type and its error: no module-level state."
+    },
+    {
+      "path": "src/main/core-process/port.ts",
+      "why": "Pure functions over a message port the caller supplies: no module-level state."
+    },
+    {
+      "path": "src/main/core-process/push.ts",
+      "why": "The wire's listener registry, one per process; product state never lives here."
+    },
+    {
+      "path": "src/main/core-process/channels.ts",
+      "why": "Channel names: constants only."
+    },
+    {
+      "path": "src/main/core-process/host-ops.ts",
+      "why": "The host-operation registry main serves and the core calls: per-process plumbing, no product state."
+    },
+    {
+      "path": "src/main/core-runner.ts",
+      "why": "Installs this process's core runner and core reads hooks: no product state."
+    },
+    {
+      "path": "src/main/services/process.ts",
+      "why": "This process's child-process registry and spawn helpers: no product state."
+    },
+    {
+      "path": "src/main/terminal-process/protocol.ts",
+      "why": "Terminal message names and shapes: constants and schemas."
+    },
+    {
+      "path": "src/main/terminal-process/use.ts",
+      "why": "This process's terminal client slot: no product state."
+    }
+  ],
+  "debt": [
     "src/main/core-process/ops.ts",
-    "src/main/core-process/ops/ipc-resources.ts",
-    "src/main/core-process/ops/seat-holds.ts",
-    "src/main/core-process/port.ts",
-    "src/main/core-process/push.ts",
-    "src/main/core-runner.ts",
     "src/main/junto/access-signal.ts",
     "src/main/junto/actor-seat-id.ts",
     "src/main/junto/adapters/exec.ts",
@@ -304,7 +334,6 @@
     "src/main/junto/term/fail-open-session.ts",
     "src/main/junto/term/harness-record.ts",
     "src/main/junto/term/host-directory.ts",
-    "src/main/junto/term/intervention/policy.ts",
     "src/main/junto/term/local-host.ts",
     "src/main/junto/term/machine-name.ts",
     "src/main/junto/term/managed-drive-holder.ts",
@@ -374,6 +403,7 @@
     "src/main/junto/work/artifact-control.ts",
     "src/main/junto/work/artifact-link-titles.ts",
     "src/main/junto/work/artifact-links-backfill.ts",
+    "src/main/junto/work/artifact-move-core.ts",
     "src/main/junto/work/artifact-move.ts",
     "src/main/junto/work/artifact-repository.ts",
     "src/main/junto/work/artifact-state-schema.ts",
@@ -412,6 +442,7 @@
     "src/main/junto/work/repository.ts",
     "src/main/junto/work/resource-changes.ts",
     "src/main/junto/work/resource-ipc.ts",
+    "src/main/junto/work/resource-ports.ts",
     "src/main/junto/work/resource-rulings-schema.ts",
     "src/main/junto/work/resource-rulings.ts",
     "src/main/junto/work/resource-submit.ts",
@@ -432,9 +463,6 @@
     "src/main/junto/work/task-control.ts",
     "src/main/junto/work/task-repository.ts",
     "src/main/junto/work/task-stamps.ts",
-    "src/main/junto/work/task-state-schema.ts",
-    "src/main/services/process.ts",
-    "src/main/terminal-process/protocol.ts",
-    "src/main/terminal-process/use.ts"
+    "src/main/junto/work/task-state-schema.ts"
   ]
 }
