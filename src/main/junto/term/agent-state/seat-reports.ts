@@ -7,15 +7,22 @@
 import type { AgentSeatStateEvent } from "../../../../shared/agent-seat-state";
 import { isSeatRaiseKind, type AgentSignal, type SeatRaiseKind } from "../../../../shared/wire/agent-signals";
 
+type SeatSession = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly canvasName?: string;
+  readonly nodeId?: string;
+  readonly status: string;
+};
+
 export type SeatReportsDeps = {
   /** This machine's live seats and the canvas node each occupies. */
-  readonly sessions: () => ReadonlyArray<{
-    readonly bindingId: string;
-    readonly epoch: string;
-    readonly canvasName?: string;
-    readonly nodeId?: string;
-    readonly status: string;
-  }>;
+  readonly sessions: () => ReadonlyArray<SeatSession>;
+  /**
+   * One binding's seat. A seat state event names its binding, and it fires on
+   * every screen change of every seat, so it reads one session, never the list.
+   */
+  readonly session: (bindingId: string) => SeatSession | undefined;
   readonly seatReported: (
     bindingId: string,
     report: { readonly signalId: string; readonly kind: SeatRaiseKind; readonly open: boolean; readonly text?: string },
@@ -33,7 +40,8 @@ const reportOf = (signal: AgentSignal) =>
     : undefined;
 
 export const wireSeatReports = (deps: SeatReportsDeps): (() => void) => {
-  const live = () => deps.sessions().filter((session) => session.status !== "exited" && session.status !== "missing");
+  const isLive = (session: SeatSession) => session.status !== "exited" && session.status !== "missing";
+  const live = () => deps.sessions().filter(isLive);
   // The generation and seat each binding last picked up open signals for.
   const seeded = new Map<string, string>();
 
@@ -52,7 +60,8 @@ export const wireSeatReports = (deps: SeatReportsDeps): (() => void) => {
       seeded.delete(event.bindingId);
       return;
     }
-    const session = live().find((candidate) => candidate.bindingId === event.bindingId);
+    const found = deps.session(event.bindingId);
+    const session = found !== undefined && isLive(found) ? found : undefined;
     if (session?.canvasName === undefined || session.nodeId === undefined) return;
     const key = `${session.epoch}\u0000${session.canvasName}\u0000${session.nodeId}`;
     if (seeded.get(event.bindingId) === key) return;

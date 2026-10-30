@@ -1386,6 +1386,7 @@ export const registerJuntoIpc = (): void => {
       // A seat's declared signals ride its own snapshot, so its needs carry them.
       wireSeatReports({
         sessions: () => termPlane.host.list(),
+        session: (bindingId) => termPlane.host.get(bindingId),
         seatReported: (bindingId, report) => seatStateRuntime.seatReported(bindingId, report),
         subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
         onSignalChanged: onAgentSignalChanged,

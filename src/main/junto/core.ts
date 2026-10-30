@@ -282,6 +282,7 @@ export const startCore = async (options: CoreOptions) => {
     // exempt from the cut here too.
     stopSeatReports = wireSeatReports({
       sessions: () => termPlane.host.list(),
+      session: (bindingId) => termPlane.host.get(bindingId),
       seatReported: (bindingId, report) => seatStateRuntime.seatReported(bindingId, report),
       subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
       onSignalChanged: onAgentSignalChanged,

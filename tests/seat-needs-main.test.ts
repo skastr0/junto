@@ -90,8 +90,13 @@ describe("a seat's declared signals ride its snapshot", () => {
     const runtime = new SeatStateRuntime({ now: () => NOW, turnProgressWatch: false });
     let changed: ((signal: AgentSignal) => void) | undefined;
     const sessions = [{ bindingId: "b1", epoch: "e1", canvasName: "main", nodeId: "n1", status: "running" }];
+    let listed = 0;
     const dispose = wireSeatReports({
-      sessions: () => sessions,
+      sessions: () => {
+        listed += 1;
+        return sessions;
+      },
+      session: (bindingId) => sessions.find((session) => session.bindingId === bindingId),
       seatReported: (bindingId, report) => runtime.seatReported(bindingId, report),
       subscribeSeatState: (listener) => runtime.subscribe(listener),
       onSignalChanged: (listener) => {
@@ -102,7 +107,7 @@ describe("a seat's declared signals ride its snapshot", () => {
       },
       signalsOf: async () => open,
     });
-    return { runtime, raise: (s: AgentSignal) => changed?.(s), dispose };
+    return { runtime, raise: (s: AgentSignal) => changed?.(s), dispose, listed: () => listed };
   };
 
   it("opening and closing a signal is a SeatReported on the seat that raised it", () => {
@@ -127,6 +132,16 @@ describe("a seat's declared signals ride its snapshot", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.snapshot("b1")?.reports.map((report) => [report.signalId, report.kind])).toEqual([["s1", "escalate"]]);
     expect(topNeed(runtime.snapshot("b1")!).cause).toBe("seat_escalated");
+    dispose();
+    runtime.stop();
+  });
+
+  it("a seat state event reads its own session, never the whole list", async () => {
+    const { runtime, dispose, listed } = wired([signal("open", "escalate")]);
+    runtime.bindHarness("b1", "claude", "e1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.snapshot("b1")?.reports).toHaveLength(1);
+    expect(listed()).toBe(0);
     dispose();
     runtime.stop();
   });
