@@ -22,7 +22,8 @@ import {
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { ArtifactMoveDialog } from "../artifacts/ArtifactMove";
 import { Kbd, ResourceGlyphMark } from "../ui";
-import { CaptureEditor } from "./CaptureEditor";
+import { CaptureEditor, type CaptureArtifactRef } from "./CaptureEditor";
+import { CaptureMoveColumn, useCaptureMove } from "./CaptureMoveColumn";
 import { CapturePreview } from "./CapturePreview";
 import { CaptureInboxAsk } from "./CaptureInboxAsk";
 import { moveSuggestionsFor } from "./capture-model";
@@ -67,6 +68,8 @@ export function QuickCapture() {
     [heads, inbox, query],
   );
   const activeRow = rows.find((row) => row.artifactId === active) ?? rows[0];
+  /** The new capture once it is made, by the key of the capture it is: Cmd+N's next one starts unmade. */
+  const [made, setMade] = useState<{ readonly key: number; readonly ref: CaptureArtifactRef } | undefined>(undefined);
   // Inbox first, then everything else, each under its own small heading; a
   // search is one flat list with no heading (Cmd+K's list).
   const groups = useMemo(() => {
@@ -106,6 +109,18 @@ export function QuickCapture() {
   // The caret is in the document when the surface opens, and in whatever the
   // right half comes to hold: the editor's engine loads lazily, so the claim
   // waits for its line to exist rather than landing on the frame.
+  // What Move to moves: the open capture, or the focused row; nothing while a new capture is unmade.
+  const newKey = edit.kind === "new" ? edit.key : 0;
+  const moveTarget: CaptureArtifactRef | undefined =
+    edit.kind === "artifact"
+      ? { nodeId: edit.row.nodeId as NodeId, artifactId: edit.row.artifactId as ItemId }
+      : edit.kind === "preview" && previewRow !== undefined
+        ? { nodeId: previewRow.nodeId as NodeId, artifactId: previewRow.artifactId as ItemId }
+        : made?.key === newKey
+          ? made.ref
+          : undefined;
+  const move = useCaptureMove(canvasName, moveTarget);
+
   const openKey = edit.kind === "new" ? `new-${String(edit.key)}` : edit.kind === "artifact" ? edit.row.artifactId : "preview";
   useEffect(() => {
     let live = true;
@@ -330,6 +345,7 @@ export function QuickCapture() {
                 open={{ kind: "new", key: edit.kind === "new" ? edit.key : 0 }}
                 onArtifact={(ref) => {
                   if (ref !== null) setActive(ref.artifactId);
+                  setMade(ref === null ? undefined : { key: edit.kind === "new" ? edit.key : 0, ref });
                 }}
               />
             )
@@ -363,6 +379,7 @@ export function QuickCapture() {
           <h2 className="quick-capture__move-head" id={`${baseId}-move`}>
             Move to
           </h2>
+          <CaptureMoveColumn move={move} canvasName={canvasName} />
         </section>
       </div>
       <div className="quick-capture__foot">

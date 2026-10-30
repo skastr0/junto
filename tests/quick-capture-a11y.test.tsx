@@ -59,7 +59,8 @@ const regionNames = (): string[] =>
     const labelledBy = section.getAttribute("aria-labelledby");
     return labelledBy === null ? "" : (document.getElementById(labelledBy)?.textContent ?? "").trim();
   });
-const liveRegions = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>(".quick-capture [role='status']")];
+// The Captures column's: Move to keeps its own line for how a move went.
+const liveRegions = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>(".quick-capture__list [role='status']")];
 const search = (): HTMLInputElement => {
   const field = document.querySelector<HTMLInputElement>(".quick-capture__search input");
   if (field === null) throw new Error("no search field");
