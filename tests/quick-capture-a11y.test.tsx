@@ -107,6 +107,17 @@ it("names its three columns as regions: Captures, Writing, Move to", () => {
   expect(regionNames()).toEqual(["Captures", "Writing", "Move to"]);
 });
 
+it("keeps the Move to line mounted and atomic, saying nothing until a move", () => {
+  // The column's own test holds the route stops and their order; this holds the
+  // announcement, which is the part a reader needs even on a desk with no route.
+  const line = document.querySelector(".capture-move .capture-move__line");
+  expect(line?.getAttribute("role")).toBe("status");
+  expect(line?.getAttribute("aria-live")).toBe("polite");
+  expect(line?.getAttribute("aria-atomic")).toBe("true");
+  // Mounted from the start, and saying nothing yet.
+  expect(line?.textContent).toBe("");
+});
+
 it("mounts its live region before it has anything to say, and says the empty line once", async () => {
   // Nothing is announced by opening the surface: the region is there, empty.
   const live = liveRegions();
