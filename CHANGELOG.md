@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.11.8 — 2026-10-30
+
+No database change: 0.11.8 opens the same version 73 as 0.11.7.
+
+- A large stability improvement. The core, which runs the operator socket,
+  work control, Files, the phone companion and the link, is now a program of
+  its own, built apart from the window's main process, and the window asks it
+  for what it needs. A busy canvas, a heavy Files index or a stuck call in the
+  core no longer holds the window, and quitting waits for the core to finish
+  what it was answering before the terminals stop. A restart of the core is
+  recovered by the window, and the holds on seats survive it. When the core is
+  what failed at start, the failure dialog names the core and its log.
+- Proven in the real app on this build: seat state on the card, the hotbar
+  digit, Cmd+Backquote, escalate on the card and on the chip, the ring colour,
+  Cmd+K, mail delivery, typing reaching the seat, answers and artifact requests
+  typed into the seat, a core restart with the window recovering, quit waiting
+  for the core, and a write sent as the quit begins being there after the
+  restart.
+
+Known gaps in 0.11.8:
+
+- After a core crash, seats die and nothing resumes them. A core crash needs an
+  app restart.
+- If the core fails at boot, the recovery and its dialog are unproven, and the
+  app may exit with no message.
+- The switcher orders seats by recency, though it is labelled by need.
+- Key echo in a terminal is slower: typically 15.8 ms, up from 8.1 ms.
+
 ## 0.11.7 — 2026-10-30
 
 Opening the database with 0.11.7 moves it to version 73, and 0.11.5 then
