@@ -23,7 +23,10 @@ import { SettingsService } from "../../junto/settings/service";
 import { closingFence } from "../../junto/term/closing-fence";
 import { injectionSupervisor } from "../../junto/term/injection-supervisor";
 import { makeOnboardNudgeInterject } from "../../junto/term/onboard-nudge-interject";
+import { wireFactorySupervisor } from "../../junto/term/factory-delivery-composition";
 import { termPlane } from "../../junto/term/plane";
+import { terminalObserverPlane } from "../../junto/term/observer";
+import { seatStateRuntime } from "../../junto/term/agent-state/runtime";
 import { makeCheckoutWatchComposition } from "../../junto/work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "../../junto/work/checkout-watch-live";
 import { CrewRepository } from "../../junto/work/crew-repository";
@@ -75,7 +78,7 @@ coreOps({
       const settings = yield* SettingsService;
       let suspended = false;
       let checkoutWatch: CheckoutWatchSupervisor | undefined;
-      const { drive: managedDrive, mailReadyNow } = coreMail.seats;
+      const { drive: managedDrive, mailReadyNow, driveReady } = coreMail.seats;
       coreMail.seats.onSuspend(() => {
         suspended = true;
         checkoutWatch?.stop();
@@ -90,6 +93,19 @@ coreOps({
         sealed: (bindingId) => closingFence.sealed(bindingId),
         mailReady: mailReadyNow,
         writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
+      });
+      // The supervisor's own lines: the automatic onboarding nudge and the
+      // `--continue` handoff. It runs here, in the core, so its writer is the
+      // core's mail gate, its composer reading the seat state's, and its
+      // snapshots the observer's. Main holds no copy of any of it.
+      wireFactorySupervisor({
+        supervisor: injectionSupervisor,
+        interject: (bindingId, text) =>
+          interjectOnboardNudge(bindingId, text).then((outcome) => outcome === "written"),
+        write: (bindingId, text, options) =>
+          managedDrive.writePrompt(bindingId, text, { ready: options?.ready ?? driveReady(bindingId), ...(options ?? {}) }),
+        composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
+        subscribeSnapshots: (listener) => terminalObserverPlane.subscribeGlobal(listener),
       });
       // The operator's nudge asks this core's plane for the seat, its running state and the interject.
       bindSeatIpc({
