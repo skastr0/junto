@@ -141,20 +141,99 @@ describe("the wait before standing", () => {
     expect(standsAfter(member("vps", ["macbook", "mini", "vps"]))).toBe(30);
   });
 
-  it("never has two fresh authorities: the old one's lease lapses before the fallback stands", () => {
-    for (let seed = 30; seed < 60; seed++) {
+  /** Cluster steps per tick: a message can arrive anywhere inside a tick, as on a real link. */
+  const STEPS = 8;
+  /** At most one machine that is not stalled reports itself fresh: a stalled process answers nothing until its host counts the stall. */
+  const oneFresh = (cluster: Cluster, seed: number) => () => {
+    const fresh = [...cluster.nodes.values()].filter(node => !cluster.stalls.has(node.id) && node.status().fresh).map(node => node.id);
+    expect(fresh.length, `seed ${seed}, tick ${cluster.now}: ${fresh.join(", ")}`).toBeLessThanOrEqual(1);
+  };
+
+  it("never has two fresh authorities: the old one's lease lapses before the fallback stands, whatever each clock's rate and phase", () => {
+    for (let seed = 30; seed < 90; seed++) {
       const cluster = new Cluster(seed, ["macbook", "mini"], ["macbook", "mini"]);
-      const once = () => {
-        const fresh = [...cluster.nodes.values()].filter(node => node.status().fresh).map(node => node.id);
-        expect(fresh.length, `seed ${seed}, tick ${cluster.now}: ${fresh.join(", ")}`).toBeLessThanOrEqual(1);
-      };
-      cluster.run(200, once);
-      cluster.partition(["macbook"], ["mini"]);
-      cluster.run(200, once);
-      expect(cluster.leader()?.id).toBe("mini");
-      cluster.heal();
-      cluster.run(400, once);
+      // No jitter: every fallback stands the moment its wait ends.
+      cluster.jitterTicks = 0;
+      cluster.stepsPerTick = STEPS;
+      const once = oneFresh(cluster, seed);
+      cluster.run(200 * STEPS, once);
+      for (let cut = 0; cut < 4; cut++) {
+        cluster.partition(["macbook"], ["mini"]);
+        cluster.run(cluster.rng.int(15, 60) * STEPS, once);
+        cluster.heal();
+        cluster.run(cluster.rng.int(15, 60) * STEPS, once);
+      }
     }
+  }, 120_000);
+
+  it("never has two fresh authorities when the authority stalls past an election timeout and wakes", () => {
+    for (const first of [["macbook", "mini"], ["macbook", "mini", "vps"]]) {
+      for (let seed = 90; seed < 150; seed++) {
+        const cluster = new Cluster(seed, first, first);
+        // No jitter: every fallback stands the moment its wait ends.
+        cluster.jitterTicks = 0;
+        cluster.stepsPerTick = STEPS;
+        const once = oneFresh(cluster, seed);
+        cluster.run(200 * STEPS, once);
+        for (let stall = 0; stall < 6; stall++) {
+          const leader = cluster.leader();
+          // A blocked event loop or a closed lid: longer than an election timeout, while the others tick on.
+          if (leader !== undefined) cluster.stall(leader.id, cluster.rng.int(11 * STEPS, 40 * STEPS));
+          cluster.run(cluster.rng.int(20, 120) * STEPS, once);
+        }
+        cluster.run(300 * STEPS, once);
+        expect(cluster.propose("after the stalls"), `seed ${seed}`).toBeDefined();
+      }
+    }
+  }, 120_000);
+});
+
+describe("a gap in the authority's clock", () => {
+  const pair = () => {
+    const macbook = new ConsensusNode({
+      id: "macbook", electionTicks: 10, heartbeatTicks: 1, hardState: { term: 1, votedFor: null, commit: 1 },
+      log: [{ term: 1, index: 1, payload: { kind: "list", members: { list: ["macbook", "mini"] } } }],
+    });
+    // A pair's first machine stands after one timeout, and wins on the mini's pre-vote and vote.
+    macbook.elapse(10);
+    for (let round = 0; round < 2; round++) {
+      for (const message of macbook.ready().messages) {
+        if (message.type === "pre-vote") macbook.step({ type: "pre-vote-reply", from: "mini", to: "macbook", term: message.term, granted: true });
+        if (message.type === "vote") macbook.step({ type: "vote-reply", from: "mini", to: "macbook", term: message.term, granted: true });
+      }
+    }
+    expect(macbook.status().role).toBe("leader");
+    return macbook;
+  };
+  /** The mini answers every append the authority has sent since the last drain. */
+  const answer = (macbook: ConsensusNode) => {
+    for (const message of macbook.ready().messages) {
+      if (message.type === "append") macbook.step({ type: "append-reply", from: "mini", to: "macbook", term: message.term, success: true, index: message.prevIndex + message.entries.length, at: message.at });
+    }
+  };
+
+  it("ends the lease: answers to appends sent before a gap of more than two ticks do not count, answers to one sent after do", () => {
+    const macbook = pair();
+    const before = macbook.ready().messages;
+    macbook.elapse(1);
+    for (const message of before) if (message.type === "append") macbook.step({ type: "append-reply", from: "mini", to: "macbook", term: message.term, success: true, index: message.prevIndex + message.entries.length, at: message.at });
+    expect(macbook.status()).toMatchObject({ role: "leader", fresh: true });
+    const sentBefore = macbook.ready().messages;
+    // Three ticks at once: well inside the lease by the count, but a gap.
+    macbook.elapse(3);
+    expect(macbook.status().fresh).toBe(false);
+    for (const message of sentBefore) if (message.type === "append") macbook.step({ type: "append-reply", from: "mini", to: "macbook", term: message.term, success: true, index: message.prevIndex + message.entries.length, at: message.at });
+    expect(macbook.status().fresh).toBe(false);
+    answer(macbook);
+    expect(macbook.status().fresh).toBe(true);
+  });
+
+  it("keeps the lease across two ticks at once, which a late timer gives", () => {
+    const macbook = pair();
+    answer(macbook);
+    expect(macbook.status().fresh).toBe(true);
+    macbook.elapse(2);
+    expect(macbook.status().fresh).toBe(true);
   });
 });
 

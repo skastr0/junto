@@ -1,7 +1,11 @@
 /**
  * A deterministic simulation of the fleet consensus core (plan 0.11/06, F1):
  * a seeded scheduler, a virtual clock, and a network that delays, drops,
- * duplicates and reorders, cuts machines apart and crashes them. Each machine
+ * duplicates and reorders, cuts machines apart and crashes them. Each
+ * machine ticks on its own clock, at a rate within `DRIFT` of the others and
+ * at its own phase, and can stall (a blocked event loop, a sleeping Mac):
+ * it then ticks and reads nothing, and its host counts the periods it missed
+ * when the stall ends, as the real tick clock does. Each machine
  * is driven exactly as the real driver is: drain `ready()`, persist, send,
  * apply. Every check below runs after every step, so a failure names the
  * tick and the seed that reproduce it.
@@ -49,6 +53,9 @@ export type Faults = {
 
 export const CALM: Faults = { drop: 0, duplicate: 0, maxDelay: 1 };
 
+/** How far apart machines' clock rates run: well inside the core's `driftTicks` of 1 over an election timeout of 10. */
+export const DRIFT = 0.05;
+
 type Stored = { hardState: HardState; log: Entry[] };
 
 const same = (a: Entry, b: Entry): boolean => a.term === b.term && JSON.stringify(a.payload) === JSON.stringify(b.payload);
@@ -66,9 +73,20 @@ export class Cluster {
   readonly cut = new Set<string>();
   readonly leaders = new Map<number, MachineId>();
   readonly revoked: Array<{ readonly id: MachineId; readonly entry: Entry }> = [];
+  /** Each machine's clock: its rate, and the part of a period it has run toward its next tick. */
+  private clocks = new Map<MachineId, { readonly rate: number; carried: number }>();
+  /** Machines that read and tick nothing until `until`; `missed` is what their clock counted meanwhile. */
+  readonly stalls = new Map<MachineId, { readonly until: number; missed: number }>();
   private inflight: Array<{ readonly at: number; readonly seq: number; readonly message: Message }> = [];
   private seq = 0;
   private wasLeader = new Map<MachineId, number>();
+  /**
+   * Cluster steps per machine tick. At 1 a message takes at least a whole
+   * tick, which hides how a lease rounds; more steps deliver within a tick.
+   */
+  stepsPerTick = 1;
+  /** The most a machine's election timeout is drawn past its rank's; 0 makes every wait exact, the tightest case for a lease. */
+  jitterTicks: number;
   /** Set by a run that uses `alone`: leader completeness and applied agreement may break until it converges. */
   diverged = false;
 
@@ -82,6 +100,7 @@ export class Cluster {
     readonly heartbeatTicks = 3,
   ) {
     this.rng = seeded(seed);
+    this.jitterTicks = electionTicks;
     this.faults = faults;
     const genesis: Entry = { term: 1, index: 1, payload: { kind: "list", members: { list: [...first] } } };
     for (const id of pool) {
@@ -102,16 +121,33 @@ export class Cluster {
       id,
       electionTicks: this.electionTicks,
       heartbeatTicks: this.heartbeatTicks,
-      jitter: () => this.rng.int(0, this.electionTicks),
+      jitter: () => this.rng.int(0, this.jitterTicks),
       hardState: stored.hardState,
       log: stored.log,
     }));
+    this.clocks.set(id, { rate: 1 + (this.rng.next() * 2 - 1) * DRIFT, carried: this.rng.next() });
+    this.stalls.delete(id);
     this.dead.delete(id);
     this.wasLeader.delete(id);
   }
 
+  /** The machine's process stops for `ticks` of cluster time: no tick, no message read. */
+  stall(id: MachineId, ticks: number): void {
+    this.stalls.set(id, { until: this.now + ticks, missed: 0 });
+  }
+
+  /** Whole periods the machine's clock ran during one tick of cluster time. */
+  private clockPeriods(id: MachineId): number {
+    const clock = this.clocks.get(id)!;
+    clock.carried += clock.rate / this.stepsPerTick;
+    const whole = Math.floor(clock.carried);
+    clock.carried -= whole;
+    return whole;
+  }
+
   crash(id: MachineId): void {
     this.dead.add(id);
+    this.stalls.delete(id);
     this.nodes.delete(id);
   }
 
@@ -229,16 +265,27 @@ export class Cluster {
     }
   }
 
-  /** One tick of virtual time: every live machine ticks, then every message due arrives. */
+  /** One tick of virtual time: every live machine's clock runs, then every message due arrives. */
   tick(): void {
     this.now += 1;
     for (const id of [...this.nodes.keys()]) {
-      this.nodes.get(id)?.tick();
+      const periods = this.clockPeriods(id);
+      const stall = this.stalls.get(id);
+      if (stall !== undefined) {
+        stall.missed += periods;
+        if (this.now < stall.until) continue;
+        // The stall ends: the host counts every period it missed, at once.
+        this.stalls.delete(id);
+        this.nodes.get(id)?.elapse(stall.missed + periods);
+      } else {
+        this.nodes.get(id)?.elapse(periods);
+      }
       this.drain(id);
     }
     // Delivery order is the scheduler's: due messages in a seeded shuffle, which reorders.
-    const due = this.inflight.filter(item => item.at <= this.now);
-    this.inflight = this.inflight.filter(item => item.at > this.now);
+    // A stalled machine reads nothing: its messages wait for it.
+    const due = this.inflight.filter(item => item.at <= this.now && !this.stalls.has(item.message.to));
+    this.inflight = this.inflight.filter(item => item.at > this.now || this.stalls.has(item.message.to));
     for (let at = due.length - 1; at > 0; at--) {
       const swap = this.rng.int(0, at);
       [due[at], due[swap]] = [due[swap]!, due[at]!];

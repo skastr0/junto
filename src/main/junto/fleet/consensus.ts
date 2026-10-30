@@ -28,9 +28,12 @@
  *   Raft's guarantees by definition and the one path to divergence: entries
  *   a machine committed and then loses to it come out as `revoked`.
  * - **Freshness, not safety, uses time**: an authority is fresh while a
- *   quorum has answered an append it sent within the last election timeout
- *   (CheckQuorum). Counted from the send, it lapses before a follower that
- *   heard that append can stand, so two machines are never fresh at once.
+ *   quorum has answered an append it sent less than a lease ago (CheckQuorum).
+ *   The lease is an election timeout less one tick for a follower's tick
+ *   phase and `driftTicks` for clock rates, counted from the send, so it
+ *   lapses before a follower that heard that append can stand. A gap of more
+ *   than two ticks (a stalled process, a sleeping Mac) ends it: only answers
+ *   to appends sent after the gap make the authority fresh again.
  */
 
 export type MachineId = string;
@@ -87,6 +90,8 @@ export type ConsensusOptions = {
   readonly heartbeatTicks: number;
   /** Extra ticks added to each election timeout, so machines that lost the same authority do not stand together; 0 by default. The simulation seeds it. */
   readonly jitter?: () => number;
+  /** Ticks the lease gives up for machines whose clocks run apart; 1 by default. */
+  readonly driftTicks?: number;
   /** Entries in one append at most. */
   readonly maxEntriesPerAppend?: number;
   /** What this machine persisted; a new machine starts empty with the first list as entry 1. */
@@ -165,6 +170,7 @@ export class ConsensusNode {
   private readonly heartbeatTicks: number;
   private readonly jitter: () => number;
   private readonly maxEntries: number;
+  private readonly leaseTicks: number;
 
   private term: number;
   private votedFor: MachineId | null;
@@ -186,6 +192,8 @@ export class ConsensusNode {
   private ticks = 0;
   /** Per machine, when this authority sent the latest append that machine answered. */
   private answeredAt = new Map<MachineId, number>();
+  /** The first tick after the last gap: answers to appends sent before it are not counted. */
+  private freshFrom = 0;
   private transferTo: MachineId | null = null;
   private transferElapsed = 0;
 
@@ -202,6 +210,7 @@ export class ConsensusNode {
     this.heartbeatTicks = options.heartbeatTicks;
     this.jitter = options.jitter ?? (() => 0);
     this.maxEntries = options.maxEntriesPerAppend ?? 64;
+    this.leaseTicks = options.electionTicks - 1 - (options.driftTicks ?? 1);
     this.term = options.hardState.term;
     this.votedFor = options.hardState.votedFor;
     this.log = [...options.log];
@@ -276,19 +285,35 @@ export class ConsensusNode {
   // ---- inputs --------------------------------------------------------------
 
   tick(): void {
-    this.ticks += 1;
+    this.elapse(1);
+  }
+
+  /**
+   * `periods` ticks passed since the last call, as the host's clock counted
+   * them; a stall or a sleep is counted when it ends. More than two at once
+   * is a gap: answers to appends sent before it no longer make this authority
+   * fresh.
+   */
+  elapse(periods: number): void {
+    const ticks = Math.max(0, Math.floor(periods));
+    if (ticks === 0) return;
+    if (ticks > 2) {
+      this.freshFrom = this.ticks + 1;
+      this.answeredAt.clear();
+    }
+    this.ticks += ticks;
     if (this.role === "leader") {
-      this.heartbeatElapsed += 1;
+      this.heartbeatElapsed += ticks;
       if (this.heartbeatElapsed >= this.heartbeatTicks) {
         this.heartbeatElapsed = 0;
         this.broadcastAppend();
       }
       // A transfer the target never took ends: the authority takes proposals again.
-      if (this.transferTo !== null && ++this.transferElapsed >= this.electionTicks) this.transferTo = null;
+      if (this.transferTo !== null && (this.transferElapsed += ticks) >= this.electionTicks) this.transferTo = null;
       this.considerHandover();
       return;
     }
-    this.elapsed += 1;
+    this.elapsed += ticks;
     if (this.standing() === undefined) return;
     if (this.elapsed >= this.timeout) this.preCampaign();
   }
@@ -475,11 +500,11 @@ export class ConsensusNode {
     this.appendOwn({ kind: "noop" });
   }
 
-  /** An authority a quorum answered within an election timeout of sending, or that is a quorum on its own. */
+  /** An authority a quorum answered within a lease of sending, or that is a quorum on its own. */
   private isFresh(): boolean {
     if (this.role !== "leader") return false;
     const heard = new Set([this.id]);
-    for (const [peer, at] of this.answeredAt) if (this.ticks - at < this.electionTicks) heard.add(peer);
+    for (const [peer, at] of this.answeredAt) if (this.ticks - at < this.leaseTicks) heard.add(peer);
     return isQuorum(this.members(), heard);
   }
 
@@ -595,8 +620,8 @@ export class ConsensusNode {
 
   private onAppendReply(message: Extract<Message, { type: "append-reply" }>): void {
     if (this.role !== "leader") return;
-    // Fresh as soon as a quorum answers, until an election timeout past the send they answered.
-    if (message.at <= this.ticks && message.at > (this.answeredAt.get(message.from) ?? -1)) this.answeredAt.set(message.from, message.at);
+    // Fresh as soon as a quorum answers, until a lease past the send they answered.
+    if (message.at >= this.freshFrom && message.at <= this.ticks && message.at > (this.answeredAt.get(message.from) ?? -1)) this.answeredAt.set(message.from, message.at);
     if (!message.success) {
       this.nextIndex.set(message.from, Math.max(1, Math.min(message.index + 1, (this.nextIndex.get(message.from) ?? 1) - 1)));
       this.sendAppend(message.from);
