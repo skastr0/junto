@@ -75,6 +75,44 @@ describe("name index", () => {
     }
   });
 
+  it("scores files that share a folder as scoring each path whole does", async () => {
+    let seed = 9;
+    const pick = (text: string): string => text[(seed = (seed * 48271) % 2147483647) % text.length]!;
+    const word = (len: number, from = "abcdes-_."): string => Array.from({ length: len }, () => pick(from)).join("");
+    // Folders also hold "f" and "0", which no name does: a query ending in one matches only in the folder.
+    const folders = [
+      "",
+      ...Array.from({ length: 40 }, (_, n) => Array.from({ length: 1 + (n % 4) }, () => word(2 + (n % 5), "abdf0-")).join("/")),
+    ];
+    const paths = new Set<string>();
+    for (let n = 0; n < 4000; n += 1) {
+      const folder = folders[n % folders.length]!;
+      const name = word(1 + (n % 9));
+      paths.add(folder === "" ? name : `${folder}/${name}`);
+    }
+    const builder = new NameIndexBuilder();
+    builder.add([...paths]);
+    const index = await builder.finish(async () => undefined);
+    const brute = (query: string): number[] =>
+      [...paths]
+        .map((path) => scoreFilePath(foldForSearch(path), query))
+        .filter((score): score is number => score !== undefined)
+        .sort((a, b) => b - a)
+        .slice(0, 25);
+    for (const typed of ["abcd", "a/b", "s.e", "d/a-s", "_/_", "ee/", "cab.s", "/a", "aaaa", "af", "d0", "b/f", "fa0"]) {
+      let previous: ReturnType<typeof index.search>["set"] | undefined;
+      for (let end = 1; end <= typed.length; end += 1) {
+        const query = typed.slice(0, end);
+        for (const narrowed of [undefined, previous]) {
+          const result = index.search(query, narrowed, 25);
+          const got = result.matches.map((match) => scoreFilePath(foldForSearch(match.path), query)!);
+          expect(got, query).toEqual(brute(query));
+        }
+        previous = index.search(query, previous, 25).set;
+      }
+    }
+  });
+
   it("narrows a growing query from the previous match set", async () => {
     const builder = new NameIndexBuilder();
     builder.add(["src/alpha.ts", "src/beta.ts", "docs/alphabet.md"]);

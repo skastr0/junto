@@ -128,12 +128,7 @@ export const scoreCodes = (
   }
   if (start < 0) return undefined;
   const penalty = (end - start) * 4 + (to - from);
-  if (floor !== Number.NEGATIVE_INFINITY) {
-    // The forward pass can find a run inside a wide span, so no point is
-    // taken off for the span; the name's points count only what is in it.
-    const best = boundOf(length, separators) - 2 + inName * 2 + (inName > 0 ? 2 : 0) - length * 2;
-    if (best * 1024 - penalty <= floor) return Number.NEGATIVE_INFINITY;
-  }
+  if (beyond(length, separators, inName, penalty, floor)) return Number.NEGATIVE_INFINITY;
   if (nameStart < 0) {
     // The match ended before any "/": the name starts further back.
     nameStart = from;
@@ -149,13 +144,173 @@ export const scoreCodes = (
   qi = 0;
   for (let i = start; i <= end && qi < length; i += 1) {
     if (codes[i] !== query[qi]) continue;
-    let points = 1;
-    if (i >= nameStart) points += 2;
-    const before = i === from ? 47 : codes[i - 1]!;
-    if (before === 47 || before === 45 || before === 95 || before === 46 || before === 32) points += 3;
-    if (previous === i - 1) points += 4;
-    if (i === nameStart) points += 2;
-    score += points;
+    score += pointsAt(codes, from, nameStart, i, previous);
+    previous = i;
+    qi += 1;
+  }
+  return score * 1024 - penalty;
+};
+
+/**
+ * True when a match with `inName` characters in the name and this
+ * `penalty` cannot beat `floor` however its points fall. The forward pass
+ * can find a run inside a wide span, so no point is taken off for the span;
+ * the name's points count only what is in it.
+ */
+const beyond = (length: number, separators: number, inName: number, penalty: number, floor: number): boolean =>
+  floor !== Number.NEGATIVE_INFINITY &&
+  (boundOf(length, separators) - 2 + inName * 2 + (inName > 0 ? 2 : 0) - length * 2) * 1024 - penalty <= floor;
+
+/** The points for a query character matched at `i`, after one matched at `previous`. */
+const pointsAt = (codes: Codes, from: number, nameStart: number, i: number, previous: number): number => {
+  let points = 1;
+  if (i >= nameStart) points += 2;
+  const before = i === from ? 47 : codes[i - 1]!;
+  if (before === 47 || before === 45 || before === 95 || before === 46 || before === 32) points += 3;
+  if (previous === i - 1) points += 4;
+  if (i === nameStart) points += 2;
+  return points;
+};
+
+/**
+ * One query's passes through each folder, kept for every file in that
+ * folder. Slot `folder * query length + qi`, where `qi` is the last query
+ * character the name left unmatched. `starts`: 0 not walked yet, -1 the
+ * query's first `qi + 1` characters are not in the folder, else 1 + where
+ * the backward match starts, from the path's start; `ends` 1 + where it first
+ * matched, for a name that held none of the query. From that start, the
+ * forward pass's share of the folder: `matched` 0 not run yet, else 1 + the
+ * query characters it took; their `points`; and `joined` 1 when the last
+ * took the folder's closing "/", so a match at the name's first character
+ * is a run.
+ */
+type FolderPasses = {
+  readonly starts: Int32Array;
+  readonly ends: Int32Array;
+  readonly matched: Int32Array;
+  readonly points: Int32Array;
+  readonly joined: Uint8Array;
+};
+
+/**
+ * Past this many slots (17 MB held) a query walks every path whole instead:
+ * 20,000 folders allow a 52-character query.
+ */
+const FOLDER_SLOTS = 1 << 20;
+
+/**
+ * Passes for `slots` slots, reusing `held` when it is big enough. Only
+ * `starts` and `matched` are cleared: the rest is read only after them.
+ */
+const folderPasses = (slots: number, held: FolderPasses | undefined): FolderPasses => {
+  if (held === undefined || held.starts.length < slots) {
+    return {
+      starts: new Int32Array(slots),
+      ends: new Int32Array(slots),
+      matched: new Int32Array(slots),
+      points: new Int32Array(slots),
+      joined: new Uint8Array(slots),
+    };
+  }
+  held.starts.fill(0, 0, slots);
+  held.matched.fill(0, 0, slots);
+  return held;
+};
+
+/**
+ * `scoreCodes` for a packed path whose folder part, `from` to `nameStart`
+ * ("/" included), it shares with every file in folder `folder`: the name is
+ * walked per path, the folder once per query and unmatched character.
+ * Paths are mostly folder (about 85 of 101 units on the 200k fixture), so
+ * this saves most of both passes. The same greedy matches, so the same score.
+ */
+const scoreInFolder = (
+  codes: Codes,
+  from: number,
+  to: number,
+  nameStart: number,
+  folder: number,
+  passes: FolderPasses,
+  query: Uint16Array,
+  floor: number,
+  separators: number,
+): number | undefined => {
+  const length = query.length;
+  if (length === 0) return 0;
+  if (length > to - from) return undefined;
+  let qi = length - 1;
+  let start = -1;
+  let end = -1;
+  let inName = 0;
+  let want = query[qi]!;
+  for (let i = to - 1; i >= nameStart; i -= 1) {
+    if (codes[i] !== want) continue;
+    if (end < 0) end = i;
+    inName += 1;
+    qi -= 1;
+    if (qi < 0) {
+      start = i;
+      break;
+    }
+    want = query[qi]!;
+  }
+  let slot = -1;
+  if (start < 0) {
+    slot = folder * length + qi;
+    let walked = passes.starts[slot]!;
+    if (walked === 0) {
+      walked = -1;
+      let first = -1;
+      for (let i = nameStart - 1; i >= from; i -= 1) {
+        if (codes[i] !== want) continue;
+        if (first < 0) first = i;
+        qi -= 1;
+        if (qi < 0) {
+          walked = i - from + 1;
+          break;
+        }
+        want = query[qi]!;
+      }
+      passes.starts[slot] = walked;
+      passes.ends[slot] = first - from + 1;
+    }
+    if (walked < 0) return undefined;
+    start = from + walked - 1;
+    if (end < 0) end = from + passes.ends[slot]! - 1;
+  }
+  const penalty = (end - start) * 4 + (to - from);
+  if (beyond(length, separators, inName, penalty, floor)) return Number.NEGATIVE_INFINITY;
+  let score = 0;
+  let previous = -2;
+  let i = start;
+  qi = 0;
+  if (slot >= 0) {
+    // The forward pass through the folder. A match that ends in the folder
+    // (none in the name) is complete there, so running to the folder's end
+    // instead of `end` takes the same characters.
+    let matched = passes.matched[slot]!;
+    if (matched === 0) {
+      let points = 0;
+      let last = -2;
+      for (let at = start; at < nameStart && qi < length; at += 1) {
+        if (codes[at] !== query[qi]) continue;
+        points += pointsAt(codes, from, nameStart, at, last);
+        last = at;
+        qi += 1;
+      }
+      matched = qi + 1;
+      passes.matched[slot] = matched;
+      passes.points[slot] = points;
+      passes.joined[slot] = last === nameStart - 1 ? 1 : 0;
+    }
+    score = passes.points[slot]!;
+    qi = matched - 1;
+    previous = passes.joined[slot] === 1 ? nameStart - 1 : -2;
+    i = nameStart;
+  }
+  for (; i <= end && qi < length; i += 1) {
+    if (codes[i] !== query[qi]) continue;
+    score += pointsAt(codes, from, nameStart, i, previous);
     previous = i;
     qi += 1;
   }
@@ -234,6 +389,25 @@ export class NameIndexBuilder {
       masks[i] = maskOfCodes(codes, starts[i]!, starts[i + 1]! - 1);
       if (i % CHUNK === CHUNK - 1) await yieldNow();
     }
+    // Each path's folder ("" for a file at the root), by the folder part's text.
+    const folders = new Int32Array(count);
+    const folderIds = new Map<string, number>();
+    const lengths: number[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const from = starts[i]!;
+      const slash = packed.lastIndexOf("/", starts[i + 1]! - 2);
+      const length = slash < from ? 0 : slash - from + 1;
+      const folder = packed.slice(from, from + length);
+      let id = folderIds.get(folder);
+      if (id === undefined) {
+        id = lengths.length;
+        folderIds.set(folder, id);
+        lengths.push(length);
+      }
+      folders[i] = id;
+      if (i % CHUNK === CHUNK - 1) await yieldNow();
+    }
+    folderIds.clear();
     let capacity = 1024;
     while (capacity < count * 2) capacity *= 2;
     const table = new Int32Array(capacity);
@@ -245,7 +419,7 @@ export class NameIndexBuilder {
       if (i % CHUNK === CHUNK - 1) await yieldNow();
     }
     const wide = this.wide.splice(0);
-    return new NameIndex(packed, codes, starts, masks, table, wide);
+    return new NameIndex(packed, codes, starts, masks, table, folders, Int32Array.from(lengths), wide);
   }
 }
 
@@ -269,6 +443,8 @@ export class NameIndex {
   private changes = 0;
   /** Changes on every delta; a cached match set from another generation is not narrowed. */
   private generation = 0;
+  /** The last search's folder passes, cleared and reused by the next. */
+  private passes: FolderPasses | undefined;
 
   constructor(
     private readonly packed: string,
@@ -276,6 +452,9 @@ export class NameIndex {
     private readonly starts: Int32Array,
     private readonly masks: Int32Array,
     private readonly table: Int32Array,
+    /** Each packed path's folder, and per folder the length of its part of the path, "/" included. */
+    private readonly folders: Int32Array,
+    private readonly folderLengths: Int32Array,
     wide: ReadonlyArray<string> = [],
   ) {
     this.overlay = [...wide];
@@ -392,7 +571,10 @@ export class NameIndex {
       previous !== undefined && previous.generation === this.generation && query.startsWith(previous.query);
     const base = this.base;
     const total = base + this.overlay.length;
-    const { codes, starts, masks, dead } = this;
+    const { codes, starts, masks, dead, folders, folderLengths } = this;
+    const slots = folderLengths.length * query.length;
+    const passes = slots <= FOLDER_SLOTS ? folderPasses(slots, this.passes) : undefined;
+    this.passes = passes ?? this.passes;
     const found = new Int32Array(narrow ? previous.ids.length : total);
     let foundCount = 0;
     const count = narrow ? previous.ids.length : total;
@@ -416,7 +598,12 @@ export class NameIndex {
           foundCount += 1;
           continue;
         }
-        score = scoreCodes(codes, from, to, queryCodes, floor, separators);
+        if (passes === undefined) score = scoreCodes(codes, from, to, queryCodes, floor, separators);
+        else {
+          const folder = folders[id]!;
+          const nameStart = from + folderLengths[folder]!;
+          score = scoreInFolder(codes, from, to, nameStart, folder, passes, queryCodes, floor, separators);
+        }
       } else {
         const own = this.overlayFolded[id - base];
         if (own === undefined) continue;
