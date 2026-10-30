@@ -102,6 +102,9 @@ test("quit Cancel keeps the app and the seat, and a later quit still works", asy
     await expect(junto.page.locator('.react-flow__node[data-id="scout"]')).toBeVisible();
     const [status] = await junto.page.evaluate((canvas) => window.junto!.seatOffboardStatus!(canvas, ["scout"]), CANVAS);
     expect((status!.now as { readonly allowed: boolean }).allowed).toBe(true);
+    // The seat's PTY is still the core's: Cancel stopped nothing.
+    const sessions = await junto.page.evaluate(() => window.junto!.terminalList());
+    expect(sessions.filter((session) => session.status === "running" || session.status === "starting").length).toBeGreaterThan(0);
 
     // A later accept still quits: Cancel did not wedge the quit path.
     quitting = true;
