@@ -38,9 +38,8 @@
 }
 
 .machine-shelf__place[aria-selected="true"] {
-  border-color: var(--color-stroke);
-  background: var(--color-raise);
-  box-shadow: inset 0 -2px 0 var(--color-amber);
+  border-color: color-mix(in oklab, var(--color-amber) 50%, transparent);
+  background: color-mix(in oklab, var(--color-amber) 10%, transparent);
 }
 
 .machine-shelf__name {
