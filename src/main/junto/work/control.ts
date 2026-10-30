@@ -1260,19 +1260,17 @@ const dispatchOp = (
     const mailboxOf = (nodeId: string) =>
       work.readMailbox(caller.canvasName, nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
     // What this seat sent into every other mailbox, newest first.
-    const sentMailOf = (sender: ActorRef) =>
-      Effect.gen(function* () {
-        const sent: Array<Message & { readonly toNodeId: string }> = [];
-        for (const node of board.nodes.values()) {
-          if (node.id === caller.nodeId) continue;
-          for (const message of yield* mailboxOf(node.id)) {
-            if (message.metadata?.fromSeat !== sender.seatId &&
-                message.metadata?.fromSeat !== caller.nodeId) continue;
-            sent.push({ ...message, toNodeId: node.id });
-          }
-        }
-        return sent.sort((a, b) => b.messageId.localeCompare(a.messageId));
-      });
+    // One indexed read by the sender's node stamp (work_messages_sender), as
+    // since reads it, instead of every mailbox on the canvas. Mail older than
+    // the stamp (fromSeat alone) is left out, as it is from since.
+    const sentMailOf = () =>
+      work.readMailSentBy(caller.canvasName, caller.nodeId).pipe(
+        Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)),
+        Effect.map((rows) =>
+          rows
+            .map(({ nodeId, message }): Message & { readonly toNodeId: string } => ({ ...message, toNodeId: nodeId }))
+            .sort((a, b) => b.messageId.localeCompare(a.messageId))),
+      );
 
     // The pause plane is the factory's safety switch: on a paused canvas
     // (canvases are born paused) a seat may read but never act. Reads stay
@@ -1681,7 +1679,7 @@ const dispatchOp = (
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
         // Listing marks read, so the filters and the page apply first; a peek marks nothing.
         const page = pageOf(yield* mailboxOf(caller.nodeId));
-        const sentPage = pageOf(yield* sentMailOf(reader.success), sentBefore);
+        const sentPage = pageOf(yield* sentMailOf(), sentBefore);
         const overlaid: Message[] = [];
         for (const item of page.items) {
           if (item.role !== "user" || decoded.success.peek === true) {
@@ -1871,7 +1869,7 @@ const dispatchOp = (
         const askedThread = decoded.success.threadId.trim();
         // Only a thread this seat can read: its own mailbox, or mail it sent.
         // An id inside a thread stands for that thread.
-        const readable = [...(yield* mailboxOf(caller.nodeId)), ...(yield* sentMailOf(sentBy.success))];
+        const readable = [...(yield* mailboxOf(caller.nodeId)), ...(yield* sentMailOf())];
         const named = readable.find((item) => item.messageId === askedThread);
         threadId = named !== undefined
           ? mailThreadOf(named)
