@@ -30,7 +30,6 @@ import type { SeatCacheDueAnswer, SeatCacheDueAnswerResult } from "@shared/seat-
 import {
   ATTACH_CREDITS, CHUNK_UNITS, chunkUnits, SCREEN_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame,
 } from "./seat-attach";
-import { wakeBoatMachine } from "../boat/machines";
 
 /** A seat on a canvas this machine edits, run by another machine. */
 export type LinkedSeat = {
@@ -459,7 +458,8 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
     if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
     // Opening a view wakes a sleeping Boat machine; the frames after it never do.
     if ((payload as { readonly _tag?: unknown })._tag === "Attach") yield* Effect.tryPromise({
-      try: () => wakeBoatMachine(machine),
+      // Loaded where the view transport runs, in the core (see seat-control.ts).
+      try: async () => (await import("../boat/machines")).wakeBoatMachine(machine),
       catch: (cause) => cause instanceof Error ? cause : new Error("This seat's machine did not wake."),
     });
     const link = yield* MachineLink;
