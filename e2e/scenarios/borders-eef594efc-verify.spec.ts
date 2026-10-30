@@ -84,7 +84,7 @@ test("eef594efc borders, dark: task error, task notice, threads selected row, fi
       const holder = mintItemId();
       expect((await apply(holder, { kind: "create", taskId: holder, title: "Write the migration" })).kind).toBe("applied");
       read["1-depend"] = await apply(taskId, { kind: "depend", on: holder });
-      read["1-assign"] = await apply(taskId, { kind: "assign", to: asNodeId("atlas") });
+      read["1-assign"] = await apply(taskId, { kind: "assign", seat: asNodeId("atlas") });
       await page.keyboard.press("Escape");
       await page.locator('.react-flow__node[data-id="board"]').dblclick({ position: { x: 16, y: 16 } });
       await page.getByRole("list", { name: "Tasks" }).locator("button").filter({ hasText: "Ship the wire spec" }).first().click({ timeout: 20_000 });
