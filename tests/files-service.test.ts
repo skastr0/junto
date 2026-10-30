@@ -313,6 +313,41 @@ describe("a rename made outside Junto", () => {
     expect(carried).toEqual(["README.md INTRO.md"]);
   });
 
+  it("keeps telling after a send fails, and forgets what was read when the root's watch is lost", async () => {
+    const watch = manualWatch();
+    const queued: Array<() => void> = [];
+    let failOnce = true;
+    const sent: Array<{ subscriber: number; event: FilesChanged }> = [];
+    const { files } = service({
+      watch: watch.factory,
+      timers: { set: (fn) => queued.push(fn), clear: () => undefined },
+      send: (subscriber, event) => {
+        if (failOnce) {
+          failOnce = false;
+          throw new Error("window gone");
+        }
+        sent.push({ subscriber, event });
+      },
+    });
+    const fire = async (...names: string[]): Promise<void> => {
+      for (const name of names) watch.fire(name);
+      while (queued.length > 0) queued.shift()?.();
+      await files.settle();
+    };
+    value(await files.open(1, ref));
+    value(await files.read(ref, p("README.md")));
+    await fire("src/a.ts");
+    await rename(join(root, "README.md"), join(root, "INTRO.md"));
+    await fire("README.md", "INTRO.md");
+    expect(movesSent(sent)).toEqual([[{ from: "README.md", to: "INTRO.md" }]]);
+    // The watch is lost; opened again, nothing read before it pairs.
+    watch.lose();
+    value(await files.open(1, ref));
+    await rename(join(root, "INTRO.md"), join(root, "AGAIN.md"));
+    await fire("INTRO.md", "AGAIN.md");
+    expect(movesSent(sent)).toHaveLength(1);
+  });
+
   it("still pairs a file a window saved, which a save may give a new id", async () => {
     const { files, sent, fire } = watched();
     value(await files.open(1, ref));

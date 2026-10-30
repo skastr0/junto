@@ -36,6 +36,7 @@ describe("renames made outside Junto", () => {
     expect(await pairRenames(root, [p("docs/a.md"), p("docs/renamed.md")], known)).toEqual({
       moves: [{ from: "docs/a.md", to: "docs/renamed.md" }],
       unpaired: [],
+      expired: [],
     });
   });
 
@@ -45,6 +46,7 @@ describe("renames made outside Junto", () => {
     expect(await pairRenames(root, [p("docs"), p("notes")], known)).toEqual({
       moves: [{ from: "docs", to: "notes" }],
       unpaired: [],
+      expired: [],
     });
   });
 
@@ -55,6 +57,7 @@ describe("renames made outside Junto", () => {
     expect(await pairRenames(root, [p("docs/a.md"), p("docs/new.md")], known)).toEqual({
       moves: [],
       unpaired: ["docs/a.md"],
+      expired: [],
     });
   });
 
@@ -64,9 +67,24 @@ describe("renames made outside Junto", () => {
     await rm(join(root, "docs/b.md"));
     // The first batch names the gone paths only (the new name has not been told yet).
     const first = await pairRenames(root, [p("docs/a.md"), p("docs/b.md")], known);
-    expect(first).toEqual({ moves: [], unpaired: ["docs/a.md", "docs/b.md"] });
+    expect(first).toEqual({ moves: [], unpaired: ["docs/a.md", "docs/b.md"], expired: [] });
     const second = await pairRenames(root, [p("docs/later.md")], known, first.unpaired);
-    expect(second).toEqual({ moves: [{ from: "docs/a.md", to: "docs/later.md" }], unpaired: [] });
+    expect(second).toEqual({ moves: [{ from: "docs/a.md", to: "docs/later.md" }], unpaired: [], expired: ["docs/b.md"] });
+  });
+
+  it("does not pair a new file that took a deleted file's inode (ext4, tmpfs)", async () => {
+    const known = await knownOf("docs/a.md");
+    const a = known.get(p("docs/a.md"))!;
+    const [dev, ino] = a.split(":");
+    await rm(join(root, "docs/a.md"));
+    // The new file reuses the inode, as ext4 does at once; its birth time, size and mtime are its own.
+    const reused = async (absolute: string) =>
+      absolute.endsWith("new.md") ? { kind: "file" as const, id: [dev, ino, "1", "99", "1"].join(":") } : probePath(absolute);
+    expect(await pairRenames(root, [p("docs/a.md"), p("docs/new.md")], known, [], reused)).toEqual({
+      moves: [],
+      unpaired: ["docs/a.md"],
+      expired: [],
+    });
   });
 
   it("probes nothing when no path Junto read is named", async () => {
@@ -76,7 +94,7 @@ describe("renames made outside Junto", () => {
       probes += 1;
       return probePath(absolute);
     };
-    expect(await pairRenames(root, [p("docs/b.md"), p("src/x.ts")], known, [], counting)).toEqual({ moves: [], unpaired: [] });
+    expect(await pairRenames(root, [p("docs/b.md"), p("src/x.ts")], known, [], counting)).toEqual({ moves: [], unpaired: [], expired: [] });
     expect(probes).toBe(0);
   });
 });

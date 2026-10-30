@@ -133,8 +133,12 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       );
     }
     if (event.kind === "missing" || event.kind === "back") counts.delete(root);
-    // The holder is gone with its watch: so are the sessions on it.
-    if (event.kind === "lost") for (const key of keys) forget(key);
+    // The holder is gone with its watch: so are the sessions on it, and what they read.
+    if (event.kind === "lost") {
+      for (const key of keys) forget(key);
+      readIds.delete(root);
+      heldGone.delete(root);
+    }
   };
 
   /**
@@ -167,13 +171,15 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
         const found = await pairRenames(root, event.paths, ids, heldGone.get(root));
         if (found.unpaired.length === 0) heldGone.delete(root);
         else heldGone.set(root, found.unpaired);
+        // Deleted, not renamed: nothing will pair with them now.
+        for (const path of found.expired) ids.delete(path);
         for (const move of found.moves) await followOutside(root, move);
         moves = found.moves;
       } catch (cause) {
         console.error("[files] renames made outside Junto were not paired", cause);
       }
       tell(root, event, moves);
-    });
+    }).catch((cause: unknown) => console.error("[files] a watch batch was not told", cause));
     telling.set(root, next);
     void next.finally(() => {
       if (telling.get(root) === next) telling.delete(root);
