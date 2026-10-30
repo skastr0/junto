@@ -23,5 +23,3 @@ const executableFile = (path: string): boolean => {
 export const resolveSystemPs = (): string | undefined =>
   PS_CANDIDATES.find(executableFile);
 
-/** Exported for focused platform-policy tests without exposing mutable state. */
-export const systemPsCandidates = (): readonly string[] => [...PS_CANDIDATES];

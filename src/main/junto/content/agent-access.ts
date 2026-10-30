@@ -41,36 +41,6 @@ export const sameContentIdentity = (
 ): boolean =>
   left.sha256 === right.sha256 && left.byteLength === right.byteLength;
 
-/** Find the canonical ref carried by a task history part. */
-export const taskContentRef = (
-  task: Task,
-  requested: Pick<ContentRef, "sha256" | "byteLength">,
-): ContentRef | undefined => {
-  for (const message of task.history) {
-    for (const part of message.parts) {
-      if (!isContentPart(part)) continue;
-      if (sameContentIdentity(part.ref, requested)) return part.ref;
-    }
-  }
-  return undefined;
-};
-
-/** Return every distinct ContentRef carried by a task, preserving task order. */
-export const taskContentRefs = (task: Task): ReadonlyArray<ContentRef> => {
-  const seen = new Set<string>();
-  const refs: ContentRef[] = [];
-  for (const message of task.history) {
-    for (const part of message.parts) {
-      if (!isContentPart(part)) continue;
-      const key = `${part.ref.sha256}/${part.ref.byteLength}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      refs.push(part.ref);
-    }
-  }
-  return refs;
-};
-
 /** Encode user-controlled scope identifiers into path-safe, non-ambiguous names. */
 const scopeSegment = (value: string): string =>
   (() => {

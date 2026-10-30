@@ -142,8 +142,6 @@ export const resetMainThreadBudget = (): void => {
 
 export const mainThreadBudgetArmed = (): boolean => enabled;
 
-export const mainThreadBudgetMs = (): number => budgetMs;
-
 /** Violations retained since the last reset, oldest first. */
 export const mainThreadBudgetViolations =
   (): ReadonlyArray<BudgetViolation> => [...violations];

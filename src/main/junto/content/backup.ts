@@ -478,10 +478,4 @@ export const assertRestoredContentCoherent = Effect.fn(
   });
 });
 
-/** SHA-256 of the snapshot manifest file (export receipt helper). */
-export const hashContentSnapshotManifest = (manifestPath: string): string => {
-  const body = readFileSync(manifestPath);
-  return createHash("sha256").update(body).digest("hex");
-};
-
 export { contentStoreRoot };

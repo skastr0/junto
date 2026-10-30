@@ -36,11 +36,6 @@ export const mailboxMessageReadId = (
 export const MAILBOX_REACTION_KINDS = ["ack"] as const;
 export type MailboxReactionKind = (typeof MAILBOX_REACTION_KINDS)[number];
 
-export const isMailboxReactionKind = (
-  value: string,
-): value is MailboxReactionKind =>
-  (MAILBOX_REACTION_KINDS as ReadonlyArray<string>).includes(value);
-
 /** Stable id for one mailbox reaction by the seat that owns the inbox. */
 export const mailboxMessageReactId = (
   canvasName: string,

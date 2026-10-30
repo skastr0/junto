@@ -164,12 +164,3 @@ export const canvasControlErr = (
 export const encodeCanvasControlFrame = (value: unknown): string =>
   `${JSON.stringify(value)}\n`;
 
-export const decodeCanvasControlJsonLine = (
-  line: string,
-): Result.Result<unknown, string> => {
-  try {
-    return Result.succeed(JSON.parse(line) as unknown);
-  } catch {
-    return Result.fail("malformed JSON frame");
-  }
-};

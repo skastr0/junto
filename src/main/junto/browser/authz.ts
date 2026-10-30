@@ -192,15 +192,3 @@ export const callerMayAccessPage = (
   return admitBrowserPage(doc, callerId, pageNodeId);
 };
 
-export const browserAuthzMessage = (denial: BrowserAuthzDenial): string => {
-  switch (denial) {
-    case "caller_missing":
-      return "caller node not found on canvas — process is bound to a missing node";
-    case "caller_wrong_kind":
-      return "caller must be an actor node — geography (regions, notes) holds no browser grant";
-    case "not_connected":
-      return "missing edge between caller and page — draw an edge in Junto";
-    case "page_missing":
-      return "page node not found or not a page";
-  }
-};

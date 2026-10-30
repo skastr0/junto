@@ -244,19 +244,6 @@ export const openFileCredentialStore = (directory: string): CredentialStore => {
   return store.available ? store : new UnavailableCredentialStore(store.unavailableCause);
 };
 
-/** Test helper: list leftover vault filenames. */
-export const listCredentialStoreFiles = (directory: string): ReadonlyArray<string> => {
-  try {
-    return readdirSync(directory).filter((name) => name.endsWith(".secret"));
-  } catch (error) {
-    if (isEnoent(error)) return [];
-    throw error;
-  }
-};
-
-export const credentialStoreDirectory = (databasePath: string): string =>
-  join(dirname(databasePath), "credentials");
-
 // ── Platform secret stores ─────────────────────────────────────────────────
 //
 // The operating system already has a secret store. These backends keep

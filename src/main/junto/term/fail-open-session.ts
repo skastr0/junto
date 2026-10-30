@@ -27,11 +27,6 @@ const writeFreshSessionToStore: FreshSessionWriter = async (input) => {
 
 let writer: FreshSessionWriter = writeFreshSessionToStore;
 
-/** Test seam. Pass undefined to restore the store writer. */
-export const __setFreshSessionWriterForTest = (next: FreshSessionWriter | undefined): void => {
-  writer = next ?? writeFreshSessionToStore;
-};
-
 /** Record the fail-open session as the seat's own. Total: a refusal is logged, never thrown. */
 export const recordFailOpenSession = async (input: FreshSeatSession): Promise<boolean> => {
   if (!input.canvasName.trim() || !input.nodeId.trim()) return false;

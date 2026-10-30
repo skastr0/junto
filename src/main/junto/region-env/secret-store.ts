@@ -109,7 +109,3 @@ export const regionSecrets = (): RegionSecrets => {
   return current;
 };
 
-/** Tests and embedders: put a store in place of the platform one, or clear it. */
-export const setRegionSecrets = (next: RegionSecrets | undefined): void => {
-  current = next;
-};

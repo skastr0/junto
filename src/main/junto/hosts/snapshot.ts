@@ -56,12 +56,6 @@ export const hostsWithCapability = (
 export const findHostById = (id: string): RemoteHost | undefined =>
   snapshot.find((host) => host.id === id);
 
-export const sshEndpointForHostId = (id: string): string | undefined => {
-  const host = findHostById(id);
-  if (!host || host.isThisMachine) return undefined;
-  return host.sshEndpoint;
-};
-
 /** Load durable registry into the sync snapshot (boot + after mutations). */
 export const primeHostsSnapshot = async (): Promise<ReadonlyArray<RemoteHost>> => {
   const hosts = await getDefaultHostsRegistry().reload();

@@ -95,7 +95,3 @@ export const companionMachineBackend: Pick<CompanionBackend, "machines" | "machi
   },
 };
 
-/** Tests: forget every check. */
-export const resetCompanionMachineChecks = (): void => {
-  checks.clear();
-};

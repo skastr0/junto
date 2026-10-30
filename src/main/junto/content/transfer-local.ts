@@ -696,13 +696,5 @@ export const parseContentHelperStatus = (
   return parsed as ContentHelperStatusLine;
 };
 
-/** Availability view used only after verified publish (never before). */
-export const transferResultAsAvailabilityReason = (
-  result: ContentReceiveResult,
-): ContentAvailabilityReason | undefined => {
-  if (result.state === "verified") return undefined;
-  return "content transfer incomplete; partial retained for resume" as ContentAvailabilityReason;
-};
-
 // Re-export types used by callers without pulling store internals.
 export type { ContentTimestamp };

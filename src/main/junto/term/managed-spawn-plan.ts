@@ -270,11 +270,6 @@ export const planFreshManagedSpawnIntent = (
     resume: false,
   });
 
-export const harnessFromNode = (node: Node | undefined): string | undefined => {
-  const h = node?.kind === "agent" ? node.harness : undefined;
-  return h && h.length > 0 ? h : undefined;
-};
-
 /**
  * Fail-open after a dead resume: mint a fresh pin session id and rebuild argv
  * without `-r`/`--resume`. Caller owns any durable canvas write of the new id.

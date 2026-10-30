@@ -16,8 +16,6 @@ import { LinkUnavailable } from "../link/types";
 import type { BoatClient, BoatRun, BoatSandbox } from "./client";
 import { boatHostKeyAlias, ensureBoatSshKey, readBoatRecords, writeBoatKnownHost, type BoatMachineRecord } from "./files";
 
-
-
 const DISK_KEPT_MS = 14 * 24 * 60 * 60_000;
 const AWAKE_WAIT_MS = 150_000;
 const ASLEEP_WAIT_MS = 90_000;
@@ -82,7 +80,6 @@ export interface BoatMachines {
   readonly view: (name: string) => Promise<BoatMachineView>;
   readonly record: (name: string) => Promise<BoatMachineRecord | undefined>;
 }
-
 
 export const makeBoatMachines = (deps: BoatMachinesDeps): BoatMachines => {
   const pause = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
@@ -220,4 +217,3 @@ export const installBoatMachines = (machines: BoatMachines): (() => void) => {
 export const boatRoute = (host: RemoteHost): Promise<RemoteHost> => active === undefined ? Promise.resolve(host) : active.route(host);
 /** Wakes the machine when it is a sleeping Boat machine, before work that needs it. */
 export const wakeBoatMachine = (name: string): Promise<void> => active === undefined ? Promise.resolve() : active.wakeIfBoat(name);
-export const activeBoatMachines = (): BoatMachines | undefined => active;

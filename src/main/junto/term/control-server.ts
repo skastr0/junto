@@ -1230,12 +1230,3 @@ export const startTermControlServer = async (
   return control;
 };
 
-/** Read token written by a live local server (same machine). */
-export const readLocalTermToken = (home?: string): string | undefined => {
-  try {
-    const raw = readFileSync(termControlTokenPath(home), "utf8").trim();
-    return raw.length > 0 ? raw : undefined;
-  } catch {
-    return undefined;
-  }
-};

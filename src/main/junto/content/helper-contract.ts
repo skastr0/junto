@@ -10,9 +10,6 @@
 /** Unified CLI subcommand for content transfer (`junto content-transfer …`). */
 export const CONTENT_TRANSFER_COMMAND = "content-transfer" as const;
 
-/** Packaged entry is `junto content-transfer`; name retained for status labels. */
-export const CONTENT_HELPER_NAME = CONTENT_TRANSFER_COMMAND;
-
 /** First argv token selecting the sealed content mode. */
 export const CONTENT_HELPER_MODE_ARG = {
   receive: "receive",

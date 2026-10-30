@@ -195,10 +195,6 @@ export const HEALTH_ABSENT_DISPLAY: Readonly<Record<ThreadHealthValue, string>> 
   exceeding: "AI found no extra verified work",
 };
 
-/** Advisory phrasing for an accepted health reading; never a claim by the seat. */
-export const healthDisplay = (value: ThreadHealthValue): string =>
-  `AI reads ${THREAD_HEALTH_LABEL[value]}`;
-
 // ---------------------------------------------------------------------------
 // Acceptance thresholds — the one place a human calibrates this pack
 // ---------------------------------------------------------------------------

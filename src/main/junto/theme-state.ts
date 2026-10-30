@@ -29,8 +29,6 @@ const require = createRequire(typeof __filename === "string" ? __filename : impo
 let current: ThemeMode = "dark";
 let preference: string | undefined;
 
-const listeners = new Set<(mode: ThemeMode) => void>();
-
 /**
  * The OS reading once main has said it. Before that, main's own `nativeTheme`
  * is read; a process without one stays on the dark default.
@@ -55,16 +53,7 @@ const systemPrefersDark = (): boolean => {
 };
 
 const recompute = (): void => {
-  const next = resolveThemeMode(preference, systemPrefersDark());
-  if (next === current) return;
-  current = next;
-  for (const listener of listeners) {
-    try {
-      listener(next);
-    } catch {
-      // a bad consumer must not break theme propagation
-    }
-  }
+  current = resolveThemeMode(preference, systemPrefersDark());
 };
 
 /** The resolved theme. Every consumer in main reads this and nothing else. */
@@ -85,12 +74,3 @@ export const setSystemPrefersDark = (dark: boolean): void => {
   recompute();
 };
 
-/** Re-resolve after an OS appearance change (only matters when "system"). */
-export const refreshThemeFromSystem = (): void => {
-  recompute();
-};
-
-export const onThemeModeChange = (listener: (mode: ThemeMode) => void): (() => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};

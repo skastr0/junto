@@ -1121,14 +1121,6 @@ export const coldSessionEnded = (seat: SeatAddress, bindingId: string, sessionId
 };
 
 /**
- * What the seat's next turn does: continue its session or start fresh.
- * Undefined before the operation is installed, and for a seat on another
- * machine.
- */
-export const seatNextTurnOf = (seat: SeatAddress, launch: SeatNextLaunch): Promise<SeatNextTurn | undefined> =>
-  current ? current.nextTurn(seat, launch).catch(() => undefined) : Promise.resolve(undefined);
-
-/**
  * What this machine's offboard clock and rules say of a seat it runs, for
  * the machine that edits its canvas. Undefined before the operation is
  * installed, and for a seat on another machine.
