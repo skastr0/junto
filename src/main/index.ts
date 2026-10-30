@@ -1400,11 +1400,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         showAppMenu();
       };
       showAppMenuWith(undefined);
+      // The settings as they stand and every change after arrive in order on one push channel.
       subscribeCore(SETTINGS_CHANGED, (next) => showAppMenuWith(next as Settings));
-      void core.call("settings.read", {}).then((settings) => {
-        showAppMenuWith(settings);
-        return core.call("settings.watch", {});
-      }).catch((cause: unknown) => {
+      void core.call("settings.watch", {}).catch((cause: unknown) => {
         console.error("[menu] stored shortcuts could not be read; the menu shows the defaults", cause);
       });
     }

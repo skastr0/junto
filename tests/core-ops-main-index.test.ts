@@ -9,7 +9,7 @@ import type { Settings } from "../src/shared/settings";
 // The index.ts request group: answers cross as data, and a change the core
 // watches reaches main through the push bus rather than a callback.
 describe("index.ts core operations", () => {
-  it("reads the settings, and a watch publishes each later change once, however often it is asked", async () => {
+  it("reads the settings, and a watch publishes them as they stand, then each change once, however often it is asked", async () => {
     const listeners: Array<(settings: Settings) => void> = [];
     const first = { machine: { supervisedPreferred: false } } as unknown as Settings;
     const runtime = ManagedRuntime.make(Layer.succeed(SettingsService, {
@@ -29,7 +29,8 @@ describe("index.ts core operations", () => {
       expect(listeners).toHaveLength(1);
       const next = { machine: { supervisedPreferred: true } } as unknown as Settings;
       listeners[0]!(next);
-      expect(pushed).toEqual([next]);
+      // Each watch publishes the settings as they stand; changes follow on the same channel.
+      expect(pushed).toEqual([first, first, next]);
     } finally {
       off();
       await runtime.dispose();

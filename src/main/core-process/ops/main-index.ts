@@ -62,13 +62,16 @@ coreOps({
       })),
   "model.editsCanvas": ({ canvasName }) => Effect.flatMap(ModelRecords, (records) => records.editsCanvas(canvasName)),
   "settings.read": () => Effect.flatMap(SettingsService, (settings) => settings.get),
-  // Once per core: every later change is published on SETTINGS_CHANGED.
+  // Subscribed once per core; each watch also publishes the settings as they stand, after the
+  // subscription, so a watcher reads every value from the one ordered push stream.
   "settings.watch": () =>
     Effect.flatMap(SettingsService, (settings) =>
-      Effect.sync(() => {
-        if (watchingSettings) return;
-        watchingSettings = true;
-        settings.subscribe((next) => publish(SETTINGS_CHANGED, next));
+      Effect.gen(function* () {
+        if (!watchingSettings) {
+          watchingSettings = true;
+          settings.subscribe((next) => publish(SETTINGS_CHANGED, next));
+        }
+        publish(SETTINGS_CHANGED, yield* settings.get);
       })),
   "content.openForRead": ({ ref }) => Effect.flatMap(ContentService, (content) => content.openForRead(ref)),
   "files.carryThreads": ({ canvasName, nodeId, from, to }) =>
