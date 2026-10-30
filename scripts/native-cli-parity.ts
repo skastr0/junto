@@ -6,7 +6,11 @@
  * runtime decodes every request again, so a drifted message is a worse error,
  * never a wrong action). A ULID either side mints reads as <ULID>.
  *
- *   bun scripts/native-cli-parity.ts [--bin native/cli/target/release/junto]
+ * Beside the hand cases, every entry of the `junto examples` corpus runs
+ * through both paths: that is the drift guard, and its count is the port's
+ * progress.
+ *
+ *   bun scripts/native-cli-parity.ts [--bin native/cli/target/release/junto] [--only <command prefix>]
  *
  * Without --bin it builds the crate first. Exits 1 on any difference.
  */
@@ -16,6 +20,7 @@ import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { allExamples } from "../src/cli/core/discovery";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const binFlag = process.argv.indexOf("--bin");
@@ -65,11 +70,16 @@ interface Case {
   readonly env?: Record<string, string | undefined>;
 }
 
+const onlyFlag = process.argv.indexOf("--only");
+const only = onlyFlag >= 0 ? process.argv[onlyFlag + 1]! : undefined;
+// The shipped feature profile, as native/cli/.cargo/config.toml builds it.
+const profile = { JUNTO_TASKS: "1", JUNTO_ARTIFACTS: "1", JUNTO_BROWSER: "1" };
+
 const opId = "01M659BSENNDDPSF5T18QBAWV1";
 const file = join(home, "reply.json");
 writeFileSync(file, JSON.stringify({ target: "peer", text: "from a file", inReplyTo: SERVER_ID }));
 
-const cases: ReadonlyArray<Case> = [
+const handCases: ReadonlyArray<Case> = [
   { name: "send", argv: ["msg", "send", '{"target":"peer","text":"hello"}'], answer: delivered },
   { name: "send shorthand", argv: ["msg", "send", "peer", "hi \"there\" é\n\ttab"], answer: delivered },
   { name: "send prompt", argv: ["msg", "send", "--prompt", "peer", "a prompt"], answer: delivered },
@@ -106,6 +116,19 @@ const cases: ReadonlyArray<Case> = [
   { name: "array of non-objects", argv: ["msg", "reply", "[1]"] },
 ];
 
+// Each example as an agent would type it; one read from stdin gets its input there.
+const exampleCases: ReadonlyArray<Case> = allExamples.flatMap((example) =>
+  example.args === undefined
+    ? []
+    : [{
+        name: `example ${example.command}: ${example.name}`,
+        argv: example.args,
+        ...(example.args.some((a) => a === "-" || a === "@-") ? { stdin: JSON.stringify(example.input ?? {}) } : {}),
+        answer: delivered,
+      }]);
+
+const cases = [...handCases, ...exampleCases].filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
+
 const ULID = /[0-9A-HJKMNP-TV-Z]{26}/g;
 const normal = (text: string, keep: ReadonlySet<string>) => text.replace(ULID, (id) => (keep.has(id) ? id : "<ULID>"));
 
@@ -136,8 +159,11 @@ const runOne = (command: ReadonlyArray<string>, c: Case) =>
     answer = c.answer ?? (() => "silent");
     const child = spawn(command[0]!, [...command.slice(1), ...c.argv], {
       cwd: root,
-      env: { ...process.env, JUNTO_WORK_HOME: home, JUNTO_WORK_TOKEN: "seat-token", ...c.env },
+      env: { ...process.env, ...profile, JUNTO_WORK_HOME: home, JUNTO_WORK_TOKEN: "seat-token", ...c.env },
     });
+    // A command that waits on the stand-in forever is a difference, not a hang.
+    const kill = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    child.on("close", () => clearTimeout(kill));
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
