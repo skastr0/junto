@@ -182,6 +182,56 @@ describe("operator control server", () => {
     expect(raw).not.toContain(secret);
   });
 
+  it("cuts admission the moment shutdown begins, before any drain", async () => {
+    const dispatched: string[] = [];
+    const server = await start(async (request) => {
+      dispatched.push(request.id);
+      return helloResponse(request);
+    });
+    expect(server.ready()).toBe(true);
+    const served = await exchange(server.socketPath, encodeOperatorFrame(helloRequest("before")));
+    expect(served).toContain('"ok":true');
+
+    // The cut is synchronous and monotonic: from here the listener admits
+    // nothing, and a request that arrives anyway is never dispatched.
+    server.beginShutdown();
+    expect(server.ready()).toBe(false);
+    const refused = await exchange(server.socketPath, encodeOperatorFrame(helloRequest("after"))).catch(() => "");
+    expect(dispatched).toEqual(["before"]);
+    expect(refused).not.toContain('"ok":true');
+  });
+
+  it("keeps an admitted dispatch and says what it retained in the receipt", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const admitted = new Promise<void>((resolve) => { entered = resolve; });
+    const server = await start(
+      async (request) => {
+        entered();
+        await held;
+        return helloResponse(request);
+      },
+      { shutdownDeadlineMs: 120 },
+    );
+
+    const inflight = exchange(server.socketPath, encodeOperatorFrame(helloRequest("held"))).catch(() => "");
+    // Admitted, not a wait on product time: dispatch has the request.
+    await admitted;
+    server.beginShutdown();
+    const receipt = await server.close();
+    expect(receipt.pendingDispatches).toBe(1);
+    expect(receipt.retainedLabels).toContain("dispatch:companion.hello");
+    expect(receipt.clean).toBe(false);
+
+    release();
+    await inflight;
+    // The same close, asked again, settles what the first one kept.
+    const settled = await server.close();
+    expect(settled.pendingDispatches).toBe(0);
+    expect(settled.clean).toBe(true);
+  });
+
   it("retains an admitted dispatch after the client disconnects", async () => {
     let resolveDispatch!: (response: OperatorResponseEnvelope) => void;
     const dispatch = vi.fn(

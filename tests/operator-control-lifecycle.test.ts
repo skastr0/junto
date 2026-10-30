@@ -34,29 +34,12 @@ describe("operator control main lifecycle", () => {
     expect(secondInstance).not.toContain(OPERATOR_CONTROL_SWITCH);
   });
 
-  it("cuts operator admission on shutdown", () => {
-    const shutdownStart = source.indexOf("const beginShutdownAdmission");
-    const shutdownEnd = source.indexOf(
-      "const logUnfinishedDrain",
-      shutdownStart,
-    );
-    const shutdown = source.slice(shutdownStart, shutdownEnd);
-    expect(shutdown).toContain("operatorFleetReady = false");
-    expect(shutdown).toContain("operatorControl?.beginShutdown()");
-    expect(shutdown.indexOf("operatorControl?.beginShutdown()")).toBeLessThan(
-      shutdown.indexOf("hostOperationsShutdown.beginShutdown()"),
-    );
-  });
+  // The operator listener's admission cut and its drain receipt are behaviour,
+  // proved against the server itself in operator-control-server.test.ts: the
+  // core opens that socket now (operator.ensureListening), so main has no
+  // listener to cut. What is left in the shell is its own runtime.
 
-  it("drains the operator listener before runtime and host teardown", () => {
-    const drainStart = source.indexOf("const drainRuntimeOnQuit");
-    const drainEnd = source.indexOf("const disposeRuntime", drainStart);
-    const drain = source.slice(drainStart, drainEnd);
-    expect(drain).toContain("await requireCleanOperatorControlShutdown()");
-    expect(drain.indexOf("requireCleanOperatorControlShutdown")).toBeLessThan(
-      drain.indexOf("requireCleanHostOperationsShutdown"),
-    );
-
+  it("disposes the shell's one runtime after the drains", () => {
     const disposeStart = source.indexOf("const disposeRuntime =");
     const disposeEnd = source.indexOf(
       "const disposeRuntimeFailClosed",
