@@ -45,7 +45,6 @@ import { WIRE_TRAFFIC } from "../core-process/channels";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
 import type { AgentSignal } from "@shared/agent-signals";
-import { messageDelivery } from "./work/message-delivery";
 import type { SeatPromptInput } from "./work/seat-prompt";
 import { readSignalAttachmentPreview } from "./signals/attachment-preview";
 import {
@@ -444,14 +443,8 @@ export const registerJuntoIpc = (): void => {
           attachments: files.success,
         }),
       );
-      // The answer is durable mail now; typing it into the seat follows the
-      // ordinary delivery path (at once when live, else when it comes up).
-      // A silent answer carries no mail: nothing is typed, nothing starts.
-      if (result.ok && result.messageId !== undefined) {
-        void messageDelivery
-          .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
-          .catch(() => undefined);
-      }
+      // The answer's mail is typed into the seat in the core, where delivery
+      // is configured; main only relays the answer.
       return result;
     },
   );
@@ -463,12 +456,6 @@ export const registerJuntoIpc = (): void => {
       const result = await runSignalOperator("ipc.work.signal-reply", () =>
         core.call("ipc.signals.reply", { signalId: String(signalId), reply: decoded.success }),
       );
-      // The hand-in is durable mail now: typed into the seat as an answer is.
-      if (result.ok && result.messageId !== undefined) {
-        void messageDelivery
-          .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
-          .catch(() => undefined);
-      }
       return result;
     },
   );
@@ -486,13 +473,6 @@ export const registerJuntoIpc = (): void => {
       // Never its text: a thrown message can hold anything the failure saw, and the
       // pane shows a refusal as a sentence. One sentence, no value, no detail.
       ).catch(() => ({ ok: false as const, reason: "store-failed" as const, message: "The secret was not set." }));
-      if (result.ok && result.signal !== undefined) {
-        if (result.messageId !== undefined) {
-          void messageDelivery
-            .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
-            .catch(() => undefined);
-        }
-      }
       return result;
     },
   );
