@@ -11,6 +11,8 @@ let host: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  // The count announces on a settle timer, which fake time advances.
+  vi.useFakeTimers();
   HTMLElement.prototype.scrollIntoView = () => {};
   host = document.createElement("div");
   document.body.appendChild(host);
@@ -20,6 +22,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.useRealTimers();
 });
 
 const items = [
@@ -46,6 +49,14 @@ const titles = (): ReadonlyArray<string> =>
 
 const activeTitle = (): string | null =>
   document.querySelector("[data-active=\"true\"] .quick-open__row-title")?.textContent ?? null;
+
+/** The one live region: what a reader hears, which arrives once the query rests. */
+const announced = (): string => document.querySelector("[role='status']")?.textContent ?? "";
+const settle = (): void => {
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+};
 
 const render = (source: QuickOpenSource, onOpen = vi.fn(), onClose = vi.fn()) => {
   act(() => root.render(<QuickOpen source={source} onOpen={onOpen} onClose={onClose} />));
@@ -123,21 +134,54 @@ describe("the quick open palette", () => {
     type("zzz");
     expect(titles()).toEqual([]);
     expect(document.querySelector(".quick-open__empty")?.textContent).toBe(QUICK_OPEN_WORDS.artifact.empty);
-    expect(document.querySelector(".quick-open__empty")?.getAttribute("role")).toBe("status");
+    // The words are for eyes at once; the one live region says them once the query rests.
+    expect(announced()).toBe("");
+    settle();
+    expect(announced()).toBe(QUICK_OPEN_WORDS.artifact.empty);
     // One live region, not two saying the same thing.
     expect(document.querySelectorAll("[role='status']")).toHaveLength(1);
   });
 
-  it("asks for a word under an empty field with no list to show", () => {
+  it("asks for a word under an empty field with no list to show, and says nothing unasked", () => {
     render({ ...sourceOf(), search: () => [] });
     expect(document.querySelector(".quick-open__empty")?.textContent).toBe(QUICK_OPEN_WORDS.artifact.hint);
+    // Opening a palette is not a search: the region stays quiet until one is asked.
+    settle();
+    expect(announced()).toBe("");
     expect(document.querySelectorAll("[role='status']")).toHaveLength(1);
   });
 
-  it("counts its rows in the footer once there are some", () => {
+  it("counts its rows in the footer at once and says the count once the query rests", () => {
     render(sourceOf());
     expect(document.querySelector(".quick-open__count")?.textContent).toBe("3 artifacts");
     expect(document.querySelector(".quick-open__empty")).toBeNull();
+    // The opening count is not announced.
+    settle();
+    expect(announced()).toBe("");
+    type("s");
+    expect(announced()).toBe("");
+    settle();
+    // "Sprint notes" and "Spring board" hold an s.
+    expect(announced()).toBe("2 artifacts");
+  });
+
+  it("says a pending search's count only when its answer arrives", async () => {
+    let answer: (rows: QuickOpenItem[]) => void = () => {};
+    const asked = sourceOf();
+    render({
+      ...asked,
+      search: () => new Promise<QuickOpenItem[]>((resolve) => {
+        answer = resolve;
+      }),
+    });
+    type("s");
+    settle();
+    expect(announced()).toBe("");
+    await act(async () => {
+      answer(asked.search("") as QuickOpenItem[]);
+    });
+    settle();
+    expect(announced()).toBe("3 artifacts");
   });
 
   it("closes on Tab, so no combobox stays armed behind the keyboard", () => {

@@ -10,10 +10,14 @@ import {
   type ListboxNoun,
 } from "../../lib/listbox-aria";
 import { claimFocus } from "../../lib/focus-ownership";
+import { useModalLayer } from "../../lib/modal-stack";
 import { keyIs } from "../../lib/key-match";
 import type { QuickOpenItem, QuickOpenSource } from "../../lib/quick-open";
 import { Kbd } from "../ui/Kbd";
 import "./quick-open.css";
+
+/** How long a query rests before its count is announced, in ms. */
+const ANNOUNCE_SETTLE_MS = 400;
 
 /** Singular and plural of what a source offers: its kind's own word. */
 const nounOf = (source: QuickOpenSource): ListboxNoun => ({
@@ -35,9 +39,16 @@ const nounOf = (source: QuickOpenSource): ListboxNoun => ({
  * `lib/list-nav`'s clamped stepping. A bare key never opens a row behind a
  * field, so J and K type where the caret is and the arrows move the highlight.
  *
- * Escape, a press on the dim and Tab close it, and only those: the modal
- * behind it owns its own keys, and an async focus claim from that modal must
- * not shut a palette the operator just opened.
+ * Escape and a press on the dim close it, and only those: the modal behind it
+ * owns its own keys, and an async focus claim from that modal must not shut a
+ * palette the operator just opened. Tab is not a way out either: the palette
+ * joins the modal stack as an operator dialog, so Tab moves between its field
+ * and its clear button and goes no further, and the card is aria-modal so a
+ * reader does not wander the modal behind it.
+ *
+ * The count is for eyes at once and for ears once the query settles: a polite
+ * region that changed on every keystroke would read the list aloud while the
+ * operator types.
  */
 export function QuickOpen({
   source,
@@ -51,6 +62,7 @@ export function QuickOpen({
   const baseId = useId();
   const fieldRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<{ readonly query: string; readonly rows: readonly QuickOpenItem[] }>({
     query: "",
@@ -58,6 +70,8 @@ export function QuickOpen({
   });
   const [pending, setPending] = useState(false);
   const [active, setActive] = useState<string | null>(null);
+  /** What the live region says: the count, once the query has settled. */
+  const [announced, setAnnounced] = useState("");
 
   // A palette is nothing without its field: the keyboard goes in on open.
   useEffect(() => {
@@ -117,6 +131,24 @@ export function QuickOpen({
   const talk = listboxAnnouncement({ open: true, count: rows.length, noun: nounOf(source) });
   const quietLine = nothing ? (query === "" ? source.hint : source.empty) : null;
 
+  // The count, for ears, once the query rests: the footer already shows it at
+  // once, and an empty field asks nothing, so nothing is said until a search
+  // is actually asked and has settled.
+  useEffect(() => {
+    if (query === "") {
+      // An empty field asks nothing, and its count is the whole list.
+      setAnnounced("");
+      return;
+    }
+    // A search still out says nothing: the footer may hold the last answer,
+    // but the region waits for the answer this query gets.
+    if (pending) return;
+    const timer = window.setTimeout(() => {
+      setAnnounced(nothing ? (quietLine ?? "") : talk);
+    }, ANNOUNCE_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query, pending, nothing, quietLine, talk]);
+
   const pick = (id: string | null): void => {
     const row = rows.find((candidate) => candidate.id === id);
     if (row !== undefined) onOpen(row);
@@ -167,8 +199,20 @@ export function QuickOpen({
     }
   };
 
+  // The palette is a dialog over a modal, so it joins the stack: Tab stays
+  // between its own controls, Escape closes only the palette (the body's own
+  // handler takes that key and prevents this layer's), and closing gives the
+  // keyboard back to what opened it.
+  const layer = useModalLayer({
+    layer: "operator-dialog",
+    containerRef: cardRef,
+    onEscape: () => false,
+    onClose,
+    onKeyDown,
+  });
+
   return (
-    <div className="quick-open" data-testid="quick-open" onKeyDown={onKeyDown}>
+    <div className="quick-open" data-testid="quick-open">
       <button
         type="button"
         className="quick-open__scrim"
@@ -177,7 +221,14 @@ export function QuickOpen({
         tabIndex={-1}
         onClick={onClose}
       />
-      <div className="quick-open__card" role="dialog" aria-label={source.find}>
+      <div
+        ref={cardRef}
+        className="quick-open__card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={source.find}
+        onKeyDown={layer.onKeyDown}
+      >
         <div className="quick-open__field">
           <Search size={14} aria-hidden />
           <input
@@ -241,17 +292,9 @@ export function QuickOpen({
             );
           })}
         </ul>
-        {quietLine === null ? null : (
-          <p className="quick-open__empty" role="status" aria-live="polite" aria-atomic="true">
-            {quietLine}
-          </p>
-        )}
+        {quietLine === null ? null : <p className="quick-open__empty">{quietLine}</p>}
         <div className="quick-open__foot">
-          {nothing ? null : (
-            <span className="quick-open__count" role="status" aria-live="polite" aria-atomic="true">
-              {talk}
-            </span>
-          )}
+          {nothing ? null : <span className="quick-open__count">{talk}</span>}
           <span className="quick-open__hints">
             <Kbd>↑↓</Kbd>
             <span className="quick-open__hint">move</span>
@@ -261,6 +304,9 @@ export function QuickOpen({
             <span className="quick-open__hint">close</span>
           </span>
         </div>
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {announced}
+        </span>
       </div>
     </div>
   );
