@@ -4,7 +4,7 @@
  * forwarded there on `observability.append`, so the panel shows one log, not
  * main's half of it. A new row reaches a window only while a panel watches.
  */
-import type { IpcMain } from "electron";
+import { app, type IpcMain } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { ObservabilityLogEntry, ObservabilitySnapshot } from "@shared/observability";
 import { core } from "../../core-process/main-client";
@@ -20,6 +20,9 @@ export const registerObservabilityIpc = (
   setObservabilityForwarder((entry) => {
     void core.call("observability.append", { entry }).catch(() => undefined);
   });
+  // Not one call after the quit begins: the core stops before main does, and a
+  // late row belongs in main's own ring rather than in a call nobody answers.
+  app.once("before-quit", () => setObservabilityForwarder(undefined));
 
   onCorePush(OBSERVABILITY_LOG, (entry) => broadcast(IPC_CHANNELS.observabilityLog, entry as ObservabilityLogEntry));
   onCorePush(OBSERVABILITY_CLEARED, (cleared) =>
