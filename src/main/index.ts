@@ -46,6 +46,7 @@ import { startChildren, takeChildStopFailures, type Children } from "./core-proc
 import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
+import { isCoreUnavailable } from "./core-process/wait-for-core";
 import { raisedHands } from "./junto/signals/raised-hands";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import {
@@ -1696,6 +1697,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         await runStartupStateFailureDialog({
           error,
           headless: headless || e2eIsolateFocus,
+          // The core not answering at all is named as that, with its log, not
+          // as the data store failing to open.
+          coreUnavailable: isCoreUnavailable(error),
         });
       } catch (dialogError) {
         console.error("[startup] failure dialog failed:", dialogError);

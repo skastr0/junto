@@ -124,10 +124,20 @@ export const sanitizeTechnicalErrorFragment = (raw: string): string => {
   return text;
 };
 
+/** Where the app's own log lives, for a failure that is the core's. */
+export const OPERATOR_LOG_DIR_DISPLAY = "~/.junto/logs/" as const;
+
 /** Pure copy builder — unit-tested without Electron. */
 export const buildStartupStateFailureCopy = (input: {
   readonly error: unknown;
   readonly stateDirDisplay?: string;
+  /**
+   * The failure is the core not answering at all: the process that holds the
+   * operator's canvases, seats and mail, not their data store. It names the
+   * core and where its log is instead of claiming the data could not be read.
+   */
+  readonly coreUnavailable?: boolean;
+  readonly logDirDisplay?: string;
 }): StartupStateFailureCopy => {
   const stateDir = input.stateDirDisplay ?? OPERATOR_STATE_DIR_DISPLAY;
   const technical = sanitizeTechnicalErrorFragment(
@@ -135,6 +145,24 @@ export const buildStartupStateFailureCopy = (input: {
   );
 
   const title = "Could not start";
+  if (input.coreUnavailable === true) {
+    const logDir = input.logDirDisplay ?? OPERATOR_LOG_DIR_DISPLAY;
+    return {
+      title,
+      message: `${PRODUCT_NAME} could not start its core`,
+      detail: [
+        `The core process that keeps ${PRODUCT_NAME}'s canvases, seats and mail did not start.`,
+        "",
+        `Its log is in ${logDir}`,
+        "",
+        `Your data was not deleted. It is still on disk at ${stateDir}`,
+        "",
+        `If this keeps happening, open an issue at ${ISSUES_URL} with the technical details below.`,
+        "",
+        `Technical: ${technical}`,
+      ].join("\n"),
+    };
+  }
   const message = `${PRODUCT_NAME} could not open its data store`;
   const detail = [
     `Something prevented ${PRODUCT_NAME} from opening your local data.`,
@@ -157,6 +185,7 @@ export const runStartupStateFailureDialog = async (input: {
   readonly error: unknown;
   readonly headless: boolean;
   readonly stateDirDisplay?: string;
+  readonly coreUnavailable?: boolean;
   readonly dialog?: StartupStateFailureDialog;
 }): Promise<StartupStateFailureOutcome> => {
   const copy = buildStartupStateFailureCopy({
@@ -164,6 +193,7 @@ export const runStartupStateFailureDialog = async (input: {
     ...(input.stateDirDisplay === undefined
       ? {}
       : { stateDirDisplay: input.stateDirDisplay }),
+    ...(input.coreUnavailable === undefined ? {} : { coreUnavailable: input.coreUnavailable }),
   });
 
   const technical = sanitizeTechnicalErrorFragment(

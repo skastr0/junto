@@ -3,6 +3,7 @@ import {
   buildStartupStateFailureCopy,
   extractStartupFailureText,
   OPERATOR_STATE_DIR_DISPLAY,
+  OPERATOR_LOG_DIR_DISPLAY,
   runStartupStateFailureDialog,
   sanitizeTechnicalErrorFragment,
   ISSUES_URL,
@@ -86,6 +87,19 @@ describe("buildStartupStateFailureCopy", () => {
     });
     expect(copy.detail).toContain("/tmp/fake-state/");
     expect(copy.detail).not.toContain(OPERATOR_STATE_DIR_DISPLAY);
+  });
+
+  it("names the core, and its log, when the core is what did not start", () => {
+    const copy = buildStartupStateFailureCopy({
+      error: new Error("the Junto core process exited with code 1"),
+      coreUnavailable: true,
+    });
+    expect(copy.message).toBe(`${PRODUCT_NAME} could not start its core`);
+    expect(copy.detail).toContain(OPERATOR_LOG_DIR_DISPLAY);
+    expect(copy.detail).toMatch(/core process/i);
+    // Nothing claims the operator's data could not be read.
+    expect(copy.detail).not.toMatch(/open your local data/i);
+    expect(copy.detail).toMatch(/was not deleted/i);
   });
 });
 
