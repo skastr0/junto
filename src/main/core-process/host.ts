@@ -10,8 +10,10 @@ import { portCore, type CoreMessage, type PortCoreClient } from "./port";
  * core stops is rejected, and the next call waits for the new core. A core
  * that keeps stopping is started again after 1 s, doubling to 30 s.
  *
- * Off until every `AppRuntime.run*` site in main calls the core by name: two
- * runtimes would mean two business writers on junto.db.
+ * Off until every `AppRuntime.run*` site in main calls the core by name (two
+ * runtimes would mean two business writers on junto.db) and the terminal
+ * process owns the PTYs (`JUNTO_TERMINAL_PROCESS`): until then seat start
+ * would run on the core's plane while attach and write stay on main's.
  */
 export const CORE_PROCESS_ENABLED = process.env.JUNTO_CORE_PROCESS === "1";
 
