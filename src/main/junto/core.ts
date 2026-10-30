@@ -183,6 +183,8 @@ export const startCore = async (options: CoreOptions) => {
       overseer?.dispose();
       await overseerLive?.dispose();
       stopCompanion?.();
+      // The phone's idle long poll lets go before the process ends.
+      companion?.changes.close();
       const writes = await mainAuthoringGate.drain(5_000);
       if (writes.remaining.length > 0) {
         throw new CoreDidNotDrain({ part: "writes", remaining: writes.remaining.length, message: "Core writes did not drain; core state retained" });

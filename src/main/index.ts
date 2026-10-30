@@ -143,12 +143,8 @@ import { hostOperationsShutdown } from "./junto/hosts/shutdown";
 import {
   operatorControlEnabledFromInitialArgv,
 } from "./junto/operator-control";
-import {
-  companionService,
-} from "./junto/companion/service";
 import { broadcastCompanionDevices, electronCompanionClipboard, registerCompanionIpc } from "./junto/companion/ipc";
 import { coreOverseerLive } from "./core-process/main-side/overseer-live";
-import { companionNotePreamble } from "./junto/companion/wiring";
 import { askOnEveryCore, askOnLaterCores } from "./core-process/every-core";
 import { startCoreProcessForMain } from "./core-process/main-boot";
 import { overseerPagesOn, type OverseerPages } from "./junto/overseer/pages";
@@ -1453,7 +1449,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return new Uint8Array(image.toPNG());
     });
     const showPreamble = (event: PreambleEvent): void => {
-      companionNotePreamble(event);
       const window = currentTrustedMainWindow();
       if (
         window === undefined ||
@@ -1752,8 +1747,6 @@ const beginShutdownAdmission = (reason: string): void => {
   browserShutdown ??= browserComposition?.drainOnQuit(reason);
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
 
-  // A phone's idle long poll must not hold operator control open over quit.
-  companionService()?.changes.close();
   unregisterOverseerLiveIpc?.();
   unregisterOverseerLiveIpc = undefined;
   hostOperationsShutdown.beginShutdown();
