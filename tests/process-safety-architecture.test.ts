@@ -357,11 +357,15 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      // The core's utilityProcess, Electron's own child, stopped once at quit
-      // (Wave 3); it holds no PTY, so no process group is signalled.
-      "src/main/core-process/host.ts:child?.kill",
+      // The core's utilityProcess, Electron's own child, signalled through its
+      // own handle: once when stop is asked (the handle is captured as
+      // `leaving` so the effect that follows only waits), and once more if the
+      // child has not exited by the stop deadline. It holds no PTY, so no
+      // process group is signalled, and no pid ever names it.
       // The same child, killed when it has not said core.ready by its boot deadline.
       "src/main/core-process/host.ts:forked.kill",
+      "src/main/core-process/host.ts:leaving.kill",
+      "src/main/core-process/host.ts:leaving.kill",
       // The window's terminal kill, asked of the core's plane by name: the
       // same owned-session stop through the router that term/ipc.ts made.
       "src/main/core-process/ops/term-ipc.ts:plane.router.kill",
@@ -406,8 +410,10 @@ describe("machine-safety architecture", () => {
       // The terminal utilityProcess, Electron's own child, stopped at quit after
       // the plane drained every PTY it held.
       "src/main/terminal-process/host.ts:child?.kill",
-      // The same, for the terminal process main forks for a core in its own process.
-      "src/main/terminal-process/host.ts:child?.kill",
+      // The same child, signalled through its own handle when stop is asked and
+      // again if it has not exited by the stop deadline.
+      "src/main/terminal-process/host.ts:leaving.kill",
+      "src/main/terminal-process/host.ts:leaving.kill",
       "src/main/terminal-process/serve.ts:forbidden-reference:TerminalInbound.kill",
       // A core that is gone: each PTY it held is hung up through the same
       // epoch-checked signal path, never signalled by pid alone.
