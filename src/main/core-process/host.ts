@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { utilityProcess, type UtilityProcess } from "electron";
+import { app, utilityProcess, type UtilityProcess } from "electron";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
 
@@ -64,7 +64,9 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
 
   const start = (): void => {
     if (stopping) return;
-    const forked = utilityProcess.fork(join(import.meta.dirname, "core-process.js"), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
+    // The entry is built beside main's index.js (electron.vite.config.ts), while
+    // this module lands in a chunk under out/main/chunks: resolve from the app root.
+    const forked = utilityProcess.fork(join(app.getAppPath(), "out", "main", "core-process.js"), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
     child = forked;
     startedAt = Date.now();
     for (const message of held.splice(0)) forked.postMessage(message);

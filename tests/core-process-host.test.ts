@@ -16,10 +16,13 @@ class FakeChild extends EventEmitter {
   }
 }
 const forks: FakeChild[] = [];
+const forkedPaths: string[] = [];
 
 vi.mock("electron", () => ({
+  app: { getAppPath: () => "/app" },
   utilityProcess: {
-    fork: () => {
+    fork: (path: string) => {
+      forkedPaths.push(path);
       const child = new FakeChild();
       forks.push(child);
       return child;
@@ -44,6 +47,13 @@ afterEach(() => {
 });
 
 describe("the core process host", () => {
+  it("forks the entry built beside main's index.js, wherever this module's chunk lands", () => {
+    forkedPaths.length = 0;
+    const core = startCoreProcess(BOOT);
+    expect(forkedPaths).toEqual(["/app/out/main/core-process.js"]);
+    core.stop();
+  });
+
   it("kills a core that is not ready by its boot deadline, fails its calls, and starts another", async () => {
     const core = startCoreProcess(BOOT);
     const call = core.call("model.canvases" as never, {} as never);
