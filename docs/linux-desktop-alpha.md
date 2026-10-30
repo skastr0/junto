@@ -117,7 +117,8 @@ behavior.
 ## Build from source
 
 Build on Linux x86-64 with the exact Bun version in `packageManager` (currently
-1.4.3), Node 24.10 or newer, and normal native build
+1.4.3), Node 24.10 or newer, a Rust toolchain from rustup
+(`native/cli/rust-toolchain.toml` pins the version), and normal native build
 tools (Python 3, a C/C++ toolchain, make, and the platform Electron libraries):
 
 ```sh
@@ -126,7 +127,7 @@ bun run app:build:linux --fast
 ```
 
 The build emits a relocatable desktop directory and `.tar.gz` archive under
-`release/`. It includes the standalone CLI, project license, and required
+`release/`. It includes the native `junto` CLI, project license, and required
 third-party notices. It needs no billing or release credentials and uploads
 nothing. A local archive is not an official signed release. Official desktop
 publication uses the signed descriptor and source binding in

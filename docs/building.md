@@ -1,6 +1,6 @@
 # Building Junto from source
 
-Requirements: Bun 1.4.3 (see `package.json`), Node.js 24.10 or later, macOS or Linux with an interactive desktop session, Git, and the platform's native build tools.
+Requirements: Bun 1.4.3 (see `package.json`), Node.js 24.10 or later, a Rust toolchain from rustup (`native/cli/rust-toolchain.toml` pins the version), macOS or Linux with an interactive desktop session, Git, and the platform's native build tools.
 
 ```sh
 git clone https://github.com/skastr0/junto.git
@@ -24,10 +24,12 @@ Local packages are development builds without a signing identity. Automatic upda
 ## The CLI
 
 ```sh
-bun run cli:build          # writes dist/junto
+bun run cli:build          # the native Rust CLI (native/cli), written to dist/junto
+bun run cli:build:dev      # the Bun-compiled dev CLI, written to dist/junto-dev
+bun run cli                # the TypeScript CLI from source
 ```
 
-Packaged apps include the same CLI as `bin/junto`. Commands that touch the work plane must run inside a seat the app started; outside one they return an `AuthError`.
+`scripts/build-native-cli.ts` runs `cargo build --locked --release` in `native/cli`, stamps the package version and the resolved feature profile, and refuses a binary whose `--version` does not answer that version. Packaged apps and machine bundles include that native CLI as `bin/junto`. Bun compiles only the dev CLI and the Linux desktop bootstrap. Commands that touch the work plane must run inside a seat the app started; outside one they return an `AuthError`.
 
 Read-only views of the running app's canvases:
 

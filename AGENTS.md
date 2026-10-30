@@ -155,7 +155,7 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/junto` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `artifact`, `automation`; overseer seats also `overseer` |
+| CLI | `dist/junto`, the native Rust CLI in `native/cli` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `artifact`, `automation`; overseer seats also `overseer` |
 | Socket | `~/.junto/work/control.sock` (mode 0600). The seat presents `JUNTO_WORK_TOKEN`. |
 | Identity | **generation credential** — main mints one value per occupant generation, injects it at spawn, and admits by registry lookup of the frame token. No token file, no token on argv, no client-supplied nodeRef / `JUNTO_NODE_REF`. `overseer.live` is admitted by the same credential. No process ancestry, no peer PID, and no fallback when the credential is missing. Browser-protected routes are refused in this build. |
 | Authz | **reach and edges** — ordinary agents use the resource nodes (tasks, artifacts) in their own region, the regions inside it and the regions around it, with no edge (`out_of_reach` ScopeError otherwise), and act on seats and pages only through connected edges (ScopeError otherwise). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
@@ -188,8 +188,10 @@ empty composer.
 Browser control (`junto browser` / `bun run browser`) is off in this build: its
 protected routes refuse every caller until they move to the seat generation
 credential. There is **no enable-grant ceremony** and no client capability
-secret, and human-drawn edges to page nodes stay the only grant. Content transfer is `junto content-transfer …`. Packaged installs ship
-**one** CLI binary (`bin/junto`) only.
+secret, and human-drawn edges to page nodes stay the only grant. Content transfer is `junto content-transfer …`. Packaged installs and every machine bundle ship
+**one** CLI binary (`bin/junto`), the native Rust CLI built from `native/cli`
+by `scripts/build-native-cli.ts`. Bun compiles only the dev CLI
+(`dist/junto-dev`) and the Linux desktop bootstrap.
 
 Ops go through WorkService (tasks/messages/artifacts). That is
 the ordinary agent write path. Freeform canvas authoring remains human,

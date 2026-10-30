@@ -683,13 +683,16 @@ Desktop: Settings > Companion > Pair a phone.
 
 ## 7. Development without a Mac
 
-`junto companion-stdio --demo` speaks the full protocol from stdin/stdout
+`bun src/cli/main.ts companion-stdio --demo`, run from a checkout of the
+Junto repository, speaks the full protocol from stdin/stdout
 against a built-in, deterministic demo canvas (three regions, eight seats,
 every feed kind, mail history) and never touches the app or `~/.ssh`. Writes
 succeed and change the demo state for that process only. Its canvas has
 three wires, one routed round a card; a mail sent to a seat brings that
 card to the front, the demo's one `canvas.changed`. The mobile repo can
-drive it over a local pipe or `ssh localhost` for tests.
+drive it over a local pipe or `ssh localhost` for tests. The demo is a
+repository command: the shipped `junto` (the native CLI) refuses `--demo`
+with exit 64 and names this command.
 
 ## 8. Versioning
 
