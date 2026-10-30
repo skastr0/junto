@@ -1492,7 +1492,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       clipboard: electronCompanionClipboard,
       clipboardFormats: () => clipboard.availableFormats(),
       terminals,
-    })));
+    }));
     if (LIVE_OVERSEER_ENABLED) unregisterOverseerLiveIpc = registerOverseerLiveIpc(coreOverseerLive(core));
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
