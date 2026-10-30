@@ -92,11 +92,44 @@ list position comes first, because the order is what decides who rules.
 - Everything above is behind `AUTHORITY_ENABLED`. With it off, the shelf
   and the stage are as they are today.
 
+## Owed overseer changes (F4 slice 2b)
+
+An owed change is an overseer grant or revocation the operator made that
+has not yet been judged on an alias canvas, one per canvas and node,
+revocations first. They differ in what they leave behind, so they show in
+different places.
+
+- **An owed revocation shows in the banner**, on whichever canvas is open,
+  not only on the alias canvas. Until it is judged, that seat may still be
+  an overseer there, so the operator must know wherever they are. One line
+  per owed revocation, in ink, after the title and before the other lines:
+  `<seat> may still be an overseer on <canvas>. This is applied when a
+  machine takes changes for <canvas> again.` After three lines, the rest
+  is one line: `and 2 more revocations`. The words go into
+  `src/shared/authority.ts` beside the others.
+- With nothing else to say, owed revocations raise the banner on their
+  own, with the read-only look (amber 50% frame, amber 10% tint over raise)
+  and the title `An overseer revocation is not applied yet`, or `2 overseer
+  revocations are not applied yet`. Amber, because the operator acts on it:
+  they bring back a machine for that canvas, or use `junto authority alone`
+  there.
+- The seat name in the line is a button that selects the seat on its
+  canvas, the way a chip opens its machine. The canvas name is plain text.
+- The live region takes the revocation lines too, since they are what the
+  operator acts on. They change only when one is owed or judged, never on a
+  timer.
+- **An owed grant shows in `junto authority status` only.** It leaves a
+  seat with less power for a while and nothing to undo, so it does not
+  raise the banner.
+- **Not on the Machines window stage.** An owed change belongs to a canvas
+  and a seat, not to a machine. The stage would show it on every machine
+  of the list, and none of them is the fix on its own.
+
 ## Who builds what
 
-remote-window builds the banner and its IPC read (F5d). The Machines window
-lines read the same view, and remote-design adds them once the read lands,
-unless remote-window would rather carry them in the same slice.
+remote-window builds the banner and its IPC read (F5d), the Machines window
+lines, and the owed revocation lines once canvas-lead's slice 2b puts them
+on the read.
 
 ## Contrast
 
