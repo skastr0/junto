@@ -34,7 +34,7 @@ it("answers a write main refuses at its boundary as a refusal, not a rejection",
   const source = makeIpcTasksSource({
     list: async () => [],
     all: async () => [],
-    context: async () => ({ downstream: () => [], stampDefaultOf: () => ({ required: 0 }), seatReaches: () => false }),
+    context: async () => ({ downstream: {}, stampDefaults: {}, seatReach: {} }),
     apply: async () => {
       throw new Error("Expected a value with a length of at least 1 at [title]");
     },
