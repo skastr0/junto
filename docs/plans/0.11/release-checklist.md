@@ -412,3 +412,16 @@ as it stood, no release branch: the bump `8af02c8ee` plus every later commit
   The published build skipped `bun run test` through a PATH shim, with
   lint:product-name, typecheck, the ship feature lane, signing, Gatekeeper
   assess and notarization intact.
+
+## 0.11.4 receipt (product-releases, 2026-10-30)
+
+Published from tag `v0.11.4` = `22d0ed2de` on main (pushed), cut from a clean
+export with the 0.11.3 recipe. Unit lane skipped by operator ruling; typecheck
+and the ship feature lane ran. Notarization submission
+`1eb49f7b-82d2-4c4e-b4e9-d3ba4f6a236d` Accepted, stapled. Zip sha256
+`1d6760163cdccd6c5fb9a3b89dc25c0be3706d5aac5b0e3cd358c88720ca08eb`, dmg
+`dc51b65747e7ec41b2e74d1a591c53c7ba870bf8d78cb9392389cd772f3e1788`. Machine
+build `478d090a52481dd425dfc21bc5064076c72b63cdf381d375600f5920f4f45c7b`
+(darwin-arm64, linux-x64), archive hashes match the catalog. The feed says
+0.11.4 and the downloaded zip matches. Launch smoke by product-verify: pass.
+The machine core reads mail on main (22d0ed2de); the app keeps the worker.
