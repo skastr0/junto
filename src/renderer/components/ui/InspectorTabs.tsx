@@ -26,7 +26,7 @@ export function InspectorTabs({
 }) {
   if (tabs.length === 0) return null;
   return (
-    <div role="tablist" aria-label={label} className="flex items-center gap-0.5" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
+    <div role="tablist" aria-label={label} className="flex items-end gap-0.5" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
       {tabs.map((tab) => {
         const isActive = tab.id === active;
         return (
@@ -36,7 +36,7 @@ export function InspectorTabs({
             role="tab"
             aria-selected={isActive}
             onClick={() => onSelect(tab.id)}
-            className="relative flex items-center gap-1.5 rounded-t-md px-2.5 py-1.5 text-label font-medium uppercase tracking-label transition"
+            className="relative flex items-center gap-1.5 whitespace-nowrap rounded-t-md px-2.5 py-1.5 text-label font-medium uppercase tracking-label transition"
             style={{
               color: isActive ? INK : DIM,
               background: isActive ? withAlpha(HUE.amber, 0.1) : "transparent",
