@@ -89,14 +89,14 @@ ops! {
 // --- writes ------------------------------------------------------------------
 
 /// A write verb's own keys, and the op that rules them.
-trait Verb: Serialize {
+pub(super) trait Verb: Serialize {
     const OP: &'static str;
 }
 
 /// A write as sent: its opId first, then the verb's keys.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Write<V> {
+pub(super) struct Write<V> {
     op_id: OpId,
     #[serde(flatten)]
     verb: V,
@@ -305,7 +305,7 @@ pub struct Task {
 
 /// What every write takes: the opId to resend under, and the call's bound.
 #[derive(Args)]
-struct WriteFlags {
+pub(super) struct WriteFlags {
     #[arg(long = "op-id")]
     op_id: Option<String>,
     #[command(flatten)]
@@ -474,11 +474,11 @@ fn op_id(given: Option<&str>) -> Result<OpId> {
     }
 }
 
-fn read<R: Request>(args: &R, timeout: Timeout) -> Answer {
+pub(super) fn read<R: Request>(args: &R, timeout: Timeout) -> Answer {
     wire::call(args, timeout.into()).map(Into::into)
 }
 
-fn write<V: Verb>(flags: WriteFlags, verb: V) -> Answer {
+pub(super) fn write<V: Verb>(flags: WriteFlags, verb: V) -> Answer {
     let args = Write { op_id: op_id(flags.op_id.as_deref())?, verb };
     wire::call(&args, flags.timeout.into()).map(Into::into)
 }
