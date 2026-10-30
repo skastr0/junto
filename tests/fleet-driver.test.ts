@@ -25,6 +25,8 @@ import type { CanvasAuthorities } from "../src/main/junto/fleet/authorities";
 import { makeCanvasAuthorities } from "../src/main/junto/fleet/host";
 import { afterSqlCommit } from "../src/main/junto/state/sql-commit";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { ModelService } from "../src/main/junto/model/service";
+import { StructureCapture } from "../src/main/junto/model/structure-capture";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { PausePlaneLive } from "../src/main/junto/pause-plane";
 import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
@@ -40,6 +42,7 @@ import { RulingRecorder, RulingRecordFailed } from "../src/main/junto/work/rulin
 import type { ArtifactOp } from "../src/shared/artifact";
 import type { AutomationOp } from "../src/shared/automation";
 import type { InstallationId } from "../src/shared/installation-id";
+import type { Changed } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { OpId, ResourceCommand, RulingContext } from "../src/shared/resource-command";
 import { artifacts, automations, seat } from "./support/model-nodes";
@@ -182,10 +185,17 @@ const judge = <A, E, R>(store: Store, submit: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const mark = store.recorded.length;
+      // Each canvas change, at the place among the rulings where the batch made it.
+      const changes: Array<{ readonly after: number; readonly data: LogData }> = [];
+      const capture = ({ seq, nodes, wires, removedNodes, removedWires }: Changed) =>
+        changes.push({ after: store.recorded.length - mark, data: { kind: "structure.changed", seq, change: { nodes, wires, removedNodes, removedWires } } });
       yield* sql.withTransaction(Effect.flatMap(submit, () => Effect.fail(new Judged()))).pipe(
+        Effect.provideService(StructureCapture, capture),
         Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
       );
-      return store.recorded.splice(mark).map((input): LogData => ({ kind: "ruling", ruling: loggedRuling(input, AT) }));
+      const rulings = store.recorded.splice(mark).map((input): LogData => ({ kind: "ruling", ruling: loggedRuling(input, AT) }));
+      return rulings.flatMap((ruling, at) => [...changes.filter((change) => change.after === at).map((change) => change.data), ruling])
+        .concat(changes.filter((change) => change.after === rulings.length).map((change) => change.data));
     }) as unknown as Effect.Effect<ReadonlyArray<LogData>, unknown, never>,
   );
 
@@ -251,7 +261,8 @@ describe("the fleet driver", () => {
     expect(back).toMatchObject({ refs: before.refs + 1, seq: before.seq, rulings: [ARTIFACT_OP] });
     expect(back.applied_index).toBe(back.commit_index);
 
-    await store.runtime.runPromise(second.propose(rulings[1]!));
+    // The placement is two entries: its count move, then its ruling (06 F4).
+    for (const data of rulings.slice(1)) await store.runtime.runPromise(second.propose(data));
     await reopen(store, second);
     const settled = await held(store);
     // One ref and one count move, however many times the canvas is opened.
@@ -262,11 +273,14 @@ describe("the fleet driver", () => {
   it("crashes after an automation placement's fold and moves the count once on reopening", async () => {
     const store = await makeStore();
     const before = await held(store);
-    const [placement] = await judge(store, placeAutomation);
+    // The count move is an entry of its own, ahead of the ruling it places (06 F4).
+    const [count, placement] = await judge(store, placeAutomation);
+    expect(count).toMatchObject({ kind: "structure.changed", seq: before.seq + 1 });
     const first = await open(store);
+    await store.runtime.runPromise(first.propose(count!));
     store.failing = true;
     expect((await store.runtime.runPromiseExit(first.propose(placement!)))._tag).toBe("Failure");
-    expect(await held(store)).toMatchObject({ seq: before.seq, automations: 0 });
+    expect(await held(store)).toMatchObject({ seq: before.seq + 1, automations: 0 });
     store.failing = false;
     await reopen(store, await reopen(store, first));
     expect(await held(store)).toMatchObject({ seq: before.seq + 1, automations: 1, rulings: [AUTOMATION_OP] });
@@ -294,7 +308,7 @@ const BATCH = Effect.all([
   editArtifact("01M62AA0000000000000000003", 1, "nothing", "01M62AA0000000000000000009"),
 ]);
 
-const CONSENSUS_TABLES = new Set(["canvas_consensus", "canvas_authorities", "canvas_log", "canvas_log_members", "canvas_log_waiting"]);
+const CONSENSUS_TABLES = new Set(["canvas_consensus", "canvas_authorities", "canvas_log", "canvas_log_members", "canvas_log_waiting", "canvas_log_structure", "canvas_log_waiting_structure"]);
 
 /** Every table both paths reach, leaving out the log and a content ref's id (drawn fresh at each put). */
 const tablesOf = (store: Store) =>
@@ -316,19 +330,17 @@ const tablesOf = (store: Store) =>
 describe("the fleet driver's structure watermark", () => {
   // 0.11/06 F3: past the count a copy left, a structure entry folds only at
   // exactly head plus one; covered is skipped, and a gap is a missed entry.
-  const structure = (seq: number) => ({ kind: "structure.changed", seq }) as const;
+  const structure = (seq: number) => ({ kind: "structure.changed", seq, change: NO_CHANGE }) as const;
 
   it("applies a structure entry only at exactly head plus one, skipping what a copy covered", async () => {
     const store = await makeStore();
     const authority = await store.runtime.runPromise(openCanvasAuthority({ canvasName: CANVAS, self: SELF }));
     await store.runtime.runPromise(authority.propose(structure(2)));
-    // A copy install moved the held count to 5: entries at or under it are
-    // already covered by the copy and skip.
+    // A copy install moved the held count to 5, through the model as an
+    // install does (its count, not a raw row, is what the fold follows):
+    // entries at or under it are already covered by the copy and skip.
     await store.runtime.runPromise(
-      Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        yield* sql`UPDATE canvases SET seq = 5 WHERE canvas_name = ${CANVAS}`;
-      }),
+      Effect.flatMap(ModelService, (model) => Effect.repeat(model.advanceCount(CANVAS), { times: 2 })),
     );
     const before = await store.runtime.runPromise(
       Effect.gen(function* () {
@@ -368,7 +380,8 @@ describe("the fleet driver judges a batch", () => {
     const judgment = await judged.runtime.runPromise(authority.judge(BATCH) as unknown as Effect.Effect<{ value: ReadonlyArray<unknown>; entries: ReadonlyArray<unknown> }, unknown, never>);
 
     expect(judgment.value).toEqual(answered);
-    expect(judgment.entries).toHaveLength(4);
+    // Four rulings and the placement's count move.
+    expect(judgment.entries).toHaveLength(5);
     expect(await tablesOf(judged)).toEqual(await tablesOf(direct));
     expect(await held(judged)).toMatchObject({ refs: 1, automations: 1 });
     const status = authority.status();
@@ -421,9 +434,12 @@ const tickPair = async (pair: Record<string, Seat>, ids: ReadonlyArray<string>, 
   }
 };
 
+/** A structure entry that only moves the count: it folds at exactly `seq`, the canvas's next count on the proposer. */
+const NO_CHANGE = { nodes: [], wires: [], removedNodes: [], removedWires: [] } as const;
+
 const proposeOn = async (pair: Record<string, Seat>, id: string, seq: number, up: () => boolean) => {
   const seat = pair[id]!;
-  await seat.store.runtime.runPromise(seat.authority.propose({ kind: "structure.changed", seq }));
+  await seat.store.runtime.runPromise(seat.authority.propose({ kind: "structure.changed", seq, change: NO_CHANGE }));
   await tickPair(pair, [id], up);
 };
 
@@ -454,7 +470,7 @@ describe("the fleet driver after an alone fork", () => {
     // The MacBook rules term 2 on the mini's vote, and both apply what it commits.
     for (let round = 0; round < 30 && !macbook.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
     expect(macbook.authority.status()).toMatchObject({ role: "leader", canCommit: true });
-    await proposeOn(pair, MACBOOK, 1, up);
+    await proposeOn(pair, MACBOOK, 2, up);
     await tickPair(pair, [MACBOOK, SELF, MACBOOK], up);
     const shared = (await logOf(mini.store)).applied_index;
     expect(shared).toBe((await logOf(macbook.store)).applied_index);
@@ -463,8 +479,8 @@ describe("the fleet driver after an alone fork", () => {
     linked = false;
     for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
     expect(mini.authority.status()).toMatchObject({ role: "leader", canCommit: true });
-    await proposeOn(pair, SELF, 2, up);
     await proposeOn(pair, SELF, 3, up);
+    await proposeOn(pair, SELF, 4, up);
     const ruledAlone = await logOf(mini.store);
     expect(ruledAlone.applied_index).toBeGreaterThan(shared);
     expect(macbook.authority.status().canCommit).toBe(false);
@@ -472,7 +488,7 @@ describe("the fleet driver after an alone fork", () => {
     // The operator, on the MacBook, says the mini is dead.
     const forked = await macbook.store.runtime.runPromise(macbook.authority.alone());
     await deliver(pair, forked, up);
-    await proposeOn(pair, MACBOOK, 4, up);
+    await proposeOn(pair, MACBOOK, 3, up);
     expect(macbook.authority.status()).toMatchObject({ canCommit: true, members: { sole: MACBOOK } });
 
     // The link comes back: the mini hears the later term, and its applied entries are revoked.
@@ -612,7 +628,7 @@ describe("the fleet driver refuses a proposal it cannot take", () => {
     expect(macbook.authority.status().role).toBe("follower");
     const before = await logOf(macbook.store);
 
-    const exit = await macbook.store.runtime.runPromiseExit(macbook.authority.propose({ kind: "structure.changed", seq: 1 }));
+    const exit = await macbook.store.runtime.runPromiseExit(macbook.authority.propose({ kind: "structure.changed", seq: 2, change: NO_CHANGE }));
     expect(exit._tag).toBe("Failure");
     const error = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined;
     expect(error).toMatchObject({ _tag: "FleetDriverError", retryable: true, message: expect.stringMatching(/not-leader/) });
@@ -692,7 +708,7 @@ describe("the fleet driver logs only the rulings that stand", () => {
 
 describe("the fleet driver, from inside a judged batch", () => {
   it.each([
-    ["propose", (authority: CanvasAuthority) => authority.propose({ kind: "structure.changed", seq: 1 })],
+    ["propose", (authority: CanvasAuthority) => authority.propose({ kind: "structure.changed", seq: 2, change: NO_CHANGE })],
     ["tick", (authority: CanvasAuthority) => authority.tick()],
     ["step", (authority: CanvasAuthority) => authority.step({ type: "append-reply", from: MACBOOK, to: SELF, term: 1, success: false, index: 0, at: 0 } as Message)],
     ["alone", (authority: CanvasAuthority) => authority.alone()],
@@ -877,7 +893,7 @@ describe("the fleet driver commits on its own", () => {
       );
     for (const reach of [
       authority.judge(createArtifact),
-      authority.propose({ kind: "structure.changed", seq: 1 }),
+      authority.propose({ kind: "structure.changed", seq: 2, change: NO_CHANGE }),
       authority.tick(),
       host.judge(CANVAS, createArtifact),
     ] as ReadonlyArray<Effect.Effect<unknown, unknown, unknown>>) {
@@ -965,7 +981,7 @@ describe("the fleet driver drops a lost batch's listeners", () => {
     // The mini takes over on its casting vote and commits entries of its own at those indices.
     for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
     expect(mini.authority.status()).toMatchObject({ role: "leader", canCommit: true });
-    for (let seq = 1; seq <= 3; seq++) await proposeOn(pair, SELF, seq, up);
+    for (let seq = 2; seq <= 4; seq++) await proposeOn(pair, SELF, seq, up);
     expect(mini.authority.status().commit).toBeGreaterThanOrEqual(lostAt);
 
     // The link comes back: the MacBook takes the mini's history, applies it, and its listener never fires.
@@ -1051,7 +1067,7 @@ describe("the fleet driver waits on an entry", () => {
 
     // The mini takes over on its casting vote and commits entries of its own at those indices.
     for (let round = 0; round < 30 && !mini.authority.status().canCommit; round++) await tickPair(pair, [MACBOOK, SELF], up);
-    for (let seq = 1; seq <= 3; seq++) await proposeOn(pair, SELF, seq, up);
+    for (let seq = 2; seq <= 4; seq++) await proposeOn(pair, SELF, seq, up);
     expect(wait.answer()).toBeUndefined();
 
     // The link comes back: the MacBook takes the mini's history, and the wait fails, retryable.

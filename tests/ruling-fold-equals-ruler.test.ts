@@ -52,7 +52,8 @@ import { artifacts, automations, seat } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvasRows } from "./support/seed-canvas";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
-import { asCanvasName, type Node } from "../src/shared/model";
+import { StructureCapture } from "../src/main/junto/model/structure-capture";
+import { asCanvasName, type Changed, type Node } from "../src/shared/model";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { OpId, ResourceActor, ResourceCommand, RulingContext } from "../src/shared/resource-command";
@@ -577,7 +578,7 @@ describe("the fold equals the ruler, for artifacts", () => {
 
 type AutomationStore = {
   readonly root: string;
-  readonly runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient | WorkRepository | AutomationRepository | RulingRecorder, unknown>;
+  readonly runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient | WorkRepository | AutomationRepository | RulingRecorder | ModelService, unknown>;
   readonly recorded: Array<RecordRulingInput>;
 };
 const automationStores: Array<AutomationStore> = [];
@@ -709,20 +710,28 @@ describe("the fold equals the ruler, for automations", () => {
             Effect.gen(function* () {
               const sql = yield* SqlClient.SqlClient;
               const work = yield* WorkRepository;
+              const model = yield* ModelService;
               const mark = judged.recorded.length;
+              // The count a placement moves is a structure entry of its own, made before its ruling's row (06 F4).
+              const changes: Array<{ readonly after: number; readonly change: Changed }> = [];
               yield* sql.withTransaction(Effect.flatMap(submitAutomation(index, step), () => Effect.fail(new Judged()))).pipe(
+                Effect.provideService(StructureCapture, (change) => changes.push({ after: judged.recorded.length - mark, change })),
                 Effect.catchIf((error): error is Judged => error instanceof Judged, () => Effect.void),
               );
               const rulings = judged.recorded.splice(mark);
+              const foldChanges = (after: number) =>
+                Effect.forEach(changes.filter((change) => change.after === after), ({ change }) => model.fold(change), { discard: true });
               yield* sql.withTransaction(
-                Effect.forEach(rulings, (input) =>
-                  Effect.gen(function* () {
-                    // The facts first, then the ruling row: a placement moves the count the row stands on.
+                Effect.gen(function* () {
+                  for (const [at_, input] of rulings.entries()) {
+                    yield* foldChanges(at_);
+                    // The facts first, then the ruling row.
                     const row = appliedRow(input);
                     if (row !== undefined) yield* foldRuling(sql, input.canvasName, row, at, { command: input.command as ResourceCommand<AutomationOp> });
                     yield* work.recordRuling(input);
-                  }),
-                ),
+                  }
+                  yield* foldChanges(rulings.length);
+                }),
               );
               judged.recorded.push(...rulings);
             }),

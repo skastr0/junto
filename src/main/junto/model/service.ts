@@ -26,6 +26,7 @@ import {
 } from "../state/sql-commit";
 import { withSqlRead } from "../state/sql-read";
 import { StateTransactionOperation } from "../state/service";
+import { StructureCapture } from "./structure-capture";
 import {
   ModelNotFound,
   ModelRefused,
@@ -81,6 +82,11 @@ export class ModelService extends Context.Service<ModelService>()(
           } else held.delete(event.canvas);
           PubSub.publishUnsafe(changes, event);
         });
+
+      // A judged command's change is kept for its log entry instead: it lands, and is published, when the entry folds.
+      const commandChange = (event: Changed, current: Canvas) =>
+        Effect.flatMap(StructureCapture, (capture) =>
+          capture === undefined ? publishChange(event, current) : Effect.sync(() => capture(event)));
 
       const stage = (name: string, value: Canvas | null) =>
         Effect.gen(function* () {
@@ -194,6 +200,79 @@ export class ModelService extends Context.Service<ModelService>()(
           nodes: inPaintOrder(current),
           wires: [...current.wires.values()],
         } satisfies Opened;
+      });
+      /**
+       * Write a change to the canvas as it stands, move its count by one and
+       * stage what it becomes: a command's own writes, and the same writes
+       * when a committed structure entry folds. Joins the caller's transaction.
+       */
+      const writeChange = Effect.fn("ModelService.writeChange")(function* (
+        current: Canvas,
+        change: Pick<Changed, "nodes" | "wires" | "removedNodes" | "removedWires">,
+      ) {
+        const name = current.name;
+        const retiredIds = [...change.removedNodes, ...change.nodes.filter((node) => {
+          const previous = current.nodes.get(node.id);
+          return previous !== undefined && previous.kind !== node.kind;
+        }).map((node) => node.id)];
+        if (retiredIds.length) yield* dependents.removeNodes(name, retiredIds);
+        for (const id of change.removedWires) yield* records.removeWire(name, id);
+        for (const id of change.removedNodes) yield* records.removeNode(name, current.nodes.get(id)!);
+        for (const node of change.nodes) {
+          const previous = current.nodes.get(node.id);
+          if (previous && previous.kind !== node.kind) yield* records.removeNode(name, previous);
+        }
+        for (const node of change.nodes) {
+          const previous = current.nodes.get(node.id);
+          if (previous?.kind === node.kind) yield* records.updateNode(name, node);
+          else yield* records.insertNode(name, node);
+        }
+        for (const wire of change.wires) {
+          if (current.wires.has(wire.id)) yield* records.updateWire(name, wire);
+          else yield* records.insertWire(name, wire);
+        }
+        const seq = yield* records.advanceSeq(name);
+        const event: Changed = {
+          canvas: name,
+          seq,
+          nodes: [...change.nodes],
+          wires: [...change.wires],
+          removedNodes: [...change.removedNodes],
+          removedWires: [...change.removedWires],
+        };
+        const followed = follow(current, event);
+        if (followed._tag !== "Applied")
+          return yield* refused(
+            "The canvas sequence changed unexpectedly.",
+          );
+        yield* stage(name, followed.canvas);
+        return event;
+      });
+      /**
+       * Apply a committed structure entry (0.11/06 F4): the change its
+       * authority judged, written as the command wrote it and never judged
+       * again, then published once it commits. It must follow this canvas's
+       * count exactly: anything else is a missed or repeated entry, refused
+       * loudly, never skipped past. Joins the caller's transaction.
+       */
+      const fold = Effect.fn("ModelService.fold")(function* (change: Changed) {
+        return yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const current = yield* canvas(change.canvas);
+              if (change.seq !== current.seq + 1)
+                return yield* refused(`A structure entry at count ${change.seq} does not follow ${change.canvas} at count ${current.seq}.`);
+              for (const id of change.removedNodes) if (!current.nodes.has(id)) return yield* new ModelNotFound({ what: "node", id });
+              for (const id of change.removedWires) if (!current.wires.has(id)) return yield* new ModelNotFound({ what: "wire", id });
+              const event = yield* writeChange(current, change);
+              yield* publishChange(event, current);
+              return event.seq;
+            }),
+          )
+          .pipe(
+            Effect.provideService(StateTransactionOperation, "model.fold"),
+            Effect.mapError((cause) => modelError("fold", cause)),
+          );
       });
       const command = Effect.fn("ModelService.command")(function* (
         input: Command,
@@ -334,7 +413,7 @@ export class ModelService extends Context.Service<ModelService>()(
                       "The canvas sequence changed unexpectedly.",
                     );
                   yield* stage(name, applied.canvas);
-                  yield* publishChange(event, aliasCanvas);
+                  yield* commandChange(event, aliasCanvas);
                   if (name === command.canvas) replySeq = seq;
                 }
                 return { seq: replySeq };
@@ -576,53 +655,19 @@ export class ModelService extends Context.Service<ModelService>()(
                   const applied = follow(aliasCanvas, event);
                   if (applied._tag !== "Applied") return yield* refused("The canvas sequence changed unexpectedly.");
                   yield* stage(name, applied.canvas);
-                  yield* publishChange(event, aliasCanvas);
+                  yield* commandChange(event, aliasCanvas);
                 }
               }
               const nodes = [...nodesById.values()].filter((node) => !isDeepStrictEqual(current.nodes.get(node.id), node));
               const wires = [...wiresById.values()].filter((wire) => !isDeepStrictEqual(current.wires.get(wire.id), wire));
               const removedNodes = [...current.nodes.keys()].filter((id) => !nodesById.has(id));
               const removedWires = [...current.wires.keys()].filter((id) => !wiresById.has(id));
-              const retiredIds = [...removedNodes, ...nodes.filter((node) => {
-                const previous = current.nodes.get(node.id);
-                return previous !== undefined && previous.kind !== node.kind;
-              }).map((node) => node.id)];
-              if (retiredIds.length) yield* dependents.removeNodes(command.canvas, retiredIds);
-              for (const id of removedWires) yield* records.removeWire(command.canvas, id);
-              for (const id of removedNodes) yield* records.removeNode(command.canvas, current.nodes.get(id)!);
-              for (const node of nodes) {
-                const previous = current.nodes.get(node.id);
-                if (previous && previous.kind !== node.kind) yield* records.removeNode(command.canvas, previous);
-              }
-              for (const node of nodes) {
-                const previous = current.nodes.get(node.id);
-                if (previous?.kind === node.kind) yield* records.updateNode(command.canvas, node);
-                else yield* records.insertNode(command.canvas, node);
-              }
-              for (const wire of wires) {
-                if (current.wires.has(wire.id)) yield* records.updateWire(command.canvas, wire);
-                else yield* records.insertWire(command.canvas, wire);
-              }
               if (!nodes.length && !wires.length && !removedNodes.length && !removedWires.length) {
                 return { seq: current.seq };
               }
-              const seq = yield* records.advanceSeq(command.canvas);
-              const event: Changed = {
-                canvas: command.canvas,
-                seq,
-                nodes,
-                wires,
-                removedNodes,
-                removedWires: [...removedWires],
-              };
-              const followed = follow(current, event);
-              if (followed._tag !== "Applied")
-                return yield* refused(
-                  "The canvas sequence changed unexpectedly.",
-                );
-              yield* stage(command.canvas, followed.canvas);
-              yield* publishChange(event, current);
-              return { seq };
+              const event = yield* writeChange(current, { nodes, wires, removedNodes, removedWires });
+              yield* commandChange(event, current);
+              return { seq: event.seq };
             }),
           )
           .pipe(
@@ -637,7 +682,8 @@ export class ModelService extends Context.Service<ModelService>()(
        * Move the canvas count with no node or wire changed: a placement that
        * lives beside the canvas moved (an automation placed or moved, plan
        * 0.11/05 S2), and every copy cut from now on carries it. Joins the
-       * caller's transaction; the change is published when it commits.
+       * caller's transaction; the change is published when it commits, or,
+       * judged, kept as its own structure entry with no change (06 F4).
        */
       const advanceCount = Effect.fn("ModelService.advanceCount")(function* (name: string) {
         return yield* sql.withTransaction(Effect.gen(function* () {
@@ -647,7 +693,7 @@ export class ModelService extends Context.Service<ModelService>()(
           const applied = follow(current, event);
           if (applied._tag !== "Applied") return yield* refused("The canvas sequence changed unexpectedly.");
           yield* stage(name, applied.canvas);
-          yield* publishChange(event, current);
+          yield* commandChange(event, current);
           return seq;
         })).pipe(
           Effect.provideService(StateTransactionOperation, "model.advanceCount"),
@@ -678,6 +724,7 @@ export class ModelService extends Context.Service<ModelService>()(
         canvas,
         open,
         command,
+        fold,
         installCopy,
         advanceCount,
         listCanvases: records.listCanvases,

@@ -33,6 +33,9 @@ import { ArtifactBody } from "@shared/artifact";
 import { rulingRowOf } from "@shared/command-row";
 import type { InstallationId } from "@shared/installation-id";
 import type { ResourceCommand } from "@shared/resource-command";
+import { Changed, type Changed as CanvasChange } from "@shared/model";
+import { ModelService } from "../model/service";
+import { StructureCapture } from "../model/structure-capture";
 import { holdSqlCommitCallbacks } from "../state/sql-commit";
 import { RulingRecorder, type RulingRecordFailed } from "../work/ruling-recorder";
 import { RulingCapture, type RecordRulingInput } from "../work/repository";
@@ -54,10 +57,13 @@ export type LoggedRuling = {
   readonly ruledAt: number;
 };
 
-/** What a data entry carries. A structure change folds in F4; until then it only moves the index. */
+/** What a structure entry changed on its canvas: the nodes and wires written, and the ones removed (0.11/06 F4). */
+export type StructureChange = Pick<CanvasChange, "nodes" | "wires" | "removedNodes" | "removedWires">;
+
+/** What a data entry carries: a judged ruling, or a canvas change and the count it moved the canvas to. */
 export type LogData =
   | { readonly kind: "ruling"; readonly ruling: LoggedRuling }
-  | { readonly kind: "structure.changed"; readonly seq: number };
+  | { readonly kind: "structure.changed"; readonly seq: number; readonly change: StructureChange };
 
 const LoggedRulingSchema = Schema.Struct({
   input: Schema.Struct({
@@ -72,9 +78,15 @@ const LoggedRulingSchema = Schema.Struct({
   bodies: Schema.Array(Schema.Struct({ sha256: Schema.String, body: ArtifactBody })),
   ruledAt: Schema.Number,
 });
+const StructureChangeSchema = Schema.Struct({
+  nodes: Changed.fields.nodes,
+  wires: Changed.fields.wires,
+  removedNodes: Changed.fields.removedNodes,
+  removedWires: Changed.fields.removedWires,
+});
 const LogDataSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("ruling"), ruling: LoggedRulingSchema }),
-  Schema.Struct({ kind: Schema.Literal("structure.changed"), seq: Schema.Number }),
+  Schema.Struct({ kind: Schema.Literal("structure.changed"), seq: Schema.Number, change: StructureChangeSchema }),
 ]);
 const decodeLogData = Schema.decodeUnknownResult(Schema.fromJsonString(LogDataSchema));
 
@@ -113,6 +125,7 @@ type LogRow = {
   readonly command_json: string | null;
   readonly ruling_json: string | null;
   readonly structure_seq: number | null;
+  readonly change_json: string | null;
   readonly sole_installation_id: string | null;
 };
 
@@ -159,7 +172,8 @@ const payloadOf = (canvasName: string, row: LogRow, members: ReadonlyArray<Membe
       return { kind: "data", data: encodeLogData(data) };
     }
     case "structure.changed":
-      return { kind: "data", data: encodeLogData({ kind: "structure.changed", seq: row.structure_seq! }) };
+      // A row with no change is no entry this build can fold: the decode at apply says so.
+      return { kind: "data", data: encodeLogData({ kind: "structure.changed", seq: row.structure_seq!, change: JSON.parse(row.change_json ?? "null") }) };
   }
 };
 
@@ -175,6 +189,8 @@ const writeEntry = (sql: SqlClient.SqlClient, canvasName: string, entry: Entry) 
       } else {
         yield* sql`INSERT INTO canvas_log (canvas_name, log_index, term, kind, structure_seq)
           VALUES (${canvasName}, ${entry.index}, ${entry.term}, 'structure.changed', ${data.seq})`;
+        yield* sql`INSERT INTO canvas_log_structure (canvas_name, log_index, change_json)
+          VALUES (${canvasName}, ${entry.index}, ${JSON.stringify(data.change)})`;
       }
       return;
     }
@@ -221,14 +237,22 @@ const structureHeadOf = (sql: SqlClient.SqlClient, canvasName: string, applied: 
   });
 
 /**
- * One committed entry, folded as the ruler would have written it: the facts,
- * then the ruling row. Takes and returns the canvas's structure watermark:
- * past it a `structure.changed` entry folds only at exactly head plus one
- * (0.11/06 F3) — covered means a copy already holds it, and a gap is a
- * missed entry, refused loudly so the machine catches up by copy, never by
- * skipping ahead.
+ * One committed entry, folded as its writer wrote it: a ruling's facts, then
+ * its row; a structure change through the canvas model (0.11/06 F4). Takes
+ * and returns the canvas's structure watermark: past it a
+ * `structure.changed` entry folds only at exactly head plus one (F3) —
+ * covered means a copy already holds it, and a gap is a missed entry,
+ * refused loudly so the machine catches up by copy, never by skipping ahead.
  */
-const applyEntry = (sql: SqlClient.SqlClient, record: RecordRuling, canvasName: string, entry: Entry, head: number, sole: boolean) =>
+const applyEntry = (
+  sql: SqlClient.SqlClient,
+  record: RecordRuling,
+  model: Option.Option<ModelService["Service"]>,
+  canvasName: string,
+  entry: Entry,
+  head: number,
+  sole: boolean,
+) =>
   Effect.gen(function* () {
     const { payload } = entry;
     if (payload.kind === "noop") return head;
@@ -250,12 +274,14 @@ const applyEntry = (sql: SqlClient.SqlClient, record: RecordRuling, canvasName: 
           }),
         );
       }
-      // The fold of the change lands with F4; until then the entry moves the
-      // index and the canvas count with it: carrying the count in canvases.seq
-      // keeps the watermark whole when a fork rewrite takes the applied log
-      // rows away. A sole authority numbers its own history — an alone fork
-      // renumbers legitimately — so only followers enforce head plus one.
-      yield* sql`UPDATE canvases SET seq = ${data.seq} WHERE canvas_name = ${canvasName}`;
+      if (Option.isNone(model)) {
+        return yield* Effect.fail(new FleetDriverError({ message: `a structure entry of ${canvasName} needs the canvas model to fold`, cause: entry.index }));
+      }
+      // The change writes as its command wrote it and moves canvases.seq with
+      // it, which keeps the watermark whole when a fork rewrite takes the
+      // applied log rows away. A change judged at another count than this
+      // canvas holds is refused by the fold itself, sole authority or not.
+      yield* model.value.fold({ canvas: canvasName as CanvasChange["canvas"], seq: data.seq, ...data.change });
       return data.seq;
     }
     const { input, bodies, ruledAt } = data.ruling;
@@ -280,8 +306,10 @@ const readConsensus = (sql: SqlClient.SqlClient, canvasName: string) =>
 const readLog = (sql: SqlClient.SqlClient, canvasName: string) =>
   Effect.gen(function* () {
     const rows = yield* sql<LogRow>`
-      SELECT log_index, term, kind, writer, command_json, ruling_json, structure_seq, sole_installation_id
-      FROM canvas_log WHERE canvas_name = ${canvasName} ORDER BY log_index`;
+      SELECT l.log_index, l.term, l.kind, l.writer, l.command_json, l.ruling_json, l.structure_seq, s.change_json, l.sole_installation_id
+      FROM canvas_log l
+      LEFT JOIN canvas_log_structure s ON s.canvas_name = l.canvas_name AND s.log_index = l.log_index
+      WHERE l.canvas_name = ${canvasName} ORDER BY l.log_index`;
     const members = yield* sql<MemberRow>`
       SELECT log_index, side, installation_id FROM canvas_log_members
       WHERE canvas_name = ${canvasName} ORDER BY log_index, side, position`;
@@ -482,6 +510,8 @@ const openClaimed = (
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const recorder = yield* RulingRecorder;
+    // Every listed machine folds structure through its own model; a driver opened without one refuses a structure entry.
+    const model = yield* Effect.serviceOption(ModelService);
     const { canvasName, self } = options;
     const electionTicks = options.electionTicks ?? 10;
 
@@ -541,7 +571,7 @@ const openClaimed = (
           let last = applied;
           for (const entry of entries) {
             if (entry.index <= last) continue;
-            head = yield* applyEntry(sql, recorder.record, canvasName, entry, head, sole);
+            head = yield* applyEntry(sql, recorder.record, model, canvasName, entry, head, sole);
             last = entry.index;
           }
           if (through > applied) {
@@ -675,11 +705,16 @@ const openClaimed = (
             retryable: true,
           }));
         }
-        const captured: Array<RecordRulingInput> = [];
+        // Rulings and canvas changes in the order the batch made them: that is their order in the log.
+        const captured: Array<{ readonly kind: "ruling"; readonly input: RecordRulingInput } | { readonly kind: "structure"; readonly change: CanvasChange }> = [];
         const elsewhere = new Set<string>();
         const capture = (input: RecordRulingInput) => {
-          if (input.canvasName === canvasName) captured.push(input);
+          if (input.canvasName === canvasName) captured.push({ kind: "ruling", input });
           else elsewhere.add(input.canvasName);
+        };
+        const captureStructure = (change: CanvasChange) => {
+          if (change.canvas === canvasName) captured.push({ kind: "structure", change });
+          else elsewhere.add(change.canvas);
         };
         let proposed = false;
         let callbacks: ReadonlyArray<() => void> = [];
@@ -689,17 +724,31 @@ const openClaimed = (
               // Judge against committed state and the batch's own earlier commands, then roll the judgment back.
               const value = yield* sql.withTransaction(
                 Effect.flatMap(
-                  holdSqlCommitCallbacks(sql, batch.pipe(Effect.provideService(RulingCapture, capture), Effect.provideService(Judging, canvasName))),
+                  holdSqlCommitCallbacks(sql, batch.pipe(
+                    Effect.provideService(RulingCapture, capture),
+                    Effect.provideService(StructureCapture, captureStructure),
+                    Effect.provideService(Judging, canvasName),
+                  )),
                   ([judged, held]) =>
                     Effect.gen(function* () {
                       callbacks = held;
                       // The rows the savepoint holds, read before it rolls back, say which rulings stand: one a
                       // ruler recorded and then undid in a transaction of its own was captured, and must not be logged.
-                      const standing: Array<RecordRulingInput> = [];
-                      for (const input of captured) {
+                      // A change stands when the canvas still holds its count and no later change took that count:
+                      // one rolled back above the count is gone, and one rolled back and made again is the later.
+                      const [head] = yield* sql<{ seq: number }>`SELECT seq FROM canvases WHERE canvas_name = ${canvasName}`;
+                      const lastAt = new Map<number, number>();
+                      for (const [at, item] of captured.entries()) if (item.kind === "structure") lastAt.set(item.change.seq, at);
+                      const standing: typeof captured = [];
+                      for (const [at, item] of captured.entries()) {
+                        if (item.kind === "structure") {
+                          if (head !== undefined && item.change.seq <= head.seq && lastAt.get(item.change.seq) === at) standing.push(item);
+                          continue;
+                        }
+                        const { input } = item;
                         const [row] = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM resource_rulings
                           WHERE canvas_name = ${input.canvasName} AND writer = ${input.writer} AND op_id = ${input.command.opId}`;
-                        if (row!.n > 0) standing.push(input);
+                        if (row!.n > 0) standing.push(item);
                       }
                       captured.splice(0, captured.length, ...standing);
                       return yield* Effect.fail(new Judged(judged));
@@ -715,9 +764,16 @@ const openClaimed = (
               }
               const ruledAt = Date.now();
               const entries: Array<Entry> = [];
-              for (const input of captured) {
+              for (const item of captured) {
+                const data: LogData = item.kind === "ruling"
+                  ? { kind: "ruling", ruling: loggedRuling(item.input, ruledAt) }
+                  : {
+                    kind: "structure.changed",
+                    seq: item.change.seq,
+                    change: { nodes: item.change.nodes, wires: item.change.wires, removedNodes: item.change.removedNodes, removedWires: item.change.removedWires },
+                  };
                 const entry = yield* Effect.try({
-                  try: () => node.propose(encodeLogData({ kind: "ruling", ruling: loggedRuling(input, ruledAt) })),
+                  try: () => node.propose(encodeLogData(data)),
                   catch: (cause) => refusal(cause),
                 });
                 // From the first entry on, the core holds what the disk does not yet.
