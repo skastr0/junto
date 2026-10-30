@@ -26,7 +26,6 @@ vi.mock("electron", () => ({
     },
   },
 }));
-vi.mock("../src/main/core-process/entry?modulePath", () => ({ default: "/core-entry.js" }));
 
 const { startCoreProcess } = await import("../src/main/core-process/host");
 const { hostOps } = await import("../src/main/core-process/host-ops");

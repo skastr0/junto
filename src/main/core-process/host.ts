@@ -1,5 +1,5 @@
+import { join } from "node:path";
 import { utilityProcess, type UtilityProcess } from "electron";
-import coreEntryPath from "./entry?modulePath";
 import type { CoreBoot } from "./entry";
 import { portCore, type CoreMessage, type PortCoreClient } from "./port";
 
@@ -64,7 +64,7 @@ export const startCoreProcess = (boot: CoreBoot): PortCoreClient & { readonly st
 
   const start = (): void => {
     if (stopping) return;
-    const forked = utilityProcess.fork(coreEntryPath, [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
+    const forked = utilityProcess.fork(join(import.meta.dirname, "core-process.js"), [JSON.stringify(boot)], { serviceName: "Junto Core", stdio: "inherit" });
     child = forked;
     startedAt = Date.now();
     for (const message of held.splice(0)) forked.postMessage(message);

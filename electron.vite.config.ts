@@ -53,6 +53,17 @@ export default defineConfig(({ command, mode }) => {
       plugins: [clearBuildSourceStamp(process.cwd()), externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
       resolve: { alias },
       define: productDefines,
+      // The core process entry is built with main, not as a `?modulePath`
+      // sub-build: that one runs without main's plugins, so its `?nodeWorker`
+      // imports (the state workers) have no default and the build fails.
+      build: {
+        rollupOptions: {
+          input: {
+            index: resolve("src/main/index.ts"),
+            "core-process": resolve("src/main/core-process/entry.ts"),
+          },
+        },
+      },
     },
     preload: {
       // The sandboxed preload carries only src/preload, src/shared and
