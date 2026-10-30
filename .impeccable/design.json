@@ -583,8 +583,8 @@
         "section": "colors"
       },
       {
-        "name": "The Six Steps Rule",
-        "body": "New work uses exactly six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).",
+        "name": "The Type Steps Rule",
+        "body": "New work uses six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px, plus one reading-only step, `prose-xl` 16px, which only a reading surface (thread messages) may use. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).",
         "section": "typography"
       },
       {

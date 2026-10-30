@@ -245,7 +245,7 @@ A restrained, warm palette: tinted near-black neutrals toward hue 70 to 85, one 
 Tracking steps are `flat` 0, `soft` 0.04em, `label` 0.08em and `eyebrow` 0.14em; leading steps are `compact` 1.2, `dense` 1.35, `body` 1.45 and `open` 1.6. Weights in use are 400, 500, 600 and 700; 600 carries most names. The wordmark is uppercase JUNTO in the display font, weight 600, 0.14em, in `ink` (`docs/brand/README.md`).
 
 ### Named Rules
-**The Six Steps Rule.** New work uses exactly six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px, plus the one reading step, `prose-xl` 16px, which only a reading surface (thread messages) may use. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).
+**The Type Steps Rule.** New work uses six sizes: `label` 10px, `body` 11px, `body-lg` 12px, `title` 14px, `display` 18px, `hero` 24px, plus one reading-only step, `prose-xl` 16px, which only a reading surface (thread messages) may use. `micro` 8px and `caption` 9px are legacy and under review: never reach for them in new work. There is no 13px. A raw pixel size is a defect waiting for its nearest step (`scripts/design-token-codemod.ts` holds the mapping).
 
 **The Reading Code Step Rule.** Code inside reading prose takes the step below the prose, never a scaled em: prose 12 sets code at `body` 11, prose 14 at `body-lg` 12, prose `prose-xl` 16 at `title` 14 (0.86em of 16px is 13.76px, and there is no 13). One variable per surface, `--prose-code-size`, sits beside `--prose-size`.
 
