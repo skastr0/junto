@@ -3,8 +3,7 @@
  * own process, main has no core services, so what needs them runs here, once,
  * from entry.ts after startCore: the seed canvas, the mail and sink change
  * publishes, usage and the kernel snapshot, the connection-change notices, the
- * checkout watch, the onboarding nudge's interject and Claude's resume
- * recovery. Each publish rides the core push, which main relays.
+ * checkout watch and the onboarding nudge's interject. Each publish rides the core push, which main relays.
  */
 import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
@@ -21,12 +20,9 @@ import { coreRunner } from "../../core-runner";
 import { MachineCoreMail } from "../../core-runtime";
 import { ModelActorRefs } from "../../junto/model/actor-refs";
 import { SettingsService } from "../../junto/settings/service";
-import { seatStateRuntime } from "../../junto/term/agent-state";
 import { closingFence } from "../../junto/term/closing-fence";
-import { isLiveClaudeResumeSummaryChoice } from "../../junto/term/drive/claude-startup";
 import { injectionSupervisor } from "../../junto/term/injection-supervisor";
-import { terminalObserverPlane } from "../../junto/term/observer";
-import { makeOnboardNudgeInterject, watchSeatReadiness } from "../../junto/term/onboard-nudge-interject";
+import { makeOnboardNudgeInterject } from "../../junto/term/onboard-nudge-interject";
 import { termPlane } from "../../junto/term/plane";
 import { makeCheckoutWatchComposition } from "../../junto/work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "../../junto/work/checkout-watch-live";
@@ -95,12 +91,6 @@ coreOps({
         mailReady: mailReadyNow,
         writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
       });
-      // A seat nobody has mailed is otherwise first looked at mid-turn, where a
-      // first look never says ready.
-      watchSeatReadiness({
-        subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
-        mailReady: mailReadyNow,
-      });
       // The operator's nudge asks this core's plane for the seat, its running state and the interject.
       bindSeatIpc({
         seatOn: (target) => seatOnOfCore(target),
@@ -110,27 +100,6 @@ coreOps({
           return outcome === "written" ? { ok: true as const } : { ok: false as const, message: onboardNudgeRefusal(outcome) };
         },
         noteNudged: (bindingId) => injectionSupervisor.noteNudgeDelivered(bindingId),
-      });
-
-      // Claude's resume-summary selector: its highlighted first option is
-      // Claude's own recommended recovery, accepted at most once per PTY
-      // generation, through the drive so a bare CR never submits a stuck chip.
-      const acceptedClaudeRecoveryEpoch = new Map<string, string>();
-      termPlane.host.subscribeEvents((payload) => {
-        if (payload.type !== "session") return;
-        acceptedClaudeRecoveryEpoch.delete(payload.bindingId);
-      }, { replayCurrentSessions: true });
-      seatStateRuntime.subscribe((event) => {
-        if (event.state !== "attention" || suspended || seatStateRuntime.machine.getSlot(event.bindingId)?.harness !== "claude") return;
-        const live = termPlane.host.get(event.bindingId);
-        const epoch = live?.epoch;
-        const snap = terminalObserverPlane.snapshot(event.bindingId);
-        if (live?.status !== "running" || !epoch || !snap || acceptedClaudeRecoveryEpoch.get(event.bindingId) === epoch) return;
-        if (!isLiveClaudeResumeSummaryChoice(snap.lines)) return;
-        acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
-        void managedDrive.submitRecoveryCr(event.bindingId).then((ok) => {
-          if (!ok) acceptedClaudeRecoveryEpoch.delete(event.bindingId);
-        });
       });
 
       checkoutWatch = makeCheckoutWatchComposition({

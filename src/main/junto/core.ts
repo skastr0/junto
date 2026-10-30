@@ -24,6 +24,9 @@ import { bindTermIpcPlane } from "../core-process/ops/term-ipc";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
 import { wireSeatReports } from "./term/agent-state/seat-reports";
 import { seatStateRuntime } from "./term/agent-state/runtime";
+import { watchClaudeResumeRecovery } from "./term/drive/claude-resume-recovery";
+import { terminalObserverPlane } from "./term/observer";
+import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
 import { configureTerminalRouterLayeredRunner } from "./term/router";
 import { IPC_CHANNELS } from "@shared/ipc";
@@ -130,6 +133,7 @@ export const startCore = async (options: CoreOptions) => {
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
   let stopSeatReports: (() => void) | undefined;
+  let stopSeatWatches: (() => void) | undefined;
   let releaseRunner: (() => void) | undefined;
   // An on-demand operator socket not yet asked for is not a core that is down.
   const ownerReady = (): boolean => owner === undefined ? options.operator?.listen === "on-demand" : owner.ready();
@@ -151,6 +155,7 @@ export const startCore = async (options: CoreOptions) => {
     bindCoreSeatSessions(undefined);
     sessions?.stop();
     stopSeatReports?.();
+    stopSeatWatches?.();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
       // A socket still opening lands in `owner` first, so it closes with the rest.
@@ -317,6 +322,27 @@ export const startCore = async (options: CoreOptions) => {
       signalsOf: (canvasName, nodeId) =>
         runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
+    let seatsSuspended = false;
+    coreMail.seats.onSuspend(() => { seatsSuspended = true; });
+    const stopResumeRecovery = watchClaudeResumeRecovery({
+      suspended: () => seatsSuspended,
+      subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
+      subscribeSessions: (listener) => termPlane.host.subscribeEvents(listener, { replayCurrentSessions: true }),
+      harnessOf: (bindingId) => seatStateRuntime.machine.getSlot(bindingId)?.harness,
+      session: (bindingId) => termPlane.host.get(bindingId),
+      screen: (bindingId) => terminalObserverPlane.snapshot(bindingId),
+      submitRecoveryCr: (bindingId) => coreMail.seats.drive.submitRecoveryCr(bindingId),
+    });
+    // A seat nobody has mailed is otherwise first looked at mid-turn, where a
+    // first look never says ready.
+    const stopReadiness = watchSeatReadiness({
+      subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
+      mailReady: coreMail.seats.mailReadyNow,
+    });
+    stopSeatWatches = () => {
+      stopResumeRecovery();
+      stopReadiness();
+    };
     admitted = true;
     return { runtime, close, overseer, overseerLive, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
   } catch (cause) {
