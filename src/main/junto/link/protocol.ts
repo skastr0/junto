@@ -2,10 +2,11 @@ import { Schema } from "effect";
 import { EncodedFailure, OperationId } from "@shared/failure";
 import { InstallationId } from "@shared/installation-id";
 import { MachineBuild, MachineName } from "@shared/machine-control";
+import { LINK_CHANNELS } from "./types";
 
 export const LinkHelloSchema = Schema.Struct({ build: MachineBuild, installationId: InstallationId, machineName: MachineName });
 const Id = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)), Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/)));
-const Channel = Schema.Literals(["rows", "seats", "status", "inventory", "settings", "native-config", "content", "consensus", "authority", "files"]);
+const Channel = Schema.Literals(LINK_CHANNELS);
 /** The largest frame as read, its 1 MiB bound plus the newline: a window and the most one credit returns. */
 export const LINK_EVENT_WINDOW = 1024 * 1024 + 1;
 const CreditBytes = Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 1, maximum: LINK_EVENT_WINDOW })));

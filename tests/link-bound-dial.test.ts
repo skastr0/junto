@@ -22,6 +22,7 @@ import { SshTransport, type SshLease, type SshTransportShape } from "../src/main
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { InstallationId } from "../src/shared/installation-id";
 import { RemoteHost } from "../src/shared/remote-hosts";
+import { allChannels } from "./support/link-channels";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -60,7 +61,7 @@ it("dials a bound peer with its own key and known hosts only, and names the mach
   await runtime.runPromise(Effect.gen(function* () {
     yield* (yield* MachineRepository).pinPeer({ machineName: "vps", installationId: Schema.decodeUnknownSync(InstallationId)("vps-installation") });
     const link = yield* MachineLink;
-    yield* link.setChannels({});
+    yield* link.setChannels(allChannels());
     yield* link.listen(home);
   }));
   // The operator's route by alias stays recorded; the bound route replaces it for the link.
@@ -133,7 +134,7 @@ it("tells a channel the link is key-bound at the end that dialed a bound route, 
       await at.runtime.runPromise(Effect.gen(function* () {
         yield* (yield* MachineRepository).pinPeer({ machineName: peer.name, installationId: peer.id });
         const link = yield* MachineLink;
-        yield* link.setChannels({ consensus: { decodeRequest: none, decodeResponse: none, decodeEvent: none, opened: (context) => Effect.sync(() => { at.seen.push(context.keyBound); }) } });
+        yield* link.setChannels(allChannels({ consensus: { decodeRequest: none, decodeResponse: none, decodeEvent: none, opened: (context) => Effect.sync(() => { at.seen.push(context.keyBound); }) } }));
         yield* link.listen(at.home);
       }));
     }

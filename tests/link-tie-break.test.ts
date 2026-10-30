@@ -22,6 +22,7 @@ import { MachineCoreRows } from "../src/main/core-runtime";
 import { startCore } from "../src/main/junto/core";
 import { RemoteHost } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/installation-id";
+import { allChannels } from "./support/link-channels";
 
 const BUILD = "c".repeat(64);
 const cleanups: Array<() => Promise<void>> = [];
@@ -105,7 +106,7 @@ const pair = async () => {
     await at.runtime.runPromise(Effect.gen(function* () {
       yield* (yield* MachineRepository).pinPeer({ machineName: peer.name, installationId: Schema.decodeUnknownSync(InstallationId)(peer.installationId) });
       const link = yield* MachineLink;
-      yield* link.setChannels({ status: openLinks(at.open) });
+      yield* link.setChannels(allChannels({ status: openLinks(at.open) }));
       yield* link.listen(at.home);
     }));
   }

@@ -18,6 +18,7 @@ import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/
 import { SshTransport } from "../src/main/junto/ssh/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { InstallationId } from "../src/shared/installation-id";
+import { allChannels } from "./support/link-channels";
 
 const BUILD = "c".repeat(64);
 const MINI = Schema.decodeUnknownSync(InstallationId)("mini-installation");
@@ -78,7 +79,7 @@ it("refuses a key-bound peer that links without its key, and admits it through t
   await run(repository.pinPeer({ machineName: "mini", installationId: MINI }, { binding: "key" }));
   await run(Effect.gen(function* () {
     const link = yield* MachineLink;
-    yield* link.setChannels({});
+    yield* link.setChannels(allChannels());
     yield* link.listen(home);
   }));
 
@@ -99,7 +100,7 @@ it("admits the same dial without the key from a peer that is not key-bound", asy
   await run(repository.pinPeer({ machineName: "mini", installationId: MINI }));
   await run(Effect.gen(function* () {
     const link = yield* MachineLink;
-    yield* link.setChannels({});
+    yield* link.setChannels(allChannels());
     yield* link.listen(home);
   }));
   await dial(home);

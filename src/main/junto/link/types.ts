@@ -3,7 +3,16 @@ import { EncodedCauses, EncodedFailure, failureSentence, type EncodedCause } fro
 import type { InstallationId } from "@shared/installation-id";
 import { describeCause, causeChain } from "../failure-encode";
 
-export type LinkChannel = "rows" | "seats" | "status" | "inventory" | "settings" | "native-config" | "content" | "consensus" | "authority" | "files";
+/**
+ * The closed catalog of link channels. Every machine of one build has the same
+ * catalog (rule 8), so a name outside it is a real protocol fault and closes the
+ * link; and every channel in it is bound at every machine (`setChannels` refuses
+ * a missing one). A feature flag changes what a handler answers, never whether
+ * its channel exists.
+ */
+export const LINK_CHANNELS = ["rows", "seats", "status", "inventory", "settings", "native-config", "content", "consensus", "authority", "files"] as const;
+export type LinkChannel = (typeof LINK_CHANNELS)[number];
+export const isLinkChannel = (name: string): name is LinkChannel => (LINK_CHANNELS as ReadonlyArray<string>).includes(name);
 
 export interface LinkHello {
   readonly build: string;
@@ -85,7 +94,7 @@ export class LinkClosed extends Schema.TaggedError<LinkClosed>()("LinkClosed", {
 }) {}
 
 /** The link cannot take this call: not linked, not configured, or shutting down. */
-export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "send-from-event", "send-queue-full", "asleep"]);
+export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "send-from-event", "send-queue-full", "asleep", "missing-channel"]);
 export class LinkUnavailable extends Schema.TaggedError<LinkUnavailable>()("LinkUnavailable", {
   machine: Schema.optionalKey(Schema.String),
   reason: LinkUnavailableReason,
