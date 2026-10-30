@@ -15,4 +15,5 @@ import "./ipc-settings";
 import "./ipc-model";
 import "./ipc-work";
 import "./ipc-status";
+import "./ipc-content";
 import "./ipc-watch";import "./ipc-library";

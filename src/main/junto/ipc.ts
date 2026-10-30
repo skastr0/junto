@@ -1,12 +1,11 @@
 import { canvasReceiptBasis } from "./work/delivery-receipts";
-import { purgeOperatorPageShot } from "./work/page-shot-purge";
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Option, Result, Schema, Stream } from "effect";
 import type { MailReadPoint, OperatorThreadSent } from "@shared/mail-threads";
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../core-process/ops/main-index";
 import { subscribe as subscribeCore } from "../core-process/push";
-import { OperatorAttachments, OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
+import { OperatorAttachments, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { SignalReply } from "@shared/signal-reply";
 import { SignalSecretPutRequest } from "@shared/vault";
 import { putSignalSecret } from "./vault/secret-put";
@@ -14,7 +13,6 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { homedir } from "node:os";
 import { resolvedSpawnEnv } from "./adapters/exec";
 import { runTool } from "./region-env/tool";
-import { putOperatorContent } from "./content/operator-attachments";
 import {
   IPC_CHANNELS,
   type AgentSignalAnswerOptions,
@@ -105,12 +103,7 @@ import {
 import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
-import { PortraitOverrideRepository } from "./portraits/repository";
-import {
-  isPortraitSeatId,
-  normalizePortraitOverride,
-  type PortraitOverrideSetResult,
-} from "@shared/portrait-overrides";
+import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
 import {
   answerAgentSignal,
   dismissAgentSignal,
@@ -481,33 +474,20 @@ export const registerJuntoIpc = (): void => {
   });
   // A file the operator attaches to mail, one piece at a time, staged as the
   // operator; the mail that names it claims it.
-  privilegedIpc.handle(IPC_CHANNELS.operatorContentPut, async (_event, input: unknown): Promise<OperatorContentPutResult> => {
-    const decoded = Schema.decodeUnknownResult(OperatorContentPut, { onExcessProperty: "error" })(input);
-    if (Result.isFailure(decoded)) return { ok: false, message: "That piece of the file could not be read." };
-    return AppRuntime.runPromise(putOperatorContent(decoded.success.canvasName, decoded.success.stage));
-  });
+  privilegedIpc.handle(IPC_CHANNELS.operatorContentPut, (_event, input: unknown): Promise<OperatorContentPutResult> =>
+    core.call("ipc.content.operatorPut", { input }),
+  );
 
   // Portrait overrides: the operator's per-seat character customization. An
   // install-local preference like settings (no canvas authoring), so it runs
   // outside the main-authoring gate; every change is broadcast as it stands.
-  privilegedIpc.handle(IPC_CHANNELS.portraitOverridesList, () =>
-    AppRuntime.runPromise(Effect.flatMap(PortraitOverrideRepository, (repository) => repository.list())),
-  );
+  privilegedIpc.handle(IPC_CHANNELS.portraitOverridesList, () => core.call("ipc.content.portraitOverrides", {}));
   privilegedIpc.handle(
     IPC_CHANNELS.portraitOverrideSet,
     async (_event, seatId: unknown, override: unknown): Promise<PortraitOverrideSetResult> => {
-      if (!isPortraitSeatId(seatId)) return { ok: false, message: "portrait seat id is invalid" };
-      try {
-        const stored = await AppRuntime.runPromise(
-          Effect.flatMap(PortraitOverrideRepository, (repository) =>
-            repository.set(seatId, override === null ? null : normalizePortraitOverride(override)),
-          ),
-        );
-        broadcast(IPC_CHANNELS.portraitOverride, { seatId, override: stored });
-        return { ok: true, seatId, override: stored };
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : "portrait save failed" };
-      }
+      const saved = await core.call("ipc.content.portraitOverrideSet", { seatId, override });
+      if (saved.ok) broadcast(IPC_CHANNELS.portraitOverride, { seatId: saved.seatId, override: saved.override });
+      return saved;
     },
   );
 
@@ -643,7 +623,7 @@ export const registerJuntoIpc = (): void => {
       return Promise.resolve({ ok: false, message: "That comment has no screenshot." });
     }
     const comment = { canvasName: named.canvasName, nodeId: named.nodeId, messageId: named.messageId };
-    return runMainAuthoring("ipc.page-shot.purge", () => AppRuntime.runPromise(purgeOperatorPageShot(comment))).catch(() => ({
+    return runMainAuthoring("ipc.page-shot.purge", () => core.call("ipc.content.pageShotPurge", comment)).catch(() => ({
       ok: false as const,
       message: "The screenshot could not be removed.",
     }));
@@ -874,88 +854,8 @@ export const registerJuntoIpc = (): void => {
 
   // Image content put — canvas image nodes + note embeds. Content store only;
   // document carries ContentRef URLs, never Base64.
-  const IMAGE_PUT_MAX_BYTES = 16 * 1024 * 1024;
-  const IMAGE_PUT_TYPES = new Set([
-    "image/png",
-    "image/jpeg",
-    "image/jpg",
-    "image/gif",
-    "image/webp",
-    "image/bmp",
-  ]);
-  privilegedIpc.handle(
-    IPC_CHANNELS.contentPutImage,
-    (
-      _event,
-      input: {
-        readonly bytesBase64?: unknown;
-        readonly mediaType?: unknown;
-        readonly displayName?: unknown;
-      },
-    ) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          if (
-            input === null ||
-            typeof input !== "object" ||
-            typeof input.bytesBase64 !== "string" ||
-            typeof input.mediaType !== "string"
-          ) {
-            return { ok: false as const, error: "invalid image put input" };
-          }
-          const mediaType = input.mediaType.trim().toLowerCase().split(";")[0]?.trim() ?? "";
-          if (!IMAGE_PUT_TYPES.has(mediaType)) {
-            return {
-              ok: false as const,
-              error: `unsupported image media type: ${input.mediaType}`,
-            };
-          }
-          const normalized = input.bytesBase64.replace(/\s+/g, "");
-          if (
-            normalized.length === 0 ||
-            normalized.length % 4 === 1 ||
-            !/^[A-Za-z0-9+/]*={0,2}$/u.test(normalized)
-          ) {
-            return { ok: false as const, error: "invalid Base64 image payload" };
-          }
-          const bytes = Buffer.from(normalized, "base64");
-          const withoutPadding = normalized.replace(/=+$/u, "");
-          if (bytes.toString("base64").replace(/=+$/u, "") !== withoutPadding) {
-            return { ok: false as const, error: "non-canonical Base64 image payload" };
-          }
-          if (bytes.length === 0) {
-            return { ok: false as const, error: "empty image" };
-          }
-          if (bytes.length > IMAGE_PUT_MAX_BYTES) {
-            return {
-              ok: false as const,
-              error: `image too large (${bytes.length} bytes; max ${IMAGE_PUT_MAX_BYTES})`,
-            };
-          }
-          const displayName =
-            typeof input.displayName === "string" && input.displayName.trim().length > 0
-              ? input.displayName.trim().slice(0, 255)
-              : undefined;
-          const content = yield* ContentService;
-          const result = yield* content.put({
-            source: bytes,
-            mediaType,
-            ...(displayName !== undefined ? { displayName } : {}),
-          }).pipe(
-            Effect.mapError((error) =>
-              error instanceof Error ? error : new Error(String(error)),
-            ),
-          );
-          return { ok: true as const, ref: result.ref };
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.succeed({
-              ok: false as const,
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          ),
-        ),
-      ),
+  privilegedIpc.handle(IPC_CHANNELS.contentPutImage, (_event, input: unknown) =>
+    core.call("ipc.content.putImage", { input }),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.workItem, (_event, input: unknown) =>
