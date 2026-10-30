@@ -113,3 +113,62 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     await junto.close();
   }
 });
+
+/**
+ * The operator's typing and the core's own nudge, on one real seat and with
+ * nothing injected: a key typed in the window's terminal holds the seat where
+ * the cache cut asks (the core's clock, not a map in main), and the onboarding
+ * nudge the core owes a fresh seat is typed by the core's supervisor once the
+ * operator speaks to it.
+ */
+test("a real seat's typing holds it in the core, and the core types the onboarding nudge", async () => {
+  test.setTimeout(150_000);
+  const junto = await launchJunto({
+    windowContentSize: { width: 1400, height: 880 },
+    seedModels: { [CANVAS]: modelFixture([SEAT]) },
+    afterSeed: installCrewSeatHarness,
+  });
+  const seat = crewSeat(junto.sandbox, CANVAS, "scout");
+  try {
+    const { page } = junto;
+    await expect(page.locator('.react-flow__node[data-id="scout"]')).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(page);
+    await crewOccupySeat(page, CANVAS, SEAT, seat);
+    await seat.ready();
+
+    // The seat at rest as the core's own offboard clock reads it. Its
+    // still-since is the core's answer (seatOffboardStatus is answered by the
+    // core, not by a copy in main), and typing moves it to the key.
+    const stillSince = async (): Promise<number | undefined> => {
+      const [status] = await page.evaluate(
+        (canvas) => window.junto!.seatOffboardStatus!(canvas, ["scout"]),
+        CANVAS,
+      );
+      return status?.stillSince;
+    };
+    await expect.poll(async () => typeof (await stillSince()) === "number", { timeout: 30_000 }).toBe(true);
+    const before = await stillSince();
+    if (before === undefined) throw new Error("the core never read the seat at rest");
+
+    // The seat's terminal, in front, with the operator's keyboard in it.
+    await page.locator('.react-flow__node[data-id="scout"]').dblclick();
+    const front = page.locator(".workbench-pane:not(.workbench-pane--parked)");
+    await expect(front.locator("header").first()).toContainText("Scout", { timeout: 20_000 });
+    await front.locator(".xterm").first().click();
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.classList.contains("xterm-helper-textarea") === true))
+      .toBe(true);
+
+    // A key typed in the window reaches the core's holds and warms its clock:
+    // a main-side map (0.11.7) would move nothing here.
+    await page.keyboard.type("hello");
+    await expect.poll(stillSince, { timeout: 20_000 }).toBeGreaterThan(before);
+
+    // The operator's first message starts a turn the core's supervisor reads,
+    // and the nudge it owes this fresh seat is typed by the core itself.
+    await page.keyboard.press("Enter");
+    await expect.poll(() => seat.stdinLog(), { timeout: 30_000 }).toContain("junto onboard");
+  } finally {
+    await junto.close();
+  }
+});

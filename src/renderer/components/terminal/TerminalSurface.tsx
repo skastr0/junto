@@ -1593,13 +1593,16 @@ export function TerminalSurface({
     });
     // The operator's own keys and pastes hold the seat's session for a short
     // grace. Read off the DOM, not onData: onData also carries the terminal's
-    // replies to the seat's queries, which no one typed.
+    // replies to the seat's queries, which no one typed. Capture, on the
+    // terminal element's own handler: xterm stops every keydown and paste it
+    // handles, so a listener on the bubble phase never sees the operator's
+    // keys and the core is never told the seat was typed into.
     const keys = term.element;
     const typedInto = (): void => {
       if (leaseRef.current && !readOnly) reportOperatorTyped(bindingId);
     };
-    keys?.addEventListener("keydown", typedInto);
-    keys?.addEventListener("paste", typedInto);
+    keys?.addEventListener("keydown", typedInto, true);
+    keys?.addEventListener("paste", typedInto, true);
 
     const LEASE_ENDED: Readonly<Record<string, string>> = {
       replaced: "Another view has control of this seat. Reopen to take it back.",
@@ -2086,8 +2089,8 @@ export function TerminalSurface({
         }
       }
       offData.dispose();
-      keys?.removeEventListener("keydown", typedInto);
-      keys?.removeEventListener("paste", typedInto);
+      keys?.removeEventListener("keydown", typedInto, true);
+      keys?.removeEventListener("paste", typedInto, true);
       offLeaseEnded?.();
       offEvent();
       offSurface?.();
