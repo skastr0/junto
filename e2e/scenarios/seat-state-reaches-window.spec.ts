@@ -44,10 +44,11 @@ test("a running seat's state reaches the window and offboard is answered", async
 /**
  * The attention surfaces, read from one real running seat with nothing
  * injected: a working seat takes a hotbar digit, Cmd+Backquote steps to it, a
- * seat's own `junto escalate` shows on its card and in the command center, and
- * mail held on a busy seat is counted as waiting.
+ * seat's own `junto escalate` shows on its card and in the command center, an
+ * answer to that signal is typed into the seat, and mail held on a busy seat
+ * is counted as waiting.
  */
-test("a running seat's attention reaches the hotbar, the switcher, the card, the command center and the mail count", async () => {
+test("a running seat's attention reaches the hotbar, the switcher, the card, the command center, its signal answer and the mail count", async () => {
   test.setTimeout(180_000);
   const junto = await launchJunto({
     windowContentSize: { width: 1400, height: 880 },
@@ -98,6 +99,23 @@ test("a running seat's attention reaches the hotbar, the switcher, the card, the
     await page.keyboard.press("Meta+k");
     await expect(page.getByRole("option", { name: /Scout/ }).first()).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
+
+    // (3b) The operator answers that signal in the window, and the core types
+    // the answer into the seat: the signal is answered from the seat's own
+    // details, with no API call of ours.
+    const ANSWER = "Use the archive vault.";
+    await front.getByTestId("seat-details-button").click();
+    const details = page.getByTestId("seat-details-popover");
+    await expect(details).toBeVisible({ timeout: 15_000 });
+    await details.getByTestId("seat-signal-row").first().click();
+    const signal = page.getByTestId("seat-signal-popover");
+    await expect(signal).toBeVisible({ timeout: 15_000 });
+    await signal.locator("textarea").first().fill(ANSWER);
+    await signal.getByRole("button", { name: "Send reply" }).click();
+    // The dialog the seat showed is the answer's own; with it gone the held
+    // answer is typed into the seat.
+    await seat.control({ screen: { mode: "idle" } });
+    await expect.poll(() => seat.stdinLog(), { timeout: 45_000 }).toContain(ANSWER);
 
     // (4) Mail along the edge reaches the far seat: it is in that seat's box,
     // which the seat reads back through its own credential. The mail-waiting
