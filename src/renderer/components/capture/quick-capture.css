@@ -45,6 +45,13 @@
   opacity: 1;
 }
 
+/* One clear, ours: the native control would put a second X beside it. */
+.quick-capture__search input::-webkit-search-cancel-button,
+.quick-capture__search input::-webkit-search-decoration {
+  appearance: none;
+  display: none;
+}
+
 .quick-capture__search input {
   flex: 1;
   min-width: 0;
