@@ -14,6 +14,7 @@ import {
   type FilesChanged,
   type FilesError,
   type FilesNodeRef,
+  type FilesRefusal,
   type FilesResult,
   type FilesRoot,
   type FileStamp,
@@ -242,6 +243,35 @@ export const filesErrorLine = (error: FilesError): string => {
   }
 };
 
+/** The machine an `unreachable` refusal names, and when its link last answered. */
+export type FilesOffline = { readonly machine: string; readonly lastReachedAt: number | null };
+
+/** What an `unreachable` refusal says of its machine; nothing for any other refusal. */
+export const offlineOf = (refusal: FilesRefusal): FilesOffline | undefined =>
+  refusal.error === "unreachable" ? { machine: refusal.machine, lastReachedAt: refusal.lastReachedAt } : undefined;
+
+const MINUTE_MS = 60_000;
+
+/** How long ago, in words: "a minute ago", "5 minutes ago", "3 hours ago", "2 days ago". */
+const agoWords = (ms: number): string => {
+  const minutes = Math.floor(ms / MINUTE_MS);
+  if (minutes < 1) return "less than a minute ago";
+  if (minutes < 60) return minutes === 1 ? "a minute ago" : `${String(minutes)} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "an hour ago" : `${String(hours)} hours ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "a day ago" : `${String(days)} days ago`;
+};
+
+/**
+ * A Files node whose machine cannot be reached, in the operator's words: the
+ * machine by its label, and when it was last reached.
+ */
+export const offlineLine = (label: string, lastReachedAt: number | null, now: number): string =>
+  lastReachedAt === null
+    ? `${label} is offline. Junto has not reached it yet.`
+    : `${label} is offline, last reached ${agoWords(Math.max(0, now - lastReachedAt))}.`;
+
 /** Whether a change event names `path`: a write to it, or a reset of the whole tree. */
 export const changeTouches = (event: FilesChanged, node: NodeId, path: FilePath): boolean =>
   event.node === node && (event.kind === "reset" || (event.kind === "paths" && event.paths.includes(path)));
@@ -309,7 +339,17 @@ export const useDraftsVersion = (): number =>
 
 // --- the node's folder ------------------------------------------------------------
 
-export type Loaded<A> = { readonly state: "loading" } | { readonly state: "ready"; readonly value: A } | { readonly state: "refused"; readonly error: FilesError };
+export type Loaded<A> =
+  | { readonly state: "loading" }
+  | { readonly state: "ready"; readonly value: A }
+  /** `offline` is set when the refusal was `unreachable`: the node says its machine is offline and shows no tree. */
+  | { readonly state: "refused"; readonly error: FilesError; readonly offline?: FilesOffline };
+
+/** A refusal as a loaded state, with its machine when it was `unreachable`. */
+export const refusedOf = (refusal: FilesRefusal): Extract<Loaded<never>, { state: "refused" }> => {
+  const offline = offlineOf(refusal);
+  return offline === undefined ? { state: "refused", error: refusal.error } : { state: "refused", error: refusal.error, offline };
+};
 
 /** Serve the node to this window while the modal shows it: `open` on mount, `close` on unmount. */
 export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> => {
@@ -324,11 +364,11 @@ export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> =
     setRoot({ state: "loading" });
     const source = filesSource();
     void source.open({ canvas, node }).then((result) => {
-      if (live) setRoot(result.ok ? { state: "ready", value: result.value } : { state: "refused", error: result.error });
+      if (live) setRoot(result.ok ? { state: "ready", value: result.value } : refusedOf(result));
     });
     const stop = source.onChange((event) => {
       if (!live || event.node !== node) return;
-      if (event.kind === "closed") setRoot({ state: "refused", error: event.error });
+      if (event.kind === "closed") setRoot(refusedOf(event));
       // The folder went from disk: said at once, not at the next write. Drafts stay held.
       else if (event.kind === "missing") setRoot({ state: "refused", error: "root-missing" });
       else if (event.kind === "back") setBack((last) => last + 1);

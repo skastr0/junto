@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeOf } from "@shared/model";
 import { titleOf } from "@shared/model/title";
+import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { ROOT_PATH, type FilesCount, type FilesResult } from "@shared/files";
 import { useFeatureOn } from "../../lib/experimental-features";
 import { CARD_DROP_NOTICE_MS, cardDropNotice, countLine, type CardDropNotice } from "../../lib/files-card";
 import { hasFinderFiles } from "../../lib/files-drop";
-import { filesErrorLine, filesSource } from "../../lib/files-source";
-import { onThisMachine } from "../../lib/machines";
+import { filesErrorLine, filesSource, offlineLine, offlineOf } from "../../lib/files-source";
+import { machineLabel, onThisMachine, requestMachineCheck } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
@@ -29,6 +30,8 @@ const useFilesCount = (
   canvas: string,
   node: NodeOf<"files">,
   ask: boolean,
+  /** Changes when the node's machine is found reachable or not: the count is asked again. */
+  reach: boolean | undefined,
 ): { readonly count: FilesResult<FilesCount> | undefined; readonly recount: () => void } => {
   const [count, setCount] = useState<FilesResult<FilesCount> | undefined>();
   const recountRef = useRef<() => void>(() => undefined);
@@ -57,8 +60,20 @@ const useFilesCount = (
       live = false;
       stop();
     };
-  }, [ask, canvas, id, root]);
+  }, [ask, canvas, id, root, reach]);
   return { count, recount: () => recountRef.current() };
+};
+
+/** Now, again each minute while `on`, so "last reached 5 minutes ago" keeps true. */
+const useMinuteNow = (on: boolean): number => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [on]);
+  return now;
 };
 
 /**
@@ -77,8 +92,16 @@ export function FilesCard({
   const name = titleOf(node);
   const here = onThisMachine(node.host);
   const takesDrops = useFeatureOn("files") && here;
-  const counted = useFilesCount(use$(state$.canvasName) || "", node, here);
-  const count = countLine(counted.count);
+  // Files over SSH: another machine's node is counted through its link, and says when that machine is offline.
+  const remote = FILES_REMOTE_ENABLED && !here;
+  const reach = use$(() => (remote && node.host !== undefined ? state$.machineFacts[node.host]?.reachable.get() : undefined));
+  useEffect(() => {
+    if (remote && node.host !== undefined) requestMachineCheck(node.host);
+  }, [remote, node.host]);
+  const counted = useFilesCount(use$(state$.canvasName) || "", node, here || remote, reach);
+  const offline = counted.count === undefined || counted.count.ok ? undefined : offlineOf(counted.count);
+  const now = useMinuteNow(offline !== undefined);
+  const count = offline === undefined ? countLine(counted.count) : offlineLine(machineLabel(offline.machine), offline.lastReachedAt, now);
   const [over, setOver] = useState(false);
   const [notice, setNotice] = useState<CardDropNotice | undefined>();
   const depth = useRef(0);
@@ -141,7 +164,7 @@ export function FilesCard({
       <KindCard
         kind="files"
         name={name}
-        status={notice?.failed ? "off" : undefined}
+        status={notice?.failed || offline !== undefined ? "off" : undefined}
         nameEditor={
           renaming && onRenameDone ? (
             <FirstLineRenameInput

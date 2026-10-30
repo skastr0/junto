@@ -2,6 +2,8 @@ import { lazy, Suspense, useState } from "react";
 import { FileQuestion, FolderOpen, SquareArrowOutUpRight } from "lucide-react";
 import { fileUrl } from "@shared/file-url";
 import { filesErrorLine, filesSource } from "../../lib/files-source";
+import { onThisMachine } from "../../lib/machines";
+import { useNode } from "../../lib/use-model";
 import { Button, PaneEmpty } from "../ui";
 import type { FileViewProps } from "./box-tools";
 import { fileNameOf, fileViewKindOf } from "./file-view-model";
@@ -17,7 +19,8 @@ const RUNS_LINE = "Junto does not open programs or scripts. Reveal it in Finder 
 
 /**
  * A file that is not text, in the main pane (F6): a PDF or an image previews
- * here; anything else offers its default app and Finder. `version` is the
+ * here; anything else offers its default app and Finder, on this machine's
+ * node only: they act on the screen showing them. `version` is the
  * file's stamp, so a write elsewhere reloads the bytes.
  */
 export function FileView({
@@ -43,6 +46,8 @@ export function FileView({
 
 function OtherFile({ canvasName, nodeId, path }: Omit<FileViewProps, "url">) {
   const [said, setSaid] = useState<string | null>(null);
+  const node = useNode(canvasName, nodeId);
+  const here = node?.kind !== "files" || onThisMachine(node.host);
   const run = (call: "openInDefaultApp" | "revealInFinder"): void => {
     setSaid(null);
     const files = filesSource();
@@ -51,24 +56,26 @@ function OtherFile({ canvasName, nodeId, path }: Omit<FileViewProps, "url">) {
       () => setSaid(filesErrorLine("failed")),
     );
   };
+  const elsewhere = (
+    <div className="file-view__other-actions">
+      <Button size="sm" variant="primary" onClick={() => run("openInDefaultApp")}>
+        <SquareArrowOutUpRight size={13} aria-hidden />
+        Open in default app
+      </Button>
+      <Button size="sm" variant="chrome" onClick={() => run("revealInFinder")}>
+        <FolderOpen size={13} aria-hidden />
+        Reveal in Finder
+      </Button>
+    </div>
+  );
   return (
     <div className="file-view file-view--other" data-testid="file-view-other">
+      {/* Its default app and Finder are this screen's: another machine's file offers neither. */}
       <PaneEmpty
         glyph={<FileQuestion size={20} />}
         title={fileNameOf(path)}
-        hint="Junto previews PDFs and images. Open this one in its own app."
-        action={
-          <div className="file-view__other-actions">
-            <Button size="sm" variant="primary" onClick={() => run("openInDefaultApp")}>
-              <SquareArrowOutUpRight size={13} aria-hidden />
-              Open in default app
-            </Button>
-            <Button size="sm" variant="chrome" onClick={() => run("revealInFinder")}>
-              <FolderOpen size={13} aria-hidden />
-              Reveal in Finder
-            </Button>
-          </div>
-        }
+        hint={here ? "Junto previews PDFs and images. Open this one in its own app." : "Junto previews PDFs and images. Open this one on its own machine."}
+        {...(here ? { action: elsewhere } : {})}
       />
       {said === null ? null : (
         <p className="file-view__said" data-tone="refused" role="alert">
