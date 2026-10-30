@@ -57,6 +57,9 @@ export const parentCorePort = (parent: ParentPort): CorePort => ({
 
 const main = async (parent: ParentPort): Promise<void> => {
   const boot = JSON.parse(process.argv.at(-1) ?? "{}") as CoreBoot;
+  // The core's own pid, first in its log: whoever runs it (main, a test, the
+  // operator reading the log) learns which process is the core from here.
+  console.info(`[core] pid ${String(process.pid)}`);
   // The port opens before the core boots: what boots may already ask main and
   // publish, and a call from main waits until the core can run it.
   let started!: (runner: CoreRunner) => void;

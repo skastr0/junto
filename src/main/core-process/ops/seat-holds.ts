@@ -29,6 +29,9 @@ coreOps({
   "seats.holds.surfaces": ({ windowId, bindingIds }) =>
     Effect.sync(() => {
       liveOperatorHolds.surfaces(windowId, bindingIds);
+      // The window's report, in the core's own log: a core that starts again is
+      // sent it again (junto/ipc.ts), and the log is where that shows.
+      console.info(`[seats] window ${String(windowId)} shows ${bindingIds.length === 0 ? "nothing" : bindingIds.join(" ")}`);
     }),
   "seats.holds.typed": ({ windowId, bindingId }) =>
     Effect.sync(() => {
