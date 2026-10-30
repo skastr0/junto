@@ -22,10 +22,14 @@ const testFeatureEnvironment: NodeJS.ProcessEnv = {
 };
 
 /**
- * `?nodeWorker` is electron-vite's worker entry suffix, which the main build
- * turns into a worker factory. Vitest has no such loader, so the import would
- * run the worker's own module here (and `files/index-worker.ts` refuses to run
- * off a worker thread). A test that reaches one gets a factory that says so.
+ * `?nodeWorker` is electron-vite's worker entry suffix: the build turns it into
+ * a worker factory, and every runtime with no worker entry gets `undefined`
+ * instead (the machine core bundle does the same). Units tests get that, for
+ * every such import, and each host already handles it: the state engine skips
+ * its maintenance worker (maintenance.ts:40) and backs up on the calling
+ * thread (backup-host.ts), the Files index takes no worker
+ * (index-worker-host.ts), and a mail read that cannot go off main reads on
+ * main (work/service.ts, offMain).
  */
 const nodeWorkerStub = {
   name: "junto-node-worker-stub",
@@ -34,9 +38,7 @@ const nodeWorkerStub = {
     return id.endsWith("?nodeWorker") ? "\0junto-node-worker-stub" : undefined;
   },
   load(id: string): string | undefined {
-    return id === "\0junto-node-worker-stub"
-      ? "export default () => { throw new Error(\"a worker thread is not started in unit tests\"); };"
-      : undefined;
+    return id === "\0junto-node-worker-stub" ? "export default undefined;" : undefined;
   },
 };
 
