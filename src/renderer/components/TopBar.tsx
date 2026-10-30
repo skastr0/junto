@@ -317,7 +317,7 @@ export function TopBar({
             style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
             onPointerEnter={prefetchMachinesWindow}
             onFocus={prefetchMachinesWindow}
-            onClick={openMachines}>
+            onClick={() => openMachines()}>
             <Radar size={15} />
           </button>
         ) : null}
