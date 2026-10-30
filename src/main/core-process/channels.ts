@@ -5,6 +5,7 @@
  * holds no operation body, so main links no core module by naming a channel.
  */
 import type { MachineCommandProgress } from "@shared/machine-progress";
+import type { FilesChanged } from "@shared/files";
 import type { Canvas } from "@shared/model";
 
 /** Where the settings go on every change, provider secrets masked, once `settings.watch` started it. */
@@ -38,6 +39,11 @@ export type ResourceThreadChangedPush = ResourceChangedPush & { readonly kind: s
 
 /** A wire's traffic: one typed message, or a held line. Main relays it. */
 export const WIRE_TRAFFIC = "wire.traffic";
+
+/** A change to a node a window has open: the webContents id it goes to, and what changed. */
+export const FILES_CHANGED = "files.changed";
+
+export type FilesChangedPush = { readonly subscriber: number; readonly event: FilesChanged };
 
 /** A change under a node opened on another machine. */
 export const FILES_REMOTE_CHANGED = "files.remoteChanged";
