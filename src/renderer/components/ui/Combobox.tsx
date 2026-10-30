@@ -255,8 +255,8 @@ export function Combobox<T>({
                     aria-selected={selected}
                     className={[
                       "cursor-pointer rounded-sm",
-                      active || selected ? "bg-raise text-ink" : "text-ink-2 hover:bg-raise/60",
-                      active ? "shadow-[inset_2px_0_0_var(--color-cyan)]" : "",
+                      // The keyboard's row is a tint, not an edge; the chosen row keeps the raise.
+                      active ? "bg-overlay-2 text-ink" : selected ? "bg-raise text-ink" : "text-ink-2 hover:bg-raise/60",
                     ]
                       .filter(Boolean)
                       .join(" ")}

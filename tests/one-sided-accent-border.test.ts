@@ -198,7 +198,6 @@ const KEPT: ReadonlyArray<Kept> = [
  * so a fix can land before the entry goes.
  */
 const PENDING: ReadonlyArray<{ readonly file: string; readonly selector: RegExp; readonly owner: string }> = [
-  { file: "src/renderer/components/ui/Combobox.tsx", selector: /^\(tsx\)$/, owner: "product-typography" },
   { file: "src/renderer/components/threads/seat-threads.css", selector: /seat-threads__row/, owner: "product-feed" },
   { file: "src/renderer/components/files/file-comments.css", selector: /file-comment-row/, owner: "product-feed" },
   { file: "src/renderer/components/tasks/tasks.css", selector: /^\.task-(?:error|notice|thread__failure)$/, owner: "product-feed" },
