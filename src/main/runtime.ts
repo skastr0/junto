@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { withMachineLogger } from "./junto/observability";
+import { withMachineLogger } from "./junto/observability/logger";
 import productMetadata from "../../package.json";
 import {
   deferredUpdateHostHooks,

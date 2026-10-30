@@ -47,14 +47,14 @@ import { subscribe as subscribeCore } from "./core-process/push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, COMPANION_DEVICES, SETTINGS_CHANGED, WORK_PREAMBLE, type CanvasChangedPush } from "./core-process/channels";
 import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/main-side/browser";
 import { raisedHands } from "./junto/signals/raised-hands";
+import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import {
-  armMainThreadBudget,
   installMachineLog,
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
-  startSqlTimingLog,
-} from "./junto/observability";
+} from "./junto/observability/logger";
+import { startSqlTimingLog } from "./junto/observability/sql-timing-log";
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { resolveControlHome } from "./junto/control-home";
