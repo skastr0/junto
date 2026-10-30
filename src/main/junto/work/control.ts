@@ -1631,21 +1631,25 @@ const dispatchOp = (
           details: { path: filter.failure.path, expected: filter.failure.expected, retryable: false },
         });
       }
+      // The inbox and the sent list are two streams, so each pages by its own cursor.
       const before = decoded.success.before?.trim();
-      if (before !== undefined && !isMailMessageId(before)) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: `before must be ${MAIL_MESSAGE_ID_SHAPE}`,
-          details: { path: "args.before", expected: "ULID", retryable: false },
-        });
+      const sentBefore = decoded.success.sentBefore?.trim();
+      for (const [cursor, name] of [[before, "before"], [sentBefore, "sentBefore"]] as const) {
+        if (cursor !== undefined && !isMailMessageId(cursor)) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: `${name} must be ${MAIL_MESSAGE_ID_SHAPE}`,
+            details: { path: `args.${name}`, expected: "ULID", retryable: false },
+          });
+        }
       }
       const matches = mailListMatches(filter.success);
       const filtered = <M extends Message>(items: ReadonlyArray<M>): M[] => items.filter(matches);
       // One page, newest first: only the rows listed are ever marked read.
-      const pageOf = <M extends Message>(items: ReadonlyArray<M>) =>
+      const pageOf = <M extends Message>(items: ReadonlyArray<M>, cursor: string | undefined = before) =>
         pageNewestFirst(sortMessagesNewestFirst(filtered(items)) as M[], {
           limit: decoded.success.limit ?? MSG_LIST_LIMIT_DEFAULT,
-          ...(before === undefined ? {} : { before }),
+          ...(cursor === undefined ? {} : { before: cursor }),
         });
       const threadId = filter.success.threadId;
       const threadField = threadId === undefined ? {} : { threadId };
@@ -1677,7 +1681,7 @@ const dispatchOp = (
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
         // Listing marks read, so the filters and the page apply first; a peek marks nothing.
         const page = pageOf(yield* mailboxOf(caller.nodeId));
-        const sentPage = pageOf(yield* sentMailOf(reader.success));
+        const sentPage = pageOf(yield* sentMailOf(reader.success), sentBefore);
         const overlaid: Message[] = [];
         for (const item of page.items) {
           if (item.role !== "user" || decoded.success.peek === true) {

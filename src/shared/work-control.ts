@@ -416,12 +416,14 @@ export const MsgListArgs = Schema.Struct({
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MSG_LIST_LIMIT_MAX }))),
   /** Only mail older than this message id: the next page after the last one listed. */
   before: Schema.optionalKey(Schema.String),
+  /** Own inbox only: sent mail older than this message id, the sent list's own next page. */
+  sentBefore: Schema.optionalKey(Schema.String),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
 
 /** What `msg list` takes, said in a refusal instead of the input that failed. */
 export const MSG_LIST_ARGS_SHAPE =
-  "msg list takes target, taskId, threadId, from, since, text and before as strings, unread and peek as true or false, and limit as a whole number from 1 to 200";
+  "msg list takes target, taskId, threadId, from, since, text, before and sentBefore as strings, unread and peek as true or false, and limit as a whole number from 1 to 200";
 
 export const MsgSendArgs = Schema.Struct({
   target: Schema.String,

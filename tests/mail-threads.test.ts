@@ -331,6 +331,7 @@ describe("msg list filters", () => {
       [{ unread: SECRET }, "args"],
       [{ peek: SECRET }, "args"],
       [{ before: SECRET }, "args.before"],
+      [{ sentBefore: SECRET }, "args.sentBefore"],
       [{ limit: 0 }, "args"],
       [{ limit: 201 }, "args"],
     ] as const) {
@@ -360,6 +361,22 @@ describe("msg list filters", () => {
     const rest = await call("agent", "msg.list");
     expect(rest.data).toMatchObject({ more: false, remaining: 0 });
     expect(rest.data.items).toHaveLength(5);
+  });
+
+  it("pages sent mail by its own cursor, so neither list skips or repeats the other", async () => {
+    const inbox: string[] = [];
+    for (const text of ["i1", "i2", "i3"]) inbox.push((await call("peer", "msg.send", { target: "agent", text })).data.messageId);
+    const sent: string[] = [];
+    for (const text of ["s4", "s5", "s6"]) sent.push((await call("agent", "msg.send", { target: "peer", text })).data.messageId);
+    const first = await call("agent", "msg.list", { limit: 2, peek: true });
+    const sentIds = (listed: any): string[] => listed.data.sent.map((item: any) => item.messageId);
+    expect(sentIds(first)).toEqual([sent[2], sent[1]]);
+    expect(first.data).toMatchObject({ sentMore: true, sentRemaining: 1 });
+
+    const next = await call("agent", "msg.list", { limit: 2, before: inbox[1], sentBefore: sent[1], peek: true });
+    expect(next.data.items.map((item: any) => item.messageId)).toEqual([inbox[0]]);
+    expect(sentIds(next)).toEqual([sent[0]]);
+    expect(next.data).toMatchObject({ more: false, sentMore: false });
   });
 });
 
