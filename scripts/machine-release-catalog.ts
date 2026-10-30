@@ -19,7 +19,7 @@ export const extractMachineReleaseCatalog = (main: Uint8Array): MachineReleaseCa
 export const readPackagedMachineReleaseCatalog = (appPath: string): MachineReleaseCatalog => {
   const archive = path.join(appPath, "Contents/Resources/app.asar");
   // The pin sits in whichever compiled main file holds the release code: the entry or one of its chunks.
-  const compiled = listPackage(archive, {})
+  const compiled = listPackage(archive, { isPack: false })
     .map(file => file.replaceAll("\\", "/").replace(/^\//u, ""))
     .filter(file => /^out\/main\/.+\.js$/u.test(file));
   const main = Buffer.concat(compiled.flatMap(file => [extractFile(archive, file), Buffer.from("\n")]));
