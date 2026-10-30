@@ -12,7 +12,7 @@
  */
 import type { IpcMain } from "electron";
 import { Effect, Schema } from "effect";
-import type { ArtifactMoveRunAnswer, ArtifactMoveRunInput } from "@shared/artifact-move";
+import type { ArtifactMoveRun, ArtifactMoveRunAnswer, ArtifactMoveRunInput } from "@shared/artifact-move";
 import { productResourceKindEnabled } from "@shared/features";
 import {
   ArtifactApplyInput,
@@ -56,6 +56,7 @@ import {
   type ResourceIpcPorts,
 } from "../../junto/work/resource-ipc";
 import { WorkService } from "../../junto/work/service";
+import { coreRunner } from "../../core-runner";
 import type { CoreClient } from "../client";
 import { coreOps, type CoreOp } from "../ops";
 import { publish } from "../push";
@@ -275,3 +276,11 @@ export const registerResourceIpcCore = (
   void broadcast;
   return () => undefined;
 };
+
+/**
+ * The operator's artifact move, run here, where the store is. The overseer's
+ * `artifact.move` and the window's "Move to..." reach the same `moveArtifacts`;
+ * the window crosses the port, the overseer is already in this process.
+ */
+export const coreArtifactMove: ArtifactMoveRun = (input, by) =>
+  coreRunner.runPromise(withPorts((ports) => moveArtifacts(ports, input, by)));

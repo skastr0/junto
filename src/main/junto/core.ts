@@ -29,6 +29,7 @@ import { wireSeatReports } from "./term/agent-state/seat-reports";
 import { seatStateRuntime } from "./term/agent-state/runtime";
 import { watchClaudeResumeRecovery } from "./term/drive/claude-resume-recovery";
 import { terminalObserverPlane } from "./term/observer";
+import { onSeatViewQuestions } from "./term/seat-views";
 import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
 import { configureTerminalRouterLayeredRunner } from "./term/router";
@@ -351,9 +352,14 @@ export const startCore = async (options: CoreOptions) => {
       subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
       mailReady: coreMail.seats.mailReadyNow,
     });
+    // A seat on a linked machine asked the cache question on a view here, or
+    // its question was settled: the window's list reads again, as it does when
+    // one of this machine's own asks (seat-views.ts `questionsChanged`).
+    const stopSeatViewQuestionPushes = onSeatViewQuestions(() => publish(SEAT_CACHE_DUE_CHANGED, null));
     stopSeatWatches = () => {
       stopResumeRecovery();
       stopReadiness();
+      stopSeatViewQuestionPushes();
     };
     admitted = true;
     return { runtime, close, overseer, overseerLive, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };

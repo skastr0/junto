@@ -7,8 +7,12 @@
  */
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import type { Canvas } from "@shared/model";
+import type { LinkedFromBody } from "@shared/artifact-links";
+import { ArtifactLinksInput } from "@shared/artifact-links-ipc";
+import { asNodeId, type Canvas } from "@shared/model";
+import type { ItemId } from "@shared/work-ids";
 import type { Message } from "@shared/work-model";
+import { linkedFromBodies } from "../../junto/work/body-links";
 import { WorkAttentionQuery, WorkItemQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import type { MentionAfter, MentionRow } from "../../junto/work/mention-backlinks";
@@ -42,6 +46,8 @@ declare module "../ops" {
       { readonly canvas: string; readonly nodeId: string; readonly limit?: number },
       unknown
     >;
+    /** The artifacts whose body links one artifact (`work/body-links.ts`), read where the store is. */
+    "ipc.work.artifactLinks": CoreOp<{ readonly input: unknown }, ReadonlyArray<LinkedFromBody>>;
   }
 }
 
@@ -81,4 +87,15 @@ coreOps({
     }),
   "ipc.work.seatRecentOps": ({ canvas, nodeId, limit }) =>
     Effect.flatMap(WorkService, (work) => work.workSeatRecentOps(canvas, nodeId, limit)),
+  "ipc.work.artifactLinks": ({ input }) =>
+    Effect.gen(function* () {
+      const decoded = yield* decode(ArtifactLinksInput, input);
+      const work = yield* WorkService;
+      const read = yield* work.readTopology(decoded.canvasName);
+      const sql = yield* SqlClient.SqlClient;
+      return yield* linkedFromBodies(sql, read.canvas, decoded.canvasName, {
+        nodeId: asNodeId(decoded.nodeId),
+        artifactId: decoded.artifactId as ItemId,
+      });
+    }),
 });

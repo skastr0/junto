@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
+import type { NotifyReport } from "@shared/desktop-notifications";
 import { companionService, type CompanionClipboard } from "../../junto/companion/service";
+import { noteDesktopReport } from "../../junto/companion/desktop-report";
 import { companionSettingsOn, type CompanionSettings } from "../../junto/companion/settings";
 import type { CoreClient } from "../client";
 import { host, hostOps, type HostOp } from "../host-ops";
@@ -23,6 +25,8 @@ declare module "../ops" {
     "companion.devices": CoreOp<Record<string, never>, ReadonlyArray<CompanionDeviceRecord>>;
     "companion.remove": CoreOp<Device, { readonly ok: boolean; readonly message?: string }>;
     "companion.restore": CoreOp<{ readonly target: string }, CompanionKeyRestore>;
+    /** What the desktop last told its window: the phone companion reads it here, beside it. */
+    "companion.desktopReport": CoreOp<{ readonly report: NotifyReport }, void>;
   }
 }
 
@@ -64,6 +68,9 @@ coreOps({
   "companion.devices": () => Effect.promise(() => settings.devices()),
   "companion.remove": ({ deviceId }) => Effect.promise(() => settings.remove(deviceId)),
   "companion.restore": ({ target }) => Effect.promise(() => settings.restore(target)),
+  // The desktop's report is written here, where the companion reads it
+  // (`desktop-report.ts`): main sends what its window reported.
+  "companion.desktopReport": ({ report }) => Effect.sync(() => noteDesktopReport(report)),
 });
 
 /** Settings as main reaches the companion in the core process. */

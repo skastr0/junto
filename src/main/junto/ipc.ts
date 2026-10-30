@@ -1,7 +1,6 @@
-import { canvasReceiptBasis } from "./work/delivery-receipts";
 import type { PageShotPurged, PageShotPurgeRequest } from "@shared/page-shot";
-import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
-import { Effect, Option, Result, Schema, Stream } from "effect";
+import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
+import { Effect, Result, Schema } from "effect";
 import type { MailReadPoint, OperatorThreadSent } from "@shared/mail-threads";
 import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../core-process/ops/main-index";
 import { subscribe as subscribeCore } from "../core-process/push";
@@ -15,17 +14,14 @@ import {
   type FactoryPauseSetResult,
   type WorkOpResult,
 } from "@shared/ipc";
-import type { Canvas } from "@shared/model";
-import { AppRuntime } from "../runtime";
-import { MachineCoreMail } from "../core-runtime";
+import { ARTIFACT_LINKS_IPC_CHANNELS } from "@shared/artifact-links-ipc-channels";
+import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
-import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { askOnEveryCore } from "../core-process/every-core";
 import { core } from "../core-process/main-client";
 import { subscribe as onCorePush } from "../core-process/push";
-import { asNodeId } from "@shared/model";
 
 import {
   ARTIFACTS_ENABLED,
@@ -35,7 +31,6 @@ import {
   TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
 import type { AuthorityWindowData } from "@shared/authority";
 import { registerSettingsIpc } from "./settings/ipc";
@@ -46,21 +41,13 @@ import { registerReferencesIpc } from "./references/ipc";
 import { registerAutomationIpc } from "./automation/ipc";
 import { registerArtifactLinksIpc } from "./work/artifact-links-ipc";
 import { registerMentionIpc } from "./work/mention-ipc";
-import { SqlClient } from "effect/unstable/sql";
-import { readMentions } from "./work/mention-backlinks";
-import { SettingsService } from "./settings/service";
+import { WIRE_TRAFFIC } from "../core-process/ops/ipc-wire-traffic";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
-import { UsageService } from "./usage/usage-service";
-import { WorkService } from "./work/service";
-import { ContentService } from "./content/service";
 import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
-import { appendSeatPrompt, type SeatPromptInput } from "./work/seat-prompt";
-import { AgentSignalRepository } from "./signals/repository";
+import type { SeatPromptInput } from "./work/seat-prompt";
 import { readSignalAttachmentPreview } from "./signals/attachment-preview";
-import { onAgentSignalChanged } from "./signals/changes";
-import { wireSeatReports } from "./term/agent-state/seat-reports";
 import {
   locatePreviewForReveal,
   readPreview,
@@ -78,10 +65,7 @@ import {
 } from "@shared/preview";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import type { SeatOffboardCloser } from "./seat-sessions/offboard-close";
-import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
-import { closingFence } from "./term/closing-fence";
-import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
-import { onboardNudgeRefusal } from "@shared/seat-onboarding-status";
+import type { SeatSessions } from "./seat-sessions/start-seat-sessions";
 import {
   composeOffboardAsk,
   OFFBOARD_MODES,
@@ -92,12 +76,6 @@ import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-g
 import { SEAT_CACHE_DUE_CHANGED } from "../core-process/ops/ipc-seats";
 import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import type { PortraitOverrideSetResult } from "@shared/portrait-overrides";
-import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
-import { WorkRepository } from "./work/repository";
-import { TaskRepository } from "./work/task-repository";
-import { CrewRepository } from "./work/crew-repository";
-import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
-import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
 import { serveSignalTools } from "../core-process/ops/ipc-signals";
@@ -108,28 +86,14 @@ import {
   type ResourceChangedPush,
   type ResourceThreadChangedPush,
 } from "../core-process/ops/ipc-resources";
-import { WIRE_TRAFFIC } from "../core-process/ops/ipc-wire-traffic";
-import { installArtifactMove } from "./work/artifact-move";
 import { resolvedSpawnEnv } from "./adapters/exec";
 import { runTool } from "./region-env/tool";
-import { harnessRecordFor } from "../../shared/harness-records";
-import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
-import { rulePackFor } from "./term/agent-state";
-import { isHarnessId } from "@shared/managed-terminal-templates";
 import { registerOperatorHoldsIpc } from "./term/operator-holds";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
-import {
-  handleSeatCacheDueAnswer,
-  seatCacheDueForWindow,
-} from "./seat-sessions/operator-offboard-ipc";
-import { onSeatViewQuestions } from "./term/seat-views";
 import { regionEnvReport } from "./region-env/report-ipc";
-import { wireFactorySupervisor } from "./term/factory-delivery-composition";
-import { terminalObserverPlane } from "./term/observer";
-import { TERM_PLANE_IN_THIS_PROCESS, termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import {
@@ -164,7 +128,7 @@ let seatCacheDuePush: Promise<void> = Promise.resolve();
 /** The whole list of seats due the cache question, in order: a later push never lands before an earlier one. */
 const pushSeatCacheDue = (): void => {
   seatCacheDuePush = seatCacheDuePush
-    .then(async () => broadcast(IPC_CHANNELS.seatCacheDue, await seatCacheDueForWindow()))
+    .then(async () => broadcast(IPC_CHANNELS.seatCacheDue, await core.call("seatCacheDue.list", {})))
     .catch((error: unknown) => console.error("[offboard] the seats due a choice could not be told:", error));
 };
 
@@ -250,7 +214,9 @@ export const registerJuntoIpc = (): void => {
   );
 
   // With the core in its own process the plane is the core's: main binds none.
-  registerTerminalIpc(privilegedIpc, TERM_PLANE_IN_THIS_PROCESS ? termPlane : undefined, {
+  // Main holds no terminal plane: the core runs it, and every call below
+  // reaches it by name (term/ipc.ts).
+  registerTerminalIpc(privilegedIpc, undefined, {
     isTrustedSender: isTrustedMainWebContents,
     broadcast,
   });
@@ -275,6 +241,12 @@ export const registerJuntoIpc = (): void => {
   subscribeCore(RESOURCE_CHANGED, (event) => {
     const notice = event as ResourceChangedPush;
     broadcast(notice.channel, { canvasName: notice.canvasName });
+    // A body link lives or dies with an artifact write, and that write is the
+    // only thing that changes one (work/body-links.ts): the same notice tells
+    // the panes that read links.
+    if (notice.channel === RESOURCE_IPC_CHANNELS.artifact.changed) {
+      broadcast(ARTIFACT_LINKS_IPC_CHANNELS.changed, { canvasName: notice.canvasName });
+    }
   });
   subscribeCore(RESOURCE_THREAD_CHANGED, (event) => {
     const notice = event as ResourceThreadChangedPush;
@@ -282,60 +254,14 @@ export const registerJuntoIpc = (): void => {
   });
   // A message typed into a seat, and a held line said on it, from the core.
   subscribeCore(WIRE_TRAFFIC, (event) => broadcast(IPC_CHANNELS.wireTraffic, event));
-  // Moving artifacts (0.11.1, 10): the overseer and the window run the same
-  // move, each under its caller's authoring label, ruled by the core.
-  installArtifactMove((input, by) => core.call("ipc.resource.move", { input, by }));
-  registerAutomationIpc(privilegedIpc, {
-    list: (canvasName, input) => core.call("ipc.automation.list", { canvasName, input }),
-    firings: (canvasName, input) => core.call("ipc.automation.firings", { canvasName, input }),
-    apply: (canvasName, input) => core.call("ipc.automation.apply", { canvasName, input }),
-    codePut: (canvasName, input) => core.call("ipc.automation.codePut", { canvasName, input }),
-    codeRead: (canvasName, input) => core.call("ipc.automation.codeRead", { canvasName, input }),
-  });
+  registerAutomationIpc(privilegedIpc);
   subscribeCore(IPC_CHANNELS.automationsChanged, (event) => broadcast(IPC_CHANNELS.automationsChanged, event));
   // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
-  registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
-    topology: (canvasName) =>
-      Effect.tryPromise({
-        try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
-        catch: () => ({
-          type: "InternalError" as const,
-          message: `canvas ${canvasName} could not be read`,
-          details: { retryable: true },
-        }),
-      }),
-    read: (canvasName, key, limit, after) =>
-      Effect.tryPromise({
-        try: () => core.call("ipc.work.mentions", {
-          canvasName,
-          key,
-          limit,
-          ...(after === undefined ? {} : { after }),
-        }),
-        catch: () => ({
-          type: "InternalError" as const,
-          message: `the mentions on canvas ${canvasName} could not be read`,
-          details: { retryable: true },
-        }),
-      }),
-  }, broadcast);
-  // The artifacts whose body links one (0.11, 02): read-only, over the same store the CLI reads.
-  registerArtifactLinksIpc(
-    privilegedIpc,
-    (effect) => AppRuntime.runPromise(effect),
-    {
-      topology: (canvasName) =>
-        Effect.tryPromise({
-          try: async () => (await core.call("ipc.work.topology", { canvasName })).canvas,
-          catch: () => ({
-            type: "InternalError" as const,
-            message: `canvas ${canvasName} could not be read`,
-            details: { retryable: true },
-          }),
-        }),
-    },
-    broadcast,
-  );
+  registerMentionIpc(privilegedIpc, broadcast);
+  // The artifacts whose body links one (0.11, 02): read-only, answered by the
+  // core where the store is (`ipc.work.artifactLinks`), and the artifact change
+  // relayed above tells the panes to read again.
+  registerArtifactLinksIpc(privilegedIpc);
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc);
@@ -869,10 +795,12 @@ export const registerJuntoIpc = (): void => {
   onCorePush(IPC_CHANNELS.seatOffboardProgress, (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress));
   privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => core.call("ipc.seats.offboardProgress", {}));
   // The auto cache mode's question: the seats due it, here and on linked machines, and the operator's answer.
-  onSeatViewQuestions(() => pushSeatCacheDue());
+  // Both are the core's, where the seats and their views run.
   onCorePush(SEAT_CACHE_DUE_CHANGED, () => pushSeatCacheDue());
-  privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => seatCacheDueForWindow());
-  privilegedIpc.handle(IPC_CHANNELS.seatCacheDueAnswer, (_event, input: unknown) => handleSeatCacheDueAnswer(input));
+  privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => core.call("seatCacheDue.list", {}));
+  privilegedIpc.handle(IPC_CHANNELS.seatCacheDueAnswer, (_event, input: unknown) =>
+    core.call("seatCacheDue.answer", { input }),
+  );
   // Operator offboard: ask or offboard now, one seat or many, and what the
   // buttons should say first. The same operation the overseer and the
   // automatic rules go through (seat-sessions/operator-offboard.ts).

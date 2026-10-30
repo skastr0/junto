@@ -10,8 +10,8 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { UrgencyLevel } from "@shared/wire/urgency";
 import { NotificationSettings } from "@shared/settings";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
+import { core } from "../../core-process/main-client";
 import { createNotificationPlane, type NotificationPlane } from "./plane";
-import { noteDesktopReport } from "../companion/desktop-report";
 
 const MAX_SUBJECTS = 500;
 /** System Settings, Notifications, with Junto selected. */
@@ -94,11 +94,17 @@ export const registerNotificationIpc = (options: {
   });
 
   const privilegedIpc = trustedRendererIpc(ipcMain);
-  privilegedIpc.handle(IPC_CHANNELS.notificationsReport, (_event, raw: unknown) => {
+  privilegedIpc.handle(IPC_CHANNELS.notificationsReport, async (_event, raw: unknown) => {
     const report = decodeNotifyReport(raw);
     if (report === undefined) return { ok: false as const, message: "notification report is invalid" };
     plane.report(report);
-    noteDesktopReport(report);
+    // The phone companion reads the desktop's open canvas and its rings where
+    // it runs, in the core (`companion/backend.ts`): main says what the
+    // window said. A report the core missed costs the phone a guess, never the
+    // window's notifications, so the answer stands.
+    await core.call("companion.desktopReport", { report }).catch((error: unknown) => {
+      console.error("[companion] the desktop report did not reach the core:", error);
+    });
     return { ok: true as const };
   });
   privilegedIpc.handle(IPC_CHANNELS.notificationsTest, () => plane.test());

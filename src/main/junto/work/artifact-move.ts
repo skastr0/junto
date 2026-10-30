@@ -11,7 +11,6 @@ import {
   ARTIFACT_MOVE_MAX,
   ARTIFACT_MOVE_REFUSAL_REASON,
   summarizeArtifactMoveRun,
-  type ArtifactMoveRun,
   type ArtifactMoveRunAnswer,
   type ArtifactMoveRunInput,
   type ArtifactMoveRunRow,
@@ -102,16 +101,3 @@ const moveOne = (
       ? ({ artifactId, title, ok: true, outcome: "queued", from, to: toNode, opId } as const)
       : ({ artifactId, title, ok: true, outcome: "moved", from, to: toNode } as const);
   });
-
-let installed: ArtifactMoveRun | undefined;
-
-/** Main installs the live run once its stores are up (ipc.ts). */
-export const installArtifactMove = (run: ArtifactMoveRun): void => {
-  installed = run;
-};
-
-/** The one entry point: every surface that moves artifacts calls this. */
-export const runArtifactMove: ArtifactMoveRun = (input, by) =>
-  installed === undefined
-    ? Promise.resolve({ ok: true, ...summarizeArtifactMoveRun(input.artifactIds.map((artifactId) => failed(artifactId))) })
-    : installed(input, by);
