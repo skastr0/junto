@@ -8,6 +8,10 @@ targets = [
   "aarch64-unknown-linux-gnu",
 ]
 
+# RustSec: a yanked crate fails the build, as a known advisory does.
+[advisories]
+yanked = "deny"
+
 [licenses]
 allow = [
   "MIT",

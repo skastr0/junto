@@ -21,12 +21,17 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         first => {
-            let command = first.unwrap_or("");
+            let message = match first {
+                Some(command) => format!(
+                    "this junto build answers only --version; {} is not here yet",
+                    json_escape(command)
+                ),
+                None => "this junto build answers only --version".to_string(),
+            };
             let mut stderr = std::io::stderr().lock();
             let _ = writeln!(
                 stderr,
-                "{{\"ok\":false,\"error\":{{\"type\":\"InputError\",\"message\":\"this junto build answers only --version; {} is not here yet\"}}}}",
-                json_escape(command),
+                "{{\"ok\":false,\"error\":{{\"type\":\"InputError\",\"message\":\"{message}\"}}}}"
             );
             ExitCode::FAILURE
         }
